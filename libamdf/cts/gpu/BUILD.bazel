@@ -64,6 +64,7 @@ amdf_cc_library(
         "//third_party:google_test",
     ],
 ) for name in [
+    "aql_queue",
     "gpu_extension",
     "kernel_queue",
     "memory_group",
@@ -91,6 +92,7 @@ amdf_cc_library(
 test_suite(
     name = "gpu",
     tests = [
+        ":aql_queue",
         ":gpu_extension",
         ":kernel_queue",
         ":memory_group",
