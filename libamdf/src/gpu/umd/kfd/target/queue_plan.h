@@ -59,11 +59,27 @@ typedef struct amdf_gpu_kfd_user_queue_plan_t {
     uint32_t context_save_restore_byte_length;
     // Control-stack bytes reported to KFD.
     uint32_t control_stack_byte_length;
+    // Number of independently addressed context-save headers, or zero.
+    uint32_t context_count;
     // Debug-state byte offset within `context_storage`.
     uint32_t debug_byte_offset;
     // Debug-state byte length required by the active compute units.
     uint32_t debug_byte_length;
   } compute;
+  // AMD AQL descriptor and fixed-scratch encoding, absent when xcc_count is
+  // zero.
+  struct {
+    // Number of equal scratch partitions addressed by the command processors.
+    uint32_t xcc_count;
+    // Highest physical CU identifier accepted by the firmware descriptor.
+    uint32_t maximum_compute_unit_id;
+    // Highest resident wave identifier within one CU.
+    uint32_t maximum_wave_id;
+    // Physical scratch slots in each XCC, all backed for retained scratch.
+    uint32_t scratch_wave_count_per_xcc;
+    // Native firmware signal block byte offset in control storage.
+    size_t inactive_signal_byte_offset;
+  } aql;
   // Storage used to establish safe native queue retirement.
   struct {
     // Mapped allocation that is never reachable by the queue. Invalidating

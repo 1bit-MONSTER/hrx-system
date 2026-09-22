@@ -141,6 +141,7 @@ bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .context_save_restore_byte_length =
                   topology->context_save_restore_byte_length,
               .control_stack_byte_length = topology->control_stack_byte_length,
+              .context_count = 1,
               .debug_byte_offset = topology->context_save_restore_byte_length,
               .debug_byte_length = debug_byte_length,
           },

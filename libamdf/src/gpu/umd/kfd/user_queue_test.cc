@@ -17,6 +17,7 @@
 #include "gtest/gtest.h"
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/atomics.h"
+#include "libamdf/src/gpu/umd/kfd/aql.h"
 #include "libamdf/src/gpu/umd/kfd/device.h"
 #include "libamdf/src/gpu/umd/kfd/target/user_queue.h"
 #include "libamdf/src/gpu/umd/kfd/user_queue_native.h"
@@ -94,11 +95,30 @@ struct FakeNativeState {
   }
 
   static amdf_status_t QueueCreate(
-      void* user_data, amdf_gpu_umd_device_t*,
+      void* user_data, amdf_gpu_umd_device_t* device,
       struct kfd_ioctl_create_queue_args* inout_arguments) {
     auto* self = static_cast<FakeNativeState*>(user_data);
     ++self->queue_create_count;
     self->observed_create = *inout_arguments;
+    if (inout_arguments->queue_type == KFD_IOC_QUEUE_TYPE_COMPUTE_AQL) {
+      std::memcpy(&self->observed_aql_descriptor,
+                  self->buffers[1].storage.data(),
+                  sizeof(self->observed_aql_descriptor));
+      const auto* words =
+          reinterpret_cast<const uint32_t*>(self->buffers[0].storage.data());
+      for (size_t i = 0; i < inout_arguments->ring_size / sizeof(uint32_t);
+           i += 16) {
+        EXPECT_EQ(words[i], 1u) << "native create requires invalid AQL slots";
+      }
+      const auto* context =
+          reinterpret_cast<const uint8_t*>(self->buffers[2].storage.data());
+      for (uint32_t i = 0; i < device->topology.properties.topology.xcc_count;
+           ++i) {
+        self->observed_context_headers.push_back(
+            *reinterpret_cast<const kfd_context_save_area_header*>(
+                context + i * inout_arguments->ctx_save_restore_size));
+      }
+    }
     if (self->FailCreationOperation()) {
       return self->creation_failure;
     }
@@ -173,6 +193,8 @@ struct FakeNativeState {
     doorbell_unmap_status = AMDF_STATUS_OK;
     vm_fault = {};
     observed_create = {};
+    observed_aql_descriptor = {};
+    observed_context_headers.clear();
     observed_doorbell_mapping_offset = 0;
     observed_doorbell_mapping_length = 0;
     observed_doorbell_unmapping = nullptr;
@@ -218,6 +240,10 @@ struct FakeNativeState {
   uint32_t created_queue_identifier = 47;
   uint64_t doorbell_offset = UINT64_C(0x20000080);
   struct kfd_ioctl_create_queue_args observed_create = {};
+  // Firmware-visible AQL descriptor captured at the activation boundary.
+  amdf_gpu_kfd_aql_descriptor_t observed_aql_descriptor = {};
+  // Per-XCC save headers captured before native creation can consume them.
+  std::vector<kfd_context_save_area_header> observed_context_headers;
   uint64_t observed_doorbell_mapping_offset = 0;
   size_t observed_doorbell_mapping_length = 0;
   void* observed_doorbell_unmapping = nullptr;
@@ -256,12 +282,15 @@ class KfdUserQueueTest : public ::testing::Test {
     }
     if (queue_ != nullptr) {
       if (native_state_.buffers[1].live) {
+        const auto& control = native_state_.buffers[1];
+        auto* base =
+            reinterpret_cast<uint8_t*>(native_state_.buffers[1].storage.data());
         auto* read_index = reinterpret_cast<amdf_atomic_uint64_t*>(
-            native_state_.buffers[1].storage.data());
+            base + (native_state_.observed_create.read_pointer_address -
+                    control.device_address));
         auto* write_index = reinterpret_cast<amdf_atomic_uint64_t*>(
-            reinterpret_cast<uint8_t*>(
-                native_state_.buffers[1].storage.data()) +
-            64);
+            base + (native_state_.observed_create.write_pointer_address -
+                    control.device_address));
         const uint64_t published_index =
             amdf_atomic_uint64_load_acquire(write_index);
         const uint64_t read_index_mask =
@@ -319,6 +348,19 @@ class KfdUserQueueTest : public ::testing::Test {
                                           &mapping_result_),
               AMDF_STATUS_OK);
     ASSERT_NE(mapping_, nullptr);
+  }
+
+  void SelectAqlTopology() {
+    device_.topology.properties.gfx_ip = {9, 4, 2};
+    device_.topology.properties.compute.wavefront_size = 64;
+    device_.topology.properties.compute.compute_unit_count = 16;
+    device_.topology.properties.compute.maximum_wave_count_per_compute_unit =
+        32;
+    device_.topology.properties.compute
+        .maximum_scratch_wave_count_per_compute_unit = 32;
+    device_.topology.properties.compute.local_data_share_byte_length = 65536;
+    device_.topology.properties.topology.xcc_count = 8;
+    device_.topology.properties.topology.shader_engine_count_per_xcc = 2;
   }
 
   amdf_atomic_uint64_t* ReadIndex() {
@@ -972,6 +1014,198 @@ TEST_F(KfdUserQueueTest,
     EXPECT_EQ(native_state_.destroyed_buffer_indices, scenario.released);
     EXPECT_EQ(native_state_.abandoned_buffer_indices, scenario.abandoned);
   }
+}
+
+TEST_F(KfdUserQueueTest,
+       AqlInitializesAllNativeReachableStorageBeforeActivation) {
+  SelectAqlTopology();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL));
+  const auto& descriptor = native_state_.observed_aql_descriptor;
+  EXPECT_EQ(descriptor.queue_type, 1u);
+  EXPECT_EQ(descriptor.packet_count, 64u);
+  EXPECT_EQ(descriptor.ring_address, native_state_.buffers[0].device_address);
+  EXPECT_EQ(descriptor.read_dispatch_id_byte_offset, 128u);
+  EXPECT_EQ(descriptor.maximum_compute_unit_id, 15u);
+  EXPECT_EQ(descriptor.maximum_wave_id, 31u);
+  EXPECT_EQ(descriptor.group_segment_aperture_base_hi, 0x10000u);
+  EXPECT_EQ(descriptor.private_segment_aperture_base_hi, 0x20000u);
+  EXPECT_EQ(descriptor.compute_temporary_ring_size, 0u);
+  EXPECT_EQ(descriptor.scratch_backing_address, 0u);
+  EXPECT_EQ(descriptor.inactive_signal_address,
+            native_state_.buffers[1].device_address + 256);
+  const auto* signal = reinterpret_cast<const amdf_gpu_kfd_aql_signal_t*>(
+      reinterpret_cast<const uint8_t*>(
+          native_state_.buffers[1].storage.data()) +
+      256);
+  EXPECT_EQ(signal->kind, 1);
+  EXPECT_EQ(signal->value, 0u);
+  EXPECT_EQ(signal->event_mailbox_address, 0u);
+  EXPECT_EQ(native_state_.observed_create.eop_buffer_size, 0u);
+  EXPECT_EQ(native_state_.buffer_create_count, 4);
+  ASSERT_EQ(native_state_.observed_context_headers.size(), 8u);
+  for (size_t i = 0; i < 8; ++i) {
+    const auto& header = native_state_.observed_context_headers[i];
+    EXPECT_EQ(header.debug_offset, (8 - i) * 4096);
+    EXPECT_EQ(header.debug_size, 20480u);
+    EXPECT_EQ(header.err_payload_addr,
+              native_state_.buffers[1].device_address + 320);
+  }
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
+  EXPECT_EQ(
+      mapping_result_.read_index_address,
+      reinterpret_cast<uintptr_t>(native_state_.buffers[1].storage.data()) +
+          128);
+  EXPECT_EQ(
+      mapping_result_.write_index_address,
+      reinterpret_cast<uintptr_t>(native_state_.buffers[1].storage.data()) +
+          56);
+}
+
+TEST_F(KfdUserQueueTest, AqlEncodesCallerOwnedRetainedScratchPerXcc) {
+  SelectAqlTopology();
+  auto create_info = MakeCreateInfo(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+  create_info.scratch = {
+      .device_address = UINT64_C(0x123456780000),
+      .byte_length = 512 * 3072,
+      .maximum_private_segment_byte_length = 33,
+      .maximum_wave_count = 512,
+  };
+  ASSERT_EQ(amdf_gpu_umd_user_queue_create(&device_, &create_info, &queue_,
+                                           &queue_result_),
+            AMDF_STATUS_OK);
+  const auto& descriptor = native_state_.observed_aql_descriptor;
+  EXPECT_EQ(descriptor.compute_temporary_ring_size, (3u << 12) | 64u);
+  EXPECT_EQ(descriptor.scratch_resource_descriptor[0], 0x56780000u);
+  EXPECT_EQ(descriptor.scratch_resource_descriptor[1], 0x80001234u);
+  EXPECT_EQ(descriptor.scratch_resource_descriptor[2], 64u * 3072);
+  EXPECT_EQ(descriptor.scratch_resource_descriptor[3], 0x00ea4facu);
+  EXPECT_EQ(descriptor.scratch_backing_address,
+            create_info.scratch.device_address);
+  EXPECT_EQ(descriptor.scratch_wave64_lane_byte_length, 48u);
+  EXPECT_EQ(descriptor.queue_properties, 2u);
+  EXPECT_EQ(native_state_.buffer_create_count, 4);
+}
+
+TEST_F(KfdUserQueueTest, AqlReservationsMayLeadPublicationAndWrapTheRing) {
+  SelectAqlTopology();
+  auto create_info = MakeCreateInfo(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+  create_info.producer_mode = AMDF_QUEUE_PRODUCER_MODE_MULTI;
+  create_info.ring_byte_length = 16384;
+  ASSERT_EQ(amdf_gpu_umd_user_queue_create(&device_, &create_info, &queue_,
+                                           &queue_result_),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(queue_result_.ring_byte_length, 16384u);
+  EXPECT_EQ(native_state_.observed_aql_descriptor.queue_type, 0u);
+  EXPECT_EQ(native_state_.observed_aql_descriptor.packet_count, 256u);
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
+  amdf_atomic_uint64_store_release(WriteIndex(), 1025);
+  amdf_atomic_uint64_store_release(ReadIndex(), 257);
+  amdf_user_queue_status_t status = {};
+  ASSERT_EQ(amdf_gpu_umd_user_queue_query_status(queue_, &status),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(status.producer_index, 1025u);
+  EXPECT_EQ(status.consumed_index, 257u);
+  EXPECT_EQ(status.state, AMDF_QUEUE_STATE_ACTIVE);
+  EXPECT_EQ(amdf_gpu_umd_user_queue_destroy(queue_),
+            amdf_make_api_status(AMDF_STATUS_CODE_BUSY));
+}
+
+TEST_F(KfdUserQueueTest,
+       AqlScratchRejectsUnrepresentableRequestsBeforeAllocation) {
+  SelectAqlTopology();
+  auto create_info = MakeCreateInfo(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+  const amdf_gpu_umd_queue_scratch_t valid = {
+      .device_address = UINT64_C(0x123456780000),
+      .byte_length = 512 * 3072,
+      .maximum_private_segment_byte_length = 33,
+      .maximum_wave_count = 512,
+  };
+  for (uint32_t scenario = 0; scenario < 5; ++scenario) {
+    SCOPED_TRACE(scenario);
+    create_info.scratch = valid;
+    switch (scenario) {
+      case 0:
+        --create_info.scratch.maximum_wave_count;
+        break;
+      case 1:
+        --create_info.scratch.byte_length;
+        break;
+      case 2:
+        ++create_info.scratch.device_address;
+        break;
+      case 3:
+        create_info.scratch.device_address = UINT64_C(1) << 48;
+        break;
+      case 4:
+        create_info.scratch.maximum_private_segment_byte_length = UINT32_MAX;
+    }
+    auto* sentinel = reinterpret_cast<amdf_gpu_umd_user_queue_t*>(uintptr_t{1});
+    auto* queue = sentinel;
+    amdf_gpu_umd_user_queue_result_t result;
+    std::memset(&result, 0xA5, sizeof(result));
+    const auto original_result = result;
+    const amdf_status_t status =
+        amdf_gpu_umd_user_queue_create(&device_, &create_info, &queue, &result);
+    EXPECT_EQ(amdf_status_code(status), scenario == 0
+                                            ? AMDF_STATUS_CODE_UNSUPPORTED
+                                            : AMDF_STATUS_CODE_OUT_OF_RANGE);
+    EXPECT_EQ(queue, sentinel);
+    EXPECT_EQ(std::memcmp(&result, &original_result, sizeof(result)), 0);
+    EXPECT_EQ(native_state_.buffer_create_count, 0);
+  }
+}
+
+TEST_F(KfdUserQueueTest, AqlConstructionRollbackPreservesCallerOwnership) {
+  SelectAqlTopology();
+  const auto create_info = MakeCreateInfo(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+  for (int operation = 1; operation <= 6; ++operation) {
+    SCOPED_TRACE(operation);
+    native_state_.Reset();
+    native_state_.failed_creation_operation = operation;
+    amdf_gpu_umd_user_queue_t* queue = nullptr;
+    amdf_gpu_umd_user_queue_result_t result;
+    std::memset(&result, 0xA5, sizeof(result));
+    const auto original_result = result;
+    EXPECT_EQ(
+        amdf_gpu_umd_user_queue_create(&device_, &create_info, &queue, &result),
+        native_state_.creation_failure);
+    EXPECT_EQ(queue, nullptr);
+    EXPECT_EQ(std::memcmp(&result, &original_result, sizeof(result)), 0);
+    EXPECT_EQ(native_state_.LiveBufferCount(), 0u);
+    EXPECT_EQ(native_state_.queue_destroy_count, operation == 6 ? 1 : 0);
+  }
+}
+
+TEST_F(KfdUserQueueTest, AqlStatusObservesItsNativeInactiveSignal) {
+  SelectAqlTopology();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL));
+  auto* value = reinterpret_cast<amdf_atomic_uint64_t*>(
+      reinterpret_cast<uint8_t*>(native_state_.buffers[1].storage.data()) +
+      264);
+  amdf_atomic_uint64_store_release(value, 1);
+  amdf_user_queue_status_t status = {};
+  ASSERT_EQ(amdf_gpu_umd_user_queue_query_status(queue_, &status),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(status.state, AMDF_QUEUE_STATE_FAILED);
+  EXPECT_EQ(status.terminal_status,
+            amdf_make_status(AMDF_STATUS_DOMAIN_FIRMWARE, 1));
+  amdf_atomic_uint64_store_release(value, 0);
+  ASSERT_EQ(amdf_gpu_umd_user_queue_query_status(queue_, &status),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(status.state, AMDF_QUEUE_STATE_FAILED);
+}
+
+TEST_F(KfdUserQueueTest, ComputeFamilyCannotSilentlyIgnoreRequestedScratch) {
+  auto create_info = MakeCreateInfo();
+  create_info.scratch = {.device_address = 0x10000000,
+                         .byte_length = 4096,
+                         .maximum_private_segment_byte_length = 16,
+                         .maximum_wave_count = 4};
+  EXPECT_EQ(amdf_gpu_umd_user_queue_create(&device_, &create_info, &queue_,
+                                           &queue_result_),
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(queue_, nullptr);
+  EXPECT_EQ(native_state_.buffer_create_count, 0);
 }
 
 }  // namespace

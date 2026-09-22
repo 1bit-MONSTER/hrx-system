@@ -26,6 +26,24 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    aql_queue
+  HDRS
+    "aql_queue.h"
+  SRCS
+    "aql_queue.c"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::queue_plan
+    amdf::headers
+    libamdf::src::gpu::umd::kfd::aql
+    libamdf::src::gpu::umd::kfd::topology
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     pm4_queue
   HDRS
     "pm4_queue.h"
@@ -66,6 +84,7 @@ iree_cc_library(
   SRCS
     "user_queue.c"
   DEPS
+    ::aql_queue
     ::pm4_queue
     ::queue_plan
     ::sdma_queue

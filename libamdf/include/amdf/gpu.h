@@ -205,6 +205,30 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE = UINT64_C(1) << 2,
 };
 
+/// First directly published AQL queue format.
+///
+/// The ring contains native 64-byte AMD HSA packets, initially INVALID (type
+/// 1). Both 64-bit indices count packets monotonically. Producers reserve
+/// through the write index (atomic fetch-add for MULTI), wait until the
+/// reserved slot is below acquired read_index + ring_byte_length / 64, and
+/// write the packet body before release-storing its header/setup dword. A
+/// release store of the packet's reservation index to the 64-bit doorbell
+/// notifies firmware. MULTI producers may notify out of order; an unpublished
+/// earlier slot blocks later consumption. SINGLE producers notify
+/// monotonically. Firmware invalidates retired packet slots. Consumption
+/// releases ring storage, not code, kernargs, scratch, or kernel data: those
+/// require native execution completion.
+///
+/// Dispatches use AMD kernel descriptors and caller-owned kernargs. Completion
+/// and barrier dependencies use native 64-byte AMD signal blocks, not bare
+/// counters or handles created by libamdf. Callers initialize USER kind (1), a
+/// signed 64-bit value at byte offset 8, and zero unused fields; the packet
+/// carries the block's GPU address. Firmware decrements dispatch completion
+/// once after all workgroups complete. System acquire/release fence scopes
+/// provide the advertised global cache transitions. This contract does not
+/// enable HSA runtime services, dynamic scratch growth, or device enqueue.
+#define AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 1u
+
 /// Scratch backing borrowed by one directly published compute queue.
 ///
 /// An all-zero value disables scratch and accepts only commands whose private
@@ -212,6 +236,15 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// device and provide read/write permission and a stable GPU address. The queue
 /// borrows the memory without lifetime tracking. The caller keeps the scratch
 /// backing live until queue destruction succeeds.
+///
+/// AQL format 1 retains fixed scratch across dispatches. Its wave count equals
+/// compute_unit_count * maximum_scratch_wave_count_per_compute_unit; smaller
+/// pools requiring firmware scratch reclamation are unsupported. The GPU base
+/// is 4096-byte aligned. Each wave receives the requested private byte length
+/// times 64, rounded up to 1024 bytes. Backing must cover every wave; excess
+/// backing does not change the configured capacity. Every submitted dispatch
+/// fits the configured per-workitem private limit. Scratch is exclusive to the
+/// queue until its final execution completion and successful destruction.
 typedef struct amdf_gpu_queue_scratch_t {
   /// Memory resource borrowed for the queue lifetime, or NULL when disabled.
   amdf_memory_t* memory;

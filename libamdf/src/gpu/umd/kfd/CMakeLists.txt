@@ -361,11 +361,28 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    aql
+  HDRS
+    "aql.h"
+  SRCS
+    "aql.c"
+  DEPS
+    amdf::headers
+    libamdf::src::gpu::umd::kfd::target::queue_plan
+    libamdf::src::gpu::umd::user_queue
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     user_queue
   SRCS
     "user_queue.c"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::aql
     ::buffer
     ::device_state
     ::user_queue_native
@@ -388,6 +405,7 @@ iree_cc_test(
     "user_queue_test.cc"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::aql
     ::device_state
     ::user_queue
     ::user_queue_native
