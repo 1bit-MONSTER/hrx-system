@@ -33,10 +33,10 @@ iree_cc_library(
     "dispatch_test.cc"
     "publication_test.cc"
   DEPS
+    ::dispatch_fixture
     ::queue_fixture
     amdf::headers
     iree::third_party::google_test
-    libamdf::cts::gpu::kernels::transform_gfx942
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -97,6 +97,23 @@ iree_native_test(
     "runtime-resource=amd-gpu"
   RESOURCE_GROUP
     gpu-device
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    dispatch_fixture
+  HDRS
+    "dispatch_fixture.h"
+  SRCS
+    "dispatch_fixture.cc"
+  DEPS
+    ::queue_fixture
+    amdf::headers
+    libamdf::cts::gpu::kernels::transform_gfx942
+  TESTONLY
+  PUBLIC
 )
 endif()
 

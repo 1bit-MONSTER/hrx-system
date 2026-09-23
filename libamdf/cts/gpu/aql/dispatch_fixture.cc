@@ -1,0 +1,74 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#include "libamdf/cts/gpu/aql/dispatch_fixture.h"
+
+#include <cstring>
+
+namespace kernel = kernels::gfx942_transform;
+
+amdf_status_t AqlDispatchTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
+                                                bool* out_matches) {
+  amdf_gpu_endpoint_info_t info = {};
+  info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+  info.structure_size = sizeof(info);
+  const amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  if (info.gfx_ip.major != 9 || info.gfx_ip.minor != 4 ||
+      info.gfx_ip.stepping != 2) {
+    *out_matches = false;
+    return AMDF_STATUS_OK;
+  }
+  return AqlQueueTest::MatchGpuEndpoint(endpoint, out_matches);
+}
+
+void AqlDispatchTest::PublishKernel(GpuUserQueue& queue,
+                                    uint64_t* next_packet_index,
+                                    uint64_t* out_descriptor_address) {
+  constexpr uint32_t kImageByteLength =
+      kernel::kImage.size() * sizeof(uint32_t);
+  GpuMemory* code = nullptr;
+  GpuMemory* commands = nullptr;
+  GpuMemory* completion = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE, 4096, &code));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE, 4096, &commands));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
+  ASSERT_EQ(code->device_address % 256, 0u);
+  ASSERT_EQ(commands->device_address % 4, 0u);
+  ASSERT_LT(commands->device_address, UINT64_C(1) << 48);
+  ASSERT_LE((kImageByteLength + 255u) & ~255u, code->info.byte_length);
+  std::memset(code->host.pointer, 0, code->info.byte_length);
+  std::memcpy(code->host.pointer, kernel::kImage.data(), kImageByteLength);
+  const auto code_publication =
+      aql::Gfx9CodeCacheInvalidate(code->device_address, kImageByteLength);
+  std::memset(commands->host.pointer, 0, commands->info.byte_length);
+  std::memcpy(commands->host.pointer, code_publication.data(),
+              sizeof(code_publication));
+  std::memset(completion->host.pointer, 0, completion->info.byte_length);
+  auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
+  signal.kind = 1;
+  signal.value = 1;
+  RecordProperty("aql_kernel_image_sha256", kernel::kImageSha256);
+  RecordProperty("aql_kernel_image_byte_length", kImageByteLength);
+  RecordProperty("aql_kernel_private_segment_byte_length",
+                 kernel::kPrivateSegmentByteLength);
+
+  const uint64_t index = (*next_packet_index)++;
+  GpuStoreRelease(queue.host.write_index_address, *next_packet_index);
+  Publish(queue, index,
+          aql::Gfx9CodeCachePublication(commands->device_address,
+                                        completion->device_address));
+  // Explicit instruction-cache publication has its own execution completion.
+  // The next dispatch never relies on ring consumption or FIFO completion.
+  ASSERT_NO_FATAL_FAILURE(WaitCompletion(queue, signal, *next_packet_index));
+  *out_descriptor_address =
+      code->device_address + kernel::kDescriptorByteOffset;
+}

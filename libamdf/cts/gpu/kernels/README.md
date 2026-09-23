@@ -3,9 +3,11 @@
 [transform.c](transform.c) computes `output[i] = input[i] * 3 + addend` for
 `i < count`, using unsigned 32-bit arithmetic. The checked-in gfx942 image is
 consumed by
-[`AqlDispatchTest.CoherentSystemPayloadChangesAcrossEpochs`](../aql/dispatch_test.cc).
-It exercises caller-owned executable memory, code publication, kernargs,
-dispatch completion and exact output through the public AQL queue ABI.
+[`AqlDispatchTest.CoherentSystemPayloadChangesAcrossEpochs`](../aql/dispatch_test.cc)
+and the [SDMA/AQL composition](../recipes/copy_dispatch_test.cc). They share
+the cold publication fixture and exercise caller-owned executable memory,
+code publication, kernargs, dispatch completion and exact output through the
+public AQL queue ABI.
 
 The ordinary CTS build includes [transform_gfx942.h](transform_gfx942.h).
 It needs neither an installed GPU compiler nor a runtime ELF loader. The
@@ -47,26 +49,29 @@ relocations before writing the image.
 
 ## Publication and observation
 
-The case copies the image into coherent system memory with GPU READ|EXECUTE
-access. Before dispatch it executes the seven-dword GC9 `ACQUIRE_MEM` code-cache
-publication sequence through an AQL vendor PM4-IB packet and waits for that
-packet's native completion. This follows ROCr's [code freezing][freeze],
-[cache invalidation][invalidate] and [ExecutePM4][execute] paths. Both vendor
-packet fence scopes are NONE, matching the [ExecutePM4 defaults][defaults].
+The shared fixture copies the image into coherent system memory with GPU
+READ|EXECUTE access. Before dispatch it executes the seven-dword GC9
+`ACQUIRE_MEM` code-cache publication sequence through an AQL vendor PM4-IB
+packet and waits for that packet's native completion. This follows ROCr's
+[code freezing][freeze], [cache invalidation][invalidate] and
+[ExecutePM4][execute] paths. Both vendor packet fence scopes are NONE,
+matching the [ExecutePM4 defaults][defaults].
 The explicit cache command owns the instruction publication transition.
 
-Each data dispatch has SYSTEM acquire/release scopes. Two completed epochs
-change the input, addend and count, launch 1024 workitems, and compare every
-output word with an independently computed host result. Prefix and suffix
-guards, inactive tail lanes and unchanged input are checked. Code, IB, kernarg,
-signal and data storage remain alive until queue destruction; completed
+Each data dispatch has SYSTEM acquire/release scopes. The AQL-only case's two
+completed epochs change the input, addend and count, launch 1024 workitems,
+and compare every output word with an independently computed host result.
+Prefix and suffix guards, inactive tail lanes and unchanged input are checked.
+Code, IB, kernarg, signal and data storage remain alive until queue destruction; completed
 kernargs and data are reused only after execution completion and ring
 consumption have both been observed.
 
-This is a coherent-system-memory baseline. It does not exercise SDMA upload or
-download, local-memory placement, private-segment scratch, concurrent dispatch,
-or hot code replacement. Its explicit cold publication sequence does not by
-itself demonstrate stale instruction-cache replacement. The public
+The [composed recipe](../recipes/copy_dispatch_test.cc) adds SDMA upload and
+download, device-side dependencies, and repeated signal and queue-ring reuse.
+Both witnesses use coherent system memory. Local-memory placement,
+private-segment scratch, concurrent dispatch and hot code replacement require
+separate cases. The explicit cold publication sequence does not by itself
+demonstrate stale instruction-cache replacement. The public
 [dispatch contract](../../../../docs/reference/amd/gpu/aql/dispatch.md) distinguishes compiler
 metadata, memory publication and completion ownership.
 

@@ -8,6 +8,12 @@
 
 amdf_status_t GpuCommandTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                                bool* out_matches) {
+  return FindQueueFamily(endpoint, requirements_, &family_, out_matches);
+}
+
+amdf_status_t GpuCommandTest::FindQueueFamily(
+    amdf_endpoint_t* endpoint, const GpuQueueRequirements& requirements,
+    amdf_queue_family_info_t* out_family, bool* out_matches) {
   amdf_endpoint_info_t endpoint_info = {};
   endpoint_info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
   endpoint_info.structure_size = sizeof(endpoint_info);
@@ -25,19 +31,22 @@ amdf_status_t GpuCommandTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    if (family.command_type == command_type_ && family.format_version == 1 &&
-        (family.roles & roles_) == roles_ &&
-        (family.format_features & format_features_) == format_features_ &&
-        (family.cache_operations & cache_operations_) == cache_operations_ &&
-        (family.cache_transition_kinds & cache_transition_kinds_) ==
-            cache_transition_kinds_ &&
+    if (family.command_type == requirements.command_type &&
+        family.format_version == 1 &&
+        (family.roles & requirements.roles) == requirements.roles &&
+        (family.format_features & requirements.format_features) ==
+            requirements.format_features &&
+        (family.cache_operations & requirements.cache_operations) ==
+            requirements.cache_operations &&
+        (family.cache_transition_kinds & requirements.cache_transition_kinds) ==
+            requirements.cache_transition_kinds &&
         (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_USER) != 0 &&
         (family.user_queue_capabilities &
          AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER) != 0 &&
         (family.producer_modes & AMDF_QUEUE_PRODUCER_MODE_BIT_SINGLE) != 0 &&
         (family.priority_capabilities &
          AMDF_QUEUE_PRIORITY_CAPABILITY_NORMAL) != 0) {
-      family_ = family;
+      *out_family = family;
       matches = true;
       break;
     }
@@ -57,9 +66,15 @@ void GpuCommandTest::CreateMemory(amdf_memory_access_t access,
 
 void GpuCommandTest::CreateQueue(GpuUserQueue** out_queue,
                                  amdf_queue_producer_mode_t producer_mode) {
+  CreateQueue(family_, out_queue, producer_mode);
+}
+
+void GpuCommandTest::CreateQueue(const amdf_queue_family_info_t& family,
+                                 GpuUserQueue** out_queue,
+                                 amdf_queue_producer_mode_t producer_mode) {
   auto& queue = queues_.emplace_back();
   ASSERT_NO_FATAL_FAILURE(
-      queue.Initialize(api_, gpu_api_, device_, family_, producer_mode));
+      queue.Initialize(api_, gpu_api_, device_, family, producer_mode));
   *out_queue = &queue;
 }
 

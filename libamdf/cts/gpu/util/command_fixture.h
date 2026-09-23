@@ -13,6 +13,20 @@
 #include "libamdf/cts/gpu/util/memory.h"
 #include "libamdf/cts/gpu/util/user_queue.h"
 
+// Operation and encoding requirements for one case-owned queue family.
+struct GpuQueueRequirements {
+  // Engine packet representation required by the case.
+  amdf_queue_command_type_t command_type;
+  // Family operation roles required by the case.
+  amdf_queue_roles_t roles;
+  // Optional packet fields required by the encoding.
+  amdf_queue_format_features_t format_features = 0;
+  // Semantic cache operations required in addition to packet fields.
+  amdf_cache_operations_t cache_operations = 0;
+  // Range or global domains used by the cache commands.
+  amdf_cache_transition_kinds_t cache_transition_kinds = 0;
+};
+
 // Borrows the corpus's cached device and owns only this case's workload.
 // No helper emits cache commands or conflates ring consumption with execution.
 class GpuCommandTest : public GpuDeviceFixture {
@@ -22,18 +36,25 @@ class GpuCommandTest : public GpuDeviceFixture {
                  amdf_queue_format_features_t format_features = 0,
                  amdf_cache_operations_t cache_operations = 0,
                  amdf_cache_transition_kinds_t cache_transition_kinds = 0)
-      : command_type_(command_type),
-        roles_(roles),
-        format_features_(format_features),
-        cache_operations_(cache_operations),
-        cache_transition_kinds_(cache_transition_kinds) {}
+      : requirements_{command_type, roles, format_features, cache_operations,
+                      cache_transition_kinds} {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
+  // Queries before activation. Success publishes a match result; the family
+  // output changes only when a family satisfies every requirement.
+  amdf_status_t FindQueueFamily(amdf_endpoint_t* endpoint,
+                                const GpuQueueRequirements& requirements,
+                                amdf_queue_family_info_t* out_family,
+                                bool* out_matches);
   void TearDown() override;
   void CreateMemory(amdf_memory_access_t access, uint64_t byte_length,
                     GpuMemory** out_memory);
   void CreateQueue(GpuUserQueue** out_queue,
+                   amdf_queue_producer_mode_t producer_mode =
+                       AMDF_QUEUE_PRODUCER_MODE_SINGLE);
+  void CreateQueue(const amdf_queue_family_info_t& family,
+                   GpuUserQueue** out_queue,
                    amdf_queue_producer_mode_t producer_mode =
                        AMDF_QUEUE_PRODUCER_MODE_SINGLE);
 
@@ -41,16 +62,8 @@ class GpuCommandTest : public GpuDeviceFixture {
   amdf_queue_family_info_t family_ = {};
 
  private:
-  // Engine packet representation needed by this case.
-  amdf_queue_command_type_t command_type_;
-  // Family operation roles needed by this case.
-  amdf_queue_roles_t roles_;
-  // Optional packet fields required by this case's encoding.
-  amdf_queue_format_features_t format_features_;
-  // Semantic cache operations required in addition to packet field support.
-  amdf_cache_operations_t cache_operations_;
-  // Range or global domains used by this case's cache commands.
-  amdf_cache_transition_kinds_t cache_transition_kinds_;
+  // Requirements for the default family, selected before native activation.
+  GpuQueueRequirements requirements_;
   // Stable case-owned allocations, released only after every queue succeeds.
   std::deque<GpuMemory> memories_;
   // Stable case-owned queues, sharing the same cached native device.

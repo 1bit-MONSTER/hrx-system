@@ -68,6 +68,24 @@ TEST(SdmaEncodingTest, FenceFieldsFollowTheAdvertisedEncoding) {
   }
 }
 
+TEST(SdmaEncodingTest, MemoryEqualityPollWaitsWithoutFiniteRetryLimit) {
+  for (uint32_t value : {0u, 0x98765432u}) {
+    SCOPED_TRACE(value);
+    std::array<uint32_t, 7> words = {};
+    words.back() = 0x72349681;
+    SdmaCommandWriter commands(words.data(), 0);
+    commands.WaitMemory32(UINT64_C(0x1234567887654320), value);
+    // ROCr BuildPollCommand and Linux's SDMA4.4.2 packet fields agree:
+    // memory=bit31, equality=3 at bits30:28, full mask, interval4 and the
+    // 12-bit retry-forever value. DW5 upper bits remain zero.
+    const std::array<uint32_t, 7> expected = {
+        0xb0000008, 0x87654320, 0x12345678, value,
+        0xffffffff, 0x0fff0004, 0x72349681};
+    EXPECT_EQ(commands.word_count(), 6u);
+    EXPECT_EQ(words, expected);
+  }
+}
+
 TEST(SdmaEncodingTest, LinearShortTransfersKeepByteCountUnits) {
   for (uint32_t byte_length : {1u, 2u, 3u, 4u, 31u, 4101u}) {
     SCOPED_TRACE(byte_length);

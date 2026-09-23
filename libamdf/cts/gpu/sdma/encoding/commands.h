@@ -23,6 +23,10 @@ class SdmaCommandWriter {
   void CopyLinear(uint64_t source, uint64_t target, uint32_t byte_length);
   // Writes a naturally aligned 32-bit coherent completion word after the copy.
   void Fence32(uint64_t address, uint32_t value);
+  // Waits for an aligned coherent word using full-width equality. This
+  // unscoped POLL_REGMEM requires a family without MEMORY_SCOPE; the native
+  // retry-forever value leaves valid asynchronous work without a deadline.
+  void WaitMemory32(uint64_t address, uint32_t value);
   // Writes the raw 64-bit global timestamp after earlier commands complete.
   // Uses the unscoped packet and a 32-byte-aligned caller-owned destination.
   // Clock conversion and timestamp-write completion are separate contracts.

@@ -42,3 +42,12 @@ void SdmaCommandWriter::WriteGlobalTimestamp(uint64_t address) {
   words_[word_count_++] = static_cast<uint32_t>(address);
   words_[word_count_++] = static_cast<uint32_t>(address >> 32);
 }
+
+void SdmaCommandWriter::WaitMemory32(uint64_t address, uint32_t value) {
+  words_[word_count_++] = 8 | (3u << 28) | (1u << 31);
+  words_[word_count_++] = static_cast<uint32_t>(address);
+  words_[word_count_++] = static_cast<uint32_t>(address >> 32);
+  words_[word_count_++] = value;
+  words_[word_count_++] = UINT32_MAX;
+  words_[word_count_++] = (0xfffu << 16) | 4;
+}

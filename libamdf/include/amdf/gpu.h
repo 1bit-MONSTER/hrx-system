@@ -204,9 +204,10 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   /// COPY_LINEAR's NPD bit at header bit 28 disables prefetch past that copy.
   /// Without this feature these scope and NPD bits remain zero.
   AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE = UINT64_C(1) << 2,
-  /// FENCE uses the classic three-bit memory type at header bits 18:16, with
-  /// no explicit system bit. Memory type 3 denotes uncached access. This
-  /// feature and FENCE_SYSTEM are mutually exclusive.
+  /// FENCE uses the classic three-bit memory type at header bits 18:16.
+  /// Memory type 3 denotes uncached access; callers leave the system bit at
+  /// bit 20 zero in this contract. This feature and FENCE_SYSTEM are mutually
+  /// exclusive.
   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE = UINT64_C(1) << 3,
 };
 

@@ -14,11 +14,14 @@ iree_cc_library(
   NAME
     recipes_cases
   SRCS
+    "copy_dispatch_test.cc"
     "memory_pair_test.cc"
   DEPS
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::aql::dispatch_fixture
     libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
   TESTONLY
   ALWAYSLINK
