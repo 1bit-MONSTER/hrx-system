@@ -30,6 +30,7 @@ iree_cc_library(
     pm4_cases
   SRCS
     "copy_test.cc"
+    "dispatch_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
     "write_test.cc"
@@ -37,6 +38,8 @@ iree_cc_library(
     ::command_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_gfx1151
     libamdf::cts::gpu::pm4::encoding::commands
     libamdf::cts::gpu::util::command_fixture
   TESTONLY

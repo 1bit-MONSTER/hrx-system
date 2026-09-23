@@ -9,6 +9,12 @@ the cold publication fixture and exercise caller-owned executable memory,
 code publication, kernargs, dispatch completion and exact output through the
 public AQL queue ABI.
 
+The independently compiled [gfx1151 transform](transform_gfx1151.json) uses
+the same source and [typed argument layout](transform.h) through ordinary
+PM4 dispatch. Its [case](../pm4/dispatch_test.cc) binds the compiler's resource
+words and actual allocation addresses directly, with no AQL packet or runtime
+ELF loader. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
+
 [private_roundtrip.c](private_roundtrip.c) initializes nine volatile private
 words per workitem, then reads them in a runtime-selected permutation into
 global output. The [fixed-scratch case](../aql/private_test.cc) uses its
@@ -27,6 +33,7 @@ workgroup size at 64. Unequal axes expose swapped coordinate interpretations.
 
 The ordinary CTS build includes the fixed headers
 [transform_gfx942.h](transform_gfx942.h),
+[transform_gfx1151.h](transform_gfx1151.h),
 [private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
 [lds_exchange_gfx942.h](lds_exchange_gfx942.h) and
 [geometry_ids_gfx942.h](geometry_ids_gfx942.h). It needs neither an
@@ -37,8 +44,9 @@ descriptor fields are patched at runtime.
 
 ## Artifact contract
 
-These artifacts target gfx942 with HSA code object V5 and XNACK/SRAMECC feature
-settings of ANY. Other compiler targets require separate artifacts. The flat
+The gfx942 artifacts use HSA code object V5 and XNACK/SRAMECC feature settings
+of ANY. The gfx1151 transform is a separate V5, wave32 image. Other compiler
+targets require separate artifacts. The flat
 image preserves the linked `.rodata` and `.text` addresses relative to its
 descriptor, including all compiler-emitted text padding. A zero prefix retains
 the linked address phase when the descriptor is only 64-byte aligned while the
@@ -86,6 +94,15 @@ address (`u64`, offset 0), workgroup XYZ (`u32`, offsets 8/12/16), grid XY
 These extents are explicit arguments for output addressing, not a hidden
 dispatch-packet pointer.
 
+The [gfx1151 transform record](transform_gfx1151.json) describes an 896-byte
+image with descriptor/entry offsets 0/256, a 136-byte body and 640 bytes of
+complete text. It uses two wave32 waves per 64-workitem group, eight SGPRs,
+four VGPRs, no private/group storage and no spills. RSRC1/2/3 are
+`0xe0af0000` / `0x84` / `0x20`, with kernarg-pointer and wave32 properties
+`0x408`. Its scalar loads cover exactly the 24 semantic argument bytes.
+The unchanged compiler padding and separate instruction-fetch allocation
+bounds are specified in the [PM4 reference](../../../../docs/reference/amd/gpu/pm4/dispatch.md).
+
 Images are little-endian; the consuming corpus builds only for x86-64 hosts.
 The [transform record](transform_gfx942.json) and
 [private record](private_roundtrip_gfx942.json) contain their complete hashes.
@@ -94,7 +111,7 @@ relative entry fields. The generator checks the ELF target, exact exported
 symbols, selected section layout, descriptor, argument metadata and absence of
 relocations before writing the image.
 
-## Publication and observation
+## AQL publication and observation
 
 The shared fixture copies the image into coherent system memory with GPU
 READ|EXECUTE access. Before dispatch it executes the seven-dword GC9
@@ -122,6 +139,17 @@ The explicit cold publication sequence does not by
 itself demonstrate stale instruction-cache replacement. The public
 [dispatch contract](../../../../docs/reference/amd/gpu/aql/dispatch.md) distinguishes compiler
 metadata, memory publication and completion ownership.
+
+## PM4 publication and observation
+
+The gfx1151 case copies the complete image into a 4 KiB coherent SYSTEM
+allocation with READ|EXECUTE access. Explicit CS_PARTIAL_FLUSH and whole-cache
+GCR operations publish code/arguments/data and release completed shader writes.
+A separate confirmed completion marker precedes the independent full-buffer
+oracle; ring consumption is observed afterward, before reusing data or arguments.
+Every queue is destroyed before referenced allocations. Two completed epochs
+exercise changing inputs, count and addend; they do not qualify hot code
+replacement or runtime instrumentation policy.
 
 ## Fixed private storage
 

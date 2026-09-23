@@ -43,6 +43,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::geometry_ids_gfx942
     libamdf::cts::gpu::kernels::lds_exchange_gfx942
     libamdf::cts::gpu::kernels::private_roundtrip_gfx942
+    libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx942
   TESTONLY
   ALWAYSLINK

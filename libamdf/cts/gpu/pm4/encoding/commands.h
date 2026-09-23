@@ -20,6 +20,23 @@ enum class Pm4MemoryComparison : uint32_t {
   kGreaterOrEqual = 5,
 };
 
+// Audited gfx1151 wave32 program with no scratch, LDS or hidden runtime inputs.
+// The caller supplies only a kernarg pointer; hardware supplies group/local
+// IDs.
+struct Pm4ComputeProgram {
+  // GPU entry address, aligned to 256 bytes and below the 48-bit program limit.
+  uint64_t entry_address;
+  // Compiler COMPUTE_PGM_RSRC1, without runtime instrumentation overrides.
+  uint32_t resource1;
+  // Compiler COMPUTE_PGM_RSRC2, enabling two user SGPRs and group X.
+  uint32_t resource2;
+  // Compiler COMPUTE_PGM_RSRC3, including its backed instruction-prefetch
+  // extent.
+  uint32_t resource3;
+  // Complete workgroup dimensions in workitems, matching the compiled program.
+  uint32_t workgroup_size[3];
+};
+
 // Encodes the CTS GFX11.0/GFX11.5 memory recipe using PM4 format version 1.
 // Native callers admit the target and corresponding packet, transfer and
 // cache-control requirements before constructing a stream. Callers supply
@@ -34,6 +51,13 @@ class Pm4CommandWriter {
   explicit Pm4CommandWriter(uint32_t* words) : words_(words) {}
 
   void SystemBarrier();
+  // Binds ordinary shader inputs without touching profiling, dispatch-pointer,
+  // scratch or scheduler context. The caller separately publishes code/data.
+  void BindCompute(const Pm4ComputeProgram& program, uint64_t kernarg_address);
+  // Direct wave32 launch in thread units, starting at zero with complete
+  // groups. Shader completion and memory visibility require a subsequent
+  // barrier.
+  void DispatchWave32(uint32_t x, uint32_t y, uint32_t z);
   // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);
@@ -58,6 +82,9 @@ class Pm4CommandWriter {
   size_t word_count() const { return word_count_; }
 
  private:
+  // Writes a known ordinary compute register interval relative to SH space.
+  void SetComputeRegisters(uint32_t first_register, const uint32_t* values,
+                           size_t value_count);
   // Emits the shared memory-transfer form with count_sel equal to 0 or 1.
   void CopyData(uint64_t source_address, uint64_t target_address,
                 uint32_t count_select);

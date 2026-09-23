@@ -21,6 +21,7 @@ exports_files([
     "private_roundtrip.c",
     "private_roundtrip_gfx942.json",
     "transform.c",
+    "transform_gfx1151.json",
     "transform_gfx942.json",
 ])
 
@@ -31,12 +32,22 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "transform",
+    testonly = True,
+    hdrs = ["transform.h"],
+)
+
+amdf_cc_library(
     name = "transform_gfx942",
     testonly = True,
-    hdrs = [
-        "transform.h",
-        "transform_gfx942.h",
-    ],
+    hdrs = ["transform_gfx942.h"],
+    deps = [":image"],
+)
+
+amdf_cc_library(
+    name = "transform_gfx1151",
+    testonly = True,
+    hdrs = ["transform_gfx1151.h"],
     deps = [":image"],
 )
 

@@ -10,13 +10,11 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
-
-namespace kernels::gfx942_transform {
+namespace kernels::transform {
 
 // Paired with transform.c's compiler metadata. Alignment padding belongs to
 // the allocation; the kernel consumes only the first 24 bytes.
-struct alignas(kKernargAlignment) Arguments {
+struct alignas(16) Arguments {
   // GPU address of the first input word.
   uint64_t input;
   // GPU address of the first output word.
@@ -29,10 +27,9 @@ struct alignas(kKernargAlignment) Arguments {
 static_assert(offsetof(Arguments, input) == 0);
 static_assert(offsetof(Arguments, output) == 8);
 static_assert(offsetof(Arguments, count) == 16);
-static_assert(offsetof(Arguments, addend) + sizeof(uint32_t) ==
-              kKernargByteLength);
-static_assert(alignof(Arguments) == kKernargAlignment);
+static_assert(offsetof(Arguments, addend) + sizeof(uint32_t) == 24);
+static_assert(sizeof(Arguments) == 32);
 
-}  // namespace kernels::gfx942_transform
+}  // namespace kernels::transform
 
 #endif  // AMDF_CTS_GPU_KERNELS_TRANSFORM_H_

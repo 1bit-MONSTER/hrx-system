@@ -25,10 +25,36 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
-    transform_gfx942
+    transform
   HDRS
     "transform.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    transform_gfx942
+  HDRS
     "transform_gfx942.h"
+  DEPS
+    ::image
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    transform_gfx1151
+  HDRS
+    "transform_gfx1151.h"
   DEPS
     ::image
     amdf::headers

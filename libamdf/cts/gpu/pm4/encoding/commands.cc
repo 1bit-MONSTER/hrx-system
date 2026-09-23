@@ -22,6 +22,50 @@ bool Pm4CommandWriter::SupportsTarget(const amdf_gpu_endpoint_info_t& info) {
          (info.gfx_ip.minor == 0 || info.gfx_ip.minor == 5);
 }
 
+void Pm4CommandWriter::SetComputeRegisters(uint32_t first_register,
+                                           const uint32_t* values,
+                                           size_t value_count) {
+  // Ordinary SET_SH_REG with compute shader type, no indexed register mode.
+  words_[word_count_++] = MakeHeader(0x76, value_count + 2) | (1 << 1);
+  words_[word_count_++] = first_register - 0x2c00;
+  std::memcpy(words_ + word_count_, values, value_count * sizeof(*values));
+  word_count_ += value_count;
+}
+
+void Pm4CommandWriter::BindCompute(const Pm4ComputeProgram& program,
+                                   uint64_t kernarg_address) {
+  const uint32_t entry[] = {
+      static_cast<uint32_t>(program.entry_address >> 8),
+      static_cast<uint32_t>(program.entry_address >> 40),
+  };
+  SetComputeRegisters(0x2e0c, entry, 2);
+  const uint32_t resources[] = {program.resource1, program.resource2};
+  SetComputeRegisters(0x2e12, resources, 2);
+  SetComputeRegisters(0x2e28, &program.resource3, 1);
+  const uint32_t resource_limits = 0;
+  SetComputeRegisters(0x2e15, &resource_limits, 1);
+  // The interval ends before native PIPELINESTAT_ENABLE/PERFCOUNT_ENABLE.
+  const uint32_t geometry[] = {0,
+                               0,
+                               0,
+                               program.workgroup_size[0],
+                               program.workgroup_size[1],
+                               program.workgroup_size[2]};
+  SetComputeRegisters(0x2e04, geometry, 6);
+  const uint32_t arguments[] = {static_cast<uint32_t>(kernarg_address),
+                                static_cast<uint32_t>(kernarg_address >> 32)};
+  SetComputeRegisters(0x2e40, arguments, 2);
+}
+
+void Pm4CommandWriter::DispatchWave32(uint32_t x, uint32_t y, uint32_t z) {
+  words_[word_count_++] = MakeHeader(0x15, 5) | (1 << 1);
+  words_[word_count_++] = x;
+  words_[word_count_++] = y;
+  words_[word_count_++] = z;
+  // COMPUTE_SHADER_EN, FORCE_START_AT_000, USE_THREAD_DIMENSIONS, CS_W32_EN.
+  words_[word_count_++] = 0x8025;
+}
+
 void Pm4CommandWriter::SystemBarrier() {
   enum : uint32_t {
     kEventWriteOpcode = 0x46,

@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Regenerates fixed gfx942 CTS images with their pinned offline compiler."""
+"""Regenerates fixed CTS images with their pinned offline compiler."""
 
 import argparse
 import hashlib
@@ -18,9 +18,7 @@ import tempfile
 from pathlib import Path
 
 LLVM_REVISION = "6dfe1677ab8dffbc6ec13d53a1e0215d75147689"
-COMPILE_FLAGS = [
-    "--target=amdgcn-amd-amdhsa",
-    "-mcpu=gfx942",
+COMMON_COMPILE_FLAGS = [
     "-mcode-object-version=5",
     "-mllvm",
     "-amdgpu-kernarg-preload=false",
@@ -31,8 +29,23 @@ COMPILE_FLAGS = [
 ]
 LINK_FLAGS = ["-shared", "--no-undefined", "--build-id=none", "--no-rosegment"]
 EXTRACT_FLAGS = ["--only-section=.rodata", "--only-section=.text", "-O", "binary"]
+TARGETS = {
+    "gfx942": {
+        "compile_flags": [],
+        "elf_flags": 0x54C,
+        "wavefront_size": 64,
+        "kernel_code_properties": 8,
+    },
+    "gfx1151": {
+        "compile_flags": ["-mno-wavefrontsize64"],
+        "elf_flags": 0x4A,
+        "wavefront_size": 32,
+        "kernel_code_properties": 0x408,
+    },
+}
 FIXTURES = {
     "transform": {
+        "targets": ["gfx942", "gfx1151"],
         "symbol": "aql_transform",
         "group_byte_length": 0,
         "private_byte_length": 0,
@@ -46,6 +59,7 @@ FIXTURES = {
         ],
     },
     "private_roundtrip": {
+        "targets": ["gfx942"],
         "symbol": "private_roundtrip",
         "group_byte_length": 0,
         "private_byte_length": 40,
@@ -58,6 +72,7 @@ FIXTURES = {
         ],
     },
     "lds_exchange": {
+        "targets": ["gfx942"],
         "symbol": "lds_exchange",
         "group_byte_length": 512,
         "private_byte_length": 0,
@@ -71,6 +86,7 @@ FIXTURES = {
         ],
     },
     "geometry_ids": {
+        "targets": ["gfx942"],
         "symbol": "geometry_ids",
         "group_byte_length": 0,
         "private_byte_length": 0,
@@ -100,13 +116,14 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def inspect_image(elf, image, notes, fixture):
+def inspect_image(elf, image, notes, fixture, target_name):
     # This parser inspects fixed compiler-produced fixtures during generation.
     # It is not linked into the CTS or a production code-object loader.
     header = struct.unpack_from("<16sHHIQQQIHHHHHH", elf)
     require(header[0][:9] == b"\x7fELF\x02\x01\x01\x40\x03", "expected HSA V5 ELF64")
     require(header[1:4] == (3, 224, 1), "expected AMDGPU shared ELF")
-    require(header[7] == 0x54C, "expected gfx942 with XNACK/SRAMECC ANY")
+    target = TARGETS[target_name]
+    require(header[7] == target["elf_flags"], "unexpected ELF target/features")
     require(header[11] == 64, "unexpected ELF section header size")
     sections = [
         struct.unpack_from("<IIQQQQIIQQ", elf, header[6] + index * 64)
@@ -182,7 +199,17 @@ def inspect_image(elf, image, notes, fixture):
     require(image[12:16] == bytes(4), "descriptor reserved0")
     require(image[24:44] == bytes(20), "descriptor reserved1")
     require(image[60:64] == bytes(4), "descriptor reserved3")
-    require(struct.unpack_from("<HH", image, 56) == (8, 0), "kernarg input/preload")
+    require(
+        struct.unpack_from("<HH", image, 56) == (target["kernel_code_properties"], 0),
+        "kernarg input/wave mode/preload",
+    )
+    if target_name == "gfx1151":
+        # The PM4 caller binds these exact plain compiler words. A changed
+        # runtime input, storage requirement or prefetch contract needs review.
+        require(
+            struct.unpack_from("<III", image, 44) == (0x20, 0xE0AF0000, 0x84),
+            "unexpected gfx1151 program resources",
+        )
 
     arguments = re.findall(
         r"\.offset:\s+(\d+)\s+(?:\.pointee_align:\s+\d+\s+)?"
@@ -205,7 +232,7 @@ def inspect_image(elf, image, notes, fixture):
         "kernarg_segment_size": str(fixture["kernarg_byte_length"]),
         "kernarg_segment_align": "8",
         "max_flat_workgroup_size": str(fixture["workgroup_size"]),
-        "wavefront_size": "64",
+        "wavefront_size": str(target["wavefront_size"]),
         "sgpr_spill_count": "0",
         "vgpr_spill_count": "0",
         "uses_dynamic_stack": "false",
@@ -227,41 +254,50 @@ def inspect_image(elf, image, notes, fixture):
         "kernarg_metadata_alignment": 8,
         "kernarg_allocation_alignment": 16,
         "workgroup_size": fixture["workgroup_size"],
-        "wavefront_size": 64,
+        "wavefront_size": target["wavefront_size"],
         "sgpr_count": int(metadata_value("sgpr_count")),
         "vgpr_count": int(metadata_value("vgpr_count")),
-        "agpr_count": int(metadata_value("agpr_count")),
+        "agpr_count": int(metadata_value("agpr_count"))
+        if target_name == "gfx942"
+        else 0,
         "compute_pgm_rsrc3": struct.unpack_from("<I", image, 44)[0],
         "compute_pgm_rsrc1": struct.unpack_from("<I", image, 48)[0],
         "compute_pgm_rsrc2": struct.unpack_from("<I", image, 52)[0],
-        "kernel_code_properties": 8,
+        "kernel_code_properties": target["kernel_code_properties"],
         "kernarg_preload": 0,
         "relocations": [],
     }
     return bytes(descriptor_offset) + image, metadata, entry_symbol[4]
 
 
-def render_header(name, image, metadata):
+def render_header(name, target_name, image, metadata):
     words = struct.unpack(f"<{len(image) // 4}I", image)
     rows = [
         "    " + ", ".join(f"0x{word:08x}u" for word in words[index : index + 5]) + ","
         for index in range(0, len(words), 5)
     ]
+    resource_constants = ""
+    if target_name == "gfx1151":
+        resource_constants = "".join(
+            f"inline constexpr uint32_t kComputePgmRsrc{index} = "
+            f"0x{metadata[f'compute_pgm_rsrc{index}']:08x}u;\n"
+            for index in (1, 2, 3)
+        )
     return (
         COPYRIGHT
         + f"""
-// Generated by generate.py; see {name}_gfx942.json.
+// Generated by generate.py; see {name}_{target_name}.json.
 // Compiler descriptor and code remain paired in this little-endian image.
 
-#ifndef AMDF_CTS_GPU_KERNELS_{name.upper()}_GFX942_H_
-#define AMDF_CTS_GPU_KERNELS_{name.upper()}_GFX942_H_
+#ifndef AMDF_CTS_GPU_KERNELS_{name.upper()}_{target_name.upper()}_H_
+#define AMDF_CTS_GPU_KERNELS_{name.upper()}_{target_name.upper()}_H_
 
 #include <array>
 #include <cstdint>
 
 #include "libamdf/cts/gpu/kernels/image.h"
 
-namespace kernels::gfx942_{name} {{
+namespace kernels::{target_name}_{name} {{
 
 inline constexpr char kImageSha256[] =
     "{hashlib.sha256(image).hexdigest()}";
@@ -272,7 +308,7 @@ inline constexpr uint32_t kKernargAlignment = 16;
 inline constexpr uint32_t kGroupSegmentByteLength = {metadata["group_segment_byte_length"]};
 inline constexpr uint32_t kPrivateSegmentByteLength = {metadata["private_segment_byte_length"]};
 inline constexpr uint16_t kWorkgroupSize = {metadata["workgroup_size"]};
-
+{resource_constants}
 alignas(256) inline constexpr std::array<uint32_t, {len(words)}> kImage = {{
 {chr(10).join(rows)}
 }};
@@ -284,20 +320,30 @@ inline constexpr Image kExecutable = {{
     kImageSha256,
 }};
 
-}}  // namespace kernels::gfx942_{name}
+}}  // namespace kernels::{target_name}_{name}
 
-#endif  // AMDF_CTS_GPU_KERNELS_{name.upper()}_GFX942_H_
+#endif  // AMDF_CTS_GPU_KERNELS_{name.upper()}_{target_name.upper()}_H_
 """
     )
 
 
-def generate_fixture(name, fixture, source_dir, compiler, linker, run, check):
-    with tempfile.TemporaryDirectory(prefix="amdf-gfx942-fixture-") as temporary:
+def generate_fixture(
+    name, fixture, target_name, source_dir, compiler, linker, run, check
+):
+    compile_flags = [
+        "--target=amdgcn-amd-amdhsa",
+        f"-mcpu={target_name}",
+        *TARGETS[target_name]["compile_flags"],
+        *COMMON_COMPILE_FLAGS,
+    ]
+    with tempfile.TemporaryDirectory(
+        prefix=f"amdf-{target_name}-fixture-"
+    ) as temporary:
         work = Path(temporary)
         run(
             "clang",
             [
-                *COMPILE_FLAGS,
+                *compile_flags,
                 "-c",
                 str(source_dir / f"{name}.c"),
                 "-o",
@@ -310,12 +356,14 @@ def generate_fixture(name, fixture, source_dir, compiler, linker, run, check):
         elf = (work / f"{name}.hsaco").read_bytes()
         image = (work / f"{name}.bin").read_bytes()
         notes = run("llvm-readelf", ["--notes", f"{name}.hsaco"], work)
-        image, metadata, entry_address = inspect_image(elf, image, notes, fixture)
+        image, metadata, entry_address = inspect_image(
+            elf, image, notes, fixture, target_name
+        )
         disassembly = run(
             "llvm-objdump",
             [
                 "--disassemble",
-                "--mcpu=gfx942",
+                f"--mcpu={target_name}",
                 f"--start-address={entry_address}",
                 f"--stop-address={entry_address + metadata['entry_byte_length']}",
                 f"{name}.hsaco",
@@ -330,12 +378,11 @@ def generate_fixture(name, fixture, source_dir, compiler, linker, run, check):
         "llvm_revision": LLVM_REVISION,
         "compiler": compiler,
         "linker": linker,
-        "compile_flags": COMPILE_FLAGS,
+        "compile_flags": compile_flags,
         "link_flags": LINK_FLAGS,
         "extract_flags": EXTRACT_FLAGS,
-        "target": "gfx942",
-        "xnack": "any",
-        "sramecc": "any",
+        "target": target_name,
+        **({"xnack": "any", "sramecc": "any"} if target_name == "gfx942" else {}),
         "code_object_version": 5,
         "elf_sha256": hashlib.sha256(elf).hexdigest(),
         "image_sha256": hashlib.sha256(image).hexdigest(),
@@ -345,8 +392,8 @@ def generate_fixture(name, fixture, source_dir, compiler, linker, run, check):
         "disassembly": disassembly.strip(),
     }
     outputs = {
-        f"{name}_gfx942.h": render_header(name, image, metadata),
-        f"{name}_gfx942.json": json.dumps(record, indent=2) + "\n",
+        f"{name}_{target_name}.h": render_header(name, target_name, image, metadata),
+        f"{name}_{target_name}.json": json.dumps(record, indent=2) + "\n",
     }
     for output_name, text in outputs.items():
         path = source_dir / output_name
@@ -358,7 +405,7 @@ def generate_fixture(name, fixture, source_dir, compiler, linker, run, check):
         else:
             path.write_text(text)
     print(
-        f"{'Verified' if check else 'Generated'} {name} gfx942 image: "
+        f"{'Verified' if check else 'Generated'} {name} {target_name} image: "
         f"{len(image)} bytes, {record['image_sha256']}"
     )
 
@@ -388,7 +435,17 @@ def main():
         LLVM_REVISION in compiler and LLVM_REVISION in linker, "LLVM revision mismatch"
     )
     for name, fixture in FIXTURES.items():
-        generate_fixture(name, fixture, source_dir, compiler, linker, run, args.check)
+        for target_name in fixture["targets"]:
+            generate_fixture(
+                name,
+                fixture,
+                target_name,
+                source_dir,
+                compiler,
+                linker,
+                run,
+                args.check,
+            )
 
 
 if __name__ == "__main__":

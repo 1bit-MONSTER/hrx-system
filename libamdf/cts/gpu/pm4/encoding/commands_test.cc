@@ -47,6 +47,42 @@ TEST(Pm4EncodingTest, FixedMemoryRecipeAdmitsOnlySourceCoveredTargetFamilies) {
   }
 }
 
+TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {
+  std::array<uint32_t, 27> words = {};
+  words.back() = 0x24681357;
+  const Pm4ComputeProgram program = {
+      UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x20, {64, 1, 1},
+  };
+  Pm4CommandWriter commands(words.data());
+  commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+  // PAL's ordinary compute SET_SH_REG intervals contain only PGM_LO/HI,
+  // RSRC1/2/3, RESOURCE_LIMITS, START/NUM_THREAD and two user-data words.
+  // In particular, geometry ends at 0x2e09 before the profiling enables.
+  const std::array<uint32_t, 26> expected = {
+      0xc0027602, 0x20c,  0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x84,   0xc0017602, 0x228, 0x20,       0xc0017602,
+      0x215,      0,      0xc0067602, 0x204, 0,          0,
+      0,          64,     1,          1,     0xc0027602, 0x240,
+      0x789abc00, 0x3456,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data(), expected);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
+  std::array<uint32_t, 6> words = {};
+  words.back() = 0x24681357;
+  Pm4CommandWriter commands(words.data());
+  commands.DispatchWave32(1024, 1, 1);
+  const std::array<uint32_t, 5> expected = {
+      0xc0031502, 1024, 1, 1, 0x8025,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data(), expected);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
   std::array<uint32_t, 13> words = {};
   words.back() = 0x24681357;

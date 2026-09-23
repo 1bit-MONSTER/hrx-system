@@ -9,6 +9,7 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
+#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
 
 namespace {
 
@@ -67,7 +68,7 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     }
     std::memcpy(input->host.pointer, upload.data(), sizeof(upload));
     std::memcpy(output->host.pointer, download.data(), sizeof(download));
-    const kernel::Arguments payload = {
+    const kernels::transform::Arguments payload = {
         input->device_address + kPayloadOffset * sizeof(uint32_t),
         output->device_address + kPayloadOffset * sizeof(uint32_t),
         kCounts[epoch],
