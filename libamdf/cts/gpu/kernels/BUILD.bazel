@@ -4,9 +4,22 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+
 package(
     default_visibility = ["//libamdf/cts:__subpackages__"],
     licenses = ["notice"],
 )
 
-exports_files(["README.md"])
+exports_files([
+    "README.md",
+    "generate.py",
+    "transform.c",
+    "transform_gfx942.json",
+])
+
+amdf_cc_library(
+    name = "transform_gfx942",
+    testonly = True,
+    hdrs = ["transform_gfx942.h"],
+)

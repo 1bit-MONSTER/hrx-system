@@ -30,11 +30,13 @@ iree_cc_library(
     aql_cases
   SRCS
     "barrier_test.cc"
+    "dispatch_test.cc"
     "publication_test.cc"
   DEPS
     ::queue_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform_gfx942
   TESTONLY
   ALWAYSLINK
   PUBLIC
