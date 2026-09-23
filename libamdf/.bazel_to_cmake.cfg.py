@@ -175,6 +175,7 @@ class AmdfBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         name,
         srcs,
         deps,
+        linkage_modes=("dynamic",),
         linkopts=None,
         tags=None,
         resource_group=None,
@@ -197,7 +198,7 @@ class AmdfBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             **kwargs,
         )
         common_deps = [":" + corpus_name, "//libamdf/cts/util:test_main"]
-        for mode in ("static", "shared", "dynamic"):
+        for mode in linkage_modes:
             binary_name = name + "_" + mode + "_bin"
             data = None if mode == "static" else ["//libamdf:amdf_shared_artifact"]
             body_start = len(self._converter.body)
