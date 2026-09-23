@@ -15,7 +15,7 @@ amdf_status_t GpuCommandTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
   if (!amdf_status_is_ok(status)) {
     return status;
   }
-  *out_matches = false;
+  bool matches = false;
   for (uint32_t ordinal = 0; ordinal < endpoint_info.queue_family_count;
        ++ordinal) {
     amdf_queue_family_info_t family = {};
@@ -38,10 +38,11 @@ amdf_status_t GpuCommandTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
         (family.priority_capabilities &
          AMDF_QUEUE_PRIORITY_CAPABILITY_NORMAL) != 0) {
       family_ = family;
-      *out_matches = true;
+      matches = true;
       break;
     }
   }
+  *out_matches = matches;
   return AMDF_STATUS_OK;
 }
 

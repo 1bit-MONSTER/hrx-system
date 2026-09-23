@@ -37,13 +37,13 @@ void GpuMemory::Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
   access_info.structure_size = sizeof(access_info);
   ASSERT_EQ(api->memory_query_access_info(memory, 0, &access_info),
             AMDF_STATUS_OK);
-  EXPECT_EQ(info.memory_profile_ordinal, creation.memory_profile_ordinal);
-  EXPECT_EQ(info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
-  EXPECT_EQ(info.byte_length, byte_length);
-  EXPECT_EQ(access_info.access, access);
-  EXPECT_EQ(access_info.flags & attachment.requirements.flags,
+  ASSERT_EQ(info.memory_profile_ordinal, creation.memory_profile_ordinal);
+  ASSERT_EQ(info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
+  ASSERT_EQ(info.byte_length, byte_length);
+  ASSERT_EQ(access_info.access, access);
+  ASSERT_EQ(access_info.flags & attachment.requirements.flags,
             attachment.requirements.flags);
-  EXPECT_GE(info.alignment, creation.minimum_alignment);
+  ASSERT_GE(info.alignment, creation.minimum_alignment);
   ASSERT_EQ(api->memory_query_address(memory, 0, AMDF_MEMORY_ADDRESS_GPU,
                                       &device_address),
             AMDF_STATUS_OK);

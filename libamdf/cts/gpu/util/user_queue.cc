@@ -25,21 +25,21 @@ void GpuUserQueue::Initialize(const amdf_api_t* api,
   info.type = AMDF_STRUCTURE_TYPE_USER_QUEUE_INFO;
   info.structure_size = sizeof(info);
   ASSERT_EQ(api->user_queue_query_info(queue, &info), AMDF_STATUS_OK);
-  EXPECT_EQ(info.queue_family_ordinal, family.ordinal);
-  EXPECT_EQ(info.command_type, family.command_type);
-  EXPECT_EQ(info.format_version, family.format_version);
-  EXPECT_EQ(info.format_features, family.format_features);
-  EXPECT_EQ(info.producer_mode, producer_mode);
-  EXPECT_EQ(info.priority, AMDF_QUEUE_PRIORITY_NORMAL);
+  ASSERT_EQ(info.queue_family_ordinal, family.ordinal);
+  ASSERT_EQ(info.command_type, family.command_type);
+  ASSERT_EQ(info.format_version, family.format_version);
+  ASSERT_EQ(info.format_features, family.format_features);
+  ASSERT_EQ(info.producer_mode, producer_mode);
+  ASSERT_EQ(info.priority, AMDF_QUEUE_PRIORITY_NORMAL);
   ASSERT_EQ(api->user_queue_map(queue, nullptr, &mapping), AMDF_STATUS_OK);
   host.type = AMDF_STRUCTURE_TYPE_USER_QUEUE_MAPPING_INFO;
   host.structure_size = sizeof(host);
   ASSERT_EQ(api->user_queue_mapping_query_info(mapping, &host), AMDF_STATUS_OK);
-  EXPECT_TRUE(amdf_queue_id_is_equal(&host.queue_id, &info.queue_id));
-  EXPECT_EQ(host.queue_reset_epoch, info.reset_epoch);
-  EXPECT_EQ(host.command_type, info.command_type);
-  EXPECT_EQ(host.format_version, info.format_version);
-  EXPECT_EQ(host.format_features, info.format_features);
+  ASSERT_TRUE(amdf_queue_id_is_equal(&host.queue_id, &info.queue_id));
+  ASSERT_EQ(host.queue_reset_epoch, info.reset_epoch);
+  ASSERT_EQ(host.command_type, info.command_type);
+  ASSERT_EQ(host.format_version, info.format_version);
+  ASSERT_EQ(host.format_features, info.format_features);
   ASSERT_EQ(host.ring_byte_length, info.ring_byte_length);
   ASSERT_EQ(host.index_bits, 64u);
   ASSERT_EQ(host.doorbell_bits, 64u);
@@ -51,8 +51,8 @@ void GpuUserQueue::Initialize(const amdf_api_t* api,
   ASSERT_EQ(host.read_index_address % sizeof(uint64_t), 0u);
   ASSERT_EQ(host.write_index_address % sizeof(uint64_t), 0u);
   ASSERT_EQ(host.doorbell_address % sizeof(uint64_t), 0u);
-  EXPECT_EQ(GpuLoadAcquire<uint64_t>(host.read_index_address), 0u);
-  EXPECT_EQ(GpuLoadAcquire<uint64_t>(host.write_index_address), 0u);
+  ASSERT_EQ(GpuLoadAcquire<uint64_t>(host.read_index_address), 0u);
+  ASSERT_EQ(GpuLoadAcquire<uint64_t>(host.write_index_address), 0u);
 }
 
 bool GpuUserQueue::Release(const amdf_api_t* api) {
