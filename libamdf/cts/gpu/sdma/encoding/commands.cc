@@ -19,6 +19,15 @@ void SdmaCommandWriter::CopyLinear(uint64_t source, uint64_t target,
   words_[word_count_++] = static_cast<uint32_t>(target >> 32);
 }
 
+void SdmaCommandWriter::Fill32(uint64_t target, uint32_t pattern,
+                               uint32_t byte_length) {
+  words_[word_count_++] = 11u | (2u << 30);
+  words_[word_count_++] = static_cast<uint32_t>(target);
+  words_[word_count_++] = static_cast<uint32_t>(target >> 32);
+  words_[word_count_++] = pattern;
+  words_[word_count_++] = byte_length - 1;
+}
+
 void SdmaCommandWriter::Fence32(uint64_t address, uint32_t value) {
   uint32_t header = 5;
   if ((features_ & (AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |

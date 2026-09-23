@@ -15,6 +15,7 @@ iree_cc_library(
     sdma_cases
   SRCS
     "copy_test.cc"
+    "fill_test.cc"
     "timestamp_test.cc"
   DEPS
     amdf::headers

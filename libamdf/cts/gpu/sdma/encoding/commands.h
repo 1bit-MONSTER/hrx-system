@@ -21,7 +21,11 @@ class SdmaCommandWriter {
       : words_(words), features_(features) {}
   // A nonempty range within caller-owned allocations and the admitted limit.
   void CopyLinear(uint64_t source, uint64_t target, uint32_t byte_length);
-  // Writes a naturally aligned 32-bit coherent completion word after the copy.
+  // Repeats a DWORD pattern over a nonempty DWORD-aligned owned range. The
+  // unscoped layout uses a byte length at most 0x3ffffc, below the conservative
+  // 22-bit count bound; callers exclude FENCE_SYSTEM and MEMORY_SCOPE families.
+  void Fill32(uint64_t target, uint32_t pattern, uint32_t byte_length);
+  // Writes an aligned coherent completion word after preceding transfers.
   void Fence32(uint64_t address, uint32_t value);
   // Waits for an aligned coherent word using full-width equality. This
   // unscoped POLL_REGMEM requires a family without MEMORY_SCOPE; the native
