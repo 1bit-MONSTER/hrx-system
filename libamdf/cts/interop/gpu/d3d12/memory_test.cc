@@ -181,6 +181,11 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   }
 
   void CopyD3D12(ID3D12Resource* source, ID3D12Resource* destination) {
+    // Command lists do not retain referenced resources. These independent
+    // owners can survive caller and fixture teardown if retirement is unknown.
+    ComPtr<ID3D12Device> device = d3d_;
+    ComPtr<ID3D12Resource> source_owner = source;
+    ComPtr<ID3D12Resource> destination_owner = destination;
     ComPtr<ID3D12CommandQueue> queue;
     D3D12_COMMAND_QUEUE_DESC queue_info = {};
     queue_info.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -206,24 +211,40 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
     commands->ResourceBarrier(1, &barrier);
     ASSERT_TRUE(SUCCEEDED(commands->Close()));
-    ID3D12CommandList* lists[] = {commands.Get()};
-    queue->ExecuteCommandLists(1, lists);
     ComPtr<ID3D12Fence> fence;
     ASSERT_TRUE(SUCCEEDED(
         d3d_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))));
-    ASSERT_TRUE(SUCCEEDED(queue->Signal(fence.Get(), 1)));
-    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    ASSERT_NE(event, nullptr);
-    const HRESULT status = fence->SetEventOnCompletion(1, event);
-    if (FAILED(status)) {
-      EXPECT_TRUE(CloseHandle(event));
-      FAIL() << "D3D12 fence registration: " << std::hex << status;
+    ID3D12CommandList* lists[] = {commands.Get()};
+    queue->ExecuteCommandLists(1, lists);
+
+    // No fatal assertion may unwind submitted owners before classification.
+    // A rejected signal does not promise a fence value that can be waited on.
+    const char* operation = "queue signal";
+    HRESULT status = queue->Signal(fence.Get(), 1);
+    if (SUCCEEDED(status)) {
+      operation = "fence wait";
+      status = fence->SetEventOnCompletion(1, nullptr);
     }
-    const DWORD wait = WaitForSingleObject(event, INFINITE);
-    EXPECT_TRUE(CloseHandle(event));
-    ASSERT_EQ(wait, WAIT_OBJECT_0);
-    ASSERT_EQ(fence->GetCompletedValue(), 1u);
-    ASSERT_TRUE(SUCCEEDED(d3d_->GetDeviceRemovedReason()));
+    const uint64_t completed_value = fence->GetCompletedValue();
+    const HRESULT removed_reason = device->GetDeviceRemovedReason();
+    if (completed_value != 1 && completed_value != UINT64_MAX &&
+        SUCCEEDED(removed_reason)) {
+      // Preserve every submitted dependency until process exit. An HRESULT
+      // failure alone proves neither completion nor device removal.
+      queue.Detach();
+      commands.Detach();
+      allocator.Detach();
+      fence.Detach();
+      source_owner.Detach();
+      destination_owner.Detach();
+      device.Detach();
+      FAIL() << "D3D12 retirement unproven; retaining submitted owners: "
+             << operation << " returned " << std::hex << status;
+    }
+    ASSERT_TRUE(SUCCEEDED(status)) << operation << ": " << std::hex << status;
+    // Removal permits cleanup, but its UINT64_MAX fence is not successful work.
+    ASSERT_EQ(completed_value, 1u);
+    ASSERT_EQ(removed_reason, S_OK) << std::hex << removed_reason;
   }
 
   void CreateStaging(D3D12_HEAP_TYPE type, ID3D12Resource** out_resource) {
