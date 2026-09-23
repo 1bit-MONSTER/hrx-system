@@ -14,7 +14,11 @@ iree_cc_library(
   NAME
     pm4_cases
   SRCS
+    "command_fixture.h"
     "copy_test.cc"
+    "timestamp_test.cc"
+    "wait_test.cc"
+    "write_test.cc"
   DEPS
     amdf::headers
     iree::third_party::google_test

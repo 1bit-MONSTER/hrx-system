@@ -1,0 +1,68 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#include <array>
+#include <string>
+
+#include "libamdf/cts/gpu/pm4/command_fixture.h"
+#include "libamdf/cts/gpu/pm4/encoding/commands.h"
+
+namespace {
+
+class Pm4WriteTest : public Pm4CommandTest,
+                     public ::testing::WithParamInterface<size_t> {};
+
+TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
+  constexpr size_t kWordCount = 4096 / sizeof(uint32_t);
+  constexpr size_t kFirstWord = 15;
+  const size_t value_count = GetParam();
+  std::array<uint32_t, 65> values;
+  for (size_t i = 0; i < values.size(); ++i) {
+    values[i] = i == 0   ? 0
+                : i == 1 ? UINT32_MAX
+                         : 0x13579bdfu + static_cast<uint32_t>(i) * 0x10203041u;
+  }
+  GpuMemory* target = nullptr;
+  GpuMemory* completion = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &target));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
+  auto* output = static_cast<uint32_t*>(target->host.pointer);
+  *static_cast<uint32_t*>(completion->host.pointer) = 0;
+  for (size_t i = 0; i < kWordCount; ++i) {
+    output[i] = 0xa5a50000u ^ static_cast<uint32_t>(i);
+  }
+  GpuUserQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  ASSERT_GE(queue->host.ring_byte_length, 512u);
+  Pm4CommandWriter commands(
+      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+  commands.SystemBarrier();
+  commands.WriteData(target->device_address + kFirstWord * sizeof(uint32_t),
+                     values.data(), value_count);
+  commands.SystemBarrier();
+  commands.WriteData32(completion->device_address, 1);
+  commands.PadToEightWords();
+  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
+                         1);
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  for (size_t i = 0; i < kWordCount; ++i) {
+    const uint32_t expected = i >= kFirstWord && i < kFirstWord + value_count
+                                  ? values[i - kFirstWord]
+                                  : 0xa5a50000u ^ static_cast<uint32_t>(i);
+    EXPECT_EQ(output[i], expected) << i;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(PayloadWords, Pm4WriteTest,
+                         ::testing::Values(1, 2, 3, 17, 65),
+                         [](const ::testing::TestParamInfo<size_t>& info) {
+                           return "Words" + std::to_string(info.param);
+                         });
+
+}  // namespace

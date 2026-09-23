@@ -10,22 +10,50 @@
 #include <cstddef>
 #include <cstdint>
 
+// Ordinary unsigned memory comparisons used by the CTS. These are the MEC
+// WAIT_REG_MEM/WAIT_REG_MEM64 function values, not host comparison opcodes.
+enum class Pm4MemoryComparison : uint32_t {
+  kEqual = 3,
+  kNotEqual = 4,
+  kGreaterOrEqual = 5,
+};
+
 // Encodes the CTS memory operations for PM4 format version 1 with ACQUIRE_MEM
-// GCR support. Callers supply sufficient command storage, four-byte-aligned
-// addresses and a queue admitted for the corresponding transfer/cache roles.
+// GCR support. Callers supply sufficient command storage and a queue admitted
+// for the corresponding transfer/cache roles. Memory addresses are aligned to
+// four bytes for 32-bit operations and eight bytes for 64-bit operations.
 class Pm4CommandWriter {
  public:
   explicit Pm4CommandWriter(uint32_t* words) : words_(words) {}
 
   void SystemBarrier();
+  // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);
+  void CopyData64(uint64_t source_address, uint64_t target_address);
+  // Confirmed, incrementing TC/L2 writes. The payload has 1..16381 DWORDs.
+  void WriteData(uint64_t target_address, const uint32_t* values,
+                 size_t value_count);
   void WriteData32(uint64_t target_address, uint32_t value);
-  // Explicit memory dependency; this is not a cache acquire operation.
-  void WaitMemory32(uint64_t address, uint32_t value);
+  // Explicit memory dependencies with ordinary MEC execution, without ACE
+  // offload. These operations do not acquire payload caches.
+  void WaitMemory32(
+      uint64_t address, uint32_t value,
+      Pm4MemoryComparison comparison = Pm4MemoryComparison::kEqual,
+      uint32_t mask = UINT32_MAX);
+  void WaitMemory64(
+      uint64_t address, uint64_t value,
+      Pm4MemoryComparison comparison = Pm4MemoryComparison::kEqual,
+      uint64_t mask = UINT64_MAX);
+  // Samples the GPU clock at the command processor using confirmed COPY_DATA.
+  // This is not shader completion, cache release, or a host-correlated time.
+  void CopyGpuClock64(uint64_t target_address);
   void PadToEightWords();
   size_t word_count() const { return word_count_; }
 
  private:
+  // Emits the shared memory-transfer form with count_sel equal to 0 or 1.
+  void CopyData(uint64_t source_address, uint64_t target_address,
+                uint32_t count_select);
   // Emits one type-3 NOP of at least two words, including its header.
   void Noop(size_t word_count);
 
