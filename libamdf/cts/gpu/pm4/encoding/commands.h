@@ -52,12 +52,16 @@ class Pm4CommandWriter {
   explicit Pm4CommandWriter(uint32_t* words) : words_(words) {}
 
   void SystemBarrier();
+  // Releases preceding ordinary compute-buffer stores to coherent SYSTEM
+  // backing and writes a known 32-bit value at bottom-of-pipe. The confirmed
+  // TC/L2 write has no interrupt, scalar-store or CP-DMA completion request.
+  void ReleaseSystem32(uint64_t target_address, uint32_t value);
   // Binds ordinary shader inputs without touching profiling, dispatch-pointer,
   // scratch or scheduler context. The caller separately publishes code/data.
   void BindCompute(const Pm4ComputeProgram& program, uint64_t kernarg_address);
   // Direct wave32 launch in thread units, starting at zero with complete
-  // groups. Shader completion and memory visibility require a subsequent
-  // barrier.
+  // groups. Shader completion and memory visibility require an explicit
+  // subsequent completion/cache operation.
   void DispatchWave32(uint32_t x, uint32_t y, uint32_t z);
   // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);

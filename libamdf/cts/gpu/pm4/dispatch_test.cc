@@ -336,4 +336,132 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
                  std::to_string(commands.word_count()));
 }
 
+TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
+  constexpr uint32_t kGridSize = 1024;
+  constexpr uint32_t kWordCount = 2048;
+  constexpr uint32_t kPayloadOffset = 16;
+  constexpr uint32_t kInputGuard = 0x759bf13du;
+  constexpr uint32_t kOutputGuard = 0x4e90b725u;
+  constexpr uint32_t kControlGuard = 0x68d329b7u;
+  constexpr uint32_t kControlWordCount = 1024;
+  constexpr uint32_t kCompletionByteOffset = 256;
+  constexpr uint32_t kCompletionWordIndex =
+      kCompletionByteOffset / sizeof(uint32_t);
+  constexpr uint32_t kCommandWordCountPerEpoch = 56;
+  constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
+  constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
+
+  GpuMemory* input = nullptr;
+  GpuMemory* output = nullptr;
+  GpuMemory* arguments = nullptr;
+  GpuMemory* completion = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(AMDF_MEMORY_ACCESS_READ,
+                                       kWordCount * sizeof(uint32_t), &input));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kWordCount * sizeof(uint32_t), &output));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kControlWordCount * sizeof(uint32_t), &completion));
+  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
+  std::array<uint32_t, kControlWordCount> control_words;
+  control_words.fill(kControlGuard);
+  control_words[kCompletionWordIndex] = 0;
+  // Initialize the whole control page once. Only the GPU advances its epoch
+  // word, so a prior completion cannot satisfy the next epoch's wait.
+  std::memcpy(completion->host.pointer, control_words.data(),
+              sizeof(control_words));
+  auto* completion_word =
+      static_cast<uint32_t*>(completion->host.pointer) + kCompletionWordIndex;
+  Pm4ComputeProgram program = {};
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(&program));
+
+  GpuUserQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  // The 49-word sequence is followed by a seven-word NOP. Both batches remain
+  // in distinct resident ring ranges, with no packet crossing ring wrap.
+  ASSERT_GE(queue->host.ring_byte_length / sizeof(uint32_t),
+            kCommandWordCountPerEpoch * kCounts.size());
+  Pm4CommandWriter commands(
+      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+  RecordProperty("pm4_release_completion_byte_offset", kCompletionByteOffset);
+  RecordProperty("pm4_release_command_word_count_per_epoch",
+                 kCommandWordCountPerEpoch);
+  for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
+    SCOPED_TRACE(epoch);
+    std::array<uint32_t, kWordCount> upload;
+    std::array<uint32_t, kWordCount> expected_output;
+    std::array<uint32_t, kWordCount> input_words;
+    std::array<uint32_t, kWordCount> output_words;
+    upload.fill(kInputGuard);
+    expected_output.fill(kOutputGuard);
+    output_words.fill(kOutputGuard);
+    for (uint32_t i = 0; i < kGridSize; ++i) {
+      const uint32_t value =
+          0xfffffff0u + i * 0x01030507u + epoch * 0x11111111u;
+      upload[kPayloadOffset + i] = value;
+      if (i < kCounts[epoch]) {
+        // Compute independently in wider arithmetic, then apply uint32 wrap.
+        const uint32_t result =
+            static_cast<uint32_t>(uint64_t{value} * 3 + kAddends[epoch]);
+        expected_output[kPayloadOffset + i] = result;
+        output_words[kPayloadOffset + i] = ~result;
+      }
+    }
+    std::memcpy(input->host.pointer, upload.data(), sizeof(upload));
+    std::memcpy(output->host.pointer, output_words.data(),
+                sizeof(output_words));
+    const kernels::transform::Arguments payload = {
+        input->device_address + kPayloadOffset * sizeof(uint32_t),
+        output->device_address + kPayloadOffset * sizeof(uint32_t),
+        kCounts[epoch],
+        kAddends[epoch],
+    };
+    std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
+    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+
+    commands.SystemBarrier();
+    commands.BindCompute(program, arguments->device_address);
+    commands.DispatchWave32(kGridSize, 1, 1);
+    // This bottom-of-pipe release publishes the shader's vector stores and
+    // writes the known epoch. It is the sole payload-completion signal.
+    commands.ReleaseSystem32(completion->device_address + kCompletionByteOffset,
+                             epoch + 1);
+    commands.PadToEightWords();
+    ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
+    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion_word),
+                           epoch + 1);
+
+    // Snapshot every observed byte before diagnostics or consumed-index
+    // polling can add synchronization to the payload observation.
+    std::memcpy(output_words.data(), output->host.pointer,
+                sizeof(output_words));
+    std::memcpy(input_words.data(), input->host.pointer, sizeof(input_words));
+    std::memcpy(control_words.data(), completion->host.pointer,
+                sizeof(control_words));
+    for (uint32_t i = 0; i < kWordCount; ++i) {
+      EXPECT_EQ(output_words[i], expected_output[i]) << "output word=" << i;
+      EXPECT_EQ(input_words[i], upload[i]) << "input word=" << i;
+    }
+    for (uint32_t i = 0; i < kControlWordCount; ++i) {
+      EXPECT_EQ(control_words[i],
+                i == kCompletionWordIndex ? epoch + 1 : kControlGuard)
+          << "control word=" << i;
+    }
+    // Nonfatal oracle failures still reach retirement. No arguments or payload
+    // are rewritten after a failed observation or consumed-index wait.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    if (HasFailure()) {
+      return;
+    }
+  }
+  RecordProperty("pm4_release_completed_epochs", kCounts.size());
+  RecordProperty("pm4_release_command_word_count",
+                 std::to_string(commands.word_count()));
+}
+
 }  // namespace

@@ -84,6 +84,24 @@ TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
+TEST(Pm4EncodingTest, SystemReleaseUsesConfirmedEndOfPipeAndReleaseGcr) {
+  std::array<uint32_t, 10> words;
+  words.fill(0x24681357);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.ReleaseSystem32(UINT64_C(0x1234567887654324), 0xfedcba98);
+  // PAL's compute postamble uses BOTTOM_OF_PIPE_TS/index5 and release GCR
+  // 0x30e. Immediate32/int_sel3/dst_sel1 requests confirmation without an
+  // interrupt. The high payload and interrupt context remain zero.
+  const std::array<uint32_t, 8> expected = {
+      0xc0064900, 0x0030e528, 0x23010000, 0x87654324,
+      0x12345678, 0xfedcba98, 0,          0,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
   std::array<uint32_t, 13> words = {};
   words.back() = 0x24681357;

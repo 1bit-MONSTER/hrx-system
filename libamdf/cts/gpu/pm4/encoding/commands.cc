@@ -91,6 +91,24 @@ void Pm4CommandWriter::SystemBarrier() {
   words_[word_count_++] = kConservativeGcrControl;
 }
 
+void Pm4CommandWriter::ReleaseSystem32(uint64_t target_address,
+                                       uint32_t value) {
+  // PAL's compute postamble combines BOTTOM_OF_PIPE_TS with GLM_INV,
+  // GLV_INV, GL1_INV, GL2_INV and GL2_WB. RELEASE_MEM has its own GCR layout;
+  // this is not the ACQUIRE_MEM control used by SystemBarrier.
+  constexpr uint32_t kReleaseGcrControl =
+      (1 << 1) | (1 << 2) | (1 << 3) | (1 << 8) | (1 << 9);
+  words_[word_count_++] = MakeHeader(0x49, 8);
+  words_[word_count_++] = 0x28 | (5 << 8) | (kReleaseGcrControl << 12);
+  // Immediate DWORD, write confirmation without interrupt, TC/L2 destination.
+  words_[word_count_++] = (1 << 29) | (3 << 24) | (1 << 16);
+  words_[word_count_++] = static_cast<uint32_t>(target_address);
+  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
+  words_[word_count_++] = value;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+}
+
 void Pm4CommandWriter::CopyData32(uint64_t source_address,
                                   uint64_t target_address) {
   word_count_ += pm4::CopyData(words_ + word_count_, source_address,
