@@ -9,14 +9,15 @@
 
 #include "amdf/amdf.h"
 
-// Case-owned system backing with one exact GPU access and one host view.
+// Case-owned backing with one exact GPU access. HOST_VISIBLE requests also
+// obtain a coherent SYSTEM host view; other backing remains unmapped.
 // Initialization and release are explicit: failed native cleanup must not
 // turn into an implicit destructor retry or premature backing reuse.
 struct GpuMemory {
   GpuMemory() = default;
   GpuMemory(const GpuMemory&) = delete;
   GpuMemory& operator=(const GpuMemory&) = delete;
-  // Constructs the exact selected single-consumer SYSTEM contract.
+  // Constructs the exact selected single-consumer contract in the given scope.
   void Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
                   const amdf_memory_create_info_t& create_info);
   bool Release(const amdf_api_t* api);
@@ -26,7 +27,7 @@ struct GpuMemory {
 
   // Allocation retained until every accessing queue has been retired.
   amdf_memory_t* memory = nullptr;
-  // Host view released before the allocation.
+  // Optional host view released before the allocation.
   amdf_host_mapping_t* mapping = nullptr;
   // Stable device address, independent of the CPU virtual address.
   uint64_t device_address = 0;

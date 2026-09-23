@@ -48,6 +48,28 @@ struct PayloadSet {
                                       aql::FenceScope::kNone};
 };
 
+struct StagedPayloadPairs {
+  // Source ingress, input upload, output download and output readback edges.
+  PayloadPairs payload;
+  // Host-written output seed consumed by the second SDMA upload.
+  amdf_memory_pair_info_t seed_ingress = {};
+  // SDMA-written output seed preserved outside the compiled kernel's stores.
+  amdf_memory_pair_info_t seed_upload = {};
+  // Uploaded input downloaded unchanged by the same SDMA queue.
+  amdf_memory_pair_info_t input_download = {};
+  // Diagnostic input readback consumed by the host.
+  amdf_memory_pair_info_t input_egress = {};
+};
+
+struct StagedPayloadSet {
+  // Source, LOCAL input/output and SYSTEM output readback for the main path.
+  PayloadSet payload;
+  // Coherent SYSTEM seed copied to the complete LOCAL output backing.
+  GpuMemory* seed = nullptr;
+  // Coherent SYSTEM diagnostic download of the complete unchanged input.
+  GpuMemory* input_readback = nullptr;
+};
+
 std::string DescribeTransition(const amdf_cache_transition_t& transition) {
   return "kind=" + std::to_string(transition.kind) +
          ",executor=" + std::to_string(transition.executor) +
@@ -133,7 +155,25 @@ class CopyDispatchRecipeTest : public AqlDispatchTest {
     };
   }
 
-  void QueryProfilePair(const amdf_memory_create_info_t& creation,
+  void SelectLocalCreation(const amdf_memory_device_access_t& attachment,
+                           amdf_memory_create_info_t* out_creation) {
+    const uint32_t profile = FindGpuMemoryProfileOrdinal(
+        api_, local_scope_, attachment.device, AMDF_MEMORY_PROFILE_ROLE_CREATE,
+        AMDF_MEMORY_FLAG_DEVICE_LOCAL, attachment.requirements);
+    ASSERT_NE(profile, AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN);
+    *out_creation = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+        .structure_size = sizeof(*out_creation),
+        .memory_profile_ordinal = profile,
+        .access_count = 1,
+        .required_flags = AMDF_MEMORY_FLAG_DEVICE_LOCAL,
+        .minimum_alignment = 4096,
+        .accesses = &attachment,
+    };
+  }
+
+  void QueryProfilePair(amdf_memory_scope_t* scope,
+                        const amdf_memory_create_info_t& creation,
                         const amdf_memory_profile_site_t& producer,
                         const amdf_memory_profile_site_t& consumer,
                         amdf_memory_pair_info_t* out_pair) {
@@ -149,15 +189,16 @@ class CopyDispatchRecipeTest : public AqlDispatchTest {
     query.consumer = consumer;
     out_pair->type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO;
     out_pair->structure_size = sizeof(*out_pair);
-    ASSERT_EQ(
-        api_->memory_scope_query_pair_info(system_scope_, &query, out_pair),
-        AMDF_STATUS_OK);
+    ASSERT_EQ(api_->memory_scope_query_pair_info(scope, &query, out_pair),
+              AMDF_STATUS_OK);
     ASSERT_NE(out_pair->flags & AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE,
               0u);
   }
 
-  void QueryProfilePairs(const amdf_memory_create_info_t& read_creation,
-                         const amdf_memory_create_info_t& read_write_creation,
+  void QueryProfilePairs(amdf_memory_scope_t* payload_scope,
+                         const amdf_memory_create_info_t& source_creation,
+                         const amdf_memory_create_info_t& payload_creation,
+                         const amdf_memory_create_info_t& readback_creation,
                          PayloadPairs* out_pairs) {
     const amdf_memory_profile_site_t host_write = {
         .kind = AMDF_MEMORY_SITE_KIND_HOST,
@@ -175,14 +216,14 @@ class CopyDispatchRecipeTest : public AqlDispatchTest {
         .kind = AMDF_MEMORY_SITE_KIND_DEVICE,
         .value = {.device = {0, family_.ordinal}},
     };
-    ASSERT_NO_FATAL_FAILURE(
-        QueryProfilePair(read_creation, host_write, sdma, &out_pairs->ingress));
-    ASSERT_NO_FATAL_FAILURE(
-        QueryProfilePair(read_write_creation, sdma, aql, &out_pairs->upload));
-    ASSERT_NO_FATAL_FAILURE(
-        QueryProfilePair(read_write_creation, aql, sdma, &out_pairs->download));
-    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(read_write_creation, sdma,
-                                             host_read, &out_pairs->egress));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(
+        system_scope_, source_creation, host_write, sdma, &out_pairs->ingress));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(payload_scope, payload_creation,
+                                             sdma, aql, &out_pairs->upload));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(payload_scope, payload_creation,
+                                             aql, sdma, &out_pairs->download));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(
+        system_scope_, readback_creation, sdma, host_read, &out_pairs->egress));
   }
 
   void QueryConcretePair(const amdf_memory_site_t& producer,
@@ -239,7 +280,34 @@ class CopyDispatchRecipeTest : public AqlDispatchTest {
     ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.egress.acquire));
   }
 
+  void ResolveStagedPairs(const StagedPayloadPairs& pairs,
+                          const std::string& prefix,
+                          aql::FenceScopes* out_scopes) {
+    ASSERT_NO_FATAL_FAILURE(ResolvePairs(pairs.payload, prefix, out_scopes));
+    RecordPair(prefix + "_seed_host_to_sdma", pairs.seed_ingress);
+    RecordPair(prefix + "_seed_sdma_to_aql", pairs.seed_upload);
+    RecordPair(prefix + "_input_sdma_to_sdma", pairs.input_download);
+    RecordPair(prefix + "_input_sdma_to_host", pairs.input_egress);
+    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.seed_ingress.release));
+    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.seed_ingress.acquire));
+    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.seed_upload.release));
+    aql::FenceScope seed_acquire = aql::FenceScope::kNone;
+    ASSERT_NO_FATAL_FAILURE(ResolveDispatchScope(
+        pairs.seed_upload.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+        &seed_acquire));
+    // One global dispatch acquire satisfies both LOCAL input and output-seed
+    // transitions. Each allocation's returned operation must agree.
+    ASSERT_EQ(seed_acquire, out_scopes->acquire);
+    ASSERT_NO_FATAL_FAILURE(
+        CheckNoCacheTransition(pairs.input_download.release));
+    ASSERT_NO_FATAL_FAILURE(
+        CheckNoCacheTransition(pairs.input_download.acquire));
+    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.input_egress.release));
+    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.input_egress.acquire));
+  }
+
   void RunCoherentHandoff(PairQuery query_kind);
+  void RunStagedHandoff(PairQuery query_kind);
 
   // Transfer family retained from the same passive endpoint match as AQL.
   amdf_queue_family_info_t sdma_family_ = {};
@@ -307,8 +375,9 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   if (query_kind == PairQuery::kProfile) {
     // Both sets will use these answers, obtained before any payload backing.
     PayloadPairs pairs;
-    ASSERT_NO_FATAL_FAILURE(
-        QueryProfilePairs(read_creation, read_write_creation, &pairs));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePairs(system_scope_, read_creation,
+                                              read_write_creation,
+                                              read_write_creation, &pairs));
     ASSERT_NO_FATAL_FAILURE(ResolvePairs(pairs, "profile", &profile_scopes));
   }
   std::array<PayloadSet, 2> payload_sets = {{
@@ -321,11 +390,15 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
     source_creation.byte_length = payload.byte_length;
     auto target_creation = read_write_creation;
     target_creation.byte_length = payload.byte_length;
-    ASSERT_NO_FATAL_FAILURE(CreateMemory(source_creation, &payload.source));
-    ASSERT_NO_FATAL_FAILURE(CreateMemory(target_creation, &payload.input));
-    ASSERT_NO_FATAL_FAILURE(CreateMemory(target_creation, &payload.output));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(system_scope_, source_creation, &payload.source));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(system_scope_, target_creation, &payload.input));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(system_scope_, target_creation, &payload.output));
     // KFD mappings always grant GPU read access, including download targets.
-    ASSERT_NO_FATAL_FAILURE(CreateMemory(target_creation, &payload.readback));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(system_scope_, target_creation, &payload.readback));
     const std::string prefix = "payload_set_" + std::to_string(i);
     RecordProperty(prefix + "_byte_length",
                    std::to_string(payload.byte_length));
@@ -544,6 +617,372 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   }
 }
 
+void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
+  if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
+    GTEST_SKIP() << "staged dataflow requires owned LOCAL memory";
+  }
+  ASSERT_NE(local_scope_, nullptr);
+  constexpr uint32_t kGridSize = 1024;
+  constexpr uint32_t kMaximumByteLength = 12288;
+  constexpr size_t kMaximumWordCount = kMaximumByteLength / sizeof(uint32_t);
+  constexpr size_t kChainWordCount = 7 + 7 + 4 + 6 + 7 + 7 + 4;
+  constexpr uint64_t kChainByteLength = kChainWordCount * sizeof(uint32_t);
+  constexpr amdf_memory_access_t kReadWrite =
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
+  const amdf_memory_device_access_t source_access = {
+      device_,
+      {.access = AMDF_MEMORY_ACCESS_READ,
+       .flags =
+           AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS}};
+  const amdf_memory_device_access_t readback_access = {
+      device_,
+      {.access = kReadWrite,
+       .flags =
+           AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS}};
+  const amdf_memory_device_access_t local_access = {
+      device_,
+      {.access = kReadWrite, .flags = AMDF_MEMORY_FLAG_DEVICE_ADDRESS}};
+  amdf_memory_create_info_t source_creation = {};
+  amdf_memory_create_info_t readback_creation = {};
+  amdf_memory_create_info_t local_creation = {};
+  ASSERT_NO_FATAL_FAILURE(SelectCreation(source_access, &source_creation));
+  ASSERT_NO_FATAL_FAILURE(SelectCreation(readback_access, &readback_creation));
+  ASSERT_NO_FATAL_FAILURE(SelectLocalCreation(local_access, &local_creation));
+  RecordProperty("pair_query_mode",
+                 query_kind == PairQuery::kProfile ? "profile" : "concrete");
+  RecordProperty("source_memory_profile_ordinal",
+                 source_creation.memory_profile_ordinal);
+  RecordProperty("readback_memory_profile_ordinal",
+                 readback_creation.memory_profile_ordinal);
+  RecordProperty("local_memory_profile_ordinal",
+                 local_creation.memory_profile_ordinal);
+  RecordProperty("local_required_flags",
+                 std::to_string(local_creation.required_flags));
+  RecordProperty("local_access_flags",
+                 std::to_string(local_access.requirements.flags));
+  RecordProperty("local_device_access", local_access.requirements.access);
+  RecordProperty("sdma_chain_word_count", std::to_string(kChainWordCount));
+
+  aql::FenceScopes profile_scopes = {aql::FenceScope::kNone,
+                                     aql::FenceScope::kNone};
+  if (query_kind == PairQuery::kProfile) {
+    // These exact profiles and requirements create every matching allocation
+    // below. Query all directional roles before any payload backing exists.
+    StagedPayloadPairs pairs;
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePairs(local_scope_, source_creation,
+                                              local_creation, readback_creation,
+                                              &pairs.payload));
+    const amdf_memory_profile_site_t host_write = {
+        .kind = AMDF_MEMORY_SITE_KIND_HOST,
+        .value = {.host_access = AMDF_MEMORY_MAP_FLAG_WRITE},
+    };
+    const amdf_memory_profile_site_t host_read = {
+        .kind = AMDF_MEMORY_SITE_KIND_HOST,
+        .value = {.host_access = AMDF_MEMORY_MAP_FLAG_READ},
+    };
+    const amdf_memory_profile_site_t sdma = {
+        .kind = AMDF_MEMORY_SITE_KIND_DEVICE,
+        .value = {.device = {0, sdma_family_.ordinal}},
+    };
+    const amdf_memory_profile_site_t aql = {
+        .kind = AMDF_MEMORY_SITE_KIND_DEVICE,
+        .value = {.device = {0, family_.ordinal}},
+    };
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(
+        system_scope_, source_creation, host_write, sdma, &pairs.seed_ingress));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(local_scope_, local_creation, sdma,
+                                             aql, &pairs.seed_upload));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(local_scope_, local_creation, sdma,
+                                             sdma, &pairs.input_download));
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePair(system_scope_, readback_creation,
+                                             sdma, host_read,
+                                             &pairs.input_egress));
+    ASSERT_NO_FATAL_FAILURE(
+        ResolveStagedPairs(pairs, "profile", &profile_scopes));
+  }
+
+  std::array<StagedPayloadSet, 2> payload_sets = {{
+      {.payload = {.byte_length = 8192, .payload_byte_offset = 64}},
+      {.payload = {.byte_length = kMaximumByteLength,
+                   .payload_byte_offset = 128}},
+  }};
+  for (size_t i = 0; i < payload_sets.size(); ++i) {
+    auto& staged = payload_sets[i];
+    auto& payload = staged.payload;
+    auto staged_source_creation = source_creation;
+    staged_source_creation.byte_length = payload.byte_length;
+    auto staged_readback_creation = readback_creation;
+    staged_readback_creation.byte_length = payload.byte_length;
+    auto staged_local_creation = local_creation;
+    staged_local_creation.byte_length = payload.byte_length;
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(system_scope_, staged_source_creation, &payload.source));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(system_scope_, staged_source_creation, &staged.seed));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(local_scope_, staged_local_creation, &payload.input));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(local_scope_, staged_local_creation, &payload.output));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(
+        system_scope_, staged_readback_creation, &payload.readback));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(
+        system_scope_, staged_readback_creation, &staged.input_readback));
+    const std::array<GpuMemory*, 2> local_memories = {payload.input,
+                                                      payload.output};
+    for (auto* memory : local_memories) {
+      ASSERT_EQ(memory->info.memory_class, AMDF_MEMORY_CLASS_LOCAL);
+      ASSERT_NE(memory->info.flags & AMDF_MEMORY_FLAG_DEVICE_LOCAL, 0u);
+      ASSERT_EQ(memory->info.flags & AMDF_MEMORY_FLAG_HOST_VISIBLE, 0u);
+      ASSERT_EQ(memory->mapping, nullptr);
+      ASSERT_EQ(memory->host.pointer, nullptr);
+      const amdf_memory_map_info_t map = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO,
+          .structure_size = sizeof(map),
+          .byte_length = memory->info.byte_length,
+          .flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE,
+      };
+      ASSERT_EQ(amdf_status_code(
+                    api_->memory_map(memory->memory, &map, &memory->mapping)),
+                AMDF_STATUS_CODE_UNSUPPORTED);
+      ASSERT_EQ(memory->mapping, nullptr);
+    }
+    const std::string prefix = "payload_set_" + std::to_string(i);
+    RecordProperty(prefix + "_byte_length",
+                   std::to_string(payload.byte_length));
+    RecordProperty(prefix + "_byte_offset",
+                   std::to_string(payload.payload_byte_offset));
+    RecordProperty(prefix + "_source_address",
+                   std::to_string(payload.source->device_address));
+    RecordProperty(prefix + "_seed_address",
+                   std::to_string(staged.seed->device_address));
+    RecordProperty(prefix + "_input_address",
+                   std::to_string(payload.input->device_address));
+    RecordProperty(prefix + "_output_address",
+                   std::to_string(payload.output->device_address));
+    RecordProperty(prefix + "_readback_address",
+                   std::to_string(payload.readback->device_address));
+    RecordProperty(prefix + "_input_readback_address",
+                   std::to_string(staged.input_readback->device_address));
+    RecordProperty(prefix + "_input_backing_flags",
+                   std::to_string(payload.input->info.flags));
+    RecordProperty(prefix + "_output_backing_flags",
+                   std::to_string(payload.output->info.flags));
+    RecordProperty(prefix + "_input_access_flags",
+                   std::to_string(payload.input->access_info.flags));
+    RecordProperty(prefix + "_output_access_flags",
+                   std::to_string(payload.output->access_info.flags));
+    if (query_kind == PairQuery::kConcrete) {
+      StagedPayloadPairs pairs;
+      ASSERT_NO_FATAL_FAILURE(QueryConcretePairs(payload, &pairs.payload));
+      ASSERT_NO_FATAL_FAILURE(QueryConcretePair(
+          staged.seed->HostSite(),
+          staged.seed->DeviceSite(sdma_family_.ordinal), &pairs.seed_ingress));
+      ASSERT_NO_FATAL_FAILURE(QueryConcretePair(
+          payload.output->DeviceSite(sdma_family_.ordinal),
+          payload.output->DeviceSite(family_.ordinal), &pairs.seed_upload));
+      ASSERT_NO_FATAL_FAILURE(
+          QueryConcretePair(payload.input->DeviceSite(sdma_family_.ordinal),
+                            payload.input->DeviceSite(sdma_family_.ordinal),
+                            &pairs.input_download));
+      ASSERT_NO_FATAL_FAILURE(QueryConcretePair(
+          staged.input_readback->DeviceSite(sdma_family_.ordinal),
+          staged.input_readback->HostSite(), &pairs.input_egress));
+      ASSERT_NO_FATAL_FAILURE(
+          ResolveStagedPairs(pairs, prefix, &payload.dispatch_scopes));
+    } else {
+      payload.dispatch_scopes = profile_scopes;
+    }
+    RecordProperty(prefix + "_dispatch_acquire_scope",
+                   static_cast<uint32_t>(payload.dispatch_scopes.acquire));
+    RecordProperty(prefix + "_dispatch_release_scope",
+                   static_cast<uint32_t>(payload.dispatch_scopes.release));
+  }
+
+  GpuMemory* arguments = nullptr;
+  GpuMemory* control = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, 4096, &control));
+  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(control->device_address % alignof(CompletionState), 0u);
+  std::memset(control->host.pointer, 0, control->info.byte_length);
+  auto& completion = *static_cast<CompletionState*>(control->host.pointer);
+  completion.upload.kind = completion.compute.kind = 1;
+  const uint64_t upload_signal_address =
+      control->device_address + offsetof(CompletionState, upload);
+  const uint64_t compute_signal_address =
+      control->device_address + offsetof(CompletionState, compute);
+  const uint64_t download_address =
+      control->device_address + offsetof(CompletionState, download);
+
+  GpuUserQueue* aql_queue = nullptr;
+  GpuUserQueue* sdma_queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&aql_queue));
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(sdma_family_, &sdma_queue));
+  ASSERT_TRUE(amdf_device_id_is_equal(&aql_queue->info.device_id,
+                                      &sdma_queue->info.device_id));
+  ASSERT_FALSE(amdf_queue_id_is_equal(&aql_queue->info.queue_id,
+                                      &sdma_queue->info.queue_id));
+  const uint64_t aql_capacity =
+      aql_queue->host.ring_byte_length / sizeof(aql::Packet);
+  const uint64_t sdma_capacity = sdma_queue->host.ring_byte_length;
+  ASSERT_GE(aql_capacity, 2u);
+  ASSERT_GT(sdma_capacity, 2 * kChainByteLength);
+  const uint64_t epoch_count =
+      2 * std::max((aql_capacity + 1) / 2, sdma_capacity / kChainByteLength) +
+      1;
+  ASSERT_LE(epoch_count, UINT32_MAX);
+  RecordProperty("copy_dispatch_epoch_count", std::to_string(epoch_count));
+  RecordProperty("aql_queue_family_ordinal", family_.ordinal);
+  RecordProperty("sdma_queue_family_ordinal", sdma_family_.ordinal);
+  RecordProperty("aql_ring_packet_capacity", std::to_string(aql_capacity));
+  RecordProperty("sdma_ring_byte_capacity", std::to_string(sdma_capacity));
+  uint64_t aql_index = 0;
+  uint64_t sdma_index = 0;
+  uint64_t descriptor_address = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      PublishKernel(*aql_queue, &aql_index, &descriptor_address));
+
+  auto* sdma_ring = reinterpret_cast<uint8_t*>(sdma_queue->host.ring_address);
+  std::array<uint32_t, kMaximumWordCount> expected_input;
+  std::array<uint32_t, kMaximumWordCount> expected_seed;
+  std::array<uint32_t, kMaximumWordCount> expected_output;
+  std::array<uint32_t, kMaximumWordCount> downloaded;
+  std::array<uint64_t, 2> completed_epochs = {};
+  for (uint64_t epoch_index = 0; epoch_index < epoch_count; ++epoch_index) {
+    // Each backing sees both active-count variants before the next backing.
+    const size_t set_index = (epoch_index / 2) % payload_sets.size();
+    const auto& staged = payload_sets[set_index];
+    const auto& buffers = staged.payload;
+    const uint32_t byte_length = static_cast<uint32_t>(buffers.byte_length);
+    const uint32_t word_count = byte_length / sizeof(uint32_t);
+    const uint32_t payload_word_offset =
+        static_cast<uint32_t>(buffers.payload_byte_offset / sizeof(uint32_t));
+    auto* source_words = static_cast<uint32_t*>(buffers.source->host.pointer);
+    auto* seed_words = static_cast<uint32_t*>(staged.seed->host.pointer);
+    auto* readback_words =
+        static_cast<uint32_t*>(buffers.readback->host.pointer);
+    auto* input_readback_words =
+        static_cast<uint32_t*>(staged.input_readback->host.pointer);
+    const uint32_t epoch = static_cast<uint32_t>(epoch_index + 1);
+    const uint32_t count = epoch % 2 == 1 ? 1003 : 997;
+    const uint32_t addend = 0x80000001u + 2 * epoch;
+    for (uint32_t i = 0; i < word_count; ++i) {
+      expected_input[i] = 0xfffffff0u + i * 0x01030507u + 5 * epoch +
+                          static_cast<uint32_t>(set_index) * 0x103u;
+      expected_seed[i] =
+          0x93b57fd1u ^ (i * 0x9e3779b9u + epoch * 0x01010101u +
+                         static_cast<uint32_t>(set_index) * 0x1234u);
+      expected_output[i] = expected_seed[i];
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      const uint32_t position = payload_word_offset + i;
+      // The CPU oracle uses only generated inputs, never GPU observations.
+      const uint32_t result = static_cast<uint32_t>(
+          uint64_t{expected_input[position]} * 3 + addend);
+      expected_output[position] = result;
+      expected_seed[position] = result ^ 0x5a5a5a5au;
+    }
+    std::memcpy(source_words, expected_input.data(), byte_length);
+    std::memcpy(seed_words, expected_seed.data(), byte_length);
+    for (uint32_t i = 0; i < word_count; ++i) {
+      readback_words[i] = ~expected_output[i];
+      input_readback_words[i] = ~expected_input[i];
+    }
+    const Arguments payload = {
+        buffers.input->device_address + buffers.payload_byte_offset,
+        buffers.output->device_address + buffers.payload_byte_offset,
+        count,
+        addend,
+    };
+    std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
+    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    // Rearming follows the previous epoch's download and both consumed
+    // frontiers. The complete native values always have a zero high word.
+    completion.upload.value = completion.compute.value = 1;
+    const auto dependency =
+        aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled, 0,
+                     {upload_signal_address},
+                     {aql::FenceScope::kNone, aql::FenceScope::kNone});
+    const auto dispatch = aql::Dispatch1D(
+        kernel::kWorkgroupSize, kGridSize, kernel::kPrivateSegmentByteLength,
+        kernel::kGroupSegmentByteLength, descriptor_address,
+        arguments->device_address, compute_signal_address,
+        buffers.dispatch_scopes);
+    std::array<uint32_t, kChainWordCount> stream = {};
+    SdmaCommandWriter commands(stream.data(), sdma_family_.format_features);
+    commands.CopyLinear(buffers.source->device_address,
+                        buffers.input->device_address, byte_length);
+    commands.CopyLinear(staged.seed->device_address,
+                        buffers.output->device_address, byte_length);
+    commands.Fence32(upload_signal_address + offsetof(aql::Signal, value), 0);
+    commands.WaitMemory32(compute_signal_address + offsetof(aql::Signal, value),
+                          0);
+    commands.CopyLinear(buffers.output->device_address,
+                        buffers.readback->device_address, byte_length);
+    commands.CopyLinear(buffers.input->device_address,
+                        staged.input_readback->device_address, byte_length);
+    commands.Fence32(download_address, epoch);
+    ASSERT_EQ(commands.word_count(), stream.size());
+    uint64_t offset = sdma_index % sdma_capacity;
+    const uint64_t remaining = sdma_capacity - offset;
+    if (remaining < kChainByteLength) {
+      // Native zero NOP dwords keep each complete packet contiguous.
+      std::memset(sdma_ring + offset, 0, remaining);
+      sdma_index += remaining;
+      offset = 0;
+    }
+    std::memcpy(sdma_ring + offset, stream.data(), kChainByteLength);
+    sdma_index += kChainByteLength;
+
+    // Consumer-first publication leaves both inter-engine edges on device.
+    GpuStoreRelease(aql_queue->host.write_index_address, aql_index + 2);
+    Publish(*aql_queue, aql_index++, dependency);
+    Publish(*aql_queue, aql_index++, dispatch);
+    ASSERT_NO_FATAL_FAILURE(sdma_queue->PublishStream(sdma_index));
+    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(&completion.download),
+                           epoch);
+
+    // Capture the full output first. Diagnostic payload reads and native
+    // consumed/retirement calls cannot repair this already captured result.
+    std::memcpy(downloaded.data(), readback_words, byte_length);
+    for (uint32_t i = 0; i < word_count; ++i) {
+      ASSERT_EQ(downloaded[i], expected_output[i])
+          << "set=" << set_index << " epoch=" << epoch << " output word=" << i;
+    }
+    for (uint32_t i = 0; i < word_count; ++i) {
+      ASSERT_EQ(input_readback_words[i], expected_input[i])
+          << "set=" << set_index << " epoch=" << epoch
+          << " input readback word=" << i;
+      ASSERT_EQ(source_words[i], expected_input[i])
+          << "set=" << set_index << " epoch=" << epoch
+          << " input staging word=" << i;
+      ASSERT_EQ(seed_words[i], expected_seed[i])
+          << "set=" << set_index << " epoch=" << epoch
+          << " output seed word=" << i;
+    }
+    ASSERT_EQ(GpuLoadAcquire<int64_t>(
+                  reinterpret_cast<uintptr_t>(&completion.upload.value)),
+              0);
+    ASSERT_EQ(GpuLoadAcquire<int64_t>(
+                  reinterpret_cast<uintptr_t>(&completion.compute.value)),
+              0);
+    ASSERT_NO_FATAL_FAILURE(aql_queue->WaitConsumed(api_, aql_index));
+    ASSERT_NO_FATAL_FAILURE(sdma_queue->WaitConsumed(api_, sdma_index));
+    ++completed_epochs[set_index];
+  }
+  ASSERT_GT(aql_index, 2 * aql_capacity);
+  ASSERT_GT(sdma_index, 2 * sdma_capacity);
+  RecordProperty("copy_dispatch_completed_epochs", std::to_string(epoch_count));
+  RecordProperty("aql_final_packet_index", std::to_string(aql_index));
+  RecordProperty("sdma_final_byte_index", std::to_string(sdma_index));
+  for (size_t i = 0; i < payload_sets.size(); ++i) {
+    ASSERT_GE(completed_epochs[i], 2u);
+    RecordProperty("payload_set_" + std::to_string(i) + "_completed_epochs",
+                   std::to_string(completed_epochs[i]));
+  }
+}
+
 TEST_F(CopyDispatchRecipeTest,
        ConcreteCoherentSystemUploadDispatchDownloadReusesBothRings) {
   RunCoherentHandoff(PairQuery::kConcrete);
@@ -552,6 +991,16 @@ TEST_F(CopyDispatchRecipeTest,
 TEST_F(CopyDispatchRecipeTest,
        ProfileCoherentSystemUploadDispatchDownloadReusesBothRings) {
   RunCoherentHandoff(PairQuery::kProfile);
+}
+
+TEST_F(CopyDispatchRecipeTest,
+       ConcreteStagedLocalUploadDispatchDownloadReusesBothRings) {
+  RunStagedHandoff(PairQuery::kConcrete);
+}
+
+TEST_F(CopyDispatchRecipeTest,
+       ProfileStagedLocalUploadDispatchDownloadReusesBothRings) {
+  RunStagedHandoff(PairQuery::kProfile);
 }
 
 }  // namespace

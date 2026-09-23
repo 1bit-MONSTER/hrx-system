@@ -49,7 +49,7 @@ static inline bool amdf_memory_compatibility_domain_is_equal(
 typedef struct amdf_memory_site_query_t {
   // Exact permissions established for the selected device access.
   amdf_memory_access_t access;
-  // Access properties established by the native construction contract.
+  // Backing and access properties established by native construction.
   amdf_memory_flags_t flags;
   // Borrowed immutable properties of the exact local queue family.
   const amdf_queue_family_info_t* queue_family_info;

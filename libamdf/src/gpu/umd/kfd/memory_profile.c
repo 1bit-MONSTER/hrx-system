@@ -10,18 +10,13 @@
 #include "libamdf/src/gpu/umd/memory.h"
 #include "libamdf/src/platform/linux/dma_buf.h"
 
-// Discrete gfx942 GTT has UC, CPU-snooped PTEs in the native GMC v9 policy.
-// SDMA requires completion and dependency ordering but no payload cache
-// operation; AQL dispatches retain their SYSTEM acquire/release scopes.
-static amdf_status_t amdf_gpu_kfd_gfx942_system_describe_site(
+// Selected gfx942 placements require completion and dependency ordering for
+// SDMA but no payload cache operation. AQL dispatches retain full SYSTEM
+// acquire/release scopes across the native VRAM and GTT cache policies.
+static amdf_status_t amdf_gpu_kfd_gfx942_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {
   const amdf_queue_family_info_t* family = query->queue_family_info;
-  // Group projection may reuse the consumer policy for LOCAL backing, whose
-  // supported flags deliberately exclude HOST_COHERENT.
-  if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
-    return amdf_gpu_umd_memory_describe_site(query, out_description);
-  }
   const bool sdma =
       family->command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA &&
       family->format_version == AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1 &&
@@ -70,6 +65,44 @@ static amdf_status_t amdf_gpu_kfd_gfx942_system_describe_site(
   return AMDF_STATUS_OK;
 }
 
+// Discrete gfx942 GTT has UC, CPU-snooped PTEs in the native GMC v9 policy.
+static amdf_status_t amdf_gpu_kfd_gfx942_system_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  // Remote LOCAL projection retains this consumer policy but excludes
+  // HOST_COHERENT, so it cannot inherit the owned SYSTEM visibility rule.
+  if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  return amdf_gpu_kfd_gfx942_describe_site(query, out_description);
+}
+
+// Owned same-GPU VRAM transfers use full SYSTEM shader fences. CPU aperture
+// access needs a separate HDP visibility contract and is excluded here.
+static amdf_status_t amdf_gpu_kfd_gfx942_local_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  if ((query->flags &
+       (AMDF_MEMORY_FLAG_DEVICE_LOCAL | AMDF_MEMORY_FLAG_HOST_VISIBLE)) !=
+      AMDF_MEMORY_FLAG_DEVICE_LOCAL) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  return amdf_gpu_kfd_gfx942_describe_site(query, out_description);
+}
+
+// LOCAL_MEMORY is a positive discrete-GPU fact in KFD topology. Compiler
+// gfx942 covers native GC9.4.3/4; exact SDMA4.4.2 supplies the transfer path.
+static bool amdf_gpu_kfd_supports_gfx942_staged_visibility(
+    const amdf_gpu_kfd_topology_t* topology) {
+  return (topology->memory_features & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) !=
+             0 &&
+         topology->properties.gfx_ip.major == 9 &&
+         topology->properties.gfx_ip.minor == 4 &&
+         topology->properties.gfx_ip.stepping == 2 && topology->sdma.ip.exact &&
+         topology->sdma.ip.major == 4 && topology->sdma.ip.minor == 4 &&
+         topology->sdma.ip.revision == 2;
+}
+
 // KFD maps a fixed consumer set into the backing owner's native allocation.
 // Local placement is directional: the consumer must reach the selected source,
 // regardless of whether it offers a local allocation scope of its own.
@@ -109,6 +142,11 @@ static bool amdf_gpu_kfd_query_group_access(
   profile.allocation = candidate->allocation;
   profile.construction = candidate->construction;
   profile.visibility = candidate->visibility;
+  if (source->gpu_id == consumer->gpu_id) {
+    // A second handle for this GPU keeps the backing's LOCAL site policy;
+    // its construction, address and host-policy facts remain consumer-owned.
+    profile.visibility.describe_site = backing->visibility.describe_site;
+  }
   // The backing determines VRAM cache semantics. In particular, a consumer's
   // GTT profile must not add HOST_COHERENT to an access of local memory.
   *out_profile = profile;
@@ -229,16 +267,7 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
             AMDF_LINUX_DMA_BUF_DIRECT_HOST_PROVENANCE;
     profile.external_memory_support[1].flags &=
         ~AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_FOREIGN_API;
-    // LOCAL_MEMORY is a positive discrete-GPU fact in KFD topology. Compiler
-    // gfx942 covers native GC9.4.3/4; exact SDMA4.4.2 supplies the qualified
-    // transfer path. REGISTER and LOCAL retain their separate policies.
-    if ((topology->memory_features & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) !=
-            0 &&
-        topology->properties.gfx_ip.major == 9 &&
-        topology->properties.gfx_ip.minor == 4 &&
-        topology->properties.gfx_ip.stepping == 2 && topology->sdma.ip.exact &&
-        topology->sdma.ip.major == 4 && topology->sdma.ip.minor == 4 &&
-        topology->sdma.ip.revision == 2) {
+    if (amdf_gpu_kfd_supports_gfx942_staged_visibility(topology)) {
       profile.visibility.describe_site =
           amdf_gpu_kfd_gfx942_system_describe_site;
     }
@@ -264,6 +293,10 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     profile.allocation = allocation;
     if ((profile.roles & AMDF_MEMORY_PROFILE_ROLE_HOST_MAP) != 0) {
       profile.host_mapping = host_mapping;
+    }
+    if (amdf_gpu_kfd_supports_gfx942_staged_visibility(topology)) {
+      profile.visibility.describe_site =
+          amdf_gpu_kfd_gfx942_local_describe_site;
     }
   } else if (native_lifetime == AMDF_NATIVE_LIFETIME_PROCESS &&
              memory_profile_ordinal == ordinal) {

@@ -24,7 +24,7 @@ void GpuMemory::Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
   ASSERT_EQ(api->memory_query_access_info(memory, 0, &access_info),
             AMDF_STATUS_OK);
   ASSERT_EQ(info.memory_profile_ordinal, creation.memory_profile_ordinal);
-  ASSERT_EQ(info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
+  ASSERT_EQ(info.flags & creation.required_flags, creation.required_flags);
   ASSERT_EQ(info.byte_length, creation.byte_length);
   ASSERT_EQ(access_info.access, attachment.requirements.access);
   ASSERT_EQ(access_info.flags & attachment.requirements.flags,
@@ -35,6 +35,10 @@ void GpuMemory::Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
             AMDF_STATUS_OK);
   ASSERT_NE(device_address, 0u);
 
+  if ((creation.required_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE) == 0) {
+    return;
+  }
+  ASSERT_EQ(info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
   amdf_memory_map_info_t map = {};
   map.type = AMDF_STRUCTURE_TYPE_MEMORY_MAP_INFO;
   map.structure_size = sizeof(map);

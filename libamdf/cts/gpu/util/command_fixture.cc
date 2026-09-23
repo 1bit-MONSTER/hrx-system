@@ -77,13 +77,14 @@ void GpuCommandTest::CreateMemory(amdf_memory_access_t access,
   creation.accesses = &attachment;
   creation.byte_length = byte_length;
   creation.minimum_alignment = 4096;
-  ASSERT_NO_FATAL_FAILURE(CreateMemory(creation, out_memory));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(system_scope_, creation, out_memory));
 }
 
-void GpuCommandTest::CreateMemory(const amdf_memory_create_info_t& create_info,
+void GpuCommandTest::CreateMemory(amdf_memory_scope_t* scope,
+                                  const amdf_memory_create_info_t& create_info,
                                   GpuMemory** out_memory) {
   auto& memory = memories_.emplace_back();
-  ASSERT_NO_FATAL_FAILURE(memory.Initialize(api_, system_scope_, create_info));
+  ASSERT_NO_FATAL_FAILURE(memory.Initialize(api_, scope, create_info));
   *out_memory = &memory;
 }
 

@@ -68,10 +68,11 @@ consumption have both been observed.
 
 The [composed recipe](../recipes/copy_dispatch_test.cc) adds SDMA upload and
 download, device-side dependencies, and repeated signal and queue-ring reuse.
-Both witnesses use coherent system memory. Local-memory placement,
-private-segment scratch, concurrent dispatch and hot code replacement require
-separate cases. The explicit cold publication sequence does not by itself
-demonstrate stale instruction-cache replacement. The public
+Its coherent SYSTEM and staged LOCAL payload cases consume distinct queried
+visibility policies; code, arguments and control remain in coherent SYSTEM
+memory. Private-segment scratch, concurrent dispatch and hot code replacement
+require separate cases. The explicit cold publication sequence does not by
+itself demonstrate stale instruction-cache replacement. The public
 [dispatch contract](../../../../docs/reference/amd/gpu/aql/dispatch.md) distinguishes compiler
 metadata, memory publication and completion ownership.
 
