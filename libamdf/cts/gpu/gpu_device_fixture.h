@@ -7,6 +7,7 @@
 #ifndef AMDF_CTS_GPU_GPU_DEVICE_FIXTURE_H_
 #define AMDF_CTS_GPU_GPU_DEVICE_FIXTURE_H_
 
+#include <cinttypes>
 #include <cstdio>
 #include <vector>
 
@@ -145,6 +146,36 @@ class GpuDeviceFixture : public ::testing::Test {
           << "domain=" << amdf_status_domain(status)
           << " code=" << amdf_status_code(status);
       if (matches) {
+        amdf_endpoint_info_t endpoint_info = {};
+        endpoint_info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
+        endpoint_info.structure_size = sizeof(endpoint_info);
+        ASSERT_EQ(api_->endpoint_query_info(endpoint_, &endpoint_info),
+                  AMDF_STATUS_OK);
+        char identity[64];
+        std::snprintf(identity, sizeof(identity), "%016" PRIx64 ":%016" PRIx64,
+                      endpoint_info.id.words[0], endpoint_info.id.words[1]);
+        RecordProperty("amdf_gpu_endpoint_id", identity);
+        const auto& native_identity = endpoint_info.native_identity;
+        switch (native_identity.type) {
+          case AMDF_ENDPOINT_NATIVE_IDENTITY_TYPE_NONE:
+            std::snprintf(identity, sizeof(identity), "none");
+            break;
+          case AMDF_ENDPOINT_NATIVE_IDENTITY_TYPE_LINUX_DEVICE:
+            std::snprintf(identity, sizeof(identity), "linux_device:%u:%u",
+                          native_identity.value.linux_device.major,
+                          native_identity.value.linux_device.minor);
+            break;
+          case AMDF_ENDPOINT_NATIVE_IDENTITY_TYPE_WINDOWS_ADAPTER:
+            std::snprintf(
+                identity, sizeof(identity), "windows_adapter:%016" PRIx64 ":%u",
+                native_identity.value.windows_adapter.luid,
+                native_identity.value.windows_adapter.physical_adapter_index);
+            break;
+          default:
+            FAIL() << "unknown native endpoint identity type "
+                   << native_identity.type;
+        }
+        RecordProperty("amdf_gpu_native_identity", identity);
         RecordProperty("amdf_gpu_target", target);
         RecordProperty("amdf_gpu_asic_revision", gpu_info.asic_revision);
         RecordProperty("amdf_gpu_xcc_count", gpu_info.topology.xcc_count);
