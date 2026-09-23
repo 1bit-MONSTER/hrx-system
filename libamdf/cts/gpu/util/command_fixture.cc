@@ -28,6 +28,9 @@ amdf_status_t GpuCommandTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
     if (family.command_type == command_type_ && family.format_version == 1 &&
         (family.roles & roles_) == roles_ &&
         (family.format_features & format_features_) == format_features_ &&
+        (family.cache_operations & cache_operations_) == cache_operations_ &&
+        (family.cache_transition_kinds & cache_transition_kinds_) ==
+            cache_transition_kinds_ &&
         (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_USER) != 0 &&
         (family.user_queue_capabilities &
          AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER) != 0 &&

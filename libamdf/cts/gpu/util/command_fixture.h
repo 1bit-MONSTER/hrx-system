@@ -19,10 +19,14 @@ class GpuCommandTest : public GpuDeviceFixture {
  protected:
   GpuCommandTest(amdf_queue_command_type_t command_type,
                  amdf_queue_roles_t roles,
-                 amdf_queue_format_features_t format_features = 0)
+                 amdf_queue_format_features_t format_features = 0,
+                 amdf_cache_operations_t cache_operations = 0,
+                 amdf_cache_transition_kinds_t cache_transition_kinds = 0)
       : command_type_(command_type),
         roles_(roles),
-        format_features_(format_features) {}
+        format_features_(format_features),
+        cache_operations_(cache_operations),
+        cache_transition_kinds_(cache_transition_kinds) {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
@@ -43,6 +47,10 @@ class GpuCommandTest : public GpuDeviceFixture {
   amdf_queue_roles_t roles_;
   // Optional packet fields required by this case's encoding.
   amdf_queue_format_features_t format_features_;
+  // Semantic cache operations required in addition to packet field support.
+  amdf_cache_operations_t cache_operations_;
+  // Range or global domains used by this case's cache commands.
+  amdf_cache_transition_kinds_t cache_transition_kinds_;
   // Stable case-owned allocations, released only after every queue succeeds.
   std::deque<GpuMemory> memories_;
   // Stable case-owned queues, sharing the same cached native device.
