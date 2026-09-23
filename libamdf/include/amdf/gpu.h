@@ -201,8 +201,10 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM = UINT64_C(1) << 1,
   /// COPY_LINEAR source/destination scope fields occupy bits 26/18 of dword 2;
   /// FENCE scope occupies header bits 25:24. Scope 3 denotes the system.
-  /// COPY_LINEAR's NPD bit at header bit 28 disables prefetch past that copy.
-  /// Without this feature these scope and NPD bits remain zero.
+  /// COPY_LINEAR's NPD (no prior dependency) field occupies header bit 28.
+  /// This feature identifies the field layout; it does not establish command
+  /// dependencies or completion. Without it these scope and NPD bits remain
+  /// zero.
   AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE = UINT64_C(1) << 2,
   /// FENCE uses the classic three-bit memory type at header bits 18:16.
   /// Memory type 3 denotes uncached access; callers leave the system bit at
