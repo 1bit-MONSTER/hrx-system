@@ -20,7 +20,11 @@ void SdmaCommandWriter::CopyLinear(uint64_t source, uint64_t target,
 }
 
 void SdmaCommandWriter::Fence32(uint64_t address, uint32_t value) {
-  uint32_t header = 5 | (3u << 16);  // FENCE with uncached MTYPE.
+  uint32_t header = 5;
+  if ((features_ & (AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM)) != 0) {
+    header |= 3u << 16;  // Uncached MTYPE, where that field is admitted.
+  }
   if ((features_ & AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM) != 0) {
     header |= 1u << 20;
   }

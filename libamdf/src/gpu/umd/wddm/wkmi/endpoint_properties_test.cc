@@ -6,8 +6,10 @@
 
 #include "libamdf/src/gpu/umd/wddm/wkmi/endpoint_properties.h"
 
+#include <array>
 #include <cstring>
 
+#include "amdf/gpu.h"
 #include "gtest/gtest.h"
 
 namespace {
@@ -76,6 +78,33 @@ TEST(WkmiEndpointPropertiesTest, NormalizesMissingScratchSlots) {
 
   EXPECT_EQ(properties.compute.maximum_scratch_wave_count_per_compute_unit,
             32u);
+}
+
+TEST(WkmiEndpointPropertiesTest, SdmaFenceFieldsFollowNativeEncoding) {
+  constexpr std::array<int32_t, 5> kMajors = {9, 10, 11, 12, 12};
+  constexpr std::array<int32_t, 5> kMinors = {4, 3, 5, 0, 5};
+  constexpr std::array<amdf_queue_format_features_t, 5> kFeatures = {
+      0, AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE};
+  for (size_t i = 0; i < kMajors.size(); ++i) {
+    SCOPED_TRACE(i);
+    auto native = MakeProperties();
+    native.gfx_ip_major = kMajors[i];
+    native.gfx_ip_minor = kMinors[i];
+    amdf_gpu_endpoint_properties_t properties = {};
+    ASSERT_TRUE(
+        amdf_gpu_wddm_wkmi_endpoint_properties_translate(&native, &properties));
+    ASSERT_EQ(properties.queue_family_count, 2u);
+    const auto& family = properties.queue_families[1];
+    EXPECT_EQ(family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+    EXPECT_EQ(family.format_features, kFeatures[i]);
+    EXPECT_EQ(family.roles, AMDF_QUEUE_ROLE_TRANSFER);
+    EXPECT_EQ(family.cache_operations, 0u);
+    EXPECT_EQ(family.cache_transition_kinds, 0u);
+  }
 }
 
 TEST(WkmiEndpointPropertiesTest, RejectsUnrepresentableProperties) {

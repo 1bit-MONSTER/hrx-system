@@ -195,14 +195,19 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   /// of dword 2. This names that encoding, not other GCR packet layouts.
   AMDF_GPU_SDMA_FORMAT_FEATURE_GCR = UINT64_C(1) << 0,
   /// FENCE uses a two-bit memory type at header bit 16 and an explicit system
-  /// bit at bit 20. A fence to system memory sets that bit. Without this
-  /// feature FENCE uses the three-bit memory-type encoding at bit 16.
+  /// bit at bit 20. A fence to system memory sets that bit. This feature and
+  /// FENCE_MEMORY_TYPE are mutually exclusive. When neither is reported,
+  /// callers leave the optional memory-type and system bits zero.
   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM = UINT64_C(1) << 1,
   /// COPY_LINEAR source/destination scope fields occupy bits 26/18 of dword 2;
   /// FENCE scope occupies header bits 25:24. Scope 3 denotes the system.
   /// COPY_LINEAR's NPD bit at header bit 28 disables prefetch past that copy.
   /// Without this feature these scope and NPD bits remain zero.
   AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE = UINT64_C(1) << 2,
+  /// FENCE uses the classic three-bit memory type at header bits 18:16, with
+  /// no explicit system bit. Memory type 3 denotes uncached access. This
+  /// feature and FENCE_SYSTEM are mutually exclusive.
+  AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE = UINT64_C(1) << 3,
 };
 
 /// First directly published AQL queue format.

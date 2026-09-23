@@ -36,6 +36,11 @@ TEST(KfdTargetUserQueueTest, KeepsSupportedPlansDense) {
             AMDF_QUEUE_COMMAND_TYPE_GPU_PM4);
   EXPECT_EQ(plans.values[1].family.command_type,
             AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+  EXPECT_EQ(plans.values[1].family.format_features,
+            AMDF_GPU_SDMA_FORMAT_FEATURE_GCR |
+                AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
+  EXPECT_EQ(plans.values[1].family.roles,
+            AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL);
 
   topology.compute_queue_count = 0;
   amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
@@ -51,6 +56,47 @@ TEST(KfdTargetUserQueueTest, KeepsSupportedPlansDense) {
             AMDF_QUEUE_COMMAND_TYPE_GPU_PM4);
 
   topology.properties.gfx_ip.major = 0;
+  amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
+  EXPECT_EQ(plans.count, 0u);
+}
+
+TEST(KfdTargetUserQueueTest, ExactSdma442HasTransferWithoutGcrOrFenceFields) {
+  amdf_gpu_kfd_topology_t topology = MakeTopology();
+  // SDMA admission consumes its own exact IP, independent of compute layout.
+  topology.properties.gfx_ip = {};
+  topology.sdma.ip = {4, 4, 2, true};
+  topology.sdma.engine_count = 2;
+  topology.sdma.queue_count_per_engine = 8;
+  amdf_gpu_kfd_user_queue_plans_t plans;
+  amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
+  ASSERT_EQ(plans.count, 1u);
+  const auto& plan = plans.values[0];
+  EXPECT_EQ(plan.family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+  EXPECT_EQ(plan.family.format_version, AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1);
+  EXPECT_EQ(plan.family.format_features, 0u);
+  EXPECT_EQ(plan.family.roles, AMDF_QUEUE_ROLE_TRANSFER);
+  EXPECT_EQ(plan.family.cache_operations, 0u);
+  EXPECT_EQ(plan.family.cache_transition_kinds, 0u);
+  EXPECT_EQ(plan.ring.primary_byte_length, 4096u);
+  EXPECT_EQ(plan.control.index_bit_count, 64u);
+  EXPECT_EQ(plan.control.read_index_mask, UINT64_MAX);
+  EXPECT_EQ(plan.doorbell.bit_count, 64u);
+  EXPECT_EQ(plan.compute.context_storage.byte_length, 0u);
+
+  topology.sdma.ip.exact = false;
+  amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
+  EXPECT_EQ(plans.count, 0u);
+  topology.sdma.ip.exact = true;
+  for (uint32_t revision : {0u, 1u, 3u}) {
+    topology.sdma.ip.revision = revision;
+    amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64,
+                                                    &plans);
+    EXPECT_EQ(plans.count, 0u) << revision;
+  }
+  topology.sdma.ip = {4, 3, 2, true};
+  amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
+  EXPECT_EQ(plans.count, 0u);
+  topology.sdma.ip = {6, 2, 0, true};
   amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
   EXPECT_EQ(plans.count, 0u);
 }

@@ -15,7 +15,8 @@ namespace {
 TEST(SdmaEncodingTest, LinearByteCountAndUncachedCompletion) {
   std::array<uint32_t, 12> words = {};
   words.back() = 0x24681357;
-  SdmaCommandWriter commands(words.data(), 0);
+  SdmaCommandWriter commands(words.data(),
+                             AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
   commands.CopyLinear(UINT64_C(0x1234567887654320),
                       UINT64_C(0x2345678998765430), 1028);
   commands.Fence32(UINT64_C(0x34567890abcdef00), 19);
@@ -43,6 +44,28 @@ TEST(SdmaEncodingTest, GlobalTimestampUsesFullAddressAndNoImplicitFence) {
     EXPECT_EQ(words[i], expected[i]) << i;
   }
   EXPECT_EQ(words.back(), 0x9876abcdu);
+}
+
+TEST(SdmaEncodingTest, FenceFieldsFollowTheAdvertisedEncoding) {
+  constexpr std::array<amdf_queue_format_features_t, 4> kFeatures = {
+      0, AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE};
+  // ROCr BuildFenceCommand uses opcode-only for gfx9, UC3 for gfx10/11,
+  // UC3 plus SYS for gfx12, and system scope for the scoped packet layout.
+  constexpr std::array<uint32_t, 4> kHeaders = {0x00000005, 0x00030005,
+                                                0x00130005, 0x03130005};
+  for (size_t i = 0; i < kFeatures.size(); ++i) {
+    SCOPED_TRACE(kFeatures[i]);
+    std::array<uint32_t, 5> words = {0, 0, 0, 0, 0x72349681};
+    SdmaCommandWriter commands(words.data(), kFeatures[i]);
+    commands.Fence32(UINT64_C(0x1234567887654320), 0x98765432);
+    const std::array<uint32_t, 5> expected = {
+        kHeaders[i], 0x87654320, 0x12345678, 0x98765432, 0x72349681};
+    EXPECT_EQ(commands.word_count(), 4u);
+    EXPECT_EQ(words, expected);
+  }
 }
 
 TEST(SdmaEncodingTest, LinearShortTransfersKeepByteCountUnits) {

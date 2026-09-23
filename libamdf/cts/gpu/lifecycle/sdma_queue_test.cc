@@ -25,12 +25,15 @@ EncodedUserQueueStream EncodeCopyStream(amdf_queue_format_features_t features,
     kAcquireControl = 0x043a1,
     kReleaseControl = 0x0c3a1,
     kCopyByteLength = kUserQueueMemoryElementCount * sizeof(uint32_t),
-    kUncachedFenceHeader = 5 | (3 << 16),
   };
   const bool has_scope =
       (features & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
   const uint32_t copy_scope = has_scope ? (3u << 18) | (3u << 26) : 0;
-  uint32_t fence_header = kUncachedFenceHeader;
+  uint32_t fence_header = 5;
+  if ((features & (AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+                   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM)) != 0) {
+    fence_header |= 3u << 16;
+  }
   if ((features & AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM) != 0) {
     fence_header |= 1u << 20;
   }
