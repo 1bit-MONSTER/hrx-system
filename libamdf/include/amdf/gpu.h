@@ -246,13 +246,20 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 ///
 /// With TRANSFER, this format accepts confirmed TC/L2 incrementing WRITE_DATA
 /// of one or two dwords and confirmed TC/L2-to-TC/L2 COPY_DATA of 32 or 64 bits
-/// in owned coherent SYSTEM memory. COPY_DATA reads the bytes produced by a
-/// preceding confirmed WRITE_DATA in the same IB. CPU-produced copy sources
-/// require a separately qualified acquisition contract. A PRED_EXEC prefix
-/// selects virtual XCC 0 (mask 1) for the complete transfer body; its 14-bit
-/// body count excludes the two-dword prefix. WRITE_DATA and COPY32 addresses
-/// are dword aligned; COPY64 addresses are eight-byte aligned. Transfer width
-/// does not imply atomicity.
+/// in owned coherent SYSTEM memory. COPY_DATA may read bytes produced by a
+/// preceding confirmed WRITE_DATA in the same IB. CPU-produced sources instead
+/// require a WRITE_BACK host mapping and achieved HOST_COHERENT device access.
+/// The concrete source HOST-to-queue pair must report host release NONE and
+/// GLOBAL/QUEUE ACQUIRE_FROM_SYSTEM; the destination queue-to-HOST pair must
+/// report GLOBAL/QUEUE RELEASE_TO_SYSTEM and host acquire NONE. Each query
+/// describes two accesses to that same allocation, not source-to-destination.
+/// CPU writes finish before release publication; source data remains unchanged
+/// until native completion. These recipes qualify the complete coherent
+/// transfer path, not the necessity of individual fence bits on cached memory.
+/// A PRED_EXEC prefix selects virtual XCC 0 (mask 1) for the complete transfer
+/// body; its 14-bit body count excludes the two-dword prefix. WRITE_DATA and
+/// COPY32 addresses are dword aligned; COPY64 addresses are eight-byte aligned.
+/// Transfer width does not imply atomicity.
 /// The carrier uses a header barrier and SYSTEM acquire/release scopes. Its
 /// native USER completion decrements once after the confirmed commands and
 /// release, providing the host-acquire observation and storage-lifetime
