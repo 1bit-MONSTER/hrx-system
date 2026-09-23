@@ -21,12 +21,18 @@ class AqlDispatchTest : public AqlQueueTest {
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
 
+  // Backs every physical scratch slot and retains it through queue destruction.
+  // Each dispatch's private requirement fits the configured per-workitem limit.
+  void CreateFixedScratchQueue(uint32_t maximum_private_segment_byte_length,
+                               GpuUserQueue** out_queue);
+
   // Allocates case-owned executable storage and a private setup signal, then
   // waits for code publication and ring consumption. Advances the packet index
   // at reservation and publishes the descriptor address only after completion.
   // All backing remains owned by the case through successful queue destruction.
+  // Distinct images use distinct receipt prefixes to retain both identities.
   void PublishKernel(GpuUserQueue& queue, const kernels::Image& image,
-                     uint64_t* next_packet_index,
+                     const char* property_prefix, uint64_t* next_packet_index,
                      uint64_t* out_descriptor_address);
 };
 

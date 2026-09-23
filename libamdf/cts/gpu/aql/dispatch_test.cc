@@ -45,8 +45,8 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(
-      PublishKernel(*queue, kernel::kExecutable, &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(
+      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
 
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     std::array<uint32_t, kWordCount> upload;
@@ -165,8 +165,8 @@ TEST_F(AqlDispatchTest,
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(
-      PublishKernel(*queue, kernel::kExecutable, &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(
+      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
   const uint64_t first_work_packet_index = index;
   // Keep both epochs in distinct resident slots after the completed cold
   // publication. The operational frontier comes from that helper.

@@ -470,7 +470,8 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   uint64_t sdma_index = 0;
   uint64_t descriptor_address = 0;
   ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel::kExecutable,
-                                        &aql_index, &descriptor_address));
+                                        "aql_kernel", &aql_index,
+                                        &descriptor_address));
 
   auto* sdma_ring = reinterpret_cast<uint8_t*>(sdma_queue->host.ring_address);
   std::array<uint32_t, kMaximumWordCount> expected_source;
@@ -844,7 +845,8 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   uint64_t sdma_index = 0;
   uint64_t descriptor_address = 0;
   ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel::kExecutable,
-                                        &aql_index, &descriptor_address));
+                                        "aql_kernel", &aql_index,
+                                        &descriptor_address));
 
   auto* sdma_ring = reinterpret_cast<uint8_t*>(sdma_queue->host.ring_address);
   std::array<uint32_t, kMaximumWordCount> expected_input;

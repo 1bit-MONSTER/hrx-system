@@ -36,6 +36,7 @@ iree_cc_library(
     "lds_test.cc"
     "private_test.cc"
     "publication_test.cc"
+    "resource_test.cc"
     "timestamp_test.cc"
     "transfer_test.cc"
   DEPS
@@ -44,7 +45,9 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::kernels::geometry_ids_gfx942
+    libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_gfx942
+    libamdf::cts::gpu::kernels::private_roundtrip
     libamdf::cts::gpu::kernels::private_roundtrip_gfx942
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx942

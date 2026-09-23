@@ -11,30 +11,15 @@
 #include <string>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
+#include "libamdf/cts/gpu/kernels/lds_exchange.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange_gfx942.h"
 
 namespace {
 
 namespace kernel = kernels::gfx942_lds_exchange;
 
-// Semantic arguments occupy 20 bytes. The aligned slot backs the scalar load
-// through byte 23 without making its unused lane another argument.
-struct alignas(16) Arguments {
-  // Global GPU address of the first output pair, after the prefix guard.
-  uint64_t output;
-  // Group-segment byte offset of the dynamic region after static LDS.
-  uint32_t dynamic_offset;
-  // Epoch-specific token seed, combined with workgroup and partner lane.
-  uint32_t seed;
-  // Dynamic LDS element spacing, or zero to select the static-only branch.
-  uint32_t dynamic_stride;
-};
+using Arguments = kernels::lds_exchange::Arguments;
 static_assert(alignof(Arguments) == kernel::kKernargAlignment);
-static_assert(sizeof(Arguments) == 32);
-static_assert(offsetof(Arguments, output) == 0);
-static_assert(offsetof(Arguments, dynamic_offset) == 8);
-static_assert(offsetof(Arguments, seed) == 12);
-static_assert(offsetof(Arguments, dynamic_stride) == 16);
 static_assert(offsetof(Arguments, dynamic_stride) + sizeof(uint32_t) ==
               kernel::kKernargByteLength);
 
@@ -107,8 +92,8 @@ void AqlLdsTest::RunExchange(std::array<uint32_t, 2> strides) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(
-      PublishKernel(*queue, kernel::kExecutable, &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(
+      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
 
   std::array<uint32_t, kWordCount> expected;
   std::array<uint32_t, kWordCount> observed;
@@ -118,28 +103,13 @@ void AqlLdsTest::RunExchange(std::array<uint32_t, 2> strides) {
       expected[word] = kPrefixGuard;
     }
     for (uint32_t workitem = 0; workitem < kGridSize; ++workitem) {
-      const uint32_t group = workitem / kernel::kWorkgroupSize;
-      const uint32_t lane = workitem % kernel::kWorkgroupSize;
-      const uint32_t partner = lane < 64 ? lane + 64 : lane - 64;
-      // Derive the other wave's lane independently, form its tokens with wider
-      // arithmetic, then apply the kernel's unsigned 32-bit wrapping.
-      const uint64_t static_value = uint64_t{kSeeds[epoch]} +
-                                    uint64_t{group} * 0x01020307u +
-                                    uint64_t{partner} * 0x1021u;
+      const auto record = kernels::lds_exchange::ExpectedRecord(
+          workitem, kSeeds[epoch], strides[epoch]);
       const uint32_t position = kGuardWordCount + workitem * 2;
-      expected[position] = static_cast<uint32_t>(static_value);
-      if (strides[epoch] != 0) {
-        const uint64_t dynamic_value = uint64_t{kSeeds[epoch] ^ 0xa5a55a5au} +
-                                       uint64_t{group} * 0x01010101u +
-                                       uint64_t{partner} * 0x0203u +
-                                       uint64_t{strides[epoch]} * 0x00100001u;
-        expected[position + 1] = static_cast<uint32_t>(dynamic_value);
-      } else {
-        expected[position + 1] =
-            kSeeds[epoch] ^
-            static_cast<uint32_t>(uint64_t{0x5a17c0deu} + workitem);
-      }
+      expected[position] = record[0];
+      expected[position + 1] = record[1];
     }
+
     observed = expected;
     for (uint32_t word = 0; word < kOutputWordCount; ++word) {
       observed[kGuardWordCount + word] = ~expected[kGuardWordCount + word];

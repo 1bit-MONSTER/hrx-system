@@ -117,8 +117,8 @@ void AqlGeometryTest::RunGeometry(
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(
-      PublishKernel(*queue, kernel::kExecutable, &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(
+      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
   ASSERT_LE(index + geometries.size(),
             queue->host.ring_byte_length / sizeof(aql::Packet));
 

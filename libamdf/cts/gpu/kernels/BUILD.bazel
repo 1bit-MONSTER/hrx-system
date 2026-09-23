@@ -59,10 +59,22 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "lds_exchange",
+    testonly = True,
+    hdrs = ["lds_exchange.h"],
+)
+
+amdf_cc_library(
     name = "lds_exchange_gfx942",
     testonly = True,
     hdrs = ["lds_exchange_gfx942.h"],
     deps = [":image"],
+)
+
+amdf_cc_library(
+    name = "private_roundtrip",
+    testonly = True,
+    hdrs = ["private_roundtrip.h"],
 )
 
 amdf_cc_library(

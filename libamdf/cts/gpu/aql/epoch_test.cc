@@ -76,9 +76,11 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
   uint64_t producer_descriptor = 0;
   uint64_t consumer_descriptor = 0;
   ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel::kExecutable,
-                                        &producer_index, &producer_descriptor));
+                                        "aql_kernel", &producer_index,
+                                        &producer_descriptor));
   ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel::kExecutable,
-                                        &consumer_index, &consumer_descriptor));
+                                        "aql_kernel", &consumer_index,
+                                        &consumer_descriptor));
   RecordProperty("aql_epoch_initial_value", std::to_string(kInitialEpoch));
 
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
