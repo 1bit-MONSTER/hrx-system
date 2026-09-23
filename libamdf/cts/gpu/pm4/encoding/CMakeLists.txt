@@ -12,12 +12,28 @@ iree_add_all_subdirs()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    memory_commands
+  HDRS
+    "memory_commands.h"
+  SRCS
+    "memory_commands.cc"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     commands
   HDRS
     "commands.h"
   SRCS
     "commands.cc"
   DEPS
+    ::memory_commands
     amdf::headers
   TESTONLY
   PUBLIC
@@ -32,6 +48,7 @@ iree_cc_test(
     "commands_test.cc"
   DEPS
     ::commands
+    ::memory_commands
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main

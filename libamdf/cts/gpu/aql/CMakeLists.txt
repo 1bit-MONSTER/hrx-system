@@ -36,6 +36,7 @@ iree_cc_library(
     "lds_test.cc"
     "private_test.cc"
     "publication_test.cc"
+    "transfer_test.cc"
   DEPS
     ::dispatch_fixture
     ::queue_fixture
@@ -46,6 +47,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::private_roundtrip_gfx942
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx942
+    libamdf::cts::gpu::pm4::encoding::memory_commands
   TESTONLY
   ALWAYSLINK
   PUBLIC

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "libamdf/cts/gpu/pm4/encoding/memory_commands.h"
 
 namespace {
 
@@ -96,6 +97,50 @@ TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
       0xc0044000, 0x00110202, 0x87654328, 0x00001234, 0xfedcba98, 0x00005678};
   ASSERT_EQ(commands.word_count(), expected.size());
   ExpectWords(words.data(), expected);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, SharedCopyDataPreservesFullPayloadAddresses) {
+  std::array<uint32_t, 14> words;
+  words.fill(0x24681357);
+  const size_t first_count =
+      pm4::CopyData(words.data() + 1, UINT64_C(0x1234567887654324),
+                    UINT64_C(0x23456789fedcba94), pm4::CopyDataWidth::k32Bit);
+  ASSERT_EQ(first_count, 6u);
+  const size_t second_count = pm4::CopyData(
+      words.data() + 1 + first_count, UINT64_C(0x3456789a76543218),
+      UINT64_C(0x456789abedcba988), pm4::CopyDataWidth::k64Bit);
+  ASSERT_EQ(second_count, 6u);
+  // PAL's MEC COPY_DATA uses TC/L2 selectors 2, confirmation bit 20 and
+  // width bit 16. Payload addresses retain full high DWORDs, independently
+  // of any enclosing INDIRECT_BUFFER address limit.
+  const std::array<uint32_t, 12> expected = {
+      0xc0044000, 0x00100202, 0x87654324, 0x12345678, 0xfedcba94, 0x23456789,
+      0xc0044000, 0x00110202, 0x76543218, 0x3456789a, 0xedcba988, 0x456789ab};
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, SharedWriteDataCountsOneAndTwoPayloadWords) {
+  std::array<uint32_t, 13> words;
+  words.fill(0x24681357);
+  const uint32_t first_value = 0xfedcba98;
+  const size_t first_count = pm4::WriteData(
+      words.data() + 1, UINT64_C(0x1234567887654324), &first_value, 1);
+  ASSERT_EQ(first_count, 5u);
+  const std::array<uint32_t, 2> values = {0x13579bdf, 0x2468ace0};
+  const size_t second_count = pm4::WriteData(words.data() + 1 + first_count,
+                                             UINT64_C(0x23456789fedcba94),
+                                             values.data(), values.size());
+  ASSERT_EQ(second_count, 6u);
+  // WRITE_DATA's type-3 count includes its payload. Incrementing confirmed
+  // TC/L2 writes require DWORD alignment even with two payload DWORDs.
+  const std::array<uint32_t, 11> expected = {
+      0xc0033700, 0x00100200, 0x87654324, 0x12345678, 0xfedcba98, 0xc0043700,
+      0x00100200, 0xfedcba94, 0x23456789, 0x13579bdf, 0x2468ace0};
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 

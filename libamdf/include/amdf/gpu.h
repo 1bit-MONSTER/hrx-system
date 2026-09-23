@@ -235,6 +235,29 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// once after all workgroups complete. System acquire/release fence scopes
 /// provide the advertised global cache transitions. This contract does not
 /// enable HSA runtime services, dynamic scratch growth, or device enqueue.
+///
+/// AMD vendor format 1 carries a four-dword INDIRECT_BUFFER at packet byte 4,
+/// remaining-dword count 10 at byte 20, zero reserved words, and the native
+/// completion signal address at byte 56. The jump uses a dword-aligned 48-bit
+/// byte address, a positive 20-bit dword count and VALID at bit 23. Its entire
+/// extent must fit the executable backing and the address field. The caller
+/// keeps that backing immutable until native execution completion, including
+/// use by every participating XCC; packet consumption alone is insufficient.
+///
+/// With TRANSFER, this format accepts confirmed TC/L2 incrementing WRITE_DATA
+/// of one or two dwords and confirmed TC/L2-to-TC/L2 COPY_DATA of 32 or 64 bits
+/// in owned coherent SYSTEM memory. COPY_DATA reads the bytes produced by a
+/// preceding confirmed WRITE_DATA in the same IB. CPU-produced copy sources
+/// require a separately qualified acquisition contract. A PRED_EXEC prefix
+/// selects virtual XCC 0 (mask 1) for the complete transfer body; its 14-bit
+/// body count excludes the two-dword prefix. WRITE_DATA and COPY32 addresses
+/// are dword aligned; COPY64 addresses are eight-byte aligned. Transfer width
+/// does not imply atomicity.
+/// The carrier uses a header barrier and SYSTEM acquire/release scopes. Its
+/// native USER completion decrements once after the confirmed commands and
+/// release, providing the host-acquire observation and storage-lifetime
+/// boundary. This subset does not admit arbitrary PM4 commands or other memory
+/// placements through the vendor envelope.
 #define AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 1u
 
 /// Scratch backing borrowed by one directly published compute queue.

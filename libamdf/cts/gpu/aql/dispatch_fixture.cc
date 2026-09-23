@@ -61,8 +61,10 @@ void AqlDispatchTest::PublishKernel(GpuUserQueue& queue,
   const uint64_t index = (*next_packet_index)++;
   GpuStoreRelease(queue.host.write_index_address, *next_packet_index);
   Publish(queue, index,
-          aql::Gfx9CodeCachePublication(commands->device_address,
-                                        completion->device_address));
+          aql::Gfx9IndirectBuffer(
+              aql::HeaderBarrier::kDisabled, commands->device_address,
+              code_publication.size(), completion->device_address,
+              {aql::FenceScope::kNone, aql::FenceScope::kNone}));
   // Explicit instruction-cache publication has its own execution completion.
   // The next dispatch never relies on ring consumption or FIFO completion.
   ASSERT_NO_FATAL_FAILURE(

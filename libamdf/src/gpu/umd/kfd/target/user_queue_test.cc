@@ -178,4 +178,42 @@ TEST(KfdTargetUserQueueTest, ResolvesMultiXccSaveLayoutOnOlderKernels) {
             AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
 }
 
+TEST(KfdTargetUserQueueTest, AqlTransferAdmissionKeepsEarlierTargetsUnchanged) {
+  amdf_gpu_kfd_topology_t topology = MakeTopology();
+  topology.properties.gfx_ip = {9, 4, 0};
+  topology.properties.compute.wavefront_size = 64;
+  topology.properties.compute.compute_unit_count = 304;
+  topology.properties.compute.maximum_scratch_wave_count_per_compute_unit = 32;
+  topology.properties.compute.local_data_share_byte_length = 65536;
+  topology.properties.topology.xcc_count = 8;
+  topology.properties.topology.shader_engine_count_per_xcc = 4;
+  topology.context_save_restore_byte_length = 0;
+  topology.control_stack_byte_length = 0;
+  for (uint32_t stepping : {0u, 1u, 2u}) {
+    SCOPED_TRACE(stepping);
+    topology.properties.gfx_ip.stepping = stepping;
+    amdf_gpu_kfd_user_queue_plans_t plans;
+    amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64,
+                                                    &plans);
+    ASSERT_EQ(plans.count, 2u);
+    const auto& family = plans.values[0].family;
+    EXPECT_EQ(family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+    EXPECT_EQ(family.format_version, AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1);
+    EXPECT_EQ(family.format_features, 0u);
+    const amdf_queue_roles_t expected_roles =
+        AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_CACHE_CONTROL |
+        (stepping == 2 ? AMDF_QUEUE_ROLE_TRANSFER : 0);
+    EXPECT_EQ(family.roles, expected_roles);
+    EXPECT_EQ(plans.values[0].compute.context_count, 8u);
+    EXPECT_EQ(plans.values[1].family.command_type,
+              AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+  }
+  topology.properties.gfx_ip.stepping = 3;
+  amdf_gpu_kfd_user_queue_plans_t plans;
+  amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
+  ASSERT_EQ(plans.count, 1u);
+  EXPECT_EQ(plans.values[0].family.command_type,
+            AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+}
+
 }  // namespace

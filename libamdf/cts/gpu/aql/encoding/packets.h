@@ -139,21 +139,32 @@ inline std::array<uint32_t, 7> Gfx9CodeCacheInvalidate(uint64_t code_address,
           0};
 }
 
-// AMD gfx9 vendor packet for the seven-dword code-publication IB above.
-// IB storage is executable, dword-aligned and below 2^48. Completion protects
-// IB lifetime; NONE scopes match ROCr's explicit cache-command path.
-inline Packet Gfx9CodeCachePublication(uint64_t ib_address,
-                                       uint64_t completion) {
+// AMD gfx9 vendor carrier for a caller-owned immutable PM4 program. Executable
+// IB storage and its complete extent are dword-aligned and below 2^48; the
+// positive word count fits 20 bits. Native completion protects IB lifetime.
+inline Packet Gfx9IndirectBuffer(HeaderBarrier barrier, uint64_t ib_address,
+                                 uint32_t word_count, uint64_t completion,
+                                 FenceScopes scopes) {
   Packet packet = {};
-  packet[0] = 1u << 16;
+  packet[0] = (1u << 16) | static_cast<uint32_t>(barrier) |
+              (static_cast<uint32_t>(scopes.acquire) << 9) |
+              (static_cast<uint32_t>(scopes.release) << 11);
   packet[1] = 0xc0023f00u;
   packet[2] = static_cast<uint32_t>(ib_address);
   packet[3] = static_cast<uint32_t>(ib_address >> 32);
-  packet[4] = (1u << 23) | 7u;
+  packet[4] = (1u << 23) | word_count;
   packet[5] = 0xau;
   packet[14] = static_cast<uint32_t>(completion);
   packet[15] = static_cast<uint32_t>(completion >> 32);
   return packet;
+}
+
+// Routes the following complete PM4 body through virtual XCC 0. The positive
+// body count fits 14 bits and excludes this two-dword PRED_EXEC prefix.
+// Predication chooses the executor; native carrier completion still protects
+// the storage read by every participating XCC.
+inline std::array<uint32_t, 2> Gfx9VirtualXcc0(uint32_t body_word_count) {
+  return {0xc0002300u, 0x01000000u | body_word_count};
 }
 
 }  // namespace aql

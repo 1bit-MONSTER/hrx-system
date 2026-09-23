@@ -14,10 +14,18 @@ package(
 )
 
 amdf_cc_library(
+    name = "memory_commands",
+    testonly = True,
+    srcs = ["memory_commands.cc"],
+    hdrs = ["memory_commands.h"],
+)
+
+amdf_cc_library(
     name = "commands",
     testonly = True,
     srcs = ["commands.cc"],
     hdrs = ["commands.h"],
+    deps = [":memory_commands"],
 )
 
 amdf_cc_test(
@@ -25,6 +33,7 @@ amdf_cc_test(
     srcs = ["commands_test.cc"],
     deps = [
         ":commands",
+        ":memory_commands",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],

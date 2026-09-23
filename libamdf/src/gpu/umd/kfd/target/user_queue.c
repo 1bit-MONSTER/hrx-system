@@ -25,6 +25,11 @@ void amdf_gpu_kfd_target_user_queue_plans_initialize(
       topology->properties.gfx_ip.stepping <= 2 &&
       amdf_gpu_kfd_aql_queue_plan(topology, page_size, cache_line_size,
                                   &plan)) {
+    // Confirmed TC/L2 transfers use the format-1 virtual-XCC0 recipe.
+    // Earlier GFX9.4 targets retain compute and cache-control admission only.
+    if (topology->properties.gfx_ip.stepping == 2) {
+      plan.family.roles |= AMDF_QUEUE_ROLE_TRANSFER;
+    }
     plans.values[plans.count++] = plan;
   }
   // KFD uses the shared GFX11 compute MQD and CWSR layout across ASICs. Its

@@ -86,9 +86,6 @@ class Pm4CommandWriter {
   // Writes a known ordinary compute register interval relative to SH space.
   void SetComputeRegisters(uint32_t first_register, const uint32_t* values,
                            size_t value_count);
-  // Emits the shared memory-transfer form with count_sel equal to 0 or 1.
-  void CopyData(uint64_t source_address, uint64_t target_address,
-                uint32_t count_select);
   // Emits one type-3 NOP of at least two words, including its header.
   void Noop(size_t word_count);
 

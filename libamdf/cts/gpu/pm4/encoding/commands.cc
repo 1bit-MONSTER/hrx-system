@@ -8,6 +8,8 @@
 
 #include <cstring>
 
+#include "libamdf/cts/gpu/pm4/encoding/memory_commands.h"
+
 namespace {
 
 uint32_t MakeHeader(uint32_t opcode, size_t word_count) {
@@ -91,45 +93,20 @@ void Pm4CommandWriter::SystemBarrier() {
 
 void Pm4CommandWriter::CopyData32(uint64_t source_address,
                                   uint64_t target_address) {
-  CopyData(source_address, target_address, 0);
+  word_count_ += pm4::CopyData(words_ + word_count_, source_address,
+                               target_address, pm4::CopyDataWidth::k32Bit);
 }
 
 void Pm4CommandWriter::CopyData64(uint64_t source_address,
                                   uint64_t target_address) {
-  CopyData(source_address, target_address, 1);
-}
-
-void Pm4CommandWriter::CopyData(uint64_t source_address,
-                                uint64_t target_address,
-                                uint32_t count_select) {
-  enum : uint32_t {
-    kCopyDataOpcode = 0x40,
-    kSourceTcL2 = 2 << 0,
-    kTargetTcL2 = 2 << 8,
-    kWaitForConfirmation = 1 << 20,
-  };
-  words_[word_count_++] = MakeHeader(kCopyDataOpcode, 6);
-  words_[word_count_++] =
-      kSourceTcL2 | kTargetTcL2 | kWaitForConfirmation | (count_select << 16);
-  words_[word_count_++] = static_cast<uint32_t>(source_address);
-  words_[word_count_++] = static_cast<uint32_t>(source_address >> 32);
-  words_[word_count_++] = static_cast<uint32_t>(target_address);
-  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
+  word_count_ += pm4::CopyData(words_ + word_count_, source_address,
+                               target_address, pm4::CopyDataWidth::k64Bit);
 }
 
 void Pm4CommandWriter::WriteData(uint64_t target_address,
                                  const uint32_t* values, size_t value_count) {
-  enum : uint32_t {
-    kWriteDataOpcode = 0x37,
-    kTargetTcL2 = 2 << 8,
-    kWaitForConfirmation = 1 << 20,
-  };
-  words_[word_count_++] = MakeHeader(kWriteDataOpcode, 4 + value_count);
-  words_[word_count_++] = kTargetTcL2 | kWaitForConfirmation;
-  words_[word_count_++] = static_cast<uint32_t>(target_address);
-  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
-  std::memcpy(words_ + word_count_, values, value_count * sizeof(*values));
-  word_count_ += value_count;
+  word_count_ +=
+      pm4::WriteData(words_ + word_count_, target_address, values, value_count);
 }
 
 void Pm4CommandWriter::WriteData32(uint64_t target_address, uint32_t value) {

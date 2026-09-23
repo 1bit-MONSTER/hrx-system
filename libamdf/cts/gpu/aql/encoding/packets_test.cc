@@ -167,8 +167,10 @@ TEST(AqlEncodingTest, Gfx9CodeCacheInvalidateUsesBounded256ByteRange) {
 }
 
 TEST(AqlEncodingTest, Gfx9CodeCachePublicationOwnsIndirectBufferCompletion) {
-  const auto packet = aql::Gfx9CodeCachePublication(
-      UINT64_C(0x123498765400), UINT64_C(0x3456789aa9876500));
+  const auto packet = aql::Gfx9IndirectBuffer(
+      aql::HeaderBarrier::kDisabled, UINT64_C(0x123498765400), 7,
+      UINT64_C(0x3456789aa9876500),
+      {aql::FenceScope::kNone, aql::FenceScope::kNone});
   // ROCm 8d57824901ff AqlQueue::ExecutePM4: type0/format1; four-dword
   // INDIRECT_BUFFER opcode0x3f, 48-bit base, size7 and valid bit23; remaining
   // count0xa; eight reserved dwords; native completion signal at byte56.
@@ -177,6 +179,31 @@ TEST(AqlEncodingTest, Gfx9CodeCachePublicationOwnsIndirectBufferCompletion) {
                                 0x00000000, 0x00000000, 0x00000000, 0x00000000,
                                 0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
   EXPECT_EQ(packet, expected);
+}
+
+TEST(AqlEncodingTest, Gfx9DataCarrierOrdersSystemTransferCompletion) {
+  const auto packet = aql::Gfx9IndirectBuffer(
+      aql::HeaderBarrier::kEnabled, UINT64_C(0xabcd98765400), 14,
+      UINT64_C(0x3456789aa9876500),
+      {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
+  // ROCm 8d57824901ff ExecutePM4 and amd_gpu_pm4.h: a 14-DWORD IB
+  // carries VALID at bit 23, with an unshifted 48-bit address. HSA header
+  // barrier bit 8 and SYSTEM at bits 9/11 precede vendor format 1.
+  const aql::Packet expected = {0x00011500, 0xc0023f00, 0x98765400, 0x0000abcd,
+                                0x0080000e, 0x0000000a, 0x00000000, 0x00000000,
+                                0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                                0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
+  EXPECT_EQ(packet, expected);
+}
+
+TEST(AqlEncodingTest, Gfx9VirtualXcc0CountExcludesPredicatePrefix) {
+  // ROCm 8d57824901ff amd_gpu_pm4.h and Linux 50d05c7c76c9 soc15d.h:
+  // PRED_EXEC opcode 0x23, two DWORDs; 14-bit body count and virtual-XCC
+  // mask 1 at bit 24. These counts cover WRITE32/64 followed by COPY32/64.
+  const std::array<uint32_t, 2> expected32 = {0xc0002300, 0x0100000b};
+  const std::array<uint32_t, 2> expected64 = {0xc0002300, 0x0100000c};
+  EXPECT_EQ(aql::Gfx9VirtualXcc0(11), expected32);
+  EXPECT_EQ(aql::Gfx9VirtualXcc0(12), expected64);
 }
 
 }  // namespace
