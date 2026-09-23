@@ -12,8 +12,9 @@
 
 #include "amdf/gpu.h"
 
-// SDMA v1 linear copy and completion on coherent system memory. No implicit
-// GCR or HDP operations; those require their own admitted cache recipe.
+// SDMA v1 transfer and timestamp commands on coherent system memory. No
+// implicit GCR or HDP operations; those require their own admitted cache
+// recipe.
 class SdmaCommandWriter {
  public:
   SdmaCommandWriter(uint32_t* words, amdf_queue_format_features_t features)
@@ -22,6 +23,10 @@ class SdmaCommandWriter {
   void CopyLinear(uint64_t source, uint64_t target, uint32_t byte_length);
   // Writes a naturally aligned 32-bit coherent completion word after the copy.
   void Fence32(uint64_t address, uint32_t value);
+  // Writes the raw 64-bit global timestamp after earlier commands complete.
+  // Uses the unscoped packet and a 32-byte-aligned caller-owned destination.
+  // Clock conversion and timestamp-write completion are separate contracts.
+  void WriteGlobalTimestamp(uint64_t address);
   size_t word_count() const { return word_count_; }
 
  private:

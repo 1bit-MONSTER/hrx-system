@@ -32,3 +32,9 @@ void SdmaCommandWriter::Fence32(uint64_t address, uint32_t value) {
   words_[word_count_++] = static_cast<uint32_t>(address >> 32);
   words_[word_count_++] = value;
 }
+
+void SdmaCommandWriter::WriteGlobalTimestamp(uint64_t address) {
+  words_[word_count_++] = 13 | (2u << 8);
+  words_[word_count_++] = static_cast<uint32_t>(address);
+  words_[word_count_++] = static_cast<uint32_t>(address >> 32);
+}
