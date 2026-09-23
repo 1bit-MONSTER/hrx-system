@@ -89,16 +89,18 @@ void GpuCommandTest::CreateMemory(amdf_memory_scope_t* scope,
 }
 
 void GpuCommandTest::CreateQueue(GpuUserQueue** out_queue,
-                                 amdf_queue_producer_mode_t producer_mode) {
-  CreateQueue(family_, out_queue, producer_mode);
+                                 amdf_queue_producer_mode_t producer_mode,
+                                 const amdf_gpu_queue_scratch_t& scratch) {
+  CreateQueue(family_, out_queue, producer_mode, scratch);
 }
 
 void GpuCommandTest::CreateQueue(const amdf_queue_family_info_t& family,
                                  GpuUserQueue** out_queue,
-                                 amdf_queue_producer_mode_t producer_mode) {
+                                 amdf_queue_producer_mode_t producer_mode,
+                                 const amdf_gpu_queue_scratch_t& scratch) {
   auto& queue = queues_.emplace_back();
-  ASSERT_NO_FATAL_FAILURE(
-      queue.Initialize(api_, gpu_api_, device_, family, producer_mode));
+  ASSERT_NO_FATAL_FAILURE(queue.Initialize(api_, gpu_api_, device_, family,
+                                           producer_mode, scratch));
   *out_queue = &queue;
 }
 

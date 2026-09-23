@@ -28,6 +28,7 @@ amdf_cts_test_suite(
     srcs = [
         "barrier_test.cc",
         "dispatch_test.cc",
+        "private_test.cc",
         "publication_test.cc",
     ],
     target_compatible_with = ["@platforms//cpu:x86_64"] + select({
@@ -39,6 +40,8 @@ amdf_cts_test_suite(
     deps = [
         ":dispatch_fixture",
         ":queue_fixture",
+        "//libamdf/cts/gpu/kernels:private_roundtrip_gfx942",
+        "//libamdf/cts/gpu/kernels:transform_gfx942",
         "//third_party:google_test",
     ],
 )
@@ -55,6 +58,6 @@ amdf_cc_library(
     }),
     deps = [
         ":queue_fixture",
-        "//libamdf/cts/gpu/kernels:transform_gfx942",
+        "//libamdf/cts/gpu/kernels:image",
     ],
 )

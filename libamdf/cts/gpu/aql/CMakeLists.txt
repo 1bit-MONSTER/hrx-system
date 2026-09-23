@@ -31,12 +31,15 @@ iree_cc_library(
   SRCS
     "barrier_test.cc"
     "dispatch_test.cc"
+    "private_test.cc"
     "publication_test.cc"
   DEPS
     ::dispatch_fixture
     ::queue_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::private_roundtrip_gfx942
+    libamdf::cts::gpu::kernels::transform_gfx942
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -111,7 +114,7 @@ iree_cc_library(
   DEPS
     ::queue_fixture
     amdf::headers
-    libamdf::cts::gpu::kernels::transform_gfx942
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )

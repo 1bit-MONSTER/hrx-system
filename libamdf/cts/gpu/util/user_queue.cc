@@ -12,7 +12,8 @@ void GpuUserQueue::Initialize(const amdf_api_t* api,
                               const amdf_gpu_api_t* gpu_api,
                               amdf_device_t* device,
                               const amdf_queue_family_info_t& family,
-                              amdf_queue_producer_mode_t producer_mode) {
+                              amdf_queue_producer_mode_t producer_mode,
+                              const amdf_gpu_queue_scratch_t& scratch) {
   amdf_gpu_user_queue_create_info_t create = {};
   create.type = AMDF_STRUCTURE_TYPE_GPU_USER_QUEUE_CREATE_INFO;
   create.structure_size = sizeof(create);
@@ -20,6 +21,7 @@ void GpuUserQueue::Initialize(const amdf_api_t* api,
   create.priority = AMDF_QUEUE_PRIORITY_NORMAL;
   create.producer_mode = producer_mode;
   create.required_capabilities = AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER;
+  create.scratch = scratch;
   ASSERT_EQ(gpu_api->user_queue_create(device, &create, &queue),
             AMDF_STATUS_OK);
   info.type = AMDF_STRUCTURE_TYPE_USER_QUEUE_INFO;

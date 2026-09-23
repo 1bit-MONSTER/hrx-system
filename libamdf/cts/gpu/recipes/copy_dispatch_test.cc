@@ -11,6 +11,7 @@
 #include <string>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
+#include "libamdf/cts/gpu/kernels/transform.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 
 namespace {
@@ -467,8 +468,8 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   uint64_t aql_index = 0;
   uint64_t sdma_index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(
-      PublishKernel(*aql_queue, &aql_index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel::kExecutable,
+                                        &aql_index, &descriptor_address));
 
   auto* sdma_ring = reinterpret_cast<uint8_t*>(sdma_queue->host.ring_address);
   std::array<uint32_t, kMaximumWordCount> expected_source;
@@ -520,7 +521,7 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
       // policy. Poison readback too so the download must actually copy them.
       readback_words[position] = expected_readback[position] ^ 0xa5a5a5a5u;
     }
-    const Arguments payload = {
+    const kernel::Arguments payload = {
         buffers.input->device_address + buffers.payload_byte_offset,
         buffers.output->device_address + buffers.payload_byte_offset,
         count,
@@ -840,8 +841,8 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   uint64_t aql_index = 0;
   uint64_t sdma_index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(
-      PublishKernel(*aql_queue, &aql_index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel::kExecutable,
+                                        &aql_index, &descriptor_address));
 
   auto* sdma_ring = reinterpret_cast<uint8_t*>(sdma_queue->host.ring_address);
   std::array<uint32_t, kMaximumWordCount> expected_input;
@@ -889,7 +890,7 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
       readback_words[i] = ~expected_output[i];
       input_readback_words[i] = ~expected_input[i];
     }
-    const Arguments payload = {
+    const kernel::Arguments payload = {
         buffers.input->device_address + buffers.payload_byte_offset,
         buffers.output->device_address + buffers.payload_byte_offset,
         count,

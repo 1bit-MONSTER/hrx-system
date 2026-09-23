@@ -47,7 +47,8 @@ struct GpuUserQueue {
   GpuUserQueue& operator=(const GpuUserQueue&) = delete;
   void Initialize(const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
                   amdf_device_t* device, const amdf_queue_family_info_t& family,
-                  amdf_queue_producer_mode_t producer_mode);
+                  amdf_queue_producer_mode_t producer_mode,
+                  const amdf_gpu_queue_scratch_t& scratch);
   bool Release(const amdf_api_t* api);
 
   // Publishes an already-written PM4/SDMA stream, with the engine's index

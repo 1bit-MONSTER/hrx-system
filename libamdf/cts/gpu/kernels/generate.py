@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Regenerates the fixed gfx942 CTS image with its pinned offline compiler."""
+"""Regenerates fixed gfx942 CTS images with their pinned offline compiler."""
 
 import argparse
 import hashlib
@@ -31,6 +31,29 @@ COMPILE_FLAGS = [
 ]
 LINK_FLAGS = ["-shared", "--no-undefined", "--build-id=none", "--no-rosegment"]
 EXTRACT_FLAGS = ["--only-section=.rodata", "--only-section=.text", "-O", "binary"]
+FIXTURES = {
+    "transform": {
+        "symbol": "aql_transform",
+        "private_byte_length": 0,
+        "kernarg_byte_length": 24,
+        "arguments": [
+            ("0", "8", "global_buffer"),
+            ("8", "8", "global_buffer"),
+            ("16", "4", "by_value"),
+            ("20", "4", "by_value"),
+        ],
+    },
+    "private_roundtrip": {
+        "symbol": "private_roundtrip",
+        "private_byte_length": 40,
+        "kernarg_byte_length": 16,
+        "arguments": [
+            ("0", "8", "global_buffer"),
+            ("8", "4", "by_value"),
+            ("12", "4", "by_value"),
+        ],
+    },
+}
 COPYRIGHT = """// Copyright 2026 The IREE Authors
 //
 // Licensed under the Apache License v2.0 with LLVM Exceptions.
@@ -44,8 +67,8 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def inspect_image(elf, image, notes):
-    # This parser inspects our one compiler-produced fixture during generation.
+def inspect_image(elf, image, notes, fixture):
+    # This parser inspects fixed compiler-produced fixtures during generation.
     # It is not linked into the CTS or a production code-object loader.
     header = struct.unpack_from("<16sHHIQQQIHHHHHH", elf)
     require(header[0][:9] == b"\x7fELF\x02\x01\x01\x40\x03", "expected HSA V5 ELF64")
@@ -81,12 +104,13 @@ def inspect_image(elf, image, notes):
         if name:
             require(symbol[3] != 0, f"undefined symbol: {name}")
             symbols[name] = symbol
+    symbol_name = fixture["symbol"]
     require(
-        set(symbols) == {"aql_transform", "aql_transform.kd"},
+        set(symbols) == {symbol_name, symbol_name + ".kd"},
         "unexpected exported symbols",
     )
-    descriptor_symbol = symbols["aql_transform.kd"]
-    entry_symbol = symbols["aql_transform"]
+    descriptor_symbol = symbols[symbol_name + ".kd"]
+    entry_symbol = symbols[symbol_name]
     descriptor_section = by_name[".rodata"]
     text_section = by_name[".text"]
     require(
@@ -100,7 +124,10 @@ def inspect_image(elf, image, notes):
     )
     image_base = descriptor_section[3]
     entry_offset = text_section[3] - image_base
-    require(image_base % 256 == 0 and entry_offset % 256 == 0, "entry alignment")
+    require(
+        image_base % 64 == 0 and text_section[3] % 256 == 0,
+        "descriptor/entry alignment",
+    )
     require(entry_offset >= 64, "overlapping descriptor and text")
     expected_image = bytearray(entry_offset + text_section[5])
     for section in (descriptor_section, text_section):
@@ -109,7 +136,11 @@ def inspect_image(elf, image, notes):
             section[4] : section[4] + section[5]
         ]
     require(image == expected_image, "extraction changed descriptor/text layout")
-    require(struct.unpack_from("<III", image) == (0, 0, 24), "segment requirements")
+    require(
+        struct.unpack_from("<III", image)
+        == (0, fixture["private_byte_length"], fixture["kernarg_byte_length"]),
+        "segment requirements",
+    )
     require(struct.unpack_from("<q", image, 16)[0] == entry_offset, "entry offset")
     require(image[12:16] == bytes(4), "descriptor reserved0")
     require(image[24:44] == bytes(20), "descriptor reserved1")
@@ -120,13 +151,7 @@ def inspect_image(elf, image, notes):
         r"\.offset:\s+(\d+)\s+\.size:\s+(\d+)\s+\.value_kind:\s+(\w+)", notes
     )
     require(
-        arguments
-        == [
-            ("0", "8", "global_buffer"),
-            ("8", "8", "global_buffer"),
-            ("16", "4", "by_value"),
-            ("20", "4", "by_value"),
-        ],
+        arguments == fixture["arguments"],
         "unexpected kernel argument metadata",
     )
 
@@ -137,8 +162,8 @@ def inspect_image(elf, image, notes):
 
     expected_metadata = {
         "group_segment_fixed_size": "0",
-        "private_segment_fixed_size": "0",
-        "kernarg_segment_size": "24",
+        "private_segment_fixed_size": str(fixture["private_byte_length"]),
+        "kernarg_segment_size": str(fixture["kernarg_byte_length"]),
         "kernarg_segment_align": "8",
         "max_flat_workgroup_size": "64",
         "wavefront_size": "64",
@@ -148,14 +173,18 @@ def inspect_image(elf, image, notes):
     }
     for name, expected in expected_metadata.items():
         require(metadata_value(name) == expected, f"unexpected {name}")
-    return {
-        "descriptor_byte_offset": 0,
-        "entry_byte_offset": entry_offset,
+    # Retain the linked address phase at a 256-byte-aligned allocation base.
+    # The descriptor itself is only 64-byte aligned; its relative entry offset
+    # remains unchanged. Prefix bytes are placement padding, not relocations.
+    descriptor_offset = image_base % 256
+    metadata = {
+        "descriptor_byte_offset": descriptor_offset,
+        "entry_byte_offset": descriptor_offset + entry_offset,
         "entry_byte_length": entry_symbol[5],
         "text_byte_length": text_section[5],
         "group_segment_byte_length": 0,
-        "private_segment_byte_length": 0,
-        "kernarg_byte_length": 24,
+        "private_segment_byte_length": fixture["private_byte_length"],
+        "kernarg_byte_length": fixture["kernarg_byte_length"],
         "kernarg_metadata_alignment": 8,
         "kernarg_allocation_alignment": 16,
         "workgroup_size": 64,
@@ -169,10 +198,11 @@ def inspect_image(elf, image, notes):
         "kernel_code_properties": 8,
         "kernarg_preload": 0,
         "relocations": [],
-    }, entry_symbol[4]
+    }
+    return bytes(descriptor_offset) + image, metadata, entry_symbol[4]
 
 
-def render_header(image, metadata):
+def render_header(name, image, metadata):
     words = struct.unpack(f"<{len(image) // 4}I", image)
     rows = [
         "    " + ", ".join(f"0x{word:08x}u" for word in words[index : index + 5]) + ","
@@ -181,36 +211,116 @@ def render_header(image, metadata):
     return (
         COPYRIGHT
         + f"""
-// Generated by generate.py; source/compiler identity is in
-// transform_gfx942.json. The image is little-endian and includes the unchanged
-// descriptor and code.
+// Generated by generate.py; see {name}_gfx942.json.
+// Compiler descriptor and code remain paired in this little-endian image.
 
-#ifndef AMDF_CTS_GPU_KERNELS_TRANSFORM_GFX942_H_
-#define AMDF_CTS_GPU_KERNELS_TRANSFORM_GFX942_H_
+#ifndef AMDF_CTS_GPU_KERNELS_{name.upper()}_GFX942_H_
+#define AMDF_CTS_GPU_KERNELS_{name.upper()}_GFX942_H_
 
 #include <array>
 #include <cstdint>
 
-namespace kernels::gfx942_transform {{
+#include "libamdf/cts/gpu/kernels/image.h"
+
+namespace kernels::gfx942_{name} {{
 
 inline constexpr char kImageSha256[] =
     "{hashlib.sha256(image).hexdigest()}";
-inline constexpr uint32_t kDescriptorByteOffset = 0;
+inline constexpr uint32_t kDescriptorByteOffset = {metadata["descriptor_byte_offset"]};
 inline constexpr uint32_t kEntryByteOffset = {metadata["entry_byte_offset"]};
-inline constexpr uint32_t kKernargByteLength = 24;
+inline constexpr uint32_t kKernargByteLength = {metadata["kernarg_byte_length"]};
 inline constexpr uint32_t kKernargAlignment = 16;
 inline constexpr uint32_t kGroupSegmentByteLength = 0;
-inline constexpr uint32_t kPrivateSegmentByteLength = 0;
+inline constexpr uint32_t kPrivateSegmentByteLength = {metadata["private_segment_byte_length"]};
 inline constexpr uint16_t kWorkgroupSize = 64;
 
 alignas(256) inline constexpr std::array<uint32_t, {len(words)}> kImage = {{
 {chr(10).join(rows)}
 }};
 
-}}  // namespace kernels::gfx942_transform
+inline constexpr Image kExecutable = {{
+    kImage.data(),
+    sizeof(kImage),
+    kDescriptorByteOffset,
+    kImageSha256,
+}};
 
-#endif  // AMDF_CTS_GPU_KERNELS_TRANSFORM_GFX942_H_
+}}  // namespace kernels::gfx942_{name}
+
+#endif  // AMDF_CTS_GPU_KERNELS_{name.upper()}_GFX942_H_
 """
+    )
+
+
+def generate_fixture(name, fixture, source_dir, compiler, linker, run, check):
+    with tempfile.TemporaryDirectory(prefix="amdf-gfx942-fixture-") as temporary:
+        work = Path(temporary)
+        run(
+            "clang",
+            [
+                *COMPILE_FLAGS,
+                "-c",
+                str(source_dir / f"{name}.c"),
+                "-o",
+                f"{name}.o",
+            ],
+            work,
+        )
+        run("ld.lld", [*LINK_FLAGS, f"{name}.o", "-o", f"{name}.hsaco"], work)
+        run("llvm-objcopy", [*EXTRACT_FLAGS, f"{name}.hsaco", f"{name}.bin"], work)
+        elf = (work / f"{name}.hsaco").read_bytes()
+        image = (work / f"{name}.bin").read_bytes()
+        notes = run("llvm-readelf", ["--notes", f"{name}.hsaco"], work)
+        image, metadata, entry_address = inspect_image(elf, image, notes, fixture)
+        disassembly = run(
+            "llvm-objdump",
+            [
+                "--disassemble",
+                "--mcpu=gfx942",
+                f"--start-address={entry_address}",
+                f"--stop-address={entry_address + metadata['entry_byte_length']}",
+                f"{name}.hsaco",
+            ],
+            work,
+        )
+    record = {
+        "source": f"{name}.c",
+        "source_sha256": hashlib.sha256(
+            (source_dir / f"{name}.c").read_bytes()
+        ).hexdigest(),
+        "llvm_revision": LLVM_REVISION,
+        "compiler": compiler,
+        "linker": linker,
+        "compile_flags": COMPILE_FLAGS,
+        "link_flags": LINK_FLAGS,
+        "extract_flags": EXTRACT_FLAGS,
+        "target": "gfx942",
+        "xnack": "any",
+        "sramecc": "any",
+        "code_object_version": 5,
+        "elf_sha256": hashlib.sha256(elf).hexdigest(),
+        "image_sha256": hashlib.sha256(image).hexdigest(),
+        "image_byte_length": len(image),
+        "kernel": metadata,
+        "compiler_metadata": notes.strip(),
+        "disassembly": disassembly.strip(),
+    }
+    outputs = {
+        f"{name}_gfx942.h": render_header(name, image, metadata),
+        f"{name}_gfx942.json": json.dumps(record, indent=2) + "\n",
+    }
+    for output_name, text in outputs.items():
+        path = source_dir / output_name
+        if check:
+            require(
+                path.read_text() == text,
+                f"{output_name} differs; regenerate with generate.py",
+            )
+        else:
+            path.write_text(text)
+    print(
+        f"{'Verified' if check else 'Generated'} {name} gfx942 image: "
+        f"{len(image)} bytes, {record['image_sha256']}"
     )
 
 
@@ -238,73 +348,8 @@ def main():
     require(
         LLVM_REVISION in compiler and LLVM_REVISION in linker, "LLVM revision mismatch"
     )
-    with tempfile.TemporaryDirectory(prefix="amdf-gfx942-fixture-") as temporary:
-        work = Path(temporary)
-        run(
-            "clang",
-            [
-                *COMPILE_FLAGS,
-                "-c",
-                str(source_dir / "transform.c"),
-                "-o",
-                "transform.o",
-            ],
-            work,
-        )
-        run("ld.lld", [*LINK_FLAGS, "transform.o", "-o", "transform.hsaco"], work)
-        run("llvm-objcopy", [*EXTRACT_FLAGS, "transform.hsaco", "transform.bin"], work)
-        elf = (work / "transform.hsaco").read_bytes()
-        image = (work / "transform.bin").read_bytes()
-        notes = run("llvm-readelf", ["--notes", "transform.hsaco"], work)
-        metadata, entry_address = inspect_image(elf, image, notes)
-        disassembly = run(
-            "llvm-objdump",
-            [
-                "--disassemble",
-                "--mcpu=gfx942",
-                f"--start-address={entry_address}",
-                f"--stop-address={entry_address + metadata['entry_byte_length']}",
-                "transform.hsaco",
-            ],
-            work,
-        )
-    record = {
-        "source": "transform.c",
-        "source_sha256": hashlib.sha256(
-            (source_dir / "transform.c").read_bytes()
-        ).hexdigest(),
-        "llvm_revision": LLVM_REVISION,
-        "compiler": compiler,
-        "linker": linker,
-        "compile_flags": COMPILE_FLAGS,
-        "link_flags": LINK_FLAGS,
-        "extract_flags": EXTRACT_FLAGS,
-        "target": "gfx942",
-        "xnack": "any",
-        "sramecc": "any",
-        "code_object_version": 5,
-        "elf_sha256": hashlib.sha256(elf).hexdigest(),
-        "image_sha256": hashlib.sha256(image).hexdigest(),
-        "image_byte_length": len(image),
-        "kernel": metadata,
-        "compiler_metadata": notes.strip(),
-        "disassembly": disassembly.strip(),
-    }
-    outputs = {
-        "transform_gfx942.h": render_header(image, metadata),
-        "transform_gfx942.json": json.dumps(record, indent=2) + "\n",
-    }
-    for name, text in outputs.items():
-        path = source_dir / name
-        if args.check:
-            require(
-                path.read_text() == text, f"{name} differs; regenerate with generate.py"
-            )
-        else:
-            path.write_text(text)
-    print(
-        f"{'Verified' if args.check else 'Generated'} gfx942 image: {len(image)} bytes, {record['image_sha256']}"
-    )
+    for name, fixture in FIXTURES.items():
+        generate_fixture(name, fixture, source_dir, compiler, linker, run, args.check)
 
 
 if __name__ == "__main__":

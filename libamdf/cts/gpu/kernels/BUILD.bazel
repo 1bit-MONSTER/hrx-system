@@ -14,12 +14,31 @@ package(
 exports_files([
     "README.md",
     "generate.py",
+    "private_roundtrip.c",
+    "private_roundtrip_gfx942.json",
     "transform.c",
     "transform_gfx942.json",
 ])
 
 amdf_cc_library(
+    name = "image",
+    testonly = True,
+    hdrs = ["image.h"],
+)
+
+amdf_cc_library(
     name = "transform_gfx942",
     testonly = True,
-    hdrs = ["transform_gfx942.h"],
+    hdrs = [
+        "transform.h",
+        "transform_gfx942.h",
+    ],
+    deps = [":image"],
+)
+
+amdf_cc_library(
+    name = "private_roundtrip_gfx942",
+    testonly = True,
+    hdrs = ["private_roundtrip_gfx942.h"],
+    deps = [":image"],
 )

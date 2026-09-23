@@ -12,10 +12,39 @@ iree_add_all_subdirs()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    image
+  HDRS
+    "image.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     transform_gfx942
   HDRS
+    "transform.h"
     "transform_gfx942.h"
   DEPS
+    ::image
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    private_roundtrip_gfx942
+  HDRS
+    "private_roundtrip_gfx942.h"
+  DEPS
+    ::image
     amdf::headers
   TESTONLY
   PUBLIC

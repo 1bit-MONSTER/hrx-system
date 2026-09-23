@@ -56,11 +56,13 @@ class GpuCommandTest : public GpuDeviceFixture {
                     GpuMemory** out_memory);
   void CreateQueue(GpuUserQueue** out_queue,
                    amdf_queue_producer_mode_t producer_mode =
-                       AMDF_QUEUE_PRODUCER_MODE_SINGLE);
+                       AMDF_QUEUE_PRODUCER_MODE_SINGLE,
+                   const amdf_gpu_queue_scratch_t& scratch = {});
   void CreateQueue(const amdf_queue_family_info_t& family,
                    GpuUserQueue** out_queue,
                    amdf_queue_producer_mode_t producer_mode =
-                       AMDF_QUEUE_PRODUCER_MODE_SINGLE);
+                       AMDF_QUEUE_PRODUCER_MODE_SINGLE,
+                   const amdf_gpu_queue_scratch_t& scratch = {});
 
   // Exact family chosen passively before borrowing the cached native device.
   amdf_queue_family_info_t family_ = {};

@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
+#include "libamdf/cts/gpu/kernels/transform.h"
 
 namespace {
 
@@ -42,7 +43,8 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(
+      PublishKernel(*queue, kernel::kExecutable, &index, &descriptor_address));
 
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     std::array<uint32_t, kWordCount> upload;
@@ -65,7 +67,7 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     }
     std::memcpy(input->host.pointer, upload.data(), sizeof(upload));
     std::memcpy(output->host.pointer, download.data(), sizeof(download));
-    const Arguments payload = {
+    const kernel::Arguments payload = {
         input->device_address + kPayloadOffset * sizeof(uint32_t),
         output->device_address + kPayloadOffset * sizeof(uint32_t),
         kCounts[epoch],
