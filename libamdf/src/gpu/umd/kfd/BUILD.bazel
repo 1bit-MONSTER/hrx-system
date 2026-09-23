@@ -219,6 +219,7 @@ amdf_cc_library(
     deps = [
         ":topology",
         "//libamdf/src:memory_profile",
+        "//libamdf/src/gpu/umd:memory",
         "//libamdf/src/platform/linux:dma_buf",
     ],
 )
@@ -248,6 +249,7 @@ amdf_cc_test(
     deps = [
         ":device_state",
         ":memory",
+        ":memory_profile",
         "//libamdf/src/gpu/umd:memory",
         "//third_party:google_test",
         "//third_party:google_test_main",

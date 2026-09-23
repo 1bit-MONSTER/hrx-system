@@ -17,7 +17,7 @@ amdf_cc_library(
     testonly = True,
     srcs = ["memory.cc"],
     hdrs = ["memory.h"],
-    deps = ["//libamdf/cts/gpu:gpu_device_fixture"],
+    deps = ["//third_party:google_test"],
 )
 
 amdf_cc_library(

@@ -68,10 +68,23 @@ TEST(AqlEncodingTest, BarrierAndAllowsNullDependenciesAndCompletion) {
   EXPECT_EQ(packet, expected);
 }
 
+TEST(AqlEncodingTest, DependencyBarrierHasNoAdditionalCacheScopes) {
+  const auto packet =
+      aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled, 0,
+                   {UINT64_C(0x2345678998765400)},
+                   {aql::FenceScope::kNone, aql::FenceScope::kNone});
+  // HSA System Architecture 1.2 table 2-4 encodes NONE as zero. The AND
+  // dependency still blocks subsequent packet launches until satisfied.
+  const aql::Packet expected = {0x0003, 0, 0x98765400, 0x23456789, 0, 0, 0, 0,
+                                0,      0, 0,          0,          0, 0, 0, 0};
+  EXPECT_EQ(packet, expected);
+}
+
 TEST(AqlEncodingTest, DispatchEncodesGeometryResourcesAndSystemScopes) {
   const auto packet = aql::Dispatch1D(
       64, 1024, 68, 128, UINT64_C(0x1234567887654300),
-      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
+      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500),
+      {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
   // ROCm 8d57824901ff hsa.h, hsa_kernel_dispatch_packet_t: dimensions at
   // setup bit 0, workgroup XYZ at bytes 4/6/8, grid XYZ at 12/16/20,
   // private/group bytes at 24/28, descriptor/kernarg/signal at 32/40/56.

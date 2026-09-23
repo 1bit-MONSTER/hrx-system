@@ -278,6 +278,7 @@ iree_cc_library(
   DEPS
     ::topology
     amdf::headers
+    libamdf::src::gpu::umd::memory
     libamdf::src::memory_profile
     libamdf::src::platform::linux::dma_buf
   PUBLIC
@@ -315,6 +316,7 @@ iree_cc_test(
   DEPS
     ::device_state
     ::memory
+    ::memory_profile
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main

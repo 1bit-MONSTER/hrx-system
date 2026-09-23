@@ -50,6 +50,9 @@ class GpuCommandTest : public GpuDeviceFixture {
   void TearDown() override;
   void CreateMemory(amdf_memory_access_t access, uint64_t byte_length,
                     GpuMemory** out_memory);
+  // Uses the exact profile and access inputs already queried by the caller.
+  void CreateMemory(const amdf_memory_create_info_t& create_info,
+                    GpuMemory** out_memory);
   void CreateQueue(GpuUserQueue** out_queue,
                    amdf_queue_producer_mode_t producer_mode =
                        AMDF_QUEUE_PRODUCER_MODE_SINGLE);

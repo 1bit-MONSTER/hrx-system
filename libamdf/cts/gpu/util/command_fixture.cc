@@ -58,9 +58,32 @@ amdf_status_t GpuCommandTest::FindQueueFamily(
 void GpuCommandTest::CreateMemory(amdf_memory_access_t access,
                                   uint64_t byte_length,
                                   GpuMemory** out_memory) {
+  const amdf_memory_device_access_t attachment = {
+      device_,
+      {.access = access,
+       .flags =
+           AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS}};
+  amdf_memory_create_info_t creation = {};
+  creation.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
+  creation.structure_size = sizeof(creation);
+  creation.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+  creation.memory_profile_ordinal = FindGpuMemoryProfileOrdinal(
+      api_, system_scope_, device_,
+      AMDF_MEMORY_PROFILE_ROLE_CREATE | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP,
+      creation.required_flags, attachment.requirements);
+  ASSERT_NE(creation.memory_profile_ordinal,
+            AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN);
+  creation.access_count = 1;
+  creation.accesses = &attachment;
+  creation.byte_length = byte_length;
+  creation.minimum_alignment = 4096;
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(creation, out_memory));
+}
+
+void GpuCommandTest::CreateMemory(const amdf_memory_create_info_t& create_info,
+                                  GpuMemory** out_memory) {
   auto& memory = memories_.emplace_back();
-  ASSERT_NO_FATAL_FAILURE(
-      memory.Initialize(api_, system_scope_, device_, access, byte_length));
+  ASSERT_NO_FATAL_FAILURE(memory.Initialize(api_, system_scope_, create_info));
   *out_memory = &memory;
 }
 

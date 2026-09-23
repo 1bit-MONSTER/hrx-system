@@ -192,7 +192,6 @@ amdf_status_t amdf_gpu_umd_device_query_memory_profile(
       &device->topology, device->page_size, device->native_lifetime,
       memory_profile_ordinal, out_profile);
   if (amdf_status_is_ok(status)) {
-    out_profile->visibility.describe_site = amdf_gpu_umd_memory_describe_site;
     out_profile->visibility.describe_host = amdf_gpu_umd_memory_describe_host;
     out_profile->visibility.data = device;
   }

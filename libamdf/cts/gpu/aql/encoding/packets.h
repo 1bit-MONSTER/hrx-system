@@ -37,14 +37,29 @@ enum class HeaderBarrier : uint32_t {
   kEnabled = 1u << 8,
 };
 
-// Standard barrier with system acquire/release scopes. A zero dependency
+enum class FenceScope : uint32_t {
+  kNone = 0,
+  kAgent = 1,
+  kSystem = 2,
+};
+
+struct FenceScopes {
+  // Acquire fence at the packet type's specified phase.
+  FenceScope acquire = FenceScope::kSystem;
+  // Visibility established before completion publication.
+  FenceScope release = FenceScope::kSystem;
+};
+
+// Standard barrier with explicit acquire/release scopes. A zero dependency
 // address satisfies AND and does not satisfy OR; it is not a signal value.
 inline Packet Barrier(BarrierType type, HeaderBarrier barrier,
                       uint64_t completion,
-                      const std::array<uint64_t, 5>& dependencies = {}) {
+                      const std::array<uint64_t, 5>& dependencies = {},
+                      FenceScopes scopes = {}) {
   Packet packet = {};
   packet[0] = static_cast<uint32_t>(type) | static_cast<uint32_t>(barrier) |
-              (2u << 9) | (2u << 11);
+              (static_cast<uint32_t>(scopes.acquire) << 9) |
+              (static_cast<uint32_t>(scopes.release) << 11);
   for (uint32_t i = 0; i < dependencies.size(); ++i) {
     packet[2 + i * 2] = static_cast<uint32_t>(dependencies[i]);
     packet[3 + i * 2] = static_cast<uint32_t>(dependencies[i] >> 32);
@@ -54,15 +69,16 @@ inline Packet Barrier(BarrierType type, HeaderBarrier barrier,
   return packet;
 }
 
-// One-dimensional dispatch with system acquire/release scopes and no implicit
+// One-dimensional dispatch with explicit acquire/release scopes and no implicit
 // dependency on earlier packets. Resource sizes come from the paired artifact.
 inline Packet Dispatch1D(uint16_t workgroup_size, uint32_t grid_size,
                          uint32_t private_segment_byte_length,
                          uint32_t group_segment_byte_length,
                          uint64_t kernel_descriptor, uint64_t kernarg,
-                         uint64_t completion) {
+                         uint64_t completion, FenceScopes scopes = {}) {
   Packet packet = {};
-  packet[0] = 2u | (2u << 9) | (2u << 11) | (1u << 16);
+  packet[0] = 2u | (static_cast<uint32_t>(scopes.acquire) << 9) |
+              (static_cast<uint32_t>(scopes.release) << 11) | (1u << 16);
   packet[1] = workgroup_size | (1u << 16);
   packet[2] = 1;
   packet[3] = grid_size;

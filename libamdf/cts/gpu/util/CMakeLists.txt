@@ -19,7 +19,7 @@ iree_cc_library(
     "memory.cc"
   DEPS
     amdf::headers
-    libamdf::cts::gpu::gpu_device_fixture
+    iree::third_party::google_test
   TESTONLY
   PUBLIC
 )

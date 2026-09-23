@@ -16,9 +16,9 @@ struct GpuMemory {
   GpuMemory() = default;
   GpuMemory(const GpuMemory&) = delete;
   GpuMemory& operator=(const GpuMemory&) = delete;
+  // Constructs the exact selected single-consumer SYSTEM contract.
   void Initialize(const amdf_api_t* api, amdf_memory_scope_t* scope,
-                  amdf_device_t* device, amdf_memory_access_t access,
-                  uint64_t byte_length);
+                  const amdf_memory_create_info_t& create_info);
   bool Release(const amdf_api_t* api);
 
   amdf_memory_site_t HostSite() const;
