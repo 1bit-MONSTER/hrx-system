@@ -1,0 +1,61 @@
+{
+  "source": "lds_exchange.c",
+  "source_sha256": "fc5abf9f97da1b7a14810f2cc55996ce6a6605b6806331302e74c64df56376e2",
+  "llvm_revision": "6dfe1677ab8dffbc6ec13d53a1e0215d75147689",
+  "compiler": "clang version 23.1.1 (https://github.com/llvm/llvm-project 6dfe1677ab8dffbc6ec13d53a1e0215d75147689)",
+  "linker": "LLD 23.1.1 (https://github.com/llvm/llvm-project 6dfe1677ab8dffbc6ec13d53a1e0215d75147689) (compatible with GNU linkers)",
+  "compile_flags": [
+    "--target=amdgcn-amd-amdhsa",
+    "-mcpu=gfx942",
+    "-mcode-object-version=5",
+    "-mllvm",
+    "-amdgpu-kernarg-preload=false",
+    "-nogpulib",
+    "-std=c23",
+    "-O2",
+    "-fno-ident"
+  ],
+  "link_flags": [
+    "-shared",
+    "--no-undefined",
+    "--build-id=none",
+    "--no-rosegment"
+  ],
+  "extract_flags": [
+    "--only-section=.rodata",
+    "--only-section=.text",
+    "-O",
+    "binary"
+  ],
+  "target": "gfx942",
+  "xnack": "any",
+  "sramecc": "any",
+  "code_object_version": 5,
+  "elf_sha256": "b6d8e4070185a97027577ec976577e4c4305495dc6d513c9e66a8e807cb66aac",
+  "image_sha256": "0321f54caf1355280598d8cd876d5e1411b58f09ed88e5b9879d76f925ca166d",
+  "image_byte_length": 1600,
+  "kernel": {
+    "descriptor_byte_offset": 0,
+    "entry_byte_offset": 256,
+    "entry_byte_length": 308,
+    "text_byte_length": 1344,
+    "group_segment_byte_length": 512,
+    "private_segment_byte_length": 0,
+    "kernarg_byte_length": 20,
+    "kernarg_metadata_alignment": 8,
+    "kernarg_allocation_alignment": 16,
+    "workgroup_size": 128,
+    "wavefront_size": 64,
+    "sgpr_count": 17,
+    "vgpr_count": 5,
+    "agpr_count": 0,
+    "compute_pgm_rsrc3": 1,
+    "compute_pgm_rsrc1": 11468928,
+    "compute_pgm_rsrc2": 132,
+    "kernel_code_properties": 8,
+    "kernarg_preload": 0,
+    "relocations": []
+  },
+  "compiler_metadata": "Displaying notes found in: .note\n  Owner                Data size \tDescription\n  AMDGPU               0x00000263\tNT_AMDGPU_METADATA (AMDGPU Metadata)\n    AMDGPU Metadata:\n        ---\namdhsa.kernels:\n  - .agpr_count:     0\n    .args:\n      - .address_space:  global\n        .offset:         0\n        .size:           8\n        .value_kind:     global_buffer\n      - .address_space:  local\n        .offset:         8\n        .pointee_align:  1\n        .size:           4\n        .value_kind:     dynamic_shared_pointer\n      - .offset:         12\n        .size:           4\n        .value_kind:     by_value\n      - .offset:         16\n        .size:           4\n        .value_kind:     by_value\n    .group_segment_fixed_size: 512\n    .kernarg_segment_align: 8\n    .kernarg_segment_size: 20\n    .max_flat_workgroup_size: 128\n    .name:           lds_exchange\n    .private_segment_fixed_size: 0\n    .sgpr_count:     17\n    .sgpr_spill_count: 0\n    .symbol:         lds_exchange.kd\n    .uses_dynamic_stack: false\n    .vgpr_count:     5\n    .vgpr_spill_count: 0\n    .wavefront_size: 64\namdhsa.target:   amdgcn-amd-amdhsa-unknown-gfx942\namdhsa.version:\n  - 1\n  - 2\n...",
+  "disassembly": "lds_exchange.hsaco:\tfile format elf64-amdgpu\n\t.amdgcn_target \"amdgpu-amd-amdhsa-unknown-gfx942\"\n\nDisassembly of section .text:\n\n0000000000000600 <lds_exchange>:\n\ts_load_dwordx4 s[4:7], s[0:1], 0x8                         // 000000000600: C00A0100 00000008\n\ts_waitcnt lgkmcnt(0)                                       // 000000000608: BF8CC07F\n\ts_mul_i32 s7, s2, 0x1020307                                // 00000000060C: 9207FF02 01020307\n\ts_movk_i32 s3, 0x1021                                      // 000000000614: B0031021\n\tv_lshlrev_b32_e32 v2, 2, v0                                // 000000000618: 24040082\n\ts_add_i32 s7, s5, s7                                       // 00000000061C: 81070705\n\tv_mov_b32_e32 v1, s7                                       // 000000000620: 7E020207\n\ts_cmp_lg_u32 s6, 0                                         // 000000000624: BF078006\n\tv_mad_u32_u24 v1, v0, s3, v1                               // 000000000628: D1C30001 04040700\n\ts_cselect_b64 s[8:9], -1, 0                                // 000000000630: 858880C1\n\ts_cmp_eq_u32 s6, 0                                         // 000000000634: BF068006\n\tds_write_b32 v2, v1                                        // 000000000638: D81A0000 00000102\n\ts_cbranch_scc1 18                                          // 000000000640: BF850012 <lds_exchange+0x8c>\n\ts_xor_b32 s3, s5, 0xa5a55a5a                               // 000000000644: 8803FF05 A5A55A5A\n\ts_mul_i32 s10, s6, 0x100001                                // 00000000064C: 920AFF06 00100001\n\ts_mul_i32 s7, s2, 0x1010101                                // 000000000654: 9207FF02 01010101\n\ts_add_i32 s3, s10, s3                                      // 00000000065C: 8103030A\n\ts_add_i32 s3, s3, s7                                       // 000000000660: 81030703\n\ts_movk_i32 s7, 0x203                                       // 000000000664: B0070203\n\tv_mov_b32_e32 v1, s3                                       // 000000000668: 7E020203\n\tv_mul_lo_u32 v2, s6, v0                                    // 00000000066C: D2850002 00020006\n\tv_mad_u32_u24 v1, v0, s7, v1                               // 000000000674: D1C30001 04040F00\n\tv_lshl_add_u32 v2, v2, 2, s4                               // 00000000067C: D1FD0002 00110502\n\tds_write_b32 v2, v1                                        // 000000000684: D81A0000 00000102\n\ts_load_dwordx2 s[0:1], s[0:1], 0x0                         // 00000000068C: C0060000 00000000\n\tv_xor_b32_e32 v3, 64, v0                                   // 000000000694: 2A0600C0\n\tv_lshl_or_b32 v2, s2, 7, v0                                // 000000000698: D2000002 04010E02\n\tv_lshlrev_b32_e32 v0, 2, v3                                // 0000000006A0: 24000682\n\ts_waitcnt lgkmcnt(0)                                       // 0000000006A4: BF8CC07F\n\ts_barrier                                                  // 0000000006A8: BF8A0000\n\tds_read_b32 v4, v0                                         // 0000000006AC: D86C0000 04000000\n\tv_lshlrev_b32_e32 v0, 1, v2                                // 0000000006B4: 24000481\n\tv_mov_b32_e32 v1, 0                                        // 0000000006B8: 7E020280\n\tv_lshl_add_u64 v[0:1], v[0:1], 2, s[0:1]                   // 0000000006BC: D2080000 00010500\n\ts_and_b64 s[0:1], s[8:9], exec                             // 0000000006C4: 86807E08\n\ts_cselect_b32 s0, 1, 0                                     // 0000000006C8: 85008081\n\ts_cmp_lg_u32 s0, 1                                         // 0000000006CC: BF078100\n\ts_waitcnt lgkmcnt(0)                                       // 0000000006D0: BF8CC07F\n\tglobal_store_dword v[0:1], v4, off                         // 0000000006D4: DC708000 007F0400\n\ts_cbranch_scc1 8                                           // 0000000006DC: BF850008 <lds_exchange+0x100>\n\tv_mul_lo_u32 v3, s6, v3                                    // 0000000006E0: D2850003 00020606\n\tv_lshl_add_u32 v3, v3, 2, s4                               // 0000000006E8: D1FD0003 00110503\n\tds_read_b32 v3, v3                                         // 0000000006F0: D86C0000 03000003\n\ts_mov_b64 s[0:1], 0                                        // 0000000006F8: BE800180\n\ts_branch 1                                                 // 0000000006FC: BF820001 <lds_exchange+0x104>\n\ts_mov_b64 s[0:1], -1                                       // 000000000700: BE8001C1\n\ts_and_b64 s[0:1], s[0:1], exec                             // 000000000704: 86807E00\n\ts_cselect_b32 s0, 1, 0                                     // 000000000708: 85008081\n\ts_cmp_lg_u32 s0, 1                                         // 00000000070C: BF078100\n\ts_cbranch_scc1 4                                           // 000000000710: BF850004 <lds_exchange+0x124>\n\tv_add_u32_e32 v2, 0x5a17c0de, v2                           // 000000000714: 680404FF 5A17C0DE\n\ts_waitcnt lgkmcnt(0)                                       // 00000000071C: BF8CC07F\n\tv_xor_b32_e32 v3, s5, v2                                   // 000000000720: 2A060405\n\ts_waitcnt lgkmcnt(0)                                       // 000000000724: BF8CC07F\n\tglobal_store_dword v[0:1], v3, off offset:4                // 000000000728: DC708004 007F0300\n\ts_endpgm                                                   // 000000000730: BF810000"
+}

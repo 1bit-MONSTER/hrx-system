@@ -31,6 +31,7 @@ iree_cc_library(
   SRCS
     "barrier_test.cc"
     "dispatch_test.cc"
+    "lds_test.cc"
     "private_test.cc"
     "publication_test.cc"
   DEPS
@@ -38,6 +39,7 @@ iree_cc_library(
     ::queue_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::lds_exchange_gfx942
     libamdf::cts::gpu::kernels::private_roundtrip_gfx942
     libamdf::cts::gpu::kernels::transform_gfx942
   TESTONLY

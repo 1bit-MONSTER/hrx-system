@@ -34,8 +34,10 @@ EXTRACT_FLAGS = ["--only-section=.rodata", "--only-section=.text", "-O", "binary
 FIXTURES = {
     "transform": {
         "symbol": "aql_transform",
+        "group_byte_length": 0,
         "private_byte_length": 0,
         "kernarg_byte_length": 24,
+        "workgroup_size": 64,
         "arguments": [
             ("0", "8", "global_buffer"),
             ("8", "8", "global_buffer"),
@@ -45,12 +47,27 @@ FIXTURES = {
     },
     "private_roundtrip": {
         "symbol": "private_roundtrip",
+        "group_byte_length": 0,
         "private_byte_length": 40,
         "kernarg_byte_length": 16,
+        "workgroup_size": 64,
         "arguments": [
             ("0", "8", "global_buffer"),
             ("8", "4", "by_value"),
             ("12", "4", "by_value"),
+        ],
+    },
+    "lds_exchange": {
+        "symbol": "lds_exchange",
+        "group_byte_length": 512,
+        "private_byte_length": 0,
+        "kernarg_byte_length": 20,
+        "workgroup_size": 128,
+        "arguments": [
+            ("0", "8", "global_buffer"),
+            ("8", "4", "dynamic_shared_pointer"),
+            ("12", "4", "by_value"),
+            ("16", "4", "by_value"),
         ],
     },
 }
@@ -138,7 +155,11 @@ def inspect_image(elf, image, notes, fixture):
     require(image == expected_image, "extraction changed descriptor/text layout")
     require(
         struct.unpack_from("<III", image)
-        == (0, fixture["private_byte_length"], fixture["kernarg_byte_length"]),
+        == (
+            fixture["group_byte_length"],
+            fixture["private_byte_length"],
+            fixture["kernarg_byte_length"],
+        ),
         "segment requirements",
     )
     require(struct.unpack_from("<q", image, 16)[0] == entry_offset, "entry offset")
@@ -148,7 +169,9 @@ def inspect_image(elf, image, notes, fixture):
     require(struct.unpack_from("<HH", image, 56) == (8, 0), "kernarg input/preload")
 
     arguments = re.findall(
-        r"\.offset:\s+(\d+)\s+\.size:\s+(\d+)\s+\.value_kind:\s+(\w+)", notes
+        r"\.offset:\s+(\d+)\s+(?:\.pointee_align:\s+\d+\s+)?"
+        r"\.size:\s+(\d+)\s+\.value_kind:\s+(\w+)",
+        notes,
     )
     require(
         arguments == fixture["arguments"],
@@ -161,11 +184,11 @@ def inspect_image(elf, image, notes, fixture):
         return values[0]
 
     expected_metadata = {
-        "group_segment_fixed_size": "0",
+        "group_segment_fixed_size": str(fixture["group_byte_length"]),
         "private_segment_fixed_size": str(fixture["private_byte_length"]),
         "kernarg_segment_size": str(fixture["kernarg_byte_length"]),
         "kernarg_segment_align": "8",
-        "max_flat_workgroup_size": "64",
+        "max_flat_workgroup_size": str(fixture["workgroup_size"]),
         "wavefront_size": "64",
         "sgpr_spill_count": "0",
         "vgpr_spill_count": "0",
@@ -182,12 +205,12 @@ def inspect_image(elf, image, notes, fixture):
         "entry_byte_offset": descriptor_offset + entry_offset,
         "entry_byte_length": entry_symbol[5],
         "text_byte_length": text_section[5],
-        "group_segment_byte_length": 0,
+        "group_segment_byte_length": fixture["group_byte_length"],
         "private_segment_byte_length": fixture["private_byte_length"],
         "kernarg_byte_length": fixture["kernarg_byte_length"],
         "kernarg_metadata_alignment": 8,
         "kernarg_allocation_alignment": 16,
-        "workgroup_size": 64,
+        "workgroup_size": fixture["workgroup_size"],
         "wavefront_size": 64,
         "sgpr_count": int(metadata_value("sgpr_count")),
         "vgpr_count": int(metadata_value("vgpr_count")),
@@ -230,9 +253,9 @@ inline constexpr uint32_t kDescriptorByteOffset = {metadata["descriptor_byte_off
 inline constexpr uint32_t kEntryByteOffset = {metadata["entry_byte_offset"]};
 inline constexpr uint32_t kKernargByteLength = {metadata["kernarg_byte_length"]};
 inline constexpr uint32_t kKernargAlignment = 16;
-inline constexpr uint32_t kGroupSegmentByteLength = 0;
+inline constexpr uint32_t kGroupSegmentByteLength = {metadata["group_segment_byte_length"]};
 inline constexpr uint32_t kPrivateSegmentByteLength = {metadata["private_segment_byte_length"]};
-inline constexpr uint16_t kWorkgroupSize = 64;
+inline constexpr uint16_t kWorkgroupSize = {metadata["workgroup_size"]};
 
 alignas(256) inline constexpr std::array<uint32_t, {len(words)}> kImage = {{
 {chr(10).join(rows)}

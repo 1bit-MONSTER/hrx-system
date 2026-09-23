@@ -15,9 +15,15 @@ global output. The [fixed-scratch case](../aql/private_test.cc) uses its
 compiler-generated frame to exercise caller-owned queue scratch across two
 completed dispatches.
 
+[lds_exchange.c](lds_exchange.c) exchanges independently tagged static and
+dynamic group-memory values between two waves. The [LDS cases](../aql/lds_test.cc)
+exercise fixed allocation and changing packet-sized dynamic storage, checking
+both the partner wave's value and the stride supplied for each epoch.
+
 The ordinary CTS build includes the fixed headers
-[transform_gfx942.h](transform_gfx942.h) and
-[private_roundtrip_gfx942.h](private_roundtrip_gfx942.h). It needs neither an
+[transform_gfx942.h](transform_gfx942.h),
+[private_roundtrip_gfx942.h](private_roundtrip_gfx942.h) and
+[lds_exchange_gfx942.h](lds_exchange_gfx942.h). It needs neither an
 installed GPU compiler nor a runtime ELF loader. Each paired JSON record
 preserves source/compiler identity, flags, ELF and image hashes, resource
 metadata and entry disassembly. The descriptor and code remain paired; no
@@ -32,7 +38,9 @@ descriptor, including all compiler-emitted text padding. A zero prefix retains
 the linked address phase when the descriptor is only 64-byte aligned while the
 entry requires 256-byte alignment. ELF dynamic tables and metadata are not
 loaded; the inspected kernels have no external calls,
-relocations, globals or references to those omitted sections.
+relocations, global-memory objects or references to those omitted sections.
+The LDS fixture's static group-memory object uses encoded LDS offsets and
+requires no loaded data section.
 
 | Property | Transform | Private roundtrip |
 | --- | --- | --- |
@@ -49,6 +57,17 @@ relocations, globals or references to those omitted sections.
 | Kernarg field types | `u64`, `u64`, `u32`, `u32` | `u64`, `u32`, `u32` |
 | Kernarg preload | Disabled | Disabled |
 | RSRC3 / RSRC1 / RSRC2 | `0x0` / `0x00af0040` / `0x84` | `0x1` / `0x00af0040` / `0x85` |
+
+The [LDS record](lds_exchange_gfx942.json) describes a 1600-byte image with
+descriptor/entry offsets 0/256 and a 308-byte entry in 1344 bytes of text.
+It uses 128-workitem wave64 groups, 512 fixed group bytes, zero private bytes,
+17 SGPRs, five VGPRs and no spills or dynamic stack. RSRC3/RSRC1/RSRC2 are
+`0x1` / `0x00af0080` / `0x84`. Its 20-byte semantic kernarg layout is output
+address (`u64`, offset 0), dynamic LDS byte offset (`u32`, offset 8), seed
+(`u32`, offset 12) and dynamic stride (`u32`, offset 16). A zeroed 32-byte,
+16-aligned caller slot backs the emitted 24-byte scalar fetch; its unused
+fetched lane is not an extra argument. Compiler alignment is eight bytes,
+and kernarg preload is disabled.
 
 Images are little-endian; the consuming corpus builds only for x86-64 hosts.
 The [transform record](transform_gfx942.json) and
