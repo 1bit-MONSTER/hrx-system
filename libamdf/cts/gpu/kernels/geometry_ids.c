@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// One wave records all raw IDs for complete 2D and 3D workgroups.
+// Records raw IDs for 2D and 3D grids with nominal 64-workitem groups.
 [[clang::amdgpu_kernel, gnu::visibility("protected")]]
 __attribute__((amdgpu_flat_work_group_size(64, 64))) void geometry_ids(
     __attribute__((address_space(1))) unsigned* output, unsigned workgroup_x,

@@ -28,8 +28,11 @@ both the partner wave's value and the stride supplied for each epoch.
 
 [geometry_ids.c](geometry_ids.c) records raw group XYZ, local XYZ and an epoch
 token at each global position. The [geometry cases](../aql/geometry_test.cc)
-change both workgroup and grid shapes while keeping the compiled flat
-workgroup size at 64. Unequal axes expose swapped coordinate interpretations.
+change both workgroup and grid shapes while keeping the nominal flat
+workgroup size at 64. Complete and partial final groups use the same image,
+whose stores have no shader bounds check. Unequal axes expose swapped
+coordinate interpretations; padded output pitches distinguish inactive edge
+coordinates from active records.
 
 The ordinary CTS build includes the fixed headers
 [transform_gfx942.h](transform_gfx942.h),
@@ -88,9 +91,10 @@ descriptor/entry offsets 64/256, a 288-byte entry and no group/private memory.
 Its flat workgroup size is 64, with 20 SGPRs, eight VGPRs and no spills or
 dynamic stack. RSRC3/RSRC1/RSRC2 are `0x1` / `0x00af0080` / `0x1384`, enabling
 all group IDs and packed local XYZ. The 32-byte kernarg block contains output
-address (`u64`, offset 0), workgroup XYZ (`u32`, offsets 8/12/16), grid XY
-(`u32`, offsets 20/24) and epoch (`u32`, offset 28). All fetches fit those
-32 bytes; compiler/caller alignment is 8/16 bytes and preload is disabled.
+address (`u64`, offset 0), workgroup XYZ (`u32`, offsets 8/12/16), output row
+pitch and plane height (`u32`, offsets 20/24) and epoch (`u32`, offset 28).
+All fetches fit those 32 bytes; compiler/caller alignment is 8/16 bytes and
+preload is disabled.
 These extents are explicit arguments for output addressing, not a hidden
 dispatch-packet pointer.
 

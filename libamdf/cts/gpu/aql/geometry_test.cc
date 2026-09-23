@@ -22,8 +22,8 @@ struct alignas(16) Arguments {
   uint64_t output;
   // Packet-matching XYZ sizes used to form global coordinates from raw IDs.
   std::array<uint32_t, 3> workgroup_size;
-  // Packet-matching XY sizes used as output row pitch and plane height.
-  std::array<uint32_t, 2> grid_size;
+  // Rounded X/Y extents used as output row pitch and plane height.
+  std::array<uint32_t, 2> output_pitches;
   // Changing token stored as the seventh word of every active record.
   uint32_t epoch;
 };
@@ -33,8 +33,8 @@ static_assert(sizeof(Arguments) == 32);
 static_assert(offsetof(Arguments, output) == 0);
 static_assert(offsetof(Arguments, workgroup_size) == 8);
 static_assert(sizeof(Arguments::workgroup_size) == 12);
-static_assert(offsetof(Arguments, grid_size) == 20);
-static_assert(sizeof(Arguments::grid_size) == 8);
+static_assert(offsetof(Arguments, output_pitches) == 20);
+static_assert(sizeof(Arguments::output_pitches) == 8);
 static_assert(offsetof(Arguments, epoch) == 28);
 
 class AqlGeometryTest : public AqlDispatchTest {
@@ -64,16 +64,32 @@ void AqlGeometryTest::RunGeometry(
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
   ASSERT_EQ(endpoint_info.compute.wavefront_size, 64u);
+  std::array<std::array<uint32_t, 3>, 2> storage_sizes;
   std::array<uint32_t, 2> active_record_counts;
+  std::array<uint32_t, 2> inactive_record_counts;
   for (uint32_t epoch = 0; epoch < geometries.size(); ++epoch) {
     const auto& geometry = geometries[epoch];
     ASSERT_EQ(uint64_t{geometry.workgroup_size[0]} *
                   geometry.workgroup_size[1] * geometry.workgroup_size[2],
               kernel::kWorkgroupSize);
+    for (uint32_t axis = 0; axis < kAxes.size(); ++axis) {
+      ASSERT_GE(geometry.grid_size[axis], geometry.workgroup_size[axis]);
+      const uint64_t storage_extent = ((uint64_t{geometry.grid_size[axis]} +
+                                        geometry.workgroup_size[axis] - 1) /
+                                       geometry.workgroup_size[axis]) *
+                                      geometry.workgroup_size[axis];
+      ASSERT_LE(storage_extent, kRecordCapacity);
+      storage_sizes[epoch][axis] = static_cast<uint32_t>(storage_extent);
+    }
+    const auto& storage_size = storage_sizes[epoch];
+    const uint64_t storage_record_count =
+        uint64_t{storage_size[0]} * storage_size[1] * storage_size[2];
+    ASSERT_LE(storage_record_count, kRecordCapacity);
     const uint64_t record_count = uint64_t{geometry.grid_size[0]} *
                                   geometry.grid_size[1] * geometry.grid_size[2];
-    ASSERT_LE(record_count, kRecordCapacity);
     active_record_counts[epoch] = static_cast<uint32_t>(record_count);
+    inactive_record_counts[epoch] =
+        static_cast<uint32_t>(storage_record_count - record_count);
   }
   RecordProperty("aql_geometry_record_capacity", kRecordCapacity);
   RecordProperty("aql_geometry_record_word_count", kRecordWordCount);
@@ -103,45 +119,51 @@ void AqlGeometryTest::RunGeometry(
   uint64_t descriptor_address = 0;
   ASSERT_NO_FATAL_FAILURE(
       PublishKernel(*queue, kernel::kExecutable, &index, &descriptor_address));
+  ASSERT_LE(index + geometries.size(),
+            queue->host.ring_byte_length / sizeof(aql::Packet));
 
   std::array<uint32_t, kWordCount> expected;
   std::array<uint32_t, kWordCount> observed;
   for (uint32_t epoch = 0; epoch < geometries.size(); ++epoch) {
     const auto& geometry = geometries[epoch];
-    // The checked tail covers the selected two epochs' old/new
-    // geometry-argument mixtures. Only matching packet and kernarg shapes are
-    // submitted.
+    const auto& storage_size = storage_sizes[epoch];
+    // The checked tail covers the selected epochs' old/new argument mixtures.
+    // Nominal workgroup dimensions match the packet; rounded output pitches
+    // keep inactive edge coordinates in separate records.
     expected.fill(kInactiveWord);
     for (uint32_t word = 0; word < kGuardWordCount; ++word) {
       expected[word] = kPrefixGuard;
       expected[kWordCount - kGuardWordCount + word] = kSuffixGuard;
     }
-    uint32_t position = kGuardWordCount;
-    // Walk global coordinates in storage order and recover each raw ID by
-    // division/remainder, independently of the kernel's forward index formula.
-    for (uint32_t z = 0; z < geometry.grid_size[2]; ++z) {
-      for (uint32_t y = 0; y < geometry.grid_size[1]; ++y) {
-        for (uint32_t x = 0; x < geometry.grid_size[0]; ++x) {
-          expected[position++] = x / geometry.workgroup_size[0];
-          expected[position++] = y / geometry.workgroup_size[1];
-          expected[position++] = z / geometry.workgroup_size[2];
-          expected[position++] = x % geometry.workgroup_size[0];
-          expected[position++] = y % geometry.workgroup_size[1];
-          expected[position++] = z % geometry.workgroup_size[2];
-          expected[position++] = kEpochTokens[epoch];
-        }
-      }
-    }
     observed = expected;
-    for (uint32_t word = kGuardWordCount; word < position; ++word) {
-      observed[word] = ~expected[word];
+    // Recover coordinates and raw IDs from storage indices, independently of
+    // the kernel's forward formula. Only exact-grid records must be written.
+    for (uint32_t record = 0; record < kRecordCapacity; ++record) {
+      const uint32_t x = record % storage_size[0];
+      const uint32_t y = (record / storage_size[0]) % storage_size[1];
+      const uint32_t z = record / (storage_size[0] * storage_size[1]);
+      if (x >= geometry.grid_size[0] || y >= geometry.grid_size[1] ||
+          z >= geometry.grid_size[2]) {
+        continue;
+      }
+      const uint32_t position = kGuardWordCount + record * kRecordWordCount;
+      expected[position] = x / geometry.workgroup_size[0];
+      expected[position + 1] = y / geometry.workgroup_size[1];
+      expected[position + 2] = z / geometry.workgroup_size[2];
+      expected[position + 3] = x % geometry.workgroup_size[0];
+      expected[position + 4] = y % geometry.workgroup_size[1];
+      expected[position + 5] = z % geometry.workgroup_size[2];
+      expected[position + 6] = kEpochTokens[epoch];
+      for (uint32_t word = 0; word < kRecordWordCount; ++word) {
+        observed[position + word] = ~expected[position + word];
+      }
     }
     std::memcpy(output->host.pointer, observed.data(), sizeof(observed));
     const Arguments payload = {
         output->device_address + kGuardWordCount * sizeof(uint32_t),
         {geometry.workgroup_size[0], geometry.workgroup_size[1],
          geometry.workgroup_size[2]},
-        {geometry.grid_size[0], geometry.grid_size[1]},
+        {storage_size[0], storage_size[1]},
         kEpochTokens[epoch],
     };
     std::memcpy(arguments->host.pointer, &payload, sizeof(payload));
@@ -173,13 +195,17 @@ void AqlGeometryTest::RunGeometry(
     RecordProperty(prefix + "_token", std::to_string(kEpochTokens[epoch]));
     RecordProperty(prefix + "_dimensions", geometry.dimensions);
     RecordProperty(prefix + "_active_records", active_record_counts[epoch]);
+    RecordProperty(prefix + "_inactive_rounded_records",
+                   inactive_record_counts[epoch]);
     for (uint32_t axis = 0; axis < kAxes.size(); ++axis) {
       RecordProperty(prefix + "_workgroup_" + kAxes[axis],
                      geometry.workgroup_size[axis]);
       RecordProperty(prefix + "_grid_" + kAxes[axis], geometry.grid_size[axis]);
+      RecordProperty(prefix + "_storage_" + kAxes[axis], storage_size[axis]);
     }
   }
   RecordProperty("aql_geometry_completed_epochs", geometries.size());
+  RecordProperty("aql_geometry_final_packet_index", std::to_string(index));
 }
 
 TEST_F(AqlGeometryTest, TwoDimensionsRefreshWorkgroupAndGridShape) {
@@ -194,6 +220,22 @@ TEST_F(AqlGeometryTest, ThreeDimensionsRefreshWorkgroupAndGridShape) {
   constexpr std::array<aql::DispatchGeometry, 2> kGeometries = {{
       {3, {8, 4, 2}, {24, 8, 4}},
       {3, {4, 2, 8}, {8, 6, 16}},
+  }};
+  ASSERT_NO_FATAL_FAILURE(RunGeometry(kGeometries));
+}
+
+TEST_F(AqlGeometryTest, TwoDimensionsPopulateOnlyExactWorkitems) {
+  constexpr std::array<aql::DispatchGeometry, 2> kGeometries = {{
+      {2, {16, 4, 1}, {35, 7, 1}},
+      {2, {4, 16, 1}, {7, 37, 1}},
+  }};
+  ASSERT_NO_FATAL_FAILURE(RunGeometry(kGeometries));
+}
+
+TEST_F(AqlGeometryTest, ThreeDimensionsPopulateOnlyExactWorkitems) {
+  constexpr std::array<aql::DispatchGeometry, 2> kGeometries = {{
+      {3, {8, 4, 2}, {19, 7, 3}},
+      {3, {4, 2, 8}, {7, 5, 13}},
   }};
   ASSERT_NO_FATAL_FAILURE(RunGeometry(kGeometries));
 }
