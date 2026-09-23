@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef AMDF_CTS_GPU_USER_QUEUE_MEMORY_H_
-#define AMDF_CTS_GPU_USER_QUEUE_MEMORY_H_
+#ifndef AMDF_CTS_GPU_LIFECYCLE_USER_QUEUE_MEMORY_H_
+#define AMDF_CTS_GPU_LIFECYCLE_USER_QUEUE_MEMORY_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -50,7 +50,6 @@ class UserQueueMemoryTest : public GpuDeviceFixture {
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
-  void RunCopiesBetweenExactAccessAttachments();
   void RunConcurrentDeviceCreationAndRecreation();
 
  private:
@@ -60,4 +59,4 @@ class UserQueueMemoryTest : public GpuDeviceFixture {
   amdf_queue_family_info_t family_ = {};
 };
 
-#endif  // AMDF_CTS_GPU_USER_QUEUE_MEMORY_H_
+#endif  // AMDF_CTS_GPU_LIFECYCLE_USER_QUEUE_MEMORY_H_

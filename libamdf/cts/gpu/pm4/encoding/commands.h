@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef AMDF_CTS_GPU_PM4_COMMANDS_H_
-#define AMDF_CTS_GPU_PM4_COMMANDS_H_
+#ifndef AMDF_CTS_GPU_PM4_ENCODING_COMMANDS_H_
+#define AMDF_CTS_GPU_PM4_ENCODING_COMMANDS_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +20,8 @@ class Pm4CommandWriter {
   void SystemBarrier();
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void WriteData32(uint64_t target_address, uint32_t value);
+  // Explicit memory dependency; this is not a cache acquire operation.
+  void WaitMemory32(uint64_t address, uint32_t value);
   void PadToEightWords();
   size_t word_count() const { return word_count_; }
 
@@ -33,4 +35,4 @@ class Pm4CommandWriter {
   size_t word_count_ = 0;
 };
 
-#endif  // AMDF_CTS_GPU_PM4_COMMANDS_H_
+#endif  // AMDF_CTS_GPU_PM4_ENCODING_COMMANDS_H_

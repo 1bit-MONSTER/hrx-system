@@ -7,6 +7,7 @@
 #ifndef AMDF_CTS_GPU_GPU_DEVICE_FIXTURE_H_
 #define AMDF_CTS_GPU_GPU_DEVICE_FIXTURE_H_
 
+#include <cstdio>
 #include <vector>
 
 #include "amdf/amdf.h"
@@ -125,12 +126,28 @@ class GpuDeviceFixture : public ::testing::Test {
       }
       ASSERT_TRUE(amdf_status_is_ok(
           GetCtsDeviceCache().OpenEndpoint(summary.id, &endpoint_)));
+      amdf_gpu_endpoint_info_t gpu_info = {};
+      gpu_info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+      gpu_info.structure_size = sizeof(gpu_info);
+      ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &gpu_info),
+                AMDF_STATUS_OK);
+      char target[32];
+      std::snprintf(target, sizeof(target), "gfx%u%x%x", gpu_info.gfx_ip.major,
+                    gpu_info.gfx_ip.minor, gpu_info.gfx_ip.stepping);
+      const auto& requested_target = GetCtsDeviceCache().gpu_target();
+      if (!requested_target.empty() && requested_target != target) {
+        endpoint_ = nullptr;
+        continue;
+      }
       bool matches = false;
       status = MatchGpuEndpoint(endpoint_, &matches);
       ASSERT_EQ(status, AMDF_STATUS_OK)
           << "domain=" << amdf_status_domain(status)
           << " code=" << amdf_status_code(status);
       if (matches) {
+        RecordProperty("amdf_gpu_target", target);
+        RecordProperty("amdf_gpu_asic_revision", gpu_info.asic_revision);
+        RecordProperty("amdf_gpu_xcc_count", gpu_info.topology.xcc_count);
         break;
       }
       endpoint_ = nullptr;

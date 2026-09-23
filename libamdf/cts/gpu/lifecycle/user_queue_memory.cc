@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "libamdf/cts/gpu/user_queue_memory.h"
+#include "libamdf/cts/gpu/lifecycle/user_queue_memory.h"
 
 #include <algorithm>
 #include <array>
@@ -395,6 +395,11 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   StoreRelease(write_index, stream.published_index);
   StoreRelease(doorbell, stream.published_index);
 
+  while (*reinterpret_cast<volatile uint32_t*>(completion) !=
+         kUserQueueMemoryCompletionValue) {
+    std::this_thread::yield();
+  }
+  std::atomic_thread_fence(std::memory_order_acquire);
   ASSERT_EQ(
       api_->user_queue_wait_consumed(queue_, stream.published_index,
                                      AMDF_TIMEOUT_INFINITE, UINT64_C(10000000)),
@@ -477,11 +482,6 @@ amdf_status_t UserQueueMemoryTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
   }
   *out_matches = false;
   return AMDF_STATUS_OK;
-}
-
-void UserQueueMemoryTest::RunCopiesBetweenExactAccessAttachments() {
-  ASSERT_TRUE(RunUserQueueMemoryCopies(api_, gpu_api_, family_, commands_,
-                                       device_, system_scope_));
 }
 
 void UserQueueMemoryTest::RunConcurrentDeviceCreationAndRecreation() {

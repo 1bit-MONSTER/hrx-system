@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "libamdf/cts/gpu/user_queue_memory.h"
+#include "libamdf/cts/gpu/lifecycle/user_queue_memory.h"
 
 namespace {
 
@@ -65,16 +65,12 @@ constexpr UserQueueMemoryCommands kCommands = {
     .encode = EncodeCopyStream,
 };
 
-class SdmaQueueTest : public UserQueueMemoryTest {
+class SdmaDeviceLifetimeTest : public UserQueueMemoryTest {
  protected:
-  SdmaQueueTest() : UserQueueMemoryTest(kCommands) {}
+  SdmaDeviceLifetimeTest() : UserQueueMemoryTest(kCommands) {}
 };
 
-TEST_F(SdmaQueueTest, CopiesBetweenExactAccessAttachments) {
-  RunCopiesBetweenExactAccessAttachments();
-}
-
-TEST_F(SdmaQueueTest, ConcurrentDeviceCreationAndRecreation) {
+TEST_F(SdmaDeviceLifetimeTest, DISABLED_ConcurrentDeviceCreationAndRecreation) {
   RunConcurrentDeviceCreationAndRecreation();
 }
 

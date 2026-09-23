@@ -48,6 +48,7 @@ bool CheckRequiredTests(const std::vector<std::string>& required_tests) {
 int main(int argument_count, char** argument_values) {
   const char prefix[] = "--amdf_native_lifetime=";
   const char required_prefix[] = "--amdf_require_test=";
+  const char gpu_target_prefix[] = "--amdf_gpu_target=";
   std::vector<std::string> required_tests;
   for (int i = 1; i < argument_count; ++i) {
     if (std::strncmp(argument_values[i], prefix, sizeof(prefix) - 1) == 0) {
@@ -68,6 +69,15 @@ int main(int argument_count, char** argument_values) {
         return EXIT_FAILURE;
       }
       required_tests.emplace_back(name);
+    } else if (std::strncmp(argument_values[i], gpu_target_prefix,
+                            sizeof(gpu_target_prefix) - 1) == 0) {
+      const char* target = argument_values[i] + sizeof(gpu_target_prefix) - 1;
+      if (target[0] == 0) {
+        std::fprintf(stderr,
+                     "--amdf_gpu_target needs a canonical gfx target\n");
+        return EXIT_FAILURE;
+      }
+      GetCtsDeviceCache().SetGpuTarget(target);
     } else {
       continue;
     }

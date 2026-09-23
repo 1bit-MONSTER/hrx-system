@@ -7,6 +7,7 @@
 #ifndef AMDF_CTS_UTIL_DEVICE_CACHE_H_
 #define AMDF_CTS_UTIL_DEVICE_CACHE_H_
 
+#include <string>
 #include <vector>
 
 #include "amdf/amdf.h"
@@ -23,6 +24,10 @@ class CtsDeviceCache {
     native_lifetime_ = native_lifetime;
   }
   amdf_native_lifetime_t native_lifetime() const { return native_lifetime_; }
+
+  // Optional canonical gfx target selected before any GPU is activated.
+  void SetGpuTarget(const char* target) { gpu_target_ = target; }
+  const std::string& gpu_target() const { return gpu_target_; }
 
   amdf_status_t GetInstance(amdf_instance_t** out_instance);
   amdf_status_t OpenEndpoint(const amdf_endpoint_id_t& id,
@@ -65,6 +70,8 @@ class CtsDeviceCache {
 
   // Core table borrowed from the initialized CTS provider.
   const amdf_api_t* api_ = nullptr;
+  // Empty selects any endpoint; qualification can require a compiler target.
+  std::string gpu_target_;
   // Native lifetime selected once by the test executable's arguments.
   amdf_native_lifetime_t native_lifetime_ = AMDF_NATIVE_LIFETIME_PROCESS;
   // Shared instance owned until all cached descendants have been released.

@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
-#include "libamdf/cts/gpu/pm4_commands.h"
+#include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 using Microsoft::WRL::ComPtr;
 

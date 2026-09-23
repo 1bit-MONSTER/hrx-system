@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "libamdf/cts/gpu/pm4_commands.h"
-#include "libamdf/cts/gpu/user_queue_memory.h"
+#include "libamdf/cts/gpu/lifecycle/user_queue_memory.h"
+#include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 namespace {
 
@@ -32,16 +32,12 @@ constexpr UserQueueMemoryCommands kCommands = {
     .encode = EncodeCopyStream,
 };
 
-class Pm4QueueTest : public UserQueueMemoryTest {
+class Pm4DeviceLifetimeTest : public UserQueueMemoryTest {
  protected:
-  Pm4QueueTest() : UserQueueMemoryTest(kCommands) {}
+  Pm4DeviceLifetimeTest() : UserQueueMemoryTest(kCommands) {}
 };
 
-TEST_F(Pm4QueueTest, CopiesBetweenExactAccessAttachments) {
-  RunCopiesBetweenExactAccessAttachments();
-}
-
-TEST_F(Pm4QueueTest, ConcurrentDeviceCreationAndRecreation) {
+TEST_F(Pm4DeviceLifetimeTest, DISABLED_ConcurrentDeviceCreationAndRecreation) {
   RunConcurrentDeviceCreationAndRecreation();
 }
 

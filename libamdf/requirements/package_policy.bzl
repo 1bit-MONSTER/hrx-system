@@ -63,6 +63,11 @@ PACKAGE_POLICIES = [
             "libamdf/benchmarks/gpu/...",
             "libamdf/cts/gpu/...",
         ],
+        excluded_packages = [
+            "libamdf/cts/gpu/aql/encoding",
+            "libamdf/cts/gpu/pm4/encoding",
+            "libamdf/cts/gpu/sdma/encoding",
+        ],
         run_requirements = [AMDGPU_RESOURCE],
         resource_group = GPU_DEVICE_RESOURCE_GROUP,
     ),

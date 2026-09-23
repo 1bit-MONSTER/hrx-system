@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "libamdf/cts/gpu/pm4_commands.h"
+#include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 #include <cstring>
 
@@ -70,6 +70,17 @@ void Pm4CommandWriter::Noop(size_t word_count) {
   words_[word_count_++] = MakeHeader(0x10, word_count);
   std::memset(words_ + word_count_, 0, (word_count - 1) * sizeof(*words_));
   word_count_ += word_count - 1;
+}
+
+void Pm4CommandWriter::WaitMemory32(uint64_t address, uint32_t value) {
+  // MEC WAIT_REG_MEM: memory space, equal, ordinary wait operation.
+  words_[word_count_++] = MakeHeader(0x3c, 7);
+  words_[word_count_++] = 3 | (1 << 4);
+  words_[word_count_++] = static_cast<uint32_t>(address);
+  words_[word_count_++] = static_cast<uint32_t>(address >> 32);
+  words_[word_count_++] = value;
+  words_[word_count_++] = UINT32_MAX;
+  words_[word_count_++] = 4;
 }
 
 void Pm4CommandWriter::PadToEightWords() {
