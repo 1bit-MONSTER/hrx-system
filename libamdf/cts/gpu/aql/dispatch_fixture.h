@@ -16,6 +16,8 @@
 // Dataflow dependencies and result observations belong to each consuming case.
 class AqlDispatchTest : public AqlQueueTest {
  protected:
+  AqlDispatchTest() : AqlQueueTest(AMDF_QUEUE_ROLE_CACHE_CONTROL) {}
+
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
 

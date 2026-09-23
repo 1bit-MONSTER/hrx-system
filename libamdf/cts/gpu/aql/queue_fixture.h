@@ -14,9 +14,12 @@
 
 class AqlQueueTest : public GpuCommandTest {
  protected:
-  AqlQueueTest()
+  explicit AqlQueueTest(amdf_queue_roles_t additional_roles = 0)
       : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL,
-                       AMDF_QUEUE_ROLE_COMPUTE) {}
+                       AMDF_QUEUE_ROLE_COMPUTE | additional_roles, 0,
+                       AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
+                       AMDF_CACHE_TRANSITION_KINDS_GLOBAL) {}
 
   // The caller reserves a packet index before publishing. Read-index progress
   // permits slot reuse, not signal or workload-memory reuse.
