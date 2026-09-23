@@ -36,6 +36,7 @@ iree_cc_library(
     "lds_test.cc"
     "private_test.cc"
     "publication_test.cc"
+    "timestamp_test.cc"
     "transfer_test.cc"
   DEPS
     ::dispatch_fixture

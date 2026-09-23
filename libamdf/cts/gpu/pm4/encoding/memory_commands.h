@@ -25,6 +25,13 @@ enum class CopyDataWidth : uint32_t {
 size_t CopyData(uint32_t* words, uint64_t source_address,
                 uint64_t target_address, CopyDataWidth width);
 
+// Encodes a confirmed GFX9 64-bit GPU-clock COPY_DATA with MEMORY destination
+// and STREAM source/destination policies into six caller-owned DWORDs. Returns
+// six. The target is eight-byte aligned. Admission, XCC selection, visibility
+// and completion belong to the caller; sampling CP progress is not a shader
+// fence and supplies no clock-frequency or correlation information.
+size_t Gfx9CopyGpuClock64(uint32_t* words, uint64_t target_address);
+
 // Encodes a confirmed, incrementing TC/L2 write and returns 4 + value_count.
 // The target is four-byte aligned. The caller supplies 1..16381 payload DWORDs
 // and sufficient output storage that does not overlap values. Queue admission

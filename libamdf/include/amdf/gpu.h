@@ -260,6 +260,16 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// body; its 14-bit body count excludes the two-dword prefix. WRITE_DATA and
 /// COPY32 addresses are dword aligned; COPY64 addresses are eight-byte aligned.
 /// Transfer width does not imply atomicity.
+///
+/// The same owned coherent SYSTEM recipe also accepts confirmed 64-bit GPU
+/// clock COPY_DATA: source selector 9, MEMORY destination 5, STREAM policies
+/// at bits 13 and 25, 64-bit count at bit 16 and confirmation at bit 20
+/// (control 0x02112509). Both source-address words are zero; the destination
+/// is eight-byte aligned. The complete clock-copy body uses the same virtual
+/// XCC 0 predicate. These samples observe CP progress, not shader completion.
+/// Storage width does not specify clock frequency, effective width, reset
+/// epoch or correlation with host, shader or other-XCC clocks.
+///
 /// The carrier uses a header barrier and SYSTEM acquire/release scopes. Its
 /// native USER completion decrements once after the confirmed commands and
 /// release, providing the host-acquire observation and storage-lifetime

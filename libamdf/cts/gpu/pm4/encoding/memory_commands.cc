@@ -24,6 +24,18 @@ size_t CopyData(uint32_t* words, uint64_t source_address,
   return 6;
 }
 
+size_t Gfx9CopyGpuClock64(uint32_t* words, uint64_t target_address) {
+  words[0] = (3u << 30) | (4u << 16) | (0x40u << 8);
+  // GPU clock source, MEMORY destination, STREAM policies, 64-bit count and
+  // write confirmation match aqlprofile's GFX9 ClockRetrievePacket.
+  words[1] = 9u | (5u << 8) | (1u << 13) | (1u << 16) | (1u << 20) | (1u << 25);
+  words[2] = 0;
+  words[3] = 0;
+  words[4] = static_cast<uint32_t>(target_address);
+  words[5] = static_cast<uint32_t>(target_address >> 32);
+  return 6;
+}
+
 size_t WriteData(uint32_t* words, uint64_t target_address,
                  const uint32_t* values, size_t value_count) {
   // Four fixed DWORDs plus payload, with the type-3 count excluding two.

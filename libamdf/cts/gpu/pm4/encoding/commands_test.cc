@@ -14,10 +14,10 @@
 
 namespace {
 
-// Literal wire expectations are transcribed from PAL's MEC packet layouts and
-// independently checked against Mesa's CP builders. No production constants or
-// bitfield definitions are shared with the encoder; the source ledger is in
-// docs/reference/amd/gpu/pm4/memory-commands.md.
+// Literal wire expectations come from PAL/Mesa memory commands and aqlprofile
+// clock capture. No production constants or bitfield definitions are shared
+// with the encoder; docs/reference/amd/gpu/pm4/memory-commands.md and
+// docs/reference/amd/gpu/aql/profiling.md describe the source contracts.
 template <size_t N>
 void ExpectWords(const uint32_t* words,
                  const std::array<uint32_t, N>& expected) {
@@ -264,6 +264,22 @@ TEST(Pm4EncodingTest, GpuClockCopyUsesConfirmedWideTimestampSource) {
                                             0,          0x87654328, 0x00001234};
   ASSERT_EQ(commands.word_count(), expected.size());
   ExpectWords(words.data(), expected);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, Gfx9ClockCopyUsesConfirmedStreamingPolicies) {
+  std::array<uint32_t, 8> words;
+  words.fill(0x24681357);
+  const size_t word_count =
+      pm4::Gfx9CopyGpuClock64(words.data() + 1, UINT64_C(0x1234567887654328));
+  // aqlprofile's ClockRetrievePacket uses source 9, destination 5, STREAM
+  // policy bits 13/25, 64-bit count 16 and confirmation 20. No source address
+  // is present; the complete destination address is retained.
+  const std::array<uint32_t, 6> expected = {0xc0044000, 0x02112509, 0,
+                                            0,          0x87654328, 0x12345678};
+  ASSERT_EQ(word_count, expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
