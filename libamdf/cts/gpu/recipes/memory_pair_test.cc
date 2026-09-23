@@ -4,23 +4,15 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "libamdf/cts/gpu/pm4/command_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
-#include "libamdf/cts/gpu/util/command_fixture.h"
 
 namespace {
 
 enum class PairQuery { kConcrete, kProfile };
 
-class MemoryPairRecipeTest : public GpuCommandTest {
+class MemoryPairRecipeTest : public Pm4CommandTest {
  protected:
-  MemoryPairRecipeTest()
-      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
-                       AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL,
-                       AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR,
-                       AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
-                           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
-                       AMDF_CACHE_TRANSITION_KINDS_GLOBAL) {}
-
   void QueryPair(const GpuMemory& memory, PairQuery query_kind,
                  amdf_memory_site_kind_t producer,
                  amdf_memory_site_kind_t consumer,

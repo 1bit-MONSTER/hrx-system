@@ -25,6 +25,28 @@ void ExpectWords(const uint32_t* words,
   }
 }
 
+TEST(Pm4EncodingTest, FixedMemoryRecipeAdmitsOnlySourceCoveredTargetFamilies) {
+  const struct {
+    // Compiler target major, minor and stepping, distinct from native GC IP.
+    std::array<uint32_t, 3> target;
+    // Whether the fixed PAL GFX11 recipe covers this target family.
+    bool supported;
+  } cases[] = {
+      {{11, 0, 0}, true},  {{11, 0, 3}, true},  {{11, 5, 1}, true},
+      {{11, 5, 4}, true},  {{9, 4, 2}, false},  {{10, 3, 0}, false},
+      {{11, 1, 0}, false}, {{11, 7, 0}, false}, {{12, 0, 1}, false},
+      {{12, 5, 0}, false}, {{0, 0, 0}, false},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << "gfx target " << test.target[0] << '.' << test.target[1]
+                 << '.' << test.target[2]);
+    amdf_gpu_endpoint_info_t info = {};
+    info.gfx_ip = {test.target[0], test.target[1], test.target[2]};
+    EXPECT_EQ(Pm4CommandWriter::SupportsTarget(info), test.supported);
+  }
+}
+
 TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
   std::array<uint32_t, 13> words = {};
   words.back() = 0x24681357;

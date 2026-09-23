@@ -17,13 +17,19 @@ uint32_t MakeHeader(uint32_t opcode, size_t word_count) {
 
 }  // namespace
 
+bool Pm4CommandWriter::SupportsTarget(const amdf_gpu_endpoint_info_t& info) {
+  return info.gfx_ip.major == 11 &&
+         (info.gfx_ip.minor == 0 || info.gfx_ip.minor == 5);
+}
+
 void Pm4CommandWriter::SystemBarrier() {
   enum : uint32_t {
     kEventWriteOpcode = 0x46,
     kAcquireMemoryOpcode = 0x58,
     kComputeShaderPartialFlush = 7 | (4 << 8),
-    // GLI_ALL is 1; 3 selects first/last instruction-cache ranges. GLM
-    // writeback is unimplemented. No scalar GLK writeback is requested.
+    // GLI_ALL is 1; 3 is the separately defined FIRST_LAST operation. This
+    // GFX11 recipe follows PAL's omission of GLM writeback. Scalar GLK
+    // writeback is not requested.
     kConservativeGcrControl = (1 << 0) | (1 << 5) | (1 << 7) | (1 << 8) |
                               (1 << 9) | (1 << 14) | (1 << 15),
   };

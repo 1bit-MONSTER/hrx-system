@@ -35,6 +35,22 @@ constexpr UserQueueMemoryCommands kCommands = {
 class Pm4DeviceLifetimeTest : public UserQueueMemoryTest {
  protected:
   Pm4DeviceLifetimeTest() : UserQueueMemoryTest(kCommands) {}
+
+  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
+                                 bool* out_matches) override {
+    amdf_gpu_endpoint_info_t info = {};
+    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+    info.structure_size = sizeof(info);
+    const amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    if (!Pm4CommandWriter::SupportsTarget(info)) {
+      *out_matches = false;
+      return AMDF_STATUS_OK;
+    }
+    return UserQueueMemoryTest::MatchGpuEndpoint(endpoint, out_matches);
+  }
 };
 
 TEST_F(Pm4DeviceLifetimeTest, DISABLED_ConcurrentDeviceCreationAndRecreation) {

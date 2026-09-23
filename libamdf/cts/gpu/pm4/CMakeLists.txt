@@ -9,17 +9,32 @@
 
 iree_add_all_subdirs()
 
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    command_fixture
+  HDRS
+    "command_fixture.h"
+  DEPS
+    amdf::headers
+    libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::util::command_fixture
+  TESTONLY
+  PUBLIC
+)
+endif()
+
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
     pm4_cases
   SRCS
-    "command_fixture.h"
     "copy_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
     "write_test.cc"
   DEPS
+    ::command_fixture
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::pm4::encoding::commands

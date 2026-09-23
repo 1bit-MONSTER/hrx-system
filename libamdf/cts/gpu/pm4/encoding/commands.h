@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "amdf/gpu.h"
+
 // Ordinary unsigned memory comparisons used by the CTS. These are the MEC
 // WAIT_REG_MEM/WAIT_REG_MEM64 function values, not host comparison opcodes.
 enum class Pm4MemoryComparison : uint32_t {
@@ -18,12 +20,17 @@ enum class Pm4MemoryComparison : uint32_t {
   kGreaterOrEqual = 5,
 };
 
-// Encodes the CTS memory operations for PM4 format version 1 with ACQUIRE_MEM
-// GCR support. Callers supply sufficient command storage and a queue admitted
-// for the corresponding transfer/cache roles. Memory addresses are aligned to
-// four bytes for 32-bit operations and eight bytes for 64-bit operations.
+// Encodes the CTS GFX11.0/GFX11.5 memory recipe using PM4 format version 1.
+// Native callers admit the target and corresponding packet, transfer and
+// cache-control requirements before constructing a stream. Callers supply
+// sufficient storage and addresses aligned to four bytes for 32-bit operations
+// and eight bytes for 64-bit operations.
 class Pm4CommandWriter {
  public:
+  // Selects the source-supported target families for this fixed CTS recipe.
+  // Queue capabilities and native behavioral qualification remain separate.
+  static bool SupportsTarget(const amdf_gpu_endpoint_info_t& info);
+
   explicit Pm4CommandWriter(uint32_t* words) : words_(words) {}
 
   void SystemBarrier();
