@@ -78,7 +78,8 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
     signal.value = 1;
     const auto packet =
-        aql::Dispatch({1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
+        aql::Dispatch(aql::HeaderBarrier::kDisabled,
+                      {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
                       kernel::kPrivateSegmentByteLength,
                       kernel::kGroupSegmentByteLength, descriptor_address,
                       arguments->device_address, completion->device_address);

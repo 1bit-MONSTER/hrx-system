@@ -82,8 +82,9 @@ TEST(AqlEncodingTest, DependencyBarrierHasNoAdditionalCacheScopes) {
 
 TEST(AqlEncodingTest, Dispatch1DEncodesGeometryResourcesAndSystemScopes) {
   const auto packet = aql::Dispatch(
-      {1, {64, 1, 1}, {1024, 1, 1}}, 68, 128, UINT64_C(0x1234567887654300),
-      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500),
+      aql::HeaderBarrier::kDisabled, {1, {64, 1, 1}, {1024, 1, 1}}, 68, 128,
+      UINT64_C(0x1234567887654300), UINT64_C(0x2345678998765400),
+      UINT64_C(0x3456789aa9876500),
       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
   // ROCm 8d57824901ff hsa.h, hsa_kernel_dispatch_packet_t: dimensions at
   // setup bit 0, workgroup XYZ at bytes 4/6/8, grid XYZ at 12/16/20,
@@ -96,9 +97,10 @@ TEST(AqlEncodingTest, Dispatch1DEncodesGeometryResourcesAndSystemScopes) {
 }
 
 TEST(AqlEncodingTest, Dispatch2DEncodesBothAxesAndInactiveZ) {
-  const auto packet = aql::Dispatch(
-      {2, {16, 4, 1}, {48, 8, 1}}, 0, 0, UINT64_C(0x1234567887654300),
-      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
+  const auto packet =
+      aql::Dispatch(aql::HeaderBarrier::kDisabled, {2, {16, 4, 1}, {48, 8, 1}},
+                    0, 0, UINT64_C(0x1234567887654300),
+                    UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
   // HSA System Architecture 1.2 table 2-7: dimensions=2 at setup bits 0-1,
   // positive XY extents and both inactive Z sizes one. These literal words
   // distinguish 2D from the output-equivalent 3D dispatch with Z sizes one.
@@ -110,9 +112,10 @@ TEST(AqlEncodingTest, Dispatch2DEncodesBothAxesAndInactiveZ) {
 }
 
 TEST(AqlEncodingTest, Dispatch3DEncodesEveryAxisAndReservedZeros) {
-  const auto packet = aql::Dispatch(
-      {3, {8, 4, 2}, {24, 8, 4}}, 0, 0, UINT64_C(0x1234567887654300),
-      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
+  const auto packet =
+      aql::Dispatch(aql::HeaderBarrier::kDisabled, {3, {8, 4, 2}, {24, 8, 4}},
+                    0, 0, UINT64_C(0x1234567887654300),
+                    UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
   // HSA System Architecture 1.2 table 2-7: dimensions=3 at setup bits 0-1,
   // u16 workgroup XYZ at bytes 4/6/8 and u32 grid XYZ at bytes 12/16/20.
   // Byte 10 and the reserved u64 at byte 48 remain zero.
@@ -120,6 +123,33 @@ TEST(AqlEncodingTest, Dispatch3DEncodesEveryAxisAndReservedZeros) {
                                 0x00000008, 0x00000004, 0x00000000, 0x00000000,
                                 0x87654300, 0x12345678, 0x98765400, 0x23456789,
                                 0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
+  EXPECT_EQ(packet, expected);
+}
+
+TEST(AqlEncodingTest, DispatchEncodesEarlierPacketBarrierAndSystemScopes) {
+  const auto packet =
+      aql::Dispatch(aql::HeaderBarrier::kEnabled, {1, {64, 1, 1}, {1024, 1, 1}},
+                    0, 0, UINT64_C(0x1234567887654300),
+                    UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
+  // HSA System Architecture 1.2 tables 2-4 and 2-7: barrier bit 8 orders
+  // earlier completion before this dispatch's SYSTEM acquire and execution.
+  const aql::Packet expected = {0x00011502, 0x00010040, 0x00000001, 0x00000400,
+                                0x00000001, 0x00000001, 0x00000000, 0x00000000,
+                                0x87654300, 0x12345678, 0x98765400, 0x23456789,
+                                0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
+  EXPECT_EQ(packet, expected);
+}
+
+TEST(AqlEncodingTest, BarrierValueEncodesMaskedEpochAndLessThanCondition) {
+  const auto packet = aql::BarrierValueLessThan(
+      UINT64_C(0x2345678998765400), INT64_C(0x0000000200000001), INT64_MAX);
+  // ROCm 8d57824901ff hsa_ext_amd.h: AMD format 2, signal/value/mask at
+  // bytes 8/16/24, LT=2 at byte 32. The header sets barrier bit 8 and NONE
+  // scopes; all reserved words and the unused completion handle stay zero.
+  const aql::Packet expected = {0x00020100, 0x00000000, 0x98765400, 0x23456789,
+                                0x00000001, 0x00000002, 0xffffffff, 0x7fffffff,
+                                0x00000002, 0x00000000, 0x00000000, 0x00000000,
+                                0x00000000, 0x00000000, 0x00000000, 0x00000000};
   EXPECT_EQ(packet, expected);
 }
 

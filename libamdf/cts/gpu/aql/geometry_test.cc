@@ -149,7 +149,8 @@ void AqlGeometryTest::RunGeometry(
         GpuLoadAcquire<int64_t>(reinterpret_cast<uintptr_t>(&signal.value)), 0);
     signal.value = 1;
     const auto packet =
-        aql::Dispatch(geometry, kernel::kPrivateSegmentByteLength,
+        aql::Dispatch(aql::HeaderBarrier::kDisabled, geometry,
+                      kernel::kPrivateSegmentByteLength,
                       kernel::kGroupSegmentByteLength, descriptor_address,
                       arguments->device_address, completion->device_address,
                       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});

@@ -79,15 +79,16 @@ struct DispatchGeometry {
   std::array<uint32_t, 3> grid_size;
 };
 
-// Dispatch with explicit acquire/release scopes and no implicit dependency on
-// earlier packets. Geometry and resource sizes satisfy the paired artifact.
-inline Packet Dispatch(const DispatchGeometry& geometry,
+// Dispatch with explicit ordering and acquire/release scopes. Geometry and
+// resource sizes satisfy the paired artifact.
+inline Packet Dispatch(HeaderBarrier barrier, const DispatchGeometry& geometry,
                        uint32_t private_segment_byte_length,
                        uint32_t group_segment_byte_length,
                        uint64_t kernel_descriptor, uint64_t kernarg,
                        uint64_t completion, FenceScopes scopes = {}) {
   Packet packet = {};
-  packet[0] = 2u | (static_cast<uint32_t>(scopes.acquire) << 9) |
+  packet[0] = 2u | static_cast<uint32_t>(barrier) |
+              (static_cast<uint32_t>(scopes.acquire) << 9) |
               (static_cast<uint32_t>(scopes.release) << 11) |
               (static_cast<uint32_t>(geometry.dimensions) << 16);
   packet[1] = geometry.workgroup_size[0] |
@@ -104,6 +105,23 @@ inline Packet Dispatch(const DispatchGeometry& geometry,
   packet[11] = static_cast<uint32_t>(kernarg >> 32);
   packet[14] = static_cast<uint32_t>(completion);
   packet[15] = static_cast<uint32_t>(completion >> 32);
+  return packet;
+}
+
+// AMD BARRIER_VALUE for a decreasing USER signal epoch on admitted gfx942
+// queues. The following barrier-enabled dispatch supplies its SYSTEM acquire
+// and completion; that completion also bounds the dependency signal's use.
+inline Packet BarrierValueLessThan(uint64_t signal, int64_t reference,
+                                   int64_t mask) {
+  Packet packet = {};
+  packet[0] = (2u << 16) | static_cast<uint32_t>(HeaderBarrier::kEnabled);
+  packet[2] = static_cast<uint32_t>(signal);
+  packet[3] = static_cast<uint32_t>(signal >> 32);
+  packet[4] = static_cast<uint32_t>(reference);
+  packet[5] = static_cast<uint32_t>(static_cast<uint64_t>(reference) >> 32);
+  packet[6] = static_cast<uint32_t>(mask);
+  packet[7] = static_cast<uint32_t>(static_cast<uint64_t>(mask) >> 32);
+  packet[8] = 2u;
   return packet;
 }
 

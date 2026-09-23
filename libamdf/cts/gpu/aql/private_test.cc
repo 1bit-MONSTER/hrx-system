@@ -168,7 +168,8 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
         GpuLoadAcquire<int64_t>(reinterpret_cast<uintptr_t>(&signal.value)), 0);
     signal.value = 1;
     const auto packet =
-        aql::Dispatch({1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
+        aql::Dispatch(aql::HeaderBarrier::kDisabled,
+                      {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
                       kernel::kPrivateSegmentByteLength,
                       kernel::kGroupSegmentByteLength, descriptor_address,
                       arguments->device_address, completion->device_address,

@@ -542,6 +542,7 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
                      {upload_signal_address},
                      {aql::FenceScope::kNone, aql::FenceScope::kNone});
     const auto dispatch = aql::Dispatch(
+        aql::HeaderBarrier::kDisabled,
         {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
         kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
         descriptor_address, arguments->device_address, compute_signal_address,
@@ -907,6 +908,7 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
                      {upload_signal_address},
                      {aql::FenceScope::kNone, aql::FenceScope::kNone});
     const auto dispatch = aql::Dispatch(
+        aql::HeaderBarrier::kDisabled,
         {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
         kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
         descriptor_address, arguments->device_address, compute_signal_address,
