@@ -30,7 +30,8 @@ TEST_F(AqlQueueTest, CompletesBarriersAndReusesRetiredSlots) {
       GpuStoreRelease(queue->host.write_index_address, index + 1);
       Publish(*queue, index++, packet);
     }
-    ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, signals[0], index));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitCompletionAndConsumption(*queue, signals[0], index));
     // The dependency remains zero until every barrier has completed; only
     // completion, not read-index advancement, permits rearming the signal.
   }
@@ -65,7 +66,8 @@ TEST_F(AqlQueueTest, MultipleProducersReserveAndPublishIndependently) {
   std::thread second(publish);
   first.join();
   second.join();
-  ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, *completion, 64));
+  ASSERT_NO_FATAL_FAILURE(
+      WaitCompletionAndConsumption(*queue, *completion, 64));
 }
 
 TEST_F(AqlQueueTest, PublishesReservedPacketsOutOfOrder) {
@@ -96,7 +98,8 @@ TEST_F(AqlQueueTest, PublishesReservedPacketsOutOfOrder) {
   // the launch frontier until its body and valid header have been published.
   Publish(*queue, index + 1, second);
   Publish(*queue, index, first);
-  ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, signals[1], index + 2));
+  ASSERT_NO_FATAL_FAILURE(
+      WaitCompletionAndConsumption(*queue, signals[1], index + 2));
   EXPECT_EQ(
       GpuLoadAcquire<int64_t>(reinterpret_cast<uintptr_t>(&signals[0].value)),
       0);

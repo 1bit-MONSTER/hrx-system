@@ -65,6 +65,7 @@ void AqlDispatchTest::PublishKernel(GpuUserQueue& queue,
                                         completion->device_address));
   // Explicit instruction-cache publication has its own execution completion.
   // The next dispatch never relies on ring consumption or FIFO completion.
-  ASSERT_NO_FATAL_FAILURE(WaitCompletion(queue, signal, *next_packet_index));
+  ASSERT_NO_FATAL_FAILURE(
+      WaitCompletionAndConsumption(queue, signal, *next_packet_index));
   *out_descriptor_address = code->device_address + image.descriptor_byte_offset;
 }

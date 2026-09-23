@@ -38,8 +38,10 @@ class AqlQueueTest : public GpuCommandTest {
     GpuStoreRelease(queue.host.doorbell_address, index);
   }
 
-  void WaitCompletion(GpuUserQueue& queue, aql::Signal& signal,
-                      uint64_t consumed_index) {
+  // Joins execution completion and ring retirement. Payload visibility cases
+  // acquire their signal and snapshot results before waiting for consumption.
+  void WaitCompletionAndConsumption(GpuUserQueue& queue, aql::Signal& signal,
+                                    uint64_t consumed_index) {
     GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
     ASSERT_NO_FATAL_FAILURE(queue.WaitConsumed(api_, consumed_index));
   }

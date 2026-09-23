@@ -176,13 +176,17 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
                       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, index + 1);
     Publish(*queue, index++, packet);
-    // Execution completion and ring consumption precede output observation and
-    // the next epoch's signal, kernarg or output reuse.
-    ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, signal, index));
+    // Snapshot completion-visible data before diagnostics or ring retirement.
+    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
     std::memcpy(observed.data(), output->host.pointer, sizeof(observed));
     for (uint32_t word = 0; word < kWordCount; ++word) {
-      ASSERT_EQ(observed[word], expected[word])
+      EXPECT_EQ(observed[word], expected[word])
           << "epoch=" << epoch << " word=" << word;
+    }
+    // Retire even after a failed oracle, before any next-epoch storage reuse.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, index));
+    if (HasFailure()) {
+      return;
     }
     const std::string prefix = "aql_private_epoch_" + std::to_string(epoch + 1);
     RecordProperty(prefix + "_seed", std::to_string(kSeeds[epoch]));

@@ -51,6 +51,7 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     std::array<uint32_t, kWordCount> upload;
     std::array<uint32_t, kWordCount> expected;
     std::array<uint32_t, kWordCount> download;
+    std::array<uint32_t, kWordCount> unchanged_input;
     upload.fill(kGuard);
     expected.fill(kGuard);
     download.fill(kGuard);
@@ -85,16 +86,21 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
                       arguments->device_address, completion->device_address);
     GpuStoreRelease(queue->host.write_index_address, index + 1);
     Publish(*queue, index++, packet);
-    ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, signal, index));
+    // Snapshot completion-visible data before diagnostics or ring retirement.
+    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
     std::memcpy(download.data(), output->host.pointer, sizeof(download));
-    const auto* unchanged_input =
-        static_cast<const uint32_t*>(input->host.pointer);
+    std::memcpy(unchanged_input.data(), input->host.pointer,
+                sizeof(unchanged_input));
     for (uint32_t i = 0; i < kWordCount; ++i) {
-      ASSERT_EQ(download[i], expected[i]) << "epoch=" << epoch << " word=" << i;
-      ASSERT_EQ(unchanged_input[i], upload[i])
+      EXPECT_EQ(download[i], expected[i]) << "epoch=" << epoch << " word=" << i;
+      EXPECT_EQ(unchanged_input[i], upload[i])
           << "epoch=" << epoch << " word=" << i;
     }
-    // Completion and both exact observations precede reuse of kernargs/data.
+    // Retire even after a failed oracle, before any next-epoch storage reuse.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, index));
+    if (HasFailure()) {
+      return;
+    }
   }
   RecordProperty("aql_payload_completed_epochs", kCounts.size());
 }

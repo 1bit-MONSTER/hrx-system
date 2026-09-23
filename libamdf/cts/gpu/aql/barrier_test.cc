@@ -55,15 +55,18 @@ TEST_F(AqlQueueTest, BarrierAndJoinsFiveQueueDependencies) {
 
     // AND/OR completion blocks later launches even with the header barrier
     // bit clear. Every dependency stays zero until this consumer has retired.
-    ASSERT_NO_FATAL_FAILURE(
-        WaitCompletion(*consumer, signals[6], consumer_index));
+    EXPECT_NO_FATAL_FAILURE(
+        WaitCompletionAndConsumption(*consumer, signals[6], consumer_index));
     for (uint32_t i = 0; i < 6; ++i) {
-      ASSERT_EQ(GpuLoadAcquire<int64_t>(
+      EXPECT_EQ(GpuLoadAcquire<int64_t>(
                     reinterpret_cast<uintptr_t>(&signals[i].value)),
                 0)
           << "signal " << i;
     }
-    ASSERT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, producer_index));
+    EXPECT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, producer_index));
+    if (HasFailure()) {
+      return;
+    }
   }
 }
 
@@ -104,7 +107,8 @@ TEST_F(AqlQueueTest, BarrierOrAcceptsEachSatisfiedSlot) {
     GpuStoreRelease(queue->host.write_index_address, index + 2);
     Publish(*queue, index++, select);
     Publish(*queue, index++, marker);
-    ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, signals[6], index));
+    ASSERT_NO_FATAL_FAILURE(
+        WaitCompletionAndConsumption(*queue, signals[6], index));
     ASSERT_EQ(
         GpuLoadAcquire<int64_t>(reinterpret_cast<uintptr_t>(&signals[5].value)),
         0);
@@ -156,12 +160,15 @@ TEST_F(AqlQueueTest, BarrierOrCompletesWithPublishedDependencyAndNullSlots) {
     // The following marker supplies completion for the sparse OR, whose own
     // completion handle is null. Final values qualify completion of this legal
     // program; they do not independently prove the absence of early release.
-    ASSERT_NO_FATAL_FAILURE(
-        WaitCompletion(*consumer, signals[5], consumer_index));
-    ASSERT_EQ(GpuLoadAcquire<int64_t>(
+    EXPECT_NO_FATAL_FAILURE(
+        WaitCompletionAndConsumption(*consumer, signals[5], consumer_index));
+    EXPECT_EQ(GpuLoadAcquire<int64_t>(
                   reinterpret_cast<uintptr_t>(&signals[selected].value)),
               0);
-    ASSERT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, producer_index));
+    EXPECT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, producer_index));
+    if (HasFailure()) {
+      return;
+    }
   }
 }
 
