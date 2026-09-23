@@ -121,10 +121,17 @@ class GpuDeviceFixture : public ::testing::Test {
       ASSERT_TRUE(amdf_status_is_ok(api_->endpoint_enumerate(
           instance_, endpoint_count, summaries.data(), &endpoint_count)));
     }
+    const auto& requested_endpoint = GetCtsDeviceCache().gpu_endpoint_id();
+    bool requested_endpoint_present = !requested_endpoint.has_value();
     for (const amdf_endpoint_summary_t& summary : summaries) {
       if (summary.engine_kind != AMDF_ENGINE_KIND_GPU) {
         continue;
       }
+      if (requested_endpoint.has_value() &&
+          !amdf_endpoint_id_is_equal(&summary.id, &*requested_endpoint)) {
+        continue;
+      }
+      requested_endpoint_present = true;
       ASSERT_TRUE(amdf_status_is_ok(
           GetCtsDeviceCache().OpenEndpoint(summary.id, &endpoint_)));
       amdf_gpu_endpoint_info_t gpu_info = {};
@@ -183,6 +190,8 @@ class GpuDeviceFixture : public ::testing::Test {
       }
       endpoint_ = nullptr;
     }
+    ASSERT_TRUE(requested_endpoint_present)
+        << "requested GPU endpoint is absent from discovery";
     if (endpoint_ == nullptr) {
       GTEST_SKIP() << "no qualified GPU endpoint present";
     }

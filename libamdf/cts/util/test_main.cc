@@ -4,6 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -15,6 +16,23 @@
 #include "util/provider.h"
 
 namespace {
+
+// Matches the two opaque 64-bit words recorded in GPU qualification results.
+bool ParseEndpointId(const char* value, amdf_endpoint_id_t* out_id) {
+  if (std::strlen(value) != 33 || value[16] != ':') {
+    return false;
+  }
+  amdf_endpoint_id_t id = {};
+  for (size_t i = 0; i < 2; ++i) {
+    const char* begin = value + i * 17;
+    const auto result = std::from_chars(begin, begin + 16, id.words[i], 16);
+    if (result.ec != std::errc{} || result.ptr != begin + 16) {
+      return false;
+    }
+  }
+  *out_id = id;
+  return true;
+}
 
 // Required names are independent of discovery, filtering, and runtime skips.
 // A qualification invocation cannot pass by silently omitting its witness.
@@ -49,6 +67,7 @@ int main(int argument_count, char** argument_values) {
   const char prefix[] = "--amdf_native_lifetime=";
   const char required_prefix[] = "--amdf_require_test=";
   const char gpu_target_prefix[] = "--amdf_gpu_target=";
+  const char gpu_endpoint_prefix[] = "--amdf_gpu_endpoint_id=";
   std::vector<std::string> required_tests;
   for (int i = 1; i < argument_count; ++i) {
     if (std::strncmp(argument_values[i], prefix, sizeof(prefix) - 1) == 0) {
@@ -69,6 +88,21 @@ int main(int argument_count, char** argument_values) {
         return EXIT_FAILURE;
       }
       required_tests.emplace_back(name);
+    } else if (std::strncmp(argument_values[i], gpu_endpoint_prefix,
+                            sizeof(gpu_endpoint_prefix) - 1) == 0) {
+      const char* value = argument_values[i] + sizeof(gpu_endpoint_prefix) - 1;
+      amdf_endpoint_id_t id = {};
+      if (!ParseEndpointId(value, &id)) {
+        std::fprintf(stderr,
+                     "--amdf_gpu_endpoint_id needs two 16-digit hexadecimal "
+                     "words separated by ':'\n");
+        return EXIT_FAILURE;
+      }
+      if (GetCtsDeviceCache().gpu_endpoint_id().has_value()) {
+        std::fprintf(stderr, "--amdf_gpu_endpoint_id was specified twice\n");
+        return EXIT_FAILURE;
+      }
+      GetCtsDeviceCache().SetGpuEndpointId(id);
     } else if (std::strncmp(argument_values[i], gpu_target_prefix,
                             sizeof(gpu_target_prefix) - 1) == 0) {
       const char* target = argument_values[i] + sizeof(gpu_target_prefix) - 1;

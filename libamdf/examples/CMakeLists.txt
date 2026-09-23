@@ -9,7 +9,7 @@
 
 iree_add_all_subdirs()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD)
+if(AMDF_BUILD)
 iree_cc_binary(
   NAME
     enumerate

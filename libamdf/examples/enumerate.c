@@ -170,6 +170,27 @@ int main(void) {
              i, info.name, info.pci.vendor_id, info.pci.device_id,
              info.pci.revision_id, amdf_example_engine_name(info.engine_kind),
              info.type_flags, info.queue_family_count);
+      printf("    endpoint=%016" PRIx64 ":%016" PRIx64, info.id.words[0],
+             info.id.words[1]);
+      switch (info.native_identity.type) {
+        case AMDF_ENDPOINT_NATIVE_IDENTITY_TYPE_NONE:
+          printf(" native=none\n");
+          break;
+        case AMDF_ENDPOINT_NATIVE_IDENTITY_TYPE_LINUX_DEVICE:
+          printf(" native=linux_device:%" PRIu32 ":%" PRIu32 "\n",
+                 info.native_identity.value.linux_device.major,
+                 info.native_identity.value.linux_device.minor);
+          break;
+        case AMDF_ENDPOINT_NATIVE_IDENTITY_TYPE_WINDOWS_ADAPTER:
+          printf(" native=windows_adapter:%016" PRIx64 ":%" PRIu32 "\n",
+                 info.native_identity.value.windows_adapter.luid,
+                 info.native_identity.value.windows_adapter
+                     .physical_adapter_index);
+          break;
+        default:
+          printf(" native=unknown:%" PRIu32 "\n", info.native_identity.type);
+          break;
+      }
       for (uint32_t family_ordinal = 0;
            amdf_status_is_ok(status) &&
            family_ordinal < info.queue_family_count;
