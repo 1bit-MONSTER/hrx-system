@@ -109,6 +109,56 @@ void Pm4CommandWriter::ReleaseSystem32(uint64_t target_address,
   words_[word_count_++] = 0;
 }
 
+void Pm4CommandWriter::ReleaseGpuClock64(uint64_t target_address) {
+  // PAL's bottom-of-pipe timestamp requests no release cache action or CP DMA
+  // wait. GPU-clock data, confirmation without interrupt and TC/L2 destination
+  // are independent fields from the event/index and release GCR word.
+  words_[word_count_++] = MakeHeader(0x49, 8);
+  words_[word_count_++] = 0x28 | (5 << 8);
+  words_[word_count_++] = (3 << 29) | (3 << 24) | (1 << 16);
+  words_[word_count_++] = static_cast<uint32_t>(target_address);
+  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+}
+
+void Pm4CommandWriter::Release32(uint64_t target_address, uint32_t value) {
+  words_[word_count_++] = MakeHeader(0x49, 8);
+  words_[word_count_++] = 0x28 | (5 << 8);
+  words_[word_count_++] = (1 << 29) | (3 << 24) | (1 << 16);
+  words_[word_count_++] = static_cast<uint32_t>(target_address);
+  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
+  words_[word_count_++] = value;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+}
+
+void Pm4CommandWriter::WaitEndOfPipeAndWriteback(uint64_t fence_address,
+                                                 uint32_t value) {
+  Release32(fence_address, value);
+  // PAL compute waits on the exact private-fence value with ACE offload and
+  // poll interval 10. This GPU wait joins the release before cache work.
+  words_[word_count_++] = MakeHeader(0x3c, 7);
+  words_[word_count_++] = 3 | (1 << 4);
+  words_[word_count_++] = static_cast<uint32_t>(fence_address);
+  words_[word_count_++] = static_cast<uint32_t>(fence_address >> 32);
+  words_[word_count_++] = value;
+  words_[word_count_++] = UINT32_MAX;
+  words_[word_count_++] = UINT32_C(0x8000000a);
+  // ACE ACQUIRE does immediate cache work, not shader-idle waiting. Whole-cache
+  // GL2_WB is bit 15 in this GCR layout. The high size preserves only defined
+  // MEC bits, unlike PAL's wider shared GFX11 ME representation.
+  words_[word_count_++] = MakeHeader(0x58, 8);
+  words_[word_count_++] = 0;
+  words_[word_count_++] = UINT32_MAX;
+  words_[word_count_++] = 0xff;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0x0a;
+  words_[word_count_++] = 1 << 15;
+}
+
 void Pm4CommandWriter::CopyData32(uint64_t source_address,
                                   uint64_t target_address) {
   word_count_ += pm4::CopyData(words_ + word_count_, source_address,

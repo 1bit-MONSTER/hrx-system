@@ -102,6 +102,54 @@ TEST(Pm4EncodingTest, SystemReleaseUsesConfirmedEndOfPipeAndReleaseGcr) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
+TEST(Pm4EncodingTest, EndOfPipeClockUsesCachelessConfirmedWideWrite) {
+  std::array<uint32_t, 10> words;
+  words.fill(0x24681357);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.ReleaseGpuClock64(UINT64_C(0x0000123487654328));
+  const std::array<uint32_t, 8> expected = {
+      0xc0064900, 0x00000528, 0x63010000, 0x87654328, 0x00001234, 0, 0, 0,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, EndOfPipeMarkerHasNoCacheActions) {
+  std::array<uint32_t, 10> words;
+  words.fill(0x24681357);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.Release32(UINT64_C(0x0000123487654324), 0x89abcdef);
+  const std::array<uint32_t, 8> expected = {
+      0xc0064900, 0x00000528, 0x23010000, 0x87654324,
+      0x00001234, 0x89abcdef, 0,          0,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, EndOfPipeWritebackJoinsPrivateFenceBeforeCacheWork) {
+  std::array<uint32_t, 25> words;
+  words.fill(0x24681357);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.WaitEndOfPipeAndWriteback(UINT64_C(0x0000123487654324), 0x89abcdef);
+  // PAL compute uses a cacheless release and an offloaded equality wait. The
+  // standalone ACQUIRE has GL2_WB only and all reserved MEC size bits zero.
+  const std::array<uint32_t, 23> expected = {
+      0xc0064900, 0x00000528, 0x23010000, 0x87654324, 0x00001234, 0x89abcdef,
+      0,          0,          0xc0053c00, 0x13,       0x87654324, 0x00001234,
+      0x89abcdef, 0xffffffff, 0x8000000a, 0xc0065800, 0,          0xffffffff,
+      0xff,       0,          0,          0x0a,       0x8000,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
   std::array<uint32_t, 13> words = {};
   words.back() = 0x24681357;

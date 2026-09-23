@@ -56,6 +56,16 @@ class Pm4CommandWriter {
   // backing and writes a known 32-bit value at bottom-of-pipe. The confirmed
   // TC/L2 write has no interrupt, scalar-store or CP-DMA completion request.
   void ReleaseSystem32(uint64_t target_address, uint32_t value);
+  // Samples the GPU clock at bottom-of-pipe with a confirmed TC/L2 write.
+  // This cacheless release requires an explicit visibility/ownership join.
+  void ReleaseGpuClock64(uint64_t target_address);
+  // Writes a confirmed known DWORD at bottom-of-pipe without cache actions.
+  // The marker alone does not publish other addresses to the host.
+  void Release32(uint64_t target_address, uint32_t value);
+  // Joins bottom-of-pipe through a private known-value fence and PAL's compute
+  // equality wait, then writes back GL2. The caller owns the fence through a
+  // subsequent completion; this fixed recipe performs no invalidation.
+  void WaitEndOfPipeAndWriteback(uint64_t fence_address, uint32_t value);
   // Binds ordinary shader inputs without touching profiling, dispatch-pointer,
   // scratch or scheduler context. The caller separately publishes code/data.
   void BindCompute(const Pm4ComputeProgram& program, uint64_t kernarg_address);
