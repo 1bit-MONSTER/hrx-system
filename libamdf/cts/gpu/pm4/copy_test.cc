@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <array>
+#include <cstring>
 
 #include "libamdf/cts/gpu/pm4/command_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
@@ -51,10 +52,19 @@ TEST_F(Pm4CopyTest, CopiesBetweenExactAccessAttachments) {
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::array<uint32_t, kWordCount> observed_output;
+  std::array<uint32_t, kWordCount> observed_input;
+  std::memcpy(observed_output.data(), output, sizeof(observed_output));
+  std::memcpy(observed_input.data(), input, sizeof(observed_input));
   for (size_t i = 0; i < kWordCount; ++i) {
-    EXPECT_EQ(output[i], input[i]) << i;
+    const uint32_t expected =
+        0x13570000u + static_cast<uint32_t>(i) * 0x00110101u;
+    EXPECT_EQ(observed_output[i], expected) << i;
+    EXPECT_EQ(observed_input[i], expected) << "source word " << i;
   }
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 class Pm4CopyWidthTest : public Pm4CommandTest,
@@ -108,10 +118,19 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::array<uint32_t, kWordCount> observed_output;
+  std::array<uint32_t, kWordCount> observed_input;
+  std::memcpy(observed_output.data(), output, sizeof(observed_output));
+  std::memcpy(observed_input.data(), input, sizeof(observed_input));
   for (size_t i = 0; i < kWordCount; ++i) {
-    EXPECT_EQ(output[i], expected[i]) << i;
+    EXPECT_EQ(observed_output[i], expected[i]) << i;
+    const uint32_t expected_input =
+        0x13579bdfu + static_cast<uint32_t>(i) * 0x10203041u;
+    EXPECT_EQ(observed_input[i], expected_input) << "source word " << i;
   }
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 INSTANTIATE_TEST_SUITE_P(Width, Pm4CopyWidthTest, ::testing::Values(4, 8),
@@ -161,11 +180,22 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::array<uint64_t, kValueCount> observed_staging;
+  std::array<uint64_t, kValueCount> observed_output;
+  std::array<uint64_t, kValueCount> observed_input;
+  std::memcpy(observed_staging.data(), staging, sizeof(observed_staging));
+  std::memcpy(observed_output.data(), output, sizeof(observed_output));
+  std::memcpy(observed_input.data(), input, sizeof(observed_input));
   for (size_t i = 0; i < kValueCount; ++i) {
-    EXPECT_EQ(staging[i], input[i]) << i;
-    EXPECT_EQ(output[i], input[i]) << i;
+    const uint64_t expected =
+        UINT64_C(0x13579bdf2468ace0) + i * UINT64_C(0x0102030405060708);
+    EXPECT_EQ(observed_staging[i], expected) << i;
+    EXPECT_EQ(observed_output[i], expected) << i;
+    EXPECT_EQ(observed_input[i], expected) << "source word " << i;
   }
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 }  // namespace

@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <array>
+#include <cstring>
 #include <string>
 
 #include "libamdf/cts/gpu/pm4/command_fixture.h"
@@ -50,13 +51,17 @@ TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::array<uint32_t, kWordCount> observed_output;
+  std::memcpy(observed_output.data(), output, sizeof(observed_output));
   for (size_t i = 0; i < kWordCount; ++i) {
     const uint32_t expected = i >= kFirstWord && i < kFirstWord + value_count
                                   ? values[i - kFirstWord]
                                   : 0xa5a50000u ^ static_cast<uint32_t>(i);
-    EXPECT_EQ(output[i], expected) << i;
+    EXPECT_EQ(observed_output[i], expected) << i;
   }
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 INSTANTIATE_TEST_SUITE_P(PayloadWords, Pm4WriteTest,

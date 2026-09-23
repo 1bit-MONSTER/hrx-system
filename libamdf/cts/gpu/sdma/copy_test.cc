@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <vector>
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
@@ -52,11 +53,20 @@ TEST_F(SdmaCopyTest, LinearCopyCompletesBeforeFence) {
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_length));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::array<uint32_t, kWordCount + 1> observed_output;
+  std::array<uint32_t, kWordCount> observed_input;
+  std::memcpy(observed_output.data(), output, sizeof(observed_output));
+  std::memcpy(observed_input.data(), input, sizeof(observed_input));
   for (size_t i = 0; i < kWordCount; ++i) {
-    EXPECT_EQ(output[i], input[i]) << i;
+    const uint32_t expected =
+        0x2ac40000u + static_cast<uint32_t>(i) * 0x00010301u;
+    EXPECT_EQ(observed_output[i], expected) << i;
+    EXPECT_EQ(observed_input[i], expected) << "source word " << i;
   }
-  EXPECT_EQ(output[kWordCount], 0x725ae191u);
+  EXPECT_EQ(observed_output[kWordCount], 0x725ae191u);
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
 }
 
 TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
@@ -81,6 +91,8 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   }
   std::fill_n(output, kTargetLength, 0xa5);
   std::vector<uint8_t> expected(kTargetLength, 0xa5);
+  std::vector<uint8_t> observed_output(kTargetLength);
+  std::vector<uint8_t> observed_input(kSourceLength);
   *static_cast<uint32_t*>(completion->host.pointer) = 0;
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -103,14 +115,19 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_length));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::memcpy(observed_output.data(), output, observed_output.size());
+  std::memcpy(observed_input.data(), input, observed_input.size());
   for (uint64_t i = 0; i < kTargetLength; ++i) {
-    ASSERT_EQ(output[i], expected[i]) << "byte " << i;
+    EXPECT_EQ(observed_output[i], expected[i]) << "byte " << i;
   }
   for (uint64_t i = 0; i < kSourceLength; ++i) {
-    ASSERT_EQ(input[i], static_cast<uint8_t>(i * 73 + (i >> 8) * 19 + 7))
+    EXPECT_EQ(observed_input[i],
+              static_cast<uint8_t>(i * 73 + (i >> 8) * 19 + 7))
         << "source byte " << i;
   }
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
 }
 
 }  // namespace

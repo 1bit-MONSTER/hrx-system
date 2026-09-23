@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <array>
+#include <cstring>
 #include <string>
 
 #include "libamdf/cts/gpu/pm4/command_fixture.h"
@@ -59,24 +61,35 @@ TEST_F(Pm4TimestampTest, CommandProcessorSamplesBracketConfirmedCopies) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(samples + 32), 1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  // Capture every observation before diagnostics or consumption can intervene.
+  std::array<uint64_t, kValueCount> observed_output;
+  std::array<uint64_t, kValueCount> observed_input;
+  std::array<uint64_t, 16> observed_samples;
+  std::memcpy(observed_output.data(), output, sizeof(observed_output));
+  std::memcpy(observed_input.data(), input, sizeof(observed_input));
+  std::memcpy(observed_samples.data(), samples, sizeof(observed_samples));
   for (size_t i = 0; i < kValueCount; ++i) {
-    EXPECT_EQ(output[i], input[i]) << i;
+    const uint64_t expected = kGuard + i * UINT64_C(0x0102030405060708);
+    EXPECT_EQ(observed_output[i], expected) << i;
+    EXPECT_EQ(observed_input[i], expected) << "source word " << i;
   }
   for (size_t i = 0; i < 16; ++i) {
     if (i == 1) {
-      EXPECT_NE(samples[i], UINT64_MAX) << i;
+      EXPECT_NE(observed_samples[i], UINT64_MAX) << i;
     } else if (i == 9) {
-      EXPECT_NE(samples[i], 0u) << i;
+      EXPECT_NE(observed_samples[i], 0u) << i;
     } else {
-      EXPECT_EQ(samples[i], kGuard) << i;
+      EXPECT_EQ(observed_samples[i], kGuard) << i;
     }
   }
   // Equal samples are legal at the clock's resolution. This finite run assumes
   // no counter wrap and makes no tick-frequency or elapsed-time claim.
-  EXPECT_LE(samples[1], samples[9]);
-  RecordProperty("cp_gpu_clock_begin_ticks", std::to_string(samples[1]));
-  RecordProperty("cp_gpu_clock_end_ticks", std::to_string(samples[9]));
+  EXPECT_LE(observed_samples[1], observed_samples[9]);
+  RecordProperty("cp_gpu_clock_begin_ticks",
+                 std::to_string(observed_samples[1]));
+  RecordProperty("cp_gpu_clock_end_ticks", std::to_string(observed_samples[9]));
+  // Nonfatal oracle failures still reach normal retirement.
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 }  // namespace
