@@ -76,10 +76,11 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
     std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
     signal.value = 1;
-    const auto packet = aql::Dispatch1D(
-        kernel::kWorkgroupSize, kGridSize, kernel::kPrivateSegmentByteLength,
-        kernel::kGroupSegmentByteLength, descriptor_address,
-        arguments->device_address, completion->device_address);
+    const auto packet =
+        aql::Dispatch({1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
+                      kernel::kPrivateSegmentByteLength,
+                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      arguments->device_address, completion->device_address);
     GpuStoreRelease(queue->host.write_index_address, index + 1);
     Publish(*queue, index++, packet);
     ASSERT_NO_FATAL_FAILURE(WaitCompletion(*queue, signal, index));

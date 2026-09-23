@@ -20,10 +20,16 @@ dynamic group-memory values between two waves. The [LDS cases](../aql/lds_test.c
 exercise fixed allocation and changing packet-sized dynamic storage, checking
 both the partner wave's value and the stride supplied for each epoch.
 
+[geometry_ids.c](geometry_ids.c) records raw group XYZ, local XYZ and an epoch
+token at each global position. The [geometry cases](../aql/geometry_test.cc)
+change both workgroup and grid shapes while keeping the compiled flat
+workgroup size at 64. Unequal axes expose swapped coordinate interpretations.
+
 The ordinary CTS build includes the fixed headers
 [transform_gfx942.h](transform_gfx942.h),
-[private_roundtrip_gfx942.h](private_roundtrip_gfx942.h) and
-[lds_exchange_gfx942.h](lds_exchange_gfx942.h). It needs neither an
+[private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
+[lds_exchange_gfx942.h](lds_exchange_gfx942.h) and
+[geometry_ids_gfx942.h](geometry_ids_gfx942.h). It needs neither an
 installed GPU compiler nor a runtime ELF loader. Each paired JSON record
 preserves source/compiler identity, flags, ELF and image hashes, resource
 metadata and entry disassembly. The descriptor and code remain paired; no
@@ -68,6 +74,17 @@ address (`u64`, offset 0), dynamic LDS byte offset (`u32`, offset 8), seed
 16-aligned caller slot backs the emitted 24-byte scalar fetch; its unused
 fetched lane is not an extra argument. Compiler alignment is eight bytes,
 and kernarg preload is disabled.
+
+The [geometry record](geometry_ids_gfx942.json) describes a 1600-byte image with
+descriptor/entry offsets 64/256, a 288-byte entry and no group/private memory.
+Its flat workgroup size is 64, with 20 SGPRs, eight VGPRs and no spills or
+dynamic stack. RSRC3/RSRC1/RSRC2 are `0x1` / `0x00af0080` / `0x1384`, enabling
+all group IDs and packed local XYZ. The 32-byte kernarg block contains output
+address (`u64`, offset 0), workgroup XYZ (`u32`, offsets 8/12/16), grid XY
+(`u32`, offsets 20/24) and epoch (`u32`, offset 28). All fetches fit those
+32 bytes; compiler/caller alignment is 8/16 bytes and preload is disabled.
+These extents are explicit arguments for output addressing, not a hidden
+dispatch-packet pointer.
 
 Images are little-endian; the consuming corpus builds only for x86-64 hosts.
 The [transform record](transform_gfx942.json) and

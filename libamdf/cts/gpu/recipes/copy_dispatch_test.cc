@@ -540,10 +540,10 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
         aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled, 0,
                      {upload_signal_address},
                      {aql::FenceScope::kNone, aql::FenceScope::kNone});
-    const auto dispatch = aql::Dispatch1D(
-        kernel::kWorkgroupSize, kGridSize, kernel::kPrivateSegmentByteLength,
-        kernel::kGroupSegmentByteLength, descriptor_address,
-        arguments->device_address, compute_signal_address,
+    const auto dispatch = aql::Dispatch(
+        {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
+        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        descriptor_address, arguments->device_address, compute_signal_address,
         buffers.dispatch_scopes);
     std::array<uint32_t, kChainWordCount> stream = {};
     SdmaCommandWriter commands(stream.data(), sdma_family_.format_features);
@@ -905,10 +905,10 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
         aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled, 0,
                      {upload_signal_address},
                      {aql::FenceScope::kNone, aql::FenceScope::kNone});
-    const auto dispatch = aql::Dispatch1D(
-        kernel::kWorkgroupSize, kGridSize, kernel::kPrivateSegmentByteLength,
-        kernel::kGroupSegmentByteLength, descriptor_address,
-        arguments->device_address, compute_signal_address,
+    const auto dispatch = aql::Dispatch(
+        {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
+        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        descriptor_address, arguments->device_address, compute_signal_address,
         buffers.dispatch_scopes);
     std::array<uint32_t, kChainWordCount> stream = {};
     SdmaCommandWriter commands(stream.data(), sdma_family_.format_features);

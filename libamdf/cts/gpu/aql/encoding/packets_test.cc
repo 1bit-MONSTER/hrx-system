@@ -80,9 +80,9 @@ TEST(AqlEncodingTest, DependencyBarrierHasNoAdditionalCacheScopes) {
   EXPECT_EQ(packet, expected);
 }
 
-TEST(AqlEncodingTest, DispatchEncodesGeometryResourcesAndSystemScopes) {
-  const auto packet = aql::Dispatch1D(
-      64, 1024, 68, 128, UINT64_C(0x1234567887654300),
+TEST(AqlEncodingTest, Dispatch1DEncodesGeometryResourcesAndSystemScopes) {
+  const auto packet = aql::Dispatch(
+      {1, {64, 1, 1}, {1024, 1, 1}}, 68, 128, UINT64_C(0x1234567887654300),
       UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500),
       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
   // ROCm 8d57824901ff hsa.h, hsa_kernel_dispatch_packet_t: dimensions at
@@ -90,6 +90,34 @@ TEST(AqlEncodingTest, DispatchEncodesGeometryResourcesAndSystemScopes) {
   // private/group bytes at 24/28, descriptor/kernarg/signal at 32/40/56.
   const aql::Packet expected = {0x00011402, 0x00010040, 0x00000001, 0x00000400,
                                 0x00000001, 0x00000001, 0x00000044, 0x00000080,
+                                0x87654300, 0x12345678, 0x98765400, 0x23456789,
+                                0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
+  EXPECT_EQ(packet, expected);
+}
+
+TEST(AqlEncodingTest, Dispatch2DEncodesBothAxesAndInactiveZ) {
+  const auto packet = aql::Dispatch(
+      {2, {16, 4, 1}, {48, 8, 1}}, 0, 0, UINT64_C(0x1234567887654300),
+      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
+  // HSA System Architecture 1.2 table 2-7: dimensions=2 at setup bits 0-1,
+  // positive XY extents and both inactive Z sizes one. These literal words
+  // distinguish 2D from the output-equivalent 3D dispatch with Z sizes one.
+  const aql::Packet expected = {0x00021402, 0x00040010, 0x00000001, 0x00000030,
+                                0x00000008, 0x00000001, 0x00000000, 0x00000000,
+                                0x87654300, 0x12345678, 0x98765400, 0x23456789,
+                                0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
+  EXPECT_EQ(packet, expected);
+}
+
+TEST(AqlEncodingTest, Dispatch3DEncodesEveryAxisAndReservedZeros) {
+  const auto packet = aql::Dispatch(
+      {3, {8, 4, 2}, {24, 8, 4}}, 0, 0, UINT64_C(0x1234567887654300),
+      UINT64_C(0x2345678998765400), UINT64_C(0x3456789aa9876500));
+  // HSA System Architecture 1.2 table 2-7: dimensions=3 at setup bits 0-1,
+  // u16 workgroup XYZ at bytes 4/6/8 and u32 grid XYZ at bytes 12/16/20.
+  // Byte 10 and the reserved u64 at byte 48 remain zero.
+  const aql::Packet expected = {0x00031402, 0x00040008, 0x00000002, 0x00000018,
+                                0x00000008, 0x00000004, 0x00000000, 0x00000000,
                                 0x87654300, 0x12345678, 0x98765400, 0x23456789,
                                 0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
   EXPECT_EQ(packet, expected);

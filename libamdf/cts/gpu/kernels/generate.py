@@ -70,6 +70,22 @@ FIXTURES = {
             ("16", "4", "by_value"),
         ],
     },
+    "geometry_ids": {
+        "symbol": "geometry_ids",
+        "group_byte_length": 0,
+        "private_byte_length": 0,
+        "kernarg_byte_length": 32,
+        "workgroup_size": 64,
+        "arguments": [
+            ("0", "8", "global_buffer"),
+            ("8", "4", "by_value"),
+            ("12", "4", "by_value"),
+            ("16", "4", "by_value"),
+            ("20", "4", "by_value"),
+            ("24", "4", "by_value"),
+            ("28", "4", "by_value"),
+        ],
+    },
 }
 COPYRIGHT = """// Copyright 2026 The IREE Authors
 //

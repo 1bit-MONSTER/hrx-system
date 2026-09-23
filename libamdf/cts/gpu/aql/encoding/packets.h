@@ -69,20 +69,33 @@ inline Packet Barrier(BarrierType type, HeaderBarrier barrier,
   return packet;
 }
 
-// One-dimensional dispatch with explicit acquire/release scopes and no implicit
-// dependency on earlier packets. Resource sizes come from the paired artifact.
-inline Packet Dispatch1D(uint16_t workgroup_size, uint32_t grid_size,
-                         uint32_t private_segment_byte_length,
-                         uint32_t group_segment_byte_length,
-                         uint64_t kernel_descriptor, uint64_t kernarg,
-                         uint64_t completion, FenceScopes scopes = {}) {
+// Explicit dispatch extents. Inactive axes have size one in both arrays.
+struct DispatchGeometry {
+  // Number of active dimensions: one, two or three.
+  uint16_t dimensions;
+  // Workitems in each workgroup along X, Y and Z.
+  std::array<uint16_t, 3> workgroup_size;
+  // Workitems in the full grid along X, Y and Z, not workgroup counts.
+  std::array<uint32_t, 3> grid_size;
+};
+
+// Dispatch with explicit acquire/release scopes and no implicit dependency on
+// earlier packets. Geometry and resource sizes satisfy the paired artifact.
+inline Packet Dispatch(const DispatchGeometry& geometry,
+                       uint32_t private_segment_byte_length,
+                       uint32_t group_segment_byte_length,
+                       uint64_t kernel_descriptor, uint64_t kernarg,
+                       uint64_t completion, FenceScopes scopes = {}) {
   Packet packet = {};
   packet[0] = 2u | (static_cast<uint32_t>(scopes.acquire) << 9) |
-              (static_cast<uint32_t>(scopes.release) << 11) | (1u << 16);
-  packet[1] = workgroup_size | (1u << 16);
-  packet[2] = 1;
-  packet[3] = grid_size;
-  packet[4] = packet[5] = 1;
+              (static_cast<uint32_t>(scopes.release) << 11) |
+              (static_cast<uint32_t>(geometry.dimensions) << 16);
+  packet[1] = geometry.workgroup_size[0] |
+              (static_cast<uint32_t>(geometry.workgroup_size[1]) << 16);
+  packet[2] = geometry.workgroup_size[2];
+  packet[3] = geometry.grid_size[0];
+  packet[4] = geometry.grid_size[1];
+  packet[5] = geometry.grid_size[2];
   packet[6] = private_segment_byte_length;
   packet[7] = group_segment_byte_length;
   packet[8] = static_cast<uint32_t>(kernel_descriptor);

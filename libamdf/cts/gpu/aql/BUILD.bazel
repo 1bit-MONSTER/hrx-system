@@ -28,6 +28,7 @@ amdf_cts_test_suite(
     srcs = [
         "barrier_test.cc",
         "dispatch_test.cc",
+        "geometry_test.cc",
         "lds_test.cc",
         "private_test.cc",
         "publication_test.cc",
@@ -41,6 +42,7 @@ amdf_cts_test_suite(
     deps = [
         ":dispatch_fixture",
         ":queue_fixture",
+        "//libamdf/cts/gpu/kernels:geometry_ids_gfx942",
         "//libamdf/cts/gpu/kernels:lds_exchange_gfx942",
         "//libamdf/cts/gpu/kernels:private_roundtrip_gfx942",
         "//libamdf/cts/gpu/kernels:transform_gfx942",

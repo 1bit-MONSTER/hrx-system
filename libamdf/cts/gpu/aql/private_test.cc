@@ -167,11 +167,12 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
     ASSERT_EQ(
         GpuLoadAcquire<int64_t>(reinterpret_cast<uintptr_t>(&signal.value)), 0);
     signal.value = 1;
-    const auto packet = aql::Dispatch1D(
-        kernel::kWorkgroupSize, kGridSize, kernel::kPrivateSegmentByteLength,
-        kernel::kGroupSegmentByteLength, descriptor_address,
-        arguments->device_address, completion->device_address,
-        {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
+    const auto packet =
+        aql::Dispatch({1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
+                      kernel::kPrivateSegmentByteLength,
+                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      arguments->device_address, completion->device_address,
+                      {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, index + 1);
     Publish(*queue, index++, packet);
     // Execution completion and ring consumption precede output observation and

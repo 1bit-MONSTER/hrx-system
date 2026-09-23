@@ -40,6 +40,20 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    geometry_ids_gfx942
+  HDRS
+    "geometry_ids_gfx942.h"
+  DEPS
+    ::image
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     lds_exchange_gfx942
   HDRS
     "lds_exchange_gfx942.h"

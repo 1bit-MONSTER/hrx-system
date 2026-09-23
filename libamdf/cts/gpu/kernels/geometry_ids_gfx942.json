@@ -1,0 +1,61 @@
+{
+  "source": "geometry_ids.c",
+  "source_sha256": "08bea0932490acb99e5f74c7dcc3574d5ade0569c6f3f2bd3e29e40348308223",
+  "llvm_revision": "6dfe1677ab8dffbc6ec13d53a1e0215d75147689",
+  "compiler": "clang version 23.1.1 (https://github.com/llvm/llvm-project 6dfe1677ab8dffbc6ec13d53a1e0215d75147689)",
+  "linker": "LLD 23.1.1 (https://github.com/llvm/llvm-project 6dfe1677ab8dffbc6ec13d53a1e0215d75147689) (compatible with GNU linkers)",
+  "compile_flags": [
+    "--target=amdgcn-amd-amdhsa",
+    "-mcpu=gfx942",
+    "-mcode-object-version=5",
+    "-mllvm",
+    "-amdgpu-kernarg-preload=false",
+    "-nogpulib",
+    "-std=c23",
+    "-O2",
+    "-fno-ident"
+  ],
+  "link_flags": [
+    "-shared",
+    "--no-undefined",
+    "--build-id=none",
+    "--no-rosegment"
+  ],
+  "extract_flags": [
+    "--only-section=.rodata",
+    "--only-section=.text",
+    "-O",
+    "binary"
+  ],
+  "target": "gfx942",
+  "xnack": "any",
+  "sramecc": "any",
+  "code_object_version": 5,
+  "elf_sha256": "4d1bbbf09a6daa7a55b9495f02bc65baa4f2b141c313df7996a100147eefa840",
+  "image_sha256": "d783e7f2fadd960dd8811b4b1578d9b1aaf8cf3bcbe9001b7921ad6bb0c0e9d2",
+  "image_byte_length": 1600,
+  "kernel": {
+    "descriptor_byte_offset": 64,
+    "entry_byte_offset": 256,
+    "entry_byte_length": 288,
+    "text_byte_length": 1344,
+    "group_segment_byte_length": 0,
+    "private_segment_byte_length": 0,
+    "kernarg_byte_length": 32,
+    "kernarg_metadata_alignment": 8,
+    "kernarg_allocation_alignment": 16,
+    "workgroup_size": 64,
+    "wavefront_size": 64,
+    "sgpr_count": 20,
+    "vgpr_count": 8,
+    "agpr_count": 0,
+    "compute_pgm_rsrc3": 1,
+    "compute_pgm_rsrc1": 11468928,
+    "compute_pgm_rsrc2": 4996,
+    "kernel_code_properties": 8,
+    "kernarg_preload": 0,
+    "relocations": []
+  },
+  "compiler_metadata": "Displaying notes found in: .note\n  Owner                Data size \tDescription\n  AMDGPU               0x0000029f\tNT_AMDGPU_METADATA (AMDGPU Metadata)\n    AMDGPU Metadata:\n        ---\namdhsa.kernels:\n  - .agpr_count:     0\n    .args:\n      - .address_space:  global\n        .offset:         0\n        .size:           8\n        .value_kind:     global_buffer\n      - .offset:         8\n        .size:           4\n        .value_kind:     by_value\n      - .offset:         12\n        .size:           4\n        .value_kind:     by_value\n      - .offset:         16\n        .size:           4\n        .value_kind:     by_value\n      - .offset:         20\n        .size:           4\n        .value_kind:     by_value\n      - .offset:         24\n        .size:           4\n        .value_kind:     by_value\n      - .offset:         28\n        .size:           4\n        .value_kind:     by_value\n    .group_segment_fixed_size: 0\n    .kernarg_segment_align: 8\n    .kernarg_segment_size: 32\n    .max_flat_workgroup_size: 64\n    .name:           geometry_ids\n    .private_segment_fixed_size: 0\n    .sgpr_count:     20\n    .sgpr_spill_count: 0\n    .symbol:         geometry_ids.kd\n    .uses_dynamic_stack: false\n    .vgpr_count:     8\n    .vgpr_spill_count: 0\n    .wavefront_size: 64\namdhsa.target:   amdgcn-amd-amdhsa-unknown-gfx942\namdhsa.version:\n  - 1\n  - 2\n...",
+  "disassembly": "geometry_ids.hsaco:\tfile format elf64-amdgpu\n\t.amdgcn_target \"amdgpu-amd-amdhsa-unknown-gfx942\"\n\nDisassembly of section .text:\n\n0000000000000600 <geometry_ids>:\n\ts_load_dwordx4 s[8:11], s[0:1], 0x8                        // 000000000600: C00A0200 00000008\n\ts_load_dwordx2 s[6:7], s[0:1], 0x0                         // 000000000608: C0060180 00000000\n\ts_load_dwordx2 s[12:13], s[0:1], 0x18                      // 000000000610: C0060300 00000018\n\tv_bfe_u32 v4, v0, 20, 10                                   // 000000000618: D1C80004 02292900\n\tv_bfe_u32 v5, v0, 10, 10                                   // 000000000620: D1C80005 02291500\n\ts_waitcnt lgkmcnt(0)                                       // 000000000628: BF8CC07F\n\ts_mul_i32 s5, s10, s4                                      // 00000000062C: 9205040A\n\tv_add_u32_e32 v1, s5, v4                                   // 000000000630: 68020805\n\ts_mul_i32 s1, s9, s3                                       // 000000000634: 92010309\n\tv_mul_lo_u32 v1, v1, s12                                   // 000000000638: D2850001 00001901\n\tv_add3_u32 v1, s1, v5, v1                                  // 000000000640: D1FF0001 04060A01\n\ts_mul_i32 s0, s8, s2                                       // 000000000648: 92000208\n\tv_mul_lo_u32 v1, v1, s11                                   // 00000000064C: D2850001 00001701\n\tv_and_b32_e32 v6, 0x3ff, v0                                // 000000000654: 260C00FF 000003FF\n\tv_add3_u32 v0, s0, v6, v1                                  // 00000000065C: D1FF0000 04060C00\n\tv_mul_lo_u32 v0, v0, 7                                     // 000000000664: D2850000 00010F00\n\tv_mov_b32_e32 v1, 0                                        // 00000000066C: 7E020280\n\tv_lshl_add_u64 v[2:3], v[0:1], 2, s[6:7]                   // 000000000670: D2080002 00190500\n\tv_mov_b32_e32 v7, s2                                       // 000000000678: 7E0E0202\n\tglobal_store_dword v[2:3], v7, off                         // 00000000067C: DC708000 007F0702\n\tv_add_u32_e32 v2, 1, v0                                    // 000000000684: 68040081\n\tv_mov_b32_e32 v3, v1                                       // 000000000688: 7E060301\n\tv_lshl_add_u64 v[2:3], v[2:3], 2, s[6:7]                   // 00000000068C: D2080002 00190502\n\tv_mov_b32_e32 v7, s3                                       // 000000000694: 7E0E0203\n\tglobal_store_dword v[2:3], v7, off                         // 000000000698: DC708000 007F0702\n\tv_add_u32_e32 v2, 2, v0                                    // 0000000006A0: 68040082\n\tv_mov_b32_e32 v3, v1                                       // 0000000006A4: 7E060301\n\tv_lshl_add_u64 v[2:3], v[2:3], 2, s[6:7]                   // 0000000006A8: D2080002 00190502\n\tv_mov_b32_e32 v7, s4                                       // 0000000006B0: 7E0E0204\n\tglobal_store_dword v[2:3], v7, off                         // 0000000006B4: DC708000 007F0702\n\tv_add_u32_e32 v2, 3, v0                                    // 0000000006BC: 68040083\n\tv_mov_b32_e32 v3, v1                                       // 0000000006C0: 7E060301\n\tv_lshl_add_u64 v[2:3], v[2:3], 2, s[6:7]                   // 0000000006C4: D2080002 00190502\n\tglobal_store_dword v[2:3], v6, off                         // 0000000006CC: DC708000 007F0602\n\tv_add_u32_e32 v2, 4, v0                                    // 0000000006D4: 68040084\n\tv_mov_b32_e32 v3, v1                                       // 0000000006D8: 7E060301\n\tv_lshl_add_u64 v[2:3], v[2:3], 2, s[6:7]                   // 0000000006DC: D2080002 00190502\n\tglobal_store_dword v[2:3], v5, off                         // 0000000006E4: DC708000 007F0502\n\tv_add_u32_e32 v2, 5, v0                                    // 0000000006EC: 68040085\n\tv_mov_b32_e32 v3, v1                                       // 0000000006F0: 7E060301\n\tv_lshl_add_u64 v[2:3], v[2:3], 2, s[6:7]                   // 0000000006F4: D2080002 00190502\n\tv_add_u32_e32 v0, 6, v0                                    // 0000000006FC: 68000086\n\tglobal_store_dword v[2:3], v4, off                         // 000000000700: DC708000 007F0402\n\tv_lshl_add_u64 v[0:1], v[0:1], 2, s[6:7]                   // 000000000708: D2080000 00190500\n\tv_mov_b32_e32 v2, s13                                      // 000000000710: 7E04020D\n\tglobal_store_dword v[0:1], v2, off                         // 000000000714: DC708000 007F0200\n\ts_endpgm                                                   // 00000000071C: BF810000"
+}
