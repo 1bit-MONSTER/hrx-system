@@ -253,6 +253,8 @@ static amdf_status_t amdf_memory_allocate(
     memory->accesses[i].info.ordinal = i;
     memory->accesses[i].native_profile_ordinal =
         plan->native_profiles[i].ordinal;
+    memory->accesses[i].describe_site =
+        plan->native_profiles[i].visibility.describe_site;
   }
   *out_memory = memory;
   return AMDF_STATUS_OK;

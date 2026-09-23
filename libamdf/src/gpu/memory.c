@@ -44,22 +44,25 @@ static amdf_status_t amdf_gpu_memory_describe_site(
     amdf_memory_t* memory, uint32_t access_ordinal,
     uint32_t queue_family_ordinal,
     amdf_memory_site_description_t* out_description) {
+  const amdf_memory_access_state_t* access = &memory->accesses[access_ordinal];
+  if (access->describe_site == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
   amdf_queue_family_info_t queue_family_info = {
       .type = AMDF_STRUCTURE_TYPE_QUEUE_FAMILY_INFO,
       .structure_size = sizeof(queue_family_info),
   };
   const amdf_status_t status = amdf_endpoint_query_queue_family_info(
-      memory->accesses[access_ordinal].device->endpoint, queue_family_ordinal,
-      &queue_family_info);
+      access->device->endpoint, queue_family_ordinal, &queue_family_info);
   if (!amdf_status_is_ok(status)) {
     return status;
   }
   const amdf_memory_site_query_t query = {
-      .access = memory->accesses[access_ordinal].info.access,
-      .flags = memory->accesses[access_ordinal].info.flags,
+      .access = access->info.access,
+      .flags = access->info.flags,
       .queue_family_info = &queue_family_info,
   };
-  return amdf_gpu_umd_memory_describe_site(&query, out_description);
+  return access->describe_site(&query, out_description);
 }
 
 static amdf_status_t amdf_gpu_host_mapping_cache_control(

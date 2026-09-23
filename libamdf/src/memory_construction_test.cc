@@ -118,6 +118,12 @@ TEST_P(MemoryGroupTest, NativeGroupUsesOneOwnerWithoutExternalTransport) {
   devices[1].profile.allocation.maximum_byte_length = 8192;
   devices[1].profile.registration.maximum_byte_length = 8192;
   devices[1].profile.device_address.address_domain_ordinal = 7;
+  // Only the backing owner has native state, but each consumer keeps its
+  // resolved visibility contract independently of that ownership choice.
+  devices[1].profile.visibility.describe_site =
+      [](const amdf_memory_site_query_t*, amdf_memory_site_description_t*) {
+        return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+      };
   amdf_memory_profile_t profile = {};
   profile.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE;
   profile.structure_size = sizeof(profile);
@@ -149,6 +155,9 @@ TEST_P(MemoryGroupTest, NativeGroupUsesOneOwnerWithoutExternalTransport) {
   EXPECT_EQ(memory->accesses[1].native, nullptr);
   EXPECT_EQ(memory->accesses[1].info.ordinal, 1u);
   EXPECT_EQ(memory->accesses[1].info.address_domain_ordinal, 7u);
+  EXPECT_EQ(memory->accesses[0].describe_site, nullptr);
+  EXPECT_EQ(memory->accesses[1].describe_site,
+            devices[1].profile.visibility.describe_site);
   EXPECT_EQ(memory->accesses[0].addresses[AMDF_MEMORY_ADDRESS_GPU],
             memory->accesses[1].addresses[AMDF_MEMORY_ADDRESS_GPU]);
   EXPECT_EQ(amdf_memory_destroy(memory), AMDF_STATUS_OK);
