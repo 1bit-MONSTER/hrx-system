@@ -29,6 +29,7 @@ iree_cc_library(
   NAME
     aql_cases
   SRCS
+    "barrier_test.cc"
     "publication_test.cc"
   DEPS
     ::queue_fixture

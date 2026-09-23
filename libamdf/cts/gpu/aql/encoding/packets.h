@@ -17,7 +17,7 @@ struct alignas(64) Signal {
   // AMD_SIGNAL_KIND_USER, with host polling and no event mailbox.
   int64_t kind;
   // Value atomically decremented by the command processor on completion.
-  uint64_t value;
+  int64_t value;
   // Mailbox, event, timestamps and reserved fields, unused by these witnesses.
   uint64_t reserved[6];
 };
@@ -25,13 +25,30 @@ static_assert(sizeof(Signal) == 64);
 
 using Packet = std::array<uint32_t, 16>;
 
-// Barrier-AND with system acquire/release and preceding-packet ordering.
-// A zero dependency address is an unused slot, not a signal value.
-inline Packet Barrier(uint64_t completion, uint64_t dependency = 0) {
+enum class BarrierType : uint32_t {
+  kAnd = 3,
+  kOr = 5,
+};
+
+// This bit orders a packet after earlier packet completion. AND/OR packets
+// always block later packet launches until they complete, even without it.
+enum class HeaderBarrier : uint32_t {
+  kDisabled = 0,
+  kEnabled = 1u << 8,
+};
+
+// Standard barrier with system acquire/release scopes. A zero dependency
+// address satisfies AND and does not satisfy OR; it is not a signal value.
+inline Packet Barrier(BarrierType type, HeaderBarrier barrier,
+                      uint64_t completion,
+                      const std::array<uint64_t, 5>& dependencies = {}) {
   Packet packet = {};
-  packet[0] = 3 | (1u << 8) | (2u << 9) | (2u << 11);
-  packet[2] = static_cast<uint32_t>(dependency);
-  packet[3] = static_cast<uint32_t>(dependency >> 32);
+  packet[0] = static_cast<uint32_t>(type) | static_cast<uint32_t>(barrier) |
+              (2u << 9) | (2u << 11);
+  for (uint32_t i = 0; i < dependencies.size(); ++i) {
+    packet[2 + i * 2] = static_cast<uint32_t>(dependencies[i]);
+    packet[3 + i * 2] = static_cast<uint32_t>(dependencies[i] >> 32);
+  }
   packet[14] = static_cast<uint32_t>(completion);
   packet[15] = static_cast<uint32_t>(completion >> 32);
   return packet;
