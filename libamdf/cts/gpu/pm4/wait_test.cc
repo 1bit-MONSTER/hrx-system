@@ -16,7 +16,7 @@ struct WaitCase {
   const char* name;
   // Memory operand width in bytes, either four or eight.
   size_t byte_length;
-  // Unsigned comparison applied to the masked memory operand.
+  // Comparison applied to the masked memory operand.
   Pm4MemoryComparison comparison;
   // Initial value that does not satisfy the comparison.
   uint64_t initial_value;
@@ -28,13 +28,15 @@ struct WaitCase {
   uint64_t final_value;
 };
 
-constexpr std::array<WaitCase, 8> kWaitCases = {{
+constexpr std::array<WaitCase, 11> kWaitCases = {{
     {"Equal32", 4, Pm4MemoryComparison::kEqual, 0, 0x13579bdf, UINT32_MAX,
      0x13579bdf},
     {"MaskedEqual32", 4, Pm4MemoryComparison::kEqual, 0xaa000011, 0x5a000000,
      0xff000000, 0x5a123456},
     {"NotEqual32", 4, Pm4MemoryComparison::kNotEqual, 0x80000000, 0x80000000,
      UINT32_MAX, 0},
+    {"Less32EqualBoundary", 4, Pm4MemoryComparison::kLess, 0x40000000,
+     0x40000000, UINT32_MAX, 0x3fffffff},
     {"UnsignedGreaterOrEqual32Equal", 4, Pm4MemoryComparison::kGreaterOrEqual,
      0x7fffffff, 0x80000000, UINT32_MAX, 0x80000000},
     {"UnsignedGreaterOrEqual32Above", 4, Pm4MemoryComparison::kGreaterOrEqual,
@@ -45,6 +47,12 @@ constexpr std::array<WaitCase, 8> kWaitCases = {{
     {"MaskedEqual64HighHalf", 8, Pm4MemoryComparison::kEqual,
      UINT64_C(0x1000000013579bdf), UINT64_C(0x8000000000000000),
      UINT64_C(0xffffffff00000000), UINT64_C(0x8000000013579bdf)},
+    {"Less64HighHalf", 8, Pm4MemoryComparison::kLess,
+     UINT64_C(0x0000000200000001), UINT64_C(0x0000000200000001), UINT64_MAX,
+     UINT64_C(0x0000000100000001)},
+    {"MaskedLess64Epoch", 8, Pm4MemoryComparison::kLess,
+     UINT64_C(0xbfffffffffffffff), UINT64_C(0x3fffffffffffffff),
+     UINT64_C(0x7fffffffffffffff), UINT64_C(0xbffffffffffffffe)},
     {"UnsignedGreaterOrEqual64Carry", 8, Pm4MemoryComparison::kGreaterOrEqual,
      UINT64_C(0x00000000ffffffff), UINT64_C(0x0000000100000000), UINT64_MAX,
      UINT64_C(0x0000000100000001)},
@@ -87,9 +95,10 @@ TEST_P(Pm4WaitTest, AlreadySatisfiedOperandAllowsFollowingWork) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(values + 16), 1);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  // Observe payload before retirement queries can add synchronization.
   EXPECT_EQ(values[0], GetParam().final_value);
   EXPECT_EQ(values[8], GetParam().final_value);
+  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
@@ -154,12 +163,13 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
       0u);
   ASSERT_NO_FATAL_FAILURE(producer->PublishStream(produce.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 24), 1);
+  // The consumer's own marker must suffice for observing its output.
+  EXPECT_EQ(*static_cast<uint64_t*>(target->host.pointer), kPayload);
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 16), 1);
+  EXPECT_EQ(*static_cast<uint64_t*>(intermediate->host.pointer), kPayload);
+  EXPECT_EQ(milestones[0], GetParam().final_value);
   ASSERT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, produce.word_count()));
   ASSERT_NO_FATAL_FAILURE(consumer->WaitConsumed(api_, consume.word_count()));
-  EXPECT_EQ(*static_cast<uint64_t*>(intermediate->host.pointer), kPayload);
-  EXPECT_EQ(*static_cast<uint64_t*>(target->host.pointer), kPayload);
-  EXPECT_EQ(milestones[0], GetParam().final_value);
 }
 
 INSTANTIATE_TEST_SUITE_P(Comparison, Pm4WaitTest,

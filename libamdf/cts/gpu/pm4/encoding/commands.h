@@ -12,9 +12,10 @@
 
 #include "amdf/gpu.h"
 
-// Ordinary unsigned memory comparisons used by the CTS. These are the MEC
+// Ordinary memory comparisons used by the CTS. These are the MEC
 // WAIT_REG_MEM/WAIT_REG_MEM64 function values, not host comparison opcodes.
 enum class Pm4MemoryComparison : uint32_t {
+  kLess = 1,
   kEqual = 3,
   kNotEqual = 4,
   kGreaterOrEqual = 5,

@@ -175,6 +175,26 @@ TEST(Pm4EncodingTest, MaskedMemoryWaitsKeepOrdinaryMecExecution) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
+TEST(Pm4EncodingTest, LessThanWaitsPreserveBothOperandWidths) {
+  std::array<uint32_t, 17> words = {};
+  words.back() = 0x24681357;
+  Pm4CommandWriter commands(words.data());
+  commands.WaitMemory32(UINT64_C(0x0000123487654324), 0x40000000,
+                        Pm4MemoryComparison::kLess);
+  commands.WaitMemory64(
+      UINT64_C(0x00005678fedcba98), UINT64_C(0x3fffffffffffffff),
+      Pm4MemoryComparison::kLess, UINT64_C(0x7fffffffffffffff));
+  // MEC function 1 is LT; function 2 would permit equality. Both forms use
+  // ordinary memory waits with the ACE offload bit clear.
+  const std::array<uint32_t, 16> expected = {
+      0xc0053c00, 0x11,       0x87654324, 0x00001234, 0x40000000, 0xffffffff,
+      4,          0xc0079300, 0x11,       0xfedcba98, 0x00005678, 0xffffffff,
+      0x3fffffff, 0xffffffff, 0x7fffffff, 4};
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data(), expected);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, WideWaitSeparatesReferenceAndMaskHalves) {
   std::array<uint32_t, 10> words = {};
   words.back() = 0x24681357;
