@@ -173,9 +173,9 @@ static void amdf_gpu_memory_set_info(
   out_info->memory_class = profile->memory_class;
   memory->accesses[access_ordinal].info.access = device_access;
   memory->accesses[access_ordinal].info.atomic_operations_32 =
-      result.atomic_operations_32;
+      profile->atomic_operations_32;
   memory->accesses[access_ordinal].info.atomic_operations_64 =
-      result.atomic_operations_64;
+      profile->atomic_operations_64;
   memory->accesses[access_ordinal].info.address_domain_ordinal =
       profile->device_address.address_domain_ordinal;
   memory->accesses[access_ordinal].info.device_id =

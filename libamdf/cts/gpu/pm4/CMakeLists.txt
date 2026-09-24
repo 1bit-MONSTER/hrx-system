@@ -45,6 +45,7 @@ iree_cc_library(
   NAME
     pm4_cases
   SRCS
+    "atomic_store_test.cc"
     "copy_test.cc"
     "dispatch_test.cc"
     "indirect_test.cc"

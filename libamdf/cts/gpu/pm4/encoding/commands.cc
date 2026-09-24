@@ -206,6 +206,16 @@ void Pm4CommandWriter::DmaCopyL2(uint64_t source_address,
   words_[word_count_++] = byte_length | (1u << 30);
 }
 
+void Pm4CommandWriter::AtomicStore32(uint64_t target_address, uint32_t value) {
+  word_count_ += pm4::AtomicStore(words_ + word_count_, target_address, value,
+                                  pm4::AtomicStoreWidth::k32Bit);
+}
+
+void Pm4CommandWriter::AtomicStore64(uint64_t target_address, uint64_t value) {
+  word_count_ += pm4::AtomicStore(words_ + word_count_, target_address, value,
+                                  pm4::AtomicStoreWidth::k64Bit);
+}
+
 void Pm4CommandWriter::WaitDma() {
   // RADV's compute emitter leaves CP_SYNC clear even for its logical drain.
   // Zero length performs no source or destination memory access.

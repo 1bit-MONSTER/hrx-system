@@ -10,12 +10,28 @@
 #include "libamdf/src/gpu/endpoint_profile.h"
 #include "libamdf/src/platform/endpoint.h"
 
+// Exact IP discovery identity, separate from the compiler's target version.
+typedef struct amdf_gpu_kfd_ip_version_t {
+  // Native IP major version.
+  uint32_t major;
+  // Native IP minor version.
+  uint32_t minor;
+  // Native IP revision.
+  uint32_t revision;
+  // Whether sysfs supplied a complete, nonzero discovery version.
+  bool exact;
+} amdf_gpu_kfd_ip_version_t;
+
 // Native facts belonging to one identity-checked DRM endpoint.
 typedef struct amdf_gpu_kfd_topology_t {
   // GPU target and compute geometry reported by KFD topology.
   amdf_gpu_endpoint_properties_t properties;
   // KFD node identity used by memory and queue ioctls.
   uint32_t gpu_id;
+  // Exact graphics/compute IP identity from native discovery.
+  amdf_gpu_kfd_ip_version_t gc_ip;
+  // Native DEV_INFO identity flags, including APU and virtualization mode.
+  uint64_t device_flags;
   // Physical local-memory reachability reported by the installed driver.
   struct {
     // Cached native DRM hive identity; zero when this GPU has no hive.
@@ -47,16 +63,7 @@ typedef struct amdf_gpu_kfd_topology_t {
     // Number of constructible queues per SDMA engine.
     uint32_t queue_count_per_engine;
     // Cached IP discovery version used to select exact packet encodings.
-    struct {
-      // SDMA IP major version.
-      uint32_t major;
-      // SDMA IP minor version.
-      uint32_t minor;
-      // SDMA IP revision.
-      uint32_t revision;
-      // Whether sysfs supplied the full discovery version.
-      bool exact;
-    } ip;
+    amdf_gpu_kfd_ip_version_t ip;
   } sdma;
   // Native per-XCC context-save/restore bytes, or zero when not reported.
   // Compute queue plans require this group; memory and SDMA do not.
@@ -81,8 +88,8 @@ extern "C" {
 // Reads a coherent cached topology snapshot, including physical heap totals
 // and owned peer metadata. Success transfers discovery metadata to the caller;
 // failure leaves the output unchanged. No execution resources are acquired.
-// Memory features and the virtual-address interval are supplied separately by
-// native device metadata on the consuming connection.
+// Device flags, memory features and the virtual-address interval are supplied
+// separately by native device metadata on the consuming connection.
 // A missing KFD node returns UNSUPPORTED; malformed or changing state is an
 // error.
 amdf_status_t amdf_gpu_kfd_topology_initialize(

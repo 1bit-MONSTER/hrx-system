@@ -129,6 +129,7 @@ TEST_F(KfdTopologyTest, DiscoversMemoryAndSdmaWithoutComputeStorageMetadata) {
   EXPECT_EQ(topology.properties.gfx_ip.major, 9u);
   EXPECT_EQ(topology.properties.gfx_ip.minor, 4u);
   EXPECT_EQ(topology.properties.gfx_ip.stepping, 2u);
+  EXPECT_FALSE(topology.gc_ip.exact);
   EXPECT_EQ(topology.properties.compute.compute_unit_count, 304u);
   EXPECT_EQ(topology.properties.compute.wavefront_size, 64u);
   EXPECT_EQ(topology.properties.topology.xcc_count, 8u);
@@ -144,6 +145,43 @@ TEST_F(KfdTopologyTest, DiscoversMemoryAndSdmaWithoutComputeStorageMetadata) {
   EXPECT_EQ(topology.context_save_restore_byte_length, 0u);
   EXPECT_EQ(topology.control_stack_byte_length, 0u);
   amdf_gpu_kfd_topology_deinitialize(&topology, amdf_allocator_system());
+}
+
+TEST_F(KfdTopologyTest, NativeGcIdentityDoesNotUseCompilerTargetAliases) {
+  WriteProperties("");
+  const auto gc =
+      directory_ / "dev/char/226:160/device/ip_discovery/die/0/11/0";
+  std::filesystem::create_directories(gc);
+  WriteAttribute(gc / "major", "9\n");
+  WriteAttribute(gc / "minor", "4\n");
+  WriteAttribute(gc / "revision", "3\n");
+  amdf_gpu_kfd_topology_t topology = {};
+  ASSERT_EQ(amdf_gpu_kfd_topology_initialize(
+                &endpoint_, amdf_allocator_system(), &topology),
+            AMDF_STATUS_OK);
+  EXPECT_TRUE(topology.gc_ip.exact);
+  EXPECT_EQ(topology.gc_ip.major, 9u);
+  EXPECT_EQ(topology.gc_ip.minor, 4u);
+  EXPECT_EQ(topology.gc_ip.revision, 3u);
+  EXPECT_EQ(topology.properties.gfx_ip.stepping, 2u);
+  EXPECT_FALSE(topology.sdma.ip.exact);
+  amdf_gpu_kfd_topology_deinitialize(&topology, amdf_allocator_system());
+}
+
+TEST_F(KfdTopologyTest, PartialGcDiscoveryDoesNotPublishTopology) {
+  WriteProperties("");
+  const auto gc =
+      directory_ / "dev/char/226:160/device/ip_discovery/die/0/11/0";
+  std::filesystem::create_directories(gc);
+  WriteAttribute(gc / "major", "11\n");
+  WriteAttribute(gc / "minor", "5\n");
+  amdf_gpu_kfd_topology_t topology;
+  std::memset(&topology, 0xA5, sizeof(topology));
+  const auto original = topology;
+  EXPECT_EQ(amdf_gpu_kfd_topology_initialize(
+                &endpoint_, amdf_allocator_system(), &topology),
+            amdf_linux_error(ENOENT));
+  EXPECT_EQ(std::memcmp(&topology, &original, sizeof(topology)), 0);
 }
 
 TEST_F(KfdTopologyTest, PreservesComputeStorageWithoutSdmaMetadata) {

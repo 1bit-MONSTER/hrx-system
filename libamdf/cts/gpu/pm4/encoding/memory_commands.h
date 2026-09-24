@@ -18,6 +18,19 @@ enum class CopyDataWidth : uint32_t {
   k64Bit = 1,
 };
 
+// TC operation selection for a CP atomic store implemented as a swap.
+enum class AtomicStoreWidth : uint32_t {
+  k32Bit = 0x07,
+  k64Bit = 0x27,
+};
+
+// Encodes a single-pass LRU ATOMIC_MEM swap into nine caller-owned DWORDs and
+// returns nine. The address is naturally aligned for width; k32Bit consumes a
+// zero-extended uint32_t value. This does not expose the prior value. Queue
+// encoding, target support, pair reach and completion are caller obligations.
+size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
+                   AtomicStoreWidth width);
+
 // Encodes one confirmed TC/L2-to-TC/L2 copy into six caller-owned DWORDs and
 // returns six. Both addresses are aligned to four bytes for k32Bit and eight
 // bytes for k64Bit. Queue admission and execution visibility belong to the

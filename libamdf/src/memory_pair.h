@@ -93,10 +93,12 @@ extern "C" {
 
 // Describes a host view against one peer's coherence contract. Native API
 // publication and unqualified operations cannot become no-ops through
-// coherence.
+// coherence. An already-described device peer can qualify SYSTEM atomic widths
+// for a write-back view of the same backing; device_peer is NULL for host-only
+// pairs.
 amdf_memory_site_description_t amdf_memory_describe_host_site(
     const amdf_memory_host_description_t* host, amdf_memory_map_flags_t access,
-    bool coherent);
+    bool coherent, const amdf_memory_site_description_t* device_peer);
 
 // Composes two local descriptions of already-established shared backing reach.
 // The caller validates output storage; failure leaves it unchanged. Unsupported

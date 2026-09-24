@@ -234,20 +234,15 @@ static amdf_status_t amdf_gpu_kfd_read_node(
   return AMDF_STATUS_OK;
 }
 
-static amdf_status_t amdf_gpu_kfd_query_sdma(
-    const amdf_platform_endpoint_t* endpoint,
-    amdf_gpu_kfd_topology_t* topology) {
-  if (topology->sdma.engine_count == 0 &&
-      topology->sdma.xgmi_engine_count == 0) {
-    return AMDF_STATUS_OK;
-  }
-  // Hardware ID 42 is SDMA0. These cached discovery bytes are the same version
-  // returned by HW_IP_INFO for SDMA instance zero, without a native query. The
-  // numeric hardware-ID path also works before sysfs added named IP symlinks.
+static amdf_status_t amdf_gpu_kfd_read_ip_version(
+    const amdf_platform_endpoint_t* endpoint, uint32_t hardware_id,
+    amdf_gpu_kfd_ip_version_t* out_version) {
+  // Numeric hardware IDs also work before sysfs added named IP symlinks.
+  // Discovery distinguishes the native revision from compiler target aliases.
   char path[128];
-  snprintf(path, sizeof(path), "dev/char/%u:%u/device/ip_discovery/die/0/42/0",
+  snprintf(path, sizeof(path), "dev/char/%u:%u/device/ip_discovery/die/0/%u/0",
            (uint32_t)(endpoint->info.id.words[0] >> 32),
-           (uint32_t)endpoint->info.id.words[0]);
+           (uint32_t)endpoint->info.id.words[0], hardware_id);
   int directory = openat(endpoint->instance->sysfs_descriptor, path,
                          O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   if (directory < 0) {
@@ -269,10 +264,12 @@ static amdf_status_t amdf_gpu_kfd_query_sdma(
     status = close_status;
   }
   if (amdf_status_is_ok(status) && (values[0] | values[1] | values[2]) != 0) {
-    topology->sdma.ip.major = values[0];
-    topology->sdma.ip.minor = values[1];
-    topology->sdma.ip.revision = values[2];
-    topology->sdma.ip.exact = true;
+    *out_version = (amdf_gpu_kfd_ip_version_t){
+        .major = values[0],
+        .minor = values[1],
+        .revision = values[2],
+        .exact = true,
+    };
   }
   return status;
 }
@@ -457,6 +454,7 @@ amdf_status_t amdf_gpu_kfd_topology_query_memory(
   topology->virtual_address.begin = device.virtual_address_offset;
   topology->virtual_address.end = device.virtual_address_max;
   topology->virtual_address.alignment = device.virtual_address_alignment;
+  topology->device_flags = device.ids_flags;
   topology->memory_features = amdf_gpu_kfd_topology_memory_features(
       topology, (device.ids_flags & AMDGPU_IDS_FLAGS_FUSION) != 0);
   return AMDF_STATUS_OK;
@@ -537,7 +535,13 @@ amdf_status_t amdf_gpu_kfd_topology_initialize(
     }
   }
   if (amdf_status_is_ok(status) && found) {
-    status = amdf_gpu_kfd_query_sdma(endpoint, &topology);
+    // Native hardware IDs: GC is 11 and SDMA0 is 42.
+    status = amdf_gpu_kfd_read_ip_version(endpoint, 11, &topology.gc_ip);
+  }
+  if (amdf_status_is_ok(status) && found &&
+      (topology.sdma.engine_count != 0 ||
+       topology.sdma.xgmi_engine_count != 0)) {
+    status = amdf_gpu_kfd_read_ip_version(endpoint, 42, &topology.sdma.ip);
   }
   if (amdf_status_is_ok(status) && found) {
     status = amdf_gpu_kfd_read_memory(endpoint, &topology);

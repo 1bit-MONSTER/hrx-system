@@ -49,6 +49,23 @@ TEST(Pm4EncodingTest, FixedMemoryRecipeAdmitsOnlySourceCoveredTargetFamilies) {
   }
 }
 
+TEST(Pm4EncodingTest, AtomicStoresPreserveWidthsAndClearUnusedFields) {
+  std::array<uint32_t, 20> words;
+  words.fill(0x24681357);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.AtomicStore32(UINT64_C(0x000012345678903c), 0xfedcba98);
+  commands.AtomicStore64(UINT64_C(0x00003456789abff0),
+                         UINT64_C(0x13579bdf2468ace0));
+  const std::array<uint32_t, 18> expected = {
+      0xc0071e00, 0x07, 0x5678903c, 0x1234, 0xfedcba98, 0,          0, 0, 0,
+      0xc0071e00, 0x27, 0x789abff0, 0x3456, 0x2468ace0, 0x13579bdf, 0, 0, 0,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {
   std::array<uint32_t, 27> words = {};
   words.back() = 0x24681357;

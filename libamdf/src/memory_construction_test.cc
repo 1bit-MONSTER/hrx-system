@@ -407,6 +407,53 @@ TEST_F(MemoryConstructionTest, LiveProfilePreservesBackingPayloadGeometry) {
   }
 }
 
+TEST_F(MemoryConstructionTest, HostOnlyPairDoesNotQueryDeviceAtomicReach) {
+  FakeDevice device;
+  InitializeFakeDevice(1, &instance_, &device);
+  amdf_memory_host_description_t host = {};
+  host.cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK;
+  host.flush.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  host.invalidate.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  device.profile.visibility.data = &host;
+  device.profile.visibility.describe_host =
+      [](const void* data, amdf_external_memory_type_t, amdf_memory_flags_t) {
+        return *static_cast<const amdf_memory_host_description_t*>(data);
+      };
+  device.profile.visibility.describe_site =
+      [](const amdf_memory_site_query_t*, amdf_memory_site_description_t*) {
+        ADD_FAILURE() << "A host-only pair must not describe a mapped device";
+        return amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+      };
+  amdf_memory_profile_pair_query_t query = {};
+  query.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE_PAIR_QUERY;
+  query.structure_size = sizeof(query);
+  query.access_count = 1;
+  query.accesses = &device.request;
+  query.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+  query.producer.kind = AMDF_MEMORY_SITE_KIND_HOST;
+  query.producer.value.host_access = AMDF_MEMORY_MAP_FLAG_WRITE;
+  query.consumer.kind = AMDF_MEMORY_SITE_KIND_HOST;
+  query.consumer.value.host_access = AMDF_MEMORY_MAP_FLAG_READ;
+  amdf_memory_pair_info_t pair = {};
+  pair.type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO;
+  pair.structure_size = sizeof(pair);
+  ASSERT_EQ(amdf_memory_scope_query_pair_info(&instance_.system_memory_scope,
+                                              &query, &pair),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(pair.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(pair.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(pair.release.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
+  EXPECT_EQ(pair.acquire.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
+  EXPECT_EQ(device.create_call_count, 0u);
+  EXPECT_EQ(device.import_call_count, 0u);
+  const amdf_memory_pair_info_t original = pair;
+  query.producer.value.host_access = AMDF_MEMORY_MAP_FLAG_READ;
+  EXPECT_EQ(amdf_status_code(amdf_memory_scope_query_pair_info(
+                &instance_.system_memory_scope, &query, &pair)),
+            AMDF_STATUS_CODE_UNSUPPORTED);
+  EXPECT_EQ(std::memcmp(&pair, &original, sizeof(pair)), 0);
+}
+
 TEST_F(MemoryConstructionTest, LiveProfileFailurePublishesNoPartialOutputs) {
   FakeDevice devices[2];
   amdf_memory_device_access_t accesses[2];

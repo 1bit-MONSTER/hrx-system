@@ -221,6 +221,7 @@ amdf_cc_library(
         "//libamdf/src:memory_profile",
         "//libamdf/src/gpu/umd:memory",
         "//libamdf/src/platform/linux:dma_buf",
+        "//third_party:linux_amdgpu_uapi",
     ],
 )
 
@@ -255,6 +256,7 @@ amdf_cc_test(
         "//libamdf/src/gpu/umd/kfd/target:user_queue",
         "//third_party:google_test",
         "//third_party:google_test_main",
+        "//third_party:linux_amdgpu_uapi",
     ],
 )
 

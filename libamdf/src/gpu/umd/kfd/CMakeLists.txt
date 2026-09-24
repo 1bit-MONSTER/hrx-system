@@ -276,6 +276,7 @@ iree_cc_library(
   SRCS
     "memory_profile.c"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     ::topology
     amdf::headers
     libamdf::src::gpu::umd::memory
@@ -314,6 +315,7 @@ iree_cc_test(
   SRCS
     "memory_test.cc"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     ::device_state
     ::memory
     ::memory_profile

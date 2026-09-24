@@ -6,6 +6,8 @@
 
 #include "libamdf/src/gpu/umd/memory.h"
 
+#include <drm/amdgpu_drm.h>
+
 #include <cstring>
 
 #include "amdf/gpu.h"
@@ -868,6 +870,166 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151GroupUsesBackingAndConsumerFacts) {
   const auto owned_system = QueryProfile(&consumer, 0);
   EXPECT_EQ(owned_system.visibility.describe_site,
             system.visibility.describe_site);
+}
+
+TEST(LinuxGpuMemoryProfileTest, Gfx1151NativeApuSystemQualifiesOnlyPm4Stores) {
+  auto device = MakeGfx1151Device();
+  device.topology.gc_ip = {11, 5, 1, true};
+  device.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  amdf_gpu_endpoint_profile_t endpoint = {};
+  ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
+  ASSERT_EQ(endpoint.queue_family_count, 2u);
+  const auto profile = QueryProfile(&device, 0);
+  EXPECT_EQ(profile.atomic_operations_32, AMDF_ATOMIC_OPERATION_STORE);
+  EXPECT_EQ(profile.atomic_operations_64, AMDF_ATOMIC_OPERATION_STORE);
+  amdf_memory_site_query_t query = {
+      .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = profile.guaranteed_flags,
+      .queue_family_info = &endpoint.queue_families[0],
+  };
+  amdf_memory_site_description_t description = {};
+  ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+            AMDF_STATUS_OK);
+  ExpectGlobalQueueTransitions(description);
+  EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_SYSTEM);
+  EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_SYSTEM);
+  EXPECT_TRUE(
+      amdf_memory_compatibility_domain_is_valid(&description.atomic_domain));
+  const auto domain = description.atomic_domain;
+
+  auto family = endpoint.queue_families[0];
+  family.atomic_capabilities.operations_64 = 0;
+  query.queue_family_info = &family;
+  ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_SYSTEM);
+  EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_TRUE(amdf_memory_compatibility_domain_is_equal(
+      &description.atomic_domain, &domain));
+
+  for (amdf_memory_access_t access :
+       {AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_WRITE}) {
+    query.access = access;
+    ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+    EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+    EXPECT_FALSE(
+        amdf_memory_compatibility_domain_is_valid(&description.atomic_domain));
+  }
+  query.access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
+  query.queue_family_info = &endpoint.queue_families[1];
+  ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+            AMDF_STATUS_OK);
+  ExpectNoCacheTransitions(description);
+  EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+}
+
+TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemStoresDoNotRequireSdma) {
+  auto device = MakeGfx1151Device();
+  device.topology.gc_ip = {11, 5, 1, true};
+  device.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  device.topology.sdma = {};
+  amdf_gpu_endpoint_profile_t endpoint = {};
+  ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
+  ASSERT_EQ(endpoint.queue_family_count, 1u);
+  const auto profile = QueryProfile(&device, 0);
+  EXPECT_EQ(profile.atomic_operations_32, AMDF_ATOMIC_OPERATION_STORE);
+  EXPECT_EQ(profile.atomic_operations_64, AMDF_ATOMIC_OPERATION_STORE);
+  const amdf_memory_site_query_t query = {
+      .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = profile.guaranteed_flags,
+      .queue_family_info = &endpoint.queue_families[0],
+  };
+  amdf_memory_site_description_t description = {};
+  ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_SYSTEM);
+  EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_SYSTEM);
+  ExpectSiteUnsupported(profile, kTransferFamily);
+}
+
+TEST(LinuxGpuMemoryProfileTest, SystemStoresRequireExactPhysicalApuRoute) {
+  auto qualified = MakeGfx1151Device();
+  qualified.topology.gc_ip = {11, 5, 1, true};
+  qualified.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  for (uint32_t mode : {AMDGPU_IDS_FLAGS_MODE_VF, AMDGPU_IDS_FLAGS_MODE_PT}) {
+    auto device = qualified;
+    device.topology.device_flags |= mode << AMDGPU_IDS_FLAGS_MODE_SHIFT;
+    const auto profile = QueryProfile(&device, 0);
+    EXPECT_EQ(profile.atomic_operations_32, 0u);
+    EXPECT_EQ(profile.atomic_operations_64, 0u);
+  }
+  for (uint32_t missing_fact = 0; missing_fact < 4; ++missing_fact) {
+    SCOPED_TRACE(missing_fact);
+    auto device = qualified;
+    switch (missing_fact) {
+      case 0:
+        device.topology.device_flags = 0;
+        break;
+      case 1:
+        device.topology.gc_ip.exact = false;
+        break;
+      case 2:
+        device.topology.gc_ip.revision = 2;
+        break;
+      case 3:
+        device.topology.properties.gfx_ip.stepping = 2;
+        break;
+    }
+    const auto profile = QueryProfile(&device, 0);
+    EXPECT_EQ(profile.atomic_operations_32, 0u);
+    EXPECT_EQ(profile.atomic_operations_64, 0u);
+  }
+  qualified.native_lifetime = AMDF_NATIVE_LIFETIME_PROCESS;
+  qualified.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
+  for (uint32_t ordinal : {1u, 2u}) {
+    const auto profile = QueryProfile(&qualified, ordinal);
+    EXPECT_EQ(profile.atomic_operations_32, 0u);
+    EXPECT_EQ(profile.atomic_operations_64, 0u);
+  }
+}
+
+TEST(LinuxGpuMemoryProfileTest, SystemGroupStoresRemainConsumerSpecific) {
+  auto qualified = MakeGfx1151Device();
+  qualified.topology.gc_ip = {11, 5, 1, true};
+  qualified.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  auto unqualified = MakeGfx1151Device();
+  unqualified.topology.gpu_id = qualified.topology.gpu_id + 1;
+  const auto qualified_profile = QueryProfile(&qualified, 0);
+  const auto unqualified_profile = QueryProfile(&unqualified, 0);
+  amdf_memory_native_profile_t projected = {};
+  ASSERT_TRUE(qualified_profile.construction.query_access(
+      &qualified_profile, &unqualified_profile, &projected));
+  EXPECT_EQ(projected.atomic_operations_32, 0u);
+  EXPECT_EQ(projected.atomic_operations_64, 0u);
+  ASSERT_TRUE(unqualified_profile.construction.query_access(
+      &unqualified_profile, &qualified_profile, &projected));
+  EXPECT_EQ(projected.atomic_operations_32, AMDF_ATOMIC_OPERATION_STORE);
+  EXPECT_EQ(projected.atomic_operations_64, AMDF_ATOMIC_OPERATION_STORE);
+
+  unqualified.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
+  const auto local = QueryProfile(&unqualified, 1);
+  uint32_t backing_gpu_id = unqualified.topology.gpu_id;
+  qualified.topology.memory_peers.count = 1;
+  qualified.topology.memory_peers.gpu_ids = &backing_gpu_id;
+  ASSERT_TRUE(
+      local.construction.query_access(&local, &qualified_profile, &projected));
+  EXPECT_EQ(projected.atomic_operations_32, 0u);
+  EXPECT_EQ(projected.atomic_operations_64, 0u);
+  amdf_gpu_endpoint_profile_t endpoint = {};
+  ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&qualified, &endpoint));
+  const amdf_memory_site_query_t query = {
+      .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = projected.guaranteed_flags,
+      .queue_family_info = &endpoint.queue_families[0],
+  };
+  amdf_memory_site_description_t description = {};
+  ASSERT_EQ(projected.visibility.describe_site(&query, &description),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
 }
 
 }  // namespace

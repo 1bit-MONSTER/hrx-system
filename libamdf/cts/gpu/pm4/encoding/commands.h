@@ -84,6 +84,11 @@ class Pm4CommandWriter {
   // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);
+  // Atomic STORE via single-pass TC/L2 swap, without exposing a prior value.
+  // Target operation support and pair reach are separate from queue encoding;
+  // a subsequent barrier and completion establish visibility and retirement.
+  void AtomicStore32(uint64_t target_address, uint32_t value);
+  void AtomicStore64(uint64_t target_address, uint64_t value);
   // GFX11.5.1 MEC incrementing L2 copy with RAW_WAIT and write confirmation.
   // The caller supplies a nonzero byte count within the native 26-bit field
   // and the selected transfer policy, then joins final use with WaitDma and

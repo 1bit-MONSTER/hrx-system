@@ -10,6 +10,21 @@
 
 namespace pm4 {
 
+size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
+                   AtomicStoreWidth width) {
+  words[0] = (3u << 30) | (7u << 16) | (0x1eu << 8);
+  // Single-pass command and LRU policy are zero; no retry/compare mode.
+  words[1] = static_cast<uint32_t>(width);
+  words[2] = static_cast<uint32_t>(target_address);
+  words[3] = static_cast<uint32_t>(target_address >> 32);
+  words[4] = static_cast<uint32_t>(value);
+  words[5] = static_cast<uint32_t>(value >> 32);
+  words[6] = 0;
+  words[7] = 0;
+  words[8] = 0;
+  return 9;
+}
+
 size_t CopyData(uint32_t* words, uint64_t source_address,
                 uint64_t target_address, CopyDataWidth width) {
   // Type-3 COPY_DATA has six DWORDs, with its count excluding two DWORDs.
