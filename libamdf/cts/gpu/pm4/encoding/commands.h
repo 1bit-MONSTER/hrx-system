@@ -81,6 +81,12 @@ class Pm4CommandWriter {
   // retains it unchanged through its last consumer, supplies the shader ABI,
   // and separately joins shader completion.
   void DispatchIndirectWave32(uint64_t argument_address);
+  // Calls one immutable first-level MEC command IB and returns to the ring.
+  // The caller publishes 1..0xfffff DWORDs in four-byte-aligned owned
+  // executable backing wholly below 2^48 before ring publication. Complete
+  // backing stays immutable and retained through final use and checked queue
+  // removal; return alone does not join shader completion.
+  void CallIndirectBuffer(uint64_t buffer_address, uint32_t word_count);
   // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);

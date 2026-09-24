@@ -89,6 +89,16 @@ void Pm4CommandWriter::DispatchIndirectWave32(uint64_t argument_address) {
   words_[word_count_++] = 0x8005;
 }
 
+void Pm4CommandWriter::CallIndirectBuffer(uint64_t buffer_address,
+                                          uint32_t word_count) {
+  words_[word_count_++] = MakeHeader(0x3f, 4) | (1u << 1);
+  words_[word_count_++] = static_cast<uint32_t>(buffer_address);
+  words_[word_count_++] = static_cast<uint32_t>(buffer_address >> 32);
+  // KFD's USER convention: VALID, VMID 0 and numeric cache policy 2.
+  // PAL calls policy 2 NOA; KFD's older enum calls it BYPASS.
+  words_[word_count_++] = word_count | (1u << 23) | (2u << 28);
+}
+
 void Pm4CommandWriter::SystemBarrier() {
   enum : uint32_t {
     kEventWriteOpcode = 0x46,

@@ -225,6 +225,23 @@ TEST(Pm4EncodingTest, IndirectWave32DispatchUsesAbsoluteByteAddressAndGroups) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
+TEST(Pm4EncodingTest, IndirectBufferCallUsesUserMecAddressAndDwordCount) {
+  std::array<uint32_t, 10> words;
+  words.fill(0x24681357u);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.CallIndirectBuffer(UINT64_C(0x0000123456789000), 40);
+  // The upper count bit is a host encoding case, not a native launch size.
+  commands.CallIndirectBuffer(UINT64_C(0x0000abcd87654324), 0x00081234);
+  const std::array<uint32_t, 8> expected = {
+      0xc0023f02, 0x56789000, 0x00001234, 0x20800028,
+      0xc0023f02, 0x87654324, 0x0000abcd, 0x20881234,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, SystemReleaseUsesConfirmedEndOfPipeAndReleaseGcr) {
   std::array<uint32_t, 10> words;
   words.fill(0x24681357);
