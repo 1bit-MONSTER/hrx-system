@@ -47,6 +47,7 @@ iree_cc_library(
   SRCS
     "copy_test.cc"
     "dispatch_test.cc"
+    "indirect_test.cc"
     "lds_test.cc"
     "resource_test.cc"
     "timestamp_test.cc"

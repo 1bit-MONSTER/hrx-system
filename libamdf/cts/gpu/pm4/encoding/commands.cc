@@ -80,6 +80,15 @@ void Pm4CommandWriter::DispatchWave32(uint32_t x, uint32_t y, uint32_t z) {
   words_[word_count_++] = 0x8025;
 }
 
+void Pm4CommandWriter::DispatchIndirectWave32(uint64_t argument_address) {
+  // The MEC form takes an absolute byte address, not a SET_BASE offset.
+  words_[word_count_++] = MakeHeader(0x16, 4) | (1 << 1);
+  words_[word_count_++] = static_cast<uint32_t>(argument_address);
+  words_[word_count_++] = static_cast<uint32_t>(argument_address >> 32);
+  // COMPUTE_SHADER_EN, FORCE_START_AT_000, CS_W32_EN; dimensions are groups.
+  words_[word_count_++] = 0x8005;
+}
+
 void Pm4CommandWriter::SystemBarrier() {
   enum : uint32_t {
     kEventWriteOpcode = 0x46,

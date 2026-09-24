@@ -76,6 +76,10 @@ class Pm4CommandWriter {
   // groups. Shader completion and memory visibility require an explicit
   // subsequent completion/cache operation.
   void DispatchWave32(uint32_t x, uint32_t y, uint32_t z);
+  // MEC wave32 launch from three immutable uint32 workgroup counts at a
+  // four-byte-aligned GPU byte address. The caller publishes and retains the
+  // tuple, supplies the shader ABI, and separately joins shader completion.
+  void DispatchIndirectWave32(uint64_t argument_address);
   // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);

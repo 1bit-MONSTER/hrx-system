@@ -191,6 +191,23 @@ TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
+TEST(Pm4EncodingTest, IndirectWave32DispatchUsesAbsoluteByteAddressAndGroups) {
+  std::array<uint32_t, 6> words;
+  words.fill(0x24681357u);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.DispatchIndirectWave32(UINT64_C(0x00000012abcd0100));
+  const std::array<uint32_t, 4> expected = {
+      0xc0021602,
+      0xabcd0100,
+      0x00000012,
+      0x8005,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, SystemReleaseUsesConfirmedEndOfPipeAndReleaseGcr) {
   std::array<uint32_t, 10> words;
   words.fill(0x24681357);
