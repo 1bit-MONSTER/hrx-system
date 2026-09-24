@@ -41,6 +41,7 @@ iree_cc_library(
     "resource_test.cc"
     "timestamp_test.cc"
     "transfer_test.cc"
+    "workset_test.cc"
   DEPS
     ::dispatch_fixture
     ::queue_fixture

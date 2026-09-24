@@ -38,6 +38,7 @@ amdf_cts_test_suite(
         "resource_test.cc",
         "timestamp_test.cc",
         "transfer_test.cc",
+        "workset_test.cc",
     ],
     target_compatible_with = ["@platforms//cpu:x86_64"] + select({
         "@platforms//os:linux": [],
