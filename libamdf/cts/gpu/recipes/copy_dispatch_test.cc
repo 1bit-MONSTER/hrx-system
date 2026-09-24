@@ -324,6 +324,11 @@ struct alignas(64) CompletionState {
   alignas(64) uint32_t download;
 };
 
+constexpr uint32_t kPageByteLength = 4096;
+// Bytes outside the two native signal blocks and the final download word.
+constexpr uint32_t kControlGuardByteOffset =
+    offsetof(CompletionState, download) + sizeof(uint32_t);
+
 void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
     GTEST_SKIP() << "queried dataflow requires the discrete coherent SYSTEM "
@@ -430,8 +435,8 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   GpuMemory* arguments = nullptr;
   GpuMemory* control = nullptr;
   ASSERT_NO_FATAL_FAILURE(
-      CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
-  ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, 4096, &control));
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &arguments));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, kPageByteLength, &control));
   ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
   ASSERT_EQ(control->device_address % alignof(CompletionState), 0u);
   std::memset(control->host.pointer, 0, control->info.byte_length);
@@ -443,6 +448,11 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
       control->device_address + offsetof(CompletionState, compute);
   const uint64_t download_address =
       control->device_address + offsetof(CompletionState, download);
+  RecordProperty("copy_dispatch_argument_byte_length", kPageByteLength);
+  RecordProperty("copy_dispatch_control_guard_byte_offset",
+                 kControlGuardByteOffset);
+  RecordProperty("copy_dispatch_control_guard_byte_length",
+                 kPageByteLength - kControlGuardByteOffset);
 
   GpuUserQueue* aql_queue = nullptr;
   GpuUserQueue* sdma_queue = nullptr;
@@ -479,6 +489,14 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   std::array<uint32_t, kMaximumWordCount> expected_output;
   std::array<uint32_t, kMaximumWordCount> expected_readback;
   std::array<uint32_t, kMaximumWordCount> downloaded;
+  std::array<uint32_t, kMaximumWordCount> observed_source;
+  std::array<uint32_t, kMaximumWordCount> observed_input;
+  std::array<uint32_t, kMaximumWordCount> observed_output;
+  std::array<uint8_t, kPageByteLength> expected_arguments;
+  std::array<uint8_t, kPageByteLength> observed_arguments;
+  CompletionState observed_completion;
+  std::array<uint8_t, kPageByteLength - kControlGuardByteOffset>
+      observed_control_guards;
   std::array<uint64_t, 2> completed_epochs = {};
   for (uint64_t epoch_index = 0; epoch_index < epoch_count; ++epoch_index) {
     // Each set sees both count variants before the next set uses the queues.
@@ -531,8 +549,11 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
     };
     // Kernargs stay immutable through completion; normal AQL publication and
     // the queried dispatch acquire provide their coherent native contract.
-    std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
-    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    expected_arguments.fill(0);
+    std::memcpy(expected_arguments.data(), &payload,
+                kernel::kKernargByteLength);
+    std::memcpy(arguments->host.pointer, expected_arguments.data(),
+                expected_arguments.size());
     // Previous final download and both consumed frontiers precede rearming.
     // Only the low word changes on the SDMA upload's finite 1-to-0 transition.
     completion.upload.value = completion.compute.value = 1;
@@ -586,28 +607,56 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
     // Observe the actual download before any native consumption/retirement
     // call or other payload read could maintain this visibility edge for us.
     std::memcpy(downloaded.data(), readback_words, buffers.byte_length);
+    // Join the shader independently of the SDMA poll under test before
+    // reading its output or reusing its arguments. The final download fence
+    // already joins all SDMA work, including the upload signal write.
+    GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&completion.compute.value), 0);
+    std::memcpy(observed_source.data(), source_words, buffers.byte_length);
+    std::memcpy(observed_input.data(), input_words, buffers.byte_length);
+    std::memcpy(observed_output.data(), output_words, buffers.byte_length);
+    std::memcpy(observed_arguments.data(), arguments->host.pointer,
+                observed_arguments.size());
+    std::memcpy(&observed_completion, control->host.pointer,
+                sizeof(observed_completion));
+    std::memcpy(observed_control_guards.data(),
+                static_cast<const uint8_t*>(control->host.pointer) +
+                    kControlGuardByteOffset,
+                observed_control_guards.size());
+    // Every observation precedes diagnostics, which cannot repair a captured
+    // visibility result or bypass either queue's retirement on failure.
     for (uint32_t i = 0; i < word_count; ++i) {
-      ASSERT_EQ(downloaded[i], expected_readback[i])
+      EXPECT_EQ(downloaded[i], expected_readback[i])
           << "set=" << set_index << " epoch=" << epoch
           << " readback word=" << i;
     }
-    // Coherent diagnostic reads cannot repair the captured readback result.
     for (uint32_t i = 0; i < word_count; ++i) {
-      ASSERT_EQ(source_words[i], expected_source[i])
+      EXPECT_EQ(observed_source[i], expected_source[i])
           << "set=" << set_index << " epoch=" << epoch << " source word=" << i;
-      ASSERT_EQ(input_words[i], expected_input[i])
+      EXPECT_EQ(observed_input[i], expected_input[i])
           << "set=" << set_index << " epoch=" << epoch << " input word=" << i;
-      ASSERT_EQ(output_words[i], expected_output[i])
+      EXPECT_EQ(observed_output[i], expected_output[i])
           << "set=" << set_index << " epoch=" << epoch << " output word=" << i;
     }
-    ASSERT_EQ(GpuLoadAcquire<int64_t>(
-                  reinterpret_cast<uintptr_t>(&completion.upload.value)),
-              0);
-    ASSERT_EQ(GpuLoadAcquire<int64_t>(
-                  reinterpret_cast<uintptr_t>(&completion.compute.value)),
-              0);
-    ASSERT_NO_FATAL_FAILURE(aql_queue->WaitConsumed(api_, aql_index));
-    ASSERT_NO_FATAL_FAILURE(sdma_queue->WaitConsumed(api_, sdma_index));
+    for (uint32_t i = 0; i < expected_arguments.size(); ++i) {
+      EXPECT_EQ(observed_arguments[i], expected_arguments[i])
+          << "set=" << set_index << " epoch=" << epoch << " kernarg byte=" << i;
+    }
+    EXPECT_EQ(observed_completion.upload.kind, 1);
+    EXPECT_EQ(observed_completion.upload.value, 0);
+    EXPECT_EQ(observed_completion.compute.kind, 1);
+    EXPECT_EQ(observed_completion.compute.value, 0);
+    EXPECT_EQ(observed_completion.download, epoch);
+    for (uint32_t i = 0; i < observed_control_guards.size(); ++i) {
+      EXPECT_EQ(observed_control_guards[i], 0)
+          << "set=" << set_index << " epoch=" << epoch
+          << " control guard byte=" << kControlGuardByteOffset + i;
+    }
+    EXPECT_NO_FATAL_FAILURE(aql_queue->WaitConsumed(api_, aql_index));
+    EXPECT_NO_FATAL_FAILURE(sdma_queue->WaitConsumed(api_, sdma_index));
+    if (HasFailure()) {
+      return;
+    }
     ++completed_epochs[set_index];
   }
   ASSERT_GT(aql_index, 2 * aql_capacity);
@@ -805,8 +854,8 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   GpuMemory* arguments = nullptr;
   GpuMemory* control = nullptr;
   ASSERT_NO_FATAL_FAILURE(
-      CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
-  ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, 4096, &control));
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &arguments));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, kPageByteLength, &control));
   ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
   ASSERT_EQ(control->device_address % alignof(CompletionState), 0u);
   std::memset(control->host.pointer, 0, control->info.byte_length);
@@ -818,6 +867,11 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
       control->device_address + offsetof(CompletionState, compute);
   const uint64_t download_address =
       control->device_address + offsetof(CompletionState, download);
+  RecordProperty("copy_dispatch_argument_byte_length", kPageByteLength);
+  RecordProperty("copy_dispatch_control_guard_byte_offset",
+                 kControlGuardByteOffset);
+  RecordProperty("copy_dispatch_control_guard_byte_length",
+                 kPageByteLength - kControlGuardByteOffset);
 
   GpuUserQueue* aql_queue = nullptr;
   GpuUserQueue* sdma_queue = nullptr;
@@ -853,6 +907,14 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   std::array<uint32_t, kMaximumWordCount> expected_seed;
   std::array<uint32_t, kMaximumWordCount> expected_output;
   std::array<uint32_t, kMaximumWordCount> downloaded;
+  std::array<uint32_t, kMaximumWordCount> observed_input_readback;
+  std::array<uint32_t, kMaximumWordCount> observed_source;
+  std::array<uint32_t, kMaximumWordCount> observed_seed;
+  std::array<uint8_t, kPageByteLength> expected_arguments;
+  std::array<uint8_t, kPageByteLength> observed_arguments;
+  CompletionState observed_completion;
+  std::array<uint8_t, kPageByteLength - kControlGuardByteOffset>
+      observed_control_guards;
   std::array<uint64_t, 2> completed_epochs = {};
   for (uint64_t epoch_index = 0; epoch_index < epoch_count; ++epoch_index) {
     // Each backing sees both active-count variants before the next backing.
@@ -900,8 +962,11 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
         count,
         addend,
     };
-    std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
-    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    expected_arguments.fill(0);
+    std::memcpy(expected_arguments.data(), &payload,
+                kernel::kKernargByteLength);
+    std::memcpy(arguments->host.pointer, expected_arguments.data(),
+                expected_arguments.size());
     // Rearming follows the previous epoch's download and both consumed
     // frontiers. The complete native values always have a zero high word.
     completion.upload.value = completion.compute.value = 1;
@@ -952,29 +1017,56 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
     // Capture the full output first. Diagnostic payload reads and native
     // consumed/retirement calls cannot repair this already captured result.
     std::memcpy(downloaded.data(), readback_words, byte_length);
+    // The final SDMA fence joins all copies. Independently join the shader
+    // before observing its arguments/control or allowing another epoch.
+    GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&completion.compute.value), 0);
+    std::memcpy(observed_input_readback.data(), input_readback_words,
+                byte_length);
+    std::memcpy(observed_source.data(), source_words, byte_length);
+    std::memcpy(observed_seed.data(), seed_words, byte_length);
+    std::memcpy(observed_arguments.data(), arguments->host.pointer,
+                observed_arguments.size());
+    std::memcpy(&observed_completion, control->host.pointer,
+                sizeof(observed_completion));
+    std::memcpy(observed_control_guards.data(),
+                static_cast<const uint8_t*>(control->host.pointer) +
+                    kControlGuardByteOffset,
+                observed_control_guards.size());
     for (uint32_t i = 0; i < word_count; ++i) {
-      ASSERT_EQ(downloaded[i], expected_output[i])
+      EXPECT_EQ(downloaded[i], expected_output[i])
           << "set=" << set_index << " epoch=" << epoch << " output word=" << i;
     }
     for (uint32_t i = 0; i < word_count; ++i) {
-      ASSERT_EQ(input_readback_words[i], expected_input[i])
+      EXPECT_EQ(observed_input_readback[i], expected_input[i])
           << "set=" << set_index << " epoch=" << epoch
           << " input readback word=" << i;
-      ASSERT_EQ(source_words[i], expected_input[i])
+      EXPECT_EQ(observed_source[i], expected_input[i])
           << "set=" << set_index << " epoch=" << epoch
           << " input staging word=" << i;
-      ASSERT_EQ(seed_words[i], expected_seed[i])
+      EXPECT_EQ(observed_seed[i], expected_seed[i])
           << "set=" << set_index << " epoch=" << epoch
           << " output seed word=" << i;
     }
-    ASSERT_EQ(GpuLoadAcquire<int64_t>(
-                  reinterpret_cast<uintptr_t>(&completion.upload.value)),
-              0);
-    ASSERT_EQ(GpuLoadAcquire<int64_t>(
-                  reinterpret_cast<uintptr_t>(&completion.compute.value)),
-              0);
-    ASSERT_NO_FATAL_FAILURE(aql_queue->WaitConsumed(api_, aql_index));
-    ASSERT_NO_FATAL_FAILURE(sdma_queue->WaitConsumed(api_, sdma_index));
+    for (uint32_t i = 0; i < expected_arguments.size(); ++i) {
+      EXPECT_EQ(observed_arguments[i], expected_arguments[i])
+          << "set=" << set_index << " epoch=" << epoch << " kernarg byte=" << i;
+    }
+    EXPECT_EQ(observed_completion.upload.kind, 1);
+    EXPECT_EQ(observed_completion.upload.value, 0);
+    EXPECT_EQ(observed_completion.compute.kind, 1);
+    EXPECT_EQ(observed_completion.compute.value, 0);
+    EXPECT_EQ(observed_completion.download, epoch);
+    for (uint32_t i = 0; i < observed_control_guards.size(); ++i) {
+      EXPECT_EQ(observed_control_guards[i], 0)
+          << "set=" << set_index << " epoch=" << epoch
+          << " control guard byte=" << kControlGuardByteOffset + i;
+    }
+    EXPECT_NO_FATAL_FAILURE(aql_queue->WaitConsumed(api_, aql_index));
+    EXPECT_NO_FATAL_FAILURE(sdma_queue->WaitConsumed(api_, sdma_index));
+    if (HasFailure()) {
+      return;
+    }
     ++completed_epochs[set_index];
   }
   ASSERT_GT(aql_index, 2 * aql_capacity);
