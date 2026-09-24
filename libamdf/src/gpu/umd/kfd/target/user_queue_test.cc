@@ -37,10 +37,10 @@ TEST(KfdTargetUserQueueTest, KeepsSupportedPlansDense) {
   EXPECT_EQ(plans.values[1].family.command_type,
             AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
   EXPECT_EQ(plans.values[1].family.format_features,
-            AMDF_GPU_SDMA_FORMAT_FEATURE_GCR |
-                AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
-  EXPECT_EQ(plans.values[1].family.roles,
-            AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL);
+            AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
+  EXPECT_EQ(plans.values[1].family.roles, AMDF_QUEUE_ROLE_TRANSFER);
+  EXPECT_EQ(plans.values[1].family.cache_operations, 0u);
+  EXPECT_EQ(plans.values[1].family.cache_transition_kinds, 0u);
 
   topology.compute_queue_count = 0;
   amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
@@ -60,7 +60,35 @@ TEST(KfdTargetUserQueueTest, KeepsSupportedPlansDense) {
   EXPECT_EQ(plans.count, 0u);
 }
 
-TEST(KfdTargetUserQueueTest, ExactSdma442HasTransferWithoutGcrOrFenceFields) {
+TEST(KfdTargetUserQueueTest, ExactSdma6HasClassicFenceWithoutCacheOperations) {
+  amdf_gpu_kfd_topology_t topology = MakeTopology();
+  topology.properties.gfx_ip = {};
+  for (uint32_t minor : {0u, 1u}) {
+    SCOPED_TRACE(minor);
+    topology.sdma.ip = {6, minor, 0, true};
+    amdf_gpu_kfd_user_queue_plans_t plans;
+    amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64,
+                                                    &plans);
+    ASSERT_EQ(plans.count, 1u);
+    const auto& plan = plans.values[0];
+    EXPECT_EQ(plan.family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+    EXPECT_EQ(plan.family.format_version, AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1);
+    EXPECT_EQ(plan.family.format_features,
+              AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
+    EXPECT_EQ(plan.family.roles, AMDF_QUEUE_ROLE_TRANSFER);
+    EXPECT_EQ(plan.family.cache_operations, 0u);
+    EXPECT_EQ(plan.family.cache_transition_kinds, 0u);
+    EXPECT_EQ(plan.family.publication_modes, AMDF_QUEUE_PUBLICATION_MODE_USER);
+    EXPECT_EQ(plan.ring.primary_byte_length, 4096u);
+    EXPECT_EQ(plan.control.index_bit_count, 64u);
+    EXPECT_EQ(plan.control.read_index_mask, UINT64_MAX);
+    EXPECT_EQ(plan.doorbell.bit_count, 64u);
+    EXPECT_EQ(plan.compute.context_storage.byte_length, 0u);
+  }
+}
+
+TEST(KfdTargetUserQueueTest,
+     ExactSdma442HasTransferWithoutOptionalFenceFields) {
   amdf_gpu_kfd_topology_t topology = MakeTopology();
   // SDMA admission consumes its own exact IP, independent of compute layout.
   topology.properties.gfx_ip = {};

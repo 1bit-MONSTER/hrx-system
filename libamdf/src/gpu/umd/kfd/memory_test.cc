@@ -10,8 +10,10 @@
 
 #include "amdf/gpu.h"
 #include "gtest/gtest.h"
+#include "libamdf/src/gpu/endpoint_profile.h"
 #include "libamdf/src/gpu/umd/kfd/device.h"
 #include "libamdf/src/gpu/umd/kfd/memory_profile.h"
+#include "libamdf/src/gpu/umd/kfd/target/user_queue.h"
 
 namespace {
 
@@ -220,11 +222,35 @@ static amdf_gpu_umd_device_t MakeDiscreteGfx942Device() {
   device.page_size = 4096;
   device.topology.gpu_id = 41;
   device.topology.properties.gfx_ip = {9, 4, 2};
+  device.topology.properties.compute.wavefront_size = 64;
+  device.topology.properties.compute.compute_unit_count = 304;
+  device.topology.properties.compute.maximum_wave_count_per_compute_unit = 32;
+  device.topology.properties.compute
+      .maximum_scratch_wave_count_per_compute_unit = 32;
+  device.topology.properties.compute.local_data_share_byte_length = 65536;
+  device.topology.properties.topology.xcc_count = 8;
+  device.topology.properties.topology.shader_engine_count_per_xcc = 4;
+  device.topology.compute_queue_count = 8;
+  device.topology.sdma.engine_count = 2;
+  device.topology.sdma.queue_count_per_engine = 8;
   device.topology.sdma.ip = {4, 4, 2, true};
   device.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
   device.topology.virtual_address.begin = UINT64_C(0x10000);
   device.topology.virtual_address.end = UINT64_C(1) << 48;
   return device;
+}
+
+static void InitializeQueueFamilies(amdf_gpu_umd_device_t* device,
+                                    amdf_gpu_endpoint_profile_t* out_profile) {
+  amdf_gpu_kfd_user_queue_plans_t plans;
+  amdf_gpu_kfd_target_user_queue_plans_initialize(
+      &device->topology, device->page_size, 64, &plans);
+  auto& properties = device->topology.properties;
+  properties.queue_family_count = plans.count;
+  for (uint32_t i = 0; i < plans.count; ++i) {
+    properties.queue_families[i] = plans.values[i].family;
+  }
+  ASSERT_TRUE(amdf_gpu_endpoint_profile_initialize(&properties, out_profile));
 }
 
 static constexpr amdf_queue_family_info_t kTransferFamily = {
@@ -299,6 +325,13 @@ class LinuxGpuGfx942SiteTest
 
 TEST_P(LinuxGpuGfx942SiteTest, PreservesPermissionsWithoutClaimingAtomics) {
   auto device = MakeDiscreteGfx942Device();
+  amdf_gpu_endpoint_profile_t endpoint = {};
+  ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
+  ASSERT_EQ(endpoint.queue_family_count, 2u);
+  ASSERT_EQ(endpoint.queue_families[0].command_type,
+            AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+  ASSERT_EQ(endpoint.queue_families[1].command_type,
+            AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
   amdf_memory_site_capabilities_t permissions = 0;
   if ((GetParam() & AMDF_MEMORY_ACCESS_READ) != 0) {
     permissions |= AMDF_MEMORY_SITE_CAPABILITY_READ;
@@ -310,7 +343,8 @@ TEST_P(LinuxGpuGfx942SiteTest, PreservesPermissionsWithoutClaimingAtomics) {
     SCOPED_TRACE(ordinal);
     const auto profile = QueryProfile(&device, ordinal);
     ASSERT_NE(profile.visibility.describe_site, nullptr);
-    for (const auto& family : {kTransferFamily, kComputeFamily}) {
+    for (uint32_t i = 0; i < endpoint.queue_family_count; ++i) {
+      const auto& family = endpoint.queue_families[i];
       SCOPED_TRACE(family.command_type);
       const amdf_memory_site_query_t query = {
           .access = GetParam(),
@@ -593,41 +627,44 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupUsesEachConsumersSelectedPolicy) {
   EXPECT_EQ(description.acquire.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
 }
 
-TEST(LinuxGpuMemoryProfileTest, PreservesGenericGlobalCacheTransitions) {
-  for (bool qualified : {false, true}) {
-    SCOPED_TRACE(qualified);
+TEST(LinuxGpuMemoryProfileTest, SelectedGfx11FamiliesSeparateTransferAndCache) {
+  for (uint32_t minor : {0u, 5u}) {
+    SCOPED_TRACE(minor);
     auto device = MakeDiscreteGfx942Device();
-    if (!qualified) {
-      device.topology.properties.gfx_ip = {11, 5, 1};
-      device.topology.sdma.ip = {6, 1, 1, true};
-    }
-    for (uint32_t ordinal : {0u, 1u}) {
+    device.topology.properties.gfx_ip = {11, minor, minor == 0 ? 0u : 1u};
+    device.topology.properties.compute.wavefront_size = 32;
+    device.topology.properties.compute.compute_unit_count = 2;
+    device.topology.properties.topology.xcc_count = 1;
+    device.topology.properties.topology.shader_engine_count_per_xcc = 1;
+    device.topology.context_save_restore_byte_length = 4096;
+    device.topology.control_stack_byte_length = 4096;
+    device.topology.sdma.ip = {6, minor == 0 ? 0u : 1u, minor == 0 ? 0u : 1u,
+                               true};
+    // gfx1100 has a discrete LOCAL profile; gfx1151 is integrated.
+    device.topology.memory_features =
+        minor == 0 ? AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY : 0;
+    const uint32_t profile_count = minor == 0 ? 2 : 1;
+    amdf_gpu_endpoint_profile_t endpoint = {};
+    ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
+    ASSERT_EQ(endpoint.queue_family_count, 2u);
+    ASSERT_EQ(endpoint.queue_families[0].command_type,
+              AMDF_QUEUE_COMMAND_TYPE_GPU_PM4);
+    ASSERT_EQ(endpoint.queue_families[1].command_type,
+              AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+    for (uint32_t ordinal = 0; ordinal < profile_count; ++ordinal) {
       SCOPED_TRACE(ordinal);
       const auto profile = QueryProfile(&device, ordinal);
       ASSERT_NE(profile.visibility.describe_site, nullptr);
-      for (amdf_queue_command_type_t command_type :
-           {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
-            AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA}) {
-        SCOPED_TRACE(command_type);
-        auto family = kComputeFamily;
-        family.command_type = command_type;
-        family.roles = AMDF_QUEUE_ROLE_CACHE_CONTROL;
-        if (!qualified && command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
-          family.roles |= AMDF_QUEUE_ROLE_TRANSFER;
-          family.format_features =
-              AMDF_GPU_SDMA_FORMAT_FEATURE_GCR |
-              AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE;
-        }
-        const amdf_memory_site_query_t query = {
-            .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
-            .flags = profile.guaranteed_flags,
-            .queue_family_info = &family,
-        };
-        amdf_memory_site_description_t description = {};
-        ASSERT_EQ(profile.visibility.describe_site(&query, &description),
-                  AMDF_STATUS_OK);
-        ExpectGlobalQueueTransitions(description);
-      }
+      const amdf_memory_site_query_t query = {
+          .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+          .flags = profile.guaranteed_flags,
+          .queue_family_info = &endpoint.queue_families[0],
+      };
+      amdf_memory_site_description_t description = {};
+      ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+                AMDF_STATUS_OK);
+      ExpectGlobalQueueTransitions(description);
+      ExpectSiteUnsupported(profile, endpoint.queue_families[1]);
     }
   }
 }

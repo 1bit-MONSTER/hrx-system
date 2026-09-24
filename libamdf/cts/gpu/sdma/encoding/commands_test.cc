@@ -70,8 +70,7 @@ TEST(SdmaEncodingTest, DependentCopiesHaveOneDwordNopAndFinalFence) {
 
 TEST(SdmaEncodingTest, DwordFillHasByteCountAndNoOptionalHeaderFields) {
   constexpr std::array<amdf_queue_format_features_t, 2> kFeatures = {
-      0, AMDF_GPU_SDMA_FORMAT_FEATURE_GCR |
-             AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE};
+      0, AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE};
   constexpr std::array<uint32_t, 3> kByteLengths = {4, 8, 1028};
   constexpr std::array<uint32_t, 3> kCounts = {0x00000003, 0x00000007,
                                                0x00000403};
@@ -86,8 +85,8 @@ TEST(SdmaEncodingTest, DwordFillHasByteCountAndNoOptionalHeaderFields) {
                       kByteLengths[i]);
       // PAL c5e800072a32 WriteFillMemoryCmd and Mesa 0ba4b08edc65
       // ac_emit_sdma_constant_fill use opcode11, fillsize2 and bytes-minus-one.
-      // The low two count bits are ignored in DWORD mode. GCR and classic
-      // fence MTYPE capabilities do not add fields to this fill header.
+      // The low two count bits are ignored in DWORD mode. Classic fence MTYPE
+      // does not add fields to this fill header.
       const std::array<uint32_t, 6> expected = {0x8000000b, 0x87654320,
                                                 0x12345678, 0x6d2ac491,
                                                 kCounts[i], 0x24681357};

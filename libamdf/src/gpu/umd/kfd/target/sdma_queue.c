@@ -28,8 +28,6 @@ bool amdf_gpu_kfd_sdma_queue_plan(const amdf_gpu_kfd_topology_t* topology,
   const uint32_t host_storage_flags =
       KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
-  const bool has_gcr =
-      (format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_GCR) != 0;
   const amdf_gpu_kfd_user_queue_plan_t plan = {
       .family =
           {
@@ -37,14 +35,7 @@ bool amdf_gpu_kfd_sdma_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
               .format_features = format_features,
               .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER,
-              .roles = AMDF_QUEUE_ROLE_TRANSFER |
-                       (has_gcr ? AMDF_QUEUE_ROLE_CACHE_CONTROL : 0),
-              .cache_operations =
-                  has_gcr ? AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
-                                AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM
-                          : 0,
-              .cache_transition_kinds =
-                  has_gcr ? AMDF_CACHE_TRANSITION_KINDS_GLOBAL : 0,
+              .roles = AMDF_QUEUE_ROLE_TRANSFER,
               .user_queue_capabilities =
                   AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER,
               .producer_modes = AMDF_QUEUE_PRODUCER_MODE_BIT_SINGLE,

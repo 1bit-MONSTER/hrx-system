@@ -320,6 +320,8 @@ iree_cc_test(
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
+    libamdf::src::gpu::endpoint_profile
+    libamdf::src::gpu::umd::kfd::target::user_queue
     libamdf::src::gpu::umd::memory
   LABELS
     "iree-build-requirement=libamdf"

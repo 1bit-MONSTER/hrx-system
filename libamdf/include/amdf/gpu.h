@@ -192,15 +192,12 @@ enum amdf_gpu_pm4_format_feature_bits_e {
 /// 64-bit doorbell. An acquire load of a read index at least that value proves
 /// the corresponding ring bytes are no longer in use by the queue. Packets
 /// are dword-aligned and never straddle ring wrap. NOP dwords have value zero.
-/// Cache-control and memory-scope encodings use the reported format features.
+/// Optional fence and memory-scope encodings use the reported format features.
 /// Kernel publication accepts an immutable dword-aligned command stream.
 #define AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1 1u
 
 /// Native SDMA encoding features reported in `format_features`.
 enum amdf_gpu_sdma_format_feature_bits_e {
-  /// Five-dword GCR packet with the 19-bit control field beginning at bit 16
-  /// of dword 2. This names that encoding, not other GCR packet layouts.
-  AMDF_GPU_SDMA_FORMAT_FEATURE_GCR = UINT64_C(1) << 0,
   /// FENCE uses a two-bit memory type at header bit 16 and an explicit system
   /// bit at bit 20. A fence to system memory sets that bit. This feature and
   /// FENCE_MEMORY_TYPE are mutually exclusive. When neither is reported,
