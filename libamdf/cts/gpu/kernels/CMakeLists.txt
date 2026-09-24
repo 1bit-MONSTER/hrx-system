@@ -65,6 +65,33 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    pattern_fill_unaligned
+  HDRS
+    "pattern_fill_unaligned.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    pattern_fill_unaligned_gfx942
+  HDRS
+    "pattern_fill_unaligned_gfx942.h"
+  DEPS
+    ::image
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     transform_gfx942
   HDRS
     "transform_gfx942.h"

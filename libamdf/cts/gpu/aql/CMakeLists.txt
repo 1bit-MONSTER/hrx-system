@@ -37,6 +37,7 @@ iree_cc_library(
     "fanin_test.cc"
     "geometry_test.cc"
     "lds_test.cc"
+    "pattern_fill_test.cc"
     "private_test.cc"
     "publication_test.cc"
     "resource_test.cc"
@@ -53,6 +54,8 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::geometry_ids_gfx942
     libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_gfx942
+    libamdf::cts::gpu::kernels::pattern_fill_unaligned
+    libamdf::cts::gpu::kernels::pattern_fill_unaligned_gfx942
     libamdf::cts::gpu::kernels::private_roundtrip
     libamdf::cts::gpu::kernels::private_roundtrip_gfx942
     libamdf::cts::gpu::kernels::transform

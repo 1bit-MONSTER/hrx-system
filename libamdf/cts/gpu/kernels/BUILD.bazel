@@ -21,6 +21,8 @@ exports_files([
     "lds_exchange.c",
     "lds_exchange_gfx1151.json",
     "lds_exchange_gfx942.json",
+    "pattern_fill_unaligned.c",
+    "pattern_fill_unaligned_gfx942.json",
     "private_roundtrip.c",
     "private_roundtrip_gfx942.json",
     "transform.c",
@@ -52,6 +54,19 @@ amdf_cc_library(
     name = "byte_copy_unaligned_gfx942",
     testonly = True,
     hdrs = ["byte_copy_unaligned_gfx942.h"],
+    deps = [":image"],
+)
+
+amdf_cc_library(
+    name = "pattern_fill_unaligned",
+    testonly = True,
+    hdrs = ["pattern_fill_unaligned.h"],
+)
+
+amdf_cc_library(
+    name = "pattern_fill_unaligned_gfx942",
+    testonly = True,
+    hdrs = ["pattern_fill_unaligned_gfx942.h"],
     deps = [":image"],
 )
 

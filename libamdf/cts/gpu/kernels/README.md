@@ -53,8 +53,16 @@ uses odd source/destination offsets and changes a 15-byte tail to one byte
 while keeping a complete 64-workitem group. This fixture specializes the
 selected algorithm; it has no build dependency on the HAL or its copy planner.
 
+[pattern_fill_unaligned.c](pattern_fill_unaligned.c) retains the HAL's
+unaligned fill algorithm, with four 16-byte vectors per block, a partial block
+and byte tails. The [AQL pattern-fill case](../aql/pattern_fill_test.cc) fills
+an odd subspan with a four-byte pattern, then changes the pattern and shrinks
+the range to a tail-only fill. The standalone full64 launch preserves the
+algorithm's bounds; the HAL's exact planner geometry is a separate contract.
+
 The ordinary CTS build includes the fixed headers
 [byte_copy_unaligned_gfx942.h](byte_copy_unaligned_gfx942.h),
+[pattern_fill_unaligned_gfx942.h](pattern_fill_unaligned_gfx942.h),
 [transform_gfx942.h](transform_gfx942.h),
 [transform_alternate_gfx942.h](transform_alternate_gfx942.h),
 [transform_gfx1151.h](transform_gfx1151.h),
@@ -138,6 +146,19 @@ grid Y and nominal workgroup X (`u32`, offsets 24/28/32). Scalar loads fetch
 [typed host layout](byte_copy_unaligned.h).
 The [dispatch reference](../../../../docs/reference/amd/gpu/aql/dispatch.md)
 describes the architecture's GLOBAL access and dispatch-completion contracts.
+
+The [pattern-fill record](pattern_fill_unaligned_gfx942.json) describes a
+2496-byte image with descriptor/entry offsets 128/256, a 1200-byte entry and
+2240 bytes of complete text. It uses a 64-workitem wave64 group, 62 SGPRs,
+18 VGPRs and no private/group memory, spills or hidden arguments.
+RSRC3/RSRC1/RSRC2 are `0x4` / `0x00af01c2` / `0x184`.
+Its [typed ABI](pattern_fill_unaligned.h) contains target address, byte length
+and repeated eight-byte pattern (`u64`, offsets 0/8/16), followed by grid X,
+grid Y and nominal workgroup X (`u32`, offsets 24/28/32). The 36 semantic
+bytes occupy a zeroed 64-byte, 16-aligned caller slot. Scalar loads fetch
+40 bytes; the final DWORD is unused, and its SGPR is overwritten before use.
+The [dispatch reference](../../../../docs/reference/amd/gpu/aql/dispatch.md)
+describes the native argument-fetch and GLOBAL-access rules.
 
 The [gfx1151 transform record](transform_gfx1151.json) describes an 896-byte
 image with descriptor/entry offsets 0/256, a 136-byte body and 640 bytes of
