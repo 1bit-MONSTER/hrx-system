@@ -26,7 +26,8 @@ dynamic group-memory values between waves. The [AQL LDS cases](../aql/lds_test.c
 exercise fixed allocation and changing packet-sized dynamic storage, checking
 both the partner wave's value and the stride supplied for each epoch.
 The separately compiled [gfx1151 image](lds_exchange_gfx1151.json) exercises
-its static branch with four wave32 waves through the [PM4 LDS case](../pm4/lds_test.cc).
+static and changing dynamic storage with four wave32 waves through the
+[PM4 LDS cases](../pm4/lds_test.cc).
 The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) separates the
 unchanged compiler descriptor from derived launch allocation and scheduling.
 
@@ -53,9 +54,9 @@ descriptor fields are patched at runtime.
 ## Artifact contract
 
 The gfx942 artifacts use HSA code object V5 and XNACK/SRAMECC feature settings
-of ANY. The gfx1151 transform and LDS fixtures are separate V5, wave32 images. Other compiler
-targets require separate artifacts. The flat
-image preserves the linked `.rodata` and `.text` addresses relative to its
+of ANY. The gfx1151 transform and LDS fixtures are separate V5, wave32 images.
+Other compiler targets require separate artifacts. The flat image preserves
+the linked `.rodata` and `.text` addresses relative to its
 descriptor, including all compiler-emitted text padding. A zero prefix retains
 the linked address phase when the descriptor is only 64-byte aligned while the
 entry requires 256-byte alignment. ELF dynamic tables and metadata are not

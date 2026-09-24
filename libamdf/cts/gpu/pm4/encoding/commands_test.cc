@@ -7,6 +7,7 @@
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 #include <array>
+#include <initializer_list>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -84,6 +85,46 @@ TEST(Pm4EncodingTest, ComputeBindingRealizesStaticLdsAndFourWavePolicy) {
   const std::array<uint32_t, 26> expected = {
       0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
       0xe0af0000, 0x8084,     0xc0017602, 0x228, 0x30,       0xc0017602,
+      0x215,      0x00400000, 0xc0067602, 0x204, 0,          0,
+      0,          128,        1,          1,     0xc0027602, 0x240,
+      0x789abc00, 0x3456,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+  EXPECT_EQ(program.resource2, 0x84u);
+}
+
+TEST(Pm4EncodingTest, ComputeBindingReplacesDynamicLdsRequirement) {
+  std::array<uint32_t, 80> words;
+  words.fill(0x24681357);
+  Pm4ComputeProgram program = {
+      UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
+  };
+  Pm4CommandWriter commands(words.data() + 1);
+  for (uint32_t group_byte_length : {1024u, 2048u, 1024u}) {
+    program.group_segment_byte_length = group_byte_length;
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+  }
+  // Each complete binding replaces the launch requirement, including the
+  // smaller final request. These words establish the emitted field values,
+  // not the hardware's physical allocation or occupancy.
+  const std::array<uint32_t, 78> expected = {
+      0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x10084,    0xc0017602, 0x228, 0x30,       0xc0017602,
+      0x215,      0x00400000, 0xc0067602, 0x204, 0,          0,
+      0,          128,        1,          1,     0xc0027602, 0x240,
+      0x789abc00, 0x3456,
+
+      0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x20084,    0xc0017602, 0x228, 0x30,       0xc0017602,
+      0x215,      0x00400000, 0xc0067602, 0x204, 0,          0,
+      0,          128,        1,          1,     0xc0027602, 0x240,
+      0x789abc00, 0x3456,
+
+      0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x10084,    0xc0017602, 0x228, 0x30,       0xc0017602,
       0x215,      0x00400000, 0xc0067602, 0x204, 0,          0,
       0,          128,        1,          1,     0xc0027602, 0x240,
       0x789abc00, 0x3456,
