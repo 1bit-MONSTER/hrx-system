@@ -32,6 +32,7 @@ iree_cc_library(
     "barrier_test.cc"
     "dispatch_test.cc"
     "epoch_test.cc"
+    "fanin_test.cc"
     "geometry_test.cc"
     "lds_test.cc"
     "private_test.cc"
