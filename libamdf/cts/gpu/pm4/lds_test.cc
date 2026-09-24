@@ -96,7 +96,7 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
       {kernel::kWorkgroupSize, 1, 1},
   };
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      kernel::kExecutable, kernel::kEntryByteOffset, &program, &code));
+      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4", &code));
 
   std::array<uint32_t, kOutputWordCount> expected_output;
   std::array<uint32_t, kOutputWordCount> observed_output;

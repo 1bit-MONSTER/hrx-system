@@ -48,6 +48,7 @@ iree_cc_library(
     "copy_test.cc"
     "dispatch_test.cc"
     "lds_test.cc"
+    "resource_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
     "write_test.cc"

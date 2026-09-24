@@ -136,6 +136,48 @@ TEST(Pm4EncodingTest, ComputeBindingReplacesDynamicLdsRequirement) {
   EXPECT_EQ(program.resource2, 0x84u);
 }
 
+TEST(Pm4EncodingTest, ComputeBindingSwitchesImmutableProgramsAndRestoresState) {
+  std::array<uint32_t, 80> words;
+  words.fill(0x24681357);
+  const Pm4ComputeProgram transform = {
+      UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x20, 0, {64, 1, 1},
+  };
+  const Pm4ComputeProgram lds = {
+      UINT64_C(0x000023456789a000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
+  };
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.BindCompute(transform, UINT64_C(0x00003456789abc00));
+  commands.BindCompute(lds, UINT64_C(0x00003456789abc40));
+  commands.BindCompute(transform, UINT64_C(0x00003456789abc80));
+  // PAL's changed-pipeline binding and per-dispatch arguments restore the
+  // complete selected state. The final transform has zero LDS, its original
+  // prefetch size and two-wave scheduling policy, and a fresh kernarg address.
+  // These literal values do not measure physical resource reclamation.
+  const std::array<uint32_t, 78> expected = {
+      0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x84,       0xc0017602, 0x228, 0x20,       0xc0017602,
+      0x215,      0,          0xc0067602, 0x204, 0,          0,
+      0,          64,         1,          1,     0xc0027602, 0x240,
+      0x789abc00, 0x3456,
+
+      0xc0027602, 0x20c,      0x456789a0, 0x23,  0xc0027602, 0x212,
+      0xe0af0000, 0x8084,     0xc0017602, 0x228, 0x30,       0xc0017602,
+      0x215,      0x00400000, 0xc0067602, 0x204, 0,          0,
+      0,          128,        1,          1,     0xc0027602, 0x240,
+      0x789abc40, 0x3456,
+
+      0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x84,       0xc0017602, 0x228, 0x20,       0xc0017602,
+      0x215,      0,          0xc0067602, 0x204, 0,          0,
+      0,          64,         1,          1,     0xc0027602, 0x240,
+      0x789abc80, 0x3456,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
   std::array<uint32_t, 6> words = {};
   words.back() = 0x24681357;

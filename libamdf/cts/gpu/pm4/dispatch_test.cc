@@ -50,8 +50,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
   Pm4ComputeProgram program = kTransformProgram;
-  ASSERT_NO_FATAL_FAILURE(
-      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(
+      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -161,8 +161,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
   std::memcpy(completion->host.pointer, control_words.data(),
               sizeof(control_words));
   Pm4ComputeProgram program = kTransformProgram;
-  ASSERT_NO_FATAL_FAILURE(
-      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(
+      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -320,8 +320,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
   auto* completion_word =
       static_cast<uint32_t*>(completion->host.pointer) + kCompletionWordIndex;
   Pm4ComputeProgram program = kTransformProgram;
-  ASSERT_NO_FATAL_FAILURE(
-      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(
+      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -454,8 +454,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
   const uintptr_t marker_host_address =
       reinterpret_cast<uintptr_t>(control_bytes + kMarkerByteOffset);
   Pm4ComputeProgram program = kTransformProgram;
-  ASSERT_NO_FATAL_FAILURE(
-      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(
+      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));

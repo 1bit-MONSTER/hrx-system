@@ -42,8 +42,9 @@ class Pm4DispatchTest : public Pm4CommandTest {
   // facts remain immutable compiler inputs and explicit launch requirements.
   // The optional code view is borrowed for observations; this fixture owns it.
   // Each caller's first SystemBarrier supplies device-side publication.
+  // Distinct images use distinct property prefixes to preserve both identities.
   void PrepareProgram(const kernels::Image& image, uint32_t entry_byte_offset,
-                      Pm4ComputeProgram* program,
+                      Pm4ComputeProgram* program, const char* property_prefix,
                       GpuMemory** out_code = nullptr) {
     constexpr uint64_t kCodeByteLength = 4096;
     ASSERT_LE(image.byte_length, kCodeByteLength);
@@ -67,13 +68,18 @@ class Pm4DispatchTest : public Pm4CommandTest {
     // Preserve the linked entry phase, descriptor and complete compiler tail.
     std::memset(code->host.pointer, 0, code->info.byte_length);
     std::memcpy(code->host.pointer, image.words, image.byte_length);
-    RecordProperty("pm4_kernel_image_sha256", image.sha256);
-    RecordProperty("pm4_kernel_image_byte_length", image.byte_length);
-    RecordProperty("pm4_kernel_entry_byte_offset", entry_byte_offset);
-    RecordProperty("pm4_kernel_entry_address", std::to_string(entry_address));
-    RecordProperty("pm4_compute_pgm_rsrc1", std::to_string(program->resource1));
-    RecordProperty("pm4_compute_pgm_rsrc2", std::to_string(program->resource2));
-    RecordProperty("pm4_compute_pgm_rsrc3", std::to_string(program->resource3));
+    const std::string prefix(property_prefix);
+    RecordProperty(prefix + "_kernel_image_sha256", image.sha256);
+    RecordProperty(prefix + "_kernel_image_byte_length", image.byte_length);
+    RecordProperty(prefix + "_kernel_entry_byte_offset", entry_byte_offset);
+    RecordProperty(prefix + "_kernel_entry_address",
+                   std::to_string(entry_address));
+    RecordProperty(prefix + "_compute_pgm_rsrc1",
+                   std::to_string(program->resource1));
+    RecordProperty(prefix + "_compute_pgm_rsrc2",
+                   std::to_string(program->resource2));
+    RecordProperty(prefix + "_compute_pgm_rsrc3",
+                   std::to_string(program->resource3));
     program->entry_address = entry_address;
     if (out_code != nullptr) {
       *out_code = code;
