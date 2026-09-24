@@ -140,6 +140,41 @@ TEST(AqlEncodingTest, DispatchEncodesEarlierPacketBarrierAndSystemScopes) {
   EXPECT_EQ(packet, expected);
 }
 
+TEST(AqlEncodingTest, DispatchChainUsesAgentDependencyAndSystemCompletion) {
+  const auto producer = aql::Dispatch(
+      aql::HeaderBarrier::kEnabled, {1, {64, 1, 1}, {1024, 1, 1}}, 0, 0,
+      UINT64_C(0x1234567887654300), UINT64_C(0x2345678998765400), 0,
+      {aql::FenceScope::kSystem, aql::FenceScope::kAgent});
+  const auto consumer = aql::Dispatch(
+      aql::HeaderBarrier::kEnabled, {1, {64, 1, 1}, {1024, 1, 1}}, 0, 0,
+      UINT64_C(0x1234567887654300), UINT64_C(0x2345678998765440), 0,
+      {aql::FenceScope::kAgent, aql::FenceScope::kSystem});
+  const auto terminal =
+      aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kEnabled,
+                   UINT64_C(0x3456789aa9876500), {},
+                   {aql::FenceScope::kNone, aql::FenceScope::kSystem});
+  // HSA System Architecture 1.2 tables 2-4 through 2-7 and 2-9 encode
+  // NONE/AGENT/SYSTEM as 0/1/2 at acquire bits 9-10 and release bits 11-12.
+  // Every header enables barrier bit 8. The dispatches use distinct kernarg
+  // slots 64 bytes apart and null completion handles; only the empty AND
+  // carries the completion signal. Literal words include every reserved zero.
+  const aql::Packet expected_producer = {
+      0x00010d02, 0x00010040, 0x00000001, 0x00000400, 0x00000001, 0x00000001,
+      0x00000000, 0x00000000, 0x87654300, 0x12345678, 0x98765400, 0x23456789,
+      0x00000000, 0x00000000, 0x00000000, 0x00000000};
+  const aql::Packet expected_consumer = {
+      0x00011302, 0x00010040, 0x00000001, 0x00000400, 0x00000001, 0x00000001,
+      0x00000000, 0x00000000, 0x87654300, 0x12345678, 0x98765440, 0x23456789,
+      0x00000000, 0x00000000, 0x00000000, 0x00000000};
+  const aql::Packet expected_terminal = {
+      0x00001103, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+      0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
+      0x00000000, 0x00000000, 0xa9876500, 0x3456789a};
+  EXPECT_EQ(producer, expected_producer);
+  EXPECT_EQ(consumer, expected_consumer);
+  EXPECT_EQ(terminal, expected_terminal);
+}
+
 TEST(AqlEncodingTest, BarrierValueEncodesMaskedEpochAndLessThanCondition) {
   const auto packet = aql::BarrierValueLessThan(
       UINT64_C(0x2345678998765400), INT64_C(0x0000000200000001), INT64_MAX);

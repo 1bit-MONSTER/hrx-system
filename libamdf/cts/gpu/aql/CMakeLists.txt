@@ -41,6 +41,7 @@ iree_cc_library(
     "private_test.cc"
     "publication_test.cc"
     "resource_test.cc"
+    "scope_test.cc"
     "timestamp_test.cc"
     "transfer_test.cc"
     "workset_test.cc"
