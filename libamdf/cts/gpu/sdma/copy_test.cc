@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
@@ -128,6 +129,190 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   }
   // Nonfatal oracle failures still reach normal retirement.
   ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+}
+
+class SdmaDependencyTest : public GpuCommandTest {
+ protected:
+  SdmaDependencyTest()
+      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+                       AMDF_QUEUE_ROLE_TRANSFER,
+                       AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE) {}
+
+  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
+                                 bool* out_matches) override {
+    amdf_gpu_endpoint_info_t info = {};
+    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+    info.structure_size = sizeof(info);
+    amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
+        info.gfx_ip.stepping != 1) {
+      *out_matches = false;
+      return AMDF_STATUS_OK;
+    }
+    bool matches = false;
+    status = GpuCommandTest::MatchGpuEndpoint(endpoint, &matches);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    // Native engine selection belongs to the provider. This case uses the
+    // unscoped layout and classic fence MTYPE on the admitted target.
+    constexpr amdf_queue_format_features_t kExcludedFeatures =
+        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
+    *out_matches =
+        matches && (family_.format_features & kExcludedFeatures) == 0;
+    return AMDF_STATUS_OK;
+  }
+};
+
+TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
+  constexpr size_t kDataLength = 8192;
+  constexpr size_t kControlLength = 4096;
+  constexpr uint32_t kCopyLength = 4096;
+  constexpr uint32_t kSourceOffset = 128;
+  constexpr uint32_t kIntermediateOffset = 256;
+  constexpr uint32_t kOutputOffset = 384;
+  constexpr uint32_t kCompletionOffset = 64;
+  constexpr size_t kWordsPerEpoch = 19;
+  constexpr std::array<uint32_t, 2> kSeeds = {0x13579bdfu, 0xa5c31f27u};
+  GpuMemory* source = nullptr;
+  GpuMemory* intermediate = nullptr;
+  GpuMemory* output = nullptr;
+  GpuMemory* completion = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, kDataLength, &source));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kDataLength, &intermediate));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kDataLength, &output));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kControlLength, &completion));
+  auto* intermediate_words = static_cast<uint32_t*>(intermediate->host.pointer);
+  auto* output_words = static_cast<uint32_t*>(output->host.pointer);
+  auto* completion_words = static_cast<uint32_t*>(completion->host.pointer);
+
+  // All observation storage exists before any command is published.
+  std::array<uint32_t, kDataLength / sizeof(uint32_t)> expected_source;
+  std::array<uint32_t, kDataLength / sizeof(uint32_t)> expected_intermediate;
+  std::array<uint32_t, kDataLength / sizeof(uint32_t)> expected_output;
+  std::array<uint32_t, kControlLength / sizeof(uint32_t)> expected_completion;
+  std::array<uint32_t, kDataLength / sizeof(uint32_t)> observed_source;
+  std::array<uint32_t, kDataLength / sizeof(uint32_t)> observed_intermediate;
+  std::array<uint32_t, kDataLength / sizeof(uint32_t)> observed_output;
+  std::array<uint32_t, kControlLength / sizeof(uint32_t)> observed_completion;
+  GpuUserQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  ASSERT_GE(queue->host.ring_byte_length,
+            kSeeds.size() * kWordsPerEpoch * sizeof(uint32_t));
+  SdmaCommandWriter commands(
+      reinterpret_cast<uint32_t*>(queue->host.ring_address),
+      family_.format_features);
+
+  RecordProperty("sdma_nop_family_ordinal", family_.ordinal);
+  RecordProperty("sdma_nop_format_version", family_.format_version);
+  RecordProperty("sdma_nop_format_features",
+                 std::to_string(family_.format_features));
+  RecordProperty("sdma_nop_seed_0", std::to_string(kSeeds[0]));
+  RecordProperty("sdma_nop_seed_1", std::to_string(kSeeds[1]));
+  RecordProperty("sdma_nop_source_offset", kSourceOffset);
+  RecordProperty("sdma_nop_intermediate_offset", kIntermediateOffset);
+  RecordProperty("sdma_nop_output_offset", kOutputOffset);
+  RecordProperty("sdma_nop_completion_offset", kCompletionOffset);
+  RecordProperty("sdma_nop_copy_byte_length", kCopyLength);
+  RecordProperty("sdma_nop_source_checked_byte_length", kDataLength);
+  RecordProperty("sdma_nop_intermediate_checked_byte_length", kDataLength);
+  RecordProperty("sdma_nop_output_checked_byte_length", kDataLength);
+  RecordProperty("sdma_nop_completion_checked_byte_length", kControlLength);
+  RecordProperty("sdma_nop_words_per_epoch", kWordsPerEpoch);
+  RecordProperty("sdma_nop_first_byte_frontier", 76);
+  RecordProperty("sdma_nop_final_byte_frontier", 152);
+  RecordProperty("sdma_nop_completed_epochs", 0);
+
+  for (size_t epoch = 0; epoch < kSeeds.size(); ++epoch) {
+    const uint32_t seed = kSeeds[epoch];
+    const uint32_t marker = static_cast<uint32_t>(epoch + 1);
+    for (size_t i = 0; i < expected_source.size(); ++i) {
+      const uint32_t word = static_cast<uint32_t>(i);
+      expected_source[i] = seed ^ (0x179b3de1u + word * 0x01030507u);
+      expected_intermediate[i] = seed ^ (0x25a64bc3u + word * 0x03050709u);
+      expected_output[i] = seed ^ (0x4962d5e7u + word * 0x0507090bu);
+    }
+    for (size_t i = 0; i < expected_completion.size(); ++i) {
+      expected_completion[i] =
+          seed ^ (0x6de8912fu + static_cast<uint32_t>(i) * 0x07090b0du);
+    }
+    std::memcpy(source->host.pointer, expected_source.data(), kDataLength);
+    std::memcpy(intermediate->host.pointer, expected_intermediate.data(),
+                kDataLength);
+    std::memcpy(output->host.pointer, expected_output.data(), kDataLength);
+    std::memcpy(completion->host.pointer, expected_completion.data(),
+                kControlLength);
+    for (size_t i = 0; i < kCopyLength / sizeof(uint32_t); ++i) {
+      // Derive the oracle from the CPU formula, never from a device result.
+      const uint32_t source_word =
+          static_cast<uint32_t>(kSourceOffset / sizeof(uint32_t) + i);
+      const uint32_t expected =
+          seed ^ (0x179b3de1u + source_word * 0x01030507u);
+      expected_intermediate[kIntermediateOffset / sizeof(uint32_t) + i] =
+          expected;
+      expected_output[kOutputOffset / sizeof(uint32_t) + i] = expected;
+      intermediate_words[kIntermediateOffset / sizeof(uint32_t) + i] =
+          expected ^ 0x55555555u;
+      output_words[kOutputOffset / sizeof(uint32_t) + i] =
+          expected ^ 0xaaaaaaaau;
+    }
+    completion_words[kCompletionOffset / sizeof(uint32_t)] = 0;
+    expected_completion[kCompletionOffset / sizeof(uint32_t)] = marker;
+
+    commands.CopyLinear(source->device_address + kSourceOffset,
+                        intermediate->device_address + kIntermediateOffset,
+                        kCopyLength);
+    commands.Noop();
+    commands.CopyLinear(intermediate->device_address + kIntermediateOffset,
+                        output->device_address + kOutputOffset, kCopyLength);
+    commands.Fence32(completion->device_address + kCompletionOffset, marker);
+    ASSERT_EQ(commands.word_count(), (epoch + 1) * kWordsPerEpoch);
+    const uint64_t byte_frontier = commands.word_count() * sizeof(uint32_t);
+    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_frontier));
+    GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion->host.pointer) +
+            kCompletionOffset,
+        marker);
+
+    // Capture every complete allocation before diagnostics or consumed-frontier
+    // polling can intervene. The marker is the only execution observation.
+    std::memcpy(observed_source.data(), source->host.pointer, kDataLength);
+    std::memcpy(observed_intermediate.data(), intermediate->host.pointer,
+                kDataLength);
+    std::memcpy(observed_output.data(), output->host.pointer, kDataLength);
+    std::memcpy(observed_completion.data(), completion->host.pointer,
+                kControlLength);
+    for (size_t i = 0; i < expected_source.size(); ++i) {
+      EXPECT_EQ(observed_source[i], expected_source[i])
+          << "epoch=" << epoch << " source word=" << i;
+      EXPECT_EQ(observed_intermediate[i], expected_intermediate[i])
+          << "epoch=" << epoch << " intermediate word=" << i;
+      EXPECT_EQ(observed_output[i], expected_output[i])
+          << "epoch=" << epoch << " output word=" << i;
+    }
+    for (size_t i = 0; i < expected_completion.size(); ++i) {
+      EXPECT_EQ(observed_completion[i], expected_completion[i])
+          << "epoch=" << epoch << " completion word=" << i;
+    }
+    // An oracle failure still retires the published stream. A failed epoch
+    // leaves every allocation untouched until queue-first teardown.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_frontier));
+    if (HasFailure()) {
+      return;
+    }
+    RecordProperty("sdma_nop_completed_epochs", marker);
+  }
 }
 
 }  // namespace

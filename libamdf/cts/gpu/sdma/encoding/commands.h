@@ -19,6 +19,9 @@ class SdmaCommandWriter {
  public:
   SdmaCommandWriter(uint32_t* words, amdf_queue_format_features_t features)
       : words_(words), features_(features) {}
+  // Emits a one-DWORD NOP. Its pending-transfer ordering contract belongs to
+  // the selected native engine; it publishes no completion or cache operation.
+  void Noop();
   // A nonempty range within caller-owned allocations and the admitted limit.
   void CopyLinear(uint64_t source, uint64_t target, uint32_t byte_length);
   // Repeats a DWORD pattern over a nonempty DWORD-aligned owned range. The

@@ -46,6 +46,28 @@ TEST(SdmaEncodingTest, GlobalTimestampUsesFullAddressAndNoImplicitFence) {
   EXPECT_EQ(words.back(), 0x9876abcdu);
 }
 
+TEST(SdmaEncodingTest, DependentCopiesHaveOneDwordNopAndFinalFence) {
+  std::array<uint32_t, 20> words = {};
+  words.back() = 0x24681357;
+  SdmaCommandWriter commands(words.data(),
+                             AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
+  commands.CopyLinear(UINT64_C(0x1234567887654380),
+                      UINT64_C(0x2345678998765500), 4096);
+  commands.Noop();
+  commands.CopyLinear(UINT64_C(0x2345678998765500),
+                      UINT64_C(0x3456789aabcdef80), 4096);
+  commands.Fence32(UINT64_C(0x456789ab12345640), 2);
+  // PAL and Mesa use the zero header with no NOP body. The next copy reads
+  // the first destination; only the final classic UC3 FENCE publishes a word.
+  const std::array<uint32_t, 20> expected = {
+      1,          0x00000fff, 0,          0x87654380, 0x12345678,
+      0x98765500, 0x23456789, 0,          1,          0x00000fff,
+      0,          0x98765500, 0x23456789, 0xabcdef80, 0x3456789a,
+      0x00030005, 0x12345640, 0x456789ab, 2,          0x24681357};
+  EXPECT_EQ(commands.word_count(), 19u);
+  EXPECT_EQ(words, expected);
+}
+
 TEST(SdmaEncodingTest, DwordFillHasByteCountAndNoOptionalHeaderFields) {
   constexpr std::array<amdf_queue_format_features_t, 2> kFeatures = {
       0, AMDF_GPU_SDMA_FORMAT_FEATURE_GCR |

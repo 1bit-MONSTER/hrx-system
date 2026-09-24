@@ -6,6 +6,8 @@
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 
+void SdmaCommandWriter::Noop() { words_[word_count_++] = 0; }
+
 void SdmaCommandWriter::CopyLinear(uint64_t source, uint64_t target,
                                    uint32_t byte_length) {
   const bool scoped =
