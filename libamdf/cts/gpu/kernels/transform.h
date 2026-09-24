@@ -12,8 +12,8 @@
 
 namespace kernels::transform {
 
-// Paired with transform.c's compiler metadata. Alignment padding belongs to
-// the allocation; the kernel consumes only the first 24 bytes.
+// Shared by transform.c and transform_alternate.c. Alignment padding belongs
+// to the allocation; both kernels consume only the first 24 bytes.
 struct alignas(16) Arguments {
   // GPU address of the first input word.
   uint64_t input;

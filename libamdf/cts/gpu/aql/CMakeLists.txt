@@ -33,6 +33,7 @@ iree_cc_library(
     "byte_copy_test.cc"
     "dispatch_test.cc"
     "epoch_test.cc"
+    "executable_test.cc"
     "fanin_test.cc"
     "geometry_test.cc"
     "lds_test.cc"
@@ -55,6 +56,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::private_roundtrip
     libamdf::cts::gpu::kernels::private_roundtrip_gfx942
     libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_alternate_gfx942
     libamdf::cts::gpu::kernels::transform_gfx942
     libamdf::cts::gpu::pm4::encoding::memory_commands
   TESTONLY

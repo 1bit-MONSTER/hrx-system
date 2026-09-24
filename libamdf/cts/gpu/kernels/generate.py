@@ -75,6 +75,20 @@ FIXTURES = {
             ("20", "4", "by_value"),
         ],
     },
+    "transform_alternate": {
+        "targets": ["gfx942"],
+        "symbol": "aql_transform",
+        "group_byte_length": 0,
+        "private_byte_length": 0,
+        "kernarg_byte_length": 24,
+        "workgroup_size": 64,
+        "arguments": [
+            ("0", "8", "global_buffer"),
+            ("8", "8", "global_buffer"),
+            ("16", "4", "by_value"),
+            ("20", "4", "by_value"),
+        ],
+    },
     "private_roundtrip": {
         "targets": ["gfx942"],
         "symbol": "private_roundtrip",

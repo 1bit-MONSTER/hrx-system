@@ -9,6 +9,13 @@ the cold publication fixture and exercise caller-owned executable memory,
 code publication, kernargs, dispatch completion and exact output through the
 public AQL queue ABI.
 
+[transform_alternate.c](transform_alternate.c) changes the multiplier to five
+while preserving the transform's argument and memory-access contract. Its
+separately compiled gfx942 image has the same descriptor, resource requirements
+and complete image extent. The [executable replacement case](../aql/executable_test.cc)
+uploads A → B → A to one retained code allocation after each prior use has
+completed, with fixed inputs and arguments distinguishing the programs.
+
 The independently compiled [gfx1151 transform](transform_gfx1151.json) uses
 the same source and [typed argument layout](transform.h) through ordinary
 PM4 dispatch. Its [case](../pm4/dispatch_test.cc) binds the compiler's resource
@@ -49,6 +56,7 @@ selected algorithm; it has no build dependency on the HAL or its copy planner.
 The ordinary CTS build includes the fixed headers
 [byte_copy_unaligned_gfx942.h](byte_copy_unaligned_gfx942.h),
 [transform_gfx942.h](transform_gfx942.h),
+[transform_alternate_gfx942.h](transform_alternate_gfx942.h),
 [transform_gfx1151.h](transform_gfx1151.h),
 [private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
 [lds_exchange_gfx1151.h](lds_exchange_gfx1151.h),
@@ -88,6 +96,12 @@ requires no loaded data section.
 | Kernarg field types | `u64`, `u64`, `u32`, `u32` | `u64`, `u32`, `u32` |
 | Kernarg preload | Disabled | Disabled |
 | RSRC3 / RSRC1 / RSRC2 | `0x0` / `0x00af0040` / `0x84` | `0x1` / `0x00af0040` / `0x85` |
+
+The [alternate transform record](transform_alternate_gfx942.json) has the same
+values as the gfx942 transform column, including the identical descriptor and
+1044-byte compiler text tail. Both images consume the shared [typed ABI](transform.h).
+Their one changed instruction immediate distinguishes arithmetic while keeping
+the same bounded accesses under either image.
 
 The [LDS record](lds_exchange_gfx942.json) describes a 1600-byte image with
 descriptor/entry offsets 0/256 and a 308-byte entry in 1344 bytes of text.
@@ -165,9 +179,11 @@ The [composed recipe](../recipes/copy_dispatch_test.cc) adds SDMA upload and
 download, device-side dependencies, and repeated signal and queue-ring reuse.
 Its coherent SYSTEM and staged LOCAL payload cases consume distinct queried
 visibility policies; code, arguments and control remain in coherent SYSTEM
-memory. Concurrent dispatch and hot code replacement require separate cases.
-The explicit cold publication sequence does not by
-itself demonstrate stale instruction-cache replacement. The public
+memory. The [completed-use replacement case](../aql/executable_test.cc)
+separately exercises explicit publication at a retained executed address.
+Concurrent replacement and LOCAL code upload need their own witnesses.
+Cold publication alone does not demonstrate instruction refresh after a
+deliberate replacement. The public
 [dispatch contract](../../../../docs/reference/amd/gpu/aql/dispatch.md) distinguishes compiler
 metadata, memory publication and completion ownership.
 
