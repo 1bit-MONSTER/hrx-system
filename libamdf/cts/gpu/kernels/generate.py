@@ -44,6 +44,22 @@ TARGETS = {
     },
 }
 FIXTURES = {
+    "byte_copy_unaligned": {
+        "targets": ["gfx942"],
+        "symbol": "byte_copy_unaligned",
+        "group_byte_length": 0,
+        "private_byte_length": 0,
+        "kernarg_byte_length": 36,
+        "workgroup_size": 64,
+        "arguments": [
+            ("0", "8", "global_buffer"),
+            ("8", "8", "global_buffer"),
+            ("16", "8", "by_value"),
+            ("24", "4", "by_value"),
+            ("28", "4", "by_value"),
+            ("32", "4", "by_value"),
+        ],
+    },
     "transform": {
         "targets": ["gfx942", "gfx1151"],
         "gfx1151_resource_words": (0x20, 0xE0AF0000, 0x84),

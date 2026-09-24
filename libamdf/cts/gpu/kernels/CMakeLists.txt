@@ -38,6 +38,33 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    byte_copy_unaligned
+  HDRS
+    "byte_copy_unaligned.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    byte_copy_unaligned_gfx942
+  HDRS
+    "byte_copy_unaligned_gfx942.h"
+  DEPS
+    ::image
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     transform_gfx942
   HDRS
     "transform_gfx942.h"

@@ -39,7 +39,15 @@ whose stores have no shader bounds check. Unequal axes expose swapped
 coordinate interpretations; padded output pitches distinguish inactive edge
 coordinates from active records.
 
+[byte_copy_unaligned.c](byte_copy_unaligned.c) retains the HAL's packed
+16-byte block-copy algorithm and byte tail, with standalone definitions and
+explicit global pointers. The [AQL byte-copy case](../aql/byte_copy_test.cc)
+uses odd source/destination offsets and changes a 15-byte tail to one byte
+while keeping a complete 64-workitem group. This fixture specializes the
+selected algorithm; it has no build dependency on the HAL or its copy planner.
+
 The ordinary CTS build includes the fixed headers
+[byte_copy_unaligned_gfx942.h](byte_copy_unaligned_gfx942.h),
 [transform_gfx942.h](transform_gfx942.h),
 [transform_gfx1151.h](transform_gfx1151.h),
 [private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
@@ -103,6 +111,19 @@ All fetches fit those 32 bytes; compiler/caller alignment is 8/16 bytes and
 preload is disabled.
 These extents are explicit arguments for output addressing, not a hidden
 dispatch-packet pointer.
+
+The [byte-copy record](byte_copy_unaligned_gfx942.json) describes a 2048-byte
+image with descriptor/entry offsets 128/256 and a 712-byte entry in 1792 bytes
+of text. It uses one 64-workitem wave64 group, 49 SGPRs, 12 VGPRs and no
+private/group memory, spills or hidden arguments. RSRC3/RSRC1/RSRC2 are
+`0x2` / `0x00af0181` / `0x184`. The six semantic arguments occupy 36 bytes:
+source, destination and byte length (`u64`, offsets 0/8/16), then grid X,
+grid Y and nominal workgroup X (`u32`, offsets 24/28/32). Scalar loads fetch
+40 bytes; the last DWORD is unused backing. The caller initializes a
+64-byte, 16-aligned slot and copies only the semantic fields from the
+[typed host layout](byte_copy_unaligned.h).
+The [dispatch reference](../../../../docs/reference/amd/gpu/aql/dispatch.md)
+describes the architecture's GLOBAL access and dispatch-completion contracts.
 
 The [gfx1151 transform record](transform_gfx1151.json) describes an 896-byte
 image with descriptor/entry offsets 0/256, a 136-byte body and 640 bytes of

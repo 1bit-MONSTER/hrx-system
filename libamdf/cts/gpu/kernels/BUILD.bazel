@@ -13,6 +13,8 @@ package(
 
 exports_files([
     "README.md",
+    "byte_copy_unaligned.c",
+    "byte_copy_unaligned_gfx942.json",
     "generate.py",
     "geometry_ids.c",
     "geometry_ids_gfx942.json",
@@ -36,6 +38,19 @@ amdf_cc_library(
     name = "transform",
     testonly = True,
     hdrs = ["transform.h"],
+)
+
+amdf_cc_library(
+    name = "byte_copy_unaligned",
+    testonly = True,
+    hdrs = ["byte_copy_unaligned.h"],
+)
+
+amdf_cc_library(
+    name = "byte_copy_unaligned_gfx942",
+    testonly = True,
+    hdrs = ["byte_copy_unaligned_gfx942.h"],
+    deps = [":image"],
 )
 
 amdf_cc_library(

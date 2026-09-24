@@ -30,6 +30,7 @@ iree_cc_library(
     aql_cases
   SRCS
     "barrier_test.cc"
+    "byte_copy_test.cc"
     "dispatch_test.cc"
     "epoch_test.cc"
     "fanin_test.cc"
@@ -45,6 +46,8 @@ iree_cc_library(
     ::queue_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::byte_copy_unaligned
+    libamdf::cts::gpu::kernels::byte_copy_unaligned_gfx942
     libamdf::cts::gpu::kernels::geometry_ids_gfx942
     libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_gfx942
