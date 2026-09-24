@@ -16,11 +16,6 @@
 namespace {
 
 constexpr uint64_t kMemoryByteLength = 4096;
-constexpr amdf_queue_roles_t kRequiredQueueRoles =
-    AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL;
-constexpr amdf_cache_operations_t kRequiredCacheOperations =
-    AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
-    AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM;
 
 // The host publication tests require x86-64. Naturally aligned 64-bit device
 // state uses single-copy accesses; the fences order CPU accesses around them.
@@ -147,26 +142,26 @@ class UserQueueMemoryScenario {
     access_info.structure_size = sizeof(access_info);
     ASSERT_EQ(api_->memory_query_access_info(memory, 0, &access_info),
               AMDF_STATUS_OK);
-    EXPECT_EQ(memory_info.memory_profile_ordinal, profile_ordinal);
-    EXPECT_EQ(memory_info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
-    EXPECT_EQ(access_info.access, device_access);
-    EXPECT_EQ(access_info.flags & access.requirements.flags,
+    ASSERT_EQ(memory_info.memory_profile_ordinal, profile_ordinal);
+    ASSERT_EQ(memory_info.memory_class, AMDF_MEMORY_CLASS_SYSTEM);
+    ASSERT_EQ(access_info.access, device_access);
+    ASSERT_EQ(access_info.flags & access.requirements.flags,
               access.requirements.flags);
-    EXPECT_EQ((memory_info.flags | access_info.flags) & kRequiredFlags,
+    ASSERT_EQ((memory_info.flags | access_info.flags) & kRequiredFlags,
               kRequiredFlags);
-    EXPECT_EQ(memory_info.byte_length, kMemoryByteLength);
-    EXPECT_EQ(memory_info.native_allocation_byte_length, native_byte_length);
-    EXPECT_EQ(memory_info.source_byte_offset,
+    ASSERT_EQ(memory_info.byte_length, kMemoryByteLength);
+    ASSERT_EQ(memory_info.native_allocation_byte_length, native_byte_length);
+    ASSERT_EQ(memory_info.source_byte_offset,
               geometry.native_byte_length_prefix);
-    EXPECT_EQ(memory_info.native_allocation_granularity, granularity);
-    EXPECT_GE(memory_info.alignment, create_info.minimum_alignment);
+    ASSERT_EQ(memory_info.native_allocation_granularity, granularity);
+    ASSERT_GE(memory_info.alignment, create_info.minimum_alignment);
     uint64_t address = 0;
     ASSERT_EQ(api_->memory_query_address(memory, 0, AMDF_MEMORY_ADDRESS_GPU,
                                          &address),
               AMDF_STATUS_OK);
-    EXPECT_NE(address, 0u);
-    EXPECT_EQ(address & (sizeof(uint32_t) - 1), 0u);
-    EXPECT_NE(memory_info.physical_backing_id.words[0] |
+    ASSERT_NE(address, 0u);
+    ASSERT_EQ(address & (sizeof(uint32_t) - 1), 0u);
+    ASSERT_NE(memory_info.physical_backing_id.words[0] |
                   memory_info.physical_backing_id.words[1],
               0u);
 
@@ -181,10 +176,11 @@ class UserQueueMemoryScenario {
     ASSERT_EQ(api_->host_mapping_query_info(mapping, &mapping_info),
               AMDF_STATUS_OK);
     ASSERT_NE(mapping_info.pointer, nullptr);
-    EXPECT_EQ(mapping_info.memory_byte_offset, 0u);
-    EXPECT_EQ(mapping_info.byte_length, kMemoryByteLength);
-    EXPECT_EQ(mapping_info.flags,
+    ASSERT_EQ(mapping_info.memory_byte_offset, 0u);
+    ASSERT_EQ(mapping_info.byte_length, kMemoryByteLength);
+    ASSERT_EQ(mapping_info.flags,
               AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE);
+    ASSERT_EQ(mapping_info.cacheability, AMDF_HOST_CACHEABILITY_WRITE_BACK);
   }
 
   void DestroyHostMapping(amdf_host_mapping_t*& mapping) {
@@ -265,8 +261,8 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   ASSERT_EQ(api_->memory_query_address(
                 target_memory_, 0, AMDF_MEMORY_ADDRESS_GPU, &target_address),
             AMDF_STATUS_OK);
-  EXPECT_NE(source_address, target_address);
-  EXPECT_FALSE(amdf_physical_memory_id_is_equal(
+  ASSERT_NE(source_address, target_address);
+  ASSERT_FALSE(amdf_physical_memory_id_is_equal(
       &source_memory_info_.physical_backing_id,
       &target_memory_info_.physical_backing_id));
 
@@ -275,14 +271,23 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   auto* completion = reinterpret_cast<uint32_t*>(
       static_cast<uint8_t*>(target_mapping_info_.pointer) +
       kUserQueueMemoryCompletionByteOffset);
-  std::array<uint32_t, kUserQueueMemoryElementCount> expected = {};
-  for (size_t i = 0; i < kUserQueueMemoryElementCount; ++i) {
-    expected[i] =
+  constexpr size_t kMemoryWordCount = kMemoryByteLength / sizeof(uint32_t);
+  std::array<uint32_t, kMemoryWordCount> expected_source;
+  std::array<uint32_t, kMemoryWordCount> expected_target;
+  std::array<uint32_t, kMemoryWordCount> observed_source;
+  std::array<uint32_t, kMemoryWordCount> observed_target;
+  for (size_t i = 0; i < kMemoryWordCount; ++i) {
+    expected_source[i] =
         UINT32_C(0x13570000) + static_cast<uint32_t>(i) * UINT32_C(0x00110101);
-    source[i] = expected[i];
-    target[i] = UINT32_C(0xdeadbeef);
+    expected_target[i] = ~expected_source[i];
   }
+  std::memcpy(source, expected_source.data(), sizeof(expected_source));
+  std::memcpy(target, expected_target.data(), sizeof(expected_target));
   *completion = 0;
+  std::copy_n(expected_source.data(), kUserQueueMemoryElementCount,
+              expected_target.data());
+  expected_target[kUserQueueMemoryCompletionByteOffset / sizeof(uint32_t)] =
+      kUserQueueMemoryCompletionValue;
   ASSERT_EQ(api_->host_mapping_cache_control(source_mapping_,
                                              AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
                                              kMemoryByteLength),
@@ -316,7 +321,8 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   EXPECT_EQ(queue_info.priority, AMDF_QUEUE_PRIORITY_NORMAL);
   EXPECT_NE(queue_info.capabilities & AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER,
             0u);
-  EXPECT_EQ(queue_info.roles & kRequiredQueueRoles, kRequiredQueueRoles);
+  EXPECT_EQ(queue_info.roles & commands_.required_roles,
+            commands_.required_roles);
   EXPECT_EQ(queue_info.metadata.command_type, AMDF_QUEUE_COMMAND_TYPE_UNKNOWN);
   EXPECT_EQ(queue_info.metadata_ring_byte_length, 0u);
   EXPECT_TRUE(amdf_device_id_is_equal(&queue_info.device_id,
@@ -378,11 +384,14 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   EXPECT_EQ(queue_status.consumed_index, 0u);
   EXPECT_EQ(queue_status.terminal_status, AMDF_STATUS_OK);
 
+  // Failed metadata checks must not publish a stream or create peer devices.
+  ASSERT_FALSE(::testing::Test::HasFailure());
+
   // Lifecycle cases can close peer devices while this device's memory, queue,
   // and CPU views are live, before the GPU proves their continued usability.
   if (before_publication) {
     before_publication();
-    if (::testing::Test::HasFatalFailure()) {
+    if (::testing::Test::HasFailure()) {
       return;
     }
   }
@@ -391,7 +400,14 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
       static_cast<uintptr_t>(mapping_info.ring_address));
   const EncodedUserQueueStream stream = commands_.encode(
       family_.format_features, ring, source_address, target_address);
-  ASSERT_LE(stream.byte_length, mapping_info.ring_byte_length);
+  // Keep spare ring storage, including PM4's required unoccupied DWORD.
+  ASSERT_LT(stream.byte_length, mapping_info.ring_byte_length);
+  ::testing::Test::RecordProperty("lifecycle_command_byte_length",
+                                  static_cast<int>(stream.byte_length));
+  ::testing::Test::RecordProperty("lifecycle_published_index",
+                                  static_cast<int>(stream.published_index));
+  ::testing::Test::RecordProperty("lifecycle_observed_byte_length",
+                                  static_cast<int>(2 * kMemoryByteLength));
   StoreRelease(write_index, stream.published_index);
   StoreRelease(doorbell, stream.published_index);
 
@@ -400,6 +416,15 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
     std::this_thread::yield();
   }
   std::atomic_thread_fence(std::memory_order_acquire);
+  // Observe all payload and guard bytes before diagnostics, host cache work,
+  // or queue consumption can supply an additional visibility operation.
+  std::memcpy(observed_target.data(), target, sizeof(observed_target));
+  std::memcpy(observed_source.data(), source, sizeof(observed_source));
+  for (size_t i = 0; i < kMemoryWordCount; ++i) {
+    EXPECT_EQ(observed_target[i], expected_target[i]) << "target word " << i;
+    EXPECT_EQ(observed_source[i], expected_source[i]) << "source word " << i;
+  }
+  // Nonfatal payload mismatches still reach ordinary command retirement.
   ASSERT_EQ(
       api_->user_queue_wait_consumed(queue_, stream.published_index,
                                      AMDF_TIMEOUT_INFINITE, UINT64_C(10000000)),
@@ -411,20 +436,6 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   EXPECT_EQ(queue_status.producer_index, stream.published_index);
   EXPECT_EQ(queue_status.consumed_index, stream.published_index);
   EXPECT_EQ(queue_status.terminal_status, AMDF_STATUS_OK);
-
-  ASSERT_EQ(api_->host_mapping_cache_control(
-                target_mapping_, AMDF_HOST_CACHE_OPERATION_INVALIDATE, 0,
-                kMemoryByteLength),
-            AMDF_STATUS_OK);
-  ASSERT_EQ(api_->host_mapping_cache_control(
-                source_mapping_, AMDF_HOST_CACHE_OPERATION_INVALIDATE, 0,
-                kMemoryByteLength),
-            AMDF_STATUS_OK);
-  for (size_t i = 0; i < kUserQueueMemoryElementCount; ++i) {
-    EXPECT_EQ(target[i], expected[i]) << "target word " << i;
-    EXPECT_EQ(source[i], expected[i]) << "source word " << i;
-  }
-  EXPECT_EQ(*completion, kUserQueueMemoryCompletionValue);
 }
 
 bool RunUserQueueMemoryCopies(const amdf_api_t* api,
@@ -465,11 +476,12 @@ amdf_status_t UserQueueMemoryTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
         (family.format_features & commands_.required_format_features) ==
             commands_.required_format_features &&
         (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_USER) != 0 &&
-        (family.roles & kRequiredQueueRoles) == kRequiredQueueRoles &&
-        (family.cache_operations & kRequiredCacheOperations) ==
-            kRequiredCacheOperations &&
-        (family.cache_transition_kinds & AMDF_CACHE_TRANSITION_KINDS_GLOBAL) !=
-            0 &&
+        (family.roles & commands_.required_roles) == commands_.required_roles &&
+        (family.cache_operations & commands_.required_cache_operations) ==
+            commands_.required_cache_operations &&
+        (family.cache_transition_kinds &
+         commands_.required_cache_transition_kinds) ==
+            commands_.required_cache_transition_kinds &&
         (family.user_queue_capabilities &
          AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER) != 0 &&
         (family.producer_modes & AMDF_QUEUE_PRODUCER_MODE_BIT_SINGLE) != 0 &&
@@ -484,7 +496,16 @@ amdf_status_t UserQueueMemoryTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
   return AMDF_STATUS_OK;
 }
 
+void UserQueueMemoryTest::RunCopiesBetweenExactAccessAttachments() {
+  RecordProperty("lifecycle_peer_device_count", 0);
+  ASSERT_TRUE(RunUserQueueMemoryCopies(api_, gpu_api_, family_, commands_,
+                                       device_, system_scope_));
+}
+
 void UserQueueMemoryTest::RunConcurrentDeviceCreationAndRecreation() {
+  if ((features_ & AMDF_GPU_DEVICE_FEATURE_DEVICE_RECREATION) == 0) {
+    GTEST_SKIP() << "device recreation is not supported";
+  }
   amdf_gpu_device_create_info_t create_info = {};
   create_info.type = AMDF_STRUCTURE_TYPE_GPU_DEVICE_CREATE_INFO;
   create_info.structure_size = sizeof(create_info);

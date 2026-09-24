@@ -29,6 +29,10 @@ constexpr UserQueueMemoryCommands kCommands = {
     .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
     .format_version = AMDF_GPU_PM4_QUEUE_FORMAT_VERSION_1,
     .required_format_features = AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR,
+    .required_roles = AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL,
+    .required_cache_operations = AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                                 AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
+    .required_cache_transition_kinds = AMDF_CACHE_TRANSITION_KINDS_GLOBAL,
     .encode = EncodeCopyStream,
 };
 
@@ -52,6 +56,10 @@ class Pm4DeviceLifetimeTest : public UserQueueMemoryTest {
     return UserQueueMemoryTest::MatchGpuEndpoint(endpoint, out_matches);
   }
 };
+
+TEST_F(Pm4DeviceLifetimeTest, CopiesBetweenExactAccessAttachments) {
+  RunCopiesBetweenExactAccessAttachments();
+}
 
 TEST_F(Pm4DeviceLifetimeTest, DISABLED_ConcurrentDeviceCreationAndRecreation) {
   RunConcurrentDeviceCreationAndRecreation();

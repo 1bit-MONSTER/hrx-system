@@ -5,73 +5,69 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "libamdf/cts/gpu/lifecycle/user_queue_memory.h"
+#include "libamdf/cts/gpu/sdma/encoding/commands.h"
 
 namespace {
-
-void AppendSdmaCacheTransition(uint32_t* words, size_t* ordinal,
-                               uint32_t control) {
-  words[(*ordinal)++] = 17;
-  words[(*ordinal)++] = 0;
-  words[(*ordinal)++] = (control & UINT32_C(0xffff)) << 16;
-  words[(*ordinal)++] = control >> 16;
-  words[(*ordinal)++] = 0;
-}
 
 EncodedUserQueueStream EncodeCopyStream(amdf_queue_format_features_t features,
                                         uint32_t* words,
                                         uint64_t source_address,
                                         uint64_t target_address) {
-  enum : uint32_t {
-    kAcquireControl = 0x043a1,
-    kReleaseControl = 0x0c3a1,
-    kCopyByteLength = kUserQueueMemoryElementCount * sizeof(uint32_t),
-  };
-  const bool has_scope =
-      (features & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
-  const uint32_t copy_scope = has_scope ? (3u << 18) | (3u << 26) : 0;
-  uint32_t fence_header = 5;
-  if ((features & (AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
-                   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM)) != 0) {
-    fence_header |= 3u << 16;
-  }
-  if ((features & AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM) != 0) {
-    fence_header |= 1u << 20;
-  }
-  if (has_scope) {
-    fence_header |= 3u << 24;
-  }
-  size_t ordinal = 0;
-  AppendSdmaCacheTransition(words, &ordinal, kAcquireControl);
-  words[ordinal++] = 1 | (has_scope ? 1u << 28 : 0);
-  words[ordinal++] = kCopyByteLength - 1;
-  words[ordinal++] = copy_scope;
-  words[ordinal++] = static_cast<uint32_t>(source_address);
-  words[ordinal++] = static_cast<uint32_t>(source_address >> 32);
-  words[ordinal++] = static_cast<uint32_t>(target_address);
-  words[ordinal++] = static_cast<uint32_t>(target_address >> 32);
-  AppendSdmaCacheTransition(words, &ordinal, kReleaseControl);
-  const uint64_t completion_address =
-      target_address + kUserQueueMemoryCompletionByteOffset;
-  words[ordinal++] = fence_header;
-  words[ordinal++] = static_cast<uint32_t>(completion_address);
-  words[ordinal++] = static_cast<uint32_t>(completion_address >> 32);
-  words[ordinal++] = kUserQueueMemoryCompletionValue;
-  words[ordinal++] = 0;
-  const size_t byte_length = ordinal * sizeof(uint32_t);
+  SdmaCommandWriter commands(words, features);
+  commands.CopyLinear(source_address, target_address,
+                      kUserQueueMemoryElementCount * sizeof(uint32_t));
+  commands.Fence32(target_address + kUserQueueMemoryCompletionByteOffset,
+                   kUserQueueMemoryCompletionValue);
+  const size_t byte_length = commands.word_count() * sizeof(uint32_t);
   return {byte_length, byte_length};
 }
 
 constexpr UserQueueMemoryCommands kCommands = {
     .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
     .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
-    .required_format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_GCR,
+    .required_format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+    .required_roles = AMDF_QUEUE_ROLE_TRANSFER,
+    .required_cache_operations = 0,
+    .required_cache_transition_kinds = 0,
     .encode = EncodeCopyStream,
 };
 
 class SdmaDeviceLifetimeTest : public UserQueueMemoryTest {
  protected:
   SdmaDeviceLifetimeTest() : UserQueueMemoryTest(kCommands) {}
+
+  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
+                                 bool* out_matches) override {
+    amdf_gpu_endpoint_info_t info = {};
+    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+    info.structure_size = sizeof(info);
+    amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
+        info.gfx_ip.stepping != 1) {
+      *out_matches = false;
+      return AMDF_STATUS_OK;
+    }
+    bool matches = false;
+    status = UserQueueMemoryTest::MatchGpuEndpoint(endpoint, &matches);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    // The coherent-memory recipe uses the unscoped classic fence layout.
+    constexpr amdf_queue_format_features_t kExcludedFeatures =
+        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
+    *out_matches =
+        matches && (family_.format_features & kExcludedFeatures) == 0;
+    return AMDF_STATUS_OK;
+  }
 };
+
+TEST_F(SdmaDeviceLifetimeTest, CopiesBetweenExactAccessAttachments) {
+  RunCopiesBetweenExactAccessAttachments();
+}
 
 TEST_F(SdmaDeviceLifetimeTest, DISABLED_ConcurrentDeviceCreationAndRecreation) {
   RunConcurrentDeviceCreationAndRecreation();

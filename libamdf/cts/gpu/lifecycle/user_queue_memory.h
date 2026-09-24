@@ -34,6 +34,12 @@ struct UserQueueMemoryCommands {
   uint32_t format_version;
   // Packet encodings the scenario requires from the selected family.
   amdf_queue_format_features_t required_format_features;
+  // Queue operations used by the copy and completion sequence.
+  amdf_queue_roles_t required_roles;
+  // Semantic cache operations emitted by the encoder, if any.
+  amdf_cache_operations_t required_cache_operations;
+  // Cache domains addressed by the encoder, if any.
+  amdf_cache_transition_kinds_t required_cache_transition_kinds;
   // Writes the shared payload copy and completion marker into at least 512
   // bytes of ring storage, using the selected family's encoding features.
   EncodedUserQueueStream (*encode)(amdf_queue_format_features_t features,
@@ -41,7 +47,7 @@ struct UserQueueMemoryCommands {
                                    uint64_t target_address);
 };
 
-// Selects a host-published transfer/cache-control family before activation.
+// Selects the encoder's host-published transfer family before activation.
 // The selected facts drive command encoding and all later queue operations.
 class UserQueueMemoryTest : public GpuDeviceFixture {
  protected:
@@ -50,13 +56,15 @@ class UserQueueMemoryTest : public GpuDeviceFixture {
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
+  void RunCopiesBetweenExactAccessAttachments();
   void RunConcurrentDeviceCreationAndRecreation();
+
+  // Complete passive family selected before borrowing the cached device.
+  amdf_queue_family_info_t family_ = {};
 
  private:
   // Immutable caller encoding description, copied from the test definition.
   UserQueueMemoryCommands commands_;
-  // Complete passive family selected before borrowing the cached device.
-  amdf_queue_family_info_t family_ = {};
 };
 
 #endif  // AMDF_CTS_GPU_LIFECYCLE_USER_QUEUE_MEMORY_H_

@@ -38,6 +38,7 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::sdma::encoding::commands
   TESTONLY
   ALWAYSLINK
   PUBLIC

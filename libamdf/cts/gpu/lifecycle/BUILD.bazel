@@ -40,6 +40,7 @@ amdf_cts_test_suite(
     deps = [
         ":user_queue_memory",
         "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/gpu/sdma/encoding:commands",
         "//third_party:google_test",
     ],
 )
