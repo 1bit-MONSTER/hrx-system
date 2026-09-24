@@ -93,12 +93,11 @@ python build_tools/devtools/ci.py iree-bazel-amd-client-asan
 python build_tools/devtools/ci.py iree-bazel-amd-client
 ```
 
-The [Linux](../../.github/workflows/ci_iree_bazel_client_linux.yml) and
-[Windows](../../.github/workflows/ci_iree_bazel_client_windows.yml) workflows own
-platform setup and hardware assignment. Compile-time family enablement does
-not declare a native device available. Linux XDNA needs access to the
-`amdxdna` driver and `/dev/accel`; `/dev/kfd` and `/dev/dri` access alone supplies
-no NPU execution interface.
+The [Loom workflow](../../.github/workflows/ci_iree.yml) owns Linux and Windows
+platform setup and hardware assignment. Compile-time family enablement does not
+declare a native device available. Linux XDNA needs access to the `amdxdna`
+driver and `/dev/accel`; `/dev/kfd` and `/dev/dri` access alone supplies no NPU
+execution interface.
 
 The ordinary Linux AMDGPU jobs build and run the GPU-only libamdf slice
 alongside the AMDGPU HAL. They enable RDNA/CDNA families, the authored GPU
