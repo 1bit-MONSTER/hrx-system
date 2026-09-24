@@ -192,6 +192,28 @@ void Pm4CommandWriter::CopyData64(uint64_t source_address,
                                target_address, pm4::CopyDataWidth::k64Bit);
 }
 
+void Pm4CommandWriter::DmaCopyL2(uint64_t source_address,
+                                 uint64_t target_address,
+                                 uint32_t byte_length) {
+  words_[word_count_++] = MakeHeader(0x50, 7);
+  // L2 source/destination, LRU policies and no PFP-layout CP_SYNC bit.
+  words_[word_count_++] = (3u << 29) | (3u << 20);
+  words_[word_count_++] = static_cast<uint32_t>(source_address);
+  words_[word_count_++] = static_cast<uint32_t>(source_address >> 32);
+  words_[word_count_++] = static_cast<uint32_t>(target_address);
+  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
+  // Direct byte count and RAW_WAIT; incrementing addresses and DIS_WC=0.
+  words_[word_count_++] = byte_length | (1u << 30);
+}
+
+void Pm4CommandWriter::WaitDma() {
+  // RADV's compute emitter leaves CP_SYNC clear even for its logical drain.
+  // Zero length performs no source or destination memory access.
+  words_[word_count_++] = MakeHeader(0x50, 7);
+  std::memset(words_ + word_count_, 0, 6 * sizeof(*words_));
+  word_count_ += 6;
+}
+
 void Pm4CommandWriter::WriteData(uint64_t target_address,
                                  const uint32_t* values, size_t value_count) {
   word_count_ +=

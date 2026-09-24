@@ -84,6 +84,15 @@ class Pm4CommandWriter {
   // Confirmed TC/L2 memory transfers; width does not imply atomicity.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);
+  // GFX11.5.1 MEC incrementing L2 copy with RAW_WAIT and write confirmation.
+  // The caller supplies a nonzero byte count within the native 26-bit field
+  // and the selected transfer policy, then joins final use with WaitDma and
+  // explicit cache/marker work. The CTS currently selects 1024 bytes.
+  void DmaCopyL2(uint64_t source_address, uint64_t target_address,
+                 uint32_t byte_length);
+  // RADV's GFX11 MEC zero-byte DMA drain, with all reserved fields clear.
+  // This does not perform cache maintenance or publish a host marker.
+  void WaitDma();
   // Confirmed, incrementing TC/L2 writes. The payload has 1..16381 DWORDs.
   void WriteData(uint64_t target_address, const uint32_t* values,
                  size_t value_count);

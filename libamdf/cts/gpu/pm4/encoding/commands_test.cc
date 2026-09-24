@@ -290,6 +290,26 @@ TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
+TEST(Pm4EncodingTest, MecDmaCopyAndDrainKeepReservedControlsClear) {
+  std::array<uint32_t, 16> words;
+  words.fill(0x24681357);
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.DmaCopyL2(UINT64_C(0x1234567887654040), UINT64_C(0x2345678998765100),
+                     1024);
+  commands.WaitDma();
+  // RADV's real compute copy/drain uses a direct byte count with RAW_WAIT,
+  // enabled write confirmation and no PFP-layout CP_SYNC control.
+  const std::array<uint32_t, 14> expected = {
+      0xc0055000, 0x60300000, 0x87654040, 0x12345678, 0x98765100,
+      0x23456789, 0x40000400, 0xc0055000, 0,          0,
+      0,          0,          0,          0,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+}
+
 TEST(Pm4EncodingTest, SharedCopyDataPreservesFullPayloadAddresses) {
   std::array<uint32_t, 14> words;
   words.fill(0x24681357);

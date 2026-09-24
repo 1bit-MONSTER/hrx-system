@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstring>
+#include <string>
 
 #include "libamdf/cts/gpu/pm4/command_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
@@ -196,6 +197,174 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
   }
   // Nonfatal oracle failures still reach normal retirement.
   ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+}
+
+class Pm4DmaTest : public Pm4CommandTest {
+ protected:
+  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
+                                 bool* out_matches) override {
+    amdf_gpu_endpoint_info_t info = {};
+    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
+    info.structure_size = sizeof(info);
+    const amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
+    if (!amdf_status_is_ok(status)) {
+      return status;
+    }
+    // This tuple selects the compiler target exposed by the endpoint API.
+    // Native GC and firmware identity are separate deployment requirements.
+    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
+        info.gfx_ip.stepping != 1) {
+      *out_matches = false;
+      return AMDF_STATUS_OK;
+    }
+    return Pm4CommandTest::MatchGpuEndpoint(endpoint, out_matches);
+  }
+};
+
+TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
+  constexpr uint32_t kPageByteLength = 4096;
+  constexpr uint32_t kPageWordCount = kPageByteLength / sizeof(uint32_t);
+  constexpr uint32_t kSourceByteOffset = 64;
+  constexpr uint32_t kTargetByteOffset = 256;
+  constexpr uint32_t kCopyByteLength = 1024;
+  constexpr uint32_t kSourceWordIndex = kSourceByteOffset / sizeof(uint32_t);
+  constexpr uint32_t kTargetWordIndex = kTargetByteOffset / sizeof(uint32_t);
+  constexpr uint32_t kCopyWordCount = kCopyByteLength / sizeof(uint32_t);
+  constexpr uint32_t kCompletionByteOffset = 256;
+  constexpr uint32_t kCompletionWordIndex =
+      kCompletionByteOffset / sizeof(uint32_t);
+  constexpr uint32_t kEpochCount = 2;
+  constexpr uint32_t kCommandWordsPerEpoch = 48;
+  constexpr uint32_t kCommandWordCount = kEpochCount * kCommandWordsPerEpoch;
+  static_assert(kSourceByteOffset + kCopyByteLength <= kPageByteLength);
+  static_assert(kTargetByteOffset + kCopyByteLength <= kPageByteLength);
+
+  GpuMemory* source = nullptr;
+  GpuMemory* target = nullptr;
+  GpuMemory* completion = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &source));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kPageByteLength, &target));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+                   kPageByteLength, &completion));
+  std::array<uint32_t, kPageWordCount> expected_source, observed_source;
+  std::array<uint32_t, kPageWordCount> expected_target, observed_target;
+  std::array<uint32_t, kPageWordCount> expected_control, observed_control;
+  std::array<uint32_t, kCommandWordCount> expected_commands, observed_commands;
+  for (uint32_t i = 0; i < kPageWordCount; ++i) {
+    expected_control[i] = 0x68d329b7u ^ i;
+  }
+  // Only the GPU updates this marker after its one-time host initialization.
+  expected_control[kCompletionWordIndex] = 0;
+  std::memcpy(completion->host.pointer, expected_control.data(),
+              sizeof(expected_control));
+  const uintptr_t completion_address =
+      reinterpret_cast<uintptr_t>(completion->host.pointer) +
+      kCompletionByteOffset;
+
+  GpuUserQueue* queue = nullptr;
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  const uint64_t ring_capacity =
+      queue->host.ring_byte_length / sizeof(uint32_t);
+  ASSERT_GT(ring_capacity, kCommandWordCount);
+  Pm4CommandWriter commands(
+      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+  // Both batches are complete before the first publication. Each remains
+  // immutable through its completion and consumed frontier.
+  for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {
+    commands.SystemBarrier();
+    commands.DmaCopyL2(source->device_address + kSourceByteOffset,
+                       target->device_address + kTargetByteOffset,
+                       kCopyByteLength);
+    commands.WaitDma();
+    commands.SystemBarrier();
+    commands.WriteData32(completion->device_address + kCompletionByteOffset,
+                         epoch);
+    // The 39-word body requires a complete nine-word NOP, not a one-word gap.
+    commands.PadToEightWords();
+    ASSERT_EQ(commands.word_count(), epoch * kCommandWordsPerEpoch);
+  }
+  std::memcpy(expected_commands.data(),
+              reinterpret_cast<const void*>(queue->host.ring_address),
+              sizeof(expected_commands));
+  RecordProperty("pm4_dma_packet_header", "0xc0055000");
+  RecordProperty("pm4_dma_copy_control", "0x60300000");
+  RecordProperty("pm4_dma_copy_count_control", "0x40000400");
+  RecordProperty("pm4_dma_drain_body", "0,0,0,0,0,0");
+  RecordProperty("pm4_dma_copy_byte_length", kCopyByteLength);
+  RecordProperty("pm4_dma_source_byte_offset", kSourceByteOffset);
+  RecordProperty("pm4_dma_target_byte_offset", kTargetByteOffset);
+  RecordProperty("pm4_dma_completion_byte_offset", kCompletionByteOffset);
+  RecordProperty("pm4_dma_checked_page_bytes_each", kPageByteLength);
+  RecordProperty("pm4_dma_checked_allocation_bytes", 3 * kPageByteLength);
+  RecordProperty("pm4_dma_checked_command_bytes", sizeof(expected_commands));
+  RecordProperty("pm4_dma_command_words_per_epoch", kCommandWordsPerEpoch);
+  RecordProperty("pm4_dma_command_word_count", commands.word_count());
+  RecordProperty("pm4_dma_ring_capacity_dwords", std::to_string(ring_capacity));
+  RecordProperty("pm4_dma_first_producer_index", 0);
+  RecordProperty("pm4_dma_completed_epochs", 0);
+
+  for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {
+    SCOPED_TRACE(epoch);
+    for (uint32_t i = 0; i < kPageWordCount; ++i) {
+      expected_source[i] = static_cast<uint32_t>(UINT64_C(0x13579bdf) +
+                                                 uint64_t{i} * 0x01030507u +
+                                                 uint64_t{epoch} * 0x11111111u);
+      expected_target[i] = 0x4e90b725u ^ i;
+    }
+    observed_target = expected_target;
+    for (uint32_t i = 0; i < kCopyWordCount; ++i) {
+      const uint32_t expected =
+          static_cast<uint32_t>(UINT64_C(0x13579bdf) +
+                                (uint64_t{kSourceWordIndex} + i) * 0x01030507u +
+                                uint64_t{epoch} * 0x11111111u);
+      expected_target[kTargetWordIndex + i] = expected;
+      observed_target[kTargetWordIndex + i] = ~expected;
+    }
+    std::memcpy(source->host.pointer, expected_source.data(),
+                sizeof(expected_source));
+    std::memcpy(target->host.pointer, observed_target.data(),
+                sizeof(observed_target));
+    expected_control[kCompletionWordIndex] = epoch;
+    const uint64_t producer_index = epoch * kCommandWordsPerEpoch;
+    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(producer_index));
+    GpuWaitEqual<uint32_t>(completion_address, epoch);
+
+    // Capture the complete target first, then all other initialized storage,
+    // before diagnostics or consumption can add synchronization.
+    std::memcpy(observed_target.data(), target->host.pointer,
+                sizeof(observed_target));
+    std::memcpy(observed_source.data(), source->host.pointer,
+                sizeof(observed_source));
+    std::memcpy(observed_control.data(), completion->host.pointer,
+                sizeof(observed_control));
+    std::memcpy(observed_commands.data(),
+                reinterpret_cast<const void*>(queue->host.ring_address),
+                sizeof(observed_commands));
+    for (uint32_t i = 0; i < kPageWordCount; ++i) {
+      EXPECT_EQ(observed_target[i], expected_target[i]) << "target word=" << i;
+      EXPECT_EQ(observed_source[i], expected_source[i]) << "source word=" << i;
+      EXPECT_EQ(observed_control[i], expected_control[i])
+          << "control word=" << i;
+    }
+    for (uint32_t i = 0; i < kCommandWordCount; ++i) {
+      EXPECT_EQ(observed_commands[i], expected_commands[i])
+          << "command word=" << i;
+    }
+    // The marker supplies transfer visibility; consumption retires command
+    // storage. Nonfatal oracle failures still reach this separate obligation.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, producer_index));
+    if (HasFailure()) {
+      return;
+    }
+    RecordProperty("pm4_dma_epoch_" + std::to_string(epoch) + "_producer_index",
+                   std::to_string(producer_index));
+    RecordProperty("pm4_dma_completed_epochs", epoch);
+  }
+  RecordProperty("pm4_dma_final_producer_index", kCommandWordCount);
 }
 
 }  // namespace

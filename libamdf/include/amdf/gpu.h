@@ -146,6 +146,13 @@ typedef struct amdf_gpu_device_info_t {
 ///
 /// The primary ring contains native type-3 PM4 packets. Transfer commands use
 /// six-dword COPY_DATA and WRITE_DATA with a four-dword prefix and payload.
+/// GFX11.5.1 MEC also supports seven-dword DMA_DATA incrementing L2 copies
+/// between owned coherent SYSTEM ranges, with a direct byte count and write
+/// confirmation. The caller follows each
+/// copy sequence with the zero-byte DMA_DATA drain, explicit cache work and
+/// a completion marker before releasing its operands; ring consumption alone
+/// does not complete a transfer. This does not admit PFP controls, other DMA
+/// selectors or DMA_DATA on kernel-publication or AQL-carried PM4 transports.
 /// Cache-control encoding is described by the reported PM4 format features.
 /// Indices occupy naturally aligned 64-bit storage. The write index is a
 /// monotonic dword count; the native read index wraps at the ring capacity
