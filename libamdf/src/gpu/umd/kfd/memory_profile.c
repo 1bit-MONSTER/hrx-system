@@ -10,17 +10,38 @@
 #include "libamdf/src/gpu/umd/memory.h"
 #include "libamdf/src/platform/linux/dma_buf.h"
 
-// Selected gfx942 placements require completion and dependency ordering for
-// SDMA but no payload cache operation. AQL dispatches retain full SYSTEM
-// acquire/release scopes across the native VRAM and GTT cache policies.
+// Selected backing policies need no SDMA payload cache operation. Explicit
+// transfer completion and dependency ordering remain caller obligations.
+static amdf_status_t amdf_gpu_kfd_sdma_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  const amdf_queue_family_info_t* family = query->queue_family_info;
+  if (family->command_type != AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA ||
+      family->format_version != AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1 ||
+      (family->roles & AMDF_QUEUE_ROLE_TRANSFER) == 0) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  amdf_memory_site_description_t description = {0};
+  if ((query->access & AMDF_MEMORY_ACCESS_READ) != 0) {
+    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_READ;
+  }
+  if ((query->access & AMDF_MEMORY_ACCESS_WRITE) != 0) {
+    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_WRITE;
+  }
+  description.release.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  description.acquire.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_RELEASE_COST_KNOWN |
+                              AMDF_MEMORY_SITE_CAPABILITY_ACQUIRE_COST_KNOWN;
+  *out_description = description;
+  return AMDF_STATUS_OK;
+}
+
+// Selected gfx942 placements retain full SYSTEM shader acquire/release
+// scopes across the native VRAM and GTT cache policies.
 static amdf_status_t amdf_gpu_kfd_gfx942_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {
   const amdf_queue_family_info_t* family = query->queue_family_info;
-  const bool sdma =
-      family->command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA &&
-      family->format_version == AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1 &&
-      (family->roles & AMDF_QUEUE_ROLE_TRANSFER) != 0;
   const bool aql =
       family->command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_AQL &&
       family->format_version == AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 &&
@@ -34,8 +55,8 @@ static amdf_status_t amdf_gpu_kfd_gfx942_describe_site(
            AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) &&
       (family->cache_transition_kinds & AMDF_CACHE_TRANSITION_KINDS_GLOBAL) !=
           0;
-  if (!sdma && !aql) {
-    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  if (!aql) {
+    return amdf_gpu_kfd_sdma_describe_site(query, out_description);
   }
   amdf_memory_site_description_t description = {0};
   if ((query->access & AMDF_MEMORY_ACCESS_READ) != 0) {
@@ -44,23 +65,16 @@ static amdf_status_t amdf_gpu_kfd_gfx942_describe_site(
   if ((query->access & AMDF_MEMORY_ACCESS_WRITE) != 0) {
     description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_WRITE;
   }
-  if (sdma) {
-    description.release.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
-    description.acquire.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
-    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_RELEASE_COST_KNOWN |
-                                AMDF_MEMORY_SITE_CAPABILITY_ACQUIRE_COST_KNOWN;
-  } else {
-    description.release = (amdf_cache_transition_t){
-        .kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL,
-        .executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE,
-        .operation = AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
-    };
-    description.acquire = (amdf_cache_transition_t){
-        .kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL,
-        .executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE,
-        .operation = AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
-    };
-  }
+  description.release = (amdf_cache_transition_t){
+      .kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL,
+      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE,
+      .operation = AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+  };
+  description.acquire = (amdf_cache_transition_t){
+      .kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL,
+      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE,
+      .operation = AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+  };
   *out_description = description;
   return AMDF_STATUS_OK;
 }
@@ -90,6 +104,19 @@ static amdf_status_t amdf_gpu_kfd_gfx942_local_describe_site(
   return amdf_gpu_kfd_gfx942_describe_site(query, out_description);
 }
 
+// Owned coherent GTT on GMC11 uses GPU-UC, SYSTEM+SNOOPED mappings. SDMA
+// needs no payload cache operation; PM4 retains its SYSTEM shader actions.
+static amdf_status_t amdf_gpu_kfd_gfx1151_system_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  // A remote LOCAL group projection can retain the consumer callback but
+  // cannot acquire the owned SYSTEM backing's coherence guarantee.
+  if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  return amdf_gpu_kfd_sdma_describe_site(query, out_description);
+}
+
 // LOCAL_MEMORY is a positive discrete-GPU fact in KFD topology. Compiler
 // gfx942 covers native GC9.4.3/4; exact SDMA4.4.2 supplies the transfer path.
 static bool amdf_gpu_kfd_supports_gfx942_staged_visibility(
@@ -101,6 +128,15 @@ static bool amdf_gpu_kfd_supports_gfx942_staged_visibility(
          topology->properties.gfx_ip.stepping == 2 && topology->sdma.ip.exact &&
          topology->sdma.ip.major == 4 && topology->sdma.ip.minor == 4 &&
          topology->sdma.ip.revision == 2;
+}
+
+static bool amdf_gpu_kfd_supports_gfx1151_system_visibility(
+    const amdf_gpu_kfd_topology_t* topology) {
+  return topology->properties.gfx_ip.major == 11 &&
+         topology->properties.gfx_ip.minor == 5 &&
+         topology->properties.gfx_ip.stepping == 1 && topology->sdma.ip.exact &&
+         topology->sdma.ip.major == 6 && topology->sdma.ip.minor == 1 &&
+         topology->sdma.ip.revision == 1;
 }
 
 // KFD maps a fixed consumer set into the backing owner's native allocation.
@@ -270,6 +306,9 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     if (amdf_gpu_kfd_supports_gfx942_staged_visibility(topology)) {
       profile.visibility.describe_site =
           amdf_gpu_kfd_gfx942_system_describe_site;
+    } else if (amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)) {
+      profile.visibility.describe_site =
+          amdf_gpu_kfd_gfx1151_system_describe_site;
     }
   } else if ((topology->memory_features &
               AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) != 0 &&

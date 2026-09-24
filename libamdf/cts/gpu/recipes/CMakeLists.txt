@@ -16,13 +16,16 @@ iree_cc_library(
   SRCS
     "copy_dispatch_test.cc"
     "memory_pair_test.cc"
+    "pm4_sdma_test.cc"
   DEPS
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::aql::dispatch_fixture
     libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_gfx1151
     libamdf::cts::gpu::kernels::transform_gfx942
     libamdf::cts::gpu::pm4::command_fixture
+    libamdf::cts::gpu::pm4::dispatch_fixture
     libamdf::cts::gpu::pm4::encoding::commands
     libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
