@@ -23,11 +23,23 @@ amdf_cc_library(
     ],
 )
 
+amdf_cc_library(
+    name = "dispatch_fixture",
+    testonly = True,
+    hdrs = ["dispatch_fixture.h"],
+    deps = [
+        ":command_fixture",
+        "//libamdf/cts/gpu/kernels:image",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+    ],
+)
+
 amdf_cts_test_suite(
     name = "pm4",
     srcs = [
         "copy_test.cc",
         "dispatch_test.cc",
+        "lds_test.cc",
         "timestamp_test.cc",
         "wait_test.cc",
         "write_test.cc",
@@ -40,6 +52,9 @@ amdf_cts_test_suite(
     visibility = ["//visibility:public"],
     deps = [
         ":command_fixture",
+        ":dispatch_fixture",
+        "//libamdf/cts/gpu/kernels:lds_exchange",
+        "//libamdf/cts/gpu/kernels:lds_exchange_gfx1151",
         "//libamdf/cts/gpu/kernels:transform",
         "//libamdf/cts/gpu/kernels:transform_gfx1151",
         "//libamdf/cts/gpu/pm4/encoding:commands",

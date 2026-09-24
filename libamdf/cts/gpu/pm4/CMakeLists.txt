@@ -24,6 +24,22 @@ iree_cc_library(
 )
 endif()
 
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
+    dispatch_fixture
+  HDRS
+    "dispatch_fixture.h"
+  DEPS
+    ::command_fixture
+    amdf::headers
+    libamdf::cts::gpu::kernels::image
+    libamdf::cts::gpu::pm4::encoding::commands
+  TESTONLY
+  PUBLIC
+)
+endif()
+
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
@@ -31,13 +47,17 @@ iree_cc_library(
   SRCS
     "copy_test.cc"
     "dispatch_test.cc"
+    "lds_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
     "write_test.cc"
   DEPS
     ::command_fixture
+    ::dispatch_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::lds_exchange
+    libamdf::cts::gpu::kernels::lds_exchange_gfx1151
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx1151
     libamdf::cts::gpu::pm4::encoding::commands

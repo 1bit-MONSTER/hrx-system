@@ -46,6 +46,7 @@ TARGETS = {
 FIXTURES = {
     "transform": {
         "targets": ["gfx942", "gfx1151"],
+        "gfx1151_resource_words": (0x20, 0xE0AF0000, 0x84),
         "symbol": "aql_transform",
         "group_byte_length": 0,
         "private_byte_length": 0,
@@ -72,7 +73,8 @@ FIXTURES = {
         ],
     },
     "lds_exchange": {
-        "targets": ["gfx942"],
+        "targets": ["gfx942", "gfx1151"],
+        "gfx1151_resource_words": (0x30, 0xE0AF0000, 0x84),
         "symbol": "lds_exchange",
         "group_byte_length": 512,
         "private_byte_length": 0,
@@ -204,10 +206,11 @@ def inspect_image(elf, image, notes, fixture, target_name):
         "kernarg input/wave mode/preload",
     )
     if target_name == "gfx1151":
-        # The PM4 caller binds these exact plain compiler words. A changed
-        # runtime input, storage requirement or prefetch contract needs review.
+        # The PM4 caller preserves these exact compiler words while deriving
+        # the LDS allocation separately. Each fixture's input and prefetch
+        # contracts remain explicit.
         require(
-            struct.unpack_from("<III", image, 44) == (0x20, 0xE0AF0000, 0x84),
+            struct.unpack_from("<III", image, 44) == fixture["gfx1151_resource_words"],
             "unexpected gfx1151 program resources",
         )
 

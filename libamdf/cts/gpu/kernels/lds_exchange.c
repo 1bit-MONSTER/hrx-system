@@ -4,7 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Two waves exchange separately tagged static and dynamic LDS values.
+// Workitems exchange separately tagged static and dynamic LDS values across
+// waves within their workgroup.
 static __attribute__((address_space(3),
                       loader_uninitialized)) unsigned static_words[128];
 

@@ -22,9 +22,13 @@ compiler-generated frame to exercise caller-owned queue scratch across two
 completed dispatches.
 
 [lds_exchange.c](lds_exchange.c) exchanges independently tagged static and
-dynamic group-memory values between two waves. The [LDS cases](../aql/lds_test.cc)
+dynamic group-memory values between waves. The [AQL LDS cases](../aql/lds_test.cc)
 exercise fixed allocation and changing packet-sized dynamic storage, checking
 both the partner wave's value and the stride supplied for each epoch.
+The separately compiled [gfx1151 image](lds_exchange_gfx1151.json) exercises
+its static branch with four wave32 waves through the [PM4 LDS case](../pm4/lds_test.cc).
+The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) separates the
+unchanged compiler descriptor from derived launch allocation and scheduling.
 
 [geometry_ids.c](geometry_ids.c) records raw group XYZ, local XYZ and an epoch
 token at each global position. The [geometry cases](../aql/geometry_test.cc)
@@ -38,6 +42,7 @@ The ordinary CTS build includes the fixed headers
 [transform_gfx942.h](transform_gfx942.h),
 [transform_gfx1151.h](transform_gfx1151.h),
 [private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
+[lds_exchange_gfx1151.h](lds_exchange_gfx1151.h),
 [lds_exchange_gfx942.h](lds_exchange_gfx942.h) and
 [geometry_ids_gfx942.h](geometry_ids_gfx942.h). It needs neither an
 installed GPU compiler nor a runtime ELF loader. Each paired JSON record
@@ -48,7 +53,7 @@ descriptor fields are patched at runtime.
 ## Artifact contract
 
 The gfx942 artifacts use HSA code object V5 and XNACK/SRAMECC feature settings
-of ANY. The gfx1151 transform is a separate V5, wave32 image. Other compiler
+of ANY. The gfx1151 transform and LDS fixtures are separate V5, wave32 images. Other compiler
 targets require separate artifacts. The flat
 image preserves the linked `.rodata` and `.text` addresses relative to its
 descriptor, including all compiler-emitted text padding. A zero prefix retains

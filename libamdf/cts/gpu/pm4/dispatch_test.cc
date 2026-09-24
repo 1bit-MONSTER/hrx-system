@@ -11,79 +11,20 @@
 
 #include "libamdf/cts/gpu/kernels/transform.h"
 #include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
-#include "libamdf/cts/gpu/pm4/command_fixture.h"
+#include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 namespace {
 
 namespace kernel = kernels::gfx1151_transform;
 
-class Pm4DispatchTest : public Pm4CommandTest {
- protected:
-  Pm4DispatchTest() : Pm4CommandTest(AMDF_QUEUE_ROLE_COMPUTE) {}
-
-  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
-                                 bool* out_matches) override {
-    amdf_gpu_endpoint_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
-    info.structure_size = sizeof(info);
-    const amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
-        info.gfx_ip.stepping != 1) {
-      *out_matches = false;
-      return AMDF_STATUS_OK;
-    }
-    return Pm4CommandTest::MatchGpuEndpoint(endpoint, out_matches);
-  }
-
-  // Prepares immutable case-owned code. Each caller's first SystemBarrier
-  // supplies device-side publication before binding and dispatching it.
-  void PrepareProgram(Pm4ComputeProgram* out_program) {
-    constexpr uint64_t kCodeByteLength = 4096;
-    static_assert(kernel::kExecutable.byte_length <= kCodeByteLength);
-    // RSRC3 prefetch is measured from the entry in 128-byte units. PAL also
-    // backs three 64-byte fetch lines after the aligned end of uploaded
-    // sections.
-    static_assert(kernel::kEntryByteOffset +
-                      ((kernel::kComputePgmRsrc3 >> 4) & 63u) * 128u <=
-                  kCodeByteLength);
-    static_assert(((kernel::kExecutable.byte_length + 63u) & ~63u) + 192u <=
-                  kCodeByteLength);
-    GpuMemory* code = nullptr;
-    ASSERT_NO_FATAL_FAILURE(
-        CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
-                     kCodeByteLength, &code));
-    ASSERT_EQ(code->device_address % 256, 0u);
-    ASSERT_LE(code->device_address, (UINT64_C(1) << 48) - kCodeByteLength);
-    const uint64_t entry_address =
-        code->device_address + kernel::kEntryByteOffset;
-    ASSERT_EQ(entry_address % 256, 0u);
-    ASSERT_LT(entry_address, UINT64_C(1) << 48);
-
-    const auto& image = kernel::kExecutable;
-    // Preserve the entry phase and entire compiler tail. The page backing also
-    // covers the audited instruction-prefetch and end-of-shader fetch extents.
-    std::memset(code->host.pointer, 0, code->info.byte_length);
-    std::memcpy(code->host.pointer, image.words, image.byte_length);
-    const Pm4ComputeProgram program = {
-        entry_address,
-        kernel::kComputePgmRsrc1,
-        kernel::kComputePgmRsrc2,
-        kernel::kComputePgmRsrc3,
-        {kernel::kWorkgroupSize, 1, 1},
-    };
-    RecordProperty("pm4_kernel_image_sha256", image.sha256);
-    RecordProperty("pm4_kernel_image_byte_length", image.byte_length);
-    RecordProperty("pm4_kernel_entry_byte_offset", kernel::kEntryByteOffset);
-    RecordProperty("pm4_kernel_entry_address", std::to_string(entry_address));
-    RecordProperty("pm4_compute_pgm_rsrc1", std::to_string(program.resource1));
-    RecordProperty("pm4_compute_pgm_rsrc2", std::to_string(program.resource2));
-    RecordProperty("pm4_compute_pgm_rsrc3", std::to_string(program.resource3));
-    *out_program = program;
-  }
+constexpr Pm4ComputeProgram kTransformProgram = {
+    0,
+    kernel::kComputePgmRsrc1,
+    kernel::kComputePgmRsrc2,
+    kernel::kComputePgmRsrc3,
+    kernel::kGroupSegmentByteLength,
+    {kernel::kWorkgroupSize, 1, 1},
 };
 
 TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
@@ -108,8 +49,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
   ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
-  Pm4ComputeProgram program = {};
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(&program));
+  Pm4ComputeProgram program = kTransformProgram;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -218,8 +160,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
   control_words[0] = 0;
   std::memcpy(completion->host.pointer, control_words.data(),
               sizeof(control_words));
-  Pm4ComputeProgram program = {};
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(&program));
+  Pm4ComputeProgram program = kTransformProgram;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -376,8 +319,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
               sizeof(control_words));
   auto* completion_word =
       static_cast<uint32_t*>(completion->host.pointer) + kCompletionWordIndex;
-  Pm4ComputeProgram program = {};
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(&program));
+  Pm4ComputeProgram program = kTransformProgram;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -509,8 +453,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
   auto* control_bytes = static_cast<uint8_t*>(control->host.pointer);
   const uintptr_t marker_host_address =
       reinterpret_cast<uintptr_t>(control_bytes + kMarkerByteOffset);
-  Pm4ComputeProgram program = {};
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(&program));
+  Pm4ComputeProgram program = kTransformProgram;
+  ASSERT_NO_FATAL_FAILURE(
+      PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));

@@ -17,6 +17,7 @@ exports_files([
     "geometry_ids.c",
     "geometry_ids_gfx942.json",
     "lds_exchange.c",
+    "lds_exchange_gfx1151.json",
     "lds_exchange_gfx942.json",
     "private_roundtrip.c",
     "private_roundtrip_gfx942.json",
@@ -62,6 +63,13 @@ amdf_cc_library(
     name = "lds_exchange",
     testonly = True,
     hdrs = ["lds_exchange.h"],
+)
+
+amdf_cc_library(
+    name = "lds_exchange_gfx1151",
+    testonly = True,
+    hdrs = ["lds_exchange_gfx1151.h"],
+    deps = [":image"],
 )
 
 amdf_cc_library(

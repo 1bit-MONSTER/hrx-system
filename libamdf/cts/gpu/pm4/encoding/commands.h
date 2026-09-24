@@ -21,7 +21,7 @@ enum class Pm4MemoryComparison : uint32_t {
   kGreaterOrEqual = 5,
 };
 
-// Audited gfx1151 wave32 program with no scratch, LDS or hidden runtime inputs.
+// Audited gfx1151 wave32 program with no scratch or hidden runtime inputs.
 // The caller supplies only a kernarg pointer; hardware supplies group/local
 // IDs.
 struct Pm4ComputeProgram {
@@ -29,11 +29,14 @@ struct Pm4ComputeProgram {
   uint64_t entry_address;
   // Compiler COMPUTE_PGM_RSRC1, without runtime instrumentation overrides.
   uint32_t resource1;
-  // Compiler COMPUTE_PGM_RSRC2, enabling two user SGPRs and group X.
+  // Immutable compiler COMPUTE_PGM_RSRC2, enabling two user SGPRs and group X.
+  // Binding replaces its descriptor-zero LDS field with the allocation below.
   uint32_t resource2;
   // Compiler COMPUTE_PGM_RSRC3, including its backed instruction-prefetch
   // extent.
   uint32_t resource3;
+  // Total group-segment allocation in bytes, within the target's group limit.
+  uint32_t group_segment_byte_length;
   // Complete workgroup dimensions in workitems, matching the compiled program.
   uint32_t workgroup_size[3];
 };

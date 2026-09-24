@@ -41,10 +41,22 @@ void Pm4CommandWriter::BindCompute(const Pm4ComputeProgram& program,
       static_cast<uint32_t>(program.entry_address >> 40),
   };
   SetComputeRegisters(0x2e0c, entry, 2);
-  const uint32_t resources[] = {program.resource1, program.resource2};
+  // HSA descriptors leave LDS_SIZE zero. The PM4 caller realizes the total
+  // group allocation in 512-byte units without changing the compiler image.
+  const uint32_t lds_units = (program.group_segment_byte_length + 511u) / 512u;
+  const uint32_t resources[] = {
+      program.resource1,
+      (program.resource2 & ~UINT32_C(0x00ff8000)) | (lds_units << 15),
+  };
   SetComputeRegisters(0x2e12, resources, 2);
   SetComputeRegisters(0x2e28, &program.resource3, 1);
-  const uint32_t resource_limits = 0;
+  // PAL and Mesa's ordinary wave32 policy selects SIMD_DEST_CNTL when the
+  // complete workgroup contains a multiple of four waves.
+  const uint32_t workitem_count = program.workgroup_size[0] *
+                                  program.workgroup_size[1] *
+                                  program.workgroup_size[2];
+  const uint32_t wave_count = (workitem_count + 31u) / 32u;
+  const uint32_t resource_limits = wave_count % 4 == 0 ? (1u << 22) : 0;
   SetComputeRegisters(0x2e15, &resource_limits, 1);
   // The interval ends before native PIPELINESTAT_ENABLE/PERFCOUNT_ENABLE.
   const uint32_t geometry[] = {0,

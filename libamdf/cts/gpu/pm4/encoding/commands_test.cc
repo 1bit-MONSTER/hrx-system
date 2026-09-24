@@ -52,7 +52,7 @@ TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {
   std::array<uint32_t, 27> words = {};
   words.back() = 0x24681357;
   const Pm4ComputeProgram program = {
-      UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x20, {64, 1, 1},
+      UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x20, 0, {64, 1, 1},
   };
   Pm4CommandWriter commands(words.data());
   commands.BindCompute(program, UINT64_C(0x00003456789abc00));
@@ -69,6 +69,30 @@ TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {
   ASSERT_EQ(commands.word_count(), expected.size());
   ExpectWords(words.data(), expected);
   EXPECT_EQ(words.back(), 0x24681357u);
+}
+
+TEST(Pm4EncodingTest, ComputeBindingRealizesStaticLdsAndFourWavePolicy) {
+  std::array<uint32_t, 28> words;
+  words.fill(0x24681357);
+  const Pm4ComputeProgram program = {
+      UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
+  };
+  Pm4CommandWriter commands(words.data() + 1);
+  commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+  // The compiler descriptor retains LDS_SIZE=0. PAL's HSA path derives one
+  // 512-byte unit; the four-wave policy separately sets SIMD_DEST_CNTL bit 22.
+  const std::array<uint32_t, 26> expected = {
+      0xc0027602, 0x20c,      0x34567890, 0x12,  0xc0027602, 0x212,
+      0xe0af0000, 0x8084,     0xc0017602, 0x228, 0x30,       0xc0017602,
+      0x215,      0x00400000, 0xc0067602, 0x204, 0,          0,
+      0,          128,        1,          1,     0xc0027602, 0x240,
+      0x789abc00, 0x3456,
+  };
+  ASSERT_EQ(commands.word_count(), expected.size());
+  ExpectWords(words.data() + 1, expected);
+  EXPECT_EQ(words.front(), 0x24681357u);
+  EXPECT_EQ(words.back(), 0x24681357u);
+  EXPECT_EQ(program.resource2, 0x84u);
 }
 
 TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
