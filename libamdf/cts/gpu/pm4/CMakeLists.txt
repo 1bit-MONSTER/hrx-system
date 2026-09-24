@@ -48,6 +48,7 @@ iree_cc_library(
     "atomic_store_test.cc"
     "copy_test.cc"
     "dispatch_test.cc"
+    "handoff_test.cc"
     "indirect_test.cc"
     "lds_test.cc"
     "resource_test.cc"

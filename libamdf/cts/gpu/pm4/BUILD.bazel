@@ -40,6 +40,7 @@ amdf_cts_test_suite(
         "atomic_store_test.cc",
         "copy_test.cc",
         "dispatch_test.cc",
+        "handoff_test.cc",
         "indirect_test.cc",
         "lds_test.cc",
         "resource_test.cc",
