@@ -10,6 +10,7 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [Mesa][mesa] | `0ba4b08edc65075e9346d20d5310261939aaaf48` | RADV/radeonsi command composition, memory policy, synchronization, and native submission. |
 | [ROCm systems][rocm] | `8d57824901ffa7d961c00a37d055a108723b93ca` | ROCr queue/signal/copy protocols, HIP/CLR consumers, native queue construction, and profiling. |
 | [Linux][linux] | `50d05c7c76c96b90462f24debacca971d2e86713` | Native UAPI, queue descriptors, memory mappings, engine emitters, and driver resource lifetimes. |
+| [Vulkan specification][vulkan] | `01aaacd99480487bf63830959513c5ca8ceb996d` | External memory and semaphore capabilities, handle ownership, host-pointer imports, resource ownership transfers, and host visibility. |
 | [LLVM ABI and memory model][llvm-abi] | `6e714c8d91116794cb699cdf80c26afe9cda3ef3` | Kernel descriptors, initial registers, address spaces, and shader memory ordering. |
 | [LLVM compiler implementation][llvm-compiler] | `6dfe1677ab8dffbc6ec13d53a1e0215d75147689` | Executable fetch padding, dispatch inputs, partial workgroups, and target feature selection. |
 | [AMD atomic-operation tables][legacy-rocm] | `85a16825737e43a14ff431754b359380e78062a7` | Architecture-specific atomic operation tables and their separate PCIe-route interpretations. |
@@ -28,6 +29,12 @@ Manual 1.2][hsa-prm] supplies work-item and workgroup execution rules. AMD's
 [GPU architecture documentation index][gpu-manuals] locates individual ISA
 manuals; shader instructions and command-processor packets have separate
 representations and owners.
+
+Microsoft's public [D3D12 sharing][d3d12-sharing] and [queue synchronization][d3d12-sync]
+documentation supplies the API contracts for shared heaps, resources and
+fences. Those object and execution contracts complement the native Windows
+DDI; neither defines a device-specific NPU import protocol. The external-memory
+chapter cites the particular creation, residency, mapping and completion APIs.
 
 The AI Engine chapters also use AMD's AM020 and AM027 architecture manuals,
 the AM025 register manual, UG1079 kernel coding guide, UG1603 revision 2026.1
@@ -54,10 +61,13 @@ executes. The corresponding chapter identifies those boundaries.
 [mesa]: https://gitlab.freedesktop.org/mesa/mesa/-/tree/0ba4b08edc65075e9346d20d5310261939aaaf48
 [rocm]: https://github.com/ROCm/rocm-systems/tree/8d57824901ffa7d961c00a37d055a108723b93ca
 [linux]: https://github.com/torvalds/linux/tree/50d05c7c76c96b90462f24debacca971d2e86713
+[vulkan]: https://github.com/KhronosGroup/Vulkan-Docs/tree/01aaacd99480487bf63830959513c5ca8ceb996d
 [llvm-abi]: https://github.com/llvm/llvm-project/tree/6e714c8d91116794cb699cdf80c26afe9cda3ef3
 [llvm-compiler]: https://github.com/llvm/llvm-project/tree/6dfe1677ab8dffbc6ec13d53a1e0215d75147689
 [legacy-rocm]: https://github.com/ROCm/legacy-rocm-build/tree/85a16825737e43a14ff431754b359380e78062a7
 [windows-ddi]: https://github.com/MicrosoftDocs/windows-driver-docs-ddi/tree/7515063cea4c9e98db6a92986c5b4ddb0463fd16
+[d3d12-sharing]: https://learn.microsoft.com/en-us/windows/win32/direct3d12/shared-heaps
+[d3d12-sync]: https://learn.microsoft.com/en-us/windows/win32/direct3d12/user-mode-heap-synchronization
 [xdna]: https://github.com/amd/xdna-driver/tree/8dfda66f67a84aecf26cf68336efc9e4cc1756c3
 [aie]: https://github.com/Xilinx/aie-codegen/tree/2855a032366e3d19dab893e7c263b14bb920cd64
 [mlir-aie]: https://github.com/Xilinx/mlir-aie/tree/c69fb4c8f2fb853d5ca62d19f829796d3ae4ba34
