@@ -29,11 +29,18 @@ manuals; shader instructions and command-processor packets have separate
 representations and owners.
 
 The AI Engine chapters also use AMD's AM020 and AM027 architecture manuals,
-the AM025 register manual, and the versioned 2025.1/2026.1 intrinsic references.
+the AM025 register manual, UG1079 kernel coding guide, and the versioned
+2025.1/2026.1 intrinsic references.
 Each chapter identifies the relevant document, section, architecture, and
 toolchain version.
 Those architecture manuals do not by themselves establish how a native host
 driver exposes the same mechanism.
+
+Arm's [AMBA AXI and ACE specification IHI 0022F.b][axi4] defines the AXI4
+transaction attributes, response ordering and single-copy atomicity used in
+the array's external-memory discussion. The array and host integration
+determine where those protocol observations meet another device's memory
+and cache path.
 
 Several consumers can share the same generated packet definition or delegate
 to the same runtime. Agreement along that chain corroborates the caller flow;
@@ -58,3 +65,4 @@ executes. The corresponding chapter identifies those boundaries.
 [hsa-system]: https://hsafoundation.com/wp-content/uploads/2021/02/HSA-SysArch-1.2.pdf
 [hsa-prm]: https://hsafoundation.com/wp-content/uploads/2021/02/HSA-PRM-1.2.pdf
 [gpu-manuals]: https://gpuopen.com/amd-gpu-architecture-programming-documentation/
+[axi4]: https://documentation-service.arm.com/static/5f915bbcf86e16515cdc3b23

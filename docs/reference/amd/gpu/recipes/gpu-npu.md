@@ -228,26 +228,57 @@ address is uniform across lanes. [Scalar-memory premise][shader-model]
 ### Output DMA and a ready flag
 
 AIE2P descriptor word 7 contains separate local lock acquire and release
-operands. A payload descriptor can release a shim lock and another
-descriptor can acquire it before executing a flag transfer. This expresses
-a local dependency between descriptors; the lock is not an atomic operation
-on a GPU-visible memory cell. [Lock fields][shim-locks]
+operands. A payload descriptor can release a shim lock and a descriptor on
+another S2MM channel can acquire it before issuing a flag transfer. This
+expresses a local descriptor dependency; the lock is not an atomic operation
+on the external flag. [Lock fields][shim-locks]
 [Descriptor construction][shim-lock-writer]
 
-Using that second channel's flag as GPU-visible release publication requires
-two additional facts: the payload lock release follows the required external
-write completions, and the flag reaches the common memory observer after
-those writes. The cited AIE2P implementation defines the descriptor fields
-and ordinary channel-done predicate, but does not specify that stronger
-cross-channel external-ordering rule. The missing contract is the lock-release
-point relative to outstanding write responses and the ordering from there
-to the second channel's flag. An applicable array/fabric completion rule is
-needed to establish that composition.
-[Local lock representation][shim-locks] [Channel predicate][dma-done-backend]
-[External interface][array-interface]
+The shim's `AXCACHE` is a four-bit descriptor field in word 5, bits `27:24`.
+MLIR-AIE's target model supplies `0x2` when the shim descriptor omits an
+explicit value, and the task lowering carries that value into the emitted
+descriptor. This is compiler policy, separate from the native mapping and
+system interconnect. Under AXI4's encoding it requests Normal Non-cacheable
+Non-bufferable transactions. [AIE2P attribute fields][shim-axi-fields]
+[Compiler default][compiler-axi-default] [Task lowering][compiler-axi-lowering]
+[Word encoding][compiler-axi-words] [AXI memory types][axi-types]
 
-`AXCACHE` supplies descriptor-level AXI attributes; it does not by itself
-establish this ordering or GPU coherence. The driver's separate
+Arm IHI 0022F.b, sections A4.4 and A6.1–A6.6, distinguishes these properties:
+
+| Property | Consequence for payload and flag |
+| --- | --- |
+| Normal Non-cacheable Non-bufferable (`0x2`) | The write response comes from the final destination. Other attribute combinations can permit an intermediate response. Clearing the bufferable bit alone is insufficient when allocation/cache attributes differ. |
+| Same AXI ID | Responses remain ordered. For Normal memory, arrival ordering covers overlapping addresses; a disjoint payload and flag do not gain universal observation ordering from the ID alone. `Ordered_Write_Observation` is a separate optional interface property. |
+| Completion before dependent issue | Waiting for the prerequisite write responses supplies ordering before a dependent transaction with another ID. The response point must cover the subsequent observer. |
+
+[Memory attributes and responses][axi-types] [AXI ordering model][axi-order]
+
+These rules give a conditional publication sequence: every payload write
+completes successfully at the required observation point, the payload
+descriptor then releases the local lock, and only after acquiring that lock
+may the flag descriptor issue its write. The GPU observes the flag through
+the admitted control access and performs its payload acquire. With those
+premises, the two descriptors need not rely on matching AXI IDs.
+[Completion and dependent issue][axi-order]
+
+The AIE2P register properties and channel-status predicate do not identify
+the lock-release point relative to all outstanding write responses. The
+additional integration fact is where the Ryzen external-DMA path establishes
+the response/observation point shared with the GPU. Versal interface and NoC
+documentation describe their named system integration; they do not supply
+that Ryzen fact. Consequently a local lock, task token or queue-empty
+observation alone does not establish this complete external release sequence.
+The ordinary finite path retains its native output-task completion and
+subsequent GPU acquire. [Local lock representation][shim-locks]
+[Channel predicate][dma-done-backend] [External interface][array-interface]
+
+The flag's access width is another path property. AXI4 section A7.1 assigns
+single-copy atomicity to the participating system components; neither a wide
+bus nor an aligned multiword DMA transfer establishes an untorn multiword
+GPU observation. Such a protocol needs a width the complete producer,
+interconnect and consumer path preserves. [Single-copy atomicity][axi-atomicity]
+
+`AXCACHE` is not a GPU cache-coherence bit. The driver's separate
 `XAie_DmaSetAxi_AxUser` interface with an `IOCoherence` operand explicitly
 requires AIE4. Its presence is not an AIE2P coherency guarantee.
 [AXI attributes][axi-attributes] [AIE4 applicability][axi-user]
@@ -287,6 +318,13 @@ that those users have released their memory.
 [shim-lock-writer]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/dma/xaie_dma_aieml.c#L1587-L1660
 [axi-attributes]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/dma/xaie_dma.c#L1166-L1215
 [axi-user]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/dma/xaie_dma.c#L1217-L1260
+[shim-axi-fields]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2pgbl_reginit.c#L2042-L2059
+[compiler-axi-default]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/include/aie/Dialect/AIE/IR/AIETargetModel.h#L533-L538
+[compiler-axi-lowering]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/lib/Dialect/AIEX/Transforms/AIEDMATasksToNPU.cpp#L874-L901
+[compiler-axi-words]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/lib/Dialect/AIEX/Utils/BdLowering.cpp#L180-L210
+[axi-types]: https://documentation-service.arm.com/static/5f915bbcf86e16515cdc3b23#page=67
+[axi-order]: https://documentation-service.arm.com/static/5f915bbcf86e16515cdc3b23#page=88
+[axi-atomicity]: https://documentation-service.arm.com/static/5f915bbcf86e16515cdc3b23#page=96
 [array-interface]: https://docs.amd.com/r/en-US/am027-versal-aie-ml-v2/AIE-ML-v2-Array-Interface
 [array-memory]: https://docs.amd.com/r/en-US/am027-versal-aie-ml-v2/AIE-ML-v2-Memory-Module
 [shader-model]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L13564-L13695
