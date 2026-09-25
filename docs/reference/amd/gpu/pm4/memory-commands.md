@@ -77,71 +77,11 @@ describe those separate ownership boundaries.
 
 ## Atomic operations and participants
 
-ATOMIC_MEM is opcode `0x1e`, nine DWORDs. Its control contains the TC atomic
-operation in bits 6:0, command mode and cache policy. The target address is
-words 2–3, source operand 4–5, comparison operand 6–7 and loop controls word 8.
-PAL's ordinary builder zero-initializes the packet, uses single-pass command
-and LRU policy, supplies a naturally aligned 32/64-bit target, and leaves
-comparison/loop operands zero. Its no-result command interface still uses
-return-form TC operation numbers. [Atomic layout][atomic-layout]
-[Builder and operation conversion][atomic-builder]
-
-TC SWAP32 is `0x07`; SWAP64 is `0x27`. Ignoring the old value implements a
-no-result store without making an ordinary COPY_DATA atomic. ROCr's CP sampling
-path uses SWAP64 on fine-grained GPU storage, independently corroborating that
-CP operation. It does not establish host-memory reach for every mapping.
-[TC operations][pal-swap] [ROCr CP swap][rocr-cp-swap]
-
-PAL explicitly promises its command-memory atomics are atomic against shader
-atomics, with natural four/eight-byte alignment and PostPrefetch/CoherQueueAtomic
-barrier usage. CPU participation requires more information: operation and
-width support at the target, the native route, mapping policy and all
-participants' mutual atomic domain. Sharing an address or supporting an opcode
-does not establish those facts. [PAL atomic contract][pal-atomic-contract]
-[Ordinary compute caller][pal-atomic-compute]
-
-Linux distinguishes VF-provided atomic flags, an internal APU route, a
-CPU-connected xGMI route and PCIe atomics to the root complex. Its internal APU
-predicate is non-VF APU with native GC strictly greater than 9.0.0; the cited
-CPU-connected xGMI branch requires GC12.1 or later. GFX11 RS64 MEC firmware
-509 or later can acknowledge absent PCIe atomics, so successful queue admission
-alone is not proof that the PCIe route exists.
-[Platform routes][linux-atomic-route] [Firmware policy][linux-atomic-firmware]
-[Device admission][linux-atomic-admission]
-
-### GFX11 APU host exchange
-
-AMD's GFX11 memory-system description forwards write-uncached atomics to the
-fabric. Its hardware-operation tables list native 32/64-bit exchange for
-GFX11 APUs on fine-grained pinned host DRAM at system scope, both with and
-without PCIe atomics. The table context matters: device DRAM, coarse-grained
-memory and a different participant scope are different rows.
-[Memory-system rule][amd-gfx11-atomics] [Table dimensions][amd-table-context]
-[Table renderer][amd-table-renderer] [No-PCIe entries][amd-no-pcie]
-[PCIe entries][amd-pcie]
-
-A CP/CPU composition additionally needs the TC swap client and a mapping that
-realizes that memory-system rule. On Linux GMC11, owned coherent GTT can combine
-GPU UC, CPU cached storage and SYSTEM/SNOOPED PTEs under the exact allocation
-flags described in [cross-queue handoff](handoff.md#a-concrete-native-mapping-boundary).
-Applying the general GFX11 memory-system rule to the CP TC client is an
-architectural inference; the AMD table does not itself name ATOMIC_MEM. The
-ROCr swap caller uses GPU memory, not this host backing. Those distinctions
-prevent a packet definition from becoming an unrestricted CPU-atomic promise.
-
-Atomicity remains separate from ordering. PAL classifies queue atomics as GL2
-clients; a transition to CPU/memory accesses requests GL2 writeback. Its
-non-PWS compute barrier executes the required stage join before cache work,
-and a PostPrefetch event uses confirmed WRITE_DATA to MEMORY. This supplies an
-ordinary atomic→cache publication→event sequence without inventing a mandatory
-extra equality join. [GL2 clients][pal-atomic-clients]
-[CPU transition][pal-atomic-cpu-barrier] [Barrier lowering][pal-atomic-acquire]
-[Event write][pal-atomic-event] [Confirmation default][pal-write-confirm]
-
-PAL's command-storage busy counter has a different terminal premise: its
-postamble relies on the KMD's cache-flushing EOP after the atomic increment.
-That trailer belongs to the scheduled transport, not to every raw ring.
-[Tracker retirement][pal-cs-retirement]
+`ATOMIC_MEM` performs a selected 32- or 64-bit TC/GL2 operation. Its arithmetic,
+command mode, returned-value transport, participant domain and surrounding
+cache dependency have separate contracts. The [atomic operations](atomics.md)
+chapter supplies the complete PAL integer conversion, packet fields, native
+SWAP/CMPSWAP callers, host-participation premises and storage ownership.
 
 ## Compute completion and firmware
 
@@ -248,26 +188,6 @@ covered in [dispatch](dispatch.md#end-of-pipe-release-and-ownership).
 [mesa-write]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_cp.c#L57-L86
 [mesa-wait]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_cp.c#L89-L103
 [event-contract]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/inc/core/palCmdBuffer.h#L2818-L2862
-[atomic-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L284-L378
-[atomic-builder]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L807-L854
-[pal-swap]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_enum.h#L13486-L13525
-[rocr-cp-swap]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L4723-L4768
-[pal-atomic-contract]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/inc/core/palCmdBuffer.h#L3936-L3957
-[pal-atomic-compute]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9ComputeCmdBuffer.cpp#L384-L394
-[linux-atomic-route]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c#L4006-L4028
-[linux-atomic-firmware]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device.c#L227-L234
-[linux-atomic-admission]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device.c#L772-L786
-[amd-gfx11-atomics]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/reference/gpu-atomics-operation.rst#L157-L171
-[amd-table-context]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/conf.py#L206-L210
-[amd-table-renderer]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/reference/gpu-atomics-operation.rst#L541-L609
-[amd-no-pcie]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/data/reference/gpu-atomics-operation/hw-atomics_nopcie_gfx.csv#L338-L343
-[amd-pcie]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/data/reference/gpu-atomics-operation/hw-atomics_pcie_gfx.csv#L338-L343
-[pal-atomic-clients]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L62-L68
-[pal-atomic-cpu-barrier]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L353-L365
-[pal-atomic-acquire]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L1998-L2042
-[pal-atomic-event]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9ComputeCmdBuffer.cpp#L1327-L1383
-[pal-write-confirm]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L4674-L4687
-[pal-cs-retirement]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9ComputeCmdBuffer.cpp#L1244-L1263
 [pal-cs-gate]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L367-L445
 [pal-gfx10]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/device.h#L2430-L2433
 [mesa-acquire]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_cp.c#L398-L449
