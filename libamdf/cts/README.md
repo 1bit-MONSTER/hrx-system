@@ -12,7 +12,10 @@ compilation and an observed native result establish different facts.
 compiler fixtures and manual lifecycle cases. The
 [standalone XDNA recipes](xdna/recipes/README.md) cover finite image loading,
 binding, CPU publication, arithmetic results, full guards and retirement with
-CTS-only compiler fixtures. The [runtime XDNA execution suite](../../experimental/xdna/cts/README.md)
+CTS-only compiler fixtures. The [GPU/XDNA recipes](interop/gpu/xdna/recipes/README.md)
+compose GPU TC/L2 ingress, finite NPU arithmetic and GPU readback with no host
+payload access between those phases. The
+[runtime XDNA execution suite](../../experimental/xdna/cts/README.md)
 separately exercises the runtime image integration. The XDNA API
 [queue cases](xdna/kernel_queue_test.cc) cover immutable ranges, capacity,
 notifications and explicit batch retirement. In particular,

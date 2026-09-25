@@ -28,11 +28,12 @@ gpu/
   lifecycle/                 # Completed resources and opt-in device recreation.
 ```
 
-`interop/gpu/xdna/recipes/` owns the GPU/NPU composition boundary. Existing
-platform memory, kernel-queue and external-API suites retain their separate
-dependencies. The `kernels` package owns compiled kernel fixtures and their
-provenance; `peer` and XDNA recipe packages currently export their
-design/readme only, with no placeholder tests or executables.
+[GPU/XDNA recipes](../interop/gpu/xdna/recipes/README.md) compose GPU memory
+transfers with finite NPU arithmetic and independent GPU readback. Platform
+memory, kernel-queue and external-API suites retain their separate dependencies.
+The `kernels` package owns compiled GPU fixtures and their provenance;
+`xdna/programs` owns the finite array fixtures. The `peer` package exports its
+design/readme without placeholder tests or executables.
 
 `CtsDeviceCache` creates one instance and one device per endpoint and engine
 kind for an executable, caching activation failures as well. GPU queue families
@@ -105,7 +106,7 @@ remaining field, composition and architecture boundaries within each group.
 | Recipes | [recipes/BUILD.bazel](recipes/BUILD.bazel) | Additional backing classes, producer/consumer compositions and executable visibility. |
 | Manual lifecycle | [lifecycle/BUILD.bazel](lifecycle/BUILD.bazel) | Ordinary same-device copies are enabled; peer-device recreation remains disabled. |
 | Physical peers | No compiled cases | Multi-device admission, address reach, synchronization and runner requirements. |
-| GPU/NPU recipes | No compiled cases | Device-produced payloads and both sides' visibility and DMA/channel contracts. |
+| GPU/NPU recipes | [interop/gpu/xdna/recipes/BUILD.bazel](../interop/gpu/xdna/recipes/BUILD.bazel) | TC/L2 ingress/readback and finite array arithmetic use host-relayed completion; shader-produced payloads and autonomous device dependencies require separate cases. |
 
 Cases use real commands and changing exact data. They do not exhaust their
 opcodes' fields. New cases add independent oracles, legal field partitions and

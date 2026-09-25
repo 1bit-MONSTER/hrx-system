@@ -4,9 +4,50 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
+
 package(
-    default_visibility = ["//libamdf/cts:__subpackages__"],
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
     licenses = ["notice"],
 )
 
 exports_files(["README.md"])
+
+amdf_cc_library(
+    name = "pm4_queue",
+    testonly = True,
+    srcs = ["pm4_queue.cc"],
+    hdrs = ["pm4_queue.h"],
+    target_compatible_with = ["@platforms//cpu:x86_64"],
+    deps = [
+        "//libamdf/cts/gpu:gpu_device_fixture",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/gpu/util:user_queue",
+        "//libamdf/cts/util:mapped_memory",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "execution",
+    srcs = ["gpu_xdna_test.cc"],
+    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":pm4_queue",
+        "//libamdf/cts/gpu:gpu_device_fixture",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/util:device_cache",
+        "//libamdf/cts/util:mapped_memory",
+        "//libamdf/cts/xdna/programs:mul_i32",
+        "//libamdf/cts/xdna/util:executable",
+        "//libamdf/cts/xdna/util:execution",
+        "//third_party:google_test",
+    ],
+)

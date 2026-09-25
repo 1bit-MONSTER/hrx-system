@@ -32,11 +32,16 @@ and transition domains separately before activation.
 Case cleanup releases producer mappings and successfully destroys all queues
 before releasing reachable memory; failure preserves the remaining resources.
 
-The current completion substrate uses coherent system memory and naturally
+User-published queue completion uses coherent system memory and naturally
 aligned x86-64 loads/stores. Command sequences establish execution completion
 before the host observes the completion word. AQL polls the signal value after
 the command processor decrements it; PM4 and SDMA emit explicit completion
 writes. Read-index progress is checked separately before queue teardown.
+
+Kernel-published recipes wait on the exact native submission point. Their
+completion and retirement share that checked native wait, and their result
+records identify the publication mode. No payload maintenance is hidden in
+either transport helper.
 
 Completion occupies bytes disjoint from the copied or shader-produced payload.
 Host polling performs no cache maintenance. After observing completion, a
