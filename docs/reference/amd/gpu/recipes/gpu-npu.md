@@ -137,6 +137,10 @@ descriptor/resource facts, separately from the native context's accessible
 address range. [Shim properties][shim-properties] [Shim module][shim-module]
 [Address and length construction][dma-length]
 
+The [tile DMA chapter](../../xdna/dma.md) describes the descriptor fields,
+local lock protocol and task ownership, including an IRON input,
+compute and output flow.
+
 AM027 1.1 (October 23, 2025) describes the Versal AIE-ML v2 interface's MM2S
 channels as external-read producers feeding streams, and S2MM channels as
 stream consumers generating external writes. Its local locks synchronize
