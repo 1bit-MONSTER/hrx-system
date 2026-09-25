@@ -13,6 +13,11 @@ its shader before return. Its memory-copy caller waits for the event and
 destroys the queue before releasing the dispatch and memory owners.
 [Caller and cleanup][kfd-caller] [Submission][kfd-submit] [Body join][kfd-body]
 
+[Queue publication](publication.md) describes primary-ring construction,
+write-pointer visibility and doorbell protocols for KFD, scheduled DRM and
+DRM user queues. Those transport rules surround the indirect-command
+storage and entry/return protocol described here.
+
 ## Representation and entry context
 
 The ordinary MEC INDIRECT_BUFFER form is four DWORDs, opcode `0x3f`:

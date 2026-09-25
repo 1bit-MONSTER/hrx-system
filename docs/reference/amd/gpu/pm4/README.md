@@ -38,6 +38,7 @@ right to that trailer. [Compute postamble][postamble]
 
 | Chapter | Native mechanism |
 | --- | --- |
+| [Queue publication](publication.md) | Ring capacity, DWORD frontiers, host visibility, doorbells and the distinct KFD, scheduled DRM and DRM userq owners. |
 | [Memory commands](memory-commands.md) | COPY_DATA, WRITE_DATA, waits and shader-completion firmware predicates. |
 | [Atomic operations](atomics.md) | TC integer operations, returned values, command modes, participant domains and cache/retirement contracts. |
 | [Cache control](cache.md) | Acquire/release fields, native-generation differences, ranges, scopes and complete visibility sequences. |
