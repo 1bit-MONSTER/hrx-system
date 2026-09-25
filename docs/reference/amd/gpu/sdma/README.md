@@ -7,6 +7,7 @@ depend on the engine generation and native transport.
 | Topic | Mechanisms |
 | --- | --- |
 | [Linear copy](copy.md) | Byte ranges, count representation, runtime caps, alignment and chunking. |
+| [Rectangular copy](rectangular-copy.md) | Element units, row/slice pitches, subwindow layouts, tiling and geometry-specific cache controls. |
 | [Constant fill](fill.md) | Pattern width, count units, generation differences and completion. |
 | [Ordering](ordering.md) | Pending-transfer drains, overlap, NPD and resource ownership. |
 | [Completion stores](fence.md) | FENCE32, per-generation policy fields, notification and 64-bit forms. |

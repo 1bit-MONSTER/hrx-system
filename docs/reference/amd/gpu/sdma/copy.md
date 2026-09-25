@@ -7,6 +7,10 @@ ranges, including one-to-three-byte tails. The source and destination must not
 overlap under the HSA async-copy contract. [Builder][rocr-copy]
 [Layout][rocr-layout] [Overlap contract](ordering.md#overlap-and-ownership)
 
+Pitched rows and slices use the separate
+[rectangular-copy packet](rectangular-copy.md). Its element counts, geometry,
+and per-generation scope fields have their own encoding and caller limits.
+
 ## Representation
 
 | DWORD | ROCr ordinary linear-copy fields |
