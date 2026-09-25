@@ -10,8 +10,10 @@ compilation and an observed native result establish different facts.
 
 [GPU command conformance](gpu/README.md) describes PM4, SDMA, AQL, memory recipes,
 compiler fixtures and manual lifecycle cases. The
-[XDNA execution suite](../../experimental/xdna/cts/README.md) covers real image
-loading, binding, submission, numerical results and retirement. The XDNA API
+[standalone XDNA recipes](xdna/recipes/README.md) cover finite image loading,
+binding, CPU publication, arithmetic results, full guards and retirement with
+CTS-only compiler fixtures. The [runtime XDNA execution suite](../../experimental/xdna/cts/README.md)
+separately exercises the runtime image integration. The XDNA API
 [queue cases](xdna/kernel_queue_test.cc) cover immutable ranges, capacity,
 notifications and explicit batch retirement. In particular,
 `XdnaKernelQueueTest.RefreshRetiresBatchesAndReusesPacketStorage` distinguishes
