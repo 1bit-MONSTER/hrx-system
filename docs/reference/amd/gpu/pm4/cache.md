@@ -7,11 +7,11 @@ separate parts of that dependency. `ACQUIRE_MEM` supplies cache actions at the
 command processor; `RELEASE_MEM` can perform cache actions after a pipeline
 event and then publish a completion value.
 
-This chapter follows ordinary compute callers in PAL and Mesa, with native
-Linux packet definitions for GC12.1. GFX10/GFX11, PAL's GFX12, and GC12.1 have
-different field meanings despite sharing the opcodes. The older GFX7–GFX9
-control word is described separately. Compiler target gfx1250 identifies
-GC12.1 in the cited Linux table; its name does not make the GFX12.0 encoding
+This chapter follows ordinary compute callers in PAL, Mesa and ROCr, with
+native Linux emitters for GC9.4.3/4 and GC12.1. GFX10/GFX11, PAL's GFX12,
+and GC12.1 have different field meanings despite sharing the opcodes. The
+older GFX7–GFX9 control word is described separately. Compiler target gfx1250
+identifies GC12.1 in the cited Linux table; its name does not make the GFX12.0 encoding
 applicable. [Native target mapping][linux-targets]
 
 ## Cache clients and dependencies
@@ -224,7 +224,7 @@ SDMA's GCR and scoped-transfer paths have different fields and callers. Their
 omission of metadata controls does not settle PM4's M$ behavior.
 [SDMA cache operations](../sdma/cache.md)
 
-## Graphics PWS and older control words
+## Graphics PWS
 
 Graphics PWS acquire uses 128-byte GCR base/size units and a 25-bit high-size
 field, unlike the ordinary 256-byte MEC form. PAL moves a requested PWS wait
@@ -233,30 +233,183 @@ at the other PWS stages. These fields and counters belong to the graphics
 pipeline. [PAL PWS acquire][pal-pws] [Mesa PWS acquire][mesa-pws-acquire]
 [GFX11 ME size fields][pal-me-sizes]
 
-GFX7–GFX9 MEC uses a seven-DWORD `ACQUIRE_MEM`, count 5, with `CP_COHER_CNTL`
-in word 1 and no trailing GCR word. Mesa also uses that form for GFX9 graphics;
-older graphics uses `SURFACE_SYNC`. The GFX9 control includes:
+## GFX7–GFX9 and CDNA control words
 
-| Word 1 bit | Native control |
+Legacy compute cache maintenance places actions in `CP_COHER_CNTL`, without a
+GCR word. Linux selects `gfx_v9_4_3` for physical GC9.4.3 and GC9.4.4; KFD maps
+both to compiler target gfx942. This native selection, rather than a source
+directory named `gfx9`, identifies the CDNA caller below.
+[Native driver selection][cdna-driver] [Compiler-target translation][cdna-target]
+The cited cache emitters do not branch on MEC firmware revision; they establish
+the driver's selected sequence, not an independent minimum firmware version.
+[Acquire emitter][cdna-linux-acquire] [Release emitter][cdna-linux-release]
+
+### Acquire representation
+
+GFX7–GFX9 MEC uses seven DWORDs for `ACQUIRE_MEM`, opcode `0x58`, count 5.
+Mesa also uses this form for GFX9 graphics; earlier graphics uses
+`SURFACE_SYNC`. [Legacy engine selection][mesa-acquire]
+
+| DWORD | Representation |
 | --- | --- |
-| 3 / 4 | `TC_NC_ACTION_ENA` / `TC_WC_ACTION_ENA` |
-| 5 | `TC_INV_METADATA_ACTION_ENA` |
-| 15 | `TCL1_VOL_ACTION_ENA` |
-| 18 | `TC_WB_ACTION_ENA` |
-| 22 / 23 | `TCL1_ACTION_ENA` / `TC_ACTION_ENA` |
-| 27 / 28 | `SH_KCACHE_ACTION_ENA` / `SH_KCACHE_VOL_ACTION_ENA` |
-| 29 / 30 | `SH_ICACHE_ACTION_ENA` / `SH_KCACHE_WB_ACTION_ENA` |
+| 0 | Type-3 header; opcode `0x58`, count 5. |
+| 1 | `CP_COHER_CNTL` in bits 0–30. The generic layout names bit 31 `ENGINE_SEL`; the cited compute emitters leave it clear. |
+| 2–3 | Coherency size in 256-byte units, low word followed by high part. This is a unit count, not count-minus-one. The high-part conventions differ below. |
+| 4–5 | Coherency base in 256-byte units; low 32 bits followed by a 24-bit high part in the Linux and ROCr helpers. |
+| 6 | Poll interval in bits 0–15; Linux emits `0xa`, while ROCr's zero-initialized code-cache packet leaves it zero. |
 
-[Legacy packet emission][mesa-acquire] [GFX9 fields][mesa9-fields]
+ROCr's range builder encodes its code-allocation address shifted right by
+eight and rounds its byte size upward to a 256-byte count.
+[Linux layout and masks][cdna-acquire-fields] [ROCr units][cdna-rocr-fields]
+[ROCr range builder][cdna-code-cache]
 
-RADV's legacy path couples full L2 invalidation to L1 invalidation and, on
-GFX8+, L2 writeback. For writeback without L2 invalidation it adds
-`TC_NC_ACTION_ENA`, with the explicit premise that its memory types are
-non-coherent (`MTYPE <= 1`), and emits vector-cache invalidation separately.
-These are older cache-operation combinations, not aliases of a GFX10 GCR mask.
-The source describes the older acquire as waiting for caches to assert idle;
-that wording is not a universal shader-stage completion contract.
-[Legacy caller and mapping premise][mesa-legacy] [Acquire behavior][mesa-acquire]
+The corresponding acquire and release action bits occupy different positions:
+
+| Cache control | `ACQUIRE_MEM` DWORD 1 | `RELEASE_MEM` DWORD 1 |
+| --- | --- | --- |
+| Instruction-cache action | `SH_ICACHE_ACTION_ENA`, bit 29 | — |
+| Scalar-cache action / volatile action / writeback | `SH_KCACHE_ACTION_ENA`, 27; `SH_KCACHE_VOL_ACTION_ENA`, 28; `SH_KCACHE_WB_ACTION_ENA`, 30 | — |
+| Vector L1 action / volatile action | `TCL1_ACTION_ENA`, 22; `TCL1_VOL_ACTION_ENA`, 15 | `TCL1_ACTION_EN`, 16; `TCL1_VOL_ACTION_EN`, 12 |
+| TC/L2 action | `TC_ACTION_ENA`, 23 | `TC_ACTION_EN`, 17 |
+| TC/L2 volatile action | — | `TC_VOL_ACTION_EN`, 13 |
+| TC/L2 writeback | `TC_WB_ACTION_ENA`, 18 | `TC_WB_ACTION_EN`, 15 |
+| Non-coherent action | `TC_NC_ACTION_ENA`, 3 | `TC_NC_ACTION_EN`, 19 |
+| Write-combined action | `TC_WC_ACTION_ENA`, 4 | — |
+| Metadata action | `TC_INV_METADATA_ACTION_ENA`, 5 | `TC_MD_ACTION_EN`, 21 |
+
+The table names fields, not a set of universally interchangeable masks; a dash
+means that no corresponding control is supplied by the cited macros for that
+packet.
+[Acquire controls][cdna-acquire-fields] [Release controls][cdna-release-fields]
+
+Full-range callers differ. ROCr and Mesa emit low size `0xffffffff` and high
+size `0xff`, while the GC9.4.3/4 Linux emitter writes the same low size and
+high size `0xffffff`; all use zero base. Linux's header contains an 8-bit
+generic high-size helper and a 24-bit `_VG10` helper. The generic definition
+alone does not resolve the wider value in the exact native emitter. These
+source-selected forms retain their caller and transport predicates.
+[Linux acquire][cdna-linux-acquire] [Linux high-size variants][cdna-acquire-fields]
+[ROCr full range][cdna-code-cache] [Mesa full range][mesa-acquire]
+
+### GC9.4.3/4 scheduled release and acquire
+
+Linux's broad compute acquire selects instruction cache, scalar cache, TC/L2,
+vector L1 and TC writeback: `CP_COHER_CNTL = 0x28c40000`. Its full-range packet
+appears before an IB only when `AMDGPU_IB_FLAG_EMIT_MEM_SYNC` is requested.
+The operation makes caches ready for subsequent work; it does not by itself
+establish completion of an independent producer.
+[Acquire emitter][cdna-linux-acquire] [Wrapper and flag][cdna-wrapper-acquire]
+
+The corresponding fence emitter uses eight-DWORD `RELEASE_MEM`, opcode
+`0x49`, count 6, `CACHE_FLUSH_AND_INV_TS_EVENT`, and event index 5. Its default
+cache actions are TCL1, TC, TC writeback and TC metadata (`0x238000` before
+the event fields). `AMDGPU_FENCE_FLAG_TC_WB_ONLY` instead selects TC writeback
+and TC_NC (`0x88000`). DWORD 2 selects 32-bit or 64-bit data, leaves the
+destination at MC, and selects interrupt-after-write-confirmation when the
+interrupt flag is present. DWORDs 3–4 contain the byte address, DWORDs 5–6 the
+value, and DWORD 7 is zero. The address is aligned to four bytes for a
+32-bit write and eight for a 64-bit write. Kernel fence emission supplies the
+interrupt flag; the optional user fence has its own flag path.
+[Native EOP emitter][cdna-linux-release] [Release fields][cdna-release-fields]
+[Kernel fence owner][cdna-fence-owner] [User-fence path][cdna-wrapper-release]
+
+A complete scheduled producer/consumer edge retains the native wrapper:
+
+1. Prepare mapped payloads, commands and dependencies through the
+   [scheduled submission protocol](publication.md#scheduled-drm-publication).
+   Submit the producer with the release policy its memory and next observer
+   require. The wrapper emits the EOP fence after the IB.
+2. Establish the producer dependency before the consumer. When the wrapper
+   requires pipeline synchronization, its compute-ring operation waits for
+   that ring's last emitted fence sequence using `WAIT_REG_MEM`, before the
+   requested acquire. This ring-local wait is distinct from an external
+   producer's scheduler dependency.
+3. Request the consumer's pre-IB cache synchronization, then execute its
+   shader work. A release packet being present in the command stream is not
+   a wait for its asynchronous EOP; the dependency and any required wait
+   precede the consumer acquire.
+4. Observe the consumer's completed fence before reading or replacing its
+   payload. Commands, code, arguments and signal storage retain their
+   respective [final-use boundaries](command-buffers.md). The host mapping
+   and host acquire operation remain part of a CPU observation.
+
+[Wrapper ordering][cdna-wrapper-acquire] [Ring-local wait][cdna-pipeline-wait]
+[Terminal release][cdna-wrapper-release]
+
+The last IB's `AMDGPU_IB_FLAG_TC_WB_NOT_INVALIDATE` selects the writeback-only
+trailer. Mesa's Gallium submission context sets that flag for graphics and
+compute, while requesting pre-IB synchronization only when its
+`ib_caches_flush` policy is enabled. These are transport-owned choices; a KFD
+user ring or an AQL vendor packet does not inherit this scheduled trailer.
+[Trailer selection][cdna-wrapper-release] [Mesa flag producer][cdna-mesa-flags]
+
+### Code, shader data, and observer scope
+
+ROCr's ordinary loader path first completes code upload: either a synchronous
+DMA copy or CPU copy with its PCIe write-combining flush. It then calls
+`InvalidateCodeCaches`. For GFX9 that function selects I/K/TC/writeback
+(`0x28840000`), without the broad Linux acquire's TCL1 bit, and submits the
+packet through the utility AQL queue. `ExecutePM4` defaults to NONE/NONE packet
+scopes; its internal completion signal is acquire-waited before return. This
+is an explicit code-cache operation after upload, not a SYSTEM data-handoff
+template. Code storage still follows its
+[publication and final-use contract](../aql/dispatch.md#executable-publication-and-final-use).
+[Upload owner][cdna-loader] [Code-cache builder][cdna-code-cache]
+[Default scopes][cdna-execute-defaults] [Completion owner][cdna-execute-completion]
+
+ROCr's shader-copy path instead uses NONE/NONE dependency barriers followed by
+a SYSTEM/SYSTEM dispatch. Its DMA interface requires the caller to ensure
+system-level coherent buffers, with each participating agent able to access
+both buffers. A DMA engine may lie outside the sender's or receiver's
+coherency domain; in general the sender performs a SYSTEM release and the
+receiver a SYSTEM acquire. With
+`AMD_OPT_FLUSH` enabling agent fences, CLR starts from AGENT/AGENT gfx942
+dispatch headers and adjusts them according to its SYSTEM-fence state. Its
+pending-work/dirty-fence/external-signal path in
+`releaseGpuMemoryFence` emits a SYSTEM/SYSTEM barrier, with a CPU wait when
+requested. These are AQL runtime scope choices, not published PM4 microcode
+expansions of those scopes.
+[Shader dependency][cdna-blit-dependency] [Shader dispatch][cdna-blit-dispatch]
+[DMA contract][cdna-dma-contract] [CLR dispatch policy][cdna-clr-dispatch]
+[CLR setting][cdna-clr-setting] [CLR header adjustment][cdna-clr-adjust]
+[CLR terminal barrier][cdna-clr-terminal] [CLR barrier header][cdna-clr-header]
+
+### Mapping, partitions, and caches
+
+RADV's legacy L2 invalidation includes vector-L1 invalidation and, on GFX8+,
+L2 writeback. Its writeback-only path uses TC_NC with the explicit premise
+`MTYPE <= 1`, and emits vector-L1 invalidation separately. That premise
+cannot be generalized to GC9.4.3/4 local memory.
+[RADV combinations and premise][cdna-mesa-legacy]
+
+KFD's DEFAULT mappings initially select NC. For GC9.4.3/4, Linux's subsequent
+native policy distinguishes same-device, same-memory-partition VRAM from
+remote VRAM; local memory defaults to RW, with module choices NC or CC.
+UNCACHED selects UC; EXT_COHERENT selects local CC or nonlocal UC. Without
+those flags, dGPU system memory is UC and nonlocal VRAM remains NC. The APU
+and per-page NUMA paths have separate predicates. Snooping and host
+cacheability are additional properties. These rules describe the default
+KFD mapping path; explicit DRM VM memory-type requests have their own initial
+state. [Mapping defaults][cdna-mapping-default]
+[Native locality and MTYPE][cdna-mapping] [Initial VM memory type][cdna-vm-mtype]
+[Partitioned staging](../recipes/local-memory.md#native-hbm-cache-policy)
+
+LLVM's gfx942 model allows several L2 caches in one logical agent. Its shader
+release/acquire sequences include L2 writeback or invalidation according to
+scope and local/nonlocal access; scalar reads rely on dispatch-time
+immutability, with compiler-managed scalar writeback for spills. These
+shader/ABI rules are distinct from the PM4 packet fields. Linux associates
+each cited compute ring with an XCC; those emitters do not describe an
+all-XCC broadcast or the firmware expansion of AQL fences.
+[gfx942 cache model][cdna-llvm-model] [SYSTEM shader acquire][cdna-llvm-acquire]
+[SYSTEM shader release][cdna-llvm-release] [Native ring/XCC owner][cdna-ring-xcc]
+
+An SDMA or CPU observer therefore needs the release, completion and acquire
+operations of its actual access path. HDP handles a host-aperture boundary;
+it does not substitute for shader TC maintenance. Conversely, an EOP control
+write becoming visible does not by itself make an arbitrary CPU mapping
+coherent. The complete [staged transfer](../recipes/local-memory.md) and
+[CPU/GPU handoff](../recipes/host-device.md) retain these separate obligations.
 
 ## Complete producer-to-consumer sequence
 
@@ -325,11 +478,42 @@ the address being in host or device memory. [Programming recipes](../recipes/REA
 [linux11-sync]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c#L6846-L6866
 [pal-pws]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L721-L792
 [mesa-pws-acquire]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_cp.c#L146-L177
-[mesa9-fields]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/registers/gfx9.json#L10766-L10782
-[mesa-legacy]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_cs.c#L438-L501
 [pal-split-acquire]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L1711-L1793
 [pal-fence-owner]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfxCmdBuffer.cpp#L480-L501
 [pal-event]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/inc/core/palCmdBuffer.h#L2818-L2862
 [pal-poll]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/device.h#L1023
 [pal-me-sizes]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_me_pm4_packets.h#L140-L164
 [mesa-buffer-access]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_cmd_buffer.c#L7917-L7954
+
+[cdna-driver]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c#L2725-L2739
+[cdna-target]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device.c#L341-L354
+[cdna-acquire-fields]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/soc15d.h#L392-L423
+[cdna-release-fields]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/soc15d.h#L312-L339
+[cdna-linux-acquire]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L3496-L3513
+[cdna-linux-release]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L2985-L3017
+[cdna-pipeline-wait]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L3019-L3027
+[cdna-wrapper-acquire]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ib.c#L208-L252
+[cdna-wrapper-release]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ib.c#L299-L326
+[cdna-fence-owner]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_fence.c#L101-L118
+[cdna-mesa-flags]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/gallium/winsys/amdgpu/drm/amdgpu_cs.cpp#L833-L854
+[cdna-mesa-legacy]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_cs.c#L451-L498
+[cdna-rocr-fields]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/inc/amd_gpu_pm4.h#L77-L85
+[cdna-code-cache]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3437-L3498
+[cdna-loader]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_loader_context.cpp#L347-L371
+[cdna-execute-defaults]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/inc/queue.h#L438-L444
+[cdna-execute-completion]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_aql_queue.cpp#L1693-L1757
+[cdna-blit-dependency]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_blit_kernel.cpp#L682-L686
+[cdna-blit-dispatch]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_blit_kernel.cpp#L887-L911
+[cdna-dma-contract]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2090-L2112
+[cdna-clr-dispatch]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/clr/rocclr/device/rocm/rocvirtual.cpp#L2407-L2441
+[cdna-clr-setting]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/clr/rocclr/device/device.cpp#L1644-L1651
+[cdna-clr-adjust]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/clr/rocclr/device/rocm/rocvirtual.cpp#L1624-L1653
+[cdna-clr-terminal]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/clr/rocclr/device/rocm/rocvirtual.cpp#L2347-L2364
+[cdna-clr-header]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/clr/rocclr/device/rocm/rocvirtual.cpp#L71-L89
+[cdna-mapping-default]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c#L513-L524
+[cdna-mapping]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v9_0.c#L1102-L1157
+[cdna-vm-mtype]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v9_0.c#L1173-L1199
+[cdna-llvm-model]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L11263-L11339
+[cdna-llvm-acquire]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L11560-L11585
+[cdna-llvm-release]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L12492-L12535
+[cdna-ring-xcc]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L903-L930
