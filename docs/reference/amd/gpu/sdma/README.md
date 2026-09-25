@@ -6,6 +6,7 @@ depend on the engine generation and native transport.
 
 | Topic | Mechanisms |
 | --- | --- |
+| [Queue publication](publication.md) | Byte frontiers, reservation and ordered commit, wrap/padding, native visibility and storage ownership. |
 | [Linear copy](copy.md) | Byte ranges, count representation, runtime caps, alignment and chunking. |
 | [Rectangular copy](rectangular-copy.md) | Element units, row/slice pitches, subwindow layouts, tiling and geometry-specific cache controls. |
 | [Constant fill](fill.md) | Pattern width, count units, generation differences and completion. |

@@ -14,6 +14,10 @@ select this command layout. The scheduled workflow supplies a kernel-owned
 wrapper around external command storage; direct user-ring publication has a
 separate owner. [Native routing][routing]
 
+The [queue-publication chapter](publication.md) describes that owner's ring
+capacity, wrapping, pointer units, host visibility and final storage use.
+Those primary-ring rules surround the indirect-body protocol described here.
+
 ## Scheduled packet and framing
 
 Both emitters use six DWORDs. Their matching packet definitions expose these
