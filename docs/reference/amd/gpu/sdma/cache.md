@@ -45,6 +45,11 @@ predicate. For non-DXG gfx11.5 the factory selects V6 without USER_GCR. The
 DXG wrapping statement belongs to that driver transport.
 [Factory][rocr-select] [Variant definitions][rocr-variants]
 
+Each packet builder still owns the scope-field encoding. ROCr's
+[rectangular-copy branch](rectangular-copy.md#rectangular-specific-scope-boundary)
+sets those fields only in its GFX12-or-later layout, so its gfx11.5 rectangular
+path does not inherit the ordinary linear-copy scope writes.
+
 ## Kernel submission and generation differences
 
 PAL's Linux `Queue::AddIb` requests `AMDGPU_IB_FLAG_EMIT_MEM_SYNC` on the

@@ -171,7 +171,7 @@ resource reclamation. [PAL program transition][pal-program-bind]
 ## End-of-pipe release and ownership
 
 PAL's compute queue postamble uses RELEASE_MEM after the pipeline empties to
-write a known completion value while flushing/invalidation covers shader
+write a known completion value while writeback/invalidation covers shader
 L1/L2 clients. Its generic compute builder chooses BOTTOM_OF_PIPE_TS, end-of-
 pipe index 5, TC/L2 destination and write confirmation without an interrupt.
 [Queue postamble][pal-postamble] [Release builder][pal-eop]
@@ -194,10 +194,11 @@ The postamble requests GL2 writeback/invalidation plus GLM, GL1 and GLV
 invalidation. BOTTOM_OF_PIPE_TS is event `0x28`; the ordinary known-value
 completion uses destination 1, confirmation selector 3 and immediate32 data
 selector 1. LRU, MES notification, unused data and interrupt context remain
-zero. RELEASE_MEM's GCR layout is different from ACQUIRE_MEM's. A
-terminal release does not acquire instruction/scalar inputs for a later shader,
-and EOP alone is not a general CP-DMA drain. The combined DMA-wait feature has
-its own [engine/firmware predicate](dma.md#combined-release-wait-and-firmware-identity).
+zero. The [cache-control chapter](cache.md#release_mem-cache-actions) compares
+its GCR fields with ACQUIRE_MEM and later native generations. A terminal release
+does not acquire instruction/scalar inputs for a later shader, and EOP alone
+is not a general CP-DMA drain. The combined DMA-wait feature has its own
+[engine/firmware predicate](dma.md#combined-release-wait-and-firmware-identity).
 
 Completion storage remains valid through the event write and its observers.
 Shader data, arguments and code remain valid through their last dispatch use;

@@ -122,58 +122,12 @@ establishes that the other's firmware predicate can be dropped.
 
 ## Cache and architecture boundary
 
-For GFX10/GFX11 MEC, ACQUIRE_MEM is eight DWORDs. Word 1 is reserved; size
-low/high occupy words 2–3, base low/high words 4–5, polling interval word 6,
-and 19-bit GCR word 7. Base and size use 256-byte units. The MEC high-size
-field has eight bits; its high-base field has 24. Full range uses zero base
-and all defined size bits set, with reserved bits zero. Mesa explicitly keeps
-MEC size-high at `0xff`, unlike the wider GFX11 graphics form.
-[MEC range layout][acquire-layout] [Address units][acquire-units]
-[Mesa engine distinction][mesa-acquire]
-
-PAL's generic acquire builder uses the wider graphics-style GFX11 size field.
-That shared implementation does not authorize the extra reserved MEC bits.
-The GCR action fields themselves are also generation specific:
-
-| GFX10/GFX11 acquire field | Meaning |
-| --- | --- |
-| GLI_INV bits 1:0 | 1 means all instruction cache; 3 is the separate FIRST_LAST mode. |
-| GLM_WB / GLM_INV bits 4 / 5 | Metadata writeback/invalidation; the source disagreement below is material. |
-| GLK_WB / GLK_INV bits 6 / 7 | Scalar cache actions. |
-| GLV_INV / GL1_INV bits 8 / 9 | Vector and shared first-level cache invalidation. |
-| GL2_INV / GL2_WB bits 14 / 15 | Last-level data-cache invalidation/writeback. |
-| SEQ bits 17:16 | Parallel 0, forward 1, reverse 2. |
-
-[GCR layout][gcr-fields] [GLI/sequence values][mesa-fields]
-
-PAL omits GLM_WB as unimplemented in hardware and uses sequential order when
-scalar GLK writeback accompanies GL2 writeback. Its image planner can still
-require GLM_INV for shader writes because metadata read-modify-write reads the
-metadata cache. Compute images are not automatically metadata-free.
-[PAL acquire][pal-acquire] [PAL release][pal-release]
-[Image metadata policy][pal-metadata]
-
-RADV couples pre-GFX12 L2 writeback/invalidation or metadata invalidation to
-both GLM_WB and GLM_INV, including ordinary buffer barriers; Linux's broad
-GFX11 ring flush also includes both. These source choices do not establish
-that GLM_INV requires GLM_WB, or that GLM_WB is always a no-op. They remain a
-hardware-effect disagreement. [Buffer caller][mesa-buffer]
-[Access mapper][mesa-source] [RADV cache emitter][mesa-barrier]
-[Linux ring recipe][linux-barrier]
-
-ROCr's SDMA GCR omission of both GLM fields is a separate engine contract. Its
-non-DXG gfx11.5 factory instead selects scoped packets without that GCR form.
-It cannot resolve PM4 metadata-cache behavior.
-[SDMA builder][rocr-sdma-gcr] [Factory][rocr-sdma-selection]
-[Template capabilities][rocr-sdma-scopes]
-
-GFX12.0 reserves the older GLM bits 4–5 and GL1 bit 9. Native GC12.1 repurposes
-bits 4–5 as GL2_SCOPE and bit 6 as GLV_WB; Linux maps that native IP to compiler
-target gfx1250. A shared opcode or a compiler target prefix cannot substitute
-for these native field definitions. RELEASE_MEM also has its own GCR layout,
-covered in [dispatch](dispatch.md#end-of-pipe-release-and-ownership).
-[GFX12 layout][pal-gfx12-gcr] [GC12.1 fields][linux-gfx121-gcr]
-[Target mapping][linux-targets]
+`ACQUIRE_MEM` and `RELEASE_MEM` have different cache-control layouts. Their
+range units, instruction/scalar/vector/metadata actions, scope and sequencing
+also vary by native generation and engine. The [cache-control chapter](cache.md)
+compares those fields, explains the older control word and graphics PWS form,
+and traces a complete producer/release/wait/acquire flow. It retains the
+MEC range-width and metadata-writeback source disagreements explicitly.
 
 [header]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L43-L54
 [header-builder]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L285-L301
@@ -201,20 +155,3 @@ covered in [dispatch](dispatch.md#end-of-pipe-release-and-ownership).
 [mesa-cs-admission]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_physical_device.c#L146-L157
 [linux-cs-kfd]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_mqd_manager_v10.c#L130-L142
 [linux-cs-drm]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c#L6980-L7017
-[acquire-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L57-L136
-[acquire-units]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L662-L684
-[gcr-fields]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L228-L250
-[mesa-fields]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/registers/pkt3.json#L78-L91
-[pal-acquire]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L687-L709
-[pal-release]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L3485-L3532
-[pal-metadata]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L278-L367
-[mesa-buffer]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_cmd_buffer.c#L16258-L16301
-[mesa-source]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_cmd_buffer.c#L7918-L7954
-[mesa-barrier]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_cs.c#L74-L111
-[linux-barrier]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c#L6846-L6866
-[rocr-sdma-gcr]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_blit_sdma.cpp#L2992-L3026
-[rocr-sdma-selection]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L853-L884
-[rocr-sdma-scopes]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/inc/amd_blit_sdma.h#L579-L590
-[pal-gfx12-gcr]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12CmdUtil.cpp#L1598-L1620
-[linux-gfx121-gcr]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v12_1_pkt.h#L453-L491
-[linux-targets]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device.c#L416-L475
