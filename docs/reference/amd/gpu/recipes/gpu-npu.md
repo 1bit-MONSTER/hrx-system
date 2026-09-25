@@ -141,6 +141,12 @@ The [tile DMA chapter](../../xdna/dma.md) describes the descriptor fields,
 local lock protocol and task ownership, including an IRON input,
 compute and output flow.
 
+The [managed GMIO flow](../../xdna/dma.md#external-completion-in-the-managed-gmio-flow)
+has a documented output-to-DDR completion contract and an external ping-pong
+dataflow model. Its PS observer, native channel wait and buffer synchronization
+identify a complete external delivery path. A resident Ryzen GPU consumer adds
+its own mapping, cache and ready-flag ordering requirements to that boundary.
+
 AM027 1.1 (October 23, 2025) describes the Versal AIE-ML v2 interface's MM2S
 channels as external-read producers feeding streams, and S2MM channels as
 stream consumers generating external writes. Its local locks synchronize

@@ -219,6 +219,45 @@ with an active descriptor. Neither observation alone transfers a result from
 an NPU mapping into a different CPU/GPU cache domain.
 [Capacity wait][capacity-wait] [Channel completion wait][done-wait]
 
+## External completion in the managed GMIO flow
+
+AMD's AI Engine-ML Kernel and Graph Programming Guide, UG1603 revision
+2026.1 (July 8, 2026), gives output completion a concrete external-memory
+meaning. After `aie2gm_nb` submits output, `gmioOut.wait()` waits for that
+output to reach the allocated DDR range before the processing system (PS)
+reads it. The documented Linux flow uses `GMIO::malloc` and non-cacheable
+memory. This is a delivery guarantee for that managed mapping and observer,
+not merely acceptance of the output stream. [GMIO programming model][gmio-model]
+
+The cited XRT edge implementation constructs its array through ZYNQ/ZOCL.
+Its ordinary GMIO setup programs `Cache=0`, whereas the MLIR-AIE shim policy
+described above uses `AxCACHE=0x2`. `gmio_api::wait` calls
+`XAie_DmaWaitForDone`, recycles the completed BD IDs and synchronizes retained
+buffer objects before dropping those references. The outer blocking
+`sync_bo` path also synchronizes its buffer after the wait. Thus the native
+channel join and the buffer's host-access operation remain explicit parts
+of the API flow. [XRT array owner][gmio-owner]
+[GMIO configuration][gmio-config] [GMIO wait][gmio-wait]
+[Blocking buffer synchronization][gmio-sync]
+
+UG1603 also describes an intermediate external DDR/LPDDR ping-pong buffer
+between two kernels. The caller supplies both buffers, starts the graph and
+waits for the final output; no intermediate host join transfers each buffer.
+In XRT's external-buffer path, compiler-supplied port metadata identifies
+the BDs, buffer indices and offsets, task repetition and completion-token
+policy. The runtime derives addresses from the supplied buffers, patches the
+BDs and queues the tasks. Its two-buffer mode returns
+immediately from the external-buffer wait and status methods: those methods
+do not establish retirement of the continuing ping-pong graph.
+[Managed external buffers][gmio-external] [External-buffer owner][external-owner]
+
+These flows establish ordinary external delivery and managed external
+dataflow on their documented platform. They do not specify the generated
+ping-pong graph's local lock schedule, the earlier release point of one BD
+in a continuing channel, or the Ryzen GPU's memory-observation point. A
+resident ready-flag protocol composes those separate properties as described
+in the [GPU/NPU handoff](../gpu/recipes/gpu-npu.md#output-dma-and-a-ready-flag).
+
 ## One complete IRON transfer flow
 
 The IRON SAXPY example moves two external tensors into a worker and returns
@@ -332,6 +371,13 @@ does not supply that stronger cross-channel guarantee. The
 observer requirements separately.
 
 [npu2]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/lib/Dialect/AIE/IR/AIETargetModel.cpp#L1609-L1615
+[gmio-model]: https://docs.amd.com/r/en-US/ug1603-ai-engine-ml-kernel-graph/Programming-Model-for-AI-Engine-ML-to-DDR-Memory-Connection
+[gmio-external]: https://docs.amd.com/r/en-US/ug1603-ai-engine-ml-kernel-graph/AI-Engine-ML-External-Memory-Access
+[gmio-owner]: https://github.com/Xilinx/XRT/blob/ecad6cf22171ffec754fdd36afc2ae200af5c3a6/src/runtime_src/core/edge/user/aie/aie.cpp#L34-L87
+[gmio-config]: https://github.com/Xilinx/XRT/blob/ecad6cf22171ffec754fdd36afc2ae200af5c3a6/src/runtime_src/core/edge/user/aie/common_layer/adf_runtime_api.cpp#L986-L1029
+[gmio-wait]: https://github.com/Xilinx/XRT/blob/ecad6cf22171ffec754fdd36afc2ae200af5c3a6/src/runtime_src/core/edge/user/aie/common_layer/adf_runtime_api.cpp#L1115-L1138
+[gmio-sync]: https://github.com/Xilinx/XRT/blob/ecad6cf22171ffec754fdd36afc2ae200af5c3a6/src/runtime_src/core/edge/user/aie/aie.cpp#L318-L329
+[external-owner]: https://github.com/Xilinx/XRT/blob/ecad6cf22171ffec754fdd36afc2ae200af5c3a6/src/runtime_src/core/edge/user/aie/aie.cpp#L230-L293
 [am027-interface]: https://docs.amd.com/r/en-US/am027-versal-aie-ml-v2/AIE-ML-v2-Array-Interface
 [am027-core]: https://docs.amd.com/r/en-US/am027-versal-aie-ml-v2/AIE-ML-v2-Memory-Module
 [am027-memory]: https://docs.amd.com/r/en-US/am027-versal-aie-ml-v2/AIE-ML-v2-Memory-Tile-Memory
