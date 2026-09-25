@@ -48,7 +48,8 @@ right to that trailer. [Compute postamble][postamble]
 | [Command buffers](command-buffers.md) | First-level INDIRECT_BUFFER entry/return, publication and completed-use rebuild. |
 | [Cross-queue handoff](handoff.md) | Release, control signaling, wait, consumer acquire and last-use ownership. |
 | [Command-processor DMA](dma.md) | DMA_DATA copies, fills, prefetch, completion discrepancies and cache routing. |
-| [Timing and counters](timing.md) | Sampling stage, timestamp visibility, clock domains and profiling ownership. |
+| [Timing](timing.md) | Sampling stage, timestamp visibility, clock domains and profiling ownership. |
+| [Performance counters](counters.md) | Event and instance selection, register fields, sample widths, collection sequencing and completed-use result ownership. |
 
 [Architecture identity](../architectures.md) distinguishes compiler targets,
 native IP versions and firmware. [AQL](../aql/README.md) and

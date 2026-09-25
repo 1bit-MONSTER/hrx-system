@@ -173,15 +173,19 @@ cross-tool counter exclusion. [Dispatch
 capture](aql/profiling.md#dispatch-timestamps) · [PAL clock
 mode][pal-clock-mode] · [DRM clock owner][drm-clock-owner]
 
-PAL's GFX9-family experiment opens a counter window, waits for prior work,
-resets and configures selectors, starts counting, then samples and disables
-collection. Its ordinary path stops global counters for sampling; a selected
-SQ-counter workaround instead preserves their running state. This path
+PAL's GFX11 experiment opens a counter programming window, waits for prior
+work, resets and configures selectors, starts counting, then samples and
+disables collection. It stops global counters for sampling; the GFX10
+SQ-counter workaround instead leaves them running for the ending sample. This path
 explicitly lacks per-context filtering. GFX11 counter-clock control belongs to
 the kernel driver. Register definitions alone therefore do not make counters
 queue-local or grant access on an arbitrary native queue. [PAL experiment
 lifecycle][pal-counters] · [Workaround selection][pal-never-stop] · [Sampling
 states][pal-sample]
+
+The [PM4 counter chapter](pm4/counters.md) supplies the GFX11 field and instance
+layouts and follows PAL's cumulative-sample owner through result decoding and
+submission retirement.
 
 SDMA counters participate in that CP-managed lifecycle. PAL's GFX11 DMA block
 is global, with two counter modules per available instance and at most two

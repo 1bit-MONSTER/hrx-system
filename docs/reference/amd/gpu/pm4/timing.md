@@ -1,4 +1,4 @@
-# PM4 timing and counters
+# PM4 timing
 
 A timestamp records a clock at a selected execution stage. Its interpretation
 requires the clock domain and units; its observation requires a completed store
@@ -112,6 +112,11 @@ solely from their labels. A usable correlation names the native domain,
 frequency, valid width, sampling deviation and reset epoch.
 
 ## Programmable counter ownership
+
+The [counter chapter](counters.md) follows a concrete GFX11 collection from
+event and instance selection through register programming, result visibility
+and completed submission retirement. It distinguishes raw event counts from
+the clock samples described here.
 
 PAL's `PerfExperiment::IssueBegin` opens a profiling window, waits for prior
 work, disables/resets global and streaming counters and chooses always-count
