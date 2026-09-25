@@ -243,6 +243,6 @@ overlap. libamdf keeps the native foundation small while giving that compiler
 and runtime control over the complete program.
 
 The [memory design](memory.md) describes the scope and ownership contracts.
-The [XDNA execution design](xdna/execution.md) follows native instruction storage and
+The [XDNA execution design](xdna.md) follows native instruction storage and
 submission. The [README](../README.md) covers the library surface, embedding,
 and build configuration.

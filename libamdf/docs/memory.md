@@ -7,8 +7,8 @@ abstraction layer (HAL).
 
 This document describes the memory contracts and their caller scenarios.
 [Public headers](../include/amdf/memory.h) specify the C ABI; the
-[implementation overview](../README.md#implementation-and-qualification)
-summarizes the native providers and qualification scope.
+[implementation overview](../README.md#native-providers)
+summarizes the native providers.
 
 ## Fabric discovery
 
@@ -321,7 +321,7 @@ The handle can outlive the libamdf memory object and be opened with
 suballocation live. The caller preserves that allocation until every user has
 retired and releases each exported transport explicitly.
 
-The prepared GPU queue contract supplies global release-to-system and
+A qualifying PM4 queue family supplies global release-to-system and
 acquire-from-system cache operations. The interop caller also supplies D3D12
 resource transitions and completion edges. A native cache operation does not
 replace a foreign API's ownership transition, and import/export perform neither
