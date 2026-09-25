@@ -11,11 +11,15 @@ processing model. [Specification][hsa]
 
 A producer reserves a monotonically increasing packet index, waits until its
 ring slot is available, and writes the packet body while its type remains
-INVALID. It then publishes the valid header with release ordering and notifies
+INVALID. It then publishes the first DWORD with release ordering and notifies
 the doorbell. An index reservation alone does not publish a packet. ROCr's AMD
 vendor-packet submission follows this body-before-header sequence and uses a
 platform-specific store fence when the ring resides in device memory. [Header
 definitions][header] · [Native publication caller][publication]
+
+The [publication chapter](publication.md) details capacity and progress rules,
+packet-index versus doorbell units, native queue mappings, and the distinct
+host-store sequences used for system and device memory.
 
 The read index permits reuse of consumed ring slots. Kernel arguments,
 executable code, payloads, dependency signals, and indirect command buffers
@@ -29,6 +33,7 @@ follow HSA §§2.9.1–2, 2.9.6, 2.9.8–9 and 3.3.3.1. [Specification][hsa]
 
 | Chapter | Native contract |
 | --- | --- |
+| [Publication and doorbells](publication.md) | Ring representation, reservation, atomic publication, notification, native mappings, and slot versus task ownership. |
 | [Barriers and signals](barriers.md) | Header ordering, AGENT/SYSTEM fences, AND/OR dependencies, native signal storage, and AMD BARRIER_VALUE epochs. |
 | [Kernel dispatch](dispatch.md) | Packet geometry, compiler descriptors, argument fetches, private/group resources, and executable publication. |
 | [Carried memory operations](transfers.md) | AMD vendor-format-1 PM4 indirection, confirmed data movement, virtual-XCC routing, and command-storage lifetime. |
