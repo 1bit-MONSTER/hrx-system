@@ -481,6 +481,35 @@ exposes native mechanisms and requirements without inferring dependencies from
 pointers or generating a scheduling policy. The HAL constructs engine commands;
 the library does not need a packet builder to describe a cache requirement.
 
+## Atomic operations and participant reach
+
+Using a queue to access an atomic cell requires three independent answers:
+
+| Question | Reported contract |
+| --- | --- |
+| Can the queue represent the operation? | The [queue family's](../include/amdf/queue.h) `atomic_capabilities` reports operation masks and wait conditions separately for 32-bit and 64-bit words. |
+| Does the target access support it? | Prospective `amdf_memory_access_capabilities_t` and achieved `amdf_memory_access_info_t` report `atomic_operations_32` and `atomic_operations_64` for that consumer's access. |
+| Are the participants mutually atomic? | `amdf_memory_pair_info_t.atomic_reach.scope_32` and `scope_64` report the reach shared by the two exact execution sites, independently of operation support. |
+
+For the selected naturally aligned word width, the requested operation must be
+present in both the queue-family and target-access masks. A wait also requires
+the selected wait condition. A caller that needs an operation without consuming
+dispatch resources checks `operations_without_dispatch_32` or
+`operations_without_dispatch_64` as an additional requirement.
+
+`memory_scope_query_device_profile` supplies the prospective access capabilities.
+The caller can combine them with `memory_scope_query_pair_info` before allocating
+backing, using the same construction contract for both queries. Existing
+allocations expose their achieved access records and concrete pair information.
+An encodable STORE is insufficient when the target access lacks STORE, and
+supported operation masks are insufficient when the pair's reach is NONE.
+
+SYSTEM denotes system-wide atomic scope, including host CPUs and devices. A
+pair query describes only its two named sites; other mapped accesses retain
+their own operation and reach requirements. Atomic reach does not replace the
+protocol's execution dependency, release/acquire operations, or final-use
+boundary. A successful visibility query can still report atomic reach NONE.
+
 ## Executable storage
 
 Storage intended for execution is `amdf_memory_t` with the appropriate
