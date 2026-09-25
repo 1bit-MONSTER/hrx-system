@@ -9,6 +9,7 @@ command results.
 | Mechanism | Programming contract |
 | --- | --- |
 | [Native execution](execution.md) | Device identity, placement, instruction submission, program quiescence, memory lifetime and runtime power. |
+| [Interconnects](interconnects.md) | Circuit and packet routes, multicast, backpressure, and split/join buffer ownership. |
 | [GPU and array memory handoff](../gpu/recipes/gpu-npu.md) | Shared external backing, native addresses, shim DMA completion, resident progress and payload reuse. |
 | [Timing, counters and trace](observability.md) | Tile-clock samples, event counters, stream replies, trace packets and DMA, firmware results and diagnostic access. |
 

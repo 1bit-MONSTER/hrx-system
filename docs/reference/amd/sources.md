@@ -17,6 +17,7 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [XDNA driver][xdna] | `8dfda66f67a84aecf26cf68336efc9e4cc1756c3` | Array contexts, firmware command envelopes, native completion, power management, and diagnostic access. |
 | [AI Engine driver][aie] | `2855a032366e3d19dab893e7c263b14bb920cd64` | Register descriptions, timers, event counters, stream switches, DMA, and trace configuration. |
 | [MLIR-AIE][mlir-aie] | `c69fb4c8f2fb853d5ca62d19f829796d3ae4ba34` | Array register data, trace-flow construction, and trace decoding. |
+| [MLIR-AIE and IRON dataflow][mlir-aie-dataflow] | `41fa359ea1f66f7e5c572f8d0cc8c7646262adf5` | Object FIFOs, task ownership, descriptor allocation, DMA lowering, and stream routes. |
 | [XDP][xdp] | `03ba80bf6c4942f51eebc71f7d154d9254426396` | Array profiling, trace storage and offload, and host/device timeline consumers. |
 | [DynamicDispatch][dynamic-dispatch] | `b3051f03e20aab237cda3bbe4cd2081f76b72b06` | Firmware transaction construction and timer-read operations. |
 
@@ -51,6 +52,7 @@ executes. The corresponding chapter identifies those boundaries.
 [xdna]: https://github.com/amd/xdna-driver/tree/8dfda66f67a84aecf26cf68336efc9e4cc1756c3
 [aie]: https://github.com/Xilinx/aie-codegen/tree/2855a032366e3d19dab893e7c263b14bb920cd64
 [mlir-aie]: https://github.com/Xilinx/mlir-aie/tree/c69fb4c8f2fb853d5ca62d19f829796d3ae4ba34
+[mlir-aie-dataflow]: https://github.com/Xilinx/mlir-aie/tree/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5
 [xdp]: https://github.com/Xilinx/XDP/tree/03ba80bf6c4942f51eebc71f7d154d9254426396
 [dynamic-dispatch]: https://github.com/amd/DynamicDispatch/tree/b3051f03e20aab237cda3bbe4cd2081f76b72b06
 [hsa-system]: https://hsafoundation.com/wp-content/uploads/2021/02/HSA-SysArch-1.2.pdf
