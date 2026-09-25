@@ -11,6 +11,7 @@ command results.
 | [Native execution](execution.md) | Device identity, placement, instruction submission, program quiescence, memory lifetime and runtime power. |
 | [Tile DMA and task ownership](dma.md) | Descriptor fields, address generators, local locks, task queues, completion tokens and buffer reuse. |
 | [Interconnects](interconnects.md) | Circuit and packet routes, multicast, backpressure, and split/join buffer ownership. |
+| [CPU and array memory handoff](../interop/cpu-npu.md) | Host backing and addresses, CPU cache-maintenance extents, input publication, output completion and slot reuse. |
 | [GPU and array memory handoff](../gpu/recipes/gpu-npu.md) | Shared external backing, native addresses, shim DMA completion, resident progress and payload reuse. |
 | [Timing, counters and trace](observability.md) | Tile-clock samples, event counters, stream replies, trace packets and DMA, firmware results and diagnostic access. |
 

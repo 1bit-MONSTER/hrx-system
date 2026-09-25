@@ -61,14 +61,16 @@ protocol's participants; it does not independently enroll an NPU importer.
 [CPU/GPU mappings](host-device.md#mapping-properties-describe-different-things)
 [External consistency][export] [GPU cache protocols](../pm4/cache.md)
 
-XDNA's `SYNC_BO` explicitly maintains CPU-cache visibility for a device that
-the driver describes as noncoherent with CPU caches. The backing-specific
-implementation flushes a mapped range, imported scatter/gather storage or
-pages. This maintenance sits outside normal command submission. It is not
-a GPU GL2 writeback, a DMA completion wait or a stop request to a resident
-program. The direction-specific debug-buffer work in the ioctl also does
-not turn it into a general payload-execution join.
-[CPU cache maintenance][cpu-sync]
+The XDNA host shim selects CPU cache maintenance separately from submission.
+Its ordinary noncoherent path executes direct CPU cache-line flushes; a
+configuration option selects `SYNC_BO` instead. The ioctl's backing-specific
+implementation maintains a mapped range, covering pages or the whole imported
+scatter/gather allocation. Those extents can exceed a logical payload slot.
+Neither path is a GPU GL2 writeback, a DMA completion wait or a stop request
+to a resident program. The ioctl's direction-specific debug-buffer work also
+does not make it a general payload-execution join.
+[Shim selection][host-sync] [Direct maintenance][host-flush]
+[Driver maintenance][cpu-sync]
 
 A complete owner flow consequently separates these operations:
 
@@ -90,8 +92,9 @@ the application's useful bytes. [CPU-access ownership](host-device.md#imported-b
 
 This sequence uses host-observed completions to order the device submissions.
 The host transfers control between them while payload remains in shared
-backing. The array controller program explicitly drains the workers and DMA
-whose result it reports.
+backing. The array controller program explicitly joins the accesses covered
+by the result it reports; retiring or reconfiguring resident workers has a
+separate quiescence boundary.
 
 1. Establish the exporter, importer, per-device addresses, CPU-access policy
    and allocation extents. Initialize code, descriptors, control storage and
@@ -106,8 +109,10 @@ whose result it reports.
    payload release.
 4. The array's MM2S transfers read external input into the stream/local-memory
    graph. Local consumers wait for their destination data, compute, and pass
-   results to S2MM output transfers. The controller joins the relevant DMA
-   channels and workers before its terminal operation.
+   results to S2MM output transfers. The controller joins the relevant result
+   transfers before its terminal operation. A worker can remain waiting for
+   another local object after this finite result completes; resources it can
+   revisit retain their independent lifetime.
 5. Wait for the native NPU completion and inspect command status. The driver
    signals terminal errors as well as success; fence readiness alone is not
    a successful-result predicate.
@@ -318,6 +323,8 @@ that those users have released their memory.
 [address-selection]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L274-L280
 [address-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.h#L91-L117
 [cpu-sync]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L1402-L1504
+[host-sync]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/buffer.cpp#L648-L681
+[host-flush]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/buffer.cpp#L129-L171
 [shim-properties]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2pgbl_reginit.c#L2062-L2085
 [shim-module]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2pgbl_reginit.c#L2151-L2190
 [dma-length]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/dma/xaie_dma.c#L564-L616

@@ -131,13 +131,23 @@ without assuming either zero or a predecessor's values. Nor should it apply
 fresh-entry initialization to an invocation being resumed under an established
 native preemption protocol.
 
-The controller program owns its workers and transfers. Before its terminal
-operation, it satisfies admitted reads, stops further production, joins tile
-workers and drains DMA which could interfere with subsequent configuration or
-write released storage. A worker blocked on a stream needs that stream's wake
-protocol; changing a separate stop word does not make the read complete. The
-firmware response is an observation of the submitted controller protocol, not
-an automatic join of arbitrary autonomous work it started.
+The controller program owns the completion dependency it reports. A finite
+output can complete while workers and local cyclic DMA remain resident:
+IRON's SAXPY runtime awaits its output, while the default `Worker` body
+repeats. The dataflow makes that output depend on consumption of both inputs;
+its wait is not a worker-stop operation. The firmware response observes the
+submitted controller protocol rather than automatically joining every
+autonomous actor it started. [Finite output dependency][iron-output]
+[Worker default][iron-worker-default] [Worker repetition][iron-worker]
+
+Releasing or reconfiguring resources has a stronger boundary. The program
+closes new admission, satisfies admitted dependencies and joins every worker
+or transfer which could still access those resources. External input can
+retire after its final DMA read even while computation continues on a local
+copy. Replacing local code, pools, routes or descriptor state requires their
+own users to become quiescent. A worker blocked on a stream needs that stream's
+wake protocol; changing a separate stop word does not make the read complete.
+[Array resource lifetimes](dma.md#final-use-and-architecture-boundaries)
 
 The distinction is especially important for program replacement. A replacement
 inside one still-running invocation can use its own transfer,
@@ -158,8 +168,10 @@ consumer has its own completion and memory-visibility edge.
    every reachable allocation valid while any controller, tile or DMA user can
    access them. Acceptance can precede actual execution.
 4. The program starts its workers and performs the intended dataflow. Its final
-   controller sequence joins the workers and relevant DMA, including result,
-   counter-reply or trace transfers.
+   controller sequence joins the accesses covered by its reported result,
+   including result, counter-reply or trace transfers. Worker and channel
+   quiescence additionally precedes release or reconfiguration of their local
+   state; finite output completion alone does not establish it.
 5. Observe the native completion point and inspect command status. Apply the
    destination's visibility operation before CPU readback or publish a separate
    dependency to a device consumer.
@@ -206,7 +218,7 @@ continuous power hold. Device-clock conversion additionally needs the sampled
 clock domain, frequency history and reset epoch.
 
 [device-table]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pci_drv.c#L79-L84
-[npu6]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu6_regs.c#L65-L124
+[npu6]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu6_regs.c#L65-L119
 [native-architecture]: https://www.kernel.org/doc/html/latest/accel/amdxdna/amdnpu.html
 [mcdm]: https://learn.microsoft.com/en-us/windows-hardware/drivers/display/mcdm-architecture
 [context-uapi]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/include/uapi/drm/amdxdna_accel.h#L77-L104
@@ -228,3 +240,6 @@ clock domain, frequency history and reset epoch.
 [context-resume]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L148-L274
 [device-resume]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L466-L497
 [runtime-pm]: https://docs.kernel.org/power/runtime_pm.html
+[iron-output]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/programming_examples/getting_started/01_SAXPY/saxpy.py#L63-L95
+[iron-worker-default]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/python/iron/worker.py#L42-L60
+[iron-worker]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/python/iron/worker.py#L240-L267
