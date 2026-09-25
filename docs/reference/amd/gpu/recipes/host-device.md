@@ -118,6 +118,45 @@ contract, not a claim that every transfer is executed by a shader.
 [Dependency construction][blit-deps] [Dispatch construction][blit-dispatch]
 [Blocking completion][blit-wait]
 
+## Resident CPU/GPU exchange
+
+A dispatch acquire precedes entry into the active phase. Host writes
+published later while the shader remains resident need a new synchronization
+edge inside that shader. An HSA exchange uses signal operations or admitted
+global-memory atomics whose scope covers both agents, with payload backing
+that obeys that memory model. An HSA signal's SYSTEM-scope semantics belong
+to its native signal object; an arbitrary payload word has its own atomicity
+and mapping contract. [HSA §§2.5 and 3.3.8][hsa]
+
+For one input slot, the CPU finishes payload writes and release-publishes
+its ready generation. The shader acquires that generation before reading
+payload, then release-publishes input credit after every shader reader has
+finished. The CPU acquires that credit before rewriting the slot. For an
+output slot, the shader joins its writers and release-publishes the result;
+the CPU acquires and reads it, then release-publishes credit. The shader
+acquires that credit before the next overwrite. This composes the two
+directed handoffs into a reusable slot; the [pipeline
+recipe](../../interop/pipelines.md#resident-execution-and-slot-generations)
+also covers generation arithmetic, multiple readers and native drain.
+
+The shader acquire is more than a fresh control load. LLVM's GFX10/GFX11
+GLOBAL atomic acquire-load mapping at AGENT/SYSTEM scope uses `glc=1`
+(`dlc=1` additionally on GFX10), waits for the load with `s_waitcnt vmcnt(0)`,
+then invalidates GL1 and GL0 before subsequent payload loads. This sequence
+assumes the target's admitted atomic access and L2 coherence or bypass route.
+Invalidation after a polling loop cannot repair a loop that never observes
+the control update. [Acquire sequence][shader-acquire]
+[Hierarchy and mapping premises][shader-model]
+
+The ordinary scalar-load path assumes its data remains unchanged during the
+dispatch. Lane-uniform addresses do not give mutable control or payload that
+property. Immutable kernarg pointer values can point to separately synchronized
+mutable data. A publishing wave's wait counts also cover its own accesses;
+other contributing waves or workgroups require a join. LLVM's release sequence
+orders preceding loads as well as stores, which matters when the publication
+returns credit for completed reads. [Scalar-memory premise][shader-model]
+[Release sequence][shader-release]
+
 ## CPU publication and device cache operations
 
 A CPU publication operation orders the CPU's writes. A device acquire makes
@@ -235,6 +274,48 @@ does not disappear merely because one particular copy uses staging.
 [Completion choice][sdma-completion] [Submission order][sdma-submit]
 [HDP predicate][sdma-hdp]
 
+The copy API excludes dependencies on future async-copy submissions because
+native queue placement can deadlock them. A visible control value and valid
+wait encoding do not establish that their producer can run. The completion
+value also has a different lifetime from later notification commands: ROCr
+can place a mailbox FENCE and TRAP after the completion update. Its gang-copy
+leader polls each participant signal before performing that signal's final
+update, so its storage cannot be destroyed during the leader's last read.
+[Copy dependency restriction][async-copy]
+[Completion and notification][sdma-notification]
+[Gang-signal final use][sdma-gang]
+
+## Peer GPU handoff
+
+A second GPU adds another agent, mapping and directed access path. HSA AGENT
+scope covers one agent; synchronization with another agent requires the wider
+matching scope. One physical package need not be one agent, and one GFX942
+agent can contain several L2 caches. Scope therefore does not translate into
+a count of packages or XCCs. LLVM's GFX942 memory model and the native
+GC9.4.x memory mappings retain separate local/remote cache treatment.
+[HSA scope instances][hsa] [GFX942 hierarchy][gfx942-model]
+[Native memory policy](local-memory.md#native-hbm-cache-policy)
+
+ROCr exposes pool access, cache-coherent links and 32/64-bit atomic link
+properties separately. The access-set update lists all permitted agents plus
+the pool owner. For its asynchronous copy, both named agents must directly
+access both buffers at their current locations, and payloads must satisfy the
+API's system-coherence contract. These are different premises from the
+existence of an interconnect or shared handle. [Pool/link properties][peer-access]
+[Access update][allow-access] [Copy contract][async-copy]
+
+A direct peer flow releases the source, establishes the dependency, then
+acquires at the receiver before reading peer payload. A copy-based flow
+instead releases the source, satisfies the transfer dependency, copies and
+reports completion; the receiver acquires before using the destination. The
+source stays borrowed through every peer read, and the destination through
+its consumers. ROCr's actual engine choice depends on more than topology:
+disabling peer SDMA selects compute, while its same-hive path requires
+available XGMI SDMA engines and otherwise selects the PCIe-facing path.
+CPU/GPU transfers select host-facing engines even over a CPU XGMI link.
+These are runtime routing choices, not additional memory-scope guarantees.
+[ROCr engine selection][peer-engine]
+
 ## Imported buffers and final use
 
 Linux DMA-BUF supplies an explicit CPU cache-access boundary for mapped
@@ -310,3 +391,11 @@ can erase the very completion that consumer still needs to observe.
 [dmabuf-cpu]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/dma-buf.h#L26-L85
 [dmabuf-begin]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_dma_buf.c#L280-L319
 [dmabuf-import]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_dma_buf.c#L415-L446
+[shader-model]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L13564-L13695
+[shader-acquire]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L13906-L13932
+[shader-release]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L14367-L14414
+[sdma-notification]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_blit_sdma.cpp#L614-L649
+[sdma-gang]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_blit_sdma.cpp#L589-L612
+[gfx942-model]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L11263-L11333
+[peer-access]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2580-L2647
+[peer-engine]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3534-L3596

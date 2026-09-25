@@ -13,6 +13,7 @@ command results.
 | [Interconnects](interconnects.md) | Circuit and packet routes, multicast, backpressure, and split/join buffer ownership. |
 | [CPU and array memory handoff](../interop/cpu-npu.md) | Host backing and addresses, CPU cache-maintenance extents, input publication, output completion and slot reuse. |
 | [GPU and array memory handoff](../gpu/recipes/gpu-npu.md) | Shared external backing, native addresses, shim DMA completion, resident progress and payload reuse. |
+| [Heterogeneous pipelines](../interop/pipelines.md) | CPU/GPU/array composition, returned credits, split/join, nested ownership, progress and drain. |
 | [Timing, counters and trace](observability.md) | Tile-clock samples, event counters, stream replies, trace packets and DMA, firmware results and diagnostic access. |
 
 Architecture, product and native transport are separate coordinates. AIE2IPU,

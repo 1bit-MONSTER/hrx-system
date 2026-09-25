@@ -51,6 +51,11 @@ no argument-BO list to its job constructor; opaque embedded addresses do not
 automatically become a lifetime or dependency graph.
 [Execution owner](../../xdna/execution.md#linux-context-and-command-representation)
 
+The [external-memory chapter](../../interop/external-memory.md) describes the
+native allocation/dependency objects and Vulkan or Windows API ownership.
+The [CPU/array recipe](../../interop/cpu-npu.md) supplies the host-cache and
+registered-memory flow for the same array transport.
+
 ## Visibility at the device boundary
 
 The GPU's release must reach the memory observed by external DMA, and the
@@ -192,13 +197,23 @@ unlike the separate native XDNA host wait whose zero means infinite.
 When the devices remain active across many records, dispatch-end release and
 the next dispatch's acquire cannot carry each record's handoff. Each record
 needs its own control and payload visibility edge inside the running program.
-Three progress values answer different questions:
+Four ownership events answer different questions:
 
 | Progress | Meaning assigned by the protocol |
 | --- | --- |
 | Input ready | All contributors have published this generation of external input for the NPU readers. |
 | Source consumed | Every external read of that generation has completed, permitting source-slot overwrite. Local copies may remain in use. |
 | Output ready | All contributing external output writes have completed and are published for the GPU consumer. |
+| Output consumed | Every GPU or downstream reader of that output generation has finished, permitting the NPU to overwrite its output slot. |
+
+A control encoding can combine events whose dependency chain establishes
+all their meanings. Output-ready by itself does not return the output slot
+to its producer. The reverse credit edge completes the consumer reads,
+release-publishes that completion, and has the next writer acquire it before
+overwrite. An external credit does not directly change a shim-local lock;
+the controller or dataflow owner connects those domains through its actual
+control path. The [pipeline composition](../../interop/pipelines.md#resident-execution-and-slot-generations)
+describes both credit directions and the last-reader join.
 
 The protocol also defines each value's writer, admitted access width,
 alignment, reader path and generation arithmetic. Reading one DWORD of an

@@ -14,6 +14,9 @@ AI Engine array chapters describe tile execution, memory and DMA, interconnects,
 firmware control, and observation. Shared topics belong at the lowest level
 that owns the same semantics: a GPU clock discussion can serve several GPU
 engines, while an array timer retains its own clock and reset contract.
+The interop section composes CPU, GPU and NPU mechanisms across directed
+memory edges. Shared-allocation transports and whole-pipeline ownership live
+there; individual engine and array chapters retain their native operations.
 
 An index explains how the mechanisms fit together and links to their chapters.
 An operation chapter owns one coherent group of representations and invariants.

@@ -10,6 +10,7 @@ mechanisms on a particular platform.
 | --- | --- |
 | [GPU](gpu/README.md) | Command processors, transfer engines, and their memory and signaling protocols. |
 | [XDNA](xdna/README.md) | AI Engine array execution, DMA, interconnects, firmware commands, and observation. |
+| [CPU, GPU and NPU interop](interop/README.md) | Every directed memory handoff, external API sharing, resident credits, composed pipelines and final reuse. |
 | [Sources](sources.md) | Architecture specifications, immutable implementation revisions, and the role of each source. |
 | [Writing guide](STYLE.md) | Chapter structure, terminology, evidence, and citation conventions. |
 

@@ -7,6 +7,11 @@ Each independent user must finish before its storage can be reused. Packet
 availability, address reachability, and physical memory placement supply
 different parts of this contract.
 
+The [CPU, GPU and NPU interop index](../../interop/README.md) connects these
+GPU mechanisms to the host and array flows. [Pipeline composition](../../interop/pipelines.md)
+adds returned credits, split/join ownership, progress, drain and measurement
+across the complete graph.
+
 | Recipe | Native mechanisms |
 | --- | --- |
 | [CPU and GPU memory handoff](host-device.md) | Mapping/cache properties, HSA release/acquire, native completion, CPU apertures and imported-buffer access. |
