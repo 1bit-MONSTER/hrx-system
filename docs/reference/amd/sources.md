@@ -27,9 +27,10 @@ Manual 1.2][hsa-prm] supplies work-item and workgroup execution rules. AMD's
 manuals; shader instructions and command-processor packets have separate
 representations and owners.
 
-The AI Engine chapters also use AMD's AM020 architecture and AM025 register
-manuals, and the versioned 2025.1/2026.1 intrinsic references. Each chapter
-identifies the relevant document, section, architecture, and toolchain version.
+The AI Engine chapters also use AMD's AM020 and AM027 architecture manuals,
+the AM025 register manual, and the versioned 2025.1/2026.1 intrinsic references.
+Each chapter identifies the relevant document, section, architecture, and
+toolchain version.
 Those architecture manuals do not by themselves establish how a native host
 driver exposes the same mechanism.
 

@@ -10,6 +10,7 @@ different parts of this contract.
 | Recipe | Native mechanisms |
 | --- | --- |
 | [CPU and GPU memory handoff](host-device.md) | Mapping/cache properties, HSA release/acquire, native completion, CPU apertures and imported-buffer access. |
+| [GPU and AI Engine shared-memory handoff](gpu-npu.md) | Per-device addresses, external DMA visibility, finite submission ordering, resident progress and final drain. |
 | [SDMA upload, AQL dispatch, SDMA download](#sdma-upload-aql-dispatch-and-sdma-download) | HSA dependency signals, packet fence scopes, SDMA completion and memory polling. |
 | [Staged device-local memory](local-memory.md) | System-memory staging, GC9.4.3/4 HBM cache policy, shader/DMA visibility, and the host-aperture boundary. |
 | [PM4 shader and SDMA handoffs](pm4-sdma.md) | RADV directional progress, shader cache transitions, native gang submission, and final-use joins. |
