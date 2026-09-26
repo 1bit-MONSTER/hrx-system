@@ -9,7 +9,7 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_benchmark(
   NAME
     compile_throughput_benchmark

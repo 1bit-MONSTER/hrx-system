@@ -27,7 +27,13 @@ load(
     "LIBAMDF_XDNA",
     "XDNA_RESOURCE",
 )
-load("//loom/requirements:defs.bzl", "EMIT_XDNA", "TARGET_ARCH_XDNA")
+load(
+    "//loom/requirements:defs.bzl",
+    "EMIT_AMDGPU",
+    "EMIT_XDNA",
+    "TARGET_ARCH_AMDGPU",
+    "TARGET_ARCH_XDNA",
+)
 
 PACKAGE_POLICIES = [
     package_policy(
@@ -58,6 +64,15 @@ PACKAGE_POLICIES = [
         ],
         build_requirements = [LIBAMDF_GPU],
         forbidden_deps = ["//libamdf/src/xdna/..."],
+    ),
+    package_policy(
+        packages = [
+            "libamdf/cts/gpu/aql",
+            "libamdf/cts/gpu/kernels",
+            "libamdf/cts/gpu/pm4",
+            "libamdf/cts/gpu/recipes",
+        ],
+        build_requirements = [TARGET_ARCH_AMDGPU, EMIT_AMDGPU],
     ),
     package_policy(
         packages = [

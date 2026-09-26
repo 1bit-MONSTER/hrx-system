@@ -43,7 +43,7 @@ loom_test_module(
     "subgroup_transport_carrier.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     subgroup_transport_test_execute_amdgpu_hardware_test
@@ -89,7 +89,7 @@ loom_test_module(
     "predicate_selection.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_selection_test_execute_amdgpu_hardware_test
@@ -145,7 +145,7 @@ loom_test_module(
     "predicate_truncation.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_truncation_test_execute_amdgpu_hardware_test
@@ -194,7 +194,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_truncation_test_execute_amdgpu_access_test
@@ -227,7 +227,7 @@ loom_test_module(
     "scalar_float_conversion.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     scalar_float_conversion_test_execute_amdgpu_hardware_test
@@ -258,7 +258,7 @@ loom_test_module(
     "vector_integer_widening.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_integer_widening_test_execute_amdgpu_hardware_test
@@ -307,7 +307,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_integer_widening_test_execute_amdgpu_access_test
@@ -357,7 +357,7 @@ loom_test_module(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_vector_f32_values.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     numeric_vector_f32_test_execute_amdgpu_hardware_test
@@ -390,7 +390,7 @@ loom_test_module(
     "vector_integer_bitwise.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_integer_bitwise_test_execute_amdgpu_hardware_test
@@ -423,7 +423,7 @@ loom_test_module(
     "predicate_logic.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_logic_test_execute_amdgpu_hardware_test
@@ -490,7 +490,7 @@ loom_test_module(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     storage_stability_test_execute_amdgpu_hardware_test
@@ -539,7 +539,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     storage_stability_test_execute_amdgpu_access_test
@@ -585,7 +585,7 @@ loom_test_module(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability_switch.loom-test"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     storage_stability_switch_test_execute_amdgpu_hardware_test
@@ -609,7 +609,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     storage_stability_switch_test_execute_amdgpu_access_test
@@ -654,7 +654,7 @@ loom_test_module(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability_cfg.loom-test"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     storage_stability_cfg_test_execute_amdgpu_hardware_test
@@ -678,7 +678,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     storage_stability_cfg_test_execute_amdgpu_access_test
@@ -723,7 +723,7 @@ loom_test_module(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     byte_memory_banks_test_execute_amdgpu_hardware_test
@@ -772,7 +772,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     byte_memory_banks_test_execute_amdgpu_access_test
@@ -817,7 +817,7 @@ loom_test_module(
     "scheduled_unroll_scope.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     scheduled_unroll_scope_test_execute_amdgpu_hardware_test
@@ -866,7 +866,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     scheduled_unroll_scope_test_execute_amdgpu_access_test
@@ -911,7 +911,7 @@ loom_test_module(
     "${PROJECT_SOURCE_DIR}/loom/binding/c/benchmark/kernels/synthetic/segmented_guarded_read_ahead.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     pipelined_guarded_recurrence_test_depth_three_execute_amdgpu_hardware_test
@@ -968,7 +968,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     pipelined_guarded_recurrence_test_depth_three_execute_amdgpu_access_test
@@ -1015,7 +1015,7 @@ loom_check_compile_tests(
     "--config=test.factor=1"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     pipelined_guarded_recurrence_test_serial_execute_amdgpu_hardware_test
@@ -1072,7 +1072,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     pipelined_guarded_recurrence_test_serial_execute_amdgpu_access_test
@@ -1119,7 +1119,7 @@ loom_check_compile_tests(
     "--config=test.factor=1"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     pipelined_guarded_recurrence_test_unrolled_execute_amdgpu_hardware_test
@@ -1176,7 +1176,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     pipelined_guarded_recurrence_test_unrolled_execute_amdgpu_access_test
@@ -1230,7 +1230,7 @@ loom_test_module(
     "predicate_extract.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_extract_test_execute_amdgpu_hardware_test
@@ -1254,7 +1254,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_extract_test_execute_amdgpu_access_test
@@ -1301,7 +1301,7 @@ loom_test_module(
     "predicate_extension.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_extension_test_execute_amdgpu_hardware_test
@@ -1350,7 +1350,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     predicate_extension_test_execute_amdgpu_access_test
@@ -1398,7 +1398,7 @@ loom_test_module(
     "subgroup_active_predicate.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     subgroup_active_predicate_test_execute_amdgpu_hardware_test
@@ -1422,7 +1422,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     subgroup_active_predicate_test_execute_amdgpu_access_test
@@ -1469,7 +1469,7 @@ loom_test_module(
     "subgroup_ballot.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     subgroup_ballot_test_execute_amdgpu_hardware_test
@@ -1518,7 +1518,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     subgroup_ballot_test_execute_amdgpu_access_test
@@ -1566,7 +1566,7 @@ loom_test_module(
     "vector_atomic.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_atomic_test_execute_amdgpu_hardware_test
@@ -1590,7 +1590,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_atomic_test_execute_amdgpu_access_test
@@ -1637,7 +1637,7 @@ loom_test_module(
     "vector_atomic_workgroup.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_atomic_workgroup_test_execute_amdgpu_hardware_test
@@ -1686,7 +1686,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     vector_atomic_workgroup_test_execute_amdgpu_access_test
@@ -1953,7 +1953,7 @@ loom_test_module(
     "workgroup_atomic_cmpxchg.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     workgroup_atomic_cmpxchg_test_execute_amdgpu_hardware_test
@@ -1977,7 +1977,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     workgroup_atomic_cmpxchg_test_execute_amdgpu_access_test
@@ -2024,7 +2024,7 @@ loom_test_module(
     "wide_index_recurrence.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     wide_index_recurrence_test_execute_amdgpu_hardware_test
@@ -2048,7 +2048,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     wide_index_recurrence_test_execute_amdgpu_access_test
@@ -2091,7 +2091,7 @@ loom_test_module(
     "float_extrema.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     float_extrema_test_execute_amdgpu_hardware_test
@@ -2115,7 +2115,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     float_extrema_test_execute_amdgpu_access_test
@@ -2162,7 +2162,7 @@ loom_test_module(
     "approximate_extended_math.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     approximate_extended_math_test_execute_amdgpu_hardware_test
@@ -2211,7 +2211,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     approximate_extended_math_test_execute_amdgpu_access_test
@@ -2331,7 +2331,7 @@ loom_test_module(
     "atomic_float_extrema.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     atomic_float_extrema_test_execute_amdgpu_hardware_test
@@ -2355,7 +2355,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     atomic_float_extrema_test_execute_amdgpu_access_test
@@ -2403,7 +2403,7 @@ loom_test_module(
     "global_atomic_add_f32.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     global_atomic_add_f32_test_execute_amdgpu_hardware_test
@@ -2427,7 +2427,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     global_atomic_add_f32_test_execute_amdgpu_access_test
@@ -2474,7 +2474,7 @@ loom_test_module(
     "packed_vector_select.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_vector_select_test_execute_amdgpu_hardware_test
@@ -2526,7 +2526,7 @@ loom_test_module(
     "bitwise_table_index.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     bitwise_table_index_test_execute_amdgpu_hardware_test
@@ -2575,7 +2575,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     bitwise_table_index_test_execute_amdgpu_access_test
@@ -2619,7 +2619,7 @@ loom_test_module(
     "condition_loops.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     condition_loops_test_execute_amdgpu_hardware_test
@@ -2668,7 +2668,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     condition_loops_test_execute_amdgpu_access_test
@@ -2712,7 +2712,7 @@ loom_test_module(
     "load_extract_snapshot.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     load_extract_snapshot_test_execute_amdgpu_hardware_test
@@ -2761,7 +2761,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     load_extract_snapshot_test_execute_amdgpu_access_test
@@ -2805,7 +2805,7 @@ loom_test_module(
     "memory_integer_terms.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     memory_integer_terms_test_execute_amdgpu_hardware_test
@@ -2854,7 +2854,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     memory_integer_terms_test_execute_amdgpu_access_test
@@ -2898,7 +2898,7 @@ loom_test_module(
     "natural_alignment.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     natural_alignment_test_execute_amdgpu_hardware_test
@@ -2947,7 +2947,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     natural_alignment_test_execute_amdgpu_access_test
@@ -2991,7 +2991,7 @@ loom_test_module(
     "numeric_narrow_address.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     numeric_narrow_address_test_execute_amdgpu_hardware_test
@@ -3040,7 +3040,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     numeric_narrow_address_test_execute_amdgpu_access_test
@@ -3084,7 +3084,7 @@ loom_test_module(
     "loop_termination.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     loop_termination_test_execute_amdgpu_hardware_test
@@ -3133,7 +3133,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     loop_termination_test_execute_amdgpu_access_test
@@ -3166,7 +3166,7 @@ loom_test_module(
     "packed_lookup_widths.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_lookup_widths_test_execute_amdgpu_hardware_test
@@ -3215,7 +3215,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_lookup_widths_test_execute_amdgpu_access_test
@@ -3259,7 +3259,7 @@ loom_test_module(
     "packed_memory_consumers.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_memory_consumers_test_execute_amdgpu_hardware_test
@@ -3308,7 +3308,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_memory_consumers_test_execute_amdgpu_access_test
@@ -3352,7 +3352,7 @@ loom_test_module(
     "ordered_read_ahead.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     ordered_read_ahead_test_execute_amdgpu_hardware_test
@@ -3401,7 +3401,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     ordered_read_ahead_test_execute_amdgpu_access_test
@@ -3445,7 +3445,7 @@ loom_test_module(
     "shrinking_view.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     shrinking_view_test_execute_amdgpu_hardware_test
@@ -3494,7 +3494,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     shrinking_view_test_execute_amdgpu_access_test
@@ -3539,7 +3539,7 @@ loom_test_module(
     "signed_address_terms.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     signed_address_terms_test_execute_amdgpu_hardware_test
@@ -3588,7 +3588,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     signed_address_terms_test_execute_amdgpu_access_test
@@ -3632,7 +3632,7 @@ loom_test_module(
     "strided_layout_recurrence.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     strided_layout_recurrence_test_execute_amdgpu_hardware_test
@@ -3681,7 +3681,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     strided_layout_recurrence_test_execute_amdgpu_access_test
@@ -3726,7 +3726,7 @@ loom_test_module(
     "view_window_walk.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     view_window_walk_test_execute_amdgpu_hardware_test
@@ -3775,7 +3775,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     view_window_walk_test_execute_amdgpu_access_test
@@ -3820,7 +3820,7 @@ loom_test_module(
     "packed_memory_alignment.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_memory_alignment_test_execute_amdgpu_hardware_test
@@ -3869,7 +3869,7 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     packed_memory_alignment_test_execute_amdgpu_access_test

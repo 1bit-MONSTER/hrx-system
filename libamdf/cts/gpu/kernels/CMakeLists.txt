@@ -9,7 +9,25 @@
 
 iree_add_all_subdirs()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+loom_target_profile(
+  NAME
+    "gfx942"
+  FAMILY
+    "amdgpu"
+  SELECTOR
+    "gfx942"
+)
+
+loom_target_profile(
+  NAME
+    "gfx1151"
+  FAMILY
+    "amdgpu"
+  SELECTOR
+    "gfx1151"
+)
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     image
@@ -22,7 +40,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     transform
@@ -35,7 +53,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     byte_copy_unaligned
@@ -48,7 +66,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     byte_copy_unaligned_gfx942
@@ -62,7 +80,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     pattern_fill_unaligned
@@ -75,7 +93,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     pattern_fill_unaligned_gfx942
@@ -89,49 +107,148 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "transform_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:transform_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "transform_gfx942.hsaco"
+  SRCS
+    "transform.loom"
+  ROOTS
+    "@aql_transform"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "transform_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx942.hsaco"
+  OUTPUT
+    "transform_gfx942.h"
+  ENTRY_POINT
+    "aql_transform"
+  NAMESPACE
+    "kernels::gfx942_transform"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     transform_gfx942
   HDRS
     "transform_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "transform_alternate_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:transform_alternate_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "transform_alternate_gfx942.hsaco"
+  SRCS
+    "transform_alternate.loom"
+  ROOTS
+    "@aql_transform"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "transform_alternate_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_alternate_gfx942.hsaco"
+  OUTPUT
+    "transform_alternate_gfx942.h"
+  ENTRY_POINT
+    "aql_transform"
+  NAMESPACE
+    "kernels::gfx942_transform_alternate"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     transform_alternate_gfx942
   HDRS
     "transform_alternate_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "transform_gfx1151_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:transform_gfx1151_hsaco"
+  TARGET
+    "::gfx1151"
+  OUTPUT
+    "transform_gfx1151.hsaco"
+  SRCS
+    "transform.loom"
+  ROOTS
+    "@aql_transform"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "transform_gfx1151_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1151.hsaco"
+  OUTPUT
+    "transform_gfx1151.h"
+  ENTRY_POINT
+    "aql_transform"
+  NAMESPACE
+    "kernels::gfx1151_transform"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     transform_gfx1151
   HDRS
     "transform_gfx1151.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     geometry_ids_gfx942
@@ -145,7 +262,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     lds_exchange
@@ -158,7 +275,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     lds_exchange_gfx1151
@@ -172,7 +289,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     lds_exchange_gfx942
@@ -186,7 +303,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     private_roundtrip
@@ -199,7 +316,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     private_roundtrip_gfx942
@@ -210,6 +327,33 @@ iree_cc_library(
     amdf::headers
   TESTONLY
   PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_py_test(
+  NAME
+    embed_test
+  MAIN
+    "embed_test.py"
+  SRCS
+    "embed.py"
+    "embed_test.py"
+  ARGS
+    "--gfx942={{${CMAKE_CURRENT_BINARY_DIR}/transform_gfx942.hsaco}}"
+    "--gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1151.hsaco}}"
+  DATA
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1151.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx942.hsaco"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
 )
 endif()
 

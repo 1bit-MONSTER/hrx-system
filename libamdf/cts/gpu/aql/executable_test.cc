@@ -20,6 +20,16 @@ namespace {
 namespace first_kernel = kernels::gfx942_transform;
 namespace alternate_kernel = kernels::gfx942_transform_alternate;
 
+static_assert(alternate_kernel::kArgumentByteOffsets ==
+              kernels::transform::kArgumentByteOffsets);
+static_assert(alternate_kernel::kArgumentByteLengths ==
+              kernels::transform::kArgumentByteLengths);
+static_assert(alternate_kernel::kArgumentValueKinds ==
+              kernels::transform::kArgumentValueKinds);
+static_assert(alignof(kernels::transform::Arguments) %
+                  alternate_kernel::kKernargAlignment ==
+              0);
+
 TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   constexpr uint32_t kPageByteLength = 4096;
   constexpr uint32_t kWordCount = 2048;

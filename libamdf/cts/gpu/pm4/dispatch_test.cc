@@ -18,6 +18,26 @@ namespace {
 
 namespace kernel = kernels::gfx1151_transform;
 
+static_assert(kernel::kArgumentByteOffsets ==
+              kernels::transform::kArgumentByteOffsets);
+static_assert(kernel::kArgumentByteLengths ==
+              kernels::transform::kArgumentByteLengths);
+static_assert(kernel::kArgumentValueKinds ==
+              kernels::transform::kArgumentValueKinds);
+static_assert(kernel::kKernargByteLength == 24);
+static_assert(alignof(kernels::transform::Arguments) %
+                  kernel::kKernargAlignment ==
+              0);
+static_assert(kernel::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{64, 1, 1});
+static_assert(kernel::kWavefrontSize == 32 &&
+              kernel::kPrivateSegmentByteLength == 0 &&
+              kernel::kGroupSegmentByteLength == 0);
+// BindCompute supplies only the kernarg pointer, group X and local X inputs.
+static_assert(kernel::kKernelCodeProperties == 0x408 &&
+              kernel::kKernargPreload == 0);
+static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
+
 constexpr Pm4ComputeProgram kTransformProgram = {
     0,
     kernel::kComputePgmRsrc1,

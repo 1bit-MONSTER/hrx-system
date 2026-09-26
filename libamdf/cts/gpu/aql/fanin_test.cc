@@ -50,8 +50,8 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
   static_assert(offsetof(kernels::transform::Arguments, addend) +
                     sizeof(uint32_t) ==
                 kernel::kKernargByteLength);
-  static_assert(alignof(kernels::transform::Arguments) ==
-                kernel::kKernargAlignment);
+  static_assert(
+      alignof(kernels::transform::Arguments) % kernel::kKernargAlignment == 0);
 
   std::array<GpuMemory*, kProducerCount> inputs = {};
   GpuMemory* intermediate = nullptr;

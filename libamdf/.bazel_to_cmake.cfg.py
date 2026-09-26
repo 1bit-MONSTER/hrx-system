@@ -34,6 +34,18 @@ class AmdfBuildFileFunctions(
     def _package_name(self):
         return os.path.relpath(self._build_dir, self._repo_root).replace("\\", "/")
 
+    def _should_emit_python_target(self):
+        return self._package_name() == "libamdf/cts/gpu/kernels"
+
+    def _python_package_dirs(self):
+        return ["${PROJECT_SOURCE_DIR}"]
+
+    def py_binary(self, **kwargs):
+        if self._package_name() == "libamdf/cts/gpu/kernels":
+            # CMake extraction invokes the source script with host Python.
+            return
+        super().py_binary(**kwargs)
+
     def _apply_amdf_cmake_policy(self, kwargs, include_run_requirements=False):
         policy = self._amdf_requirement_policy.collect(self._package_name())
         kwargs = dict(kwargs)
@@ -85,6 +97,40 @@ class AmdfBuildFileFunctions(
         self.cc_binary_benchmark(
             deps=(deps or []) + ["//libamdf:headers", "//third_party:google_benchmark"],
             **kwargs,
+        )
+
+    def amdf_cts_gpu_kernel(
+        self, name, src, target, entry_point, namespace, visibility=None
+    ):
+        policy = self._apply_amdf_cmake_policy({})
+        self.loom_kernel_binary(
+            name=name + "_hsaco",
+            testonly=True,
+            srcs=[src],
+            out=name + ".hsaco",
+            roots=["@" + entry_point],
+            target=target,
+            **policy,
+        )
+        self._emit_platform_guard_begin(policy["target_compatible_with"])
+        self._converter.body += (
+            "amdf_cts_embed_gpu_kernel(\n"
+            + self._convert_string_arg_block("NAME", name + "_embed")
+            + self._convert_string_arg_block(
+                "INPUT", f"${{CMAKE_CURRENT_BINARY_DIR}}/{name}.hsaco"
+            )
+            + self._convert_string_arg_block("OUTPUT", name + ".h")
+            + self._convert_string_arg_block("ENTRY_POINT", entry_point)
+            + self._convert_string_arg_block("NAMESPACE", namespace)
+            + ")\n\n"
+        )
+        self._emit_platform_guard_end(policy["target_compatible_with"])
+        self.amdf_cc_library(
+            name=name,
+            testonly=True,
+            hdrs=[name + ".h"],
+            deps=["//libamdf/cts/gpu/kernels:image"],
+            visibility=visibility,
         )
 
     def amdf_windows_sidecar_library(self, **kwargs):

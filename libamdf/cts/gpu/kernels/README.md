@@ -1,26 +1,63 @@
 # Compiled GPU fixtures
 
-[transform.c](transform.c) computes `output[i] = input[i] * 3 + addend` for
-`i < count`, using unsigned 32-bit arithmetic. The checked-in gfx942 image is
-consumed by
+The transform images are compiled from Loom source by the ordinary CTS build.
+The five other fixture families retain their checked-in C-generated images
+and separate regeneration path.
+
+## Source-built transforms
+
+[transform.loom](transform.loom) computes `output[i] = input[i] * 3 + addend`
+for `i < count`, with arithmetic modulo 2^32. Its gfx942 image is consumed by
 [`AqlDispatchTest.CoherentSystemPayloadChangesAcrossEpochs`](../aql/dispatch_test.cc)
 and the [SDMA/AQL composition](../recipes/copy_dispatch_test.cc). They share
 the cold publication fixture and exercise caller-owned executable memory,
 code publication, kernargs, dispatch completion and exact output through the
 public AQL queue ABI.
 
-[transform_alternate.c](transform_alternate.c) changes the multiplier to five
-while preserving the transform's argument and memory-access contract. Its
-separately compiled gfx942 image has the same descriptor, resource requirements
-and complete image extent. The [executable replacement case](../aql/executable_test.cc)
-uploads A → B → A to one retained code allocation after each prior use has
-completed, with fixed inputs and arguments distinguishing the programs.
+[transform_alternate.loom](transform_alternate.loom) changes the multiplier to
+five while preserving the transform's argument and memory-access contract. Its
+gfx942 [executable replacement case](../aql/executable_test.cc) checks identical
+descriptors, entry offsets and complete image extents for the two compiled
+programs. It uploads A → B → A to one retained code allocation after each
+prior use has completed, with fixed inputs and arguments distinguishing the
+programs. Both programs have valid bounded accesses if instruction fetch
+observes the preceding image.
 
-The independently compiled [gfx1151 transform](transform_gfx1151.json) uses
-the same source and [typed argument layout](transform.h) through ordinary
-PM4 dispatch. Its [case](../pm4/dispatch_test.cc) binds the compiler's resource
-words and actual allocation addresses directly, with no AQL packet or runtime
-ELF loader. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
+The separately compiled gfx1151 transform uses the same source and
+[typed argument layout](transform.h) through ordinary PM4 dispatch. Its
+[case](../pm4/dispatch_test.cc) binds the emitted resource words and actual
+allocation addresses directly. The caller checks the required wave32,
+kernarg-pointer, group-X and local-X initial-register contract, with no
+private or group storage. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
+
+Both sources take a host workload `%groups_x` and require a `64,1,1` local
+shape. The workload keeps group X dynamic without becoming a device argument;
+`count`, represented as a nonnegative `i32`, bounds accesses within the grid.
+The shared typed ABI contains input/output addresses at byte offsets 0/8 and
+32-bit count/addend at offsets 16/20. Its 24 semantic bytes occupy a
+16-aligned, 32-byte host object; caller initialization owns the padding.
+Callers compare the generated argument offsets, lengths and kinds with that
+layout and check compiler alignment and launch requirements.
+
+The [build declarations](BUILD.bazel) and [CMake equivalent](CMakeLists.txt)
+produce `transform_gfx942`, `transform_alternate_gfx942` and
+`transform_gfx1151`. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
+uses ordinary `loom_kernel_binary` compilation followed by [embed.py](embed.py)
+on the actual HSACO. These headers are build outputs, with no checked-in
+transform header/JSON pairs or manual regeneration step. This path has no
+LLVM tool dependency; Loom and embedding are CTS build dependencies only.
+
+The embedder admits one self-contained AMDHSA V6 kernel, validates its ELF,
+descriptor and AMDGPU MessagePack metadata, and rejects relocations,
+undefined dependencies and kernel data beyond the descriptor and text. The
+image preserves their relative addresses, alignment and complete text padding.
+Generated `constexpr` metadata carries argument, geometry and resource facts
+and HSACO/image hashes. Text extents, entry placement and resource words come
+from the compiled product. Callers retain semantic ABI and
+initial-register checks without fixing old compiler instruction sizes or
+register counts. There is no runtime ELF parser or descriptor patching.
+
+## Remaining C fixtures
 
 [private_roundtrip.c](private_roundtrip.c) initializes nine volatile private
 words per workitem, then reads them in a runtime-selected permutation into
@@ -60,25 +97,22 @@ an odd subspan with a four-byte pattern, then changes the pattern and shrinks
 the range to a tail-only fill. The standalone full64 launch preserves the
 algorithm's bounds; the HAL's exact planner geometry is a separate contract.
 
-The ordinary CTS build includes the fixed headers
+These five C sources still use the fixed headers
 [byte_copy_unaligned_gfx942.h](byte_copy_unaligned_gfx942.h),
 [pattern_fill_unaligned_gfx942.h](pattern_fill_unaligned_gfx942.h),
-[transform_gfx942.h](transform_gfx942.h),
-[transform_alternate_gfx942.h](transform_alternate_gfx942.h),
-[transform_gfx1151.h](transform_gfx1151.h),
 [private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
 [lds_exchange_gfx1151.h](lds_exchange_gfx1151.h),
 [lds_exchange_gfx942.h](lds_exchange_gfx942.h) and
-[geometry_ids_gfx942.h](geometry_ids_gfx942.h). It needs neither an
-installed GPU compiler nor a runtime ELF loader. Each paired JSON record
-preserves source/compiler identity, flags, ELF and image hashes, resource
-metadata and entry disassembly. The descriptor and code remain paired; no
-descriptor fields are patched at runtime.
+[geometry_ids_gfx942.h](geometry_ids_gfx942.h). The ordinary CTS build consumes
+these six checked-in images without compiling their C sources. Each paired
+JSON record preserves source/compiler identity, flags, ELF and image hashes,
+resource metadata and entry disassembly. The descriptor and code remain
+paired; no descriptor fields are patched at runtime.
 
-## Artifact contract
+### Fixed C artifact contract
 
-The gfx942 artifacts use HSA code object V5 and XNACK/SRAMECC feature settings
-of ANY. The gfx1151 transform and LDS fixtures are separate V5, wave32 images.
+These gfx942 artifacts use HSA code object V5 and XNACK/SRAMECC feature settings
+of ANY. The gfx1151 LDS fixture is a separate V5, wave32 image.
 Other compiler targets require separate artifacts. The flat image preserves
 the linked `.rodata` and `.text` addresses relative to its
 descriptor, including all compiler-emitted text padding. A zero prefix retains
@@ -89,27 +123,21 @@ relocations, global-memory objects or references to those omitted sections.
 The LDS fixture's static group-memory object uses encoded LDS offsets and
 requires no loaded data section.
 
-| Property | Transform | Private roundtrip |
-| --- | --- | --- |
-| Image size / GPU alignment | 1408 bytes / at least 256 bytes | 2432 bytes / at least 256 bytes |
-| Descriptor / entry offset | 0 / 256 bytes | 192 / 512 bytes |
-| Entry / complete text size | 108 / 1152 bytes | 836 / 1920 bytes |
-| Workgroup / wavefront | 64 workitems / wave64 | 64 workitems / wave64 |
-| Fixed group / private bytes per workitem | 0 / 0 | 0 / 40 |
-| SGPR / VGPR / AGPR count | 12 / 4 / 0 | 14 / 8 / 0 |
-| Spills / dynamic stack | None | None |
-| Kernarg size / compiler alignment | 24 / 8 bytes | 16 / 8 bytes |
-| Caller kernarg alignment | At least 16 bytes | At least 16 bytes |
-| Kernarg fields | Input address at 0, output address at 8, count at 16, addend at 20 | Output address at 0, seed at 8, rotation at 12 |
-| Kernarg field types | `u64`, `u64`, `u32`, `u32` | `u64`, `u32`, `u32` |
-| Kernarg preload | Disabled | Disabled |
-| RSRC3 / RSRC1 / RSRC2 | `0x0` / `0x00af0040` / `0x84` | `0x1` / `0x00af0040` / `0x85` |
-
-The [alternate transform record](transform_alternate_gfx942.json) has the same
-values as the gfx942 transform column, including the identical descriptor and
-1044-byte compiler text tail. Both images consume the shared [typed ABI](transform.h).
-Their one changed instruction immediate distinguishes arithmetic while keeping
-the same bounded accesses under either image.
+| Property | Private roundtrip |
+| --- | --- |
+| Image size / GPU alignment | 2432 bytes / at least 256 bytes |
+| Descriptor / entry offset | 192 / 512 bytes |
+| Entry / complete text size | 836 / 1920 bytes |
+| Workgroup / wavefront | 64 workitems / wave64 |
+| Fixed group / private bytes per workitem | 0 / 40 |
+| SGPR / VGPR / AGPR count | 14 / 8 / 0 |
+| Spills / dynamic stack | None |
+| Kernarg size / compiler alignment | 16 / 8 bytes |
+| Caller kernarg alignment | At least 16 bytes |
+| Kernarg fields | Output address at 0, seed at 8, rotation at 12 |
+| Kernarg field types | `u64`, `u32`, `u32` |
+| Kernarg preload | Disabled |
+| RSRC3 / RSRC1 / RSRC2 | `0x1` / `0x00af0040` / `0x85` |
 
 The [LDS record](lds_exchange_gfx942.json) describes a 1600-byte image with
 descriptor/entry offsets 0/256 and a 308-byte entry in 1344 bytes of text.
@@ -160,18 +188,8 @@ bytes occupy a zeroed 64-byte, 16-aligned caller slot. Scalar loads fetch
 The [dispatch reference](../../../../docs/reference/amd/gpu/aql/dispatch.md)
 describes the native argument-fetch and GLOBAL-access rules.
 
-The [gfx1151 transform record](transform_gfx1151.json) describes an 896-byte
-image with descriptor/entry offsets 0/256, a 136-byte body and 640 bytes of
-complete text. It uses two wave32 waves per 64-workitem group, eight SGPRs,
-four VGPRs, no private/group storage and no spills. RSRC1/2/3 are
-`0xe0af0000` / `0x84` / `0x20`, with kernarg-pointer and wave32 properties
-`0x408`. Its scalar loads cover exactly the 24 semantic argument bytes.
-The unchanged compiler padding and separate instruction-fetch allocation
-bounds are specified in the [PM4 reference](../../../../docs/reference/amd/gpu/pm4/dispatch.md).
-
 Images are little-endian; the consuming corpus builds only for x86-64 hosts.
-The [transform record](transform_gfx942.json) and
-[private record](private_roundtrip_gfx942.json) contain their complete hashes.
+The [private record](private_roundtrip_gfx942.json) contains its complete hashes.
 The [pinned LLVM descriptor definition][descriptor] specifies the resource and
 relative entry fields. The generator checks the ELF target, exact exported
 symbols, selected section layout, descriptor, argument metadata and absence of
@@ -188,7 +206,7 @@ packet and waits for that packet's native completion. This follows ROCr's
 matching the [ExecutePM4 defaults][defaults].
 The explicit cache command owns the instruction publication transition.
 
-Each data dispatch has SYSTEM acquire/release scopes. The AQL-only case's two
+The transform payload case uses SYSTEM acquire/release scopes. Its two
 completed epochs change the input, addend and count, launch 1024 workitems,
 and compare every output word with an independently computed host result.
 Prefix and suffix guards, inactive tail lanes and unchanged input are checked.
@@ -236,9 +254,10 @@ guards. Its output witnesses the private accesses that actually ran and reuse
 of the same scratch backing. It does not establish execution on every physical
 slot or XCC. [Fixed scratch case](../aql/private_test.cc)
 
-## Reproduction
+## C fixture regeneration
 
-Regeneration uses LLVM revision
+The separate [generator](generate.py) covers only the five remaining C
+fixture families. Their regeneration uses LLVM revision
 `6dfe1677ab8dffbc6ec13d53a1e0215d75147689` (version 23.1.1), including `clang`,
 `ld.lld`, `llvm-objcopy`, `llvm-readelf` and `llvm-objdump`. The script checks
 compiler/linker revision and runs entirely offline in temporary storage:

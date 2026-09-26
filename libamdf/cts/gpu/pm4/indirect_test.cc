@@ -34,8 +34,8 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
   constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
   static_assert(kPayloadOffset + kCount <= kWordCount);
   static_assert(kernel::kWorkgroupSize == 64);
-  static_assert(alignof(kernels::transform::Arguments) ==
-                kernel::kKernargAlignment);
+  static_assert(
+      alignof(kernels::transform::Arguments) % kernel::kKernargAlignment == 0);
   static_assert(offsetof(kernels::transform::Arguments, addend) +
                     sizeof(uint32_t) ==
                 kernel::kKernargByteLength);
@@ -245,8 +245,8 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
   static_assert(kPayloadOffset + kConsumerCount <= kProducerInputWordIndex);
   static_assert(kProducerInputWordIndex + kProducerCount <= kWordCount);
   static_assert(kernel::kWorkgroupSize == 64);
-  static_assert(alignof(kernels::transform::Arguments) ==
-                kernel::kKernargAlignment);
+  static_assert(
+      alignof(kernels::transform::Arguments) % kernel::kKernargAlignment == 0);
   static_assert(offsetof(kernels::transform::Arguments, addend) +
                     sizeof(uint32_t) ==
                 kernel::kKernargByteLength);

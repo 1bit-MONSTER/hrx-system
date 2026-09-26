@@ -4,7 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//libamdf/build_tools/bazel:cts_gpu_kernel.bzl", "amdf_cts_gpu_kernel")
+load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
+load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile")
 
 package(
     default_visibility = ["//libamdf/cts:__subpackages__"],
@@ -25,12 +29,30 @@ exports_files([
     "pattern_fill_unaligned_gfx942.json",
     "private_roundtrip.c",
     "private_roundtrip_gfx942.json",
-    "transform.c",
-    "transform_alternate.c",
-    "transform_alternate_gfx942.json",
-    "transform_gfx1151.json",
-    "transform_gfx942.json",
+    "transform.loom",
+    "transform_alternate.loom",
 ])
+
+py_binary(
+    name = "embed",
+    testonly = True,
+    srcs = ["embed.py"],
+    visibility = ["//libamdf:__subpackages__"],
+)
+
+loom_target_profile(
+    name = "gfx942",
+    family = "amdgpu",
+    selector = "gfx942",
+    visibility = ["//visibility:private"],
+)
+
+loom_target_profile(
+    name = "gfx1151",
+    family = "amdgpu",
+    selector = "gfx1151",
+    visibility = ["//visibility:private"],
+)
 
 amdf_cc_library(
     name = "image",
@@ -70,25 +92,28 @@ amdf_cc_library(
     deps = [":image"],
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "transform_gfx942",
-    testonly = True,
-    hdrs = ["transform_gfx942.h"],
-    deps = [":image"],
+    src = "transform.loom",
+    entry_point = "aql_transform",
+    namespace = "kernels::gfx942_transform",
+    target = ":gfx942",
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "transform_alternate_gfx942",
-    testonly = True,
-    hdrs = ["transform_alternate_gfx942.h"],
-    deps = [":image"],
+    src = "transform_alternate.loom",
+    entry_point = "aql_transform",
+    namespace = "kernels::gfx942_transform_alternate",
+    target = ":gfx942",
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "transform_gfx1151",
-    testonly = True,
-    hdrs = ["transform_gfx1151.h"],
-    deps = [":image"],
+    src = "transform.loom",
+    entry_point = "aql_transform",
+    namespace = "kernels::gfx1151_transform",
+    target = ":gfx1151",
 )
 
 amdf_cc_library(
@@ -129,4 +154,26 @@ amdf_cc_library(
     testonly = True,
     hdrs = ["private_roundtrip_gfx942.h"],
     deps = [":image"],
+)
+
+_KERNEL_POLICY = apply_amdf_target_policy({})
+
+py_test(
+    name = "embed_test",
+    size = "small",
+    srcs = [
+        "embed.py",
+        "embed_test.py",
+    ],
+    args = [
+        "--gfx942=$(rootpath :transform_gfx942_hsaco)",
+        "--gfx1151=$(rootpath :transform_gfx1151_hsaco)",
+    ],
+    data = [
+        ":transform_gfx1151_hsaco",
+        ":transform_gfx942_hsaco",
+    ],
+    main = "embed_test.py",
+    tags = _KERNEL_POLICY["tags"],
+    target_compatible_with = _KERNEL_POLICY["target_compatible_with"],
 )

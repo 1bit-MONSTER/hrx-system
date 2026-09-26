@@ -21,8 +21,9 @@ namespace {
 namespace transform = kernels::gfx1151_transform;
 namespace lds = kernels::gfx1151_lds_exchange;
 
-static_assert(alignof(kernels::transform::Arguments) ==
-              transform::kKernargAlignment);
+static_assert(alignof(kernels::transform::Arguments) %
+                  transform::kKernargAlignment ==
+              0);
 static_assert(offsetof(kernels::transform::Arguments, addend) +
                   sizeof(uint32_t) ==
               transform::kKernargByteLength);

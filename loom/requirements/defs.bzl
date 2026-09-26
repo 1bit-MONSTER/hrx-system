@@ -15,7 +15,7 @@ EMIT_AMDGPU = build_requirement(
     id = "loom.emit.amdgpu",
     label = Label("//loom/requirements:emit_amdgpu"),
     enabled_by = Label("//loom/config/emit:amdgpu"),
-    cmake_condition = "LOOM_EMIT_AMDGPU",
+    cmake_condition = "LOOM_BUILD AND LOOM_EMIT_AMDGPU",
 )
 
 EMIT_SPIRV = build_requirement(
