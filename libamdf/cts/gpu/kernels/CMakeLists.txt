@@ -67,14 +67,47 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "byte_copy_unaligned_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:byte_copy_unaligned_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "byte_copy_unaligned_gfx942.hsaco"
+  SRCS
+    "byte_copy_unaligned.loom"
+  ROOTS
+    "@byte_copy_unaligned"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "byte_copy_unaligned_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/byte_copy_unaligned_gfx942.hsaco"
+  OUTPUT
+    "byte_copy_unaligned_gfx942.h"
+  ENTRY_POINT
+    "byte_copy_unaligned"
+  NAMESPACE
+    "kernels::gfx942_byte_copy_unaligned"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     byte_copy_unaligned_gfx942
   HDRS
     "byte_copy_unaligned_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )
@@ -94,14 +127,47 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "pattern_fill_unaligned_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:pattern_fill_unaligned_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "pattern_fill_unaligned_gfx942.hsaco"
+  SRCS
+    "pattern_fill_unaligned.loom"
+  ROOTS
+    "@pattern_fill_unaligned"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "pattern_fill_unaligned_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/pattern_fill_unaligned_gfx942.hsaco"
+  OUTPUT
+    "pattern_fill_unaligned_gfx942.h"
+  ENTRY_POINT
+    "pattern_fill_unaligned"
+  NAMESPACE
+    "kernels::gfx942_pattern_fill_unaligned"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     pattern_fill_unaligned_gfx942
   HDRS
     "pattern_fill_unaligned_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )
@@ -249,14 +315,47 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "geometry_ids_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:geometry_ids_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "geometry_ids_gfx942.hsaco"
+  SRCS
+    "geometry_ids.loom"
+  ROOTS
+    "@geometry_ids"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "geometry_ids_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/geometry_ids_gfx942.hsaco"
+  OUTPUT
+    "geometry_ids_gfx942.h"
+  ENTRY_POINT
+    "geometry_ids"
+  NAMESPACE
+    "kernels::gfx942_geometry_ids"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     geometry_ids_gfx942
   HDRS
     "geometry_ids_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )
@@ -317,14 +416,47 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "private_roundtrip_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:private_roundtrip_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "private_roundtrip_gfx942.hsaco"
+  SRCS
+    "private_roundtrip.loom"
+  ROOTS
+    "@private_roundtrip"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "private_roundtrip_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/private_roundtrip_gfx942.hsaco"
+  OUTPUT
+    "private_roundtrip_gfx942.h"
+  ENTRY_POINT
+    "private_roundtrip"
+  NAMESPACE
+    "kernels::gfx942_private_roundtrip"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     private_roundtrip_gfx942
   HDRS
     "private_roundtrip_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )

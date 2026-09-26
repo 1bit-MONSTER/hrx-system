@@ -12,9 +12,9 @@
 
 namespace kernels::pattern_fill_unaligned {
 
-// Paired with pattern_fill_unaligned.c's 36-byte semantic layout. The gfx942
-// entry fetches 40 bytes, including one unused scalar lane. The caller copies
-// only the semantic fields into an initialized 64-byte, 16-aligned slot.
+// Paired with pattern_fill_unaligned.loom's 36-byte semantic layout. The caller
+// checks the compiled segment fits an initialized 64-byte, 16-aligned slot
+// and copies only the semantic fields, leaving any fetch padding zeroed.
 struct alignas(16) Arguments {
   // Global GPU address of the first destination byte and pattern phase zero.
   uint64_t target;

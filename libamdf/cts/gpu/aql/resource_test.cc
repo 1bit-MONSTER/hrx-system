@@ -21,6 +21,13 @@ namespace {
 namespace private_kernel = kernels::gfx942_private_roundtrip;
 namespace lds_kernel = kernels::gfx942_lds_exchange;
 
+static_assert(private_kernel::kArgumentByteOffsets ==
+              kernels::private_roundtrip::kArgumentByteOffsets);
+static_assert(private_kernel::kArgumentByteLengths ==
+              kernels::private_roundtrip::kArgumentByteLengths);
+static_assert(private_kernel::kArgumentValueKinds ==
+              kernels::private_roundtrip::kArgumentValueKinds);
+
 TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   constexpr uint32_t kGridSize = 512;
   constexpr uint32_t kPrivateOutputWordCount = kGridSize * 9;
@@ -42,15 +49,16 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
   static_assert(private_kernel::kWorkgroupSize == 64);
-  static_assert(private_kernel::kPrivateSegmentByteLength == 40);
+  static_assert(private_kernel::kPrivateSegmentByteLength > 0);
   static_assert(private_kernel::kGroupSegmentByteLength == 0);
   static_assert(lds_kernel::kWorkgroupSize == 128);
   static_assert(lds_kernel::kPrivateSegmentByteLength == 0);
   static_assert(lds_kernel::kGroupSegmentByteLength == 512);
   static_assert(sizeof(kernels::private_roundtrip::Arguments) ==
                 private_kernel::kKernargByteLength);
-  static_assert(alignof(kernels::private_roundtrip::Arguments) ==
-                private_kernel::kKernargAlignment);
+  static_assert(alignof(kernels::private_roundtrip::Arguments) %
+                    private_kernel::kKernargAlignment ==
+                0);
   static_assert(offsetof(kernels::lds_exchange::Arguments, dynamic_stride) +
                     sizeof(uint32_t) ==
                 lds_kernel::kKernargByteLength);

@@ -81,7 +81,13 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
   static_assert(sizeof(kernels::private_roundtrip::Arguments) ==
                 producer_kernel::kKernargByteLength);
   static_assert(consumer_kernel::kKernargByteLength == 24);
-  static_assert(producer_kernel::kPrivateSegmentByteLength == 40);
+  static_assert(producer_kernel::kPrivateSegmentByteLength > 0);
+  static_assert(producer_kernel::kArgumentByteOffsets ==
+                kernels::private_roundtrip::kArgumentByteOffsets);
+  static_assert(producer_kernel::kArgumentByteLengths ==
+                kernels::private_roundtrip::kArgumentByteLengths);
+  static_assert(producer_kernel::kArgumentValueKinds ==
+                kernels::private_roundtrip::kArgumentValueKinds);
   static_assert(producer_kernel::kWorkgroupSize == 64);
   static_assert(consumer_kernel::kWorkgroupSize == 64);
 

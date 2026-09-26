@@ -1,10 +1,10 @@
 # Compiled GPU fixtures
 
-The transform images are compiled from Loom source by the ordinary CTS build.
-The five other fixture families retain their checked-in C-generated images
-and separate regeneration path.
+Arithmetic, geometry, transfer and private-memory images are compiled from
+Loom source by the ordinary CTS build. The LDS exchange fixture retains its
+checked-in C-generated images and separate regeneration path.
 
-## Source-built transforms
+## Source-built images
 
 [transform.loom](transform.loom) computes `output[i] = input[i] * 3 + addend`
 for `i < count`, with arithmetic modulo 2^32. Its gfx942 image is consumed by
@@ -40,12 +40,11 @@ Callers compare the generated argument offsets, lengths and kinds with that
 layout and check compiler alignment and launch requirements.
 
 The [build declarations](BUILD.bazel) and [CMake equivalent](CMakeLists.txt)
-produce `transform_gfx942`, `transform_alternate_gfx942` and
-`transform_gfx1151`. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
+produce each target-specific image from its authored source. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
 uses ordinary `loom_kernel_binary` compilation followed by [embed.py](embed.py)
 on the actual HSACO. These headers are build outputs, with no checked-in
-transform header/JSON pairs or manual regeneration step. This path has no
-LLVM tool dependency; Loom and embedding are CTS build dependencies only.
+header/JSON pairs or manual regeneration step for the Loom programs. This path
+has no LLVM tool dependency; Loom and embedding are CTS build dependencies only.
 
 The embedder admits one self-contained AMDHSA V6 kernel, validates its ELF,
 descriptor and AMDGPU MessagePack metadata, and rejects relocations,
@@ -57,25 +56,15 @@ from the compiled product. Callers retain semantic ABI and
 initial-register checks without fixing old compiler instruction sizes or
 register counts. There is no runtime ELF parser or descriptor patching.
 
-## Remaining C fixtures
+### Private memory, geometry and transfers
 
-[private_roundtrip.c](private_roundtrip.c) initializes nine volatile private
+[private_roundtrip.loom](private_roundtrip.loom) initializes nine volatile private
 words per workitem, then reads them in a runtime-selected permutation into
 global output. The [fixed-scratch case](../aql/private_test.cc) uses its
 compiler-generated frame to exercise caller-owned queue scratch across two
 completed dispatches.
 
-[lds_exchange.c](lds_exchange.c) exchanges independently tagged static and
-dynamic group-memory values between waves. The [AQL LDS cases](../aql/lds_test.cc)
-exercise fixed allocation and changing packet-sized dynamic storage, checking
-both the partner wave's value and the stride supplied for each epoch.
-The separately compiled [gfx1151 image](lds_exchange_gfx1151.json) exercises
-static and changing dynamic storage with four wave32 waves through the
-[PM4 LDS cases](../pm4/lds_test.cc).
-The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) separates the
-unchanged compiler descriptor from derived launch allocation and scheduling.
-
-[geometry_ids.c](geometry_ids.c) records raw group XYZ, local XYZ and an epoch
+[geometry_ids.loom](geometry_ids.loom) records raw group XYZ, local XYZ and an epoch
 token at each global position. The [geometry cases](../aql/geometry_test.cc)
 change both workgroup and grid shapes while keeping the nominal flat
 workgroup size at 64. Complete and partial final groups use the same image,
@@ -83,117 +72,28 @@ whose stores have no shader bounds check. Unequal axes expose swapped
 coordinate interpretations; padded output pitches distinguish inactive edge
 coordinates from active records.
 
-[byte_copy_unaligned.c](byte_copy_unaligned.c) retains the HAL's packed
-16-byte block-copy algorithm and byte tail, with standalone definitions and
-explicit global pointers. The [AQL byte-copy case](../aql/byte_copy_test.cc)
+[byte_copy_unaligned.loom](byte_copy_unaligned.loom) retains the HAL's packed
+16-byte block-copy algorithm and byte tail, with exact packed-element and
+tail views over explicit global buffers. The [AQL byte-copy case](../aql/byte_copy_test.cc)
 uses odd source/destination offsets and changes a 15-byte tail to one byte
 while keeping a complete 64-workitem group. This fixture specializes the
 selected algorithm; it has no build dependency on the HAL or its copy planner.
 
-[pattern_fill_unaligned.c](pattern_fill_unaligned.c) retains the HAL's
+[pattern_fill_unaligned.loom](pattern_fill_unaligned.loom) retains the HAL's
 unaligned fill algorithm, with four 16-byte vectors per block, a partial block
 and byte tails. The [AQL pattern-fill case](../aql/pattern_fill_test.cc) fills
 an odd subspan with a four-byte pattern, then changes the pattern and shrinks
-the range to a tail-only fill. The standalone full64 launch preserves the
-algorithm's bounds; the HAL's exact planner geometry is a separate contract.
+the range to a tail-only fill. The standalone launch of 64 workitems preserves
+the algorithm's bounds; the HAL's exact planner geometry is a separate contract.
 
-These five C sources still use the fixed headers
-[byte_copy_unaligned_gfx942.h](byte_copy_unaligned_gfx942.h),
-[pattern_fill_unaligned_gfx942.h](pattern_fill_unaligned_gfx942.h),
-[private_roundtrip_gfx942.h](private_roundtrip_gfx942.h),
-[lds_exchange_gfx1151.h](lds_exchange_gfx1151.h),
-[lds_exchange_gfx942.h](lds_exchange_gfx942.h) and
-[geometry_ids_gfx942.h](geometry_ids_gfx942.h). The ordinary CTS build consumes
-these six checked-in images without compiling their C sources. Each paired
-JSON record preserves source/compiler identity, flags, ELF and image hashes,
-resource metadata and entry disassembly. The descriptor and code remain
-paired; no descriptor fields are patched at runtime.
-
-### Fixed C artifact contract
-
-These gfx942 artifacts use HSA code object V5 and XNACK/SRAMECC feature settings
-of ANY. The gfx1151 LDS fixture is a separate V5, wave32 image.
-Other compiler targets require separate artifacts. The flat image preserves
-the linked `.rodata` and `.text` addresses relative to its
-descriptor, including all compiler-emitted text padding. A zero prefix retains
-the linked address phase when the descriptor is only 64-byte aligned while the
-entry requires 256-byte alignment. ELF dynamic tables and metadata are not
-loaded; the inspected kernels have no external calls,
-relocations, global-memory objects or references to those omitted sections.
-The LDS fixture's static group-memory object uses encoded LDS offsets and
-requires no loaded data section.
-
-| Property | Private roundtrip |
-| --- | --- |
-| Image size / GPU alignment | 2432 bytes / at least 256 bytes |
-| Descriptor / entry offset | 192 / 512 bytes |
-| Entry / complete text size | 836 / 1920 bytes |
-| Workgroup / wavefront | 64 workitems / wave64 |
-| Fixed group / private bytes per workitem | 0 / 40 |
-| SGPR / VGPR / AGPR count | 14 / 8 / 0 |
-| Spills / dynamic stack | None |
-| Kernarg size / compiler alignment | 16 / 8 bytes |
-| Caller kernarg alignment | At least 16 bytes |
-| Kernarg fields | Output address at 0, seed at 8, rotation at 12 |
-| Kernarg field types | `u64`, `u32`, `u32` |
-| Kernarg preload | Disabled |
-| RSRC3 / RSRC1 / RSRC2 | `0x1` / `0x00af0040` / `0x85` |
-
-The [LDS record](lds_exchange_gfx942.json) describes a 1600-byte image with
-descriptor/entry offsets 0/256 and a 308-byte entry in 1344 bytes of text.
-It uses 128-workitem wave64 groups, 512 fixed group bytes, zero private bytes,
-17 SGPRs, five VGPRs and no spills or dynamic stack. RSRC3/RSRC1/RSRC2 are
-`0x1` / `0x00af0080` / `0x84`. Its 20-byte semantic kernarg layout is output
-address (`u64`, offset 0), dynamic LDS byte offset (`u32`, offset 8), seed
-(`u32`, offset 12) and dynamic stride (`u32`, offset 16). A zeroed 32-byte,
-16-aligned caller slot backs the emitted 24-byte scalar fetch; its unused
-fetched lane is not an extra argument. Compiler alignment is eight bytes,
-and kernarg preload is disabled.
-
-The [geometry record](geometry_ids_gfx942.json) describes a 1600-byte image with
-descriptor/entry offsets 64/256, a 288-byte entry and no group/private memory.
-Its flat workgroup size is 64, with 20 SGPRs, eight VGPRs and no spills or
-dynamic stack. RSRC3/RSRC1/RSRC2 are `0x1` / `0x00af0080` / `0x1384`, enabling
-all group IDs and packed local XYZ. The 32-byte kernarg block contains output
-address (`u64`, offset 0), workgroup XYZ (`u32`, offsets 8/12/16), output row
-pitch and plane height (`u32`, offsets 20/24) and epoch (`u32`, offset 28).
-All fetches fit those 32 bytes; compiler/caller alignment is 8/16 bytes and
-preload is disabled.
-These extents are explicit arguments for output addressing, not a hidden
-dispatch-packet pointer.
-
-The [byte-copy record](byte_copy_unaligned_gfx942.json) describes a 2048-byte
-image with descriptor/entry offsets 128/256 and a 712-byte entry in 1792 bytes
-of text. It uses one 64-workitem wave64 group, 49 SGPRs, 12 VGPRs and no
-private/group memory, spills or hidden arguments. RSRC3/RSRC1/RSRC2 are
-`0x2` / `0x00af0181` / `0x184`. The six semantic arguments occupy 36 bytes:
-source, destination and byte length (`u64`, offsets 0/8/16), then grid X,
-grid Y and nominal workgroup X (`u32`, offsets 24/28/32). Scalar loads fetch
-40 bytes; the last DWORD is unused backing. The caller initializes a
-64-byte, 16-aligned slot and copies only the semantic fields from the
-[typed host layout](byte_copy_unaligned.h).
-The [dispatch reference](../../../../docs/reference/amd/gpu/aql/dispatch.md)
-describes the architecture's GLOBAL access and dispatch-completion contracts.
-
-The [pattern-fill record](pattern_fill_unaligned_gfx942.json) describes a
-2496-byte image with descriptor/entry offsets 128/256, a 1200-byte entry and
-2240 bytes of complete text. It uses a 64-workitem wave64 group, 62 SGPRs,
-18 VGPRs and no private/group memory, spills or hidden arguments.
-RSRC3/RSRC1/RSRC2 are `0x4` / `0x00af01c2` / `0x184`.
-Its [typed ABI](pattern_fill_unaligned.h) contains target address, byte length
-and repeated eight-byte pattern (`u64`, offsets 0/8/16), followed by grid X,
-grid Y and nominal workgroup X (`u32`, offsets 24/28/32). The 36 semantic
-bytes occupy a zeroed 64-byte, 16-aligned caller slot. Scalar loads fetch
-40 bytes; the final DWORD is unused, and its SGPR is overwritten before use.
-The [dispatch reference](../../../../docs/reference/amd/gpu/aql/dispatch.md)
-describes the native argument-fetch and GLOBAL-access rules.
-
-Images are little-endian; the consuming corpus builds only for x86-64 hosts.
-The [private record](private_roundtrip_gfx942.json) contains its complete hashes.
-The [pinned LLVM descriptor definition][descriptor] specifies the resource and
-relative entry fields. The generator checks the ELF target, exact exported
-symbols, selected section layout, descriptor, argument metadata and absence of
-relocations before writing the image.
+The private program requires a full `64,1,1` group; geometry keeps all three
+counts and local sizes dynamic, with no required local shape in the compiled
+metadata. Its caller chooses nominal groups of 64 workitems and checks the
+compiler's maximum group size. The copy/fill sources require `64,1,1` groups
+and take dynamic X/Y group counts as workload inputs. Their six device
+arguments retain 36 semantic bytes; callers initialize the complete 64-byte
+slot, check the compiler's rounded segment fits, and copy only typed fields.
+Alignment padding never becomes another argument or uninitialized input.
 
 ## AQL publication and observation
 
@@ -210,8 +110,8 @@ The transform payload case uses SYSTEM acquire/release scopes. Its two
 completed epochs change the input, addend and count, launch 1024 workitems,
 and compare every output word with an independently computed host result.
 Prefix and suffix guards, inactive tail lanes and unchanged input are checked.
-Code, IB, kernarg, signal and data storage remain alive until queue destruction; completed
-kernargs and data are reused only after execution completion and ring
+Code, IB, kernarg, signal and data storage remain alive until queue destruction;
+completed kernargs and data are reused only after execution completion and ring
 consumption have both been observed.
 
 The [composed recipe](../recipes/copy_dispatch_test.cc) adds SDMA upload and
@@ -239,14 +139,12 @@ replacement or runtime instrumentation policy.
 
 ## Fixed private storage
 
-The private entry contains nine `SCRATCH_STORE_DWORD` and nine
-`SCRATCH_LOAD_DWORD` instructions whose loaded values feed global outputs.
-Every read selects an initialized slot within the nine-word array. The
-descriptor's private requirement remains the compiler's full 40 bytes,
-including frame padding. The queue reserves 3072 bytes per physical wave slot:
-`align_up(40 * 64, 1024)`, equivalent to 48 configured bytes per lane. Its
-backing covers the queried CU count times scratch slots per CU, across all
-XCCs, and remains exclusive through successful queue destruction.
+The private source keeps both nine-iteration loops volatile. Every load selects
+an initialized slot within the nine-word array and contributes to global
+output. The descriptor owns the exact frame requirement; the queue rounds
+`private_bytes * 64` up to a 1024-byte wave allocation unit. Scratch backing
+covers the queried CU count times scratch slots per CU, across all XCCs, and
+remains exclusive through successful queue destruction.
 
 The case launches eight full workgroups and checks all 4608 output words per
 epoch, with changed seeds/rotations, complement poison and distinct allocation
@@ -254,10 +152,40 @@ guards. Its output witnesses the private accesses that actually ran and reuse
 of the same scratch backing. It does not establish execution on every physical
 slot or XCC. [Fixed scratch case](../aql/private_test.cc)
 
+## LDS exchange images
+
+[lds_exchange.c](lds_exchange.c) exchanges independently tagged static and
+dynamic group-memory values between waves. The [AQL LDS cases](../aql/lds_test.cc)
+exercise fixed allocation and changing packet-sized dynamic storage, checking
+both the partner wave's value and the stride supplied for each epoch.
+The separately compiled [gfx1151 image](lds_exchange_gfx1151.json) exercises
+static and changing dynamic storage with four wave32 waves through the
+[PM4 LDS cases](../pm4/lds_test.cc).
+The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) separates the
+unchanged compiler descriptor from derived launch allocation and scheduling.
+
+The gfx942 and gfx1151 images use HSA code object V5 with wave64 and wave32,
+respectively. Their descriptors reserve 512 fixed group bytes and no private
+storage. The 20-byte semantic argument layout is output address at byte 0,
+dynamic LDS byte offset at 8, seed at 12 and dynamic stride at 16. The local
+pointer is a workgroup-segment offset, not a global GPU address. A zeroed,
+16-aligned, 32-byte caller slot backs the scalar argument fetch. The same
+image accepts additional storage for the dispatch; each packet supplies the
+complete fixed-plus-dynamic allocation.
+
+The checked-in [gfx942](lds_exchange_gfx942.json) and
+[gfx1151](lds_exchange_gfx1151.json) records contain source/compiler identity,
+flags, ELF/image hashes, resource metadata and disassembly. Their flat images
+preserve the linked descriptor/text address phase and complete text padding.
+There are no relocations, external calls or loaded global data, and no
+descriptor patching. Images are little-endian; the consuming corpora build for
+x86-64 hosts. The [descriptor definition][descriptor] specifies the resource
+and relative entry fields.
+
 ## C fixture regeneration
 
-The separate [generator](generate.py) covers only the five remaining C
-fixture families. Their regeneration uses LLVM revision
+The separate [generator](generate.py) covers only the two LDS exchange images.
+Their regeneration uses LLVM revision
 `6dfe1677ab8dffbc6ec13d53a1e0215d75147689` (version 23.1.1), including `clang`,
 `ld.lld`, `llvm-objcopy`, `llvm-readelf` and `llvm-objdump`. The script checks
 compiler/linker revision and runs entirely offline in temporary storage:

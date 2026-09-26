@@ -10,10 +10,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace kernels::private_roundtrip {
 
-// Paired with private_roundtrip.c's 16-byte semantic kernarg layout.
+// Paired with private_roundtrip.loom's 16-byte semantic kernarg layout.
 struct alignas(16) Arguments {
   // Global GPU address of the first nine-word output record.
   uint64_t output;
@@ -27,6 +28,16 @@ static_assert(sizeof(Arguments) == 16);
 static_assert(offsetof(Arguments, output) == 0);
 static_assert(offsetof(Arguments, seed) == 8);
 static_assert(offsetof(Arguments, rotation) == 12);
+
+// Compiled resource fixtures share this native caller layout.
+inline constexpr std::array<uint32_t, 3> kArgumentByteOffsets = {
+    offsetof(Arguments, output), offsetof(Arguments, seed),
+    offsetof(Arguments, rotation)};
+inline constexpr std::array<uint32_t, 3> kArgumentByteLengths = {
+    sizeof(Arguments::output), sizeof(Arguments::seed),
+    sizeof(Arguments::rotation)};
+inline constexpr std::array<std::string_view, 3> kArgumentValueKinds = {
+    "global_buffer", "by_value", "by_value"};
 
 // Walks the private-slot permutation cyclically and truncates wider token
 // arithmetic only after forming each independently expected output word.

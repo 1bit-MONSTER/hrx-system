@@ -19,6 +19,16 @@ namespace kernel = kernels::gfx942_private_roundtrip;
 
 using Arguments = kernels::private_roundtrip::Arguments;
 static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
+static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
+static_assert(kernel::kArgumentByteOffsets ==
+              kernels::private_roundtrip::kArgumentByteOffsets);
+static_assert(kernel::kArgumentByteLengths ==
+              kernels::private_roundtrip::kArgumentByteLengths);
+static_assert(kernel::kArgumentValueKinds ==
+              kernels::private_roundtrip::kArgumentValueKinds);
+static_assert(kernel::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{64, 1, 1});
+static_assert(kernel::kWavefrontSize == 64);
 
 TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
   constexpr uint32_t kGridSize = 512;
@@ -30,7 +40,7 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
   constexpr uint32_t kSuffixGuard = 0xe270c84bu;
   constexpr std::array<uint32_t, 2> kSeeds = {0x13579bdfu, 0xa5c31f27u};
   constexpr std::array<uint32_t, 2> kRotations = {1, 7};
-  static_assert(kernel::kPrivateSegmentByteLength == 40);
+  static_assert(kernel::kPrivateSegmentByteLength > 0);
   static_assert(kernel::kWorkgroupSize == 64);
   static_assert(kGridSize % kernel::kWorkgroupSize == 0);
 

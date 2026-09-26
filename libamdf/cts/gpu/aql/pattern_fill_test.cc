@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <string_view>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/pattern_fill_unaligned.h"
@@ -19,13 +20,33 @@ namespace {
 namespace kernel = kernels::gfx942_pattern_fill_unaligned;
 using Arguments = kernels::pattern_fill_unaligned::Arguments;
 
+constexpr uint32_t kArgumentSemanticByteLength =
+    offsetof(Arguments, workgroup_size_x) + sizeof(uint32_t);
+static_assert(kernel::kArgumentByteOffsets ==
+              std::array<uint32_t, 6>{offsetof(Arguments, target),
+                                      offsetof(Arguments, byte_length),
+                                      offsetof(Arguments, pattern),
+                                      offsetof(Arguments, grid_size_x),
+                                      offsetof(Arguments, grid_size_y),
+                                      offsetof(Arguments, workgroup_size_x)});
+static_assert(kernel::kArgumentByteLengths ==
+              std::array<uint32_t, 6>{8, 8, 8, 4, 4, 4});
+static_assert(kernel::kArgumentValueKinds ==
+              std::array<std::string_view, 6>{"global_buffer", "by_value",
+                                              "by_value", "by_value",
+                                              "by_value", "by_value"});
+static_assert(kernel::kKernargByteLength >= kArgumentSemanticByteLength);
+static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
+static_assert(kernel::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{64, 1, 1});
+static_assert(kernel::kWavefrontSize == 64);
+
 TEST_F(AqlDispatchTest, CoherentSystemPatternFillPreservesSubspanAcrossEpochs) {
   constexpr uint32_t kPageByteLength = 4096;
   constexpr uint32_t kTargetByteOffset = 131;
   constexpr uint32_t kGridSize = 64;
   constexpr uint32_t kPatternByteLength = 4;
   constexpr uint32_t kArgumentSlotByteLength = 64;
-  constexpr uint32_t kArgumentFetchByteLength = 40;
   constexpr uint8_t kArgumentGuard = 0xa7;
   constexpr uint8_t kCompletionGuard = 0xd3;
   constexpr std::array<uint32_t, 2> kByteLengths = {188, 12};
@@ -39,9 +60,9 @@ TEST_F(AqlDispatchTest, CoherentSystemPatternFillPreservesSubspanAcrossEpochs) {
   static_assert(kernel::kWorkgroupSize == kGridSize);
   static_assert(kernel::kPrivateSegmentByteLength == 0);
   static_assert(kernel::kGroupSegmentByteLength == 0);
-  static_assert(offsetof(Arguments, workgroup_size_x) + sizeof(uint32_t) ==
-                kernel::kKernargByteLength);
-  static_assert(alignof(Arguments) == kernel::kKernargAlignment);
+  static_assert(kernel::kKernargByteLength <= kArgumentSlotByteLength);
+  static_assert(kArgumentSlotByteLength % kernel::kKernargAlignment == 0);
+  static_assert(kernel::kMaxFlatWorkgroupSize >= kGridSize);
   static_assert(kTargetByteOffset + kByteLengths[0] <= kPageByteLength);
   for (uint32_t epoch = 0; epoch < kByteLengths.size(); ++epoch) {
     for (uint32_t byte = 0; byte < sizeof(uint64_t); ++byte) {
@@ -99,8 +120,8 @@ TEST_F(AqlDispatchTest, CoherentSystemPatternFillPreservesSubspanAcrossEpochs) {
   RecordProperty("aql_pattern_fill_workgroup_size", kernel::kWorkgroupSize);
   RecordProperty("aql_pattern_fill_kernarg_byte_length",
                  kernel::kKernargByteLength);
-  RecordProperty("aql_pattern_fill_kernarg_fetch_byte_length",
-                 kArgumentFetchByteLength);
+  RecordProperty("aql_pattern_fill_kernarg_semantic_byte_length",
+                 kArgumentSemanticByteLength);
   RecordProperty("aql_pattern_fill_kernarg_slot_byte_length",
                  kArgumentSlotByteLength);
   RecordProperty("aql_pattern_fill_completion_guard_byte_offset",
@@ -145,10 +166,10 @@ TEST_F(AqlDispatchTest, CoherentSystemPatternFillPreservesSubspanAcrossEpochs) {
     };
     expected_arguments.fill(kArgumentGuard);
     std::memset(expected_arguments.data(), 0, kArgumentSlotByteLength);
-    // Copy semantic fields only. The extra fetched DWORD stays initialized
-    // backing; the host record's alignment padding is not an argument.
+    // Copy only semantic fields. The compiler's rounded segment and any
+    // argument-fetch padding remain inside the initialized slot.
     std::memcpy(expected_arguments.data(), &payload,
-                kernel::kKernargByteLength);
+                kArgumentSemanticByteLength);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     ASSERT_EQ(

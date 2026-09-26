@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <string_view>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/geometry_ids_gfx942.h"
@@ -27,7 +28,7 @@ struct alignas(16) Arguments {
   // Changing token stored as the seventh word of every active record.
   uint32_t epoch;
 };
-static_assert(alignof(Arguments) == kernel::kKernargAlignment);
+static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
 static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
 static_assert(sizeof(Arguments) == 32);
 static_assert(offsetof(Arguments, output) == 0);
@@ -36,6 +37,25 @@ static_assert(sizeof(Arguments::workgroup_size) == 12);
 static_assert(offsetof(Arguments, output_pitches) == 20);
 static_assert(sizeof(Arguments::output_pitches) == 8);
 static_assert(offsetof(Arguments, epoch) == 28);
+static_assert(kernel::kArgumentByteOffsets ==
+              std::array<uint32_t, 7>{
+                  offsetof(Arguments, output),
+                  offsetof(Arguments, workgroup_size),
+                  offsetof(Arguments, workgroup_size) + sizeof(uint32_t),
+                  offsetof(Arguments, workgroup_size) + 2 * sizeof(uint32_t),
+                  offsetof(Arguments, output_pitches),
+                  offsetof(Arguments, output_pitches) + sizeof(uint32_t),
+                  offsetof(Arguments, epoch)});
+static_assert(kernel::kArgumentByteLengths ==
+              std::array<uint32_t, 7>{8, 4, 4, 4, 4, 4, 4});
+static_assert(kernel::kArgumentValueKinds ==
+              std::array<std::string_view, 7>{
+                  "global_buffer", "by_value", "by_value", "by_value",
+                  "by_value", "by_value", "by_value"});
+static_assert(kernel::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{0, 0, 0});
+static_assert(kernel::kWorkgroupSize == 0);
+static_assert(kernel::kWavefrontSize == 64);
 
 class AqlGeometryTest : public AqlDispatchTest {
  protected:
@@ -45,6 +65,7 @@ class AqlGeometryTest : public AqlDispatchTest {
 void AqlGeometryTest::RunGeometry(
     std::array<aql::DispatchGeometry, 2> geometries) {
   constexpr uint32_t kRecordCapacity = 4096;
+  constexpr uint32_t kFlatWorkgroupSize = 64;
   constexpr uint32_t kRecordWordCount = 7;
   constexpr uint32_t kGuardWordCount = 16;
   constexpr uint32_t kWordCount =
@@ -54,7 +75,7 @@ void AqlGeometryTest::RunGeometry(
   constexpr uint32_t kInactiveWord = 0xb73a51c9u;
   constexpr std::array<uint32_t, 2> kEpochTokens = {0x13579bdfu, 0xa5c31f27u};
   constexpr std::array<const char*, 3> kAxes = {"x", "y", "z"};
-  static_assert(kernel::kWorkgroupSize == 64);
+  static_assert(kFlatWorkgroupSize <= kernel::kMaxFlatWorkgroupSize);
   static_assert(kernel::kGroupSegmentByteLength == 0);
   static_assert(kernel::kPrivateSegmentByteLength == 0);
 
@@ -71,7 +92,7 @@ void AqlGeometryTest::RunGeometry(
     const auto& geometry = geometries[epoch];
     ASSERT_EQ(uint64_t{geometry.workgroup_size[0]} *
                   geometry.workgroup_size[1] * geometry.workgroup_size[2],
-              kernel::kWorkgroupSize);
+              kFlatWorkgroupSize);
     for (uint32_t axis = 0; axis < kAxes.size(); ++axis) {
       ASSERT_GE(geometry.grid_size[axis], geometry.workgroup_size[axis]);
       const uint64_t storage_extent = ((uint64_t{geometry.grid_size[axis]} +
@@ -95,7 +116,7 @@ void AqlGeometryTest::RunGeometry(
   RecordProperty("aql_geometry_record_word_count", kRecordWordCount);
   RecordProperty("aql_geometry_checked_word_count", kWordCount);
   RecordProperty("aql_geometry_kernarg_byte_length", sizeof(Arguments));
-  RecordProperty("aql_geometry_flat_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("aql_geometry_flat_workgroup_size", kFlatWorkgroupSize);
 
   GpuMemory* output = nullptr;
   GpuMemory* arguments = nullptr;

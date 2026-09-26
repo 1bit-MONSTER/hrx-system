@@ -17,18 +17,14 @@ package(
 
 exports_files([
     "README.md",
-    "byte_copy_unaligned.c",
-    "byte_copy_unaligned_gfx942.json",
+    "byte_copy_unaligned.loom",
     "generate.py",
-    "geometry_ids.c",
-    "geometry_ids_gfx942.json",
+    "geometry_ids.loom",
     "lds_exchange.c",
     "lds_exchange_gfx1151.json",
     "lds_exchange_gfx942.json",
-    "pattern_fill_unaligned.c",
-    "pattern_fill_unaligned_gfx942.json",
-    "private_roundtrip.c",
-    "private_roundtrip_gfx942.json",
+    "pattern_fill_unaligned.loom",
+    "private_roundtrip.loom",
     "transform.loom",
     "transform_alternate.loom",
 ])
@@ -72,11 +68,12 @@ amdf_cc_library(
     hdrs = ["byte_copy_unaligned.h"],
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "byte_copy_unaligned_gfx942",
-    testonly = True,
-    hdrs = ["byte_copy_unaligned_gfx942.h"],
-    deps = [":image"],
+    src = "byte_copy_unaligned.loom",
+    entry_point = "byte_copy_unaligned",
+    namespace = "kernels::gfx942_byte_copy_unaligned",
+    target = ":gfx942",
 )
 
 amdf_cc_library(
@@ -85,11 +82,12 @@ amdf_cc_library(
     hdrs = ["pattern_fill_unaligned.h"],
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "pattern_fill_unaligned_gfx942",
-    testonly = True,
-    hdrs = ["pattern_fill_unaligned_gfx942.h"],
-    deps = [":image"],
+    src = "pattern_fill_unaligned.loom",
+    entry_point = "pattern_fill_unaligned",
+    namespace = "kernels::gfx942_pattern_fill_unaligned",
+    target = ":gfx942",
 )
 
 amdf_cts_gpu_kernel(
@@ -116,11 +114,12 @@ amdf_cts_gpu_kernel(
     target = ":gfx1151",
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "geometry_ids_gfx942",
-    testonly = True,
-    hdrs = ["geometry_ids_gfx942.h"],
-    deps = [":image"],
+    src = "geometry_ids.loom",
+    entry_point = "geometry_ids",
+    namespace = "kernels::gfx942_geometry_ids",
+    target = ":gfx942",
 )
 
 amdf_cc_library(
@@ -149,11 +148,12 @@ amdf_cc_library(
     hdrs = ["private_roundtrip.h"],
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "private_roundtrip_gfx942",
-    testonly = True,
-    hdrs = ["private_roundtrip_gfx942.h"],
-    deps = [":image"],
+    src = "private_roundtrip.loom",
+    entry_point = "private_roundtrip",
+    namespace = "kernels::gfx942_private_roundtrip",
+    target = ":gfx942",
 )
 
 _KERNEL_POLICY = apply_amdf_target_policy({})
