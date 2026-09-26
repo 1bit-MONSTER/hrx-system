@@ -184,7 +184,7 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
 
 ::testing::AssertionResult BuildResidentTransaction(
     std::span<const uint8_t> invocation, const ResidentNpuAddresses& addresses,
-    std::vector<uint8_t>* output) {
+    uint32_t payload_byte_length, std::vector<uint8_t>* output) {
   if (invocation.size() < kTransactionHeaderByteLength || invocation[0] != 0 ||
       invocation[1] != 1 || invocation[2] != 4 || invocation[3] != 6 ||
       invocation[4] != 1 || invocation[5] != 1 ||
@@ -199,11 +199,17 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
     return ::testing::AssertionFailure()
            << "Composed transaction exceeds the native size/count fields";
   }
-  if (!IsAddressRangeValid(addresses.startup_address, sizeof(uint32_t)) ||
-      !IsAddressRangeValid(addresses.control_address,
-                           kResidentFinalAckByteOffset + sizeof(uint32_t)) ||
-      !IsAddressRangeValid(addresses.request_address, 64) ||
-      !IsAddressRangeValid(addresses.response_address, 64)) {
+  if (payload_byte_length == 0 || payload_byte_length % kWordByteLength != 0 ||
+      !IsAddressRangeValid(addresses.startup_address, sizeof(uint32_t)) ||
+      !IsAddressRangeValid(addresses.request_generation_address,
+                           sizeof(uint32_t)) ||
+      !IsAddressRangeValid(addresses.request_payload_address,
+                           payload_byte_length) ||
+      !IsAddressRangeValid(addresses.response_payload_address,
+                           payload_byte_length) ||
+      !IsAddressRangeValid(addresses.response_generation_address,
+                           sizeof(uint32_t)) ||
+      !IsAddressRangeValid(addresses.final_ack_address, sizeof(uint32_t))) {
     return ::testing::AssertionFailure()
            << "Service records require aligned complete NPU ranges below 2^48";
   }
@@ -223,21 +229,19 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
   }
 
   AppendDescriptor(bytes, kStartupDescriptor, addresses.startup_address, 4, 0);
+  AppendDescriptor(bytes, kRequestGenerationDescriptor,
+                   addresses.request_generation_address, 4, 0);
+  AppendDescriptor(bytes, kRequestPayloadDescriptor,
+                   addresses.request_payload_address, payload_byte_length, 0);
   AppendDescriptor(
-      bytes, kRequestGenerationDescriptor,
-      addresses.control_address + kResidentRequestGenerationByteOffset, 4, 0);
-  AppendDescriptor(bytes, kRequestPayloadDescriptor, addresses.request_address,
-                   64, 0);
-  AppendDescriptor(
-      bytes, kResponsePayloadDescriptor, addresses.response_address, 64,
+      bytes, kResponsePayloadDescriptor, addresses.response_payload_address,
+      payload_byte_length,
       kShimReleaseOne | kShimUseNextDescriptor |
           (kResponseGenerationDescriptor << kShimNextDescriptorShift));
-  AppendDescriptor(
-      bytes, kResponseGenerationDescriptor,
-      addresses.control_address + kResidentResponseGenerationByteOffset, 4,
-      kShimAcquireEnable | kShimAcquireMinusOne);
-  AppendDescriptor(bytes, kFinalAckDescriptor,
-                   addresses.control_address + kResidentFinalAckByteOffset, 4,
+  AppendDescriptor(bytes, kResponseGenerationDescriptor,
+                   addresses.response_generation_address, 4,
+                   kShimAcquireEnable | kShimAcquireMinusOne);
+  AppendDescriptor(bytes, kFinalAckDescriptor, addresses.final_ack_address, 4,
                    0);
 
   bytes.insert(bytes.end(), invocation.begin() + kTransactionHeaderByteLength,

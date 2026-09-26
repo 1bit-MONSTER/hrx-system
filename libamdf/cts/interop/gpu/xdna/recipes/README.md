@@ -84,20 +84,22 @@ the host publishes RUN in a separate startup allocation. It then joins terminal
 completion without reading payloads, updating generations, maintaining shared
 payload caches, or submitting per-round work.
 
-Each generation sends sixteen 32-bit values. The GPU forms each request from
-the first response value of the preceding generation; the NPU transforms all
-sixteen values and publishes the new response generation. The GPU records every
-response in a separate transcript. The CPU checks that complete causal sequence,
-final device records, guards, allocation padding, and immutable command/code
-storage after both devices retire. A later host invalidation cannot repair a
-value already consumed by the GPU and recorded in that transcript.
+Each generation sends a configured number of 32-bit values. The GPU forms
+each request from the first response value of the preceding generation; the
+NPU transforms every value and publishes the new response generation. The GPU
+records every response in a separate transcript. The CPU checks that complete
+causal sequence, final device records, guards, allocation padding, and
+immutable command/code storage after both devices retire. A later host
+invalidation cannot repair a value already consumed by the GPU and recorded
+in that transcript.
 
-Request and response generations occupy separate control lines. The GPU uses
-system-scope release/acquire operations. The NPU starts a fresh DMA read for
-each control observation and chains its response payload and ready writes on
-one output channel with a lock dependency. The final GPU acknowledgement ends
-custom NPU issuance before the ordinary terminal output and native DMA idle
-checks close external-memory use. Only then may the host release backing.
+Request and response occupy separate slots, each with one writer and a
+leading generation word. The GPU uses system-scope release/acquire
+operations. The NPU starts a fresh DMA read for each control observation and
+chains its response payload and ready writes on one output channel with a
+lock dependency. The final GPU acknowledgement ends custom NPU issuance
+before the ordinary terminal output and native DMA idle checks close
+external-memory use. Only then may the host release backing.
 
 The compiler owns its ordinary configuration input, terminal output and tile
 program. A constrained transaction composer adds disjoint direct-stream routes
@@ -116,6 +118,15 @@ cases use the same compiled products and exercise unsigned payload wrapping.
 `StartupAndBacking/ResidentPrestartAbortTest` submits only the GPU or only the
 NPU, publishes ABORT, and checks that it drains without peer progress or
 payload changes. These are normal protocol paths with valid native submissions.
+
+`PayloadAndBacking/ResidentPayloadTest` exchanges 1, 4, 15, 16, 17, 64, or 1024
+words per generation with both backing roles. The payload begins either four
+or 64 bytes after the generation word, exercising first-line sharing and
+separation around cache-line and page boundaries. All sizes use the same GPU
+and NPU products; runtime arguments, immutable configuration and descriptor
+lengths agree on the exact extent. The full transcript remains the oracle for
+every response word. The fixed terminal record additionally carries the word
+count and final response's first word, last word and unsigned sum.
 
 ## Build and execution
 

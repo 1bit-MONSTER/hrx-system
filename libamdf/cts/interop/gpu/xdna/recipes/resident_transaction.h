@@ -13,24 +13,26 @@
 
 #include "gtest/gtest.h"
 
-// Fixed external records used by the one-column scalar-stream service. Each
+// External records used by the one-column scalar-stream service. Each
 // address comes from the corresponding NPU access query. The caller retains
 // these nonoverlapping extents through command completion and native teardown.
 struct ResidentNpuAddresses {
   // Four-byte host RUN/ABORT record in its own allocation and maintenance
   // range.
   uint64_t startup_address;
-  // Control backing of at least 196 bytes; byte zero remains a guard.
-  uint64_t control_address;
-  // Complete 64-byte GPU-produced request payload.
-  uint64_t request_address;
-  // Complete 64-byte NPU-produced response payload.
-  uint64_t response_address;
+  // Four-byte GPU-produced request generation, preceding its payload.
+  uint64_t request_generation_address;
+  // Complete GPU-produced request payload.
+  uint64_t request_payload_address;
+  // Complete NPU-produced response payload.
+  uint64_t response_payload_address;
+  // Four-byte NPU-produced response generation, preceding its payload.
+  uint64_t response_generation_address;
+  // Four-byte GPU acknowledgement after its final response reads.
+  uint64_t final_ack_address;
 };
 
-// Offsets are relative to control_address and select distinct control lines.
-inline constexpr uint32_t kResidentRequestGenerationByteOffset = 64;
-inline constexpr uint32_t kResidentResponseGenerationByteOffset = 128;
+// The final acknowledgement has its own line in the control allocation.
 inline constexpr uint32_t kResidentFinalAckByteOffset = 192;
 
 // Builds one native transaction around an already loaded and bound establishing
@@ -48,8 +50,10 @@ inline constexpr uint32_t kResidentFinalAckByteOffset = 192;
 // every addressed owner and separately publishes the resulting command bytes.
 // Address/header rejection leaves output unchanged, including when invocation
 // borrows its old contents. No compiler container parsing is performed here.
+// Payload length is a nonzero multiple of four bytes and matches the immutable
+// service configuration's word count.
 ::testing::AssertionResult BuildResidentTransaction(
     std::span<const uint8_t> invocation, const ResidentNpuAddresses& addresses,
-    std::vector<uint8_t>* output);
+    uint32_t payload_byte_length, std::vector<uint8_t>* output);
 
 #endif  // AMDF_CTS_INTEROP_GPU_XDNA_RECIPES_RESIDENT_TRANSACTION_H_

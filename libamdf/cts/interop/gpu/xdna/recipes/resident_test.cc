@@ -30,13 +30,13 @@ namespace shader = kernels::gfx1151_resident_exchange;
 namespace shader1150 = kernels::gfx1150_resident_exchange;
 
 struct Arguments {
-  // GPU address of the complete request payload.
+  // GPU address of the request slot, starting with its generation word.
   uint64_t request;
-  // GPU address of the complete response payload.
+  // GPU address of the response slot, starting with its generation word.
   uint64_t response;
   // GPU address of the separately maintained startup decision.
   uint64_t startup;
-  // GPU address of the generation and final-acknowledgement lines.
+  // GPU address of the guarded final-acknowledgement allocation.
   uint64_t control;
   // GPU address of the per-generation transcript.
   uint64_t records;
@@ -44,21 +44,28 @@ struct Arguments {
   uint32_t round_count;
   // First request's causal input; subsequent inputs come from NPU responses.
   uint32_t seed;
+  // Number of 32-bit words in each complete request and response.
+  uint32_t payload_word_count;
+  // Word offset from either slot base to its first payload word.
+  uint32_t payload_word_offset;
 };
 
 static_assert(shader::kArgumentByteOffsets ==
-              std::array<uint32_t, 7>{
+              std::array<uint32_t, 9>{
                   offsetof(Arguments, request), offsetof(Arguments, response),
                   offsetof(Arguments, startup), offsetof(Arguments, control),
                   offsetof(Arguments, records),
-                  offsetof(Arguments, round_count), offsetof(Arguments, seed)});
+                  offsetof(Arguments, round_count), offsetof(Arguments, seed),
+                  offsetof(Arguments, payload_word_count),
+                  offsetof(Arguments, payload_word_offset)});
 static_assert(shader::kArgumentByteLengths ==
-              std::array<uint32_t, 7>{8, 8, 8, 8, 8, 4, 4});
+              std::array<uint32_t, 9>{8, 8, 8, 8, 8, 4, 4, 4, 4});
 static_assert(shader::kArgumentValueKinds ==
-              std::array<std::string_view, 7>{
+              std::array<std::string_view, 9>{
                   "global_buffer", "global_buffer", "global_buffer",
-                  "global_buffer", "global_buffer", "by_value", "by_value"});
-static_assert(sizeof(Arguments) == 48 && shader::kKernargByteLength == 48);
+                  "global_buffer", "global_buffer", "by_value", "by_value",
+                  "by_value", "by_value"});
+static_assert(sizeof(Arguments) == 56 && shader::kKernargByteLength == 56);
 static_assert(shader::kRequiredWorkgroupSize ==
               std::array<uint32_t, 3>{1, 1, 1});
 static_assert(shader::kWavefrontSize == 32 &&
@@ -82,7 +89,6 @@ static_assert(shader1150::kWavefrontSize == 32 &&
               (shader1150::kComputePgmRsrc2 & 0x1fffu) == 4u);
 
 constexpr size_t kPayloadByteOffset = 64;
-constexpr size_t kRecordByteLength = 80;
 constexpr uint32_t kRun = 1;
 constexpr uint32_t kAbort = 2;
 
@@ -97,8 +103,19 @@ enum BufferOrdinal : size_t {
   kTerminal,
   kBufferCount,
 };
-constexpr std::array<size_t, kBufferCount> kPayloadByteLengths = {64, 256, 64,
-                                                                  64, 64,  64};
+struct PayloadShape {
+  // Complete request/response length, within the authored 1..1024-word range.
+  uint32_t word_count;
+  // Offset from slot generation to payload: word 1 or word 16.
+  uint32_t word_offset;
+
+  constexpr uint32_t byte_length() const { return word_count * 4; }
+  constexpr uint32_t byte_offset() const { return word_offset * 4; }
+  constexpr uint32_t slot_byte_length() const {
+    return byte_offset() + byte_length();
+  }
+  constexpr uint32_t record_byte_length() const { return 16 + byte_length(); }
+};
 
 uint32_t LoadU32(std::span<const uint8_t> bytes, size_t byte_offset) {
   return uint32_t{bytes[byte_offset]} |
@@ -175,7 +192,8 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
   }
 
-  void PrepareBuffers(amdf_memory_profile_roles_t role, uint32_t round_count) {
+  void PrepareBuffers(amdf_memory_profile_roles_t role, uint32_t round_count,
+                      PayloadShape shape) {
     if (role == AMDF_MEMORY_PROFILE_ROLE_REGISTER &&
         (features_ & AMDF_GPU_DEVICE_FEATURE_HOST_REGISTRATION) == 0) {
       GTEST_SKIP() << "GPU host registration is not advertised";
@@ -203,10 +221,12 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
     ASSERT_NO_FATAL_FAILURE(
         QueryProfilePairs(create, 1, kGpuXdnaJointEdges, pairs_));
+    const std::array<size_t, kBufferCount> payload_byte_lengths = {
+        64, 256, shape.slot_byte_length(), shape.slot_byte_length(), 64, 64};
     for (size_t i = 0; i < buffers_.size(); ++i) {
       SCOPED_TRACE(i);
       auto& buffer = buffers_[i];
-      const uint64_t extent = 2 * kPayloadByteOffset + kPayloadByteLengths[i];
+      const uint64_t extent = 2 * kPayloadByteOffset + payload_byte_lengths[i];
       create.byte_length = (extent + geometry.byte_length_granularity - 1) /
                            geometry.byte_length_granularity *
                            geometry.byte_length_granularity;
@@ -247,18 +267,22 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
       ASSERT_EQ(buffer.npu_address % 4, 0u);
       buffer.expected.assign(buffer.memory.bytes().size(),
                              uint8_t{0xA5} ^ uint8_t(i * 17));
-      if (i != kControl) {
+      if (i == kRequest || i == kResponse) {
+        StoreU32(buffer.expected, kPayloadByteOffset, 0);
+        std::fill_n(
+            buffer.expected.begin() + kPayloadByteOffset + shape.byte_offset(),
+            shape.byte_length(), 0);
+      } else if (i != kControl) {
         std::fill_n(buffer.expected.begin() + kPayloadByteOffset,
-                    kPayloadByteLengths[i], 0);
+                    payload_byte_lengths[i], 0);
       }
     }
-    for (size_t offset :
-         {kResidentRequestGenerationByteOffset,
-          kResidentResponseGenerationByteOffset, kResidentFinalAckByteOffset}) {
-      StoreU32(buffers_[kControl].expected, kPayloadByteOffset + offset, 0);
-    }
+    StoreU32(buffers_[kControl].expected,
+             kPayloadByteOffset + kResidentFinalAckByteOffset, 0);
     StoreU32(buffers_[kConfiguration].expected, kPayloadByteOffset,
              round_count);
+    StoreU32(buffers_[kConfiguration].expected, kPayloadByteOffset + 4,
+             shape.word_count);
     for (auto& buffer : buffers_) {
       std::copy(buffer.expected.begin(), buffer.expected.end(),
                 buffer.memory.bytes().begin());
@@ -271,7 +295,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
   }
 
-  void PrepareNpu() {
+  void PrepareNpu(PayloadShape shape) {
     const iree_file_toc_t* image = nullptr;
     const std::string_view target = xdna_endpoint_info_.target_id;
     if (target == "amd.xdna.strix_halo.17f0_11") {
@@ -294,11 +318,16 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
         buffers_[kConfiguration].npu_address, buffers_[kTerminal].npu_address};
     ASSERT_TRUE(executable.Bind(storage, binding_addresses));
     const ResidentNpuAddresses addresses = {
-        buffers_[kStartup].npu_address, buffers_[kControl].npu_address,
-        buffers_[kRequest].npu_address, buffers_[kResponse].npu_address};
+        buffers_[kStartup].npu_address,
+        buffers_[kRequest].npu_address,
+        buffers_[kRequest].npu_address + shape.byte_offset(),
+        buffers_[kResponse].npu_address + shape.byte_offset(),
+        buffers_[kResponse].npu_address,
+        buffers_[kControl].npu_address + kResidentFinalAckByteOffset};
     std::vector<uint8_t> commands;
     ASSERT_TRUE(BuildResidentTransaction(executable.ResolveInvocation(storage),
-                                         addresses, &commands));
+                                         addresses, shape.byte_length(),
+                                         &commands));
     ASSERT_LE(commands.size(),
               xdna_device_info_.instruction.maximum_byte_length);
     ASSERT_NO_FATAL_FAILURE(
@@ -314,7 +343,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     RecordProperty("resident_npu_command_bytes", commands.size());
   }
 
-  void PrepareGpu(uint32_t round_count, uint32_t seed) {
+  void PrepareGpu(uint32_t round_count, uint32_t seed, PayloadShape shape) {
     const bool gfx1150 = gpu_endpoint_info_.gfx_ip.stepping == 0;
     const auto& image = gfx1150 ? shader1150::kExecutable : shader::kExecutable;
     const uint32_t entry_offset =
@@ -347,7 +376,8 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     uint64_t records_address = 0;
     ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
-        2 * kPayloadByteOffset + uint64_t{round_count} * kRecordByteLength,
+        2 * kPayloadByteOffset +
+            uint64_t{round_count} * shape.record_byte_length(),
         records_, records_address, release));
     expected_records_.assign(records_.bytes().size(), 0xB6);
     std::copy(expected_records_.begin(), expected_records_.end(),
@@ -364,7 +394,9 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
                                  buffers_[kControl].gpu_address,
                                  records_address + kPayloadByteOffset,
                                  round_count,
-                                 seed};
+                                 seed,
+                                 shape.word_count,
+                                 shape.word_offset};
     original_arguments_.assign(arguments_.bytes().size(), 0);
     std::memcpy(original_arguments_.data(), &arguments, sizeof(arguments));
     std::copy(original_arguments_.begin(), original_arguments_.end(),
@@ -414,21 +446,24 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
 
   void Run(amdf_memory_profile_roles_t role, uint32_t round_count,
            uint32_t seed, LaunchOrder order,
-           Participants participants = Participants::kBoth) {
-    ASSERT_NO_FATAL_FAILURE(PrepareBuffers(role, round_count));
+           Participants participants = Participants::kBoth,
+           PayloadShape shape = {16, 16}) {
+    ASSERT_NO_FATAL_FAILURE(PrepareBuffers(role, round_count, shape));
     if (IsSkipped()) {
       return;
     }
-    ASSERT_NO_FATAL_FAILURE(PrepareNpu());
+    ASSERT_NO_FATAL_FAILURE(PrepareNpu(shape));
     if (IsSkipped()) {
       return;
     }
-    ASSERT_NO_FATAL_FAILURE(PrepareGpu(round_count, seed));
+    ASSERT_NO_FATAL_FAILURE(PrepareGpu(round_count, seed, shape));
     if (HasFailure()) {
       return;
     }
     RecordProperty("resident_round_count", round_count);
     RecordProperty("resident_seed", seed);
+    RecordProperty("resident_payload_words", shape.word_count);
+    RecordProperty("resident_payload_word_offset", shape.word_offset);
     RecordProperty("resident_launch_order",
                    order == LaunchOrder::kGpuFirst ? "gpu-first" : "npu-first");
     RecordProperty("resident_backing", role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
@@ -512,30 +547,36 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     for (uint32_t round = 0; round < completed_rounds; ++round) {
       const uint32_t generation = round + 1;
       const size_t record_offset =
-          kPayloadByteOffset + round * kRecordByteLength;
+          kPayloadByteOffset + uint64_t{round} * shape.record_byte_length();
       StoreU32(expected_records_, record_offset, generation);
       StoreU32(expected_records_, record_offset + 4, cause);
-      std::array<uint32_t, 16> response = {};
-      for (size_t i = 0; i < response.size(); ++i) {
+      uint32_t first_response = 0;
+      uint32_t last_response = 0;
+      uint32_t response_sum = 0;
+      for (uint32_t i = 0; i < shape.word_count; ++i) {
         const uint32_t request = uint64_t{cause} + 257u * generation + 17u * i;
-        response[i] = uint64_t{request} * 3u + generation;
-        StoreU32(expected_records_, record_offset + 16 + i * 4, response[i]);
-        StoreU32(buffers_[kRequest].expected, kPayloadByteOffset + i * 4,
-                 request);
-        StoreU32(buffers_[kResponse].expected, kPayloadByteOffset + i * 4,
-                 response[i]);
-        if (i >= 2) {
-          StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + i * 4,
-                   response[i]);
+        const uint32_t response = uint64_t{request} * 3u + generation;
+        StoreU32(expected_records_, record_offset + 16 + i * 4, response);
+        const size_t payload_offset =
+            kPayloadByteOffset + shape.byte_offset() + i * 4;
+        StoreU32(buffers_[kRequest].expected, payload_offset, request);
+        StoreU32(buffers_[kResponse].expected, payload_offset, response);
+        if (i == 0) {
+          first_response = response;
         }
+        last_response = response;
+        response_sum += response;
       }
-      cause = response[0];
+      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 12,
+               first_response);
+      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 16,
+               last_response);
+      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 20,
+               response_sum);
+      cause = first_response;
     }
-    StoreU32(buffers_[kControl].expected,
-             kPayloadByteOffset + kResidentRequestGenerationByteOffset,
-             completed_rounds);
-    StoreU32(buffers_[kControl].expected,
-             kPayloadByteOffset + kResidentResponseGenerationByteOffset,
+    StoreU32(buffers_[kRequest].expected, kPayloadByteOffset, completed_rounds);
+    StoreU32(buffers_[kResponse].expected, kPayloadByteOffset,
              completed_rounds);
     if (gpu_accepted) {
       StoreU32(buffers_[kControl].expected,
@@ -545,12 +586,15 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
       StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset, decision);
       StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 4,
                completed_rounds);
+      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 8,
+               shape.word_count);
     }
     ASSERT_EQ(HostTransition(records_, records_.host.invalidate),
               AMDF_STATUS_OK);
     std::string ticks;
     for (uint32_t round = 0; round < completed_rounds; ++round) {
-      const size_t offset = kPayloadByteOffset + round * kRecordByteLength + 8;
+      const size_t offset =
+          kPayloadByteOffset + uint64_t{round} * shape.record_byte_length() + 8;
       const uint32_t start = LoadU32(records_.bytes(), offset);
       const uint32_t end = LoadU32(records_.bytes(), offset + 4);
       // Device clock observations have no CPU oracle. Preserve their raw
@@ -651,7 +695,7 @@ TEST_P(ResidentExchangeTest, CausalRoundTrip) {
 
 std::vector<ExchangeCase> ExchangeCases() {
   std::vector<ExchangeCase> cases;
-  for (auto role :
+  for (amdf_memory_profile_roles_t role :
        {AMDF_MEMORY_PROFILE_ROLE_CREATE, AMDF_MEMORY_PROFILE_ROLE_REGISTER}) {
     for (auto order : {LaunchOrder::kGpuFirst, LaunchOrder::kNpuFirst}) {
       for (uint32_t round_count : {0u, 1u, 257u}) {
@@ -708,6 +752,47 @@ INSTANTIATE_TEST_SUITE_P(
                              : "Allocated";
       return name + (info.param.participant == Participants::kGpu ? "GpuOnly"
                                                                   : "NpuOnly");
+    });
+
+struct PayloadCase {
+  // Advertised construction role for the complete joint slot backing.
+  amdf_memory_profile_roles_t role;
+  // Actual payload extent and placement relative to its generation word.
+  PayloadShape shape;
+};
+
+class ResidentPayloadTest : public ResidentGpuXdnaTest,
+                            public ::testing::WithParamInterface<PayloadCase> {
+};
+
+TEST_P(ResidentPayloadTest, PublishesCompleteResponse) {
+  const auto& parameters = GetParam();
+  Run(parameters.role, 17, 0xFFFFFFFEu, LaunchOrder::kNpuFirst,
+      Participants::kBoth, parameters.shape);
+}
+
+std::vector<PayloadCase> PayloadCases() {
+  std::vector<PayloadCase> cases;
+  for (amdf_memory_profile_roles_t role :
+       {AMDF_MEMORY_PROFILE_ROLE_CREATE, AMDF_MEMORY_PROFILE_ROLE_REGISTER}) {
+    for (uint32_t word_count : {1u, 4u, 15u, 16u, 17u, 64u, 1024u}) {
+      for (uint32_t word_offset : {1u, 16u}) {
+        cases.push_back({role, {word_count, word_offset}});
+      }
+    }
+  }
+  return cases;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PayloadAndBacking, ResidentPayloadTest, ::testing::ValuesIn(PayloadCases()),
+    [](const ::testing::TestParamInfo<PayloadCase>& info) {
+      std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
+                             ? "Registered"
+                             : "Allocated";
+      name += "Words" + std::to_string(info.param.shape.word_count);
+      return name + (info.param.shape.word_offset == 1 ? "SharedFirstLine"
+                                                       : "SeparateFirstLine");
     });
 
 }  // namespace

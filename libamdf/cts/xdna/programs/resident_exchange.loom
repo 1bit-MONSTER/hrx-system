@@ -5,18 +5,23 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 // One immutable 64-byte configuration record drives one complete service.
-// Configuration word 0 is the unsigned generation count. The remaining words
-// are reserved and initialized by the caller. The worker publishes one real
-// 64-byte terminal record after all custom traffic is closed.
+// Configuration words 0 and 1 are the unsigned generation count and positive
+// payload word count. The remaining words are reserved and initialized by the
+// caller. Terminal words 0..5 hold state, completed rounds, payload word count,
+// and the final response's first word, last word, and sum modulo 2^32. All other
+// terminal words remain zero; the three response summaries are zero when no
+// round ran. The worker publishes this 64-byte record after custom traffic ends.
 //
 // Cold native setup assigns shim DMA channel 1 BDs 10..15 to startup, request
 // generation, request payload, response payload, response ready, and final ACK.
-// Startup is a separate allocation. The other control words are at byte offsets
-// 64, 128, and 192 in the shared control allocation. All payloads are 64 bytes.
+// Startup is a separate allocation. Request and response generation words are
+// at their respective slot bases; payloads begin at a caller-selected word
+// offset. Each payload descriptor transfers exactly the configured word count.
+// The final ACK remains at byte offset 192 in the shared control allocation.
 // BDs 13 -> 14 form a same-channel payload/ready chain: BD 13 releases shim
 // lock 0 by one; BD 14 acquires one. Incoming DMA words reach Core0 without
-// packet headers. Outgoing
-// packet ID 7 reaches shim TileControl; ID 9 reaches S2MM1 with its header dropped.
+// packet headers. Outgoing packet ID 7 reaches shim TileControl; ID 9 reaches
+// S2MM1 with its header dropped.
 //
 // Queue writes carry the native odd-parity control header for one word:
 // MM2S1 queue 0x1d21c -> 0x8001d21c; S2MM1 queue 0x1d20c -> 0x0001d20c.
@@ -55,6 +60,7 @@ low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @res
   %terminal_copy = copy %terminal : reg<aie2p.ep> -> reg<aie2p.ep>
   %terminal_end = padda %terminal_copy, 64
   %round_count = lda %configuration, 0
+  %word_count = lda %configuration, 4
   %c0 = mov.short 0
   %c1 = mov.short 1
   %abort_state = mov.short 2
@@ -87,6 +93,7 @@ low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @res
   st %c0, %terminal_end, -12
   st %c0, %terminal_end, -8
   st %c0, %terminal_end, -4
+  st %word_count, %terminal, 8
   low.br ^poll_startup
 
 ^poll_startup:
@@ -133,84 +140,44 @@ low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @res
   mov.ms %output_queue_header
   mov.ms.last %response_chain_descriptor
   mov.ms %data_route
-  %request0 = mov.ss
-  %scaled0 = mul %request0, %c3
-  %response0 = add.rr %scaled0, %generation
-  mov.ms %response0
-  %request1 = mov.ss
-  %scaled1 = mul %request1, %c3
-  %response1 = add.rr %scaled1, %generation
-  mov.ms %response1
-  %request2 = mov.ss
-  %scaled2 = mul %request2, %c3
-  %response2 = add.rr %scaled2, %generation
-  st %response2, %terminal, 8
-  mov.ms %response2
-  %request3 = mov.ss
-  %scaled3 = mul %request3, %c3
-  %response3 = add.rr %scaled3, %generation
-  st %response3, %terminal, 12
-  mov.ms %response3
-  %request4 = mov.ss
-  %scaled4 = mul %request4, %c3
-  %response4 = add.rr %scaled4, %generation
-  st %response4, %terminal, 16
-  mov.ms %response4
-  %request5 = mov.ss
-  %scaled5 = mul %request5, %c3
-  %response5 = add.rr %scaled5, %generation
-  st %response5, %terminal, 20
-  mov.ms %response5
-  %request6 = mov.ss
-  %scaled6 = mul %request6, %c3
-  %response6 = add.rr %scaled6, %generation
-  st %response6, %terminal, 24
-  mov.ms %response6
-  %request7 = mov.ss
-  %scaled7 = mul %request7, %c3
-  %response7 = add.rr %scaled7, %generation
-  st %response7, %terminal, 28
-  mov.ms %response7
-  %request8 = mov.ss
-  %scaled8 = mul %request8, %c3
-  %response8 = add.rr %scaled8, %generation
-  st %response8, %terminal_end, -32
-  mov.ms %response8
-  %request9 = mov.ss
-  %scaled9 = mul %request9, %c3
-  %response9 = add.rr %scaled9, %generation
-  st %response9, %terminal_end, -28
-  mov.ms %response9
-  %request10 = mov.ss
-  %scaled10 = mul %request10, %c3
-  %response10 = add.rr %scaled10, %generation
-  st %response10, %terminal_end, -24
-  mov.ms %response10
-  %request11 = mov.ss
-  %scaled11 = mul %request11, %c3
-  %response11 = add.rr %scaled11, %generation
-  st %response11, %terminal_end, -20
-  mov.ms %response11
-  %request12 = mov.ss
-  %scaled12 = mul %request12, %c3
-  %response12 = add.rr %scaled12, %generation
-  st %response12, %terminal_end, -16
-  mov.ms %response12
-  %request13 = mov.ss
-  %scaled13 = mul %request13, %c3
-  %response13 = add.rr %scaled13, %generation
-  st %response13, %terminal_end, -12
-  mov.ms %response13
-  %request14 = mov.ss
-  %scaled14 = mul %request14, %c3
-  %response14 = add.rr %scaled14, %generation
-  st %response14, %terminal_end, -8
-  mov.ms %response14
-  %request15 = mov.ss
-  %scaled15 = mul %request15, %c3
-  %response15 = add.rr %scaled15, %generation
-  st %response15, %terminal_end, -4
-  mov.ms.last %response15
+
+  // Peel one word so a one-word response has exactly one final stream write.
+  %first_request = mov.ss
+  %first_scaled = mul %first_request, %c3
+  %first_response = add.rr %first_scaled, %generation
+  st %first_response, %terminal, 12
+  %remaining_words = sub %word_count, %c1
+  %has_more_words = nez %remaining_words
+  low.cond_br %has_more_words, ^send_first, ^send_single : reg<aie2p.er>
+
+^send_single:
+  mov.ms.last %first_response
+  low.br ^payload_complete(%first_response: reg<aie2p.er>, %first_response: reg<aie2p.er>)
+
+^send_first:
+  mov.ms %first_response
+  low.br ^stream_words(%remaining_words: reg<aie2p.er>, %first_response: reg<aie2p.er>)
+
+^stream_words(%remaining: reg<aie2p.er>, %response_sum: reg<aie2p.er>):
+  %request_word = mov.ss
+  %scaled_word = mul %request_word, %c3
+  %response_word = add.rr %scaled_word, %generation
+  %next_response_sum = add.rr %response_sum, %response_word
+  %next_remaining = sub %remaining, %c1
+  %has_next_word = nez %next_remaining
+  low.cond_br %has_next_word, ^send_word, ^send_last : reg<aie2p.er>
+
+^send_word:
+  mov.ms %response_word
+  low.br ^stream_words(%next_remaining: reg<aie2p.er>, %next_response_sum: reg<aie2p.er>)
+
+^send_last:
+  mov.ms.last %response_word
+  low.br ^payload_complete(%response_word: reg<aie2p.er>, %next_response_sum: reg<aie2p.er>)
+
+^payload_complete(%last_response: reg<aie2p.er>, %final_response_sum: reg<aie2p.er>):
+  st %last_response, %terminal, 16
+  st %final_response_sum, %terminal, 20
 
   // A separate complete packet supplies the chained four-byte ready BD.
   mov.ms %data_route
