@@ -7,7 +7,6 @@
 #ifndef AMDF_CTS_XDNA_UTIL_EXECUTABLE_H_
 #define AMDF_CTS_XDNA_UTIL_EXECUTABLE_H_
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -24,12 +23,12 @@
 //
 // The admitted subset is ELF32LE EM_AIE, AIE2P flags 3, metadata version 2 and
 // transaction encoding 0.1: one mutable COMMAND allocation, one allocation
-// use, one entry, no static relocations and three GLOBAL buffers. Each buffer
-// has a 64-byte minimum extent, four-byte alignment, zero logical offset and
-// DEVICE_VISIBLE | COHERENT usage; access is READ, READ, WRITE respectively.
-// Dynamic relocations are declared eight-byte SHIM_ADDRESS fields. Load ranges
-// may alias source bytes and have explicit zero-fill tails. Only invocation
-// zero, which establishes the program's state, is exposed.
+// use, one entry, no static relocations and caller-declared GLOBAL buffers.
+// Each buffer has a 64-byte minimum extent, four-byte alignment, zero logical
+// offset and DEVICE_VISIBLE | COHERENT usage; access matches the caller's
+// binding list. Dynamic relocations are declared eight-byte SHIM_ADDRESS
+// fields. Load ranges may alias source bytes and have explicit zero-fill tails.
+// Only invocation zero, which establishes the program's state, is exposed.
 //
 // Profile revision and firmware ABI IDs come from the compiler's NPU2 target
 // contract keyed by exact endpoint architecture and target ID. They are not
@@ -39,7 +38,6 @@
 // fixture's compiled program must satisfy that native submission contract.
 class XdnaExecutable {
  public:
-  static constexpr size_t kBindingCount = 3;
   static constexpr uint64_t kBindingByteLength = 64;
 
   // Admits the fixture once and borrows its immutable bytes. They must remain
@@ -48,8 +46,8 @@ class XdnaExecutable {
   ::testing::AssertionResult Initialize(
       std::span<const uint8_t> elf,
       const amdf_xdna_endpoint_info_t& endpoint_info,
-      const amdf_xdna_device_info_t& device_info,
-      uint32_t logical_column_count);
+      const amdf_xdna_device_info_t& device_info, uint32_t logical_column_count,
+      std::span<const amdf_memory_access_t> binding_accesses);
 
   uint64_t allocation_byte_length() const { return allocation_byte_length_; }
   uint64_t allocation_alignment() const { return allocation_alignment_; }
@@ -61,21 +59,19 @@ class XdnaExecutable {
   void Load(std::span<uint8_t> storage) const;
 
   // Requires loaded storage with the same extent as Load and no pending users.
-  // The caller supplies addresses of three complete logical buffers satisfying
+  // The caller supplies addresses of the complete logical buffers satisfying
   // the admitted permissions, extent and memory contract. Validates every
   // address and relocation before changing any byte; failure leaves storage
   // unchanged. Cache publication remains the caller's responsibility.
-  ::testing::AssertionResult Bind(
-      std::span<uint8_t> storage,
-      const std::array<uint64_t, kBindingCount>& addresses) const;
+  ::testing::AssertionResult Bind(std::span<uint8_t> storage,
+                                  std::span<const uint64_t> addresses) const;
 
-  // Resolves invocation zero over the caller's live command allocation. The
-  // caller has established the queried EXECUTE access, allocation alignment
-  // and extent at memory_byte_offset, and retains all native owners through
-  // their last use. This operation does not publish or submit the command.
-  amdf_xdna_kernel_command_t ResolveInvocation(
-      amdf_memory_t* memory, uint32_t access_ordinal,
-      uint64_t memory_byte_offset) const;
+  // Borrows invocation zero from successfully loaded and bound storage. The
+  // caller may copy its complete native transaction into EXECUTE backing or
+  // compose its operation body with additional case-owned native setup/drain.
+  // This operation does not publish or submit the command.
+  std::span<const uint8_t> ResolveInvocation(
+      std::span<const uint8_t> storage) const;
 
  private:
   struct LoadRange {
@@ -110,6 +106,8 @@ class XdnaExecutable {
   std::vector<LoadRange> loads_;
   // Decoded nonoverlapping dynamic fields admitted once at initialization.
   std::vector<Relocation> relocations_;
+  // Number of caller-declared logical buffers admitted with the image.
+  size_t binding_count_ = 0;
   // Required command-backing capacity in bytes.
   uint64_t allocation_byte_length_ = 0;
   // Required command-backing address alignment in bytes.

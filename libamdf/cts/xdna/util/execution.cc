@@ -37,12 +37,12 @@
   return ::testing::AssertionFailure() << "native XDNA queue family is absent";
 }
 
-void XdnaExecution::Prepare(
-    const amdf_api_t* api, const amdf_xdna_api_t* xdna_api,
-    amdf_device_t* device, uint32_t queue_family_ordinal,
-    const XdnaExecutable& executable,
-    const std::array<uint64_t, XdnaExecutable::kBindingCount>&
-        binding_addresses) {
+void XdnaExecution::Prepare(const amdf_api_t* api,
+                            const amdf_xdna_api_t* xdna_api,
+                            amdf_device_t* device,
+                            uint32_t queue_family_ordinal,
+                            std::span<const uint8_t> commands,
+                            uint64_t command_alignment) {
   amdf_xdna_context_create_info_t context_create = {};
   context_create.type = AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_CREATE_INFO;
   context_create.structure_size = sizeof(context_create);
@@ -85,8 +85,7 @@ void XdnaExecution::Prepare(
   create.access_count = 1;
   create.accesses = &access;
   create.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
-  const uint64_t required_byte_length = executable.allocation_byte_length() +
-                                        executable.allocation_alignment() - 1;
+  const uint64_t required_byte_length = commands.size() + command_alignment - 1;
   create.byte_length =
       (required_byte_length + granularity - 1) / granularity * granularity;
   create.minimum_alignment = profile.allocation.minimum_alignment;
@@ -100,15 +99,16 @@ void XdnaExecution::Prepare(
   // alignment are distinct. Place an aligned command slice after querying the
   // actual native address instead of overclaiming the allocation guarantee.
   const uint64_t byte_offset =
-      (executable.allocation_alignment() -
-       firmware_address % executable.allocation_alignment()) %
-      executable.allocation_alignment();
+      (command_alignment - firmware_address % command_alignment) %
+      command_alignment;
   std::fill(instructions.bytes().begin(), instructions.bytes().end(), 0xA5);
-  const auto storage = instructions.bytes().subspan(
-      byte_offset, executable.allocation_byte_length());
-  executable.Load(storage);
-  ASSERT_TRUE(executable.Bind(storage, binding_addresses));
-  command = executable.ResolveInvocation(instructions.memory, 0, byte_offset);
+  std::copy(commands.begin(), commands.end(),
+            instructions.bytes().begin() + byte_offset);
+  command = {.memory = instructions.memory,
+             .access_ordinal = 0,
+             .reserved = 0,
+             .byte_offset = byte_offset,
+             .byte_length = commands.size()};
 
   amdf_xdna_kernel_queue_create_info_t queue_create = {};
   queue_create.type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_CREATE_INFO;

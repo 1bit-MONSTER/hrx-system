@@ -73,9 +73,12 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     } else {
       GTEST_SKIP() << "no finite arithmetic fixture for " << target;
     }
+    constexpr std::array<amdf_memory_access_t, 3> binding_accesses = {
+        AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_READ,
+        AMDF_MEMORY_ACCESS_WRITE};
     ASSERT_TRUE(executable_.Initialize(
         {reinterpret_cast<const uint8_t*>(image->data), image->size},
-        endpoint_info, device_info, 1));
+        endpoint_info, device_info, 1, binding_accesses));
     memory_access_.requirements.address_kinds = UINT64_C(1)
                                                 << AMDF_MEMORY_ADDRESS_XDNA_DMA;
   }
@@ -184,9 +187,13 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
 
   void RunRoundTrips(amdf_memory_profile_roles_t role) {
     ASSERT_NO_FATAL_FAILURE(CreateBindings(role));
-    ASSERT_NO_FATAL_FAILURE(execution_.Prepare(api_, xdna_api_, device_,
-                                               family_ordinal_, executable_,
-                                               binding_addresses_));
+    std::vector<uint8_t> image_storage(executable_.allocation_byte_length());
+    executable_.Load(image_storage);
+    ASSERT_TRUE(executable_.Bind(image_storage, binding_addresses_));
+    ASSERT_NO_FATAL_FAILURE(
+        execution_.Prepare(api_, xdna_api_, device_, family_ordinal_,
+                           executable_.ResolveInvocation(image_storage),
+                           executable_.allocation_alignment()));
     const auto commands = execution_.instructions.bytes();
     const std::vector<uint8_t> original_commands(commands.begin(),
                                                  commands.end());

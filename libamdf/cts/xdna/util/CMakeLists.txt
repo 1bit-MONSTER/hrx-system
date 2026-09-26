@@ -34,7 +34,6 @@ iree_cc_library(
   SRCS
     "execution.cc"
   DEPS
-    ::executable
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::util::mapped_memory

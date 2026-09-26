@@ -7,6 +7,7 @@
 #include "libamdf/cts/xdna/util/executable.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
 #include <iterator>
@@ -101,7 +102,8 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
 ::testing::AssertionResult XdnaExecutable::Initialize(
     std::span<const uint8_t> elf,
     const amdf_xdna_endpoint_info_t& endpoint_info,
-    const amdf_xdna_device_info_t& device_info, uint32_t logical_column_count) {
+    const amdf_xdna_device_info_t& device_info, uint32_t logical_column_count,
+    std::span<const amdf_memory_access_t> binding_accesses) {
   const uint64_t profile = DeviceProfile(endpoint_info);
   if (profile == 0 || logical_column_count == 0 || logical_column_count > 8 ||
       logical_column_count > device_info.array.column_count ||
@@ -179,20 +181,23 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
   const uint32_t invocation_count = Read32(metadata + 56);
   const uint32_t name_length = Read32(metadata + 60);
   if (Read32(metadata + 36) != 1 || Read32(metadata + 40) != 1 ||
-      Read32(metadata + 44) != 1 || Read32(metadata + 48) != kBindingCount ||
+      Read32(metadata + 44) != 1 ||
+      Read32(metadata + 48) != binding_accesses.size() ||
+      binding_accesses.size() > kMaximumRecordCount ||
       relocation_count > kMaximumRecordCount || invocation_count == 0 ||
       invocation_count > kMaximumRecordCount) {
     return ::testing::AssertionFailure()
-           << "fixture requires one allocation/use/entry and three bindings";
+           << "fixture requires one allocation/use/entry and the declared "
+              "bindings";
   }
   constexpr uint32_t kAllocationOffset = kMetadataHeaderSize;
   constexpr uint32_t kUseOffset = kAllocationOffset + kAllocationSize;
   constexpr uint32_t kEntryOffset = kUseOffset + kAllocationUseSize;
   constexpr uint32_t kBindingOffset = kEntryOffset + kEntrySize;
-  constexpr uint32_t kRelocationOffset =
-      kBindingOffset + kBindingCount * kBindingSize;
+  const uint32_t relocation_offset =
+      kBindingOffset + binding_accesses.size() * kBindingSize;
   const uint64_t invocation_offset =
-      kRelocationOffset + uint64_t(relocation_count) * kRelocationSize;
+      relocation_offset + uint64_t(relocation_count) * kRelocationSize;
   const uint64_t name_offset =
       invocation_offset + uint64_t(invocation_count) * kInvocationSize;
   if (!Fits(name_offset, name_length, metadata_size) ||
@@ -203,6 +208,7 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
 
   XdnaExecutable candidate;
   candidate.elf_ = elf;
+  candidate.binding_count_ = binding_accesses.size();
   const uint8_t* allocation = metadata + kAllocationOffset;
   candidate.allocation_byte_length_ = Read64(allocation + 8);
   candidate.allocation_alignment_ = Read64(allocation + 16);
@@ -223,7 +229,8 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
   if (Read32(entry + 4) == 0 || Read32(entry + 4) > 4096 ||
       !Fits(Read32(entry), Read32(entry + 4), name_length) ||
       Read32(entry + 8) != 0 || Read32(entry + 12) != 1 ||
-      Read32(entry + 16) != 0 || Read32(entry + 20) != kBindingCount ||
+      Read32(entry + 16) != 0 ||
+      Read32(entry + 20) != binding_accesses.size() ||
       Read32(entry + 24) != 0 || Read32(entry + 28) != 0 ||
       Read32(entry + 32) != 0 || Read32(entry + 36) != relocation_count ||
       Read32(entry + 40) != 0 || Read32(entry + 44) != invocation_count) {
@@ -231,11 +238,11 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
            << "entry must own all uses/bindings/dynamic "
               "relocations/invocations";
   }
-  for (size_t i = 0; i < kBindingCount; ++i) {
+  for (size_t i = 0; i < binding_accesses.size(); ++i) {
     const uint8_t* binding = metadata + kBindingOffset + i * kBindingSize;
     if (Read16(binding) != 1 || Read16(binding + 2) != 1 ||
-        Read16(binding + 4) != (i < 2 ? 1 : 2) || Read16(binding + 6) != 5 ||
-        Read64(binding + 8) != kBindingByteLength ||
+        Read16(binding + 4) != binding_accesses[i] ||
+        Read16(binding + 6) != 5 || Read64(binding + 8) != kBindingByteLength ||
         Read64(binding + 16) != 4 || Read64(binding + 24) != 0 ||
         Read64(binding + 32) != 0) {
       return ::testing::AssertionFailure()
@@ -319,14 +326,15 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
   candidate.relocations_.reserve(relocation_count);
   previous_end = 0;
   for (uint32_t i = 0; i < relocation_count; ++i) {
-    const uint8_t* row = metadata + kRelocationOffset + i * kRelocationSize;
+    const uint8_t* row = metadata + relocation_offset + i * kRelocationSize;
     const Relocation relocation = {Read32(row + 4),
                                    Read32(row + 8),
                                    std::bit_cast<int64_t>(Read64(row + 16)),
                                    Read64(row + 24),
                                    Read64(row + 32),
                                    Read64(row + 40)};
-    if (Read32(row) != 0 || relocation.binding_ordinal >= kBindingCount ||
+    if (Read32(row) != 0 ||
+        relocation.binding_ordinal >= binding_accesses.size() ||
         Read32(row + 12) != 1 || relocation.byte_offset % 4 != 0 ||
         relocation.byte_offset < previous_end ||
         relocation.minimum_value > relocation.maximum_value ||
@@ -370,8 +378,11 @@ void XdnaExecutable::Load(std::span<uint8_t> storage) const {
 }
 
 ::testing::AssertionResult XdnaExecutable::Bind(
-    std::span<uint8_t> storage,
-    const std::array<uint64_t, kBindingCount>& addresses) const {
+    std::span<uint8_t> storage, std::span<const uint64_t> addresses) const {
+  if (addresses.size() != binding_count_) {
+    return ::testing::AssertionFailure()
+           << "binding address count does not match image";
+  }
   for (size_t i = 0; i < addresses.size(); ++i) {
     if (addresses[i] % 4 != 0 ||
         addresses[i] > kMaximumShimAddress - (kBindingByteLength - 1)) {
@@ -409,12 +420,7 @@ void XdnaExecutable::Load(std::span<uint8_t> storage) const {
   return ::testing::AssertionSuccess();
 }
 
-amdf_xdna_kernel_command_t XdnaExecutable::ResolveInvocation(
-    amdf_memory_t* memory, uint32_t access_ordinal,
-    uint64_t memory_byte_offset) const {
-  return {.memory = memory,
-          .access_ordinal = access_ordinal,
-          .reserved = 0,
-          .byte_offset = memory_byte_offset + invocation_byte_offset_,
-          .byte_length = invocation_byte_length_};
+std::span<const uint8_t> XdnaExecutable::ResolveInvocation(
+    std::span<const uint8_t> storage) const {
+  return storage.subspan(invocation_byte_offset_, invocation_byte_length_);
 }

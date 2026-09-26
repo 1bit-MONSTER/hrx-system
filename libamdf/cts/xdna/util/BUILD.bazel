@@ -29,7 +29,6 @@ amdf_cc_library(
     srcs = ["execution.cc"],
     hdrs = ["execution.h"],
     deps = [
-        ":executable",
         "//libamdf/cts/util:mapped_memory",
         "//third_party:google_test",
     ],

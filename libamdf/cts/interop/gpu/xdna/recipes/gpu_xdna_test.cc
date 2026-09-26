@@ -303,9 +303,12 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     ASSERT_EQ(xdna_api_->device_query_info(xdna_device_, &device_info),
               AMDF_STATUS_OK);
     ASSERT_TRUE(FindXdnaKernelQueueFamily(api_, xdna_endpoint, &xdna_family_));
+    constexpr std::array<amdf_memory_access_t, 3> binding_accesses = {
+        AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_READ,
+        AMDF_MEMORY_ACCESS_WRITE};
     ASSERT_TRUE(executable_.Initialize(
         {reinterpret_cast<const uint8_t*>(image->data), image->size},
-        endpoint_info, device_info, 1));
+        endpoint_info, device_info, 1, binding_accesses));
     accesses_[0] = {
         xdna_device_,
         {.access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
@@ -725,9 +728,13 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
         reinterpret_cast<uintptr_t>(staging_.host.pointer) +
             kCompletionByteOffset,
         staging_address + kCompletionByteOffset));
-    ASSERT_NO_FATAL_FAILURE(execution_.Prepare(api_, xdna_api_, xdna_device_,
-                                               xdna_family_, executable_,
-                                               xdna_addresses));
+    std::vector<uint8_t> image_storage(executable_.allocation_byte_length());
+    executable_.Load(image_storage);
+    ASSERT_TRUE(executable_.Bind(image_storage, xdna_addresses));
+    ASSERT_NO_FATAL_FAILURE(
+        execution_.Prepare(api_, xdna_api_, xdna_device_, xdna_family_,
+                           executable_.ResolveInvocation(image_storage),
+                           executable_.allocation_alignment()));
     if (gpu_operation_ == GpuOperation::kShader) {
       ASSERT_NO_FATAL_FAILURE(PrepareShader());
     }
