@@ -19,23 +19,36 @@ namespace {
 namespace kernel = kernels::gfx942_lds_exchange;
 
 using Arguments = kernels::lds_exchange::Arguments;
-static_assert(alignof(Arguments) == kernel::kKernargAlignment);
+static_assert(kernel::kArgumentByteOffsets ==
+              kernels::lds_exchange::kArgumentByteOffsets);
+static_assert(kernel::kArgumentByteLengths ==
+              kernels::lds_exchange::kArgumentByteLengths);
+static_assert(kernel::kArgumentValueKinds ==
+              kernels::lds_exchange::kArgumentValueKinds);
+static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
 static_assert(offsetof(Arguments, dynamic_stride) + sizeof(uint32_t) ==
               kernel::kKernargByteLength);
+static_assert(kernel::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{128, 1, 1});
+static_assert(kernel::kWavefrontSize == 64);
+static_assert(kernel::kKernelCodeProperties == 8 &&
+              kernel::kKernargPreload == 0);
+static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
 
 class AqlLdsTest : public AqlDispatchTest {
  protected:
-  void RunExchange(std::array<uint32_t, 2> strides);
+  void RunExchange(std::array<uint32_t, 3> strides);
 };
 
-void AqlLdsTest::RunExchange(std::array<uint32_t, 2> strides) {
+void AqlLdsTest::RunExchange(std::array<uint32_t, 3> strides) {
   constexpr uint32_t kGridSize = 512;
   constexpr uint32_t kOutputWordCount = kGridSize * 2;
   constexpr uint32_t kGuardWordCount = 16;
   constexpr uint32_t kWordCount = kOutputWordCount + 2 * kGuardWordCount;
   constexpr uint32_t kPrefixGuard = 0x619b30d5u;
   constexpr uint32_t kSuffixGuard = 0xe270c84bu;
-  constexpr std::array<uint32_t, 2> kSeeds = {0x13579bdfu, 0xa5c31f27u};
+  constexpr std::array<uint32_t, 3> kSeeds = {0x13579bdfu, 0xa5c31f27u,
+                                              0x2468ace1u};
   static_assert(kernel::kWorkgroupSize == 128);
   static_assert(kernel::kGroupSegmentByteLength == 512);
   static_assert(kernel::kPrivateSegmentByteLength == 0);
@@ -48,7 +61,7 @@ void AqlLdsTest::RunExchange(std::array<uint32_t, 2> strides) {
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
   ASSERT_EQ(endpoint_info.compute.wavefront_size, 64u);
-  std::array<uint32_t, 2> group_byte_lengths;
+  std::array<uint32_t, 3> group_byte_lengths;
   for (uint32_t epoch = 0; epoch < strides.size(); ++epoch) {
     const uint64_t group_byte_length =
         uint64_t{kernel::kGroupSegmentByteLength} +
@@ -117,12 +130,10 @@ void AqlLdsTest::RunExchange(std::array<uint32_t, 2> strides) {
     std::memcpy(output->host.pointer, observed.data(), sizeof(observed));
     const Arguments payload = {
         output->device_address + kGuardWordCount * sizeof(uint32_t),
-        kernel::kGroupSegmentByteLength,
         kSeeds[epoch],
         strides[epoch],
     };
-    // The fourth fetched dword has backing and a defined value, while only the
-    // first 20 semantic bytes come from the typed argument fields.
+    // Every fetched byte is initialized from the typed argument fields.
     std::memset(arguments->host.pointer, 0, sizeof(Arguments));
     std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
     ASSERT_EQ(
@@ -158,11 +169,11 @@ void AqlLdsTest::RunExchange(std::array<uint32_t, 2> strides) {
 }
 
 TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
-  ASSERT_NO_FATAL_FAILURE(RunExchange({0, 0}));
+  ASSERT_NO_FATAL_FAILURE(RunExchange({0, 0, 0}));
 }
 
 TEST_F(AqlLdsTest, DynamicStorageExchangesBetweenWavesAcrossSizes) {
-  ASSERT_NO_FATAL_FAILURE(RunExchange({1, 3}));
+  ASSERT_NO_FATAL_FAILURE(RunExchange({1, 3, 1}));
 }
 
 }  // namespace

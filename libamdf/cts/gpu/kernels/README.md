@@ -1,8 +1,8 @@
 # Compiled GPU fixtures
 
-Arithmetic, geometry, transfer and private-memory images are compiled from
-Loom source by the ordinary CTS build. The LDS exchange fixture retains its
-checked-in C-generated images and separate regeneration path.
+All GPU fixture images are compiled from Loom source by the ordinary CTS
+build. The same sources feed Bazel and CMake; kernel compilation and image
+extraction require no LLVM libraries or tools.
 
 ## Source-built images
 
@@ -128,9 +128,11 @@ metadata, memory publication and completion ownership.
 
 ## PM4 publication and observation
 
-The gfx1151 case copies the complete image into a 4 KiB coherent SYSTEM
-allocation with READ|EXECUTE access. Explicit CS_PARTIAL_FLUSH and whole-cache
-GCR operations publish code/arguments/data and release completed shader writes.
+The gfx1151 cases copy each complete image into a page-rounded coherent
+SYSTEM allocation with READ|EXECUTE access. The allocation covers both the
+entry-prefetch extent and fetch padding after the complete compiler image.
+Explicit CS_PARTIAL_FLUSH and whole-cache GCR operations publish
+code/arguments/data and release completed shader writes.
 A separate confirmed completion marker precedes the independent full-buffer
 oracle; ring consumption is observed afterward, before reusing data or arguments.
 Every queue is destroyed before referenced allocations. Two completed epochs
@@ -154,53 +156,47 @@ slot or XCC. [Fixed scratch case](../aql/private_test.cc)
 
 ## LDS exchange images
 
-[lds_exchange.c](lds_exchange.c) exchanges independently tagged static and
-dynamic group-memory values between waves. The [AQL LDS cases](../aql/lds_test.cc)
-exercise fixed allocation and changing packet-sized dynamic storage, checking
-both the partner wave's value and the stride supplied for each epoch.
-The separately compiled [gfx1151 image](lds_exchange_gfx1151.json) exercises
-static and changing dynamic storage with four wave32 waves through the
-[PM4 LDS cases](../pm4/lds_test.cc).
-The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) separates the
-unchanged compiler descriptor from derived launch allocation and scheduling.
+[lds_exchange.loom](lds_exchange.loom) exchanges independently tagged static
+and dynamic group-memory values between partner lanes in different waves.
+The [AQL](../aql/lds_test.cc) and [PM4](../pm4/lds_test.cc) cases use four
+complete 128-workitem groups and compare every result against the shared
+independent [host oracle](lds_exchange.h). The dynamic cases change stride
+1 → 3 → 1 on the same image and queue; static cases exercise the zero-capacity
+branch. Completion-visible payloads are captured before queue retirement.
 
-The gfx942 and gfx1151 images use HSA code object V5 with wave64 and wave32,
-respectively. Their descriptors reserve 512 fixed group bytes and no private
-storage. The 20-byte semantic argument layout is output address at byte 0,
-dynamic LDS byte offset at 8, seed at 12 and dynamic stride at 16. The local
-pointer is a workgroup-segment offset, not a global GPU address. A zeroed,
-16-aligned, 32-byte caller slot backs the scalar argument fetch. The same
-image accepts additional storage for the dispatch; each packet supplies the
-complete fixed-plus-dynamic allocation.
+The two target profiles produce wave64/gfx942 and wave32/gfx1151 kernels, each
+with 512 fixed LDS bytes and no private storage. The source borrows the
+dispatch-sized tail through `kernel.workgroup.storage`; Loom places that tail
+after fixed storage. The launch configuration requests `512 * stride` additional
+bytes. Native callers supply the complete fixed-plus-dynamic byte count through
+the AQL packet or PM4 binding, while compiler descriptors remain immutable.
+The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) describes
+the launch allocation and scheduling fields.
 
-The checked-in [gfx942](lds_exchange_gfx942.json) and
-[gfx1151](lds_exchange_gfx1151.json) records contain source/compiler identity,
-flags, ELF/image hashes, resource metadata and disassembly. Their flat images
-preserve the linked descriptor/text address phase and complete text padding.
-There are no relocations, external calls or loaded global data, and no
-descriptor patching. Images are little-endian; the consuming corpora build for
-x86-64 hosts. The [descriptor definition][descriptor] specifies the resource
-and relative entry fields.
+The three semantic arguments occupy 16 bytes: output address at byte 0, seed at
+8 and dynamic stride at 12. The LDS base is a compiler-resolved address, with
+no per-dispatch pointer argument or code patch. Callers validate generated ABI
+metadata, initialize the complete argument slot, and retain the image, data
+and arguments through execution completion and ring retirement. Mixed-resource
+cases additionally switch between private storage and LDS on AQL, and between
+the transform and LDS programs on PM4.
 
-## C fixture regeneration
+## Rebuilding images
 
-The separate [generator](generate.py) covers only the two LDS exchange images.
-Their regeneration uses LLVM revision
-`6dfe1677ab8dffbc6ec13d53a1e0215d75147689` (version 23.1.1), including `clang`,
-`ld.lld`, `llvm-objcopy`, `llvm-readelf` and `llvm-objdump`. The script checks
-compiler/linker revision and runs entirely offline in temporary storage:
+The authored `.loom` file is the source of truth. Building a consuming CTS
+corpus recompiles its images when the source, target profile or compiler changes.
+An individual image can also be built and inspected directly:
 
 ```sh
-python libamdf/cts/gpu/kernels/generate.py --llvm-bin /path/to/pinned/llvm/bin
-python libamdf/cts/gpu/kernels/generate.py --llvm-bin /path/to/pinned/llvm/bin --check
+iree-bazel-build //libamdf/cts/gpu/kernels:lds_exchange_gfx942
+iree-cmake-build libamdf_cts_gpu_kernels_lds_exchange_gfx942_embed
 ```
 
-`--check` rebuilds and compares each header/JSON pair without changing them.
-`generate.py` records the exact compile, link and extraction flags in the JSON
-record. Its narrow ELF inspection runs only during artifact generation; no
-libamdf library or CTS executable contains that parser.
+The generated header and corresponding `.hsaco` live in the build output tree.
+The header records the actual argument layout, resource requirements and
+content hashes, and preserves the complete descriptor/text image. No generated
+kernel binaries, headers or JSON records are checked into this directory.
 
-[descriptor]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/include/llvm/Support/AMDHSAKernelDescriptor.h#L253-L284
 [freeze]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_loader_context.cpp#L347-L373
 [invalidate]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3437-L3497
 [execute]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_aql_queue.cpp#L1613-L1762

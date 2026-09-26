@@ -7,6 +7,7 @@
 #ifndef AMDF_CTS_GPU_PM4_DISPATCH_FIXTURE_H_
 #define AMDF_CTS_GPU_PM4_DISPATCH_FIXTURE_H_
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -46,21 +47,22 @@ class Pm4DispatchTest : public Pm4CommandTest {
   void PrepareProgram(const kernels::Image& image, uint32_t entry_byte_offset,
                       Pm4ComputeProgram* program, const char* property_prefix,
                       GpuMemory** out_code = nullptr) {
-    constexpr uint64_t kCodeByteLength = 4096;
-    ASSERT_LE(image.byte_length, kCodeByteLength);
     // RSRC3 prefetch is measured from the entry in 128-byte units. PAL also
     // backs three 64-byte fetch lines after the aligned end of uploaded
     // sections. Both extents fit independently of the function symbol length.
-    ASSERT_LE(entry_byte_offset + ((program->resource3 >> 4) & 63u) * 128u,
-              kCodeByteLength);
-    ASSERT_LE(((image.byte_length + 63u) & ~UINT64_C(63)) + 192u,
-              kCodeByteLength);
+    const uint64_t prefetch_byte_length =
+        uint64_t{entry_byte_offset} + ((program->resource3 >> 4) & 63u) * 128u;
+    const uint64_t image_byte_length =
+        ((uint64_t{image.byte_length} + 63u) & ~UINT64_C(63)) + 192u;
+    const uint64_t code_byte_length =
+        (std::max(prefetch_byte_length, image_byte_length) + 4095u) &
+        ~UINT64_C(4095);
     GpuMemory* code = nullptr;
     ASSERT_NO_FATAL_FAILURE(
         CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
-                     kCodeByteLength, &code));
+                     code_byte_length, &code));
     ASSERT_EQ(code->device_address % 256, 0u);
-    ASSERT_LE(code->device_address, (UINT64_C(1) << 48) - kCodeByteLength);
+    ASSERT_LE(code->device_address, (UINT64_C(1) << 48) - code_byte_length);
     const uint64_t entry_address = code->device_address + entry_byte_offset;
     ASSERT_EQ(entry_address % 256, 0u);
     ASSERT_LT(entry_address, UINT64_C(1) << 48);
@@ -71,6 +73,8 @@ class Pm4DispatchTest : public Pm4CommandTest {
     const std::string prefix(property_prefix);
     RecordProperty(prefix + "_kernel_image_sha256", image.sha256);
     RecordProperty(prefix + "_kernel_image_byte_length", image.byte_length);
+    RecordProperty(prefix + "_kernel_allocation_byte_length",
+                   std::to_string(code->info.byte_length));
     RecordProperty(prefix + "_kernel_entry_byte_offset", entry_byte_offset);
     RecordProperty(prefix + "_kernel_entry_address",
                    std::to_string(entry_address));

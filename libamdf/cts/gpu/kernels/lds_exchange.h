@@ -10,28 +10,35 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace kernels::lds_exchange {
 
-// Semantic arguments occupy 20 bytes. The aligned slot backs the scalar load
-// through byte 23 without making its unused lane another argument.
+// Paired with lds_exchange.loom's 16-byte semantic kernarg layout. The compiler
+// resolves the workgroup tail address independently of these arguments.
 struct alignas(16) Arguments {
   // Global GPU address of the first static/dynamic output pair.
   uint64_t output;
-  // Group-segment byte offset of the dynamic region after static LDS.
-  uint32_t dynamic_offset;
   // Token seed, combined with workgroup and partner lane.
   uint32_t seed;
   // Dynamic LDS element spacing, or zero to select the static-only branch.
   uint32_t dynamic_stride;
 };
 static_assert(alignof(Arguments) == 16);
-static_assert(sizeof(Arguments) == 32);
+static_assert(sizeof(Arguments) == 16);
 static_assert(offsetof(Arguments, output) == 0);
-static_assert(offsetof(Arguments, dynamic_offset) == 8);
-static_assert(offsetof(Arguments, seed) == 12);
-static_assert(offsetof(Arguments, dynamic_stride) == 16);
-static_assert(offsetof(Arguments, dynamic_stride) + sizeof(uint32_t) == 20);
+static_assert(offsetof(Arguments, seed) == 8);
+static_assert(offsetof(Arguments, dynamic_stride) == 12);
+
+// Both compiled target images share this native caller layout.
+inline constexpr std::array<uint32_t, 3> kArgumentByteOffsets = {
+    offsetof(Arguments, output), offsetof(Arguments, seed),
+    offsetof(Arguments, dynamic_stride)};
+inline constexpr std::array<uint32_t, 3> kArgumentByteLengths = {
+    sizeof(Arguments::output), sizeof(Arguments::seed),
+    sizeof(Arguments::dynamic_stride)};
+inline constexpr std::array<std::string_view, 3> kArgumentValueKinds = {
+    "global_buffer", "by_value", "by_value"};
 
 // Derives the other wave's lane independently, forms its tokens with wider
 // arithmetic, then applies the kernel's unsigned 32-bit wrapping.

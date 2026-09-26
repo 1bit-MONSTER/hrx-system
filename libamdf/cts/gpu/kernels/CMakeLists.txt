@@ -375,16 +375,82 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "lds_exchange_gfx1151_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:lds_exchange_gfx1151_hsaco"
+  TARGET
+    "::gfx1151"
+  OUTPUT
+    "lds_exchange_gfx1151.hsaco"
+  SRCS
+    "lds_exchange.loom"
+  ROOTS
+    "@lds_exchange"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "lds_exchange_gfx1151_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_gfx1151.hsaco"
+  OUTPUT
+    "lds_exchange_gfx1151.h"
+  ENTRY_POINT
+    "lds_exchange"
+  NAMESPACE
+    "kernels::gfx1151_lds_exchange"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
     lds_exchange_gfx1151
   HDRS
     "lds_exchange_gfx1151.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "lds_exchange_gfx942_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:lds_exchange_gfx942_hsaco"
+  TARGET
+    "::gfx942"
+  OUTPUT
+    "lds_exchange_gfx942.hsaco"
+  SRCS
+    "lds_exchange.loom"
+  ROOTS
+    "@lds_exchange"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "lds_exchange_gfx942_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_gfx942.hsaco"
+  OUTPUT
+    "lds_exchange_gfx942.h"
+  ENTRY_POINT
+    "lds_exchange"
+  NAMESPACE
+    "kernels::gfx942_lds_exchange"
 )
 endif()
 
@@ -395,8 +461,8 @@ iree_cc_library(
   HDRS
     "lds_exchange_gfx942.h"
   DEPS
-    ::image
     amdf::headers
+    libamdf::cts::gpu::kernels::image
   TESTONLY
   PUBLIC
 )

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange_gfx1151.h"
@@ -20,10 +21,22 @@ namespace {
 namespace kernel = kernels::gfx1151_lds_exchange;
 
 using Arguments = kernels::lds_exchange::Arguments;
-static_assert(alignof(Arguments) == kernel::kKernargAlignment);
-static_assert(sizeof(Arguments) == 32);
+static_assert(kernel::kArgumentByteOffsets ==
+              kernels::lds_exchange::kArgumentByteOffsets);
+static_assert(kernel::kArgumentByteLengths ==
+              kernels::lds_exchange::kArgumentByteLengths);
+static_assert(kernel::kArgumentValueKinds ==
+              kernels::lds_exchange::kArgumentValueKinds);
+static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
 static_assert(offsetof(Arguments, dynamic_stride) + sizeof(uint32_t) ==
               kernel::kKernargByteLength);
+static_assert(kernel::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{128, 1, 1});
+static_assert(kernel::kWavefrontSize == 32);
+// BindCompute supplies the kernarg pointer, group X and local X inputs.
+static_assert(kernel::kKernelCodeProperties == 0x408 &&
+              kernel::kKernargPreload == 0);
+static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
 
 struct LdsEpoch {
   // Token seed identifying this dispatch's returned payload.
@@ -104,8 +117,8 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
   std::array<uint8_t, kPageByteLength> observed_arguments;
   std::array<uint32_t, kControlWordCount> expected_control;
   std::array<uint32_t, kControlWordCount> observed_control;
-  std::array<uint8_t, kPageByteLength> expected_code = {};
-  std::array<uint8_t, kPageByteLength> observed_code;
+  std::vector<uint8_t> expected_code(code->info.byte_length, 0);
+  std::vector<uint8_t> observed_code(code->info.byte_length);
   std::memcpy(expected_code.data(), kernel::kExecutable.words,
               kernel::kExecutable.byte_length);
   expected_control.fill(kControlGuard);
@@ -150,7 +163,8 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                  sizeof(expected_arguments));
   RecordProperty("pm4_lds_checked_control_byte_length",
                  sizeof(expected_control));
-  RecordProperty("pm4_lds_checked_code_byte_length", sizeof(expected_code));
+  RecordProperty("pm4_lds_checked_code_byte_length",
+                 std::to_string(expected_code.size()));
   RecordProperty("pm4_lds_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_lds_command_word_count_per_epoch",
                  kCommandWordCountPerEpoch);
@@ -192,12 +206,11 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                 sizeof(observed_output));
     const Arguments payload = {
         output->device_address + kGuardWordCount * sizeof(uint32_t),
-        kernel::kGroupSegmentByteLength,
         parameters.seed,
         parameters.dynamic_stride,
     };
-    // The 24-byte scalar fetch has initialized backing. Only the 20 semantic
-    // bytes come from typed fields; no C++ padding is copied into the page.
+    // The full argument page is initialized; only semantic bytes come from
+    // typed fields, and all bytes beyond the argument record remain zero.
     expected_arguments.fill(0);
     std::memcpy(expected_arguments.data(), &payload,
                 kernel::kKernargByteLength);
@@ -224,8 +237,7 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                 sizeof(observed_arguments));
     std::memcpy(observed_control.data(), completion->host.pointer,
                 sizeof(observed_control));
-    std::memcpy(observed_code.data(), code->host.pointer,
-                sizeof(observed_code));
+    std::memcpy(observed_code.data(), code->host.pointer, observed_code.size());
     for (uint32_t word = 0; word < kOutputWordCount; ++word) {
       EXPECT_EQ(observed_output[word], expected_output[word])
           << "output word=" << word;
@@ -233,6 +245,8 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
     for (uint32_t byte = 0; byte < kPageByteLength; ++byte) {
       EXPECT_EQ(observed_arguments[byte], expected_arguments[byte])
           << "argument byte=" << byte;
+    }
+    for (size_t byte = 0; byte < expected_code.size(); ++byte) {
       EXPECT_EQ(observed_code[byte], expected_code[byte])
           << "code byte=" << byte;
     }

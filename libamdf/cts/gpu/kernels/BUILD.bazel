@@ -18,11 +18,8 @@ package(
 exports_files([
     "README.md",
     "byte_copy_unaligned.loom",
-    "generate.py",
     "geometry_ids.loom",
-    "lds_exchange.c",
-    "lds_exchange_gfx1151.json",
-    "lds_exchange_gfx942.json",
+    "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
     "private_roundtrip.loom",
     "transform.loom",
@@ -128,18 +125,20 @@ amdf_cc_library(
     hdrs = ["lds_exchange.h"],
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "lds_exchange_gfx1151",
-    testonly = True,
-    hdrs = ["lds_exchange_gfx1151.h"],
-    deps = [":image"],
+    src = "lds_exchange.loom",
+    entry_point = "lds_exchange",
+    namespace = "kernels::gfx1151_lds_exchange",
+    target = ":gfx1151",
 )
 
-amdf_cc_library(
+amdf_cts_gpu_kernel(
     name = "lds_exchange_gfx942",
-    testonly = True,
-    hdrs = ["lds_exchange_gfx942.h"],
-    deps = [":image"],
+    src = "lds_exchange.loom",
+    entry_point = "lds_exchange",
+    namespace = "kernels::gfx942_lds_exchange",
+    target = ":gfx942",
 )
 
 amdf_cc_library(

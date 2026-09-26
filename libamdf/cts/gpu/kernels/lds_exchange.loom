@@ -1,0 +1,96 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// The caller supplies the same unsigned stride to the launch configuration and
+// device argument. Each complete 128-lane group exchanges separately tagged
+// static and dynamic words between partner lanes in different waves.
+// Each workgroup owns 512 fixed bytes and a separately sized 512*stride tail.
+kernel.def export("lds_exchange") @lds_exchange(%groups_x: index, %launch_stride: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  %bytes_per_stride = index.constant 512 : offset
+  %launch_tail_bytes = index.scale %launch_stride, %bytes_per_stride : index, offset -> offset
+  kernel.launch.config workgroups(%groups_x, %unit, %unit) workgroup_size(%width, %unit, %unit) dynamic_workgroup_storage(%launch_tail_bytes) : index
+} launch(%output: buffer, %seed: i32, %dynamic_stride: i32) {
+  %origin = index.constant 0 : offset
+  %fixed_bytes = index.constant 512 : offset
+  %word_bytes = index.constant 4 : offset
+  // Extent arithmetic is wide; segment-address arithmetic below is modular i32.
+  %stride_wide = scalar.extui %dynamic_stride : i32 to i64
+  %bytes_per_stride_wide = scalar.constant 512 : i64
+  %tail_extent = scalar.muli %stride_wide, %bytes_per_stride_wide : i64
+  %tail_bytes = index.cast %tail_extent : i64 to offset
+  %static_storage = buffer.alloca<workgroup> align(4) %fixed_bytes : buffer
+  %tail = kernel.workgroup.storage align(4) %tail_bytes : buffer
+  %static_words = buffer.view %static_storage[%origin] : buffer -> view<128xi32>
+
+  %lane = kernel.workitem.id<x> : index
+  %group = kernel.workgroup.id<x> : index
+  %lane_value = index.cast %lane : index to i32
+  %group_value = index.cast %group : index to i32
+  %width_value = scalar.constant 128 : i32
+  %pair_words_value = scalar.constant 2 : i32
+  %word_bytes_value = scalar.constant 4 : i32
+  %group_origin = scalar.muli %group_value, %width_value : i32
+  %global_value = scalar.addi %group_origin, %lane_value : i32
+  %output_word_value = scalar.muli %global_value, %pair_words_value : i32
+  %unsigned_output_word = index.cast %output_word_value : i32 to offset
+  %output_word = index.cast %unsigned_output_word : offset to index
+  %output_offset = index.scale %output_word, %word_bytes : index, offset -> offset
+  %output_pair = buffer.view %output[%output_offset] : buffer -> view<2xi32>
+
+  %static_group_multiplier = scalar.constant 16909063 : i32
+  %static_lane_multiplier = scalar.constant 4129 : i32
+  %static_group_product = scalar.muli %group_value, %static_group_multiplier : i32
+  %static_lane_product = scalar.muli %lane_value, %static_lane_multiplier : i32
+  %static_group_token = scalar.addi %seed, %static_group_product : i32
+  %static_token = scalar.addi %static_group_token, %static_lane_product : i32
+  view.store %static_token, %static_words[%lane] : i32, view<128xi32>
+
+  %disabled_stride = scalar.constant 0 : i32
+  %uses_tail = scalar.cmpi ne, %dynamic_stride, %disabled_stride : i32
+  scf.if %uses_tail {
+    // The signed literal preserves the i32 bit pattern 0xa5a55a5a.
+    %dynamic_seed_mask = scalar.constant -1515890086 : i32
+    %dynamic_group_multiplier = scalar.constant 16843009 : i32
+    %dynamic_lane_multiplier = scalar.constant 515 : i32
+    %dynamic_stride_multiplier = scalar.constant 1048577 : i32
+    %dynamic_seed = scalar.xori %seed, %dynamic_seed_mask : i32
+    %dynamic_group_product = scalar.muli %group_value, %dynamic_group_multiplier : i32
+    %dynamic_lane_product = scalar.muli %lane_value, %dynamic_lane_multiplier : i32
+    %dynamic_stride_product = scalar.muli %dynamic_stride, %dynamic_stride_multiplier : i32
+    %dynamic_group_token = scalar.addi %dynamic_seed, %dynamic_group_product : i32
+    %dynamic_lane_token = scalar.addi %dynamic_group_token, %dynamic_lane_product : i32
+    %dynamic_token = scalar.addi %dynamic_lane_token, %dynamic_stride_product : i32
+    %write_word_value = scalar.muli %lane_value, %dynamic_stride : i32
+    %write_byte_value = scalar.muli %write_word_value, %word_bytes_value : i32
+    %write_offset = index.cast %write_byte_value : i32 to offset
+    %write_word = buffer.view %tail[%write_offset] : buffer -> view<1xi32>
+    view.store %dynamic_token, %write_word[0] : i32, view<1xi32>
+  }
+
+  // Release prior LDS writes, rendezvous all 128 lanes, then acquire LDS reads.
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %partner_mask = scalar.constant 64 : i32
+  %partner_value = scalar.xori %lane_value, %partner_mask : i32
+  %partner = index.cast %partner_value : i32 to index
+  %static_result = view.load %static_words[%partner] : view<128xi32> -> i32
+  view.store %static_result, %output_pair[0] : i32, view<2xi32>
+  scf.if %uses_tail {
+    %read_word_value = scalar.muli %partner_value, %dynamic_stride : i32
+    %read_byte_value = scalar.muli %read_word_value, %word_bytes_value : i32
+    %read_offset = index.cast %read_byte_value : i32 to offset
+    %read_word = buffer.view %tail[%read_offset] : buffer -> view<1xi32>
+    %dynamic_result = view.load %read_word[0] : view<1xi32> -> i32
+    view.store %dynamic_result, %output_pair[1] : i32, view<2xi32>
+  } else {
+    %sentinel_base = scalar.constant 1511506142 : i32
+    %sentinel_position = scalar.addi %sentinel_base, %global_value : i32
+    %sentinel = scalar.xori %seed, %sentinel_position : i32
+    view.store %sentinel, %output_pair[1] : i32, view<2xi32>
+  }
+  kernel.return
+}

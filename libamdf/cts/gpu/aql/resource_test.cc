@@ -27,6 +27,12 @@ static_assert(private_kernel::kArgumentByteLengths ==
               kernels::private_roundtrip::kArgumentByteLengths);
 static_assert(private_kernel::kArgumentValueKinds ==
               kernels::private_roundtrip::kArgumentValueKinds);
+static_assert(lds_kernel::kArgumentByteOffsets ==
+              kernels::lds_exchange::kArgumentByteOffsets);
+static_assert(lds_kernel::kArgumentByteLengths ==
+              kernels::lds_exchange::kArgumentByteLengths);
+static_assert(lds_kernel::kArgumentValueKinds ==
+              kernels::lds_exchange::kArgumentValueKinds);
 
 TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   constexpr uint32_t kGridSize = 512;
@@ -62,9 +68,10 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   static_assert(offsetof(kernels::lds_exchange::Arguments, dynamic_stride) +
                     sizeof(uint32_t) ==
                 lds_kernel::kKernargByteLength);
-  static_assert(alignof(kernels::lds_exchange::Arguments) ==
-                lds_kernel::kKernargAlignment);
-  static_assert(sizeof(kernels::lds_exchange::Arguments) ==
+  static_assert(alignof(kernels::lds_exchange::Arguments) %
+                    lds_kernel::kKernargAlignment ==
+                0);
+  static_assert(sizeof(kernels::lds_exchange::Arguments) <=
                 kArgumentSlotByteLength);
 
   amdf_gpu_endpoint_info_t endpoint_info = {};
@@ -211,7 +218,6 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
       }
       const kernels::lds_exchange::Arguments payload = {
           output->device_address + kGuardWordCount * sizeof(uint32_t),
-          lds_kernel::kGroupSegmentByteLength,
           kSeeds[epoch],
           kStrides[image_epoch],
       };

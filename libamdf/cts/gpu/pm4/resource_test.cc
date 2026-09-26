@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange_gfx1151.h"
@@ -21,19 +22,26 @@ namespace {
 namespace transform = kernels::gfx1151_transform;
 namespace lds = kernels::gfx1151_lds_exchange;
 
+static_assert(lds::kArgumentByteOffsets ==
+              kernels::lds_exchange::kArgumentByteOffsets);
+static_assert(lds::kArgumentByteLengths ==
+              kernels::lds_exchange::kArgumentByteLengths);
+static_assert(lds::kArgumentValueKinds ==
+              kernels::lds_exchange::kArgumentValueKinds);
 static_assert(alignof(kernels::transform::Arguments) %
                   transform::kKernargAlignment ==
               0);
 static_assert(offsetof(kernels::transform::Arguments, addend) +
                   sizeof(uint32_t) ==
               transform::kKernargByteLength);
-static_assert(alignof(kernels::lds_exchange::Arguments) ==
-              lds::kKernargAlignment);
+static_assert(alignof(kernels::lds_exchange::Arguments) %
+                  lds::kKernargAlignment ==
+              0);
 static_assert(offsetof(kernels::lds_exchange::Arguments, dynamic_stride) +
                   sizeof(uint32_t) ==
               lds::kKernargByteLength);
 static_assert(sizeof(kernels::transform::Arguments) == 32);
-static_assert(sizeof(kernels::lds_exchange::Arguments) == 32);
+static_assert(sizeof(kernels::lds_exchange::Arguments) <= 32);
 static_assert(transform::kWorkgroupSize == 64 && lds::kWorkgroupSize == 128);
 static_assert(transform::kGroupSegmentByteLength == 0 &&
               lds::kGroupSegmentByteLength == 512);
@@ -118,10 +126,12 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   std::array<uint32_t, kWordCount> expected_output, observed_output;
   std::array<uint8_t, kPageByteLength> expected_arguments, observed_arguments;
   std::array<uint32_t, kControlWordCount> expected_control, observed_control;
-  std::array<uint8_t, kPageByteLength> expected_transform_code = {};
-  std::array<uint8_t, kPageByteLength> expected_lds_code = {};
-  std::array<uint8_t, kPageByteLength> observed_transform_code,
-      observed_lds_code;
+  std::vector<uint8_t> expected_transform_code(transform_code->info.byte_length,
+                                               0);
+  std::vector<uint8_t> expected_lds_code(lds_code->info.byte_length, 0);
+  std::vector<uint8_t> observed_transform_code(
+      transform_code->info.byte_length);
+  std::vector<uint8_t> observed_lds_code(lds_code->info.byte_length);
   std::memcpy(expected_transform_code.data(), transform::kExecutable.words,
               transform::kExecutable.byte_length);
   std::memcpy(expected_lds_code.data(), lds::kExecutable.words,
@@ -143,15 +153,25 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   Pm4CommandWriter commands(
       reinterpret_cast<uint32_t*>(queue->host.ring_address));
   RecordProperty("pm4_mixed_program_sequence", "transform,lds,transform");
-  RecordProperty("pm4_mixed_bound_rsrc2_sequence", "0x84,0x8084,0x84");
-  RecordProperty("pm4_mixed_bound_rsrc3_sequence", "0x20,0x30,0x20");
+  RecordProperty(
+      "pm4_mixed_bound_rsrc2_sequence",
+      std::to_string(transform::kComputePgmRsrc2) + "," +
+          std::to_string(lds::kComputePgmRsrc2 |
+                         ((lds::kGroupSegmentByteLength / 512u) << 15)) +
+          "," + std::to_string(transform::kComputePgmRsrc2));
+  RecordProperty("pm4_mixed_bound_rsrc3_sequence",
+                 std::to_string(transform::kComputePgmRsrc3) + "," +
+                     std::to_string(lds::kComputePgmRsrc3) + "," +
+                     std::to_string(transform::kComputePgmRsrc3));
   RecordProperty("pm4_mixed_resource_limits_sequence", "0,0x00400000,0");
   RecordProperty("pm4_mixed_workgroup_sequence", "64x1x1,128x1x1,64x1x1");
   RecordProperty("pm4_mixed_grid_sequence", "1024x1x1,512x1x1,1024x1x1");
   RecordProperty("pm4_mixed_group_byte_length_sequence", "0,512,0");
   RecordProperty("pm4_mixed_argument_offsets", "0,64,128");
-  RecordProperty("pm4_mixed_kernarg_semantic_byte_lengths", "24,20,24");
-  RecordProperty("pm4_mixed_kernarg_fetched_byte_lengths", "24,24,24");
+  RecordProperty("pm4_mixed_kernarg_semantic_byte_lengths",
+                 std::to_string(transform::kKernargByteLength) + "," +
+                     std::to_string(lds::kKernargByteLength) + "," +
+                     std::to_string(transform::kKernargByteLength));
   RecordProperty("pm4_mixed_kernarg_slot_byte_length", 32);
   RecordProperty(
       "pm4_mixed_lds_capacity_per_compute_unit",
@@ -165,8 +185,10 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   RecordProperty("pm4_mixed_checked_argument_bytes",
                  sizeof(expected_arguments));
   RecordProperty("pm4_mixed_checked_control_bytes", sizeof(expected_control));
-  RecordProperty("pm4_mixed_checked_code_bytes_each",
-                 sizeof(expected_lds_code));
+  RecordProperty("pm4_mixed_checked_transform_code_bytes",
+                 std::to_string(expected_transform_code.size()));
+  RecordProperty("pm4_mixed_checked_lds_code_bytes",
+                 std::to_string(expected_lds_code.size()));
   RecordProperty("pm4_mixed_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_mixed_command_words_per_epoch", kCommandWordsPerEpoch);
   RecordProperty("pm4_mixed_first_producer_index",
@@ -232,7 +254,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
         kCounts[epoch], kFirstAddends[epoch]};
     const kernels::lds_exchange::Arguments lds_arguments = {
         lds_output->device_address + kPayloadOffset * sizeof(uint32_t),
-        lds::kGroupSegmentByteLength, kSeeds[epoch], 0};
+        kSeeds[epoch], 0};
     const kernels::transform::Arguments last_arguments = {
         lds_output->device_address + kPayloadOffset * sizeof(uint32_t),
         output->device_address + kPayloadOffset * sizeof(uint32_t),
@@ -287,9 +309,9 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     std::memcpy(observed_control.data(), completion->host.pointer,
                 sizeof(observed_control));
     std::memcpy(observed_transform_code.data(), transform_code->host.pointer,
-                sizeof(observed_transform_code));
+                observed_transform_code.size());
     std::memcpy(observed_lds_code.data(), lds_code->host.pointer,
-                sizeof(observed_lds_code));
+                observed_lds_code.size());
     for (uint32_t i = 0; i < kWordCount; ++i) {
       EXPECT_EQ(observed_output[i], expected_output[i]) << "output word=" << i;
       EXPECT_EQ(observed_lds[i], expected_lds[i]) << "LDS output word=" << i;
@@ -300,8 +322,12 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     for (uint32_t i = 0; i < kPageByteLength; ++i) {
       EXPECT_EQ(observed_arguments[i], expected_arguments[i])
           << "argument byte=" << i;
+    }
+    for (size_t i = 0; i < expected_transform_code.size(); ++i) {
       EXPECT_EQ(observed_transform_code[i], expected_transform_code[i])
           << "transform code byte=" << i;
+    }
+    for (size_t i = 0; i < expected_lds_code.size(); ++i) {
       EXPECT_EQ(observed_lds_code[i], expected_lds_code[i])
           << "LDS code byte=" << i;
     }
