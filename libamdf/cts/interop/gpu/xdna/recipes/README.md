@@ -110,6 +110,13 @@ join does not establish cancellation; the caller retains reachable owners.
 Device clock differences are retained as raw result properties. They are
 observations from the correctness workload, not calibrated latency results.
 
+`StartupAndBacking/ResidentExchangeTest` varies allocated/registered backing,
+GPU-first/NPU-first submission, and zero/one/257 complete generations. These
+cases use the same compiled products and exercise unsigned payload wrapping.
+`StartupAndBacking/ResidentPrestartAbortTest` submits only the GPU or only the
+NPU, publishes ABORT, and checks that it drains without peer progress or
+payload changes. These are normal protocol paths with valid native submissions.
+
 ## Build and execution
 
 The ordinary build compiles the `.loom` fixtures and embeds the GPU image and

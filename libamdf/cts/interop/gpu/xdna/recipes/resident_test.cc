@@ -434,6 +434,10 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     RecordProperty("resident_backing", role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
                                            ? "registered"
                                            : "allocated");
+    RecordProperty("resident_participants",
+                   participants == Participants::kBoth  ? "both"
+                   : participants == Participants::kGpu ? "gpu"
+                                                        : "npu");
 
     uint64_t npu_point = 0;
     amdf_status_t npu_submit_status = AMDF_STATUS_OK;
@@ -624,5 +628,86 @@ TEST_F(ResidentGpuXdnaTest, RegisteredCausalRoundTrip) {
   Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 17, 0x80000001u,
       LaunchOrder::kNpuFirst);
 }
+
+struct ExchangeCase {
+  // Advertised construction role for all joint backing owners.
+  amdf_memory_profile_roles_t role;
+  // First participant submitted while both still await the startup decision.
+  LaunchOrder order;
+  // Number of complete dependent generations before final acknowledgement.
+  uint32_t round_count;
+};
+
+class ResidentExchangeTest
+    : public ResidentGpuXdnaTest,
+      public ::testing::WithParamInterface<ExchangeCase> {};
+
+TEST_P(ResidentExchangeTest, CausalRoundTrip) {
+  const auto& parameters = GetParam();
+  // Both seeds exercise unsigned wrapping without an identity first request.
+  const uint32_t seed = parameters.round_count == 1 ? UINT32_MAX : 0x7FFFFF00u;
+  Run(parameters.role, parameters.round_count, seed, parameters.order);
+}
+
+std::vector<ExchangeCase> ExchangeCases() {
+  std::vector<ExchangeCase> cases;
+  for (auto role :
+       {AMDF_MEMORY_PROFILE_ROLE_CREATE, AMDF_MEMORY_PROFILE_ROLE_REGISTER}) {
+    for (auto order : {LaunchOrder::kGpuFirst, LaunchOrder::kNpuFirst}) {
+      for (uint32_t round_count : {0u, 1u, 257u}) {
+        cases.push_back({role, order, round_count});
+      }
+    }
+  }
+  return cases;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    StartupAndBacking, ResidentExchangeTest,
+    ::testing::ValuesIn(ExchangeCases()),
+    [](const ::testing::TestParamInfo<ExchangeCase>& info) {
+      std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
+                             ? "Registered"
+                             : "Allocated";
+      name +=
+          info.param.order == LaunchOrder::kGpuFirst ? "GpuFirst" : "NpuFirst";
+      return name + "Rounds" + std::to_string(info.param.round_count);
+    });
+
+struct PrestartAbortCase {
+  // Advertised construction role for the accepted participant's joint backing.
+  amdf_memory_profile_roles_t role;
+  // Sole participant accepted before the host publishes ABORT.
+  Participants participant;
+};
+
+class ResidentPrestartAbortTest
+    : public ResidentGpuXdnaTest,
+      public ::testing::WithParamInterface<PrestartAbortCase> {};
+
+TEST_P(ResidentPrestartAbortTest, DrainsWithoutPeer) {
+  const auto& parameters = GetParam();
+  const auto order = parameters.participant == Participants::kGpu
+                         ? LaunchOrder::kGpuFirst
+                         : LaunchOrder::kNpuFirst;
+  Run(parameters.role, 17, 0x80000001u, order, parameters.participant);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    StartupAndBacking, ResidentPrestartAbortTest,
+    ::testing::Values(
+        PrestartAbortCase{AMDF_MEMORY_PROFILE_ROLE_CREATE, Participants::kGpu},
+        PrestartAbortCase{AMDF_MEMORY_PROFILE_ROLE_CREATE, Participants::kNpu},
+        PrestartAbortCase{AMDF_MEMORY_PROFILE_ROLE_REGISTER,
+                          Participants::kGpu},
+        PrestartAbortCase{AMDF_MEMORY_PROFILE_ROLE_REGISTER,
+                          Participants::kNpu}),
+    [](const ::testing::TestParamInfo<PrestartAbortCase>& info) {
+      std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
+                             ? "Registered"
+                             : "Allocated";
+      return name + (info.param.participant == Participants::kGpu ? "GpuOnly"
+                                                                  : "NpuOnly");
+    });
 
 }  // namespace
