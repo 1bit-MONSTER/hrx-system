@@ -521,14 +521,10 @@ static iree_status_t loom_vector_canonicalize_uniform_result(
 // Construction and access
 //===----------------------------------------------------------------------===//
 
-static bool loom_vector_concat_type_with_static_axis_extent(
-    loom_type_t type, uint8_t axis, int64_t extent, uint64_t* dimension_storage,
-    loom_type_t* out_type) {
+static loom_type_t loom_vector_concat_type_with_static_axis_extent(
+    loom_type_t type, uint8_t axis, int64_t extent,
+    uint64_t* dimension_storage) {
   uint8_t rank = loom_type_rank(type);
-  if (axis >= rank || extent < 0) {
-    return false;
-  }
-
   uint8_t flags = rank <= 2 ? LOOM_TYPE_FLAG_INLINE_DIMS : 0;
   bool all_static = true;
   for (uint8_t i = 0; i < rank; ++i) {
@@ -541,19 +537,19 @@ static bool loom_vector_concat_type_with_static_axis_extent(
     flags |= LOOM_TYPE_FLAG_ALL_STATIC;
   }
 
-  *out_type = type;
-  out_type->header =
+  loom_type_t result_type = type;
+  result_type.header =
       (type.header & ~(UINT32_C(0xF) << 20)) | ((uint32_t)flags << 20);
-  out_type->dims[0] = 0;
-  out_type->dims[1] = 0;
+  result_type.dims[0] = 0;
+  result_type.dims[1] = 0;
   if (rank <= 2) {
     for (uint8_t i = 0; i < rank; ++i) {
-      out_type->dims[i] = dimension_storage[i];
+      result_type.dims[i] = dimension_storage[i];
     }
   } else {
-    out_type->dims[0] = (uint64_t)(uintptr_t)dimension_storage;
+    result_type.dims[0] = (uint64_t)(uintptr_t)dimension_storage;
   }
-  return true;
+  return result_type;
 }
 
 static iree_status_t loom_vector_canonicalize_concat(loom_op_t* op,
@@ -659,31 +655,64 @@ static iree_status_t loom_vector_canonicalize_concat(loom_op_t* op,
     return iree_ok_status();
   }
 
-  loom_value_id_t prefix = retained_inputs[0];
-  int64_t prefix_extent = loom_type_dim_static_size_at(
-      loom_module_value_type(rewriter->module, prefix), (uint8_t)axis);
-  loom_op_t* replacement_op = NULL;
-  for (iree_host_size_t i = 1; i < retained_count; ++i) {
-    loom_type_t input_type =
-        loom_module_value_type(rewriter->module, retained_inputs[i]);
-    int64_t input_extent =
-        loom_type_dim_static_size_at(input_type, (uint8_t)axis);
-    prefix_extent += input_extent;
-
-    loom_type_t step_type = result_type;
-    uint64_t step_dimensions[LOOM_TYPE_MAX_RANK];
-    if (i + 1 < retained_count &&
-        !loom_vector_concat_type_with_static_axis_extent(
-            result_type, (uint8_t)axis, prefix_extent, step_dimensions,
-            &step_type)) {
-      return iree_ok_status();
-    }
-    loom_value_id_t step_inputs[2] = {prefix, retained_inputs[i]};
-    IREE_RETURN_IF_ERROR(loom_vector_concat_build(
-        &rewriter->builder, axis, step_inputs, IREE_ARRAYSIZE(step_inputs),
-        step_type, op->location, &replacement_op));
-    prefix = loom_vector_concat_result(replacement_op);
+  loom_value_id_t* value_storage = NULL;
+  int64_t* extent_storage = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      rewriter->arena, 2 * retained_count, sizeof(*value_storage),
+      (void**)&value_storage));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      rewriter->arena, 2 * retained_count, sizeof(*extent_storage),
+      (void**)&extent_storage));
+  loom_value_id_t* current_values = value_storage;
+  loom_value_id_t* next_values = value_storage + retained_count;
+  int64_t* current_extents = extent_storage;
+  int64_t* next_extents = extent_storage + retained_count;
+  for (iree_host_size_t i = 0; i < retained_count; ++i) {
+    current_values[i] = retained_inputs[i];
+    current_extents[i] = loom_type_dim_static_size_at(
+        loom_module_value_type(rewriter->module, retained_inputs[i]),
+        (uint8_t)axis);
   }
+
+  iree_host_size_t current_count = retained_count;
+  loom_op_t* replacement_op = NULL;
+  while (current_count > 1) {
+    iree_host_size_t next_count = 0;
+    for (iree_host_size_t i = 0; i < current_count; i += 2) {
+      if (i + 1 == current_count) {
+        next_values[next_count] = current_values[i];
+        next_extents[next_count] = current_extents[i];
+        ++next_count;
+        continue;
+      }
+
+      const int64_t pair_extent = current_extents[i] + current_extents[i + 1];
+      loom_type_t pair_type = result_type;
+      uint64_t pair_dimensions[LOOM_TYPE_MAX_RANK];
+      if (current_count > 2) {
+        pair_type = loom_vector_concat_type_with_static_axis_extent(
+            result_type, (uint8_t)axis, pair_extent, pair_dimensions);
+      }
+      loom_value_id_t pair_inputs[2] = {
+          current_values[i],
+          current_values[i + 1],
+      };
+      IREE_RETURN_IF_ERROR(loom_vector_concat_build(
+          &rewriter->builder, axis, pair_inputs, IREE_ARRAYSIZE(pair_inputs),
+          pair_type, op->location, &replacement_op));
+      next_values[next_count] = loom_vector_concat_result(replacement_op);
+      next_extents[next_count] = pair_extent;
+      ++next_count;
+    }
+    current_count = next_count;
+    loom_value_id_t* swap_values = current_values;
+    current_values = next_values;
+    next_values = swap_values;
+    int64_t* swap_extents = current_extents;
+    current_extents = next_extents;
+    next_extents = swap_extents;
+  }
+  IREE_ASSERT_EQ(current_extents[0], retained_extent_sum);
 
   IREE_RETURN_IF_ERROR(loom_vector_replace_single_result_with_new_op(
       op, rewriter, replacement_op, value_checkpoint));

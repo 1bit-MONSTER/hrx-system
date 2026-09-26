@@ -148,8 +148,9 @@ CHECK-NOT: * = vinsert.*
 
 // ====
 
-// An index producer wider than the function ABI streams from its owning load;
-// no 2048-bit intermediate index carrier is materialized.
+// An index producer wider than the function ABI streams from its owning load.
+// Its four result packets compose as adjacent halves without materializing a
+// 2048-bit intermediate index carrier.
 func.def @streamed_i32_indices(%source: buffer, %table: vector<4xi8>) -> (vector<64xi8>) {
   %source_local = buffer.assume.memory_space<workgroup> %source : buffer
   %source_aligned = buffer.assume.alignment %source_local {minimum_alignment = 64} : buffer
@@ -165,7 +166,8 @@ CHECK: * = vlda.512.i32x16 %source_view, 0
 CHECK: * = vlda.512.i32x16 %source_view, 64
 CHECK: * = vlda.512.i32x16 %source_view, 128
 CHECK: * = vlda.512.i32x16 %source_view, 192
-CHECK: %result = vshift *
+CHECK: * = vshift *
+CHECK: %result = concat(*
 CHECK-NOT: * = storage *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
