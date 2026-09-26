@@ -402,7 +402,8 @@ typedef struct loom_low_allocation_search_location_choice_t {
   uint32_t base;
   // Semantic candidate ordinal of the selected location.
   uint32_t candidate_ordinal;
-  // Smallest legal semantic ordinal when comparing pressure-release policies.
+  // Smallest legal semantic ordinal for explicit physical-view pressure-release
+  // comparisons. Linear searches select the policy before packing placement.
   uint32_t first_candidate_ordinal;
   // Aggregate-preserving rank used between equal-penalty physical candidates.
   uint32_t packing_rank;
@@ -438,66 +439,61 @@ static bool loom_low_allocation_search_explicit_choice_is_better(
           candidate_ordinal < best->candidate_ordinal);
 }
 
+uint32_t loom_low_allocation_search_linear_candidate_base(
+    uint64_t candidate_index, uint32_t last_base, uint32_t required_alignment,
+    uint32_t preferred_alignment) {
+  if (required_alignment == preferred_alignment) {
+    return (uint32_t)(candidate_index * required_alignment);
+  }
+  const uint64_t preferred_count =
+      (uint64_t)last_base / preferred_alignment + 1;
+  if (candidate_index < preferred_count) {
+    return (uint32_t)(candidate_index * preferred_alignment);
+  }
+  const uint64_t remaining_index = candidate_index - preferred_count;
+  const uint32_t remaining_per_group =
+      preferred_alignment / required_alignment - 1;
+  return (
+      uint32_t)((remaining_index + 1 + remaining_index / remaining_per_group) *
+                required_alignment);
+}
+
 static void loom_low_allocation_search_find_location_for_release_policy(
     loom_low_allocation_search_context_t* context,
     const loom_low_allocation_assignment_t* candidate_template,
     const loom_low_allocation_search_location_query_t* query,
-    uint32_t last_base, uint32_t alignment, uint32_t scalar_packing_frontier,
+    uint32_t minimum_base, uint32_t last_base, uint32_t alignment,
+    uint32_t scalar_packing_frontier,
     loom_low_allocation_storage_release_policy_t release_policy,
     loom_low_allocation_search_location_choice_t* out_choice) {
   *out_choice = (loom_low_allocation_search_location_choice_t){0};
   const uint64_t candidate_count = (uint64_t)last_base / alignment + 1;
   const uint64_t packing_count =
       ((uint64_t)scalar_packing_frontier + alignment - 1) / alignment;
+  const uint32_t preferred_alignment = iree_max(
+      alignment,
+      loom_low_reg_class_preferred_unit_alignment(
+          &context->descriptor_set
+               ->reg_classes[candidate_template->descriptor_reg_class_id],
+          candidate_template->unit_count));
 
-  // Pressure release compares the lowest feasible ordinal independently of
-  // the preferred packing location. Find that bound once before visiting
-  // scalar candidates in packing order. The bounded scalar range excludes
-  // UINT32_MAX, which marks a search with no feasible location.
-  const bool needs_first_candidate =
-      packing_count != 0 &&
-      loom_low_allocation_search_has_pressure_release_records(context);
-  uint32_t first_candidate_ordinal = UINT32_MAX;
-  if (needs_first_candidate) {
-    for (uint64_t i = 0; i < candidate_count; ++i) {
-      loom_low_allocation_assignment_t candidate = *candidate_template;
-      candidate.location_base = (uint32_t)(i * alignment);
-      if (candidate.location_base < 64 &&
-          (query->active_conflicts &
-           (UINT64_C(1) << candidate.location_base))) {
-        continue;
-      }
-      if (!loom_low_allocation_search_assignment_conflicts(
-              context, &candidate,
-              /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
-              /*ignored_storage_lease_value_ids=*/NULL,
-              /*ignored_storage_lease_value_count=*/0, release_policy)) {
-        first_candidate_ordinal = candidate.location_base;
-        break;
-      }
-    }
-    if (first_candidate_ordinal == UINT32_MAX) {
-      return;
-    }
-  }
-
-  // Pack from high to low below the frontier, then low to high above it.
-  // This is the tie-break order for equal penalties, so the first legal
-  // zero-penalty candidate is final and later equal penalties cannot improve
-  // it.
+  // Scalars pack from high to low below their frontier, then low to high above
+  // it. Tuples visit preferred-aligned bases before the remaining legal bases.
+  // This breaks ties between equal penalties, so the first legal zero-penalty
+  // candidate is final and later equal penalties cannot improve it.
   for (uint64_t i = 0; i < candidate_count; ++i) {
     const uint64_t ordinal = i < packing_count ? packing_count - i - 1 : i;
-    const uint32_t base = (uint32_t)(ordinal * alignment);
-    if (base < 64 && (query->active_conflicts & (UINT64_C(1) << base))) {
+    const uint32_t base = loom_low_allocation_search_linear_candidate_base(
+        ordinal, last_base, alignment, preferred_alignment);
+    if (base < minimum_base) {
       continue;
     }
-    if (needs_first_candidate && base < first_candidate_ordinal) {
+    if (base < 64 && (query->active_conflicts & (UINT64_C(1) << base))) {
       continue;
     }
     loom_low_allocation_assignment_t candidate = *candidate_template;
     candidate.location_base = base;
-    if (!(needs_first_candidate && base == first_candidate_ordinal) &&
-        loom_low_allocation_search_assignment_conflicts(
+    if (loom_low_allocation_search_assignment_conflicts(
             context, &candidate,
             /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
             /*ignored_storage_lease_value_ids=*/NULL,
@@ -511,13 +507,9 @@ static void loom_low_allocation_search_find_location_for_release_policy(
         preference_penalty >= out_choice->preference_penalty) {
       continue;
     }
-    if (first_candidate_ordinal == UINT32_MAX) {
-      first_candidate_ordinal = base;
-    }
     *out_choice = (loom_low_allocation_search_location_choice_t){
         .base = base,
         .candidate_ordinal = base,
-        .first_candidate_ordinal = first_candidate_ordinal,
         .preference_penalty = preference_penalty,
         .found = true,
     };
@@ -525,6 +517,47 @@ static void loom_low_allocation_search_find_location_for_release_policy(
       return;
     }
   }
+}
+
+// Pressure release can only add feasible bases. Its minimum is strictly lower
+// than the forbidden minimum exactly when the first pressure-legal candidate
+// still has a forbidden lease conflict. Select that policy before searching in
+// packing order, reusing the minimum to exclude the proven infeasible prefix.
+static loom_low_allocation_storage_release_policy_t
+loom_low_allocation_search_find_linear_pressure_choice(
+    loom_low_allocation_search_context_t* context,
+    const loom_low_allocation_assignment_t* candidate_template,
+    const loom_low_allocation_search_location_query_t* query,
+    uint32_t last_base, uint32_t alignment, uint32_t scalar_packing_frontier,
+    loom_low_allocation_search_location_choice_t* out_choice) {
+  *out_choice = (loom_low_allocation_search_location_choice_t){0};
+  for (uint64_t base = 0; base <= last_base; base += alignment) {
+    if (base < 64 && (query->active_conflicts & (UINT64_C(1) << base))) {
+      continue;
+    }
+    loom_low_allocation_assignment_t candidate = *candidate_template;
+    candidate.location_base = (uint32_t)base;
+    if (loom_low_allocation_search_assignment_conflicts(
+            context, &candidate,
+            /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
+            /*ignored_storage_lease_value_ids=*/NULL,
+            /*ignored_storage_lease_value_count=*/0,
+            LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE)) {
+      continue;
+    }
+    const loom_low_allocation_storage_release_policy_t policy =
+        loom_low_allocation_storage_lease_state_conflicts(
+            context->storage_leases, context->descriptor_set, context->liveness,
+            &candidate, /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
+            LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN)
+            ? LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE
+            : LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN;
+    loom_low_allocation_search_find_location_for_release_policy(
+        context, candidate_template, query, (uint32_t)base, last_base,
+        alignment, scalar_packing_frontier, policy, out_choice);
+    return policy;
+  }
+  return LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN;
 }
 
 // Returns the exclusive upper frontier where scalar values should pack from
@@ -674,8 +707,8 @@ static void loom_low_allocation_search_find_for_release_policy(
         release_policy, out_choice);
   } else {
     loom_low_allocation_search_find_location_for_release_policy(
-        context, candidate_template, query, last_base, alignment,
-        scalar_packing_frontier, release_policy, out_choice);
+        context, candidate_template, query, /*minimum_base=*/0, last_base,
+        alignment, scalar_packing_frontier, release_policy, out_choice);
   }
 }
 
@@ -733,7 +766,7 @@ bool loom_low_allocation_search_find_free_location(
   }
 
   const uint32_t alignment = loom_low_allocation_live_range_interval_alignment(
-      context->descriptor_set, interval);
+      context->descriptor_set, context->liveness, context->placement, interval);
   uint32_t last_base = 0;
   if (!uses_explicit_physical_registers && capacity.is_bounded) {
     last_base = capacity.max_units - interval->unit_count;
@@ -779,12 +812,25 @@ bool loom_low_allocation_search_find_free_location(
                 (uint32_t)reg_class->allocatable_count,
                 capacity.is_bounded ? capacity.max_units : UINT32_MAX)
           : 0;
-  loom_low_allocation_search_find_for_release_policy(
-      context, &candidate_template, &query, uses_explicit_physical_registers,
-      explicit_candidate_count, last_base, alignment, scalar_packing_frontier,
-      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN, &release_free);
+  if (!uses_explicit_physical_registers &&
+      loom_low_allocation_search_has_pressure_release_records(context)) {
+    const loom_low_allocation_storage_release_policy_t policy =
+        loom_low_allocation_search_find_linear_pressure_choice(
+            context, &candidate_template, &query, last_base, alignment,
+            scalar_packing_frontier, &release_free);
+    if (policy == LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE) {
+      *out_base = release_free.base;
+      return true;
+    }
+  } else {
+    loom_low_allocation_search_find_for_release_policy(
+        context, &candidate_template, &query, uses_explicit_physical_registers,
+        explicit_candidate_count, last_base, alignment, scalar_packing_frontier,
+        LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN, &release_free);
+  }
   loom_low_allocation_search_location_choice_t pressure_release = {0};
-  if (loom_low_allocation_search_has_pressure_release_records(context) &&
+  if (uses_explicit_physical_registers &&
+      loom_low_allocation_search_has_pressure_release_records(context) &&
       (!release_free.found || release_free.first_candidate_ordinal != 0)) {
     loom_low_allocation_search_find_for_release_policy(
         context, &candidate_template, &query, uses_explicit_physical_registers,
@@ -1077,7 +1123,7 @@ iree_status_t loom_low_allocation_search_find_active_spill_victim_set(
 
   uint32_t last_base = 0;
   const uint32_t alignment = loom_low_allocation_live_range_interval_alignment(
-      context->descriptor_set, interval);
+      context->descriptor_set, context->liveness, context->placement, interval);
   if (!uses_explicit_physical_registers && capacity->is_bounded) {
     last_base = capacity->max_units - interval->unit_count;
   } else if (!uses_explicit_physical_registers) {

@@ -26,6 +26,8 @@ from loom.target.low_descriptors import (
     OperandForm,
     OperandFormMatch,
     OperandFormMatchKind,
+    RegClassAlt,
+    RegClassAltFlag,
     Resource,
     ResourceKind,
     ScheduleClass,
@@ -37,6 +39,31 @@ from loom.target.test.descriptors import (
     TEST_LOW_CORE_DESCRIPTOR_SET,
     TEST_LOW_LOAD_V4I32_DESCRIPTOR,
 )
+
+
+@pytest.mark.parametrize("alignment", [0, 3, 6, 65536])
+def test_operand_alignment_requires_representable_power_of_two(alignment) -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[0]
+    alternative = replace(operand.reg_alts[0], unit_alignment=alignment)
+    descriptor = replace(base, operands=(replace(operand, reg_alts=(alternative,)), *base.operands[1:]))
+    with pytest.raises(ValueError, match="register alignment"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_operand_alignment_is_part_of_interned_alternative() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operands = tuple(replace(operand, reg_alts=(replace(operand.reg_alts[0], unit_alignment=alignment),)) for operand, alignment in zip(base.operands, (1, 2, 4), strict=True))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=operands),)))
+    assert [row[2] for row in compiled.reg_class_alts] == [0, 1, 2]
+
+
+def test_immediate_alternative_has_no_register_alignment() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = replace(base.operands[1], reg_alts=(RegClassAlt(None, (RegClassAltFlag.IMMEDIATE,), unit_alignment=2),))
+    descriptor = replace(base, operands=(base.operands[0], operand, *base.operands[2:]))
+    with pytest.raises(ValueError, match="immediate alternative cannot require register alignment"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
 
 
 @pytest.mark.parametrize("names", permutations(("zulu", "alpha", "i32_value", "beta")))

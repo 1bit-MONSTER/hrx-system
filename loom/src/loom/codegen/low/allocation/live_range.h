@@ -13,6 +13,7 @@
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation/assignment.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/placement.h"
 #include "loom/ir/ir.h"
 
 #ifdef __cplusplus
@@ -39,9 +40,13 @@ uint32_t loom_low_allocation_live_range_interval_storage_end_point(
 uint32_t loom_low_allocation_live_range_interval_initial_unit_end_point(
     const loom_liveness_interval_t* interval);
 
-// Returns the base-location alignment for |interval|'s target register class.
+// Returns the required base alignment from the register class and retained
+// packet constraints. |interval| belongs to |liveness|, which owns the interval
+// indexing used by |placement|. Packing preferences do not restrict legality.
 uint32_t loom_low_allocation_live_range_interval_alignment(
     const loom_low_descriptor_set_t* descriptor_set,
+    const loom_liveness_analysis_t* liveness,
+    const loom_low_placement_table_t* placement,
     const loom_liveness_interval_t* interval);
 
 // Returns the one-past-last live program point for one assigned unit. Unit

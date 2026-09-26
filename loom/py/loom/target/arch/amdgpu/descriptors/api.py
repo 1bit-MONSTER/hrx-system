@@ -47,6 +47,7 @@ from loom.target.arch.amdgpu.target_info import (
 )
 from loom.target.low_descriptors import InstructionClass
 
+from .alignment import _with_operand_alignment
 from .categories import *
 from .cluster import _gfx125x_cluster_descriptors
 from .common import *
@@ -1597,6 +1598,7 @@ def _build_amdgpu_core_descriptor_set_from_spec(
     if is_gfx125x:
         descriptor_set = _with_gfx125x_vgpr_msb_address_states(descriptor_set)
     descriptor_set = _with_instruction_classes(descriptor_set)
+    descriptor_set = _with_operand_alignment(descriptor_set)
     descriptor_set = _with_storage_lease_rows(
         descriptor_set, builder_flags=builder.flags
     )

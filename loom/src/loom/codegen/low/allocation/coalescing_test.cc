@@ -278,6 +278,7 @@ TEST_F(LowAllocationCoalescingTest, AssignsTiedIntervalToSourceLocation) {
   loom_low_allocation_storage_lease_state_t storage_leases = {};
   loom_low_allocation_search_context_t search_context = {};
   search_context.module = module;
+  search_context.placement = &placement;
   search_context.descriptor_set = &descriptor_set;
   search_context.liveness = &liveness;
   search_context.unit_liveness = &unit_liveness;
@@ -389,6 +390,8 @@ TEST_F(LowAllocationCoalescingTest, ConcatMayPrecedeItsSourceAssignments) {
   target_constraints.target = &target;
   loom_low_allocation_search_context_t search_context = {};
   search_context.descriptor_set = &descriptor_set;
+  search_context.liveness = &liveness;
+  search_context.placement = &placement;
 
   loom_low_allocation_coalescing_context_t context = {};
   context.arena = &arena_;

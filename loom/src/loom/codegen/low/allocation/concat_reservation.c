@@ -168,8 +168,9 @@ loom_low_allocation_concat_reservation_default_source_assembles_result(
   const uint32_t result_location_base =
       source_unit_location - relation->result_unit_offset;
   const uint32_t result_alignment =
-      loom_low_allocation_live_range_interval_alignment(context->descriptor_set,
-                                                        result_interval);
+      loom_low_allocation_live_range_interval_alignment(
+          context->descriptor_set, context->liveness, context->placement,
+          result_interval);
   if (result_location_base % result_alignment != 0 ||
       !loom_low_allocation_storage_reg_classes_share(
           context->descriptor_set, source_capacity.descriptor_reg_class_id,
@@ -211,7 +212,8 @@ loom_low_allocation_concat_reservation_default_source_assembles_result(
             context->target_constraints, sibling_interval, &sibling_capacity));
     const uint32_t sibling_alignment =
         loom_low_allocation_live_range_interval_alignment(
-            context->descriptor_set, sibling_interval);
+            context->descriptor_set, context->liveness, context->placement,
+            sibling_interval);
     if (!loom_low_allocation_storage_reg_classes_share(
             context->descriptor_set, source_capacity.descriptor_reg_class_id,
             sibling_capacity.descriptor_reg_class_id) ||
@@ -275,11 +277,13 @@ static bool loom_low_allocation_concat_reservation_find_location_for_source(
   }
 
   const uint32_t result_alignment =
-      loom_low_allocation_live_range_interval_alignment(context->descriptor_set,
-                                                        result_interval);
+      loom_low_allocation_live_range_interval_alignment(
+          context->descriptor_set, context->liveness, context->placement,
+          result_interval);
   const uint32_t source_alignment =
-      loom_low_allocation_live_range_interval_alignment(context->descriptor_set,
-                                                        source_interval);
+      loom_low_allocation_live_range_interval_alignment(
+          context->descriptor_set, context->liveness, context->placement,
+          source_interval);
   const uint32_t assigned_limit =
       loom_low_allocation_target_constraints_assigned_location_search_limit(
           context->target_constraints, capacity.descriptor_reg_class_id,
@@ -316,12 +320,17 @@ static bool loom_low_allocation_concat_reservation_find_location_for_source(
           context->unit_liveness->end_points,
           context->unit_liveness->point_count, &reservation);
   const loom_low_descriptor_set_t* descriptor_set = context->descriptor_set;
+  const uint32_t preferred_alignment = iree_max(
+      result_alignment,
+      loom_low_reg_class_preferred_unit_alignment(
+          &descriptor_set->reg_classes[capacity.descriptor_reg_class_id],
+          result_interval->unit_count));
   const uint64_t candidate_count =
       is_explicit ? descriptor_set->physical_register_view_count
                   : (uint64_t)last_base / result_alignment + 1;
   for (uint64_t candidate_index = 0; candidate_index < candidate_count;
        ++candidate_index) {
-    uint32_t base = (uint32_t)candidate_index * result_alignment;
+    uint32_t base = 0;
     if (is_explicit) {
       const loom_low_physical_register_view_t* view =
           &descriptor_set->physical_register_views[candidate_index];
@@ -335,6 +344,9 @@ static bool loom_low_allocation_concat_reservation_find_location_for_source(
               result_interval->unit_count)) {
         continue;
       }
+    } else {
+      base = loom_low_allocation_search_linear_candidate_base(
+          candidate_index, last_base, result_alignment, preferred_alignment);
     }
     reservation.location_base = base;
     if (!loom_low_allocation_search_assignment_conflicts(

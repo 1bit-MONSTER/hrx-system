@@ -732,7 +732,7 @@ static void loom_low_schedule_note_block_pressure_use(
     const uint16_t reg_class_id = value->register_class_id;
     if (reg_class_id != LOOM_LOW_REG_CLASS_NONE) {
       const uint32_t packing_reserve_units =
-          loom_low_reg_class_unit_alignment(
+          loom_low_reg_class_preferred_unit_alignment(
               &state->target.descriptor_set->reg_classes[reg_class_id],
               value->unit_count) -
           1u;

@@ -506,6 +506,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::liveness
     loom::codegen::low::descriptors
+    loom::codegen::low::placement
     loom::ir
     loom::target::registers
     loom::util::adaptive_sort

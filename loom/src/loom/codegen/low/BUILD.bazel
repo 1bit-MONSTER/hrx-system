@@ -514,7 +514,12 @@ loom_cc_test(
     name = "placement_test",
     srcs = ["placement_test.cc"],
     deps = [
+        ":builder",
         ":placement",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

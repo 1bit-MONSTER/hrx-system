@@ -375,6 +375,15 @@ def test_physical_descriptor_set_rejects_zero_capacity_resource() -> None:
         compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(register_class,)))
 
 
+def test_explicit_physical_alternatives_reject_numeric_alignment() -> None:
+    register_class = _coindexed_register_classes()[0]
+    operand = _physical_operand("dst", OperandRole.RESULT, register_class.name)
+    operand = replace(operand, reg_alts=(replace(operand.reg_alts[0], unit_alignment=2),))
+    descriptor = _descriptor("test.aligned", (operand,))
+    with pytest.raises(ValueError, match="explicit physical alternative cannot require numeric register alignment"):
+        compiler.compile_descriptor_set(_descriptor_set(descriptor, register_classes=(register_class,)))
+
+
 def test_physical_descriptor_set_rejects_implicit_row_without_phase() -> None:
     descriptor = _descriptor(
         "test.bad.implicit",

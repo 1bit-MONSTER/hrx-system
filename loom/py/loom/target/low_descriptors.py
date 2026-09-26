@@ -448,6 +448,8 @@ class RegisterPart:
 class RegClassAlt:
     reg_class: str | None
     flags: tuple[RegClassAltFlag, ...] = (RegClassAltFlag.PREFERRED,)
+    # Required power-of-two base alignment in allocation units for this operand.
+    unit_alignment: int = 1
 
 
 @dataclass(frozen=True, slots=True)
