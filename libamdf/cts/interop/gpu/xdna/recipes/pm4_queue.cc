@@ -13,7 +13,7 @@
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
-void Pm4TransferQueue::Initialize(
+void Pm4RecipeQueue::Initialize(
     const amdf_api_t* api, const amdf_gpu_api_t* gpu_api, amdf_device_t* device,
     amdf_memory_scope_t* system_scope, const amdf_queue_family_info_t& family,
     amdf_queue_publication_modes_t publication_mode,
@@ -68,10 +68,10 @@ void Pm4TransferQueue::Initialize(
   ASSERT_NO_FATAL_FAILURE(commands_.Create(api, system_scope, create));
 }
 
-void Pm4TransferQueue::Publish(const amdf_api_t* api,
-                               const amdf_gpu_api_t* gpu_api,
-                               std::span<const uint32_t> words,
-                               uint32_t completion_value) {
+void Pm4RecipeQueue::Publish(const amdf_api_t* api,
+                             const amdf_gpu_api_t* gpu_api,
+                             std::span<const uint32_t> words,
+                             uint32_t completion_value) {
   ASSERT_FALSE(words.empty());
   ASSERT_LE(words.size_bytes(), 4096u);
   if (kernel_queue_) {
@@ -139,7 +139,7 @@ void Pm4TransferQueue::Publish(const amdf_api_t* api,
   ASSERT_NO_FATAL_FAILURE(user_queue_.PublishStream(published_index_));
 }
 
-void Pm4TransferQueue::WaitComplete(const amdf_api_t* api) {
+void Pm4RecipeQueue::WaitComplete(const amdf_api_t* api) {
   if (kernel_queue_) {
     ASSERT_EQ(api->kernel_queue_wait(kernel_queue_, submission_,
                                      AMDF_TIMEOUT_INFINITE, 0),
@@ -149,7 +149,7 @@ void Pm4TransferQueue::WaitComplete(const amdf_api_t* api) {
   }
 }
 
-void Pm4TransferQueue::Retire(const amdf_api_t* api) {
+void Pm4RecipeQueue::Retire(const amdf_api_t* api) {
   if (kernel_queue_) {
     amdf_kernel_queue_status_t status = {};
     status.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS;
@@ -169,7 +169,7 @@ void Pm4TransferQueue::Retire(const amdf_api_t* api) {
   }
 }
 
-bool Pm4TransferQueue::Release(const amdf_api_t* api) {
+bool Pm4RecipeQueue::Release(const amdf_api_t* api) {
   if (!user_queue_.Release(api)) {
     return false;
   }

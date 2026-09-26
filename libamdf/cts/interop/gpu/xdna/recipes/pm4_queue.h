@@ -12,12 +12,12 @@
 #include "libamdf/cts/gpu/util/user_queue.h"
 #include "util/mapped_memory.h"
 
-// Case-owned transport for finite, serial PM4 memory recipes. The caller admits
-// the family and publication mode, encodes its payload cache actions, and keeps
-// every addressed allocation live through Release. USER completion uses a
-// caller-owned coherent marker line; KERNEL completion uses native progress.
-// Neither completion path performs payload cache maintenance.
-class Pm4TransferQueue {
+// Case-owned transport for finite, serial PM4 shader and memory recipes. The
+// caller admits the family and publication mode, encodes its payload cache
+// actions, and keeps every addressed allocation live through Release. USER
+// completion uses a caller-owned coherent marker line; KERNEL completion uses
+// native progress. Neither completion path performs payload cache maintenance.
+class Pm4RecipeQueue {
  public:
   void Initialize(const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
                   amdf_device_t* device, amdf_memory_scope_t* system_scope,

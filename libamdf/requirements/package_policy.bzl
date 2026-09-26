@@ -71,6 +71,7 @@ PACKAGE_POLICIES = [
             "libamdf/cts/gpu/kernels",
             "libamdf/cts/gpu/pm4",
             "libamdf/cts/gpu/recipes",
+            "libamdf/cts/interop/gpu/xdna/recipes",
         ],
         build_requirements = [TARGET_ARCH_AMDGPU, EMIT_AMDGPU],
     ),

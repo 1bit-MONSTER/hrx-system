@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <span>
 #include <string>
@@ -14,6 +15,8 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
+#include "libamdf/cts/gpu/kernels/transform.h"
+#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/pm4_queue.h"
 #include "libamdf/cts/xdna/programs/mul_i32.h"
@@ -23,20 +26,44 @@
 
 namespace {
 
+namespace shader = kernels::gfx1151_transform;
+
+static_assert(shader::kArgumentByteOffsets ==
+              kernels::transform::kArgumentByteOffsets);
+static_assert(shader::kArgumentByteLengths ==
+              kernels::transform::kArgumentByteLengths);
+static_assert(shader::kArgumentValueKinds ==
+              kernels::transform::kArgumentValueKinds);
+static_assert(shader::kKernargByteLength == 24);
+static_assert(shader::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{64, 1, 1});
+static_assert(shader::kWavefrontSize == 32 &&
+              shader::kPrivateSegmentByteLength == 0 &&
+              shader::kGroupSegmentByteLength == 0);
+// The native binding supplies only kernarg, group X and local X inputs.
+static_assert(shader::kKernelCodeProperties == 0x408 &&
+              shader::kKernargPreload == 0);
+static_assert((shader::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
+
 constexpr size_t kBindingByteLength = 64;
 constexpr size_t kBindingByteOffset = 64;
 constexpr size_t kBindingStorageByteLength = 192;
 constexpr size_t kStagingByteLength = 4096;
+constexpr size_t kShaderResultByteOffset = 512;
+constexpr size_t kArgumentStride = 64;
 constexpr size_t kReadbackByteOffset = 1024;
 constexpr size_t kCompletionByteOffset = 2048;
 constexpr size_t kCompletionByteLength = 64;
 constexpr uint32_t kGenerationCount = 8;
+static_assert(kArgumentStride % shader::kKernargAlignment == 0);
+static_assert(sizeof(kernels::transform::Arguments) <= kArgumentStride);
 constexpr std::array<uint32_t, 16> kValues = {
     0,          1,          2,          3,          7,          31,
     65535,      65536,      0x7fffffff, 0x80000000, 0x80000001, 0xfffffffd,
     0xfffffffe, 0xffffffff, 0x12345678, 0x87654321,
 };
 
+enum class GpuOperation { kTransfer, kShader };
 enum class Site { kHost, kGpu, kXdna };
 struct Edge {
   // Actor publishing the backing before the explicit ordering edge.
@@ -89,6 +116,9 @@ void CheckBytes(std::span<const uint8_t> observed,
 
 class GpuXdnaRecipeTest : public GpuDeviceFixture {
  protected:
+  explicit GpuXdnaRecipeTest(GpuOperation operation = GpuOperation::kTransfer)
+      : gpu_operation_(operation) {}
+
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override {
     *out_matches = false;
@@ -99,6 +129,11 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     if (!amdf_status_is_ok(status) ||
         !Pm4CommandWriter::SupportsTarget(target)) {
       return status;
+    }
+    if (gpu_operation_ == GpuOperation::kShader &&
+        (target.gfx_ip.major != 11 || target.gfx_ip.minor != 5 ||
+         target.gfx_ip.stepping != 1)) {
+      return AMDF_STATUS_OK;
     }
     amdf_endpoint_info_t info = {};
     info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
@@ -116,14 +151,16 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       if (!amdf_status_is_ok(status)) {
         return status;
       }
-      constexpr auto kRoles =
-          AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL;
+      const auto required_roles =
+          AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL |
+          (gpu_operation_ == GpuOperation::kShader ? AMDF_QUEUE_ROLE_COMPUTE
+                                                   : 0);
       constexpr auto kCacheOperations =
           AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM;
       if (family.command_type != AMDF_QUEUE_COMMAND_TYPE_GPU_PM4 ||
           family.format_version != AMDF_GPU_PM4_QUEUE_FORMAT_VERSION_1 ||
-          (family.roles & kRoles) != kRoles ||
+          (family.roles & required_roles) != required_roles ||
           (family.format_features &
            AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR) == 0 ||
           (family.cache_operations & kCacheOperations) != kCacheOperations ||
@@ -233,6 +270,9 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       return;
     }
     if (!execution_.Release(api_, xdna_api_)) {
+      return;
+    }
+    if (!shader_.arguments.Release(api_) || !shader_.code.Release(api_)) {
       return;
     }
     if (!staging_.Release(api_)) {
@@ -426,6 +466,88 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
         memory.mapping, transition.host_operation, 0, memory.host.byte_length);
   }
 
+  void CreateShaderMemory(amdf_memory_access_t device_access,
+                          uint64_t byte_length, CtsMappedMemory& memory,
+                          uint64_t& address,
+                          amdf_cache_transition_t& host_release) {
+    auto access = accesses_[1];
+    access.requirements.access = device_access;
+    const std::span<const amdf_memory_device_access_t> accesses(&access, 1);
+    amdf_memory_profile_t profile = {};
+    ASSERT_NO_FATAL_FAILURE(
+        FindProfile(accesses, AMDF_MEMORY_PROFILE_ROLE_CREATE, &profile));
+    ASSERT_NE(profile.ordinal, AMDF_MEMORY_PROFILE_ORDINAL_UNKNOWN);
+    const uint64_t granularity = profile.allocation.byte_length_granularity;
+    ASSERT_GT(granularity, 0u);
+    amdf_memory_create_info_t create = {};
+    create.type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO;
+    create.structure_size = sizeof(create);
+    create.memory_profile_ordinal = profile.ordinal;
+    create.access_count = 1;
+    create.accesses = &access;
+    create.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+    create.byte_length =
+        (byte_length + granularity - 1) / granularity * granularity;
+    create.minimum_alignment = profile.allocation.minimum_alignment;
+    constexpr std::array<Edge, 1> edges = {{{Site::kHost, Site::kGpu}}};
+    std::array<amdf_memory_pair_info_t, 1> pairs = {};
+    ASSERT_NO_FATAL_FAILURE(QueryProfilePairs(create, 0, edges, pairs));
+    ASSERT_NO_FATAL_FAILURE(memory.Create(api_, system_scope_, create));
+    ASSERT_NO_FATAL_FAILURE(CheckAccesses(memory, accesses));
+    ASSERT_NO_FATAL_FAILURE(CheckConcretePairs(memory, 0, edges, pairs));
+    ASSERT_EQ(api_->memory_query_address(memory.memory, 0,
+                                         AMDF_MEMORY_ADDRESS_GPU, &address),
+              AMDF_STATUS_OK);
+    ASSERT_NE(address, 0u);
+    host_release = pairs[0].release;
+  }
+
+  void PrepareShader() {
+    shader_.program = {0,
+                       shader::kComputePgmRsrc1,
+                       shader::kComputePgmRsrc2,
+                       shader::kComputePgmRsrc3,
+                       shader::kGroupSegmentByteLength,
+                       {shader::kWorkgroupSize, 1, 1}};
+    // Preserve the full image and PAL's three additional 64-byte fetch lines.
+    const uint64_t image_extent =
+        ((uint64_t{shader::kExecutable.byte_length} + 63u) & ~UINT64_C(63)) +
+        192u;
+    const uint64_t prefetch_extent =
+        uint64_t{shader::kEntryByteOffset} +
+        ((shader::kComputePgmRsrc3 >> 4) & 63u) * 128u;
+    uint64_t code_address = 0;
+    amdf_cache_transition_t code_release = {};
+    ASSERT_NO_FATAL_FAILURE(
+        CreateShaderMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
+                           std::max(image_extent, prefetch_extent),
+                           shader_.code, code_address, code_release));
+    ASSERT_EQ(code_address % 256, 0u);
+    ASSERT_LE(code_address,
+              (UINT64_C(1) << 48) - shader_.code.info.byte_length);
+    shader_.program.entry_address = code_address + shader::kEntryByteOffset;
+    ASSERT_EQ(shader_.program.entry_address % 256, 0u);
+    auto code = shader_.code.bytes();
+    std::fill(code.begin(), code.end(), 0);
+    std::memcpy(code.data(), shader::kExecutable.words,
+                shader::kExecutable.byte_length);
+    ASSERT_EQ(HostTransition(shader_.code, code_release), AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
+        AMDF_MEMORY_ACCESS_READ, 3 * kArgumentStride, shader_.arguments,
+        shader_.argument_address, shader_.argument_release));
+    ASSERT_EQ(shader_.argument_address % shader::kKernargAlignment, 0u);
+    RecordProperty("gpu_xdna_shader_image_sha256", shader::kExecutable.sha256);
+    RecordProperty("gpu_xdna_shader_image_bytes",
+                   shader::kExecutable.byte_length);
+    RecordProperty("gpu_xdna_shader_entry_offset", shader::kEntryByteOffset);
+    RecordProperty("gpu_xdna_shader_code_bytes",
+                   std::to_string(shader_.code.info.byte_length));
+    RecordProperty("gpu_xdna_shader_argument_bytes",
+                   std::to_string(shader_.arguments.info.byte_length));
+    RecordProperty("gpu_xdna_shader_result_offset", kShaderResultByteOffset);
+    RecordProperty("gpu_xdna_shader_dispatches_per_generation", 3);
+  }
+
   void RunRoundTrips(amdf_memory_profile_roles_t role) {
     if (role == AMDF_MEMORY_PROFILE_ROLE_REGISTER &&
         (features_ & AMDF_GPU_DEVICE_FEATURE_HOST_REGISTRATION) == 0) {
@@ -549,11 +671,20 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     ASSERT_NO_FATAL_FAILURE(execution_.Prepare(api_, xdna_api_, xdna_device_,
                                                xdna_family_, executable_,
                                                xdna_addresses));
+    if (gpu_operation_ == GpuOperation::kShader) {
+      ASSERT_NO_FATAL_FAILURE(PrepareShader());
+    }
 
     std::array<uint32_t, 308> ingress_words = {};
     Pm4CommandWriter ingress(ingress_words.data());
     ingress.SystemBarrier();
     for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
+      if (gpu_operation_ == GpuOperation::kShader && ordinal < 2) {
+        ingress.BindCompute(shader_.program, shader_.argument_address +
+                                                 ordinal * kArgumentStride);
+        ingress.DispatchWave32(shader::kWorkgroupSize, 1, 1);
+        continue;
+      }
       for (size_t offset = 0; offset < kBindingByteLength;
            offset += sizeof(uint32_t)) {
         ingress.CopyData32(
@@ -562,10 +693,18 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       }
     }
     ingress.SystemBarrier();
-    ASSERT_EQ(ingress.word_count(), ingress_words.size());
-    std::array<uint32_t, 884> egress_words = {};
+    ASSERT_EQ(ingress.word_count(),
+              gpu_operation_ == GpuOperation::kShader ? 178u : 308u);
+    std::array<uint32_t, 925> egress_words = {};
     Pm4CommandWriter egress(egress_words.data());
     egress.SystemBarrier();
+    if (gpu_operation_ == GpuOperation::kShader) {
+      egress.BindCompute(shader_.program,
+                         shader_.argument_address + 2 * kArgumentStride);
+      egress.DispatchWave32(shader::kWorkgroupSize, 1, 1);
+      // Join shader stores before the independent TC/L2 guard readback.
+      egress.SystemBarrier();
+    }
     for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
       for (size_t offset = 0; offset < kBindingStorageByteLength;
            offset += sizeof(uint32_t)) {
@@ -575,12 +714,21 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       }
     }
     egress.SystemBarrier();
-    ASSERT_EQ(egress.word_count(), egress_words.size());
+    ASSERT_EQ(egress.word_count(),
+              gpu_operation_ == GpuOperation::kShader ? 925u : 884u);
 
     const auto command_bytes = execution_.instructions.bytes();
     const std::vector<uint8_t> original_commands(command_bytes.begin(),
                                                  command_bytes.end());
     std::vector<uint8_t> observed_commands(command_bytes.size());
+    const auto code_bytes = shader_.code.bytes();
+    std::vector<uint8_t> original_code(code_bytes.size());
+    if (!code_bytes.empty()) {
+      std::copy(code_bytes.begin(), code_bytes.end(), original_code.begin());
+    }
+    std::vector<uint8_t> observed_code(code_bytes.size());
+    std::vector<uint8_t> expected_arguments(shader_.arguments.bytes().size());
+    std::vector<uint8_t> observed_arguments(expected_arguments.size());
     std::vector<uint8_t> expected_staging(staging_.bytes().size());
     std::vector<uint8_t> observed_staging(staging_.bytes().size());
     std::array<std::vector<uint8_t>, 3> expected;
@@ -608,10 +756,16 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     RecordProperty("gpu_xdna_completion_byte_offset", kCompletionByteOffset);
     RecordProperty("gpu_xdna_ingress_words", ingress.word_count());
     RecordProperty("gpu_xdna_egress_words", egress.word_count());
+    RecordProperty(
+        "gpu_xdna_gpu_operation",
+        gpu_operation_ == GpuOperation::kShader ? "shader" : "transfer");
 
     for (uint32_t generation = 0;
          generation < kGenerationCount && !HasFailure(); ++generation) {
       SCOPED_TRACE(generation);
+      const std::array<uint32_t, 3> addends = {2 * generation + 1,
+                                               0x80000001u + 2 * generation,
+                                               0x12345679u + 2 * generation};
       auto staging = staging_.bytes();
       const uint8_t staging_guard = static_cast<uint8_t>(0x3C ^ generation);
       std::fill(staging.begin(), staging.begin() + kCompletionByteOffset,
@@ -633,15 +787,23 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
                     kBindingStorageByteLength, static_cast<uint8_t>(~guard));
       }
       for (size_t i = 0; i < kValues.size(); ++i) {
-        const uint32_t lhs = kValues[(i + generation) % kValues.size()];
-        const uint32_t rhs = kValues[(i * 3 + generation + 5) % kValues.size()];
-        const uint32_t product = lhs * rhs;
+        const uint32_t input_lhs = kValues[(i + generation) % kValues.size()];
+        const uint32_t input_rhs =
+            kValues[(i * 3 + generation + 5) % kValues.size()];
+        const uint32_t lhs = gpu_operation_ == GpuOperation::kShader
+                                 ? uint64_t{input_lhs} * 3 + addends[0]
+                                 : input_lhs;
+        const uint32_t rhs = gpu_operation_ == GpuOperation::kShader
+                                 ? uint64_t{input_rhs} * 3 + addends[1]
+                                 : input_rhs;
+        const uint32_t product = uint64_t{lhs} * rhs;
         const std::array<uint32_t, 3> values = {lhs, rhs, product};
+        const std::array<uint32_t, 3> source_values = {input_lhs, input_rhs,
+                                                       ~product};
         for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
           const size_t source_offset =
               ordinal * kBindingByteLength + i * sizeof(uint32_t);
-          const uint32_t source_value =
-              ordinal == 2 ? ~product : values[ordinal];
+          const uint32_t source_value = source_values[ordinal];
           StoreU32(staging, source_offset, source_value);
           StoreU32(expected_staging, source_offset, source_value);
           StoreU32(expected[ordinal], kBindingByteOffset + i * sizeof(uint32_t),
@@ -651,6 +813,35 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
                        kBindingByteOffset + i * sizeof(uint32_t),
                    ~values[ordinal]);
         }
+        if (gpu_operation_ == GpuOperation::kShader) {
+          const uint32_t result = uint64_t{product} * 3 + addends[2];
+          StoreU32(staging, kShaderResultByteOffset + i * sizeof(uint32_t),
+                   ~result);
+          StoreU32(expected_staging,
+                   kShaderResultByteOffset + i * sizeof(uint32_t), result);
+        }
+      }
+      if (gpu_operation_ == GpuOperation::kShader) {
+        // Only the ABI's semantic bytes are copied; every slot's padding and
+        // the rest of the rounded allocation remain initialized and checked.
+        std::fill(expected_arguments.begin(), expected_arguments.end(), 0);
+        const std::array<kernels::transform::Arguments, 3> arguments = {{
+            {staging_address, gpu_addresses[0] + kBindingByteOffset,
+             kValues.size(), addends[0]},
+            {staging_address + kBindingByteLength,
+             gpu_addresses[1] + kBindingByteOffset, kValues.size(), addends[1]},
+            {gpu_addresses[2] + kBindingByteOffset,
+             staging_address + kShaderResultByteOffset, kValues.size(),
+             addends[2]},
+        }};
+        for (size_t ordinal = 0; ordinal < arguments.size(); ++ordinal) {
+          std::memcpy(expected_arguments.data() + ordinal * kArgumentStride,
+                      &arguments[ordinal], shader::kKernargByteLength);
+        }
+        std::memcpy(shader_.arguments.bytes().data(), expected_arguments.data(),
+                    expected_arguments.size());
+        ASSERT_EQ(HostTransition(shader_.arguments, shader_.argument_release),
+                  AMDF_STATUS_OK);
       }
       for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
         std::copy_n(expected[ordinal].begin(), kBindingStorageByteLength,
@@ -669,8 +860,10 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       if (publication_mode_ == AMDF_QUEUE_PUBLICATION_MODE_USER) {
         StoreU32(expected_staging, kCompletionByteOffset, completion_value);
       }
-      ASSERT_NO_FATAL_FAILURE(gpu_queue_.Publish(api_, gpu_api_, ingress_words,
-                                                 completion_value - 1));
+      ASSERT_NO_FATAL_FAILURE(gpu_queue_.Publish(
+          api_, gpu_api_,
+          std::span<const uint32_t>(ingress_words).first(ingress.word_count()),
+          completion_value - 1));
       ASSERT_NO_FATAL_FAILURE(gpu_queue_.WaitComplete(api_));
       ASSERT_NO_FATAL_FAILURE(gpu_queue_.Retire(api_));
       if (HasFailure()) {
@@ -692,8 +885,10 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
                                         AMDF_TIMEOUT_INFINITE, 0),
                 AMDF_STATUS_OK);
-      ASSERT_NO_FATAL_FAILURE(
-          gpu_queue_.Publish(api_, gpu_api_, egress_words, completion_value));
+      ASSERT_NO_FATAL_FAILURE(gpu_queue_.Publish(
+          api_, gpu_api_,
+          std::span<const uint32_t>(egress_words).first(egress.word_count()),
+          completion_value));
       ASSERT_NO_FATAL_FAILURE(gpu_queue_.WaitComplete(api_));
 
       // Acquire and capture the complete GPU readback owner first. Only then
@@ -722,6 +917,23 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
         std::copy(command_bytes.begin(), command_bytes.end(),
                   observed_commands.begin());
       }
+      amdf_status_t code_status = AMDF_STATUS_OK;
+      amdf_status_t argument_status = AMDF_STATUS_OK;
+      if (gpu_operation_ == GpuOperation::kShader) {
+        code_status =
+            HostTransition(shader_.code, shader_.code.host.invalidate);
+        if (amdf_status_is_ok(code_status)) {
+          std::copy(code_bytes.begin(), code_bytes.end(),
+                    observed_code.begin());
+        }
+        argument_status = HostTransition(shader_.arguments,
+                                         shader_.arguments.host.invalidate);
+        if (amdf_status_is_ok(argument_status)) {
+          const auto argument_bytes = shader_.arguments.bytes();
+          std::copy(argument_bytes.begin(), argument_bytes.end(),
+                    observed_arguments.begin());
+        }
+      }
       EXPECT_EQ(staging_status, AMDF_STATUS_OK);
       if (amdf_status_is_ok(staging_status)) {
         CheckBytes(observed_staging, expected_staging);
@@ -736,6 +948,14 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       EXPECT_EQ(command_status, AMDF_STATUS_OK);
       if (amdf_status_is_ok(command_status)) {
         CheckBytes(observed_commands, original_commands);
+      }
+      EXPECT_EQ(code_status, AMDF_STATUS_OK);
+      if (amdf_status_is_ok(code_status)) {
+        CheckBytes(observed_code, original_code);
+      }
+      EXPECT_EQ(argument_status, AMDF_STATUS_OK);
+      if (amdf_status_is_ok(argument_status)) {
+        CheckBytes(observed_arguments, expected_arguments);
       }
       amdf_kernel_queue_status_t status = {};
       status.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS;
@@ -753,6 +973,8 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     }
   }
 
+  // Fixed case workload, selected before endpoint and queue admission.
+  const GpuOperation gpu_operation_;
   // Native PM4 family chosen passively before cached GPU activation.
   amdf_queue_family_info_t gpu_family_ = {};
   // One admitted transport, never switched after a native failure.
@@ -770,13 +992,26 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
   // NPU context, immutable bound commands and checked native queue.
   XdnaExecution execution_;
   // GPU queue and its command storage, removed before reachable backing.
-  Pm4TransferQueue gpu_queue_;
+  Pm4RecipeQueue gpu_queue_;
   // CPU source owners retained until every native registration is detached.
   std::array<CtsMappedMemory, 3> registered_storage_;
   // Three joint allocations retained through both engines' queue removal.
   std::array<CtsMappedMemory, 3> bindings_;
   // GPU-only inputs, readback and a separately aligned coherent marker line.
   CtsMappedMemory staging_;
+  // Optional shader state retained through removal of its GPU borrower.
+  struct {
+    // Compiled entry and resource configuration for all three dispatches.
+    Pm4ComputeProgram program = {};
+    // Immutable full image plus the declared instruction fetch extent.
+    CtsMappedMemory code;
+    // Three kernarg slots rewritten only after final egress retirement.
+    CtsMappedMemory arguments;
+    // GPU address of the first kernarg slot, independent of its host mapping.
+    uint64_t argument_address = 0;
+    // Exact HOST-to-GPU publication recipe for the argument allocation.
+    amdf_cache_transition_t argument_release = {};
+  } shader_;
 };
 
 TEST_F(GpuXdnaRecipeTest, AllocatedRoundTrip) {
@@ -784,6 +1019,19 @@ TEST_F(GpuXdnaRecipeTest, AllocatedRoundTrip) {
 }
 
 TEST_F(GpuXdnaRecipeTest, RegisteredRoundTrip) {
+  RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_REGISTER);
+}
+
+class GpuXdnaShaderRecipeTest : public GpuXdnaRecipeTest {
+ protected:
+  GpuXdnaShaderRecipeTest() : GpuXdnaRecipeTest(GpuOperation::kShader) {}
+};
+
+TEST_F(GpuXdnaShaderRecipeTest, AllocatedRoundTrip) {
+  RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE);
+}
+
+TEST_F(GpuXdnaShaderRecipeTest, RegisteredRoundTrip) {
   RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_REGISTER);
 }
 
