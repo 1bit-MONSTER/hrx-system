@@ -9,6 +9,7 @@ import os
 import bazel_to_cmake_config
 import bazel_to_cmake_converter
 import bazel_to_cmake_requirements
+from loom_binary import LoomBinaryBuildFileFunctions
 
 _AMDF_CONFIG_CMAKE_OPTIONS = {
     "//libamdf/config:enabled_setting": "AMDF_BUILD",
@@ -21,7 +22,9 @@ _AMDF_CONFIG_CMAKE_OPTIONS = {
 }
 
 
-class AmdfBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
+class AmdfBuildFileFunctions(
+    LoomBinaryBuildFileFunctions, bazel_to_cmake_converter.BuildFileFunctions
+):
     def _custom_initialize(self):
         self._amdf_requirement_policy = bazel_to_cmake_requirements.load_project_policy(
             self._repo_root,
@@ -57,6 +60,10 @@ class AmdfBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         if label in _AMDF_CONFIG_CMAKE_OPTIONS:
             return _AMDF_CONFIG_CMAKE_OPTIONS[label]
         return super()._convert_select_condition(label)
+
+    def apply_amdf_target_policy(self, kwargs, name=None):
+        del name
+        return self._apply_amdf_cmake_policy(kwargs)
 
     def amdf_cc_library(self, deps=None, **kwargs):
         kwargs = self._apply_amdf_cmake_policy(kwargs)

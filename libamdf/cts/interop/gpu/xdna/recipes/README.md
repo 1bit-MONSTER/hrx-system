@@ -1,7 +1,7 @@
 # GPU and XDNA memory recipes
 
 The grouped `execution` corpus composes GPU memory transfers with the
-[finite XDNA arithmetic program](../../../../xdna/programs/README.md):
+[Loom-built XDNA arithmetic program](../../../../xdna/programs/README.md):
 
 ```text
 CPU staging -> GPU TC/L2 copies -> XDNA DMA and arithmetic
@@ -20,9 +20,11 @@ The test queries six directional pairs on joint backing and two on GPU staging,
 both prospectively and for the concrete allocations. GPU commands perform the
 queried global system-scope release and acquire operations. Host publication
 and acquisition use their directional mapping recipes. XDNA backing actions
-are NONE; the finite command independently joins the worker and all used DMA
-channels. Each phase completes before the next phase begins. The CPU neither
-touches nor maintains joint payload between GPU ingress and GPU readback.
+are NONE; the command joins the finite external payload flow. Its resident
+worker and compute DMA access only tile-local state, which the next establishing
+invocation resets before reconfiguration. Each phase completes before the next
+phase begins. The CPU neither touches nor maintains joint payload between GPU
+ingress and GPU readback.
 
 Each case performs eight generations of sixteen unsigned 32-bit products.
 GPU ingress copies changing inputs and poisoned output words from staging.
@@ -45,6 +47,9 @@ failure. These are TC/L2 transfer tests, not shader execution tests.
 Queue destruction precedes release of reachable backing. XDNA instruction
 storage and context outlive its queue; registered CPU storage outlives its
 attachments. A failed native release stops destruction of dependent owners.
+
+The ordinary build compiles the `.loom` fixture and embeds both NPU profiles.
+Enable `LOOM_BUILD` and `LOOM_TARGET_XDNA` alongside `AMDF_BUILD`.
 
 ```sh
 iree-bazel-test --config=asan //libamdf/cts/interop/gpu/xdna/recipes:execution

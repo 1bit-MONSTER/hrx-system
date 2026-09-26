@@ -957,7 +957,7 @@ class BuildFileFunctions(object):
 
         return self._convert_string_list_block(block_name, srcs, sort=True)
 
-    def _convert_data_srcs_block(self, srcs, block_name="SRCS"):
+    def _convert_data_srcs_block(self, srcs, block_name="SRCS", sort=True):
         if not srcs:
             return ""
 
@@ -980,7 +980,7 @@ class BuildFileFunctions(object):
                     self._filegroup_dep_filename(self._normalize_label(src))
                 )
 
-        return self._convert_string_list_block(block_name, converted_srcs, sort=True)
+        return self._convert_string_list_block(block_name, converted_srcs, sort=sort)
 
     def _convert_target(self, target):
         """Returns a list of targets that correspond to the specified Bazel target.

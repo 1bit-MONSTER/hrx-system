@@ -12,7 +12,8 @@ compilation and an observed native result establish different facts.
 compiler fixtures and manual lifecycle cases. The
 [standalone XDNA recipes](xdna/recipes/README.md) cover finite image loading,
 binding, CPU publication, arithmetic results, full guards and retirement with
-CTS-only compiler fixtures. The [GPU/XDNA recipes](interop/gpu/xdna/recipes/README.md)
+CTS-only fixtures compiled from [Loom source](xdna/programs/mul_i32.loom)
+during the build. The [GPU/XDNA recipes](interop/gpu/xdna/recipes/README.md)
 compose GPU TC/L2 ingress, finite NPU arithmetic and GPU readback with no host
 payload access between those phases. The
 [runtime XDNA execution suite](../../experimental/xdna/cts/README.md)
@@ -36,6 +37,10 @@ release results. Failure to remove a native owner preserves storage that may
 remain reachable. A passing payload alone is not successful cleanup.
 
 ## Build and resource selection
+
+The XDNA arithmetic corpora require `LOOM_BUILD` and `LOOM_TARGET_XDNA` to
+compile their program sources. Other libamdf corpora and production library
+builds remain independent of Loom.
 
 Hardware-backed suites declare `libamdf.resource.amd_gpu` or
 `libamdf.resource.xdna`. CMake exposes `runtime-resource=amd-gpu` and

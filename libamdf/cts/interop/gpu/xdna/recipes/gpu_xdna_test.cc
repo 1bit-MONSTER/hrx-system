@@ -186,13 +186,13 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     endpoint_info.structure_size = sizeof(endpoint_info);
     ASSERT_EQ(xdna_api_->endpoint_query_info(xdna_endpoint, &endpoint_info),
               AMDF_STATUS_OK);
-    std::span<const uint8_t> image;
+    const iree_file_toc_t* image = nullptr;
     const std::string_view target = endpoint_info.target_id;
     if (target == "amd.xdna.strix_halo.17f0_11") {
-      image = amdf::cts::xdna::programs::kMulI32Npu5Elf;
+      image = &amdf_cts_xdna_mul_i32_create()[1];
     } else if (target == "amd.xdna.strix.17f0_10" ||
                target == "amd.xdna.krackan.17f0_20") {
-      image = amdf::cts::xdna::programs::kMulI32Npu4Elf;
+      image = &amdf_cts_xdna_mul_i32_create()[0];
     } else {
       GTEST_SKIP() << "no finite arithmetic fixture for " << target;
     }
@@ -204,7 +204,9 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     ASSERT_EQ(xdna_api_->device_query_info(xdna_device_, &device_info),
               AMDF_STATUS_OK);
     ASSERT_TRUE(FindXdnaKernelQueueFamily(api_, xdna_endpoint, &xdna_family_));
-    ASSERT_TRUE(executable_.Initialize(image, endpoint_info, device_info, 1));
+    ASSERT_TRUE(executable_.Initialize(
+        {reinterpret_cast<const uint8_t*>(image->data), image->size},
+        endpoint_info, device_info, 1));
     accesses_[0] = {
         xdna_device_,
         {.access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
@@ -676,7 +678,8 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
       }
 
       // No CPU read or cache operation on joint backing occurs between these
-      // device phases. The finite NPU command drains all workers and DMA users.
+      // device phases. The NPU command joins the finite external payload flow;
+      // resident workers and compute DMA retain only tile-local state.
       amdf_xdna_kernel_queue_submission_info_t submit = {};
       submit.type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO;
       submit.structure_size = sizeof(submit);
@@ -762,7 +765,7 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
   uint32_t xdna_family_ = UINT32_MAX;
   // Complete joint access order: XDNA DMA, then coherent GPU addresses.
   std::array<amdf_memory_device_access_t, 2> accesses_ = {};
-  // Immutable finite arithmetic program borrowing checked-in ELF bytes.
+  // Immutable arithmetic program borrowing build-generated Loom output.
   XdnaExecutable executable_;
   // NPU context, immutable bound commands and checked native queue.
   XdnaExecution execution_;

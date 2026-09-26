@@ -2,8 +2,9 @@
 
 The grouped `execution` corpus runs a finite arithmetic program through the
 runtime-loaded public API. Its [ELF reader](../util/executable.h) and
-[checked-in program](../programs/README.md) are CTS-only. Building and running
-the corpus needs neither a compiler for the array nor a runtime image loader.
+[Loom program](../programs/README.md) are CTS-only. The ordinary build compiles
+the checked-in `.loom` source and embeds the native images. The test executable
+uses no runtime image-loader dependency.
 
 `CpuXdnaRecipeTest.AllocatedRoundTrip` uses system allocations accessible to
 the NPU. `RegisteredRoundTrip` retains separately allocated CPU storage through
@@ -22,14 +23,18 @@ bytes and independently queried DMA addresses.
 The case queries both directional memory edges before execution. CPU
 publication uses the mapping's exact flush recipe; CPU acquisition uses its
 exact invalidate recipe. The device-side actions are NONE. Command publication
-is separate and explicit. The worker releases its data locks and terminates;
-the controller joins the core and every used DMA channel. Checked native
-completion precedes output-first snapshots and all numerical comparisons.
-Neither queue progress nor a cache action substitutes for those joins.
+is separate and explicit. The finite output DMA join ends this program's
+external payload accesses; its worker and compute DMA retain only tile-local
+state. Every generation submits the complete establishing invocation, which
+resets that local state before reconfiguration. Checked native completion
+precedes output-first snapshots and all numerical comparisons.
 
 The queue is destroyed before its instruction storage and context. Payload
 attachments are released before registered CPU backing. A failed native
 release stops destruction of dependent owners.
+
+Enable `LOOM_BUILD` and `LOOM_TARGET_XDNA` alongside `AMDF_BUILD` to build
+the compiler-generated fixtures.
 
 ```sh
 iree-bazel-test --config=asan //libamdf/cts/xdna/recipes:execution

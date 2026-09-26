@@ -818,7 +818,7 @@ def cmake_xdna_steps(command_name: str, sanitizer: str | None) -> list[CiStep]:
                 "-DAMDF_FAMILY_RDNA=OFF",
                 "-DAMDF_FAMILY_CDNA=OFF",
                 "-DAMDF_FAMILY_XDNA=ON",
-                "-DLOOM_BUILD=OFF",
+                "-DLOOM_BUILD=ON",
             ),
         ),
         cmake_build_step(

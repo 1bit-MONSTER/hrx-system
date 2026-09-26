@@ -63,17 +63,19 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
               AMDF_STATUS_OK);
     ASSERT_TRUE(FindXdnaKernelQueueFamily(api_, endpoint_, &family_ordinal_));
 
-    std::span<const uint8_t> image;
+    const iree_file_toc_t* image = nullptr;
     const std::string_view target = endpoint_info.target_id;
     if (target == "amd.xdna.strix_halo.17f0_11") {
-      image = amdf::cts::xdna::programs::kMulI32Npu5Elf;
+      image = &amdf_cts_xdna_mul_i32_create()[1];
     } else if (target == "amd.xdna.strix.17f0_10" ||
                target == "amd.xdna.krackan.17f0_20") {
-      image = amdf::cts::xdna::programs::kMulI32Npu4Elf;
+      image = &amdf_cts_xdna_mul_i32_create()[0];
     } else {
       GTEST_SKIP() << "no finite arithmetic fixture for " << target;
     }
-    ASSERT_TRUE(executable_.Initialize(image, endpoint_info, device_info, 1));
+    ASSERT_TRUE(executable_.Initialize(
+        {reinterpret_cast<const uint8_t*>(image->data), image->size},
+        endpoint_info, device_info, 1));
     memory_access_.requirements.address_kinds = UINT64_C(1)
                                                 << AMDF_MEMORY_ADDRESS_XDNA_DMA;
   }
@@ -240,7 +242,8 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
       ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
                                         AMDF_TIMEOUT_INFINITE, 0),
                 AMDF_STATUS_OK);
-      // The program joins its core and every used DMA channel before return.
+      // The output transfer joins both input records and all output writes.
+      // Remaining resident activity accesses only tile-local state.
       // Native completion supplies ordering; these queried actions supply CPU
       // visibility. Capture output first, then the inputs and command owner. No
       // oracle, progress query or cleanup precedes the complete observation
@@ -281,7 +284,7 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
 
   // Native family selected before allocating instructions or payloads.
   uint32_t family_ordinal_ = UINT32_MAX;
-  // Immutable, admitted fixture borrowing checked-in compiler output.
+  // Immutable, admitted fixture borrowing build-generated Loom output.
   XdnaExecutable executable_;
   // Private context, command backing and one native queue.
   XdnaExecution execution_;

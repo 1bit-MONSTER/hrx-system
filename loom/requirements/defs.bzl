@@ -32,6 +32,13 @@ EMIT_WASM = build_requirement(
     cmake_condition = "LOOM_EMIT_WASM",
 )
 
+EMIT_XDNA = build_requirement(
+    id = "loom.emit.xdna",
+    label = Label("//loom/requirements:emit_xdna"),
+    enabled_by = Label("//loom/config/emit:xdna"),
+    cmake_condition = "LOOM_BUILD AND LOOM_EMIT_XDNA",
+)
+
 EXECUTE_IREE_HAL = build_requirement(
     id = "loom.execute.iree_hal",
     label = Label("//loom/requirements:execute_iree_hal"),
@@ -106,6 +113,7 @@ REQUIREMENTS = [
     EMIT_AMDGPU,
     EMIT_SPIRV,
     EMIT_WASM,
+    EMIT_XDNA,
     EXECUTE_IREE_HAL,
     IMPORT_CXX,
     IMPORT_MLIR,

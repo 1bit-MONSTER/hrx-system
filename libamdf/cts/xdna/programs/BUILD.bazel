@@ -4,7 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
+load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
+load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary", "loom_target_profile")
 
 package(
     default_visibility = [
@@ -17,13 +19,58 @@ package(
 
 exports_files([
     "README.md",
-    "generate.py",
-    "mul_i32.cc",
-    "mul_i32.json",
+    "mul_i32.loom",
 ])
 
-amdf_cc_library(
+_PROGRAM_POLICY = apply_amdf_target_policy({})
+
+loom_target_profile(
+    name = "npu4",
+    family = "amd.xdna.aie2p",
+    selector = "amd.xdna.strix.17f0_10",
+    visibility = ["//visibility:private"],
+)
+
+loom_target_profile(
+    name = "npu5",
+    family = "amd.xdna.aie2p",
+    selector = "amd.xdna.strix_halo.17f0_11",
+    visibility = ["//visibility:private"],
+)
+
+loom_kernel_binary(
+    name = "mul_i32_npu4",
+    testonly = True,
+    srcs = ["mul_i32.loom"],
+    out = "mul_i32_npu4.xdna",
+    roots = ["@mul_i32"],
+    tags = _PROGRAM_POLICY["tags"],
+    target = ":npu4",
+    target_compatible_with = _PROGRAM_POLICY["target_compatible_with"],
+)
+
+loom_kernel_binary(
+    name = "mul_i32_npu5",
+    testonly = True,
+    srcs = ["mul_i32.loom"],
+    out = "mul_i32_npu5.xdna",
+    roots = ["@mul_i32"],
+    tags = _PROGRAM_POLICY["tags"],
+    target = ":npu5",
+    target_compatible_with = _PROGRAM_POLICY["target_compatible_with"],
+)
+
+iree_c_embed_data(
     name = "mul_i32",
     testonly = True,
-    hdrs = ["mul_i32.h"],
+    srcs = [
+        ":mul_i32_npu4",
+        ":mul_i32_npu5",
+    ],
+    c_file_output = "mul_i32.c",
+    flatten = True,
+    h_file_output = "mul_i32.h",
+    identifier = "amdf_cts_xdna_mul_i32",
+    tags = _PROGRAM_POLICY["tags"],
+    target_compatible_with = _PROGRAM_POLICY["target_compatible_with"],
 )

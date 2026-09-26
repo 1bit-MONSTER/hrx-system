@@ -9,15 +9,75 @@
 
 iree_add_all_subdirs()
 
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
-iree_cc_library(
+loom_target_profile(
+  NAME
+    "npu4"
+  FAMILY
+    "amd.xdna.aie2p"
+  SELECTOR
+    "amd.xdna.strix.17f0_10"
+)
+
+loom_target_profile(
+  NAME
+    "npu5"
+  FAMILY
+    "amd.xdna.aie2p"
+  SELECTOR
+    "amd.xdna.strix_halo.17f0_11"
+)
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+loom_kernel_binary(
+  NAME
+    "mul_i32_npu4"
+  COMPONENT
+    "//libamdf/cts/xdna/programs:mul_i32_npu4"
+  TARGET
+    "::npu4"
+  OUTPUT
+    "mul_i32_npu4.xdna"
+  SRCS
+    "mul_i32.loom"
+  ROOTS
+    "@mul_i32"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+loom_kernel_binary(
+  NAME
+    "mul_i32_npu5"
+  COMPONENT
+    "//libamdf/cts/xdna/programs:mul_i32_npu5"
+  TARGET
+    "::npu5"
+  OUTPUT
+    "mul_i32_npu5.xdna"
+  SRCS
+    "mul_i32.loom"
+  ROOTS
+    "@mul_i32"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+iree_c_embed_data(
   NAME
     mul_i32
-  HDRS
+  SRCS
+    "${CMAKE_CURRENT_BINARY_DIR}/mul_i32_npu4.xdna"
+    "${CMAKE_CURRENT_BINARY_DIR}/mul_i32_npu5.xdna"
+  C_FILE_OUTPUT
+    "mul_i32.c"
+  H_FILE_OUTPUT
     "mul_i32.h"
-  DEPS
-    amdf::headers
+  IDENTIFIER
+    "amdf_cts_xdna_mul_i32"
   TESTONLY
+  FLATTEN
   PUBLIC
 )
 endif()

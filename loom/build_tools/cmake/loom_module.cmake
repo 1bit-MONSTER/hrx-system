@@ -6,6 +6,34 @@
 
 # Loom module linking helpers.
 
+include_guard(GLOBAL)
+
+# Authoring tools execute on the build host, including when their output will
+# be embedded in a library compiled for another platform.
+function(_loom_host_tool OUTPUT_TOOL NAME)
+  if(IREE_HOST_BIN_DIR)
+    set(_HOST_SUFFIX "")
+    if(CMAKE_HOST_WIN32)
+      set(_HOST_SUFFIX ".exe")
+    endif()
+    file(REAL_PATH "${IREE_HOST_BIN_DIR}" _HOST_BIN_DIR
+      BASE_DIRECTORY "${PROJECT_SOURCE_DIR}" EXPAND_TILDE)
+    set(_PATH "${_HOST_BIN_DIR}/${NAME}${_HOST_SUFFIX}")
+    if(NOT EXISTS "${_PATH}")
+      message(FATAL_ERROR
+        "Loom generation requires host tool ${_PATH}; "
+        "provide ${NAME} in IREE_HOST_BIN_DIR.")
+    endif()
+    set(${OUTPUT_TOOL} "${_PATH}" PARENT_SCOPE)
+  elseif(CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR
+      "Cross-compiling Loom products requires IREE_HOST_BIN_DIR "
+      "with a build-host ${NAME} executable.")
+  else()
+    set(${OUTPUT_TOOL} "$<TARGET_FILE:loom::tools::${NAME}>" PARENT_SCOPE)
+  endif()
+endfunction()
+
 # Resolve the declared library graph once every package has registered its
 # targets. Direct dependencies remain distinct from the transitive audit
 # universe, matching the public linker's strict dependency contract.
@@ -157,14 +185,15 @@ function(loom_module)
     list(APPEND _ARGS "--strict-deps")
   endif()
   list(APPEND _ARGS "--output=${_OUTPUT}")
+  _loom_host_tool(_LINK_TOOL loom-link)
 
   add_custom_command(
     OUTPUT
       "${_OUTPUT}"
     COMMAND
-      "$<TARGET_FILE:loom::tools::loom-link>" "${_ARGS}"
+      "${_LINK_TOOL}" "${_ARGS}"
     DEPENDS
-      loom::tools::loom-link
+      "${_LINK_TOOL}"
       ${_SOURCES}
       "${_LIBRARIES}"
       "${_TRANSITIVE_LIBRARIES}"

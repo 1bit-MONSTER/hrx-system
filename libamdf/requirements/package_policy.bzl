@@ -27,6 +27,7 @@ load(
     "LIBAMDF_XDNA",
     "XDNA_RESOURCE",
 )
+load("//loom/requirements:defs.bzl", "EMIT_XDNA", "TARGET_ARCH_XDNA")
 
 PACKAGE_POLICIES = [
     package_policy(
@@ -95,6 +96,14 @@ PACKAGE_POLICIES = [
         packages = ["libamdf/cts/interop/gpu/xdna/..."],
         build_requirements = [LIBAMDF_XDNA],
         run_requirements = [XDNA_RESOURCE],
+    ),
+    package_policy(
+        packages = [
+            "libamdf/cts/interop/gpu/xdna/recipes",
+            "libamdf/cts/xdna/programs",
+            "libamdf/cts/xdna/recipes",
+        ],
+        build_requirements = [TARGET_ARCH_XDNA, EMIT_XDNA],
     ),
     package_policy(
         packages = [
