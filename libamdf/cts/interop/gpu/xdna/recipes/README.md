@@ -84,27 +84,39 @@ the host publishes RUN in a separate startup allocation. It then joins terminal
 completion without reading payloads, updating generations, maintaining shared
 payload caches, or submitting per-round work.
 
-Each generation sends a configured number of 32-bit values. The GPU forms
-each request from the first response value of the preceding generation; the
-NPU transforms every value and publishes the new response generation. The GPU
-records every response in a separate transcript. The CPU checks that complete
+Each generation sends a configured number of 32-bit values using one or two
+paired request/response slots. Each slot forms a separate causal chain: the GPU
+forms its next request from the first value of that slot's preceding response.
+The NPU transforms every value and publishes the new response generation. The
+GPU records every response in a separate transcript. The CPU checks that complete
 causal sequence, final device records, guards, allocation padding, and
 immutable command/code storage after both devices retire. A later host
 invalidation cannot repair a value already consumed by the GPU and recorded
 in that transcript.
 
-Request and response occupy separate slots, each with one writer and a
-leading generation word. The GPU uses system-scope release/acquire
-operations. The NPU starts a fresh DMA read for each control observation and
-chains its response payload and ready writes on one output channel with a
-lock dependency. The final GPU acknowledgement ends custom NPU issuance
+Request and response occupy separate allocations. Each slot has one writer per
+direction and a leading generation word. The GPU uses system-scope
+release/acquire operations. The NPU starts a fresh DMA read for each control
+observation and chains its response payload and ready writes on one output
+channel with a lock dependency. The final GPU acknowledgement ends custom NPU issuance
 before the ordinary terminal output and native DMA idle checks close
 external-memory use. Only then may the host release backing.
 
+The GPU initially publishes as many requests as the configured credit count
+allows. It returns each response slot's credit by publishing the next request
+for that slot after all previous response reads complete. No additional credit
+record or host action is needed. The NPU admits every request in each one- or
+two-request batch before producing its first response, then services the batch
+in order. This requires two outstanding requests in a full two-credit batch;
+it does not require concurrent tile arithmetic. An odd final batch uses only
+the first slot. The two-credit anchor reuses both slots and finishes with an
+odd tail.
+
 The compiler owns its ordinary configuration input, terminal output and tile
 program. A constrained transaction composer adds disjoint direct-stream routes
-and six shim descriptors around the unchanged bound compiler invocation. This
-keeps the compiler's executable format and resource ownership intact.
+and six or ten shim descriptors around the unchanged bound compiler invocation,
+depending on the credit count. This keeps the compiler's executable format and
+resource ownership intact.
 
 Before RUN, an accepted participant can observe ABORT and terminate without
 waiting for a peer whose submission failed. A failed publication or terminal
@@ -121,6 +133,10 @@ cases use the same compiled products and exercise unsigned payload wrapping.
 NPU, publishes ABORT, and checks that it drains without peer progress or
 payload changes. These are normal protocol paths with valid native submissions.
 
+`TwoCreditsAndBacking` applies the same startup and abort coverage with two
+credits, including zero/one/two/three/17/257/258-generation runs in both launch
+orders.
+
 `PayloadAndBacking/ResidentPayloadTest` exchanges 1, 4, 15, 16, 17, 64, or 1024
 words per generation with both backing roles. The payload begins either four
 or 64 bytes after the generation word, exercising first-line sharing and
@@ -129,6 +145,11 @@ and NPU products; runtime arguments, immutable configuration and descriptor
 lengths agree on the exact extent. The full transcript remains the oracle for
 every response word. The fixed terminal record additionally carries the word
 count and final response's first word, last word and unsigned sum.
+
+`TwoCreditsPayloadAndBacking` applies both placements and backing roles to
+two-credit exchanges of 1, 16, or 1024 words. Each slot's complete extent is
+rounded up to 64 bytes; the oracle checks inter-slot padding, unused slots,
+outer guards and allocation padding as well as the complete transcript.
 
 ## Build and execution
 

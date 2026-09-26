@@ -65,13 +65,10 @@ constexpr std::array<RegisterWrite, 18> kPrefixWrites = {{
 constexpr uint32_t kShimDescriptorBase = 0x0001d000;
 constexpr uint32_t kShimDescriptorByteStride = 32;
 constexpr uint32_t kShimDescriptorWordCount = 8;
+constexpr uint32_t kFirstSlotDescriptor = 2;
+constexpr uint32_t kSlotDescriptorCount = 4;
 constexpr uint32_t kStartupDescriptor = 10;
-constexpr uint32_t kRequestGenerationDescriptor = 11;
-constexpr uint32_t kRequestPayloadDescriptor = 12;
-constexpr uint32_t kResponsePayloadDescriptor = 13;
-constexpr uint32_t kResponseGenerationDescriptor = 14;
 constexpr uint32_t kFinalAckDescriptor = 15;
-constexpr uint32_t kCustomDescriptorCount = 6;
 
 // _XAieMl_ShimDmaWriteBd with the AIE2P property table: exact word length,
 // 48-bit byte address, contiguous step-one dimensions, ordinary burst/cache,
@@ -90,16 +87,6 @@ constexpr uint32_t kShimAcquireMinusOne = 0x7fu << 5;
 constexpr uint32_t kShimStreamToMemoryStatus = 0x0001d224;
 constexpr uint32_t kShimMemoryToStreamStatus = 0x0001d22c;
 constexpr uint32_t kShimIdleMask = 0x0078003c;
-
-constexpr uint32_t kAddedOperationCount =
-    1 + 2 + static_cast<uint32_t>(kPrefixWrites.size()) +
-    kCustomDescriptorCount + 2;
-constexpr uint32_t kAddedByteLength =
-    3 * kMaskedRecordByteLength +
-    static_cast<uint32_t>(kPrefixWrites.size()) * kWriteRecordByteLength +
-    kCustomDescriptorCount *
-        (kBlockHeaderByteLength + kShimDescriptorWordCount * kWordByteLength) +
-    2 * kMaskedRecordByteLength;
 
 uint32_t LoadU32(std::span<const uint8_t> bytes, size_t offset) {
   return uint32_t{bytes[offset]} | (uint32_t{bytes[offset + 1]} << 8) |
@@ -192,30 +179,49 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
     return ::testing::AssertionFailure()
            << "Expected a complete one-column AIE2P transaction 0.1";
   }
+  if (addresses.slots.empty() || addresses.slots.size() > 2) {
+    return ::testing::AssertionFailure() << "Service requires one or two slots";
+  }
+  const uint32_t descriptor_count =
+      2 + kSlotDescriptorCount * static_cast<uint32_t>(addresses.slots.size());
+  const uint32_t added_operation_count =
+      1 + 2 + static_cast<uint32_t>(kPrefixWrites.size()) + descriptor_count +
+      2;
+  const uint32_t added_byte_length =
+      3 * kMaskedRecordByteLength +
+      static_cast<uint32_t>(kPrefixWrites.size()) * kWriteRecordByteLength +
+      descriptor_count * (kBlockHeaderByteLength +
+                          kShimDescriptorWordCount * kWordByteLength) +
+      2 * kMaskedRecordByteLength;
   if (invocation.size() >
-          std::numeric_limits<uint32_t>::max() - kAddedByteLength ||
+          std::numeric_limits<uint32_t>::max() - added_byte_length ||
       LoadU32(invocation, 8) >
-          std::numeric_limits<uint32_t>::max() - kAddedOperationCount) {
+          std::numeric_limits<uint32_t>::max() - added_operation_count) {
     return ::testing::AssertionFailure()
            << "Composed transaction exceeds the native size/count fields";
   }
   if (payload_byte_length == 0 || payload_byte_length % kWordByteLength != 0 ||
       !IsAddressRangeValid(addresses.startup_address, sizeof(uint32_t)) ||
-      !IsAddressRangeValid(addresses.request_generation_address,
-                           sizeof(uint32_t)) ||
-      !IsAddressRangeValid(addresses.request_payload_address,
-                           payload_byte_length) ||
-      !IsAddressRangeValid(addresses.response_payload_address,
-                           payload_byte_length) ||
-      !IsAddressRangeValid(addresses.response_generation_address,
-                           sizeof(uint32_t)) ||
       !IsAddressRangeValid(addresses.final_ack_address, sizeof(uint32_t))) {
     return ::testing::AssertionFailure()
            << "Service records require aligned complete NPU ranges below 2^48";
   }
+  for (const auto& slot : addresses.slots) {
+    if (!IsAddressRangeValid(slot.request_generation_address,
+                             sizeof(uint32_t)) ||
+        !IsAddressRangeValid(slot.request_payload_address,
+                             payload_byte_length) ||
+        !IsAddressRangeValid(slot.response_payload_address,
+                             payload_byte_length) ||
+        !IsAddressRangeValid(slot.response_generation_address,
+                             sizeof(uint32_t))) {
+      return ::testing::AssertionFailure()
+             << "Slot records require aligned complete NPU ranges below 2^48";
+    }
+  }
 
   std::vector<uint8_t> bytes;
-  bytes.reserve(invocation.size() + kAddedByteLength);
+  bytes.reserve(invocation.size() + added_byte_length);
   bytes.insert(bytes.end(), invocation.begin(),
                invocation.begin() + kTransactionHeaderByteLength);
   AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite, 0x00232000, 3, 2);
@@ -229,18 +235,19 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
   }
 
   AppendDescriptor(bytes, kStartupDescriptor, addresses.startup_address, 4, 0);
-  AppendDescriptor(bytes, kRequestGenerationDescriptor,
-                   addresses.request_generation_address, 4, 0);
-  AppendDescriptor(bytes, kRequestPayloadDescriptor,
-                   addresses.request_payload_address, payload_byte_length, 0);
-  AppendDescriptor(
-      bytes, kResponsePayloadDescriptor, addresses.response_payload_address,
-      payload_byte_length,
-      kShimReleaseOne | kShimUseNextDescriptor |
-          (kResponseGenerationDescriptor << kShimNextDescriptorShift));
-  AppendDescriptor(bytes, kResponseGenerationDescriptor,
-                   addresses.response_generation_address, 4,
-                   kShimAcquireEnable | kShimAcquireMinusOne);
+  for (uint32_t i = 0; i < addresses.slots.size(); ++i) {
+    const auto& slot = addresses.slots[i];
+    const uint32_t descriptor = kFirstSlotDescriptor + kSlotDescriptorCount * i;
+    AppendDescriptor(bytes, descriptor, slot.request_generation_address, 4, 0);
+    AppendDescriptor(bytes, descriptor + 1, slot.request_payload_address,
+                     payload_byte_length, 0);
+    AppendDescriptor(bytes, descriptor + 2, slot.response_payload_address,
+                     payload_byte_length,
+                     kShimReleaseOne | kShimUseNextDescriptor |
+                         ((descriptor + 3) << kShimNextDescriptorShift));
+    AppendDescriptor(bytes, descriptor + 3, slot.response_generation_address, 4,
+                     kShimAcquireEnable | kShimAcquireMinusOne);
+  }
   AppendDescriptor(bytes, kFinalAckDescriptor, addresses.final_ack_address, 4,
                    0);
 
@@ -250,7 +257,7 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
                         kShimStreamToMemoryStatus, kShimIdleMask, 0);
   AppendMaskedOperation(bytes, NativeOperation::kMaskedPoll,
                         kShimMemoryToStreamStatus, kShimIdleMask, 0);
-  StoreU32(bytes, 8, LoadU32(invocation, 8) + kAddedOperationCount);
+  StoreU32(bytes, 8, LoadU32(invocation, 8) + added_operation_count);
   StoreU32(bytes, 12, static_cast<uint32_t>(bytes.size()));
   *output = std::move(bytes);
   return ::testing::AssertionSuccess();
