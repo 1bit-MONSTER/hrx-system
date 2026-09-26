@@ -109,8 +109,10 @@ keeps the compiler's executable format and resource ownership intact.
 Before RUN, an accepted participant can observe ABORT and terminate without
 waiting for a peer whose submission failed. A failed publication or terminal
 join does not establish cancellation; the caller retains reachable owners.
-Device clock differences are retained as raw result properties. They are
-observations from the correctness workload, not calibrated latency results.
+The raw 32-bit device clock samples at the start and end of each exchange are
+retained as result properties. Their modular differences and correlation with
+external clocks require a separately established clock contract. The samples
+are observations from the correctness workload, not calibrated latency results.
 
 `StartupAndBacking/ResidentExchangeTest` varies allocated/registered backing,
 GPU-first/NPU-first submission, and zero/one/257 complete generations. These

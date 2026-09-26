@@ -591,22 +591,27 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
     ASSERT_EQ(HostTransition(records_, records_.host.invalidate),
               AMDF_STATUS_OK);
-    std::string ticks;
+    std::string start_ticks;
+    std::string end_ticks;
     for (uint32_t round = 0; round < completed_rounds; ++round) {
       const size_t offset =
           kPayloadByteOffset + uint64_t{round} * shape.record_byte_length() + 8;
       const uint32_t start = LoadU32(records_.bytes(), offset);
       const uint32_t end = LoadU32(records_.bytes(), offset + 4);
-      // Device clock observations have no CPU oracle. Preserve their raw
-      // modular differences separately while checking every other output byte.
-      if (!ticks.empty()) {
-        ticks += ',';
+      // Device clock observations have no CPU oracle. Retain the complete
+      // samples for external clock correlation and modular interval analysis
+      // while checking every other output byte.
+      if (!start_ticks.empty()) {
+        start_ticks += ',';
+        end_ticks += ',';
       }
-      ticks += std::to_string(end - start);
+      start_ticks += std::to_string(start);
+      end_ticks += std::to_string(end);
       StoreU32(expected_records_, offset, start);
       StoreU32(expected_records_, offset + 4, end);
     }
-    RecordProperty("resident_round_trip_clock_ticks", ticks);
+    RecordProperty("resident_round_trip_start_clock_ticks", start_ticks);
+    RecordProperty("resident_round_trip_end_clock_ticks", end_ticks);
     CheckBytes(records_.bytes(), expected_records_);
     for (size_t i = 0; i < buffers_.size(); ++i) {
       SCOPED_TRACE(i);
