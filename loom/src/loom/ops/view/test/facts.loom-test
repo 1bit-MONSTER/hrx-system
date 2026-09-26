@@ -124,6 +124,51 @@ kernel.def @kernel_reference_distribution(%buffer: buffer, %m: index) {
 
 // ====
 
+// RUN: with-checks pass canonicalize
+
+// Uniform addresses do not make concurrent atomic observations uniform. An
+// explicit subgroup broadcast establishes its own stronger result contract.
+kernel.def @atomic_observation_distribution() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%buffer32: buffer, %buffer64: buffer) {
+  %base = index.constant 0 : offset
+  %word32 = buffer.view %buffer32[%base] : buffer -> view<1xi32>
+  %word64 = buffer.view %buffer64[%base] : buffer -> view<1xi64>
+  %one32 = scalar.constant 1 : i32
+  %one64 = scalar.constant 1 : i64
+  %two32 = scalar.constant 2 : i32
+  %loaded32 = view.atomic.load %word32[0] {ordering = relaxed, scope = system} : view<1xi32> -> i32
+  %loaded64 = view.atomic.load %word64[0] {ordering = acquire, scope = device} : view<1xi64> -> i64
+  %updated = view.atomic.rmw<addi> %one64, %word64[0] {ordering = seq_cst, scope = system} : i64, view<1xi64> -> i64
+  %old = view.atomic.cmpxchg %one32, %two32, %word32[0] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : i32, view<1xi32> -> i32
+  %success = scalar.cmpi eq, %old, %one32 : i32
+  %first = kernel.subgroup.broadcast.first %loaded32 : i32
+  %load32_varying = test.fact_lane_varying %loaded32 : i32 -> i1
+  %load64_varying = test.fact_lane_varying %loaded64 : i64 -> i1
+  %rmw_varying = test.fact_lane_varying %updated : i64 -> i1
+  %old_varying = test.fact_lane_varying %old : i32 -> i1
+  %success_varying = test.fact_lane_varying %success : i1 -> i1
+  %load_uniform = test.fact_subgroup_uniform %loaded32 : i32 -> i1
+  %first_uniform = test.fact_subgroup_uniform %first : i32 -> i1
+  %first_varying = test.fact_lane_varying %first : i32 -> i1
+  test.use %load32_varying, %load64_varying, %rmw_varying, %old_varying, %success_varying, %load_uniform, %first_uniform, %first_varying : i1, i1, i1, i1, i1, i1, i1, i1
+  kernel.return
+}
+
+// ----
+CHECK: %load32_varying = scalar.constant true : i1
+CHECK: %load64_varying = scalar.constant true : i1
+CHECK: %rmw_varying = scalar.constant true : i1
+CHECK: %old_varying = scalar.constant true : i1
+CHECK: %success_varying = scalar.constant true : i1
+CHECK: %load_uniform = scalar.constant false : i1
+CHECK: %first_uniform = scalar.constant true : i1
+CHECK: %first_varying = scalar.constant false : i1
+
+// ====
+
 // Scratch buffer roots seed extent, base alignment, memory-space, and non-null
 // facts. Views derived from them keep the root facts while computing their own
 // typed byte footprint.
