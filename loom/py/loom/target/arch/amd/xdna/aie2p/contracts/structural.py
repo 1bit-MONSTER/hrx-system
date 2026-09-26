@@ -48,16 +48,60 @@ _VECTOR_CARRIER_SPECS = (
     (("i64", "f64"), 8, 16),
 )
 
-# Every vector in this domain occupies the same ordered pair of X carriers.
-# The F32 upper bound deliberately excludes flat vector<32xf32>, whose
-# accumulator representation cannot alias an ordinary shaped Y carrier.
+# Every value matching these patterns and mapped to the ordinary vector file
+# occupies the same ordered pair of X carriers. The mapped-class guards on the
+# alias rules distinguish shaped 32-lane F32 values from flat vector<32xf32>,
+# whose source type maps to the accumulator file.
 _WIDE_VECTOR_BITCAST_TYPES = tuple(
     Vector(
         element_types,
         minimum_static_elements=64 // element_byte_count + 1,
-        maximum_static_elements=wide_lane_maximum,
+        maximum_static_elements=128 // element_byte_count,
     )
-    for element_types, element_byte_count, wide_lane_maximum in (_VECTOR_CARRIER_SPECS)
+    for element_types, element_byte_count, _ in _VECTOR_CARRIER_SPECS
+)
+
+# Exact 1024-bit ordinary vector-file values that can cross the flat F32x32
+# accumulator boundary through two 512-bit register moves.
+_ORDINARY_1024_BITCAST_TYPES = tuple(
+    Vector(
+        element_types,
+        minimum_static_elements=128 // element_byte_count,
+        maximum_static_elements=128 // element_byte_count,
+    )
+    for element_types, element_byte_count, _ in _VECTOR_CARRIER_SPECS
+)
+
+# Rank-one source types with accumulator-file representations. Each native
+# packet occupies one 512-bit X register before or after the explicit move.
+_F32X32_ACCUMULATOR = Vector("f32", lanes=32)
+_F32X64_ACCUMULATOR = Vector("f32", lanes=64)
+_I32X64_ACCUMULATOR = Vector("i32", lanes=64)
+_I64X32_ACCUMULATOR = Vector("i64", lanes=32)
+_ACCUMULATOR_VECTOR_SPECS = (
+    (_F32X32_ACCUMULATOR, Vector("f32", lanes=16), 16, 2),
+    (_F32X64_ACCUMULATOR, Vector("f32", lanes=16), 16, 4),
+    (_I32X64_ACCUMULATOR, Vector("i32", lanes=16), 16, 4),
+    (_I64X32_ACCUMULATOR, Vector("i64", lanes=8), 8, 4),
+)
+
+# Pairwise packet concatenation reaches each accumulator form through binary
+# operands that already represent adjacent halves. Ordinary vector-file halves
+# contain one or two 512-bit packets; the F32x64 halves are already MBMSx2.
+_VECTOR_PAIR_TO_ACCUMULATOR_CONCAT_SPECS = (
+    (Vector("f32", lanes=16), _F32X32_ACCUMULATOR, 1),
+    (Vector("i32", lanes=32), _I32X64_ACCUMULATOR, 2),
+    (Vector("i64", lanes=16), _I64X32_ACCUMULATOR, 2),
+)
+_ACCUMULATOR_PAIR_CONCAT_SPECS = ((_F32X32_ACCUMULATOR, _F32X64_ACCUMULATOR),)
+
+_ACCUMULATOR_BITCAST_TYPE_GROUPS = (
+    (_F32X32_ACCUMULATOR,),
+    (
+        _F32X64_ACCUMULATOR,
+        _I32X64_ACCUMULATOR,
+        _I64X32_ACCUMULATOR,
+    ),
 )
 
 # Ordinary source vectors wider than one 512-bit X register are carried as two
@@ -570,7 +614,8 @@ def _vector_transpose_16bit_8x8_rule() -> DescriptorRule:
 
 def _wide_vector_bitcast_alias_rules() -> tuple[ValueAliasRule, ...]:
     # Equal-width bitcasts preserve the ordered four-W payload independently
-    # of logical shape and element interpretation.
+    # of logical shape and element interpretation. Register-class guards keep
+    # the flat F32x32 accumulator out of this ordinary vector-file alias set.
     return tuple(
         ValueAliasRule(
             source_op=vector.vector_bitcast,
@@ -579,11 +624,129 @@ def _wide_vector_bitcast_alias_rules() -> tuple[ValueAliasRule, ...]:
             guards=(
                 Guard.value_type("input", source_type),
                 Guard.value_type("result", result_type),
+                Guard.low_value_register_class("input", "aie2p.vec256"),
+                Guard.low_value_register_class("result", "aie2p.vec256"),
                 Guard.low_value_register_unit_count_eq("input", "result"),
             ),
         )
         for source_type in _WIDE_VECTOR_BITCAST_TYPES
         for result_type in _WIDE_VECTOR_BITCAST_TYPES
+    )
+
+
+def _accumulator_bitcast_alias_rules() -> tuple[ValueAliasRule, ...]:
+    # Equal-width accumulator forms retain the same ordered MBMS units. The
+    # 2048-bit group includes the F32, I32, and I64 logical interpretations.
+    return tuple(
+        ValueAliasRule(
+            source_op=vector.vector_bitcast,
+            source=ValueRef.operand("input"),
+            result=ValueRef.result("result"),
+            guards=(
+                Guard.value_type("input", source_type),
+                Guard.value_type("result", result_type),
+                Guard.low_value_register_class("input", "aie2p.mbms"),
+                Guard.low_value_register_class("result", "aie2p.mbms"),
+                Guard.low_value_register_unit_count_eq("input", "result"),
+            ),
+        )
+        for type_group in _ACCUMULATOR_BITCAST_TYPE_GROUPS
+        for source_type in type_group
+        for result_type in type_group
+    )
+
+
+def _accumulator_to_vector_bitcast_rule(result_type: TypePattern) -> DescriptorRule:
+    move = _descriptor("amd.xdna.aie2p.move.accumulator512.to.vector512")
+    source = ValueRef.operand("input")
+    emits: list[ContractEmit] = []
+    vector_units: list[ValueRef] = []
+    for unit_index in range(2):
+        accumulator_unit = ValueRef.temporary(f"accumulator_unit_{unit_index}")
+        vector_unit = ValueRef.temporary(f"vector_unit_{unit_index}")
+        emits.extend(
+            (
+                EmitRegisterSlice(
+                    source=source,
+                    result=accumulator_unit,
+                    unit_offset=unit_index,
+                    unit_count=1,
+                ),
+                EmitDescriptorOp(
+                    descriptor=move,
+                    operands={"src": accumulator_unit},
+                    results={"dst": vector_unit},
+                    result_types={"dst": DescriptorResultType()},
+                    form=DescriptorEmitForm.OP,
+                ),
+            )
+        )
+        vector_units.append(vector_unit)
+    emits.append(
+        EmitRegisterConcat(
+            sources=vector_units,
+            result=ValueRef.result("result"),
+        )
+    )
+    return DescriptorRule(
+        source_op=vector.vector_bitcast,
+        descriptor=move,
+        guards=(
+            Guard.value_type("input", _F32X32_ACCUMULATOR),
+            Guard.value_type("result", result_type),
+            Guard.low_value_register_class("input", "aie2p.mbms"),
+            Guard.low_value_register_class("result", "aie2p.vec256"),
+            Guard.low_value_register_unit_count("input", 2),
+            Guard.low_value_register_unit_count("result", 4),
+        ),
+        emit=tuple(emits),
+    )
+
+
+def _vector_to_accumulator_bitcast_rule(source_type: TypePattern) -> DescriptorRule:
+    move = _descriptor("amd.xdna.aie2p.move.vector512.to.accumulator512")
+    source = ValueRef.operand("input")
+    emits: list[ContractEmit] = []
+    accumulator_units: list[ValueRef] = []
+    for unit_index in range(2):
+        vector_unit = ValueRef.temporary(f"vector_unit_{unit_index}")
+        accumulator_unit = ValueRef.temporary(f"accumulator_unit_{unit_index}")
+        emits.extend(
+            (
+                EmitRegisterSlice(
+                    source=source,
+                    result=vector_unit,
+                    unit_offset=2 * unit_index,
+                    unit_count=2,
+                ),
+                EmitDescriptorOp(
+                    descriptor=move,
+                    operands={"src": vector_unit},
+                    results={"dst": accumulator_unit},
+                    result_types={"dst": DescriptorResultType()},
+                    form=DescriptorEmitForm.OP,
+                ),
+            )
+        )
+        accumulator_units.append(accumulator_unit)
+    emits.append(
+        EmitRegisterConcat(
+            sources=accumulator_units,
+            result=ValueRef.result("result"),
+        )
+    )
+    return DescriptorRule(
+        source_op=vector.vector_bitcast,
+        descriptor=move,
+        guards=(
+            Guard.value_type("input", source_type),
+            Guard.value_type("result", _F32X32_ACCUMULATOR),
+            Guard.low_value_register_class("input", "aie2p.vec256"),
+            Guard.low_value_register_class("result", "aie2p.mbms"),
+            Guard.low_value_register_unit_count("input", 4),
+            Guard.low_value_register_unit_count("result", 2),
+        ),
+        emit=tuple(emits),
     )
 
 
@@ -712,6 +875,42 @@ def _vector_slice_carrier_rule(
                 unit_offset=source_unit_offset,
             ),
         ),
+    )
+
+
+def _accumulator_vector_slice_rules(
+    source_type: TypePattern,
+    result_type: TypePattern,
+    packet_lane_count: int,
+    unit_count: int,
+) -> tuple[DescriptorRule, ...]:
+    move = _descriptor("amd.xdna.aie2p.move.accumulator512.to.vector512")
+    return tuple(
+        DescriptorRule(
+            source_op=vector.vector_slice,
+            descriptor=move,
+            guards=_vector_slice_guards(
+                source_type,
+                result_type,
+                unit_index * packet_lane_count,
+                unit_index * packet_lane_count,
+            ),
+            emit=(
+                EmitRegisterSlice(
+                    source=ValueRef.operand("source"),
+                    result=ValueRef.temporary("accumulator_unit"),
+                    unit_offset=unit_index,
+                    unit_count=1,
+                ),
+                EmitDescriptorOp(
+                    descriptor=move,
+                    operands={"src": ValueRef.temporary("accumulator_unit")},
+                    results={"dst": ValueRef.result("result")},
+                    form=DescriptorEmitForm.OP,
+                ),
+            ),
+        )
+        for unit_index in range(unit_count)
     )
 
 
@@ -1211,7 +1410,63 @@ def _vector_concat_split_carrier_rules(
     )
 
 
-def _wide_vector_concat_pair_rule(
+def _vector_pair_to_accumulator_concat_rule(
+    input_type: TypePattern,
+    result_type: TypePattern,
+    packets_per_input: int,
+) -> DescriptorRule:
+    move = _descriptor("amd.xdna.aie2p.move.vector512.to.accumulator512")
+    emits: list[ContractEmit] = []
+    accumulator_units: list[ValueRef] = []
+    for input_index in range(2):
+        input_value = ValueRef.operand("inputs", element=input_index)
+        for packet_index in range(packets_per_input):
+            vector_packet = input_value
+            if packets_per_input > 1:
+                vector_packet = ValueRef.temporary(
+                    f"input_{input_index}_packet_{packet_index}"
+                )
+                emits.append(
+                    EmitRegisterSlice(
+                        source=input_value,
+                        result=vector_packet,
+                        unit_offset=2 * packet_index,
+                        unit_count=2,
+                    )
+                )
+            accumulator_unit = ValueRef.temporary(
+                f"accumulator_unit_{input_index * packets_per_input + packet_index}"
+            )
+            emits.append(
+                EmitDescriptorOp(
+                    descriptor=move,
+                    operands={"src": vector_packet},
+                    results={"dst": accumulator_unit},
+                    result_types={"dst": DescriptorResultType()},
+                    form=DescriptorEmitForm.OP,
+                )
+            )
+            accumulator_units.append(accumulator_unit)
+    emits.append(
+        EmitRegisterConcat(
+            sources=accumulator_units,
+            result=ValueRef.result("result"),
+        )
+    )
+    return DescriptorRule(
+        source_op=vector.vector_concat,
+        descriptor=move,
+        guards=(
+            Guard.i64_range("axis", 0, 0),
+            Guard.operand_segment_count("inputs", 2),
+            Guard.value_type("inputs", input_type),
+            Guard.value_type("result", result_type),
+        ),
+        emit=tuple(emits),
+    )
+
+
+def _register_concat_pair_rule(
     input_type: TypePattern,
     result_type: TypePattern,
 ) -> DescriptorRule:
@@ -1271,6 +1526,18 @@ AIE2P_STRUCTURAL_RULES = (
     ),
     *(
         rule
+        for source_type, result_type, packet_lane_count, unit_count in (
+            _ACCUMULATOR_VECTOR_SPECS
+        )
+        for rule in _accumulator_vector_slice_rules(
+            source_type,
+            result_type,
+            packet_lane_count,
+            unit_count,
+        )
+    ),
+    *(
+        rule
         for element_types, element_byte_count, wide_lane_maximum in (
             _VECTOR_CARRIER_SPECS
         )
@@ -1295,7 +1562,21 @@ AIE2P_STRUCTURAL_RULES = (
         )
     ),
     *(
-        _wide_vector_concat_pair_rule(input_type, result_type)
+        _vector_pair_to_accumulator_concat_rule(
+            input_type,
+            result_type,
+            packets_per_input,
+        )
+        for input_type, result_type, packets_per_input in (
+            _VECTOR_PAIR_TO_ACCUMULATOR_CONCAT_SPECS
+        )
+    ),
+    *(
+        _register_concat_pair_rule(input_type, result_type)
+        for input_type, result_type in _ACCUMULATOR_PAIR_CONCAT_SPECS
+    ),
+    *(
+        _register_concat_pair_rule(input_type, result_type)
         for input_type, result_type in _WIDE_VECTOR_CONCAT_SPECS
     ),
     *(
@@ -1313,5 +1594,14 @@ AIE2P_STRUCTURAL_RULES = (
     _vector_interleave_16bit_rule(),
     _vector_transpose_i32_f32_4x4_rule(),
     _vector_transpose_16bit_8x8_rule(),
+    *(
+        _accumulator_to_vector_bitcast_rule(result_type)
+        for result_type in _ORDINARY_1024_BITCAST_TYPES
+    ),
+    *(
+        _vector_to_accumulator_bitcast_rule(source_type)
+        for source_type in _ORDINARY_1024_BITCAST_TYPES
+    ),
+    *_accumulator_bitcast_alias_rules(),
     *_wide_vector_bitcast_alias_rules(),
 )
