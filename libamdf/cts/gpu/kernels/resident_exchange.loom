@@ -1,0 +1,118 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// One invocation owns every GPU access in the finite request/response service.
+// Arithmetic is modulo 2^32. The caller owns disjoint, 64-byte-aligned
+// request (64 bytes), response (64 bytes), startup (separate allocation), control
+// (256 bytes), and result records (80 bytes per round). Both generations start
+// at zero; the startup and terminal cells also start at zero.
+//
+// Startup DWORD 0: host WAIT 0, RUN 1, ABORT 2. The host publishes its immutable
+// decision once: RUN after both submissions succeed, or ABORT
+// if the peer submission fails. Separate allocation isolates that host cache
+// maintenance from every device-owned payload/control range.
+//
+// Control DWORDs: 16 = GPU request generation, 32 = NPU response generation,
+// 48 = GPU terminal/final ACK (pending 0, COMPLETE 1, ABORTED 2). DWORD 0 is a
+// guard. Each cell has exactly one writer and its own 64-byte cache line.
+// After RUN, both participants exchange exactly round_count generations. The
+// final COMPLETE release acknowledges all response reads and transcript stores.
+//
+// Record DWORDs: generation, causal input, start tick, end tick, response[16].
+// NPU response[i] = request[i] * 3 + generation modulo 2^32. Ticks are raw 32-bit
+// values; modulo subtraction is not an unbounded duration.
+
+low.func.def target<amdgpu.rdna3_5.core> @completed_tick() -> (reg<amdgpu.sgpr>) asm {
+  s_waitcnt {vmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
+  %tick = s_sendmsg_rtn_b32 {message = 131}
+  s_waitcnt {lgkmcnt = 0}
+  return %tick
+}
+
+kernel.def export("resident_exchange") @resident_exchange() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%request: buffer, %response: buffer, %startup: buffer, %control: buffer, %records: buffer, %round_count: i32, %seed: i32) {
+  %request_aligned = buffer.assume.alignment %request {minimum_alignment = 64} : buffer
+  %response_aligned = buffer.assume.alignment %response {minimum_alignment = 64} : buffer
+  %startup_aligned = buffer.assume.alignment %startup {minimum_alignment = 64} : buffer
+  %control_aligned = buffer.assume.alignment %control {minimum_alignment = 64} : buffer
+  %records_aligned = buffer.assume.alignment %records {minimum_alignment = 64} : buffer
+  %origin = index.constant 0 : offset
+  %request_words = buffer.view %request_aligned[%origin] : buffer -> view<16xi32>
+  %response_words = buffer.view %response_aligned[%origin] : buffer -> view<16xi32>
+  %startup_word = buffer.view %startup_aligned[%origin] : buffer -> view<1xi32>
+  %control_words = buffer.view %control_aligned[%origin] : buffer -> view<64xi32>
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %aborted_state = scalar.constant 2 : i32
+  %generation_scale = scalar.constant 257 : i32
+  %element_scale = scalar.constant 17 : i32
+  %first_element = index.constant 0 : index
+  %second_element = index.constant 1 : index
+  %element_limit = index.constant 16 : index
+  %element_step = index.constant 1 : index
+  %record_header_words = index.constant 4 : index
+  %record_byte_stride = index.constant 80 : offset
+
+  %start = scf.while(%state = %c0 : i32) -> (i32) {
+    %waiting_state = scalar.cmpi eq, %state, %c0 : i32
+    scf.condition %waiting_state, %state : i1, i32
+  } do(%state: i32) {
+    %observed = view.atomic.load %startup_word[0] {ordering = relaxed, scope = system} : view<1xi32> -> i32
+    scf.yield %observed : i32
+  }
+  buffer.fence scope(system) ordering(acquire)
+  %running_state = scalar.cmpi eq, %start, %c1 : i32
+
+  %completed_rounds, %final_cause = scf.while(%round = %c0 : i32, %cause = %seed : i32) -> (i32, i32) {
+    %remaining = scalar.cmpi ult, %round, %round_count : i32
+    %continue_rounds = scalar.andi %remaining, %running_state : i1
+    scf.condition %continue_rounds, %round, %cause : i1, i32, i32
+  } do(%round: i32, %cause: i32) {
+    %generation = scalar.addi %round, %c1 : i32
+    %generation_term = scalar.muli %generation, %generation_scale : i32
+    %request_base = scalar.addi %cause, %generation_term : i32
+    scf.for %element = [%first_element to %element_limit step %element_step] {
+      %element_word = index.cast %element : index to i32
+      %element_term = scalar.muli %element_word, %element_scale : i32
+      %value = scalar.addi %request_base, %element_term : i32
+      view.store %value, %request_words[%element] : i32, view<16xi32>
+    }
+    %start_tick = low.invoke @completed_tick() : () -> (i32)
+    view.atomic.store %generation, %control_words[16] {ordering = release, scope = system} : i32, view<64xi32>
+
+    %response_generation = scf.while(%seen = %c0 : i32) -> (i32) {
+      %pending = scalar.cmpi ne, %seen, %generation : i32
+      scf.condition %pending, %seen : i1, i32
+    } do(%seen: i32) {
+      %observed_generation = view.atomic.load %control_words[32] {ordering = relaxed, scope = system} : view<64xi32> -> i32
+      scf.yield %observed_generation : i32
+    }
+    buffer.fence scope(system) ordering(acquire)
+    %unsigned_round = index.cast %round : i32 to offset
+    %round_index = index.cast %unsigned_round : offset to index
+    %record_offset = index.scale %round_index, %record_byte_stride : index, offset -> offset
+    %record = buffer.view %records_aligned[%record_offset] : buffer -> view<20xi32>
+    %causal_result = view.load %response_words[0] : view<16xi32> -> i32
+    view.store %causal_result, %record[4] : i32, view<20xi32>
+    scf.for %element = [%second_element to %element_limit step %element_step] {
+      %value = view.load %response_words[%element] : view<16xi32> -> i32
+      %record_element = index.add %element, %record_header_words : index
+      view.store %value, %record[%record_element] : i32, view<20xi32>
+    }
+    view.store %generation, %record[0] : i32, view<20xi32>
+    view.store %cause, %record[1] : i32, view<20xi32>
+    view.store %start_tick, %record[2] : i32, view<20xi32>
+    %end_tick = low.invoke @completed_tick() : () -> (i32)
+    view.store %end_tick, %record[3] : i32, view<20xi32>
+    scf.yield %generation, %causal_result : i32, i32
+  }
+  %terminal = scf.select %running_state, %c1, %aborted_state : i32
+  view.atomic.store %terminal, %control_words[48] {ordering = release, scope = system} : i32, view<64xi32>
+  kernel.return
+}

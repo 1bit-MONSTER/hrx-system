@@ -22,6 +22,7 @@ exports_files([
     "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
     "private_roundtrip.loom",
+    "resident_exchange.loom",
     "transform.loom",
     "transform_alternate.loom",
 ])
@@ -123,6 +124,22 @@ amdf_cts_gpu_kernel(
     src = "transform.loom",
     entry_point = "aql_transform",
     namespace = "kernels::gfx1151_transform",
+    target = ":gfx1151",
+)
+
+amdf_cts_gpu_kernel(
+    name = "resident_exchange_gfx1150",
+    src = "resident_exchange.loom",
+    entry_point = "resident_exchange",
+    namespace = "kernels::gfx1150_resident_exchange",
+    target = ":gfx1150",
+)
+
+amdf_cts_gpu_kernel(
+    name = "resident_exchange_gfx1151",
+    src = "resident_exchange.loom",
+    entry_point = "resident_exchange",
+    namespace = "kernels::gfx1151_resident_exchange",
     target = ":gfx1151",
 )
 

@@ -9,6 +9,42 @@
 
 iree_add_all_subdirs()
 
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA)
+iree_cc_library(
+  NAME
+    device_fixture
+  HDRS
+    "device_fixture.h"
+  SRCS
+    "device_fixture.cc"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::gpu_device_fixture
+    libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::util::mapped_memory
+    libamdf::cts::xdna::util::execution
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA)
+iree_cc_library(
+  NAME
+    resident_transaction
+  HDRS
+    "resident_transaction.h"
+  SRCS
+    "resident_transaction.cc"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  PUBLIC
+)
+endif()
+
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA)
 iree_cc_library(
   NAME
@@ -35,11 +71,16 @@ iree_cc_library(
     execution_cases
   SRCS
     "gpu_xdna_test.cc"
+    "resident_test.cc"
   DEPS
+    ::device_fixture
     ::pm4_queue
+    ::resident_transaction
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
+    libamdf::cts::gpu::kernels::resident_exchange_gfx1150
+    libamdf::cts::gpu::kernels::resident_exchange_gfx1151
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx1150
     libamdf::cts::gpu::kernels::transform_gfx1151
@@ -47,6 +88,7 @@ iree_cc_library(
     libamdf::cts::util::device_cache
     libamdf::cts::util::mapped_memory
     libamdf::cts::xdna::programs::mul_i32
+    libamdf::cts::xdna::programs::resident_exchange
     libamdf::cts::xdna::util::executable
     libamdf::cts::xdna::util::execution
   TESTONLY

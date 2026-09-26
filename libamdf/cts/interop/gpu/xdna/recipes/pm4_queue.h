@@ -9,6 +9,7 @@
 
 #include <span>
 
+#include "gtest/gtest.h"
 #include "libamdf/cts/gpu/util/user_queue.h"
 #include "util/mapped_memory.h"
 
@@ -29,13 +30,16 @@ class Pm4RecipeQueue {
   // The previous publication has completed and retired. The input contains
   // complete type-3 packets and at most 4096 bytes. KERNEL storage is copied
   // and explicitly flushed here; USER adds a confirmed marker and wrap-safe
-  // NOPs.
-  void Publish(const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
-               std::span<const uint32_t> words, uint32_t completion_value);
+  // NOPs. The returned result records this publication's acceptance separately
+  // from any other participant's submission or test diagnostics.
+  ::testing::AssertionResult Publish(const amdf_api_t* api,
+                                     const amdf_gpu_api_t* gpu_api,
+                                     std::span<const uint32_t> words,
+                                     uint32_t completion_value);
   // Establishes the recipe's completion edge before payload observation.
-  void WaitComplete(const amdf_api_t* api);
+  ::testing::AssertionResult WaitComplete(const amdf_api_t* api);
   // Retires ring storage separately, after any required payload snapshots.
-  void Retire(const amdf_api_t* api);
+  ::testing::AssertionResult Retire(const amdf_api_t* api);
   // Removes the queue before its command storage. Failure retains backing.
   bool Release(const amdf_api_t* api);
 

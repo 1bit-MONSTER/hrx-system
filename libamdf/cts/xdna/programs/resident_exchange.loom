@@ -1,0 +1,238 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// One immutable 64-byte configuration record drives one complete service.
+// Configuration word 0 is the unsigned generation count. The remaining words
+// are reserved and initialized by the caller. The worker publishes one real
+// 64-byte terminal record after all custom traffic is closed.
+//
+// Cold native setup assigns shim DMA channel 1 BDs 10..15 to startup, request
+// generation, request payload, response payload, response ready, and final ACK.
+// Startup is a separate allocation. The other control words are at byte offsets
+// 64, 128, and 192 in the shared control allocation. All payloads are 64 bytes.
+// BDs 13 -> 14 form a same-channel payload/ready chain: BD 13 releases shim
+// lock 0 by one; BD 14 acquires one. Incoming DMA words reach Core0 without
+// packet headers. Outgoing
+// packet ID 7 reaches shim TileControl; ID 9 reaches S2MM1 with its header dropped.
+//
+// Queue writes carry the native odd-parity control header for one word:
+// MM2S1 queue 0x1d21c -> 0x8001d21c; S2MM1 queue 0x1d20c -> 0x0001d20c.
+// ID 7 has header 7; ID 9 has odd-parity header 0x80000009. Every outgoing control
+// or data packet marks its final word with TLAST.
+//
+// The entire protocol stays inside this firing. Returning publishes terminal
+// output through the normal worker locks and S2MM0 task. The wrapper then parks
+// on its exhausted configuration input; the native command suffix owns custom
+// DMA drain and placement quiescence before controller completion.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @resident_service_array() asm {
+  %c1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %c0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %c2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %c1
+  %worker = worker %group, %c0, @resident_service
+  %configuration = binding 0, "read"
+  %terminal = binding 1, "write"
+  %configuration_sender = sender %configuration, 0 : reg<aie2p.array.sender : tile<16xi32>>
+  %worker_configuration = receiver %worker, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_terminal = sender %worker, 1 : reg<aie2p.array.sender : tile<16xi32>>
+  %terminal_receiver = receiver %terminal, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %configuration_channel = channel %configuration_sender, %worker_configuration, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  %terminal_channel = channel %worker_terminal, %terminal_receiver, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  constrain.location %worker, %c0, %c2
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @resident_service() asm {
+  %configuration = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %terminal = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %terminal_copy = copy %terminal : reg<aie2p.ep> -> reg<aie2p.ep>
+  %terminal_end = padda %terminal_copy, 64
+  %round_count = lda %configuration, 0
+  %c0 = mov.short 0
+  %c1 = mov.short 1
+  %abort_state = mov.short 2
+  %c3 = mov.short 3
+  %control_route = mov.short 7
+  %data_route = mov.i32 -2147483639
+  %input_queue_header = mov.i32 -2147364324
+  %output_queue_header = mov.i32 119308
+  %startup_descriptor = mov.short 10
+  %request_generation_descriptor = mov.short 11
+  %request_payload_descriptor = mov.short 12
+  %response_chain_descriptor = mov.short 13
+  %complete_descriptor = mov.short 15
+
+  // The normal wrapper owns terminal output credit before entering this body.
+  // Initialization also defines the terminal payload for ABORT and zero rounds.
+  st %c0, %terminal, 0
+  st %c0, %terminal, 4
+  st %c0, %terminal, 8
+  st %c0, %terminal, 12
+  st %c0, %terminal, 16
+  st %c0, %terminal, 20
+  st %c0, %terminal, 24
+  st %c0, %terminal, 28
+  st %c0, %terminal_end, -32
+  st %c0, %terminal_end, -28
+  st %c0, %terminal_end, -24
+  st %c0, %terminal_end, -20
+  st %c0, %terminal_end, -16
+  st %c0, %terminal_end, -12
+  st %c0, %terminal_end, -8
+  st %c0, %terminal_end, -4
+  low.br ^poll_startup
+
+^poll_startup:
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %startup_descriptor
+  %startup = mov.ss
+  %run = eq %startup, %c1
+  low.cond_br %run, ^begin_run, ^check_abort : reg<aie2p.er>
+
+^check_abort:
+  %abort = eq %startup, %abort_state
+  low.cond_br %abort, ^aborted, ^poll_startup : reg<aie2p.er>
+
+^aborted:
+  // Prestart ABORT never waits on GPU request, response, or final ACK traffic.
+  st %abort_state, %terminal, 0
+  return
+
+^begin_run:
+  %has_rounds = nez %round_count
+  low.cond_br %has_rounds, ^first_round, ^poll_complete : reg<aie2p.er>
+
+^first_round:
+  low.br ^poll_request(%c1: reg<aie2p.er>)
+
+^poll_request(%generation: reg<aie2p.er>):
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %request_generation_descriptor
+  %request_generation = mov.ss
+  %request_ready = eq %request_generation, %generation
+  low.cond_br %request_ready, ^transfer, ^retry_request : reg<aie2p.er>
+
+^retry_request:
+  low.br ^poll_request(%generation: reg<aie2p.er>)
+
+^transfer:
+  // The fresh generation observation precedes this independent payload DMA.
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %request_payload_descriptor
+  mov.ms %control_route
+  mov.ms %output_queue_header
+  mov.ms.last %response_chain_descriptor
+  mov.ms %data_route
+  %request0 = mov.ss
+  %scaled0 = mul %request0, %c3
+  %response0 = add.rr %scaled0, %generation
+  mov.ms %response0
+  %request1 = mov.ss
+  %scaled1 = mul %request1, %c3
+  %response1 = add.rr %scaled1, %generation
+  mov.ms %response1
+  %request2 = mov.ss
+  %scaled2 = mul %request2, %c3
+  %response2 = add.rr %scaled2, %generation
+  st %response2, %terminal, 8
+  mov.ms %response2
+  %request3 = mov.ss
+  %scaled3 = mul %request3, %c3
+  %response3 = add.rr %scaled3, %generation
+  st %response3, %terminal, 12
+  mov.ms %response3
+  %request4 = mov.ss
+  %scaled4 = mul %request4, %c3
+  %response4 = add.rr %scaled4, %generation
+  st %response4, %terminal, 16
+  mov.ms %response4
+  %request5 = mov.ss
+  %scaled5 = mul %request5, %c3
+  %response5 = add.rr %scaled5, %generation
+  st %response5, %terminal, 20
+  mov.ms %response5
+  %request6 = mov.ss
+  %scaled6 = mul %request6, %c3
+  %response6 = add.rr %scaled6, %generation
+  st %response6, %terminal, 24
+  mov.ms %response6
+  %request7 = mov.ss
+  %scaled7 = mul %request7, %c3
+  %response7 = add.rr %scaled7, %generation
+  st %response7, %terminal, 28
+  mov.ms %response7
+  %request8 = mov.ss
+  %scaled8 = mul %request8, %c3
+  %response8 = add.rr %scaled8, %generation
+  st %response8, %terminal_end, -32
+  mov.ms %response8
+  %request9 = mov.ss
+  %scaled9 = mul %request9, %c3
+  %response9 = add.rr %scaled9, %generation
+  st %response9, %terminal_end, -28
+  mov.ms %response9
+  %request10 = mov.ss
+  %scaled10 = mul %request10, %c3
+  %response10 = add.rr %scaled10, %generation
+  st %response10, %terminal_end, -24
+  mov.ms %response10
+  %request11 = mov.ss
+  %scaled11 = mul %request11, %c3
+  %response11 = add.rr %scaled11, %generation
+  st %response11, %terminal_end, -20
+  mov.ms %response11
+  %request12 = mov.ss
+  %scaled12 = mul %request12, %c3
+  %response12 = add.rr %scaled12, %generation
+  st %response12, %terminal_end, -16
+  mov.ms %response12
+  %request13 = mov.ss
+  %scaled13 = mul %request13, %c3
+  %response13 = add.rr %scaled13, %generation
+  st %response13, %terminal_end, -12
+  mov.ms %response13
+  %request14 = mov.ss
+  %scaled14 = mul %request14, %c3
+  %response14 = add.rr %scaled14, %generation
+  st %response14, %terminal_end, -8
+  mov.ms %response14
+  %request15 = mov.ss
+  %scaled15 = mul %request15, %c3
+  %response15 = add.rr %scaled15, %generation
+  st %response15, %terminal_end, -4
+  mov.ms.last %response15
+
+  // A separate complete packet supplies the chained four-byte ready BD.
+  mov.ms %data_route
+  mov.ms.last %generation
+  %more_rounds = ltu %generation, %round_count
+  low.cond_br %more_rounds, ^next_round, ^poll_complete : reg<aie2p.er>
+
+^next_round:
+  %next_generation = add %generation, 1
+  low.br ^poll_request(%next_generation: reg<aie2p.er>)
+
+^poll_complete:
+  // COMPLETE=1 is released only after the GPU's final response reads and log.
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %complete_descriptor
+  %complete = mov.ss
+  %acknowledged = eq %complete, %c1
+  low.cond_br %acknowledged, ^completed, ^poll_complete : reg<aie2p.er>
+
+^completed:
+  st %c1, %terminal, 0
+  st %round_count, %terminal, 4
+  return
+}

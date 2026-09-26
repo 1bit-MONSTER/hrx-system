@@ -2,7 +2,13 @@
 
 The grouped `execution` corpus composes GPU memory transfers or
 [Loom-built GPU shaders](../../../../gpu/kernels/README.md) with the
-[Loom-built XDNA arithmetic program](../../../../xdna/programs/README.md):
+[Loom-built XDNA programs](../../../../xdna/programs/README.md). Finite recipes
+join each device phase on the host. The resident recipe submits each device
+once and exchanges requests and responses without host intervention.
+
+## Finite recipes
+
+The finite arithmetic flow is:
 
 ```text
 CPU staging -> GPU ingress -> XDNA DMA and arithmetic -> GPU egress
@@ -68,6 +74,43 @@ reported IP, independently of the host OS and queue transport.
 Queue destruction precedes release of reachable backing. XDNA instruction
 storage and context outlive its queue; registered CPU storage outlives its
 attachments. A failed native release stops destruction of dependent owners.
+
+## Resident exchange
+
+`ResidentGpuXdnaTest.RegisteredCausalRoundTrip` runs one GPU invocation and one
+finite NPU service firing. Both programs are authored in `resident_exchange.loom`
+in their respective fixture packages. After both native submissions succeed,
+the host publishes RUN in a separate startup allocation. It then joins terminal
+completion without reading payloads, updating generations, maintaining shared
+payload caches, or submitting per-round work.
+
+Each generation sends sixteen 32-bit values. The GPU forms each request from
+the first response value of the preceding generation; the NPU transforms all
+sixteen values and publishes the new response generation. The GPU records every
+response in a separate transcript. The CPU checks that complete causal sequence,
+final device records, guards, allocation padding, and immutable command/code
+storage after both devices retire. A later host invalidation cannot repair a
+value already consumed by the GPU and recorded in that transcript.
+
+Request and response generations occupy separate control lines. The GPU uses
+system-scope release/acquire operations. The NPU starts a fresh DMA read for
+each control observation and chains its response payload and ready writes on
+one output channel with a lock dependency. The final GPU acknowledgement ends
+custom NPU issuance before the ordinary terminal output and native DMA idle
+checks close external-memory use. Only then may the host release backing.
+
+The compiler owns its ordinary configuration input, terminal output and tile
+program. A constrained transaction composer adds disjoint direct-stream routes
+and six shim descriptors around the unchanged bound compiler invocation. This
+keeps the compiler's executable format and resource ownership intact.
+
+Before RUN, an accepted participant can observe ABORT and terminate without
+waiting for a peer whose submission failed. A failed publication or terminal
+join does not establish cancellation; the caller retains reachable owners.
+Device clock differences are retained as raw result properties. They are
+observations from the correctness workload, not calibrated latency results.
+
+## Build and execution
 
 The ordinary build compiles the `.loom` fixtures and embeds the GPU image and
 both NPU profiles. Enable `LOOM_BUILD`, `LOOM_TARGET_AMDGPU` and

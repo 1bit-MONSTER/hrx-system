@@ -13,6 +13,17 @@
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
+namespace {
+
+::testing::AssertionResult QueueStatusFailure(const char* operation,
+                                              amdf_status_t status) {
+  return ::testing::AssertionFailure()
+         << operation << " failed: domain=" << amdf_status_domain(status)
+         << " code=" << amdf_status_code(status) << " status=" << status;
+}
+
+}  // namespace
+
 void Pm4RecipeQueue::Initialize(
     const amdf_api_t* api, const amdf_gpu_api_t* gpu_api, amdf_device_t* device,
     amdf_memory_scope_t* system_scope, const amdf_queue_family_info_t& family,
@@ -68,20 +79,27 @@ void Pm4RecipeQueue::Initialize(
   ASSERT_NO_FATAL_FAILURE(commands_.Create(api, system_scope, create));
 }
 
-void Pm4RecipeQueue::Publish(const amdf_api_t* api,
-                             const amdf_gpu_api_t* gpu_api,
-                             std::span<const uint32_t> words,
-                             uint32_t completion_value) {
-  ASSERT_FALSE(words.empty());
-  ASSERT_LE(words.size_bytes(), 4096u);
+::testing::AssertionResult Pm4RecipeQueue::Publish(
+    const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
+    std::span<const uint32_t> words, uint32_t completion_value) {
+  if (words.empty()) {
+    return ::testing::AssertionFailure() << "PM4 command body is empty";
+  }
+  if (words.size_bytes() > 4096u) {
+    return ::testing::AssertionFailure()
+           << "PM4 command body exceeds 4096 bytes: " << words.size_bytes();
+  }
   if (kernel_queue_) {
     std::memcpy(commands_.bytes().data(), words.data(), words.size_bytes());
     // This publishes executable command bytes only. Payload publication and
     // the command's device cache actions are explicit in the recipe caller.
-    ASSERT_EQ(api->host_mapping_cache_control(commands_.mapping,
-                                              AMDF_HOST_CACHE_OPERATION_FLUSH,
-                                              0, words.size_bytes()),
-              AMDF_STATUS_OK);
+    const auto flush_status = api->host_mapping_cache_control(
+        commands_.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
+        words.size_bytes());
+    if (!amdf_status_is_ok(flush_status)) {
+      return QueueStatusFailure("command host_mapping_cache_control",
+                                flush_status);
+    }
     const amdf_gpu_kernel_command_t command = {
         .memory = commands_.memory, .byte_length = words.size_bytes()};
     amdf_gpu_kernel_queue_submission_info_t submit = {};
@@ -89,15 +107,23 @@ void Pm4RecipeQueue::Publish(const amdf_api_t* api,
     submit.structure_size = sizeof(submit);
     submit.command_count = 1;
     submit.commands = &command;
-    ASSERT_EQ(
-        gpu_api->kernel_queue_submit(kernel_queue_, &submit, &submission_),
-        AMDF_STATUS_OK);
-    return;
+    const auto submit_status =
+        gpu_api->kernel_queue_submit(kernel_queue_, &submit, &submission_);
+    if (!amdf_status_is_ok(submit_status)) {
+      return QueueStatusFailure("kernel_queue_submit", submit_status);
+    }
+    return ::testing::AssertionSuccess();
   }
 
-  ASSERT_NE(GpuLoadAcquire<uint32_t>(completion_host_address_),
-            completion_value);
-  completion_value_ = completion_value;
+  if (user_queue_.info.command_type != AMDF_QUEUE_COMMAND_TYPE_GPU_PM4) {
+    return ::testing::AssertionFailure()
+           << "USER queue is not PM4: " << user_queue_.info.command_type;
+  }
+  if (GpuLoadAcquire<uint32_t>(completion_host_address_) == completion_value) {
+    return ::testing::AssertionFailure()
+           << "completion marker already equals requested value "
+           << completion_value;
+  }
   std::array<uint32_t, 5> marker;
   Pm4CommandWriter marker_writer(marker.data());
   marker_writer.WriteData32(completion_device_address_, completion_value);
@@ -130,43 +156,75 @@ void Pm4RecipeQueue::Publish(const amdf_api_t* api,
   }
   append_padding(padding);
   // One native DWORD remains unoccupied to distinguish full from empty.
-  ASSERT_LT(publication.size(), capacity);
+  if (publication.size() >= capacity) {
+    return ::testing::AssertionFailure()
+           << "PM4 publication requires " << publication.size()
+           << " DWORDs in a ring of " << capacity << " DWORDs";
+  }
   auto* ring = reinterpret_cast<uint32_t*>(user_queue_.host.ring_address);
   for (size_t i = 0; i < publication.size(); ++i) {
     ring[(published_index_ + i) % capacity] = publication[i];
   }
+  completion_value_ = completion_value;
   published_index_ += publication.size();
-  ASSERT_NO_FATAL_FAILURE(user_queue_.PublishStream(published_index_));
+  // The PM4 type was checked before writing the ring. Publishing its write
+  // pointer and doorbell is infallible for this admitted USER mapping.
+  user_queue_.PublishStream(published_index_);
+  return ::testing::AssertionSuccess();
 }
 
-void Pm4RecipeQueue::WaitComplete(const amdf_api_t* api) {
+::testing::AssertionResult Pm4RecipeQueue::WaitComplete(const amdf_api_t* api) {
   if (kernel_queue_) {
-    ASSERT_EQ(api->kernel_queue_wait(kernel_queue_, submission_,
-                                     AMDF_TIMEOUT_INFINITE, 0),
-              AMDF_STATUS_OK);
+    const auto status = api->kernel_queue_wait(kernel_queue_, submission_,
+                                               AMDF_TIMEOUT_INFINITE, 0);
+    if (!amdf_status_is_ok(status)) {
+      return QueueStatusFailure("kernel_queue_wait", status);
+    }
   } else {
     GpuWaitEqual<uint32_t>(completion_host_address_, completion_value_);
   }
+  return ::testing::AssertionSuccess();
 }
 
-void Pm4RecipeQueue::Retire(const amdf_api_t* api) {
+::testing::AssertionResult Pm4RecipeQueue::Retire(const amdf_api_t* api) {
   if (kernel_queue_) {
     amdf_kernel_queue_status_t status = {};
     status.type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS;
     status.structure_size = sizeof(status);
-    ASSERT_EQ(api->kernel_queue_query_status(kernel_queue_, &status),
-              AMDF_STATUS_OK);
-    ASSERT_GE(status.retired_submission, submission_);
-    ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
+    const auto query_status =
+        api->kernel_queue_query_status(kernel_queue_, &status);
+    if (!amdf_status_is_ok(query_status)) {
+      return QueueStatusFailure("kernel_queue_query_status", query_status);
+    }
+    if (status.retired_submission < submission_) {
+      return ::testing::AssertionFailure()
+             << "kernel queue retired " << status.retired_submission
+             << " before accepted submission " << submission_;
+    }
+    if (!amdf_status_is_ok(status.terminal_status)) {
+      return QueueStatusFailure("kernel queue terminal status",
+                                status.terminal_status);
+    }
   } else {
-    ASSERT_NO_FATAL_FAILURE(user_queue_.WaitConsumed(api, published_index_));
+    const auto wait_status = api->user_queue_wait_consumed(
+        user_queue_.queue, published_index_, AMDF_TIMEOUT_INFINITE, 0);
+    if (!amdf_status_is_ok(wait_status)) {
+      return QueueStatusFailure("user_queue_wait_consumed", wait_status);
+    }
     amdf_user_queue_status_t status = {};
     status.type = AMDF_STRUCTURE_TYPE_USER_QUEUE_STATUS;
     status.structure_size = sizeof(status);
-    ASSERT_EQ(api->user_queue_query_status(user_queue_.queue, &status),
-              AMDF_STATUS_OK);
-    ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
+    const auto query_status =
+        api->user_queue_query_status(user_queue_.queue, &status);
+    if (!amdf_status_is_ok(query_status)) {
+      return QueueStatusFailure("user_queue_query_status", query_status);
+    }
+    if (!amdf_status_is_ok(status.terminal_status)) {
+      return QueueStatusFailure("USER queue terminal status",
+                                status.terminal_status);
+    }
   }
+  return ::testing::AssertionSuccess();
 }
 
 bool Pm4RecipeQueue::Release(const amdf_api_t* api) {

@@ -16,6 +16,28 @@ package(
 exports_files(["README.md"])
 
 amdf_cc_library(
+    name = "device_fixture",
+    testonly = True,
+    srcs = ["device_fixture.cc"],
+    hdrs = ["device_fixture.h"],
+    deps = [
+        "//libamdf/cts/gpu:gpu_device_fixture",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/util:mapped_memory",
+        "//libamdf/cts/xdna/util:execution",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
+    name = "resident_transaction",
+    testonly = True,
+    srcs = ["resident_transaction.cc"],
+    hdrs = ["resident_transaction.h"],
+    deps = ["//third_party:google_test"],
+)
+
+amdf_cc_library(
     name = "pm4_queue",
     testonly = True,
     srcs = ["pm4_queue.cc"],
@@ -32,7 +54,10 @@ amdf_cc_library(
 
 amdf_cts_test_suite(
     name = "execution",
-    srcs = ["gpu_xdna_test.cc"],
+    srcs = [
+        "gpu_xdna_test.cc",
+        "resident_test.cc",
+    ],
     target_compatible_with = ["@platforms//cpu:x86_64"] + select({
         "@platforms//os:linux": [],
         "@platforms//os:windows": [],
@@ -40,8 +65,12 @@ amdf_cts_test_suite(
     }),
     visibility = ["//visibility:public"],
     deps = [
+        ":device_fixture",
         ":pm4_queue",
+        ":resident_transaction",
         "//libamdf/cts/gpu:gpu_device_fixture",
+        "//libamdf/cts/gpu/kernels:resident_exchange_gfx1150",
+        "//libamdf/cts/gpu/kernels:resident_exchange_gfx1151",
         "//libamdf/cts/gpu/kernels:transform",
         "//libamdf/cts/gpu/kernels:transform_gfx1150",
         "//libamdf/cts/gpu/kernels:transform_gfx1151",
@@ -49,6 +78,7 @@ amdf_cts_test_suite(
         "//libamdf/cts/util:device_cache",
         "//libamdf/cts/util:mapped_memory",
         "//libamdf/cts/xdna/programs:mul_i32",
+        "//libamdf/cts/xdna/programs:resident_exchange",
         "//libamdf/cts/xdna/util:executable",
         "//libamdf/cts/xdna/util:execution",
         "//third_party:google_test",
