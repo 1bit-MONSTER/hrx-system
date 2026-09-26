@@ -30,6 +30,13 @@ allocation addresses directly. The caller checks the required wave32,
 kernarg-pointer, group-X and local-X initial-register contract, with no
 private or group storage. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
 
+The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) builds
+separate gfx1150 and gfx1151 transforms. It selects the exact product from the
+reported GPU IP and uses its resources unchanged through USER or KERNEL PM4
+publication. Two GPU transforms produce NPU inputs; a third consumes the NPU
+output. All three use the same typed argument contract, independently checked
+against both compiled products.
+
 Both sources take a host workload `%groups_x` and require a `64,1,1` local
 shape. The workload keeps group X dynamic without becoming a device argument;
 `count`, represented as a nonnegative `i32`, bounds accesses within the grid.

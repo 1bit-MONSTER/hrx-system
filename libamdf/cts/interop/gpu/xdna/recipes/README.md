@@ -62,7 +62,8 @@ and the read frontier separately retires command storage. An advertised KERNEL
 queue instead uses private command storage and checked native completion.
 Transport selection precedes queue creation and never changes after a native
 failure. Shader cases additionally require the COMPUTE role and the exact
-gfx1151 target of their compiled image.
+gfx1150 or gfx1151 target of their compiled image. Selection uses the GPU's
+reported IP, independently of the host OS and queue transport.
 
 Queue destruction precedes release of reachable backing. XDNA instruction
 storage and context outlive its queue; registered CPU storage outlives its

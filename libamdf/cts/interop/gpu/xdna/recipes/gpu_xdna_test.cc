@@ -16,6 +16,7 @@
 
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
+#include "libamdf/cts/gpu/kernels/transform_gfx1150.h"
 #include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/pm4_queue.h"
@@ -27,6 +28,7 @@
 namespace {
 
 namespace shader = kernels::gfx1151_transform;
+namespace shader1150 = kernels::gfx1150_transform;
 
 static_assert(shader::kArgumentByteOffsets ==
               kernels::transform::kArgumentByteOffsets);
@@ -44,6 +46,63 @@ static_assert(shader::kWavefrontSize == 32 &&
 static_assert(shader::kKernelCodeProperties == 0x408 &&
               shader::kKernargPreload == 0);
 static_assert((shader::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
+// Both exact products satisfy the same caller ABI. Resource allocation and
+// executable identity remain specific to each compiled target.
+static_assert(shader1150::kArgumentByteOffsets == shader::kArgumentByteOffsets);
+static_assert(shader1150::kArgumentByteLengths == shader::kArgumentByteLengths);
+static_assert(shader1150::kArgumentValueKinds == shader::kArgumentValueKinds);
+static_assert(shader1150::kKernargByteLength == shader::kKernargByteLength &&
+              shader1150::kKernargAlignment == shader::kKernargAlignment);
+static_assert(shader1150::kRequiredWorkgroupSize ==
+                  shader::kRequiredWorkgroupSize &&
+              shader1150::kWorkgroupSize == shader::kWorkgroupSize);
+static_assert(shader1150::kWavefrontSize == shader::kWavefrontSize &&
+              shader1150::kPrivateSegmentByteLength ==
+                  shader::kPrivateSegmentByteLength &&
+              shader1150::kGroupSegmentByteLength ==
+                  shader::kGroupSegmentByteLength);
+static_assert(shader1150::kKernelCodeProperties ==
+                  shader::kKernelCodeProperties &&
+              shader1150::kKernargPreload == shader::kKernargPreload);
+static_assert((shader1150::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
+
+struct ShaderSource {
+  // Immutable build-generated full descriptor and text image.
+  const kernels::Image& image;
+  // Entry within the full image, retaining its compiler-selected phase.
+  uint32_t entry_byte_offset;
+  // Compiler-owned resources with the device entry address not yet assigned.
+  Pm4ComputeProgram program;
+  // Exact target identity embedded by the source-built HSACO.
+  const char* target;
+  // Digest of the complete HSACO, including target and argument metadata.
+  const char* hsaco_sha256;
+};
+
+constexpr ShaderSource kShader1150 = {
+    shader1150::kExecutable,
+    shader1150::kEntryByteOffset,
+    {0,
+     shader1150::kComputePgmRsrc1,
+     shader1150::kComputePgmRsrc2,
+     shader1150::kComputePgmRsrc3,
+     shader1150::kGroupSegmentByteLength,
+     {shader1150::kWorkgroupSize, 1, 1}},
+    shader1150::kTarget,
+    shader1150::kHsacoSha256,
+};
+constexpr ShaderSource kShader1151 = {
+    shader::kExecutable,
+    shader::kEntryByteOffset,
+    {0,
+     shader::kComputePgmRsrc1,
+     shader::kComputePgmRsrc2,
+     shader::kComputePgmRsrc3,
+     shader::kGroupSegmentByteLength,
+     {shader::kWorkgroupSize, 1, 1}},
+    shader::kTarget,
+    shader::kHsacoSha256,
+};
 
 constexpr size_t kBindingByteLength = 64;
 constexpr size_t kBindingByteOffset = 64;
@@ -130,10 +189,13 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
         !Pm4CommandWriter::SupportsTarget(target)) {
       return status;
     }
-    if (gpu_operation_ == GpuOperation::kShader &&
-        (target.gfx_ip.major != 11 || target.gfx_ip.minor != 5 ||
-         target.gfx_ip.stepping != 1)) {
-      return AMDF_STATUS_OK;
+    if (gpu_operation_ == GpuOperation::kShader) {
+      if (target.gfx_ip.major != 11 || target.gfx_ip.minor != 5 ||
+          target.gfx_ip.stepping > 1) {
+        return AMDF_STATUS_OK;
+      }
+      shader_.source =
+          target.gfx_ip.stepping == 0 ? &kShader1150 : &kShader1151;
     }
     amdf_endpoint_info_t info = {};
     info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
@@ -503,19 +565,14 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
   }
 
   void PrepareShader() {
-    shader_.program = {0,
-                       shader::kComputePgmRsrc1,
-                       shader::kComputePgmRsrc2,
-                       shader::kComputePgmRsrc3,
-                       shader::kGroupSegmentByteLength,
-                       {shader::kWorkgroupSize, 1, 1}};
+    const auto& source = *shader_.source;
+    shader_.program = source.program;
     // Preserve the full image and PAL's three additional 64-byte fetch lines.
     const uint64_t image_extent =
-        ((uint64_t{shader::kExecutable.byte_length} + 63u) & ~UINT64_C(63)) +
-        192u;
+        ((uint64_t{source.image.byte_length} + 63u) & ~UINT64_C(63)) + 192u;
     const uint64_t prefetch_extent =
-        uint64_t{shader::kEntryByteOffset} +
-        ((shader::kComputePgmRsrc3 >> 4) & 63u) * 128u;
+        uint64_t{source.entry_byte_offset} +
+        ((source.program.resource3 >> 4) & 63u) * 128u;
     uint64_t code_address = 0;
     amdf_cache_transition_t code_release = {};
     ASSERT_NO_FATAL_FAILURE(
@@ -525,21 +582,21 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
     ASSERT_EQ(code_address % 256, 0u);
     ASSERT_LE(code_address,
               (UINT64_C(1) << 48) - shader_.code.info.byte_length);
-    shader_.program.entry_address = code_address + shader::kEntryByteOffset;
+    shader_.program.entry_address = code_address + source.entry_byte_offset;
     ASSERT_EQ(shader_.program.entry_address % 256, 0u);
     auto code = shader_.code.bytes();
     std::fill(code.begin(), code.end(), 0);
-    std::memcpy(code.data(), shader::kExecutable.words,
-                shader::kExecutable.byte_length);
+    std::memcpy(code.data(), source.image.words, source.image.byte_length);
     ASSERT_EQ(HostTransition(shader_.code, code_release), AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
         AMDF_MEMORY_ACCESS_READ, 3 * kArgumentStride, shader_.arguments,
         shader_.argument_address, shader_.argument_release));
     ASSERT_EQ(shader_.argument_address % shader::kKernargAlignment, 0u);
-    RecordProperty("gpu_xdna_shader_image_sha256", shader::kExecutable.sha256);
-    RecordProperty("gpu_xdna_shader_image_bytes",
-                   shader::kExecutable.byte_length);
-    RecordProperty("gpu_xdna_shader_entry_offset", shader::kEntryByteOffset);
+    RecordProperty("gpu_xdna_shader_target", source.target);
+    RecordProperty("gpu_xdna_shader_hsaco_sha256", source.hsaco_sha256);
+    RecordProperty("gpu_xdna_shader_image_sha256", source.image.sha256);
+    RecordProperty("gpu_xdna_shader_image_bytes", source.image.byte_length);
+    RecordProperty("gpu_xdna_shader_entry_offset", source.entry_byte_offset);
     RecordProperty("gpu_xdna_shader_code_bytes",
                    std::to_string(shader_.code.info.byte_length));
     RecordProperty("gpu_xdna_shader_argument_bytes",
@@ -1001,6 +1058,8 @@ class GpuXdnaRecipeTest : public GpuDeviceFixture {
   CtsMappedMemory staging_;
   // Optional shader state retained through removal of its GPU borrower.
   struct {
+    // Exact compiled source selected before native endpoint activation.
+    const ShaderSource* source = nullptr;
     // Compiled entry and resource configuration for all three dispatches.
     Pm4ComputeProgram program = {};
     // Immutable full image plus the declared instruction fetch extent.

@@ -41,6 +41,13 @@ loom_target_profile(
 )
 
 loom_target_profile(
+    name = "gfx1150",
+    family = "amdgpu",
+    selector = "gfx1150",
+    visibility = ["//visibility:private"],
+)
+
+loom_target_profile(
     name = "gfx1151",
     family = "amdgpu",
     selector = "gfx1151",
@@ -101,6 +108,14 @@ amdf_cts_gpu_kernel(
     entry_point = "aql_transform",
     namespace = "kernels::gfx942_transform_alternate",
     target = ":gfx942",
+)
+
+amdf_cts_gpu_kernel(
+    name = "transform_gfx1150",
+    src = "transform.loom",
+    entry_point = "aql_transform",
+    namespace = "kernels::gfx1150_transform",
+    target = ":gfx1150",
 )
 
 amdf_cts_gpu_kernel(

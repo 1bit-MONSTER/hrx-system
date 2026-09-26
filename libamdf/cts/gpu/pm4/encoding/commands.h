@@ -21,9 +21,9 @@ enum class Pm4MemoryComparison : uint32_t {
   kGreaterOrEqual = 5,
 };
 
-// Audited gfx1151 wave32 program with no scratch or hidden runtime inputs.
-// The caller supplies only a kernarg pointer; hardware supplies group/local
-// IDs.
+// Audited gfx1150/gfx1151 wave32 program with no scratch or hidden runtime
+// inputs. The caller supplies only a kernarg pointer; hardware supplies
+// group/local IDs.
 struct Pm4ComputeProgram {
   // GPU entry address, aligned to 256 bytes and below the 48-bit program limit.
   uint64_t entry_address;

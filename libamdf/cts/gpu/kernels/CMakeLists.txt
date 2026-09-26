@@ -20,6 +20,15 @@ loom_target_profile(
 
 loom_target_profile(
   NAME
+    "gfx1150"
+  FAMILY
+    "amdgpu"
+  SELECTOR
+    "gfx1150"
+)
+
+loom_target_profile(
+  NAME
     "gfx1151"
   FAMILY
     "amdgpu"
@@ -259,6 +268,53 @@ iree_cc_library(
     transform_alternate_gfx942
   HDRS
     "transform_alternate_gfx942.h"
+  DEPS
+    amdf::headers
+    libamdf::cts::gpu::kernels::image
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "transform_gfx1150_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:transform_gfx1150_hsaco"
+  TARGET
+    "::gfx1150"
+  OUTPUT
+    "transform_gfx1150.hsaco"
+  SRCS
+    "transform.loom"
+  ROOTS
+    "@aql_transform"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "transform_gfx1150_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1150.hsaco"
+  OUTPUT
+    "transform_gfx1150.h"
+  ENTRY_POINT
+    "aql_transform"
+  NAMESPACE
+    "kernels::gfx1150_transform"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    transform_gfx1150
+  HDRS
+    "transform_gfx1150.h"
   DEPS
     amdf::headers
     libamdf::cts::gpu::kernels::image
