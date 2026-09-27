@@ -191,7 +191,7 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     executable_.Load(image_storage);
     ASSERT_TRUE(executable_.Bind(image_storage, binding_addresses_));
     ASSERT_NO_FATAL_FAILURE(
-        execution_.Prepare(api_, xdna_api_, device_, family_ordinal_,
+        execution_.Prepare(api_, xdna_api_, device_, family_ordinal_, 1,
                            executable_.ResolveInvocation(image_storage),
                            executable_.allocation_alignment()));
     const auto commands = execution_.instructions.bytes();

@@ -22,6 +22,7 @@ exports_files([
     "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
     "private_roundtrip.loom",
+    "resident_channels.loom",
     "resident_exchange.loom",
     "transform.loom",
     "transform_alternate.loom",
@@ -140,6 +141,22 @@ amdf_cts_gpu_kernel(
     src = "resident_exchange.loom",
     entry_point = "resident_exchange",
     namespace = "kernels::gfx1151_resident_exchange",
+    target = ":gfx1151",
+)
+
+amdf_cts_gpu_kernel(
+    name = "resident_channels_gfx1150",
+    src = "resident_channels.loom",
+    entry_point = "resident_channels",
+    namespace = "kernels::gfx1150_resident_channels",
+    target = ":gfx1150",
+)
+
+amdf_cts_gpu_kernel(
+    name = "resident_channels_gfx1151",
+    src = "resident_channels.loom",
+    entry_point = "resident_channels",
+    namespace = "kernels::gfx1151_resident_channels",
     target = ":gfx1151",
 )
 

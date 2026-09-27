@@ -14,12 +14,15 @@
 #include <string_view>
 #include <vector>
 
+#include "libamdf/cts/gpu/kernels/resident_channels_gfx1150.h"
+#include "libamdf/cts/gpu/kernels/resident_channels_gfx1151.h"
 #include "libamdf/cts/gpu/kernels/resident_exchange_gfx1150.h"
 #include "libamdf/cts/gpu/kernels/resident_exchange_gfx1151.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/device_fixture.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/pm4_queue.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/resident_transaction.h"
+#include "libamdf/cts/xdna/programs/resident_channels.h"
 #include "libamdf/cts/xdna/programs/resident_exchange.h"
 #include "libamdf/cts/xdna/util/executable.h"
 #include "libamdf/cts/xdna/util/execution.h"
@@ -28,6 +31,8 @@ namespace {
 
 namespace shader = kernels::gfx1151_resident_exchange;
 namespace shader1150 = kernels::gfx1150_resident_exchange;
+namespace channel_shader = kernels::gfx1151_resident_channels;
+namespace channel_shader1150 = kernels::gfx1150_resident_channels;
 
 struct Arguments {
   // GPU address of the request slots, starting with slot zero's generation.
@@ -94,6 +99,80 @@ static_assert(shader1150::kWavefrontSize == 32 &&
               shader1150::kKernargPreload == 0 &&
               (shader1150::kComputePgmRsrc2 & 0x1fffu) == 4u);
 
+struct ChannelArguments {
+  // GPU address of the request slots, starting with slot zero's generation.
+  uint64_t request;
+  // GPU address of the response slots, starting with slot zero's generation.
+  uint64_t response;
+  // GPU address of the separately maintained startup decision.
+  uint64_t startup;
+  // GPU address of the guarded final-acknowledgement allocation.
+  uint64_t control;
+  // GPU address of the per-generation transcript.
+  uint64_t records;
+  // Number of peer-channel exchanges between the held channel's two requests.
+  uint32_t peer_round_count;
+  // First request's causal input; subsequent inputs come from NPU responses.
+  uint32_t seed;
+  // Number of 32-bit words in each complete request and response.
+  uint32_t payload_word_count;
+  // Word offset from either slot base to its first payload word.
+  uint32_t payload_word_offset;
+  // Logical channel held during the peer sequence: zero or one.
+  uint32_t held_channel;
+  // Distance in bytes between the two channel bases, aligned to 64 bytes.
+  uint32_t channel_byte_stride;
+};
+
+static_assert(channel_shader::kArgumentByteOffsets ==
+              std::array<uint32_t, 11>{
+                  offsetof(ChannelArguments, request),
+                  offsetof(ChannelArguments, response),
+                  offsetof(ChannelArguments, startup),
+                  offsetof(ChannelArguments, control),
+                  offsetof(ChannelArguments, records),
+                  offsetof(ChannelArguments, peer_round_count),
+                  offsetof(ChannelArguments, seed),
+                  offsetof(ChannelArguments, payload_word_count),
+                  offsetof(ChannelArguments, payload_word_offset),
+                  offsetof(ChannelArguments, held_channel),
+                  offsetof(ChannelArguments, channel_byte_stride)});
+static_assert(channel_shader::kArgumentByteLengths ==
+              std::array<uint32_t, 11>{8, 8, 8, 8, 8, 4, 4, 4, 4, 4, 4});
+static_assert(channel_shader::kArgumentValueKinds ==
+              std::array<std::string_view, 11>{
+                  "global_buffer", "global_buffer", "global_buffer",
+                  "global_buffer", "global_buffer", "by_value", "by_value",
+                  "by_value", "by_value", "by_value", "by_value"});
+static_assert(sizeof(ChannelArguments) == 64 &&
+              channel_shader::kKernargByteLength == 64);
+static_assert(channel_shader::kRequiredWorkgroupSize ==
+              std::array<uint32_t, 3>{1, 1, 1});
+static_assert(channel_shader::kWavefrontSize == 32 &&
+              channel_shader::kPrivateSegmentByteLength == 0 &&
+              channel_shader::kGroupSegmentByteLength == 0);
+static_assert(channel_shader::kKernelCodeProperties == 0x408 &&
+              channel_shader::kKernargPreload == 0 &&
+              (channel_shader::kComputePgmRsrc2 & 0x1fffu) == 4u);
+static_assert(channel_shader1150::kArgumentByteOffsets ==
+              channel_shader::kArgumentByteOffsets);
+static_assert(channel_shader1150::kArgumentByteLengths ==
+              channel_shader::kArgumentByteLengths);
+static_assert(channel_shader1150::kArgumentValueKinds ==
+              channel_shader::kArgumentValueKinds);
+static_assert(channel_shader1150::kKernargByteLength ==
+                  channel_shader::kKernargByteLength &&
+              channel_shader1150::kKernargAlignment ==
+                  channel_shader::kKernargAlignment);
+static_assert(channel_shader1150::kRequiredWorkgroupSize ==
+              channel_shader::kRequiredWorkgroupSize);
+static_assert(channel_shader1150::kWavefrontSize == 32 &&
+              channel_shader1150::kPrivateSegmentByteLength == 0 &&
+              channel_shader1150::kGroupSegmentByteLength == 0 &&
+              channel_shader1150::kKernelCodeProperties == 0x408 &&
+              channel_shader1150::kKernargPreload == 0 &&
+              (channel_shader1150::kComputePgmRsrc2 & 0x1fffu) == 4u);
+
 constexpr size_t kPayloadByteOffset = 64;
 constexpr uint32_t kRun = 1;
 constexpr uint32_t kAbort = 2;
@@ -101,6 +180,8 @@ constexpr uint32_t kSlotSeedStep = 0x9E3779B9u;
 
 enum class LaunchOrder { kGpuFirst, kNpuFirst };
 enum class Participants { kBoth, kGpu, kNpu };
+// Window schedules share one NPU service; held schedules use two workers.
+enum class ServiceSchedule { kWindow, kHoldFirst, kHoldSecond };
 enum BufferOrdinal : size_t {
   kStartup,
   kControl,
@@ -123,10 +204,38 @@ struct ExchangeShape {
   constexpr uint32_t slot_byte_stride() const {
     return (byte_offset() + byte_length() + 63) & ~uint32_t{63};
   }
-  constexpr uint32_t slots_byte_length() const {
-    return credit_count * slot_byte_stride();
+};
+
+// Complete cold geometry and oracle schedule for a finite resident case.
+struct ExchangePlan {
+  // Payload layout and credits per worker; independent services use one each.
+  ExchangeShape shape;
+  // Repeated worker's exchange count; a held worker adds two exchanges.
+  uint32_t round_count;
+  // Initial cause of the first request, before any device-produced response.
+  uint32_t seed;
+  // Selects a shared credit window or either spatially held channel.
+  ServiceSchedule schedule;
+
+  uint32_t service_count() const {
+    return schedule == ServiceSchedule::kWindow ? 1u : 2u;
   }
-  constexpr uint32_t record_byte_length() const { return 16 + byte_length(); }
+  uint32_t held_channel() const {
+    return schedule == ServiceSchedule::kHoldSecond ? 1u : 0u;
+  }
+  uint32_t service_round_count(uint32_t service) const {
+    return service_count() == 2 && service == held_channel() ? 2u : round_count;
+  }
+  uint32_t record_count() const {
+    return service_count() == 1 ? round_count : round_count + 2;
+  }
+  uint32_t record_header_word_count() const {
+    return service_count() == 1 ? 4u : 5u;
+  }
+  uint32_t record_byte_length() const {
+    return 4 * record_header_word_count() + shape.byte_length();
+  }
+  uint32_t slot_count() const { return service_count() * shape.credit_count; }
 };
 
 uint32_t LoadU32(std::span<const uint8_t> bytes, size_t byte_offset) {
@@ -204,8 +313,9 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
   }
 
-  void PrepareBuffers(amdf_memory_profile_roles_t role, uint32_t round_count,
-                      ExchangeShape shape) {
+  void PrepareBuffers(amdf_memory_profile_roles_t role,
+                      const ExchangePlan& plan) {
+    const auto shape = plan.shape;
     if (role == AMDF_MEMORY_PROFILE_ROLE_REGISTER &&
         (features_ & AMDF_GPU_DEVICE_FEATURE_HOST_REGISTRATION) == 0) {
       GTEST_SKIP() << "GPU host registration is not advertised";
@@ -234,7 +344,12 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     ASSERT_NO_FATAL_FAILURE(
         QueryProfilePairs(create, 1, kGpuXdnaJointEdges, pairs_));
     const std::array<size_t, kBufferCount> payload_byte_lengths = {
-        64, 256, shape.slots_byte_length(), shape.slots_byte_length(), 64, 64};
+        64,
+        256 * plan.service_count(),
+        plan.slot_count() * shape.slot_byte_stride(),
+        plan.slot_count() * shape.slot_byte_stride(),
+        64 * plan.service_count(),
+        64 * plan.service_count()};
     for (size_t i = 0; i < buffers_.size(); ++i) {
       SCOPED_TRACE(i);
       auto& buffer = buffers_[i];
@@ -280,7 +395,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
       buffer.expected.assign(buffer.memory.bytes().size(),
                              uint8_t{0xA5} ^ uint8_t(i * 17));
       if (i == kRequest || i == kResponse) {
-        for (uint32_t slot = 0; slot < shape.credit_count; ++slot) {
+        for (uint32_t slot = 0; slot < plan.slot_count(); ++slot) {
           const size_t offset =
               kPayloadByteOffset + slot * shape.slot_byte_stride();
           StoreU32(buffer.expected, offset, 0);
@@ -292,14 +407,18 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
                     payload_byte_lengths[i], 0);
       }
     }
-    StoreU32(buffers_[kControl].expected,
-             kPayloadByteOffset + kResidentFinalAckByteOffset, 0);
-    StoreU32(buffers_[kConfiguration].expected, kPayloadByteOffset,
-             round_count);
-    StoreU32(buffers_[kConfiguration].expected, kPayloadByteOffset + 4,
-             shape.word_count);
-    StoreU32(buffers_[kConfiguration].expected, kPayloadByteOffset + 8,
-             shape.credit_count);
+    for (uint32_t service = 0; service < plan.service_count(); ++service) {
+      StoreU32(buffers_[kControl].expected,
+               kPayloadByteOffset + service * 256 + kResidentFinalAckByteOffset,
+               0);
+      const size_t configuration_offset = kPayloadByteOffset + service * 64;
+      StoreU32(buffers_[kConfiguration].expected, configuration_offset,
+               plan.service_round_count(service));
+      StoreU32(buffers_[kConfiguration].expected, configuration_offset + 4,
+               shape.word_count);
+      StoreU32(buffers_[kConfiguration].expected, configuration_offset + 8,
+               shape.credit_count);
+    }
     for (auto& buffer : buffers_) {
       std::copy(buffer.expected.begin(), buffer.expected.end(),
                 buffer.memory.bytes().begin());
@@ -312,30 +431,39 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
   }
 
-  void PrepareNpu(ExchangeShape shape) {
+  void PrepareNpu(const ExchangePlan& plan) {
+    const auto shape = plan.shape;
     const iree_file_toc_t* image = nullptr;
+    const auto* images = plan.service_count() == 1
+                             ? amdf_cts_xdna_resident_exchange_create()
+                             : amdf_cts_xdna_resident_channels_create();
     const std::string_view target = xdna_endpoint_info_.target_id;
     if (target == "amd.xdna.strix_halo.17f0_11") {
-      image = &amdf_cts_xdna_resident_exchange_create()[1];
+      image = &images[1];
     } else if (target == "amd.xdna.strix.17f0_10" ||
                target == "amd.xdna.krackan.17f0_20") {
-      image = &amdf_cts_xdna_resident_exchange_create()[0];
+      image = &images[0];
     } else {
       GTEST_SKIP() << "no resident service image for " << target;
     }
-    constexpr std::array<amdf_memory_access_t, 2> binding_accesses = {
+    constexpr std::array<amdf_memory_access_t, 4> binding_accesses = {
+        AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_WRITE,
         AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_WRITE};
     XdnaExecutable executable;
     ASSERT_TRUE(executable.Initialize(
         {reinterpret_cast<const uint8_t*>(image->data), image->size},
-        xdna_endpoint_info_, xdna_device_info_, 1, binding_accesses));
+        xdna_endpoint_info_, xdna_device_info_, plan.service_count(),
+        std::span(binding_accesses).first(2 * plan.service_count())));
     std::vector<uint8_t> storage(executable.allocation_byte_length());
     executable.Load(storage);
-    const std::array<uint64_t, 2> binding_addresses = {
-        buffers_[kConfiguration].npu_address, buffers_[kTerminal].npu_address};
-    ASSERT_TRUE(executable.Bind(storage, binding_addresses));
+    const std::array<uint64_t, 4> binding_addresses = {
+        buffers_[kConfiguration].npu_address, buffers_[kTerminal].npu_address,
+        buffers_[kConfiguration].npu_address + 64,
+        buffers_[kTerminal].npu_address + 64};
+    ASSERT_TRUE(executable.Bind(
+        storage, std::span(binding_addresses).first(2 * plan.service_count())));
     std::array<ResidentNpuSlot, 2> slots = {};
-    for (uint32_t i = 0; i < shape.credit_count; ++i) {
+    for (uint32_t i = 0; i < plan.slot_count(); ++i) {
       const uint64_t offset = i * shape.slot_byte_stride();
       slots[i] = {
           buffers_[kRequest].npu_address + offset,
@@ -343,19 +471,25 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
           buffers_[kResponse].npu_address + offset + shape.byte_offset(),
           buffers_[kResponse].npu_address + offset};
     }
-    const ResidentNpuAddresses addresses = {
-        buffers_[kStartup].npu_address,
-        std::span(slots).first(shape.credit_count),
-        buffers_[kControl].npu_address + kResidentFinalAckByteOffset};
+    std::array<ResidentNpuAddresses, 2> services = {};
+    for (uint32_t service = 0; service < plan.service_count(); ++service) {
+      services[service] = {
+          buffers_[kStartup].npu_address,
+          std::span(slots).subspan(service * shape.credit_count,
+                                   shape.credit_count),
+          buffers_[kControl].npu_address + service * 256 +
+              kResidentFinalAckByteOffset};
+    }
     std::vector<uint8_t> commands;
-    ASSERT_TRUE(BuildResidentTransaction(executable.ResolveInvocation(storage),
-                                         addresses, shape.byte_length(),
-                                         &commands));
+    ASSERT_TRUE(BuildResidentTransaction(
+        executable.ResolveInvocation(storage),
+        std::span(services).first(plan.service_count()), shape.byte_length(),
+        &commands));
     ASSERT_LE(commands.size(),
               xdna_device_info_.instruction.maximum_byte_length);
-    ASSERT_NO_FATAL_FAILURE(
-        execution_.Prepare(api_, xdna_api_, xdna_device_, xdna_family_,
-                           commands, executable.allocation_alignment()));
+    ASSERT_NO_FATAL_FAILURE(execution_.Prepare(
+        api_, xdna_api_, xdna_device_, xdna_family_, plan.service_count(),
+        commands, executable.allocation_alignment()));
     ASSERT_EQ(
         api_->host_mapping_cache_control(
             execution_.instructions.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
@@ -366,18 +500,40 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     RecordProperty("resident_npu_command_bytes", commands.size());
   }
 
-  void PrepareGpu(uint32_t round_count, uint32_t seed, ExchangeShape shape) {
+  void PrepareGpu(const ExchangePlan& plan) {
+    const auto shape = plan.shape;
     const bool gfx1150 = gpu_endpoint_info_.gfx_ip.stepping == 0;
-    const auto& image = gfx1150 ? shader1150::kExecutable : shader::kExecutable;
+    const bool independent = plan.service_count() == 2;
+    const auto& image =
+        independent ? (gfx1150 ? channel_shader1150::kExecutable
+                               : channel_shader::kExecutable)
+                    : (gfx1150 ? shader1150::kExecutable : shader::kExecutable);
     const uint32_t entry_offset =
-        gfx1150 ? shader1150::kEntryByteOffset : shader::kEntryByteOffset;
-    Pm4ComputeProgram program = {
-        0,
-        gfx1150 ? shader1150::kComputePgmRsrc1 : shader::kComputePgmRsrc1,
-        gfx1150 ? shader1150::kComputePgmRsrc2 : shader::kComputePgmRsrc2,
-        gfx1150 ? shader1150::kComputePgmRsrc3 : shader::kComputePgmRsrc3,
-        0,
-        {1, 1, 1}};
+        independent ? (gfx1150 ? channel_shader1150::kEntryByteOffset
+                               : channel_shader::kEntryByteOffset)
+                    : (gfx1150 ? shader1150::kEntryByteOffset
+                               : shader::kEntryByteOffset);
+    const uint32_t argument_alignment =
+        independent ? (gfx1150 ? channel_shader1150::kKernargAlignment
+                               : channel_shader::kKernargAlignment)
+                    : (gfx1150 ? shader1150::kKernargAlignment
+                               : shader::kKernargAlignment);
+    Pm4ComputeProgram program = {0, 0, 0, 0, 0, {1, 1, 1}};
+    if (independent) {
+      program.resource1 = gfx1150 ? channel_shader1150::kComputePgmRsrc1
+                                  : channel_shader::kComputePgmRsrc1;
+      program.resource2 = gfx1150 ? channel_shader1150::kComputePgmRsrc2
+                                  : channel_shader::kComputePgmRsrc2;
+      program.resource3 = gfx1150 ? channel_shader1150::kComputePgmRsrc3
+                                  : channel_shader::kComputePgmRsrc3;
+    } else {
+      program.resource1 =
+          gfx1150 ? shader1150::kComputePgmRsrc1 : shader::kComputePgmRsrc1;
+      program.resource2 =
+          gfx1150 ? shader1150::kComputePgmRsrc2 : shader::kComputePgmRsrc2;
+      program.resource3 =
+          gfx1150 ? shader1150::kComputePgmRsrc3 : shader::kComputePgmRsrc3;
+    }
     const uint64_t image_extent =
         ((uint64_t{image.byte_length} + 63) & ~UINT64_C(63)) + 192;
     const uint64_t prefetch_extent =
@@ -400,7 +556,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
         2 * kPayloadByteOffset +
-            uint64_t{round_count} * shape.record_byte_length(),
+            uint64_t{plan.record_count()} * plan.record_byte_length(),
         records_, records_address, release));
     expected_records_.assign(records_.bytes().size(), 0xB6);
     std::copy(expected_records_.begin(), expected_records_.end(),
@@ -410,20 +566,35 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(AMDF_MEMORY_ACCESS_READ,
                                                sizeof(Arguments), arguments_,
                                                argument_address, release));
-    ASSERT_EQ(argument_address % shader::kKernargAlignment, 0u);
-    const Arguments arguments = {buffers_[kRequest].gpu_address,
-                                 buffers_[kResponse].gpu_address,
-                                 buffers_[kStartup].gpu_address,
-                                 buffers_[kControl].gpu_address,
-                                 records_address + kPayloadByteOffset,
-                                 round_count,
-                                 seed,
-                                 shape.word_count,
-                                 shape.word_offset,
-                                 shape.credit_count,
-                                 shape.slot_byte_stride()};
+    ASSERT_EQ(argument_address % argument_alignment, 0u);
     original_arguments_.assign(arguments_.bytes().size(), 0);
-    std::memcpy(original_arguments_.data(), &arguments, sizeof(arguments));
+    if (independent) {
+      const ChannelArguments arguments = {buffers_[kRequest].gpu_address,
+                                          buffers_[kResponse].gpu_address,
+                                          buffers_[kStartup].gpu_address,
+                                          buffers_[kControl].gpu_address,
+                                          records_address + kPayloadByteOffset,
+                                          plan.round_count,
+                                          plan.seed,
+                                          shape.word_count,
+                                          shape.word_offset,
+                                          plan.held_channel(),
+                                          shape.slot_byte_stride()};
+      std::memcpy(original_arguments_.data(), &arguments, sizeof(arguments));
+    } else {
+      const Arguments arguments = {buffers_[kRequest].gpu_address,
+                                   buffers_[kResponse].gpu_address,
+                                   buffers_[kStartup].gpu_address,
+                                   buffers_[kControl].gpu_address,
+                                   records_address + kPayloadByteOffset,
+                                   plan.round_count,
+                                   plan.seed,
+                                   shape.word_count,
+                                   shape.word_offset,
+                                   shape.credit_count,
+                                   shape.slot_byte_stride()};
+      std::memcpy(original_arguments_.data(), &arguments, sizeof(arguments));
+    }
     std::copy(original_arguments_.begin(), original_arguments_.end(),
               arguments_.bytes().begin());
     ASSERT_EQ(HostTransition(arguments_, release), AMDF_STATUS_OK);
@@ -448,7 +619,10 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     writer.SystemBarrier();
     gpu_command_word_count_ = writer.word_count();
     RecordProperty("resident_gpu_hsaco_sha256",
-                   gfx1150 ? shader1150::kHsacoSha256 : shader::kHsacoSha256);
+                   independent ? (gfx1150 ? channel_shader1150::kHsacoSha256
+                                          : channel_shader::kHsacoSha256)
+                               : (gfx1150 ? shader1150::kHsacoSha256
+                                          : shader::kHsacoSha256));
     RecordProperty("resident_gpu_image_sha256", image.sha256);
   }
 
@@ -472,20 +646,35 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
   void Run(amdf_memory_profile_roles_t role, uint32_t round_count,
            uint32_t seed, LaunchOrder order,
            Participants participants = Participants::kBoth,
-           ExchangeShape shape = {16, 16}) {
-    ASSERT_NO_FATAL_FAILURE(PrepareBuffers(role, round_count, shape));
+           ExchangeShape shape = {16, 16},
+           ServiceSchedule schedule = ServiceSchedule::kWindow) {
+    const ExchangePlan plan{shape, round_count, seed, schedule};
+    if (plan.service_count() == 2) {
+      ASSERT_EQ(shape.credit_count, 1u);
+      ASSERT_GE(round_count, 1u);
+      ASSERT_LE(round_count, UINT32_MAX - 2u);
+    }
+    ASSERT_NO_FATAL_FAILURE(PrepareBuffers(role, plan));
     if (IsSkipped()) {
       return;
     }
-    ASSERT_NO_FATAL_FAILURE(PrepareNpu(shape));
+    ASSERT_NO_FATAL_FAILURE(PrepareNpu(plan));
     if (IsSkipped()) {
       return;
     }
-    ASSERT_NO_FATAL_FAILURE(PrepareGpu(round_count, seed, shape));
+    ASSERT_NO_FATAL_FAILURE(PrepareGpu(plan));
     if (HasFailure()) {
       return;
     }
-    RecordProperty("resident_round_count", round_count);
+    RecordProperty("resident_round_count", plan.record_count());
+    RecordProperty("resident_service_count", plan.service_count());
+    RecordProperty("resident_schedule",
+                   schedule == ServiceSchedule::kWindow      ? "credit-window"
+                   : schedule == ServiceSchedule::kHoldFirst ? "hold-first"
+                                                             : "hold-second");
+    if (plan.service_count() == 2) {
+      RecordProperty("resident_peer_round_count", round_count);
+    }
     RecordProperty("resident_seed", seed);
     RecordProperty("resident_payload_words", shape.word_count);
     RecordProperty("resident_payload_word_offset", shape.word_offset);
@@ -569,25 +758,41 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     }
     EXPECT_TRUE(gpu_submit_result);
     EXPECT_EQ(npu_submit_status, AMDF_STATUS_OK);
-    const uint32_t completed_rounds = decision == kRun ? round_count : 0;
+    const uint32_t completed_rounds =
+        decision == kRun ? plan.record_count() : 0;
     std::array<uint32_t, 2> causes = {seed, seed + kSlotSeedStep};
+    uint32_t chronological_cause = seed;
     for (uint32_t round = 0; round < completed_rounds; ++round) {
-      const uint32_t generation = round + 1;
-      const uint32_t slot = round % shape.credit_count;
+      uint32_t service = 0;
+      uint32_t generation = round + 1;
+      uint32_t slot = round % shape.credit_count;
+      uint32_t cause = causes[slot];
+      if (plan.service_count() == 2) {
+        const bool held = round == 0 || round == round_count + 1;
+        service = held ? plan.held_channel() : (plan.held_channel() ^ 1u);
+        generation = round == 0 ? 1u : (held ? 2u : round);
+        slot = service;
+        cause = chronological_cause;
+      }
       const size_t slot_offset =
           kPayloadByteOffset + slot * shape.slot_byte_stride();
-      const uint32_t cause = causes[slot];
       const size_t record_offset =
-          kPayloadByteOffset + uint64_t{round} * shape.record_byte_length();
-      StoreU32(expected_records_, record_offset, generation);
-      StoreU32(expected_records_, record_offset + 4, cause);
+          kPayloadByteOffset + uint64_t{round} * plan.record_byte_length();
+      const size_t header_offset = plan.service_count() == 1 ? 0u : 4u;
+      if (plan.service_count() == 2) {
+        StoreU32(expected_records_, record_offset, service);
+      }
+      StoreU32(expected_records_, record_offset + header_offset, generation);
+      StoreU32(expected_records_, record_offset + header_offset + 4, cause);
       uint32_t first_response = 0;
       uint32_t last_response = 0;
       uint32_t response_sum = 0;
       for (uint32_t i = 0; i < shape.word_count; ++i) {
         const uint32_t request = uint64_t{cause} + 257u * generation + 17u * i;
         const uint32_t response = uint64_t{request} * 3u + generation;
-        StoreU32(expected_records_, record_offset + 16 + i * 4, response);
+        StoreU32(expected_records_,
+                 record_offset + 4 * plan.record_header_word_count() + i * 4,
+                 response);
         const size_t payload_offset = slot_offset + shape.byte_offset() + i * 4;
         StoreU32(buffers_[kRequest].expected, payload_offset, request);
         StoreU32(buffers_[kResponse].expected, payload_offset, response);
@@ -597,34 +802,42 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
         last_response = response;
         response_sum += response;
       }
-      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 12,
+      const size_t terminal_offset = kPayloadByteOffset + service * 64;
+      StoreU32(buffers_[kTerminal].expected, terminal_offset + 12,
                first_response);
-      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 16,
+      StoreU32(buffers_[kTerminal].expected, terminal_offset + 16,
                last_response);
-      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 20,
+      StoreU32(buffers_[kTerminal].expected, terminal_offset + 20,
                response_sum);
       causes[slot] = first_response;
+      chronological_cause = first_response;
       StoreU32(buffers_[kRequest].expected, slot_offset, generation);
       StoreU32(buffers_[kResponse].expected, slot_offset, generation);
     }
-    if (gpu_accepted) {
-      StoreU32(buffers_[kControl].expected,
-               kPayloadByteOffset + kResidentFinalAckByteOffset, decision);
-    }
-    if (npu_accepted) {
-      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset, decision);
-      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 4,
-               completed_rounds);
-      StoreU32(buffers_[kTerminal].expected, kPayloadByteOffset + 8,
-               shape.word_count);
+    for (uint32_t service = 0; service < plan.service_count(); ++service) {
+      if (gpu_accepted) {
+        StoreU32(
+            buffers_[kControl].expected,
+            kPayloadByteOffset + service * 256 + kResidentFinalAckByteOffset,
+            decision);
+      }
+      if (npu_accepted) {
+        const size_t terminal_offset = kPayloadByteOffset + service * 64;
+        StoreU32(buffers_[kTerminal].expected, terminal_offset, decision);
+        StoreU32(buffers_[kTerminal].expected, terminal_offset + 4,
+                 decision == kRun ? plan.service_round_count(service) : 0);
+        StoreU32(buffers_[kTerminal].expected, terminal_offset + 8,
+                 shape.word_count);
+      }
     }
     ASSERT_EQ(HostTransition(records_, records_.host.invalidate),
               AMDF_STATUS_OK);
     std::string start_ticks;
     std::string end_ticks;
     for (uint32_t round = 0; round < completed_rounds; ++round) {
-      const size_t offset =
-          kPayloadByteOffset + uint64_t{round} * shape.record_byte_length() + 8;
+      const size_t offset = kPayloadByteOffset +
+                            uint64_t{round} * plan.record_byte_length() +
+                            4 * (plan.record_header_word_count() - 2);
       const uint32_t start = LoadU32(records_.bytes(), offset);
       const uint32_t end = LoadU32(records_.bytes(), offset + 4);
       // Device clock observations have no CPU oracle. Retain the complete
@@ -710,6 +923,26 @@ TEST_F(ResidentGpuXdnaTest, RegisteredCausalRoundTrip) {
 TEST_F(ResidentGpuXdnaTest, RegisteredTwoCreditCausalRoundTrip) {
   Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 5, 0x80000001u, LaunchOrder::kNpuFirst,
       Participants::kBoth, {16, 16, 2});
+}
+
+TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannels) {
+  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 3, 0x80000001u, LaunchOrder::kNpuFirst,
+      Participants::kBoth, {16, 16}, ServiceSchedule::kHoldFirst);
+}
+
+TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannelsMirrored) {
+  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 3, 0x80000001u, LaunchOrder::kNpuFirst,
+      Participants::kBoth, {16, 16}, ServiceSchedule::kHoldSecond);
+}
+
+TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannelsNpuPrestartAbort) {
+  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 3, 0x80000001u, LaunchOrder::kNpuFirst,
+      Participants::kNpu, {16, 16}, ServiceSchedule::kHoldFirst);
+}
+
+TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannelsGpuPrestartAbort) {
+  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 3, 0x80000001u, LaunchOrder::kGpuFirst,
+      Participants::kGpu, {16, 16}, ServiceSchedule::kHoldFirst);
 }
 
 struct ExchangeCase {

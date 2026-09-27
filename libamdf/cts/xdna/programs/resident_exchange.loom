@@ -61,6 +61,34 @@ low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array
   return
 }
 
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @resident_channels_array() asm {
+  %c0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %c1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %c2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %c2
+  %worker_a = worker %group, %c0, @resident_service
+  %worker_b = worker %group, %c1, @resident_service
+  %configuration_a = binding 0, "read"
+  %terminal_a = binding 1, "write"
+  %configuration_b = binding 2, "read"
+  %terminal_b = binding 3, "write"
+  %configuration_sender_a = sender %configuration_a, 0 : reg<aie2p.array.sender : tile<16xi32>>
+  %worker_configuration_a = receiver %worker_a, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_terminal_a = sender %worker_a, 1 : reg<aie2p.array.sender : tile<16xi32>>
+  %terminal_receiver_a = receiver %terminal_a, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %configuration_channel_a = channel %configuration_sender_a, %worker_configuration_a, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  %terminal_channel_a = channel %worker_terminal_a, %terminal_receiver_a, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  %configuration_sender_b = sender %configuration_b, 0 : reg<aie2p.array.sender : tile<16xi32>>
+  %worker_configuration_b = receiver %worker_b, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_terminal_b = sender %worker_b, 1 : reg<aie2p.array.sender : tile<16xi32>>
+  %terminal_receiver_b = receiver %terminal_b, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %configuration_channel_b = channel %configuration_sender_b, %worker_configuration_b, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  %terminal_channel_b = channel %worker_terminal_b, %terminal_receiver_b, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  constrain.location %worker_a, %c0, %c2
+  constrain.location %worker_b, %c1, %c2
+  return
+}
+
 low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @resident_service() asm {
   %configuration = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %terminal = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>

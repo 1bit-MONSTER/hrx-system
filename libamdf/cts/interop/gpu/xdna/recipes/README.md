@@ -151,6 +151,29 @@ two-credit exchanges of 1, 16, or 1024 words. Each slot's complete extent is
 rounded up to 64 bytes; the oracle checks inter-slot padding, unused slots,
 outer guards and allocation padding as well as the complete transcript.
 
+### Independent workers
+
+`ResidentGpuXdnaTest.RegisteredIndependentChannels` gives two NPU workers
+separate request/response channels in one two-column context. Both run the
+same resident service program. One GPU invocation completes A1, then three
+exchanges with B, then A2. A's next request remains unpublished throughout
+B's exchanges. The mirrored case reverses the worker roles.
+
+Every request derives from the immediately preceding actual response, including
+the A-to-B and B-to-A transitions. The transcript records channel, local
+generation, cause, timestamps and every response word. The independent CPU
+oracle checks this chronological chain and each worker's final payload and
+terminal summary. This demonstrates useful peer progress while one channel
+awaits work; it does not assert simultaneous arithmetic or scheduling fairness.
+
+The separate GPU [program](../../../../gpu/kernels/resident_channels.loom)
+uses one credit per worker. Each column owns its descriptors, direct-stream
+routes and final acknowledgement. Both ordinary terminal transfers and all
+four custom DMA idle observations precede NPU command completion. The host
+publishes RUN only after both native submissions, then joins their final
+completion without intermediate actions. Sole-GPU and sole-NPU prestart ABORT
+cases check that both channels terminate without peer traffic.
+
 ## Build and execution
 
 The ordinary build compiles the `.loom` fixtures and embeds the GPU image and

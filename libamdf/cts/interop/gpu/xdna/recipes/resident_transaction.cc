@@ -18,10 +18,12 @@ constexpr uint32_t kWriteRecordByteLength = 24;
 constexpr uint32_t kMaskedRecordByteLength = 32;
 constexpr uint32_t kBlockHeaderByteLength = 16;
 constexpr uint32_t kWordByteLength = 4;
+constexpr uint32_t kColumnShift = 25;
 constexpr uint64_t kNpuAddressLimit = UINT64_C(1) << 48;
 
-// AIE-RT transaction 0.1 opcodes and record layouts, also used by the ordinary
-// XDNA kernel-queue corpus. Records carry their own complete byte length.
+// Firmware transaction 0.1 opcodes and record layouts, also used by the
+// ordinary XDNA kernel-queue corpus. Records carry their own complete byte
+// length.
 enum class NativeOperation : uint8_t {
   kWrite = 0,
   kBlockWrite = 1,
@@ -132,9 +134,9 @@ void AppendMaskedOperation(std::vector<uint8_t>& bytes,
   StoreU32(record, 24, kMaskedRecordByteLength);
 }
 
-void AppendDescriptor(std::vector<uint8_t>& bytes, uint32_t descriptor,
-                      uint64_t address, uint32_t byte_length,
-                      uint32_t completion_fields) {
+void AppendDescriptor(std::vector<uint8_t>& bytes, uint32_t column,
+                      uint32_t descriptor, uint64_t address,
+                      uint32_t byte_length, uint32_t completion_fields) {
   const std::array<uint32_t, kShimDescriptorWordCount> words = {
       byte_length / kWordByteLength,
       static_cast<uint32_t>(address),
@@ -145,16 +147,18 @@ void AppendDescriptor(std::vector<uint8_t>& bytes, uint32_t descriptor,
       0,
       kShimValidDescriptor | completion_fields,
   };
-  const uint32_t register_address =
-      kShimDescriptorBase + descriptor * kShimDescriptorByteStride;
+  const uint32_t register_address = (column << kColumnShift) +
+                                    kShimDescriptorBase +
+                                    descriptor * kShimDescriptorByteStride;
   const uint32_t record_byte_length =
       kBlockHeaderByteLength + kShimDescriptorWordCount * kWordByteLength;
   const size_t offset = bytes.size();
   bytes.resize(offset + record_byte_length);
   auto record = std::span(bytes).subspan(offset);
   StoreOperationHeader(record, NativeOperation::kBlockWrite);
-  // The selected compiler's block header has column/row bytes at 4/5 (both
-  // zero for this shim), register offset at 8 and record size at 12.
+  // BLOCKWRITE carries coordinates as well as the complete register offset.
+  // Every custom descriptor belongs to its column's shim row zero.
+  record[4] = static_cast<uint8_t>(column);
   StoreU32(record, 8, register_address);
   StoreU32(record, 12, record_byte_length);
   for (size_t i = 0; i < words.size(); ++i) {
@@ -170,29 +174,55 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
 }  // namespace
 
 ::testing::AssertionResult BuildResidentTransaction(
-    std::span<const uint8_t> invocation, const ResidentNpuAddresses& addresses,
+    std::span<const uint8_t> invocation,
+    std::span<const ResidentNpuAddresses> services,
     uint32_t payload_byte_length, std::vector<uint8_t>* output) {
   if (invocation.size() < kTransactionHeaderByteLength || invocation[0] != 0 ||
       invocation[1] != 1 || invocation[2] != 4 || invocation[3] != 6 ||
-      invocation[4] != 1 || invocation[5] != 1 ||
+      services.empty() || services.size() > 8 ||
+      invocation[4] != services.size() || invocation[5] != 1 ||
       LoadU32(invocation, 12) != invocation.size()) {
     return ::testing::AssertionFailure()
-           << "Expected a complete one-column AIE2P transaction 0.1";
+           << "Expected a complete AIE2P transaction 0.1 matching the services";
   }
-  if (addresses.slots.empty() || addresses.slots.size() > 2) {
-    return ::testing::AssertionFailure() << "Service requires one or two slots";
+  uint32_t added_operation_count = 0;
+  uint32_t added_byte_length = 0;
+  for (const auto& addresses : services) {
+    if (addresses.slots.empty() || addresses.slots.size() > 2) {
+      return ::testing::AssertionFailure()
+             << "Service requires one or two slots";
+    }
+    const uint32_t descriptor_count =
+        2 +
+        kSlotDescriptorCount * static_cast<uint32_t>(addresses.slots.size());
+    added_operation_count +=
+        3 + static_cast<uint32_t>(kPrefixWrites.size()) + descriptor_count + 2;
+    added_byte_length +=
+        5 * kMaskedRecordByteLength +
+        static_cast<uint32_t>(kPrefixWrites.size()) * kWriteRecordByteLength +
+        descriptor_count * (kBlockHeaderByteLength +
+                            kShimDescriptorWordCount * kWordByteLength);
+    if (payload_byte_length == 0 ||
+        payload_byte_length % kWordByteLength != 0 ||
+        !IsAddressRangeValid(addresses.startup_address, sizeof(uint32_t)) ||
+        !IsAddressRangeValid(addresses.final_ack_address, sizeof(uint32_t))) {
+      return ::testing::AssertionFailure() << "Service records require aligned "
+                                              "complete NPU ranges below 2^48";
+    }
+    for (const auto& slot : addresses.slots) {
+      if (!IsAddressRangeValid(slot.request_generation_address,
+                               sizeof(uint32_t)) ||
+          !IsAddressRangeValid(slot.request_payload_address,
+                               payload_byte_length) ||
+          !IsAddressRangeValid(slot.response_payload_address,
+                               payload_byte_length) ||
+          !IsAddressRangeValid(slot.response_generation_address,
+                               sizeof(uint32_t))) {
+        return ::testing::AssertionFailure()
+               << "Slot records require aligned complete NPU ranges below 2^48";
+      }
+    }
   }
-  const uint32_t descriptor_count =
-      2 + kSlotDescriptorCount * static_cast<uint32_t>(addresses.slots.size());
-  const uint32_t added_operation_count =
-      1 + 2 + static_cast<uint32_t>(kPrefixWrites.size()) + descriptor_count +
-      2;
-  const uint32_t added_byte_length =
-      3 * kMaskedRecordByteLength +
-      static_cast<uint32_t>(kPrefixWrites.size()) * kWriteRecordByteLength +
-      descriptor_count * (kBlockHeaderByteLength +
-                          kShimDescriptorWordCount * kWordByteLength) +
-      2 * kMaskedRecordByteLength;
   if (invocation.size() >
           std::numeric_limits<uint32_t>::max() - added_byte_length ||
       LoadU32(invocation, 8) >
@@ -200,63 +230,57 @@ bool IsAddressRangeValid(uint64_t address, uint64_t byte_length) {
     return ::testing::AssertionFailure()
            << "Composed transaction exceeds the native size/count fields";
   }
-  if (payload_byte_length == 0 || payload_byte_length % kWordByteLength != 0 ||
-      !IsAddressRangeValid(addresses.startup_address, sizeof(uint32_t)) ||
-      !IsAddressRangeValid(addresses.final_ack_address, sizeof(uint32_t))) {
-    return ::testing::AssertionFailure()
-           << "Service records require aligned complete NPU ranges below 2^48";
-  }
-  for (const auto& slot : addresses.slots) {
-    if (!IsAddressRangeValid(slot.request_generation_address,
-                             sizeof(uint32_t)) ||
-        !IsAddressRangeValid(slot.request_payload_address,
-                             payload_byte_length) ||
-        !IsAddressRangeValid(slot.response_payload_address,
-                             payload_byte_length) ||
-        !IsAddressRangeValid(slot.response_generation_address,
-                             sizeof(uint32_t))) {
-      return ::testing::AssertionFailure()
-             << "Slot records require aligned complete NPU ranges below 2^48";
-    }
-  }
 
   std::vector<uint8_t> bytes;
   bytes.reserve(invocation.size() + added_byte_length);
   bytes.insert(bytes.end(), invocation.begin(),
                invocation.begin() + kTransactionHeaderByteLength);
-  AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite, 0x00232000, 3, 2);
-  // These fields share registers with the compiler's DMA0 mux selections.
-  AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite, 0x0001f000,
-                        0x0000c000, 0x00004000);
-  AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite, 0x0001f004,
-                        0x000000c0, 0x00000040);
-  for (const auto& write : kPrefixWrites) {
-    AppendWrite(bytes, write.address, write.value);
+  for (uint32_t column = 0; column < services.size(); ++column) {
+    AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite,
+                          (column << kColumnShift) + 0x00232000, 3, 2);
   }
-
-  AppendDescriptor(bytes, kStartupDescriptor, addresses.startup_address, 4, 0);
-  for (uint32_t i = 0; i < addresses.slots.size(); ++i) {
-    const auto& slot = addresses.slots[i];
-    const uint32_t descriptor = kFirstSlotDescriptor + kSlotDescriptorCount * i;
-    AppendDescriptor(bytes, descriptor, slot.request_generation_address, 4, 0);
-    AppendDescriptor(bytes, descriptor + 1, slot.request_payload_address,
-                     payload_byte_length, 0);
-    AppendDescriptor(bytes, descriptor + 2, slot.response_payload_address,
-                     payload_byte_length,
-                     kShimReleaseOne | kShimUseNextDescriptor |
-                         ((descriptor + 3) << kShimNextDescriptorShift));
-    AppendDescriptor(bytes, descriptor + 3, slot.response_generation_address, 4,
-                     kShimAcquireEnable | kShimAcquireMinusOne);
+  for (uint32_t column = 0; column < services.size(); ++column) {
+    const uint32_t origin = column << kColumnShift;
+    const auto& addresses = services[column];
+    // These fields share registers with the compiler's DMA0 mux selections.
+    AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite,
+                          origin + 0x0001f000, 0x0000c000, 0x00004000);
+    AppendMaskedOperation(bytes, NativeOperation::kMaskedWrite,
+                          origin + 0x0001f004, 0x000000c0, 0x00000040);
+    for (const auto& write : kPrefixWrites) {
+      AppendWrite(bytes, origin + write.address, write.value);
+    }
+    AppendDescriptor(bytes, column, kStartupDescriptor,
+                     addresses.startup_address, 4, 0);
+    for (uint32_t i = 0; i < addresses.slots.size(); ++i) {
+      const auto& slot = addresses.slots[i];
+      const uint32_t descriptor =
+          kFirstSlotDescriptor + kSlotDescriptorCount * i;
+      AppendDescriptor(bytes, column, descriptor,
+                       slot.request_generation_address, 4, 0);
+      AppendDescriptor(bytes, column, descriptor + 1,
+                       slot.request_payload_address, payload_byte_length, 0);
+      AppendDescriptor(bytes, column, descriptor + 2,
+                       slot.response_payload_address, payload_byte_length,
+                       kShimReleaseOne | kShimUseNextDescriptor |
+                           ((descriptor + 3) << kShimNextDescriptorShift));
+      AppendDescriptor(bytes, column, descriptor + 3,
+                       slot.response_generation_address, 4,
+                       kShimAcquireEnable | kShimAcquireMinusOne);
+    }
+    AppendDescriptor(bytes, column, kFinalAckDescriptor,
+                     addresses.final_ack_address, 4, 0);
   }
-  AppendDescriptor(bytes, kFinalAckDescriptor, addresses.final_ack_address, 4,
-                   0);
 
   bytes.insert(bytes.end(), invocation.begin() + kTransactionHeaderByteLength,
                invocation.end());
-  AppendMaskedOperation(bytes, NativeOperation::kMaskedPoll,
-                        kShimStreamToMemoryStatus, kShimIdleMask, 0);
-  AppendMaskedOperation(bytes, NativeOperation::kMaskedPoll,
-                        kShimMemoryToStreamStatus, kShimIdleMask, 0);
+  for (uint32_t column = 0; column < services.size(); ++column) {
+    const uint32_t origin = column << kColumnShift;
+    AppendMaskedOperation(bytes, NativeOperation::kMaskedPoll,
+                          origin + kShimStreamToMemoryStatus, kShimIdleMask, 0);
+    AppendMaskedOperation(bytes, NativeOperation::kMaskedPoll,
+                          origin + kShimMemoryToStreamStatus, kShimIdleMask, 0);
+  }
   StoreU32(bytes, 8, LoadU32(invocation, 8) + added_operation_count);
   StoreU32(bytes, 12, static_cast<uint32_t>(bytes.size()));
   *output = std::move(bytes);

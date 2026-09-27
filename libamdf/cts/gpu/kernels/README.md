@@ -146,6 +146,25 @@ Every queue is destroyed before referenced allocations. Two completed epochs
 exercise changing inputs, count and addend; they do not qualify hot code
 replacement or runtime instrumentation policy.
 
+## Resident GPU/XDNA programs
+
+[resident_exchange.loom](resident_exchange.loom) maintains one or two paired
+request/response slots through system-scope release/acquire operations. Each
+slot's next request depends on its preceding actual NPU response. The GPU
+records every response before returning that slot's credit. The separate
+[resident_channels.loom](resident_channels.loom) program uses one slot per
+independent NPU worker and carries a single causal value through A1, B's
+exchanges, then A2; its runtime arguments also support the mirrored order.
+
+Both programs use one wave32 workitem, explicit 64-byte argument layouts and
+no private or group memory. Exact gfx1150 and gfx1151 products supply their
+own resource fields to the [resident recipe caller](../../interop/gpu/xdna/recipes/resident_test.cc).
+The programs wait for a separate startup decision and release their final
+acknowledgements only after response reads and transcript writes finish.
+Prestart ABORT acknowledges without accessing the request, response or
+transcript allocations. The recipe checks full payloads, immutable storage,
+guards and final drain; raw device-clock observations accompany each exchange.
+
 ## Fixed private storage
 
 The private source keeps both nine-iteration loops volatile. Every load selects

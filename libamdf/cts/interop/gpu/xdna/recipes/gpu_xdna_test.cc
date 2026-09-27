@@ -372,7 +372,7 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
     executable_.Load(image_storage);
     ASSERT_TRUE(executable_.Bind(image_storage, xdna_addresses));
     ASSERT_NO_FATAL_FAILURE(
-        execution_.Prepare(api_, xdna_api_, xdna_device_, xdna_family_,
+        execution_.Prepare(api_, xdna_api_, xdna_device_, xdna_family_, 1,
                            executable_.ResolveInvocation(image_storage),
                            executable_.allocation_alignment()));
     if (gpu_operation_ == GpuOperation::kShader) {

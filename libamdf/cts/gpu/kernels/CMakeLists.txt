@@ -467,6 +467,100 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_kernel_binary(
   NAME
+    "resident_channels_gfx1150_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:resident_channels_gfx1150_hsaco"
+  TARGET
+    "::gfx1150"
+  OUTPUT
+    "resident_channels_gfx1150.hsaco"
+  SRCS
+    "resident_channels.loom"
+  ROOTS
+    "@resident_channels"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "resident_channels_gfx1150_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/resident_channels_gfx1150.hsaco"
+  OUTPUT
+    "resident_channels_gfx1150.h"
+  ENTRY_POINT
+    "resident_channels"
+  NAMESPACE
+    "kernels::gfx1150_resident_channels"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    resident_channels_gfx1150
+  HDRS
+    "resident_channels_gfx1150.h"
+  DEPS
+    amdf::headers
+    libamdf::cts::gpu::kernels::image
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
+    "resident_channels_gfx1151_hsaco"
+  COMPONENT
+    "//libamdf/cts/gpu/kernels:resident_channels_gfx1151_hsaco"
+  TARGET
+    "::gfx1151"
+  OUTPUT
+    "resident_channels_gfx1151.hsaco"
+  SRCS
+    "resident_channels.loom"
+  ROOTS
+    "@resident_channels"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_embed_gpu_kernel(
+  NAME
+    "resident_channels_gfx1151_embed"
+  INPUT
+    "${CMAKE_CURRENT_BINARY_DIR}/resident_channels_gfx1151.hsaco"
+  OUTPUT
+    "resident_channels_gfx1151.h"
+  ENTRY_POINT
+    "resident_channels"
+  NAMESPACE
+    "kernels::gfx1151_resident_channels"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    resident_channels_gfx1151
+  HDRS
+    "resident_channels_gfx1151.h"
+  DEPS
+    amdf::headers
+    libamdf::cts::gpu::kernels::image
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_kernel_binary(
+  NAME
     "geometry_ids_gfx942_hsaco"
   COMPONENT
     "//libamdf/cts/gpu/kernels:geometry_ids_gfx942_hsaco"

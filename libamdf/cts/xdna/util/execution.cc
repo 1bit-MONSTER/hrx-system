@@ -41,12 +41,13 @@ void XdnaExecution::Prepare(const amdf_api_t* api,
                             const amdf_xdna_api_t* xdna_api,
                             amdf_device_t* device,
                             uint32_t queue_family_ordinal,
+                            uint32_t logical_column_count,
                             std::span<const uint8_t> commands,
                             uint64_t command_alignment) {
   amdf_xdna_context_create_info_t context_create = {};
   context_create.type = AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_CREATE_INFO;
   context_create.structure_size = sizeof(context_create);
-  context_create.logical_column_count = 1;
+  context_create.logical_column_count = logical_column_count;
   context_create.physical_column_origin = AMDF_XDNA_PHYSICAL_COLUMN_ORIGIN_ANY;
   context_create.acceptable_scheduling_modes =
       AMDF_XDNA_SCHEDULING_MODE_TIME_SLICED;

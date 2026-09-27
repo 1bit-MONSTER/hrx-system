@@ -38,6 +38,26 @@ invocation every time, including after time sharing; they do not assume that
 resident state survives between native submissions. Normal context destruction
 releases the placement after queue retirement and command-storage release.
 
+## Resident services
+
+[resident_exchange.loom](resident_exchange.loom) supplies the finite resident
+service for the [GPU/XDNA exchange recipes](../../interop/gpu/xdna/recipes/README.md).
+One immutable 64-byte configuration specifies generation count, payload extent
+and one or two request/response credits. The service consumes GPU-produced
+requests through direct scalar streams and returns transformed payloads through
+shim DMA. A separate startup decision permits RUN or prestart ABORT. A final
+GPU acknowledgement ends custom traffic before the ordinary 64-byte terminal
+record reports completion.
+
+The source has two array roots sharing the same worker: `resident_service_array`
+places one worker in column zero; `resident_channels_array` places independent workers
+in columns zero and one. The latter exposes four complete 64-byte bindings in
+configuration-zero, terminal-zero, configuration-one, terminal-one order.
+Each worker retains its own configuration, local rings and shim resources.
+The caller supplies a matching context width and composes the disjoint custom
+routes and descriptors around the bound establishing invocation. The ordinary
+terminal waits precede the caller's final custom DMA idle observations.
+
 ## Building and inspecting images
 
 Enable `AMDF_BUILD`, `LOOM_BUILD` and `LOOM_TARGET_XDNA` in the repository

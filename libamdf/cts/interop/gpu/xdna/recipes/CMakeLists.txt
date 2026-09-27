@@ -79,6 +79,8 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
+    libamdf::cts::gpu::kernels::resident_channels_gfx1150
+    libamdf::cts::gpu::kernels::resident_channels_gfx1151
     libamdf::cts::gpu::kernels::resident_exchange_gfx1150
     libamdf::cts::gpu::kernels::resident_exchange_gfx1151
     libamdf::cts::gpu::kernels::transform
@@ -88,6 +90,7 @@ iree_cc_library(
     libamdf::cts::util::device_cache
     libamdf::cts::util::mapped_memory
     libamdf::cts::xdna::programs::mul_i32
+    libamdf::cts::xdna::programs::resident_channels
     libamdf::cts::xdna::programs::resident_exchange
     libamdf::cts::xdna::util::executable
     libamdf::cts::xdna::util::execution

@@ -28,11 +28,13 @@ struct XdnaExecution {
   XdnaExecution& operator=(const XdnaExecution&) = delete;
 
   // Copies one complete admitted transaction into private native command
-  // storage. The source is borrowed only for this call; command_alignment is
-  // the power-of-two firmware-address alignment required by that transaction.
+  // storage in an explicitly sized logical partition. The source is borrowed
+  // only for this call; command_alignment is the power-of-two firmware-address
+  // alignment required by that transaction.
   void Prepare(const amdf_api_t* api, const amdf_xdna_api_t* xdna_api,
                amdf_device_t* device, uint32_t queue_family_ordinal,
-               std::span<const uint8_t> commands, uint64_t command_alignment);
+               uint32_t logical_column_count, std::span<const uint8_t> commands,
+               uint64_t command_alignment);
   // Queue removal precedes command backing and context destruction. Failure
   // stops cleanup, retaining any storage still reachable by native work.
   bool Release(const amdf_api_t* api, const amdf_xdna_api_t* xdna_api);

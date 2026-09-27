@@ -26,7 +26,7 @@ struct ResidentNpuSlot {
   uint64_t response_generation_address;
 };
 
-// External records used by the one-column scalar-stream service. Each address
+// External records used by one column's scalar-stream service. Each address
 // comes from the corresponding NPU access query. The caller retains these
 // nonoverlapping extents through command completion and native teardown.
 struct ResidentNpuAddresses {
@@ -60,8 +60,11 @@ inline constexpr uint32_t kResidentFinalAckByteOffset = 192;
 // borrows its old contents. No compiler container parsing is performed here.
 // Payload length is a nonzero multiple of four bytes and matches the immutable
 // service configuration's word count. Slot count matches its credit count.
+// Services are in logical column order and cover the invocation's complete
+// partition. Each column owns its descriptors, routes and final DMA drain.
 ::testing::AssertionResult BuildResidentTransaction(
-    std::span<const uint8_t> invocation, const ResidentNpuAddresses& addresses,
+    std::span<const uint8_t> invocation,
+    std::span<const ResidentNpuAddresses> services,
     uint32_t payload_byte_length, std::vector<uint8_t>* output);
 
 #endif  // AMDF_CTS_INTEROP_GPU_XDNA_RECIPES_RESIDENT_TRANSACTION_H_
