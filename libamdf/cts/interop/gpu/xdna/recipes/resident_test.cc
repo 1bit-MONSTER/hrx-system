@@ -935,14 +935,17 @@ TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannelsMirrored) {
       Participants::kBoth, {16, 16}, ServiceSchedule::kHoldSecond);
 }
 
-TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannelsNpuPrestartAbort) {
-  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 3, 0x80000001u, LaunchOrder::kNpuFirst,
-      Participants::kNpu, {16, 16}, ServiceSchedule::kHoldFirst);
+uint32_t SeedForPeerCause(uint32_t peer_cause) {
+  // Held generation one's response is 3 * (seed + 257) + 1. Multiplication
+  // by the inverse of three modulo 2^32 makes the peer's first cause match
+  // the corresponding credit-window case, including every payload word.
+  return (peer_cause - 772u) * 0xAAAAAAABu;
 }
 
-TEST_F(ResidentGpuXdnaTest, RegisteredIndependentChannelsGpuPrestartAbort) {
-  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 3, 0x80000001u, LaunchOrder::kGpuFirst,
-      Participants::kGpu, {16, 16}, ServiceSchedule::kHoldFirst);
+const char* ScheduleCaseSuffix(ServiceSchedule schedule) {
+  return schedule == ServiceSchedule::kWindow      ? ""
+         : schedule == ServiceSchedule::kHoldFirst ? "HoldFirst"
+                                                   : "HoldSecond";
 }
 
 struct ExchangeCase {
@@ -954,6 +957,8 @@ struct ExchangeCase {
   uint32_t round_count;
   // Maximum requests admitted before waiting for a response.
   uint32_t credit_count;
+  // Shared credit window or independent worker placement.
+  ServiceSchedule schedule = ServiceSchedule::kWindow;
 };
 
 class ResidentExchangeTest
@@ -963,9 +968,13 @@ class ResidentExchangeTest
 TEST_P(ResidentExchangeTest, CausalRoundTrip) {
   const auto& parameters = GetParam();
   // Both seeds exercise unsigned wrapping without an identity first request.
-  const uint32_t seed = parameters.round_count == 1 ? UINT32_MAX : 0x7FFFFF00u;
+  uint32_t seed = parameters.round_count == 1 ? UINT32_MAX : 0x7FFFFF00u;
+  if (parameters.schedule != ServiceSchedule::kWindow) {
+    seed = SeedForPeerCause(parameters.round_count == 17 ? 0xFFFFFFFEu : seed);
+  }
   Run(parameters.role, parameters.round_count, seed, parameters.order,
-      Participants::kBoth, {16, 16, parameters.credit_count});
+      Participants::kBoth, {16, 16, parameters.credit_count},
+      parameters.schedule);
 }
 
 std::vector<ExchangeCase> ExchangeCases(
@@ -982,13 +991,26 @@ std::vector<ExchangeCase> ExchangeCases(
   return cases;
 }
 
+std::vector<ExchangeCase> IndependentExchangeCases() {
+  std::vector<ExchangeCase> cases;
+  for (auto parameters : ExchangeCases(1, std::array{1u, 17u, 257u})) {
+    for (auto schedule :
+         {ServiceSchedule::kHoldFirst, ServiceSchedule::kHoldSecond}) {
+      parameters.schedule = schedule;
+      cases.push_back(parameters);
+    }
+  }
+  return cases;
+}
+
 std::string ExchangeCaseName(
     const ::testing::TestParamInfo<ExchangeCase>& info) {
   std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
                          ? "Registered"
                          : "Allocated";
   name += info.param.order == LaunchOrder::kGpuFirst ? "GpuFirst" : "NpuFirst";
-  return name + "Rounds" + std::to_string(info.param.round_count);
+  return name + "Rounds" + std::to_string(info.param.round_count) +
+         ScheduleCaseSuffix(info.param.schedule);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1001,6 +1023,10 @@ INSTANTIATE_TEST_SUITE_P(TwoCreditsAndBacking, ResidentExchangeTest,
                              2, std::array{0u, 1u, 2u, 3u, 17u, 257u, 258u})),
                          ExchangeCaseName);
 
+INSTANTIATE_TEST_SUITE_P(IndependentChannelsAndBacking, ResidentExchangeTest,
+                         ::testing::ValuesIn(IndependentExchangeCases()),
+                         ExchangeCaseName);
+
 struct PrestartAbortCase {
   // Advertised construction role for the accepted participant's joint backing.
   amdf_memory_profile_roles_t role;
@@ -1008,6 +1034,8 @@ struct PrestartAbortCase {
   Participants participant;
   // Number of paired slots prepared before the partial startup.
   uint32_t credit_count;
+  // Shared credit window or independent worker placement.
+  ServiceSchedule schedule = ServiceSchedule::kWindow;
 };
 
 class ResidentPrestartAbortTest
@@ -1020,7 +1048,7 @@ TEST_P(ResidentPrestartAbortTest, DrainsWithoutPeer) {
                          ? LaunchOrder::kGpuFirst
                          : LaunchOrder::kNpuFirst;
   Run(parameters.role, 17, 0x80000001u, order, parameters.participant,
-      {16, 16, parameters.credit_count});
+      {16, 16, parameters.credit_count}, parameters.schedule);
 }
 
 std::vector<PrestartAbortCase> PrestartAbortCases(uint32_t credit_count) {
@@ -1034,13 +1062,27 @@ std::vector<PrestartAbortCase> PrestartAbortCases(uint32_t credit_count) {
   return cases;
 }
 
+std::vector<PrestartAbortCase> IndependentPrestartAbortCases() {
+  std::vector<PrestartAbortCase> cases;
+  for (auto parameters : PrestartAbortCases(1)) {
+    for (auto schedule :
+         {ServiceSchedule::kHoldFirst, ServiceSchedule::kHoldSecond}) {
+      parameters.schedule = schedule;
+      cases.push_back(parameters);
+    }
+  }
+  return cases;
+}
+
 std::string PrestartAbortCaseName(
     const ::testing::TestParamInfo<PrestartAbortCase>& info) {
   std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
                          ? "Registered"
                          : "Allocated";
   return name +
-         (info.param.participant == Participants::kGpu ? "GpuOnly" : "NpuOnly");
+         (info.param.participant == Participants::kGpu ? "GpuOnly"
+                                                       : "NpuOnly") +
+         ScheduleCaseSuffix(info.param.schedule);
 }
 
 INSTANTIATE_TEST_SUITE_P(StartupAndBacking, ResidentPrestartAbortTest,
@@ -1051,11 +1093,18 @@ INSTANTIATE_TEST_SUITE_P(TwoCreditsAndBacking, ResidentPrestartAbortTest,
                          ::testing::ValuesIn(PrestartAbortCases(2)),
                          PrestartAbortCaseName);
 
+INSTANTIATE_TEST_SUITE_P(IndependentChannelsAndBacking,
+                         ResidentPrestartAbortTest,
+                         ::testing::ValuesIn(IndependentPrestartAbortCases()),
+                         PrestartAbortCaseName);
+
 struct PayloadCase {
   // Advertised construction role for the complete joint slot backing.
   amdf_memory_profile_roles_t role;
   // Actual payload extent and placement relative to its generation word.
   ExchangeShape shape;
+  // Shared credit window or independent worker placement.
+  ServiceSchedule schedule = ServiceSchedule::kWindow;
 };
 
 class ResidentPayloadTest : public ResidentGpuXdnaTest,
@@ -1064,8 +1113,11 @@ class ResidentPayloadTest : public ResidentGpuXdnaTest,
 
 TEST_P(ResidentPayloadTest, PublishesCompleteResponse) {
   const auto& parameters = GetParam();
-  Run(parameters.role, 17, 0xFFFFFFFEu, LaunchOrder::kNpuFirst,
-      Participants::kBoth, parameters.shape);
+  const uint32_t seed = parameters.schedule == ServiceSchedule::kWindow
+                            ? 0xFFFFFFFEu
+                            : SeedForPeerCause(0xFFFFFFFEu);
+  Run(parameters.role, 17, seed, LaunchOrder::kNpuFirst, Participants::kBoth,
+      parameters.shape, parameters.schedule);
 }
 
 std::vector<PayloadCase> PayloadCases(uint32_t credit_count,
@@ -1082,13 +1134,32 @@ std::vector<PayloadCase> PayloadCases(uint32_t credit_count,
   return cases;
 }
 
+std::vector<PayloadCase> IndependentPayloadCases() {
+  std::vector<PayloadCase> cases;
+  for (auto parameters : PayloadCases(1, std::array{1u, 16u, 1024u})) {
+    // The startup matrix already covers this complete shape in both orders.
+    if (parameters.shape.word_count == 16 &&
+        parameters.shape.word_offset == 16) {
+      continue;
+    }
+    for (auto schedule :
+         {ServiceSchedule::kHoldFirst, ServiceSchedule::kHoldSecond}) {
+      parameters.schedule = schedule;
+      cases.push_back(parameters);
+    }
+  }
+  return cases;
+}
+
 std::string PayloadCaseName(const ::testing::TestParamInfo<PayloadCase>& info) {
   std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
                          ? "Registered"
                          : "Allocated";
   name += "Words" + std::to_string(info.param.shape.word_count);
-  return name + (info.param.shape.word_offset == 1 ? "SharedFirstLine"
-                                                   : "SeparateFirstLine");
+  return name +
+         (info.param.shape.word_offset == 1 ? "SharedFirstLine"
+                                            : "SeparateFirstLine") +
+         ScheduleCaseSuffix(info.param.schedule);
 }
 
 INSTANTIATE_TEST_SUITE_P(PayloadAndBacking, ResidentPayloadTest,
@@ -1100,5 +1171,10 @@ INSTANTIATE_TEST_SUITE_P(
     TwoCreditsPayloadAndBacking, ResidentPayloadTest,
     ::testing::ValuesIn(PayloadCases(2, std::array{1u, 16u, 1024u})),
     PayloadCaseName);
+
+INSTANTIATE_TEST_SUITE_P(IndependentChannelsPayloadAndBacking,
+                         ResidentPayloadTest,
+                         ::testing::ValuesIn(IndependentPayloadCases()),
+                         PayloadCaseName);
 
 }  // namespace

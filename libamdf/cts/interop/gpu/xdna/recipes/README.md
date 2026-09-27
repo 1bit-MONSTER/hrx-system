@@ -174,6 +174,15 @@ publishes RUN only after both native submissions, then joins their final
 completion without intermediate actions. Sole-GPU and sole-NPU prestart ABORT
 cases check that both channels terminate without peer traffic.
 
+`IndependentChannelsAndBacking` varies both worker roles, both submission
+orders, allocated/registered backing and one/17/257 peer exchanges. Its abort
+cases submit either participant alone for both worker roles and backing types.
+`IndependentChannelsPayloadAndBacking` adds one-, 16- and 1024-word payloads
+with shared or separate first lines. The startup matrix already covers the
+16-word separate-line shape; the payload matrix covers the remaining shapes
+with NPU-first submission. The peer's initial cause matches the corresponding
+single-worker case, so their complete peer payload sequences are identical.
+
 ## Build and execution
 
 The ordinary build compiles the `.loom` fixtures and embeds the GPU image and
