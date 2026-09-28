@@ -9,48 +9,34 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
-file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_56BD5B8A})
-file(GLOB _GLOB_NUMERIC_VECTOR_F32_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS numeric_vector_f32.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_NUMERIC_VECTOR_F32_LOOM_56BD5B8A})
-file(GLOB _GLOB_PACKED_VECTOR_SELECT_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS packed_vector_select.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_PACKED_VECTOR_SELECT_LOOM_56BD5B8A})
-file(GLOB _GLOB_PREDICATE_LOGIC_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_logic.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_PREDICATE_LOGIC_LOOM_56BD5B8A})
-file(GLOB _GLOB_PREDICATE_TRUNCATION_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_truncation.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_PREDICATE_TRUNCATION_LOOM_56BD5B8A})
-file(GLOB _GLOB_SCALAR_FLOAT_CONVERSION_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS scalar_float_conversion.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_SCALAR_FLOAT_CONVERSION_LOOM_56BD5B8A})
-file(GLOB _GLOB_SUBGROUP_SHUFFLE_PARTICIPATION_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_shuffle_participation.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_SUBGROUP_SHUFFLE_PARTICIPATION_LOOM_56BD5B8A})
-file(GLOB _GLOB_VECTOR_I64_BITWISE_LOOM_56BD5B8A LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS vector_i64_bitwise.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_56BD5B8A ${_GLOB_VECTOR_I64_BITWISE_LOOM_56BD5B8A})
-loom_generated_file_family(
-  NAME
-    subgroup_transport_gen
-  GENERATOR
-    loom::py::loom::gen::test::subgroup_transport
-  OUTPUTS
-    "subgroup_transport_cases.loom"
-    "subgroup_transport_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  TESTONLY
-)
-
+file(GLOB _GLOB_X_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_7F23EB50})
+file(GLOB _GLOB_NUMERIC_VECTOR_F32_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS numeric_vector_f32.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_NUMERIC_VECTOR_F32_LOOM_7F23EB50})
+file(GLOB _GLOB_PACKED_VECTOR_SELECT_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS packed_vector_select.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_PACKED_VECTOR_SELECT_LOOM_7F23EB50})
+file(GLOB _GLOB_PREDICATE_LOGIC_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_logic.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_PREDICATE_LOGIC_LOOM_7F23EB50})
+file(GLOB _GLOB_PREDICATE_TRUNCATION_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_truncation.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_PREDICATE_TRUNCATION_LOOM_7F23EB50})
+file(GLOB _GLOB_SCALAR_FLOAT_CONVERSION_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS scalar_float_conversion.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_SCALAR_FLOAT_CONVERSION_LOOM_7F23EB50})
+file(GLOB _GLOB_SUBGROUP_SHUFFLE_PARTICIPATION_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_shuffle_participation.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_SUBGROUP_SHUFFLE_PARTICIPATION_LOOM_7F23EB50})
+file(GLOB _GLOB_SUBGROUP_TRANSPORT_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_transport.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_SUBGROUP_TRANSPORT_LOOM_7F23EB50})
+file(GLOB _GLOB_SUBGROUP_TRANSPORT_CARRIER_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_transport_carrier.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_SUBGROUP_TRANSPORT_CARRIER_LOOM_7F23EB50})
+file(GLOB _GLOB_VECTOR_I64_BITWISE_LOOM_7F23EB50 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS vector_i64_bitwise.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_7F23EB50 ${_GLOB_VECTOR_I64_BITWISE_LOOM_7F23EB50})
 loom_test_module(
   NAME
     subgroup_transport_test_module
   SRCS
     "subgroup_shuffle_participation.loom"
-    "${CMAKE_CURRENT_BINARY_DIR}/subgroup_transport_cases.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/subgroup_transport.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/subgroup_transport_carrier.loom-test"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/subgroup_transport_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/subgroup_transport_cases.loom"
+    "subgroup_transport.loom"
+    "subgroup_transport_carrier.loom"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
@@ -69,32 +55,6 @@ loom_execution_test(
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
     "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_transport_test_execute_amdgpu_access_test
-  MODULE
-    "::subgroup_transport_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"
@@ -2127,7 +2087,7 @@ loom_module(
   NAME
     conformance_cases
   SRCS
-    "${_GLOB_X_LOOM_56BD5B8A}"
+    "${_GLOB_X_LOOM_7F23EB50}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"

@@ -54,15 +54,6 @@ iree_py_binary(
     ],
 )
 
-iree_py_binary(
-    name = "subgroup_transport",
-    testonly = True,
-    srcs = ["subgroup_transport.py"],
-    main = "subgroup_transport.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
 iree_py_test(
     name = "numeric_conversion_matrix_test",
     srcs = [

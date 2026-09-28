@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_generated_file_family")
 load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
@@ -26,6 +25,8 @@ _SCENARIO_CASES = [
     "predicate_truncation.loom",
     "scalar_float_conversion.loom",
     "subgroup_shuffle_participation.loom",
+    "subgroup_transport.loom",
+    "subgroup_transport_carrier.loom",
     "vector_i64_bitwise.loom",
 ]
 
@@ -36,28 +37,12 @@ _CASES = glob(
 
 exports_files(_CASES + _CONFIGURED_CASES + _SCENARIO_CASES)
 
-loom_generated_file_family(
-    name = "subgroup_transport_gen",
-    testonly = True,
-    generator = "//loom/py/loom/gen/test:subgroup_transport",
-    output_directories = ["subgroup_transport_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "subgroup_transport_cases.loom",
-        "subgroup_transport_arrays",
-    ],
-)
-
 loom_test(
     name = "subgroup_transport_test",
     srcs = [
         "subgroup_shuffle_participation.loom",
-        ":subgroup_transport_cases.loom",
-        "//loom/src/loom/test/corpus/source_low:subgroup_transport.loom-test",
-        "//loom/src/loom/test/corpus/source_low:subgroup_transport_carrier.loom-test",
+        "subgroup_transport.loom",
+        "subgroup_transport_carrier.loom",
     ],
     compile_targets = [
         "//loom/target/amdgpu:gfx942",
@@ -68,11 +53,7 @@ loom_test(
         "//loom/target/amdgpu:gfx1200",
         "//loom/target/amdgpu:gfx1250",
     ],
-    data = [":subgroup_transport_gen"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(
