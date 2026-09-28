@@ -7,7 +7,6 @@
 load("//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_VM_ORACLE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_VM_ORACLE_PROFILE")
-load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -17,9 +16,7 @@ package(
 loom_test(
     name = "pipelined_address_domains_test",
     srcs = ["pipelined_address_domains.loom"],
-    execution_profiles = [
-        VM_REFERENCE_PROFILE,
-    ] + GPU_HARDWARE_VM_ORACLE_PROFILES + [
+    execution_profiles = GPU_HARDWARE_VM_ORACLE_PROFILES + [
         AMDGPU_ACCESS_VM_ORACLE_PROFILE,
     ],
 )

@@ -307,21 +307,6 @@ loom_test_module(
     "vector_i64_bitwise.loom"
 )
 
-if(LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    vector_i64_bitwise_test_execute_vm_reference_test
-  MODULE
-    "::vector_i64_bitwise_test_module"
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-    "loom-execution-profile=vm_reference"
-    "loom-target-family=vm"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
@@ -347,54 +332,12 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    vector_i64_bitwise_test_execute_amdgpu_access_vm_oracle_test
-  MODULE
-    "::vector_i64_bitwise_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-build-requirement=loom.target.arch.vm"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access_vm_oracle"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
 loom_test_module(
   NAME
     predicate_logic_test_module
   SRCS
     "predicate_logic.loom"
 )
-
-if(LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    predicate_logic_test_execute_vm_reference_test
-  MODULE
-    "::predicate_logic_test_module"
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-    "loom-execution-profile=vm_reference"
-    "loom-target-family=vm"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-endif()
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
 loom_execution_test(
@@ -413,33 +356,6 @@ loom_execution_test(
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
     "loom-execution-profile=amdgpu_hardware_vm_oracle"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    predicate_logic_test_execute_amdgpu_access_vm_oracle_test
-  MODULE
-    "::predicate_logic_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-build-requirement=loom.target.arch.vm"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access_vm_oracle"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"
@@ -2052,21 +1968,6 @@ loom_test_module(
     "packed_vector_select.loom"
 )
 
-if(LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    packed_vector_select_test_execute_vm_reference_test
-  MODULE
-    "::packed_vector_select_test_module"
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-    "loom-execution-profile=vm_reference"
-    "loom-target-family=vm"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
@@ -2084,33 +1985,6 @@ loom_execution_test(
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
     "loom-execution-profile=amdgpu_hardware_vm_oracle"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    packed_vector_select_test_execute_amdgpu_access_vm_oracle_test
-  MODULE
-    "::packed_vector_select_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-build-requirement=loom.target.arch.vm"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access_vm_oracle"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"

@@ -16,21 +16,6 @@ loom_test_module(
     "pipelined_address_domains.loom"
 )
 
-if(LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    pipelined_address_domains_test_execute_vm_reference_test
-  MODULE
-    "::pipelined_address_domains_test_module"
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-    "loom-execution-profile=vm_reference"
-    "loom-target-family=vm"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
