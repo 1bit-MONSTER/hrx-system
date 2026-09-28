@@ -654,9 +654,9 @@ static iree_status_t loom_run_hal_queue_dispatch_execute_on_queue(
       dispatch->function, dispatch->config, constants, bindings,
       IREE_HAL_DISPATCH_FLAG_BORROW_RESOURCE_LIFETIMES);
   if (iree_status_is_ok(status)) {
-    status = iree_hal_semaphore_wait(dispatch->semaphore, signal_value,
-                                     iree_infinite_timeout(),
-                                     IREE_ASYNC_WAIT_FLAG_NONE);
+    status = loom_run_hal_semaphore_wait(dispatch->semaphore, signal_value,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE);
   }
   if (iree_status_is_ok(status)) {
     ++dispatch->next_signal_value;
@@ -807,9 +807,9 @@ static iree_status_t loom_run_hal_transfer_bindings(
                                      binding_list->count, transfer_operations);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_hal_semaphore_wait(completion_semaphore, completion_value,
-                                     iree_infinite_timeout(),
-                                     IREE_ASYNC_WAIT_FLAG_NONE);
+    status = loom_run_hal_semaphore_wait(completion_semaphore, completion_value,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE);
   }
   if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < binding_list->count; ++i) {
@@ -1450,9 +1450,9 @@ iree_status_t loom_run_hal_dispatch_sequence_execute(
       sequence->command_buffer, binding_table,
       IREE_HAL_QUEUE_EXECUTE_FLAG_BORROW_BINDING_TABLE_LIFETIME);
   if (iree_status_is_ok(status)) {
-    status = iree_hal_semaphore_wait(sequence->semaphore, signal_value,
-                                     iree_infinite_timeout(),
-                                     IREE_ASYNC_WAIT_FLAG_NONE);
+    status = loom_run_hal_semaphore_wait(sequence->semaphore, signal_value,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE);
   }
   if (iree_status_is_ok(status)) {
     ++sequence->next_signal_value;
@@ -1484,9 +1484,9 @@ iree_status_t loom_run_hal_dispatch_batch_execute(
       batch->command_buffer, iree_hal_buffer_binding_table_empty(),
       batch->execute_flags);
   if (iree_status_is_ok(status)) {
-    status = iree_hal_semaphore_wait(batch->semaphore, signal_value,
-                                     iree_infinite_timeout(),
-                                     IREE_ASYNC_WAIT_FLAG_NONE);
+    status = loom_run_hal_semaphore_wait(batch->semaphore, signal_value,
+                                         iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE);
   }
   if (iree_status_is_ok(status)) {
     ++batch->next_signal_value;

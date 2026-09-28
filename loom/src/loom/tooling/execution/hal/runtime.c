@@ -146,3 +146,19 @@ void loom_run_hal_runtime_deinitialize(loom_run_hal_runtime_t* runtime) {
   iree_hal_device_release(runtime->device);
   *runtime = (loom_run_hal_runtime_t){0};
 }
+
+iree_status_t loom_run_hal_semaphore_wait(iree_hal_semaphore_t* semaphore,
+                                          uint64_t value,
+                                          iree_timeout_t timeout,
+                                          iree_async_wait_flags_t flags) {
+  iree_status_t status =
+      iree_hal_semaphore_wait(semaphore, value, timeout, flags);
+  if (!iree_status_is_ok(status)) {
+    // HAL waits may return only a code; the semaphore retains the diagnostic.
+    uint64_t semaphore_value = 0;
+    iree_status_t query_status =
+        iree_hal_semaphore_query(semaphore, &semaphore_value);
+    status = iree_status_join(query_status, status);
+  }
+  return status;
+}
