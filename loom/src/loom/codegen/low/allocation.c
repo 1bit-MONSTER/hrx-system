@@ -299,8 +299,8 @@ iree_status_t loom_low_allocate_function(
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_unit_liveness_initialize(
-        model->module, &state.target, &state.placement, value_domain,
-        &state.liveness, arena, &state.unit_liveness);
+        &state.target, &state.placement, value_domain, &state.liveness, arena,
+        &state.unit_liveness);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_refine_destructive_reuse(
