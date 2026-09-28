@@ -63,6 +63,13 @@ AMDGPU_ACCESS_PROFILE = amdgpu_execution_profile(
     tags = ["notsan"],
 )
 
+AMDGPU_ACCESS_VM_ORACLE_PROFILE = amdgpu_execution_profile(
+    name = "amdgpu_access_vm_oracle",
+    runner_args = ["--sanitizer=access"],
+    tags = ["notsan"],
+    additional_build_requirements = [TARGET_ARCH_VM],
+)
+
 AMDGPU_ASAN_PROFILE = amdgpu_execution_profile(
     name = "amdgpu_asan",
     runner_args = [

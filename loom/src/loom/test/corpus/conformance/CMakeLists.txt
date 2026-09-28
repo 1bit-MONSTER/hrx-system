@@ -9,11 +9,9 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM_E4447DB5 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
-file(GLOB _GLOB_PIPELINED_ADDRESS_DOMAINS_LOOM_E4447DB5 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_address_domains.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_E4447DB5 ${_GLOB_PIPELINED_ADDRESS_DOMAINS_LOOM_E4447DB5})
-file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_E4447DB5 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_E4447DB5 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_E4447DB5})
+file(GLOB _GLOB_X_LOOM_0B029767 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_0B029767 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_0B029767 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_0B029767})
 loom_generated_file_family(
   NAME
     subgroup_transport_gen
@@ -988,7 +986,6 @@ loom_test_module(
   NAME
     pipelined_guarded_recurrence_test_module
   SRCS
-    "pipelined_address_domains.loom"
     "pipelined_guarded_recurrence.loom"
     "${PROJECT_SOURCE_DIR}/loom/binding/c/benchmark/kernels/synthetic/segmented_guarded_read_ahead.loom"
 )
@@ -1001,8 +998,6 @@ loom_execution_test(
     "::pipelined_guarded_recurrence_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
-    "--config=address.depth=3"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=3"
     "--config=test.depth=3"
@@ -1032,8 +1027,6 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=vulkan"
     "--vulkan_validation_layers=false"
-    "--config=address.depth=3"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=3"
     "--config=test.depth=3"
@@ -1063,8 +1056,6 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
-    "--config=address.depth=3"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=3"
     "--config=test.depth=3"
@@ -1097,8 +1088,6 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx942
     loom::target::spirv::vulkan1.3+bda
   ARGS
-    "--config=address.depth=3"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=3"
     "--config=test.depth=3"
@@ -1113,8 +1102,6 @@ loom_execution_test(
     "::pipelined_guarded_recurrence_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
-    "--config=address.depth=1"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=1"
     "--config=test.depth=1"
@@ -1144,8 +1131,6 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=vulkan"
     "--vulkan_validation_layers=false"
-    "--config=address.depth=1"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=1"
     "--config=test.depth=1"
@@ -1175,8 +1160,6 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
-    "--config=address.depth=1"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=1"
     "--config=test.depth=1"
@@ -1209,8 +1192,6 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx942
     loom::target::spirv::vulkan1.3+bda
   ARGS
-    "--config=address.depth=1"
-    "--config=address.factor=1"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=1"
     "--config=test.depth=1"
@@ -1225,8 +1206,6 @@ loom_execution_test(
     "::pipelined_guarded_recurrence_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
-    "--config=address.depth=4"
-    "--config=address.factor=2"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=4"
     "--config=test.depth=4"
@@ -1256,8 +1235,6 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=vulkan"
     "--vulkan_validation_layers=false"
-    "--config=address.depth=4"
-    "--config=address.factor=2"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=4"
     "--config=test.depth=4"
@@ -1287,8 +1264,6 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
-    "--config=address.depth=4"
-    "--config=address.factor=2"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=4"
     "--config=test.depth=4"
@@ -1321,8 +1296,6 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx942
     loom::target::spirv::vulkan1.3+bda
   ARGS
-    "--config=address.depth=4"
-    "--config=address.factor=2"
     "--config=benchmark.loop_count=8"
     "--config=benchmark.pipeline_depth=4"
     "--config=test.depth=4"
@@ -2213,7 +2186,7 @@ loom_module(
   NAME
     conformance_cases
   SRCS
-    "${_GLOB_X_LOOM_E4447DB5}"
+    "${_GLOB_X_LOOM_0B029767}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"
