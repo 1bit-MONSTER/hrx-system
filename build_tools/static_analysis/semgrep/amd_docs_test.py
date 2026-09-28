@@ -19,6 +19,7 @@ class AmdDocumentationRulesTest(unittest.TestCase):
     def test_documentation_dependencies_and_scope(self):
         hardware_vocabulary = "amd-reference.no-library-vocabulary"
         hardware_link = "amd-reference.no-local-implementation-links"
+        library_cts = "libamdf.docs.no-cts-dependencies"
         fixtures = {
             "docs/reference/amd/gpu/packets.md": [
                 ("The packet selects objects and affects products.", None),
@@ -48,17 +49,17 @@ class AmdDocumentationRulesTest(unittest.TestCase):
                 ("libamdf exposes `AMDF_MEMORY_FLAG_NONE`.", None),
                 ("[API](../include/amdf/memory.h)", None),
                 ("This selects objects with no side effects.", None),
-                ("CTS qualifies the API.", None),
-                ("[Cases](../cts/README.md)", None),
-                ("[Experimental cases](../experimental/cts/README.md)", None),
-                ("[Cases]: ../cts/experimental/README.md", None),
+                ("CTS qualifies the API.", library_cts),
+                ("[Cases](../cts/README.md)", library_cts),
+                ("[Experimental cases](../experimental/cts/README.md)", library_cts),
+                ("[Cases]: ../cts/experimental/README.md", library_cts),
             ],
             "libamdf/docs/experimental/example.rst": [
-                ("Experimental CTS results.", None),
+                ("Experimental CTS results.", library_cts),
             ],
             "libamdf/README.md": [
                 ("libamdf exposes `amdf_query_api`.", None),
-                ("The CTS checks this contract.", None),
+                ("The CTS checks this contract.", library_cts),
             ],
             "libamdf/cts/README.md": [("libamdf AMDF_API CTS", None)],
             "libamdf/experimental/cts/README.md": [("libamdf AMDF_API CTS", None)],

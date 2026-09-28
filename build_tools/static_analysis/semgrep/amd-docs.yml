@@ -20,3 +20,15 @@ rules:
     paths:
       include:
         - /docs/reference/amd/**
+
+  - id: libamdf.docs.no-cts-dependencies
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Library documentation describes the API independently of CTS, including
+      experimental CTS. Test documentation may consume library documentation.
+    pattern-regex: '(?i)\bcts\b'
+    paths:
+      include:
+        - /libamdf/docs/**
+        - /libamdf/README.md

@@ -1100,6 +1100,8 @@ def is_semgrep_candidate_file(path: str) -> bool:
     return (
         path in SEMGREP_POLICY_PATHS
         or path.startswith("docs/reference/amd/")
+        or path.startswith("libamdf/docs/")
+        or path == "libamdf/README.md"
         or (
             path.startswith(SEMGREP_PATH_PREFIXES)
             and Path(path).suffix in SEMGREP_EXTENSIONS
