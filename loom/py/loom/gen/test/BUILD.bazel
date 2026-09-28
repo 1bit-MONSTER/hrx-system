@@ -31,47 +31,11 @@ iree_py_library(
 )
 
 iree_py_binary(
-    name = "packed_vector_select",
-    testonly = True,
-    srcs = ["packed_vector_select.py"],
-    main = "packed_vector_select.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
     name = "narrow_float_subtraction",
     testonly = True,
     srcs = ["narrow_float_subtraction.py"],
     main = "narrow_float_subtraction.py",
     visibility = ["//loom/src/loom/tooling/target/amdgpu/test/cxx:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
-    name = "predicate_bitwise",
-    testonly = True,
-    srcs = ["predicate_bitwise.py"],
-    main = "predicate_bitwise.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
-    name = "predicate_select",
-    testonly = True,
-    srcs = ["predicate_select.py"],
-    main = "predicate_select.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
-    name = "vector_i64_bitwise",
-    testonly = True,
-    srcs = ["vector_i64_bitwise.py"],
-    main = "vector_i64_bitwise.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
     deps = [":kernel_fixture"],
 )
 

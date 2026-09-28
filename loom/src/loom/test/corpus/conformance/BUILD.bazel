@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_generated_file_family")
-load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test", "loom_test_module")
+load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
@@ -19,12 +19,18 @@ _CONFIGURED_CASES = [
     "pipelined_guarded_recurrence.loom",
 ]
 
+_SCENARIO_CASES = [
+    "packed_vector_select.loom",
+    "predicate_logic.loom",
+    "vector_i64_bitwise.loom",
+]
+
 _CASES = glob(
     ["*.loom"],
-    exclude = _CONFIGURED_CASES,
+    exclude = _CONFIGURED_CASES + _SCENARIO_CASES,
 )
 
-exports_files(_CASES + _CONFIGURED_CASES)
+exports_files(_CASES + _CONFIGURED_CASES + _SCENARIO_CASES)
 
 loom_generated_file_family(
     name = "subgroup_transport_gen",
@@ -120,112 +126,16 @@ loom_test(
     execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
 )
 
-loom_generated_file_family(
-    name = "vector_i64_bitwise_gen",
-    testonly = True,
-    generator = "//loom/py/loom/gen/test:vector_i64_bitwise",
-    output_directories = ["vector_i64_bitwise_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "vector_i64_bitwise_cases.loom",
-        "vector_i64_bitwise_arrays",
-    ],
-)
-
 loom_test(
     name = "vector_i64_bitwise_test",
-    srcs = [
-        "vector_i64_bitwise.loom",
-        ":vector_i64_bitwise_cases.loom",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    data = [":vector_i64_bitwise_gen"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_generated_file_family(
-    name = "predicate_bitwise_gen",
-    testonly = True,
-    generator = "//loom/py/loom/gen/test:predicate_bitwise",
-    output_directories = ["predicate_bitwise_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "predicate_bitwise_cases.loom",
-        "predicate_bitwise_arrays",
-    ],
+    srcs = ["vector_i64_bitwise.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(
-    name = "predicate_bitwise_test",
-    srcs = [
-        "predicate_bitwise.loom",
-        ":predicate_bitwise_cases.loom",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    data = [":predicate_bitwise_gen"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_generated_file_family(
-    name = "predicate_select_gen",
-    testonly = True,
-    generator = "//loom/py/loom/gen/test:predicate_select",
-    output_directories = ["predicate_select_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "predicate_select_cases.loom",
-        "predicate_select_arrays",
-    ],
-)
-
-loom_test(
-    name = "predicate_select_test",
-    srcs = [
-        "predicate_select.loom",
-        ":predicate_select_cases.loom",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    data = [":predicate_select_gen"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
+    name = "predicate_logic_test",
+    srcs = ["predicate_logic.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(
@@ -517,25 +427,10 @@ loom_test(
     ],
 )
 
-loom_generated_file_family(
-    name = "packed_vector_select_gen",
-    testonly = True,
-    generator = "//loom/py/loom/gen/test:packed_vector_select",
-    output_directories = ["packed_vector_select_arrays"],
-    output_flags = [
-        "--output",
-        "--arrays",
-    ],
-    outputs = [
-        "packed_vector_select.loom",
-        "packed_vector_select_arrays",
-    ],
-)
-
-loom_test_module(
-    name = "packed_vector_select_module",
-    srcs = [":packed_vector_select.loom"],
-    data = [":packed_vector_select_gen"],
+loom_test(
+    name = "packed_vector_select_test",
+    srcs = ["packed_vector_select.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_module(

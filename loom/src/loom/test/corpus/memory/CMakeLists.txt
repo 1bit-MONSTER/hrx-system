@@ -16,25 +16,10 @@ loom_test_module(
     "word.loom"
 )
 
-if(LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    word_test_execute_vm_reference_test
-  MODULE
-    "::word_test_module"
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-    "loom-execution-profile=vm_reference"
-    "loom-target-family=vm"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    word_test_execute_amdgpu_hardware_vm_oracle_test
+    word_test_execute_amdgpu_hardware_test
   MODULE
     "::word_test_module"
   RUNNER_ARGS
@@ -44,10 +29,9 @@ loom_execution_test(
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
     "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-build-requirement=loom.target.arch.vm"
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware_vm_oracle"
+    "loom-execution-profile=amdgpu_hardware"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"

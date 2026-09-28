@@ -1,58 +1,66 @@
-// Each invocation checks two distinct full-width elements and scalar consumers.
-// Two trailing elements per invocation retain the output guard.
-kernel.def @vector_i64_bitwise() {
-  %unit = index.constant 1 : index
-  %groups = index.constant 4 : index
-  %width = index.constant 64 : index
-  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
-} launch(%lhs_input: buffer, %rhs_input: buffer, %output: buffer) {
-  %group = kernel.workgroup.id<x> : index
-  %lane = kernel.workitem.id<x> : index
-  %width = index.constant 64 : index
-  %group_offset = index.mul %group, %width : index
-  %item = index.add %group_offset, %lane : index
-  %input_stride = index.constant 2 : index
-  %output_stride = index.constant 16 : index
-  %input_position = index.mul %item, %input_stride : index
-  %output_position = index.mul %item, %output_stride : index
-  %base = index.constant 0 : offset
-  %lhs_view = buffer.view %lhs_input[%base] : buffer -> view<512xi64>
-  %rhs_view = buffer.view %rhs_input[%base] : buffer -> view<512xi64>
-  %output_view = buffer.view %output[%base] : buffer -> view<4096xi64>
-  %lhs = vector.load %lhs_view[%input_position] : view<512xi64> -> vector<2xi64>
-  %rhs = vector.load %rhs_view[%input_position] : view<512xi64> -> vector<2xi64>
+// One runtime ordinal covers one bit position and one truth-table row. The
+// complete scenario reaches every bit of both lanes without generated arrays.
+func.def @vector_i64_bitwise(%trial: index, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 255)] : index
+  %c4 = index.constant 4 : index
+  %bit_index = index.div %ordinal, %c4 : index
+  %truth_index = index.rem %ordinal, %c4 : index
+  %bit = index.cast %bit_index : index to i64
+  %truth = index.cast %truth_index : index to i64
+
+  %unit = scalar.constant 1 : i64
+  %all_bits = scalar.constant -1 : i64
+  %mask = scalar.shli %unit, %bit : i64
+  %inverse_mask = scalar.xori %mask, %all_bits : i64
+
+  %lhs_base = scalar.constant -6521746883317985356 : i64
+  %lhs_cleared = scalar.andi %lhs_base, %inverse_mask : i64
+  %lhs_truth = scalar.andi %truth, %unit : i64
+  %lhs_bit = scalar.shli %lhs_truth, %bit : i64
+  %lhs_value = scalar.ori %lhs_cleared, %lhs_bit : i64
+  %lhs_inverse = scalar.xori %lhs_value, %all_bits : i64
+  %lhs = vector.from_elements %lhs_value, %lhs_inverse : vector<2xi64>
+
+  %rhs_base = scalar.constant 4163261975864267055 : i64
+  %rhs_cleared = scalar.andi %rhs_base, %inverse_mask : i64
+  %rhs_shifted_truth = scalar.shrui %truth, %unit : i64
+  %rhs_truth = scalar.andi %rhs_shifted_truth, %unit : i64
+  %rhs_bit = scalar.shli %rhs_truth, %bit : i64
+  %rhs_value = scalar.ori %rhs_cleared, %rhs_bit : i64
+  %rhs_inverse = scalar.xori %rhs_value, %all_bits : i64
+  %rhs = vector.from_elements %rhs_value, %rhs_inverse : vector<2xi64>
+
   %and_result = vector.andi %lhs, %rhs : vector<2xi64>
   %or_result = vector.ori %lhs, %rhs : vector<2xi64>
   %xor_result = vector.xori %lhs, %rhs : vector<2xi64>
-  %mask = vector.constant 4294967295 : vector<2xi64>
-  %tag = vector.constant -9223372036854775807 : vector<2xi64>
-  %toggle = vector.constant -4294967296 : vector<2xi64>
-  %masked = vector.andi %lhs, %mask : vector<2xi64>
-  %tagged = vector.ori %tag, %rhs : vector<2xi64>
-  %toggled = vector.xori %lhs, %toggle : vector<2xi64>
-  vector.store %and_result, %output_view[%output_position] : vector<2xi64>, view<4096xi64>
-  %or_offset = index.constant 2 : index
-  %or_position = index.add %output_position, %or_offset : index
-  vector.store %or_result, %output_view[%or_position] : vector<2xi64>, view<4096xi64>
-  %xor_offset = index.constant 4 : index
-  %xor_position = index.add %output_position, %xor_offset : index
-  vector.store %xor_result, %output_view[%xor_position] : vector<2xi64>, view<4096xi64>
-  %masked_offset = index.constant 6 : index
-  %masked_position = index.add %output_position, %masked_offset : index
-  vector.store %masked, %output_view[%masked_position] : vector<2xi64>, view<4096xi64>
-  %tagged_offset = index.constant 8 : index
-  %tagged_position = index.add %output_position, %tagged_offset : index
-  vector.store %tagged, %output_view[%tagged_position] : vector<2xi64>, view<4096xi64>
-  %toggled_offset = index.constant 10 : index
-  %toggled_position = index.add %output_position, %toggled_offset : index
-  vector.store %toggled, %output_view[%toggled_position] : vector<2xi64>, view<4096xi64>
+  %low_mask = vector.constant 4294967295 : vector<2xi64>
+  %sign_tag = vector.constant -9223372036854775807 : vector<2xi64>
+  %upper_toggle = vector.constant -4294967296 : vector<2xi64>
+  %masked = vector.andi %lhs, %low_mask : vector<2xi64>
+  %tagged = vector.ori %sign_tag, %rhs : vector<2xi64>
+  %toggled = vector.xori %lhs, %upper_toggle : vector<2xi64>
+
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi64>
+  vector.store %and_result, %output_view[0] : vector<2xi64>, view<16xi64>
+  vector.store %or_result, %output_view[2] : vector<2xi64>, view<16xi64>
+  vector.store %xor_result, %output_view[4] : vector<2xi64>, view<16xi64>
+  vector.store %masked, %output_view[6] : vector<2xi64>, view<16xi64>
+  vector.store %tagged, %output_view[8] : vector<2xi64>, view<16xi64>
+  vector.store %toggled, %output_view[10] : vector<2xi64>, view<16xi64>
   %first = vector.extract %xor_result[0] : vector<2xi64> -> i64
   %last = vector.extract %or_result[1] : vector<2xi64> -> i64
-  %first_offset = index.constant 12 : index
-  %first_position = index.add %output_position, %first_offset : index
-  view.store %first, %output_view[%first_position] : i64, view<4096xi64>
-  %last_offset = index.constant 13 : index
-  %last_position = index.add %output_position, %last_offset : index
-  view.store %last, %output_view[%last_position] : i64, view<4096xi64>
-  kernel.return
+  view.store %first, %output_view[12] : i64, view<16xi64>
+  view.store %last, %output_view[13] : i64, view<16xi64>
+  func.return
+}
+
+check.scenario @vector_i64_bitwise_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(-123) : tensor<16xi64>
+    check.compare<@vector_i64_bitwise>(%trial, %output) : (index, tensor<16xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi64>
+    }
+  }
+  check.return
 }

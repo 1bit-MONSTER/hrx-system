@@ -9,9 +9,15 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM_0B029767 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
-file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_0B029767 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_0B029767 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_0B029767})
+file(GLOB _GLOB_X_LOOM_71B2DA4E LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_71B2DA4E LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_71B2DA4E ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_71B2DA4E})
+file(GLOB _GLOB_PACKED_VECTOR_SELECT_LOOM_71B2DA4E LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS packed_vector_select.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_71B2DA4E ${_GLOB_PACKED_VECTOR_SELECT_LOOM_71B2DA4E})
+file(GLOB _GLOB_PREDICATE_LOGIC_LOOM_71B2DA4E LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_logic.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_71B2DA4E ${_GLOB_PREDICATE_LOGIC_LOOM_71B2DA4E})
+file(GLOB _GLOB_VECTOR_I64_BITWISE_LOOM_71B2DA4E LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS vector_i64_bitwise.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_71B2DA4E ${_GLOB_VECTOR_I64_BITWISE_LOOM_71B2DA4E})
 loom_generated_file_family(
   NAME
     subgroup_transport_gen
@@ -294,29 +300,11 @@ loom_check_compile_tests(
     loom::target::spirv::vulkan1.3+bda+extended-types
 )
 
-loom_generated_file_family(
-  NAME
-    vector_i64_bitwise_gen
-  GENERATOR
-    loom::py::loom::gen::test::vector_i64_bitwise
-  OUTPUTS
-    "vector_i64_bitwise_cases.loom"
-    "vector_i64_bitwise_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  TESTONLY
-)
-
 loom_test_module(
   NAME
     vector_i64_bitwise_test_module
   SRCS
     "vector_i64_bitwise.loom"
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_i64_bitwise_cases.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_i64_bitwise_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_i64_bitwise_cases.loom"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
@@ -343,77 +331,19 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    vector_i64_bitwise_test_execute_amdgpu_access_test
-  MODULE
-    "::vector_i64_bitwise_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "vector_i64_bitwise_test"
-  SRC
-    "::vector_i64_bitwise_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_generated_file_family(
-  NAME
-    predicate_bitwise_gen
-  GENERATOR
-    loom::py::loom::gen::test::predicate_bitwise
-  OUTPUTS
-    "predicate_bitwise_cases.loom"
-    "predicate_bitwise_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  TESTONLY
-)
-
 loom_test_module(
   NAME
-    predicate_bitwise_test_module
+    predicate_logic_test_module
   SRCS
-    "predicate_bitwise.loom"
-    "${CMAKE_CURRENT_BINARY_DIR}/predicate_bitwise_cases.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/predicate_bitwise_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/predicate_bitwise_cases.loom"
+    "predicate_logic.loom"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    predicate_bitwise_test_execute_amdgpu_hardware_test
+    predicate_logic_test_execute_amdgpu_hardware_test
   MODULE
-    "::predicate_bitwise_test_module"
+    "::predicate_logic_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS
@@ -431,135 +361,6 @@ loom_execution_test(
     "gpu-device"
 )
 endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_bitwise_test_execute_amdgpu_access_test
-  MODULE
-    "::predicate_bitwise_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "predicate_bitwise_test"
-  SRC
-    "::predicate_bitwise_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_generated_file_family(
-  NAME
-    predicate_select_gen
-  GENERATOR
-    loom::py::loom::gen::test::predicate_select
-  OUTPUTS
-    "predicate_select_cases.loom"
-    "predicate_select_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  TESTONLY
-)
-
-loom_test_module(
-  NAME
-    predicate_select_test_module
-  SRCS
-    "predicate_select.loom"
-    "${CMAKE_CURRENT_BINARY_DIR}/predicate_select_cases.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/predicate_select_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/predicate_select_cases.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_select_test_execute_amdgpu_hardware_test
-  MODULE
-    "::predicate_select_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_select_test_execute_amdgpu_access_test
-  MODULE
-    "::predicate_select_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "predicate_select_test"
-  SRC
-    "::predicate_select_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
 
 loom_test_module(
   NAME
@@ -2158,35 +1959,42 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx950
 )
 
-loom_generated_file_family(
-  NAME
-    packed_vector_select_gen
-  GENERATOR
-    loom::py::loom::gen::test::packed_vector_select
-  OUTPUTS
-    "packed_vector_select.loom"
-    "packed_vector_select_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  TESTONLY
-)
-
 loom_test_module(
   NAME
-    packed_vector_select_module
+    packed_vector_select_test_module
   SRCS
-    "${CMAKE_CURRENT_BINARY_DIR}/packed_vector_select.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/packed_vector_select.loom"
-    "${CMAKE_CURRENT_BINARY_DIR}/packed_vector_select_arrays"
+    "packed_vector_select.loom"
 )
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+loom_execution_test(
+  NAME
+    packed_vector_select_test_execute_amdgpu_hardware_test
+  MODULE
+    "::packed_vector_select_test_module"
+  RUNNER_ARGS
+    "--device=amdgpu"
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+    "loom-execution-profile=amdgpu_hardware"
+    "loom-target-family=amdgpu"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
 
 loom_module(
   NAME
     conformance_cases
   SRCS
-    "${_GLOB_X_LOOM_0B029767}"
+    "${_GLOB_X_LOOM_71B2DA4E}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"

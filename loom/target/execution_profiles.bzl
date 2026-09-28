@@ -9,12 +9,10 @@
 load(
     "//loom/src/loom/tooling/target/spirv:execution_profiles.bzl",
     "SPIRV_VULKAN_HARDWARE_PROFILE",
-    "SPIRV_VULKAN_HARDWARE_VM_ORACLE_PROFILE",
 )
 load(
     "//loom/target/amdgpu:execution_profiles.bzl",
     "AMDGPU_HARDWARE_PROFILE",
-    "AMDGPU_HARDWARE_VM_ORACLE_PROFILE",
 )
 
 # Each child executes on a compatible local device; offline compiler profiles
@@ -22,12 +20,4 @@ load(
 GPU_HARDWARE_PROFILES = [
     AMDGPU_HARDWARE_PROFILE,
     SPIRV_VULKAN_HARDWARE_PROFILE,
-]
-
-# Hardware target execution with the in-process VM reference oracle linked into
-# the runner. These profiles keep differential suites incompatible when their
-# requested oracle is absent instead of failing after test execution begins.
-GPU_HARDWARE_VM_ORACLE_PROFILES = [
-    AMDGPU_HARDWARE_VM_ORACLE_PROFILE,
-    SPIRV_VULKAN_HARDWARE_VM_ORACLE_PROFILE,
 ]

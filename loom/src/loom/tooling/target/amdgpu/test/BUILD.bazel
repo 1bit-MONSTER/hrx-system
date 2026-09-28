@@ -219,16 +219,6 @@ loom_test(
 )
 
 loom_test(
-    name = "packed_vector_select_test",
-    compile_targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-    module = "//loom/src/loom/test/corpus/conformance:packed_vector_select_module",
-)
-
-loom_test(
     name = "private_memory_test",
     srcs = ["//loom/src/loom/test/corpus/conformance:private_memory.loom"],
     compile_targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
