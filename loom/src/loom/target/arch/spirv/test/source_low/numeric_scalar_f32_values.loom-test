@@ -1,0 +1,16 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_scalar_f32_values.loom
+// TEMPLATE-EXCLUDE: @scalar_f32_signs SPIR-V has no scalar sign contracts.
+// TEMPLATE-EXCLUDE: @scalar_f32_extrema SPIR-V has no scalar extrema contracts.
+// TEMPLATE-EXCLUDE: @scalar_f32_rounding SPIR-V does not admit scalar truncation.
+// TEMPLATE-EXCLUDE: @scalar_f32_sqrt SPIR-V has no scalar square-root contract.
+// TEMPLATE-EXCLUDE: @scalar_f32_comparisons SPIR-V has no scalar float comparison contracts.
+// TEMPLATE-EXCLUDE: @scalar_f32_comparisons_no_nan SPIR-V has no scalar float comparison contracts.
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=none
+
+func.def @scalar_f32_arithmetic(%lhs: f32, %rhs: f32) -> (f32, f32, f32, f32) {
+  %sum = scalar.addf %lhs, %rhs : f32
+  %difference = scalar.subf %lhs, %rhs : f32
+  %product = scalar.mulf %lhs, %rhs : f32
+  %quotient = scalar.divf %lhs, %rhs : f32
+  func.return %sum, %difference, %product, %quotient : f32, f32, f32, f32
+}

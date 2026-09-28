@@ -681,6 +681,7 @@ loom_check_test_suite(
     "test/source_low/numeric_reciprocal.loom-test"
     "test/source_low/numeric_reduce.loom-test"
     "test/source_low/numeric_scalar_f32.loom-test"
+    "test/source_low/numeric_scalar_f32_values.loom-test"
     "test/source_low/numeric_scalar_i32.loom-test"
     "test/source_low/numeric_scalar_i64.loom-test"
     "test/source_low/numeric_scalar_i64_shift_counts.loom-test"
