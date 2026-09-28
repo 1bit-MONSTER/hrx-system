@@ -43,6 +43,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.structural import (
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.table import AIE2P_TABLE_RULES
 from loom.target.contracts import (
+    DescriptorEmitForm,
     DescriptorResultType,
     DescriptorRule,
     EmitRegisterConcat,
@@ -254,6 +255,7 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
     ]
     assert [rule.descriptor.key for rule in vector_constant_rules] == [
         "amd.xdna.aie2p.splat.i8x64",
+        "amd.xdna.aie2p.splat.i8x64",
         "amd.xdna.aie2p.splat.i16x32",
         "amd.xdna.aie2p.splat.i16x32",
         "amd.xdna.aie2p.splat.i32x16",
@@ -269,6 +271,7 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
     ]
     assert [len(rule.emit) for rule in vector_constant_rules] == [
         2,
+        3,
         2,
         2,
         2,
@@ -297,7 +300,7 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
         ValueProjectKind.EXACT_I64
     )
     assert [
-        rule.emit[0].immediates["i"].kind for rule in vector_constant_rules[5:10]
+        rule.emit[0].immediates["i"].kind for rule in vector_constant_rules[6:11]
     ] == [
         ValueProjectKind.FLOAT_BITS,
         ValueProjectKind.FLOAT_BITS,
@@ -665,11 +668,18 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
         "amd.xdna.aie2p.max.signed.i32x16",
         "amd.xdna.aie2p.min.unsigned.i32x16",
         "amd.xdna.aie2p.max.unsigned.i32x16",
+        "amd.xdna.aie2p.min.signed.i8x64",
+        "amd.xdna.aie2p.max.signed.i8x64",
     ]
     assert all(
         tuple(rule.emit[0].results) == ("d",)
         and rule.emit[0].results["d"].field == "result"
         for rule in vector_minmax_rules
+    )
+    assert all(
+        rule.emit[0].form is DescriptorEmitForm.PER_LANE
+        and rule.guards[0].type_pattern == Vector("i8", lanes=128)
+        for rule in vector_minmax_rules[-2:]
     )
 
     vector_multiply_rules = [

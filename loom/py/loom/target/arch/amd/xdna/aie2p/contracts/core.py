@@ -34,6 +34,7 @@ from loom.target.contracts import (
     DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
+    EmitRegisterConcat,
     Guard,
     ResultTypeBinding,
     Scalar,
@@ -58,6 +59,7 @@ _F32 = Scalar("f32")
 _INDEX = Scalar("index")
 _OFFSET = Scalar("offset")
 _I8_VECTOR = Vector("i8", minimum_static_elements=1, maximum_static_elements=64)
+_I8X128_VECTOR = Vector("i8", lanes=128)
 _I8X16_VECTOR = Vector("i8", lanes=16)
 _F8E4M3_VECTOR = Vector("f8E4M3", minimum_static_elements=1, maximum_static_elements=64)
 _F8E5M2_VECTOR = Vector("f8E5M2", minimum_static_elements=1, maximum_static_elements=64)
@@ -529,6 +531,8 @@ def _vector_binary_rule(
     source_op: Op,
     type_pattern: TypePattern,
     descriptor_key: str,
+    *,
+    form: DescriptorEmitForm = DescriptorEmitForm.OP,
 ) -> DescriptorRule:
     descriptor = _descriptor(descriptor_key)
     return DescriptorRule(
@@ -536,13 +540,14 @@ def _vector_binary_rule(
         descriptor=descriptor,
         guards=_typed_guards(("lhs", "rhs", "result"), type_pattern),
         emit=(
-            _op_emit(
-                descriptor,
+            EmitDescriptorOp(
+                descriptor=descriptor,
                 operands={
                     "s1": ValueRef.operand("lhs"),
                     "s2": ValueRef.operand("rhs"),
                 },
                 results={"d": ValueRef.result("result")},
+                form=form,
             ),
         ),
     )
@@ -1014,9 +1019,13 @@ def _vector_constant_rule(
     broadcast_descriptor_key: str,
     minimum: int,
     maximum: int,
+    *,
+    packet_count: int = 1,
 ) -> DescriptorRule:
     constant = _descriptor(constant_descriptor_key)
     broadcast = _descriptor(broadcast_descriptor_key)
+    result = ValueRef.result("result")
+    packet = result if packet_count == 1 else ValueRef.temporary("packet")
     return DescriptorRule(
         source_op=vector.vector_constant,
         descriptor=broadcast,
@@ -1032,10 +1041,19 @@ def _vector_constant_rule(
                 AttrProject.direct("value"),
                 result_type=DescriptorResultType(),
             ),
-            _op_emit(
-                broadcast,
+            EmitDescriptorOp(
+                descriptor=broadcast,
                 operands={"src": ValueRef.temporary("scalar")},
-                results={"dst": ValueRef.result("result")},
+                results={"dst": packet},
+                result_types={"dst": DescriptorResultType()}
+                if packet_count > 1
+                else None,
+                form=DescriptorEmitForm.OP,
+            ),
+            *(
+                (EmitRegisterConcat(sources=(packet,) * packet_count, result=result),)
+                if packet_count > 1
+                else ()
             ),
         ),
     )
