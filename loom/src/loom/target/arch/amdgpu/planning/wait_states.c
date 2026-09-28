@@ -1062,13 +1062,49 @@ static void loom_amdgpu_wait_state_delay_alu_accumulate_operands(
 }
 
 static loom_amdgpu_wait_state_action_t
-loom_amdgpu_wait_state_delay_alu_match_operands(
+loom_amdgpu_wait_state_delay_alu_match_packet(
     loom_amdgpu_wait_state_builder_t* builder,
     const loom_low_packet_view_t* packet,
+    const loom_amdgpu_wait_state_packet_info_t* info,
     loom_amdgpu_wait_state_match_t* match) {
   loom_amdgpu_delay_alu_accumulator_t accumulator = {0};
-  loom_amdgpu_wait_state_delay_alu_accumulate_operands(builder, packet,
-                                                       &accumulator);
+  if (iree_any_bit_set(info->flags,
+                       LOOM_AMDGPU_WAIT_STATE_PACKET_FLAG_DESCRIPTOR)) {
+    loom_amdgpu_wait_state_delay_alu_accumulate_operands(builder, packet,
+                                                         &accumulator);
+  } else {
+    for (iree_host_size_t i = 0; i < info->structural.moves.count; ++i) {
+      const loom_low_move_t* move =
+          &builder->allocation->moves[info->structural.moves.start + i];
+      loom_amdgpu_delay_alu_info_t* source;
+      loom_amdgpu_delay_alu_info_t* destination;
+      if (move->source.descriptor_reg_class_id ==
+          LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+        source = &builder->vgprs[move->source.location].delay_alu;
+        destination = &builder->vgprs[move->destination.location].delay_alu;
+      } else if (move->source.descriptor_reg_class_id ==
+                 LOOM_AMDGPU_REG_CLASS_ID_SGPR) {
+        source = &builder->sgprs[move->source.location].delay_alu;
+        destination = &builder->sgprs[move->destination.location].delay_alu;
+      } else {
+        continue;
+      }
+      loom_amdgpu_delay_alu_accumulate_info(
+          &builder->delay_alu, builder->current_position, source, &accumulator);
+      *source = (loom_amdgpu_delay_alu_info_t){0};
+      // Only actual reads consume pre-group producers. An overwritten cycle
+      // temporary is not an input when read later in this native move order.
+      // apply_moves records the new producers after the group's input wait.
+      *destination = (loom_amdgpu_delay_alu_info_t){0};
+    }
+    if (iree_any_bit_set(info->structural.flags,
+                         LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_READS_SCC)) {
+      loom_amdgpu_delay_alu_accumulate_info(
+          &builder->delay_alu, builder->current_position,
+          &builder->scc_delay_alu, &accumulator);
+      builder->scc_delay_alu = (loom_amdgpu_delay_alu_info_t){0};
+    }
+  }
   return loom_amdgpu_wait_state_delay_alu_accumulator_action(&accumulator,
                                                              match);
 }
@@ -1753,8 +1789,8 @@ static iree_status_t loom_amdgpu_wait_state_apply_packet(
                               LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_READS_SCC)) {
     loom_amdgpu_wait_state_match_t delay_alu_match = {0};
     const loom_amdgpu_wait_state_action_t delay_alu_action =
-        loom_amdgpu_wait_state_delay_alu_match_operands(builder, packet,
-                                                        &delay_alu_match);
+        loom_amdgpu_wait_state_delay_alu_match_packet(builder, packet, &info,
+                                                      &delay_alu_match);
     if (delay_alu_action != LOOM_AMDGPU_WAIT_STATE_ACTION_UNKNOWN) {
       IREE_RETURN_IF_ERROR(loom_amdgpu_wait_state_append(
           builder, packet, packet, &delay_alu_match, delay_alu_action));
