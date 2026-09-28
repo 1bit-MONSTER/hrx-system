@@ -1,0 +1,871 @@
+// Fixed-width numeric payloads retain every bit across named, indexed and
+// first-active exchange. Packed tails cross scalar memory so padding is not
+// part of the observable payload. Each 32-lane cluster reuses one input block,
+// allowing the same exact native oracle for wave32 and wave64.
+kernel.def @subgroup_transport_i64_1() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 1 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 96 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<32xi64>
+  %output_view = buffer.view %output[%base] : buffer -> view<288xi64>
+  %value = view.load %input_view[%input_position] : view<32xi64> -> i64
+  %named = kernel.subgroup.broadcast %value from %source_lane : i64, i32
+  view.store %named, %output_view[%position] : i64, view<288xi64>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : i64, i32, i32
+  scf.if %valid {
+    view.store %shuffled, %output_view[%second] : i64, view<288xi64>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : i64
+    view.store %first, %output_view[%third] : i64, view<288xi64>
+  }
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_transport_i8_7() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 7 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 672 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<224xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<2016xi8>
+  %offset_0 = index.constant 0 : index
+  %input_0 = index.add %input_position, %offset_0 : index
+  %element_0 = view.load %input_view[%input_0] : view<224xi8> -> i8
+  %offset_1 = index.constant 1 : index
+  %input_1 = index.add %input_position, %offset_1 : index
+  %element_1 = view.load %input_view[%input_1] : view<224xi8> -> i8
+  %offset_2 = index.constant 2 : index
+  %input_2 = index.add %input_position, %offset_2 : index
+  %element_2 = view.load %input_view[%input_2] : view<224xi8> -> i8
+  %offset_3 = index.constant 3 : index
+  %input_3 = index.add %input_position, %offset_3 : index
+  %element_3 = view.load %input_view[%input_3] : view<224xi8> -> i8
+  %offset_4 = index.constant 4 : index
+  %input_4 = index.add %input_position, %offset_4 : index
+  %element_4 = view.load %input_view[%input_4] : view<224xi8> -> i8
+  %offset_5 = index.constant 5 : index
+  %input_5 = index.add %input_position, %offset_5 : index
+  %element_5 = view.load %input_view[%input_5] : view<224xi8> -> i8
+  %offset_6 = index.constant 6 : index
+  %input_6 = index.add %input_position, %offset_6 : index
+  %element_6 = view.load %input_view[%input_6] : view<224xi8> -> i8
+  %value = vector.from_elements %element_0, %element_1, %element_2, %element_3, %element_4, %element_5, %element_6 : vector<7xi8>
+  %named = kernel.subgroup.broadcast %value from %source_lane : vector<7xi8>, i32
+  %named_0 = vector.extract %named[0] : vector<7xi8> -> i8
+  %named_position_0 = index.add %position, %offset_0 : index
+  view.store %named_0, %output_view[%named_position_0] : i8, view<2016xi8>
+  %named_1 = vector.extract %named[1] : vector<7xi8> -> i8
+  %named_position_1 = index.add %position, %offset_1 : index
+  view.store %named_1, %output_view[%named_position_1] : i8, view<2016xi8>
+  %named_2 = vector.extract %named[2] : vector<7xi8> -> i8
+  %named_position_2 = index.add %position, %offset_2 : index
+  view.store %named_2, %output_view[%named_position_2] : i8, view<2016xi8>
+  %named_3 = vector.extract %named[3] : vector<7xi8> -> i8
+  %named_position_3 = index.add %position, %offset_3 : index
+  view.store %named_3, %output_view[%named_position_3] : i8, view<2016xi8>
+  %named_4 = vector.extract %named[4] : vector<7xi8> -> i8
+  %named_position_4 = index.add %position, %offset_4 : index
+  view.store %named_4, %output_view[%named_position_4] : i8, view<2016xi8>
+  %named_5 = vector.extract %named[5] : vector<7xi8> -> i8
+  %named_position_5 = index.add %position, %offset_5 : index
+  view.store %named_5, %output_view[%named_position_5] : i8, view<2016xi8>
+  %named_6 = vector.extract %named[6] : vector<7xi8> -> i8
+  %named_position_6 = index.add %position, %offset_6 : index
+  view.store %named_6, %output_view[%named_position_6] : i8, view<2016xi8>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : vector<7xi8>, i32, i32
+  scf.if %valid {
+    %shuffled_0 = vector.extract %shuffled[0] : vector<7xi8> -> i8
+    %shuffled_position_0 = index.add %second, %offset_0 : index
+    view.store %shuffled_0, %output_view[%shuffled_position_0] : i8, view<2016xi8>
+    %shuffled_1 = vector.extract %shuffled[1] : vector<7xi8> -> i8
+    %shuffled_position_1 = index.add %second, %offset_1 : index
+    view.store %shuffled_1, %output_view[%shuffled_position_1] : i8, view<2016xi8>
+    %shuffled_2 = vector.extract %shuffled[2] : vector<7xi8> -> i8
+    %shuffled_position_2 = index.add %second, %offset_2 : index
+    view.store %shuffled_2, %output_view[%shuffled_position_2] : i8, view<2016xi8>
+    %shuffled_3 = vector.extract %shuffled[3] : vector<7xi8> -> i8
+    %shuffled_position_3 = index.add %second, %offset_3 : index
+    view.store %shuffled_3, %output_view[%shuffled_position_3] : i8, view<2016xi8>
+    %shuffled_4 = vector.extract %shuffled[4] : vector<7xi8> -> i8
+    %shuffled_position_4 = index.add %second, %offset_4 : index
+    view.store %shuffled_4, %output_view[%shuffled_position_4] : i8, view<2016xi8>
+    %shuffled_5 = vector.extract %shuffled[5] : vector<7xi8> -> i8
+    %shuffled_position_5 = index.add %second, %offset_5 : index
+    view.store %shuffled_5, %output_view[%shuffled_position_5] : i8, view<2016xi8>
+    %shuffled_6 = vector.extract %shuffled[6] : vector<7xi8> -> i8
+    %shuffled_position_6 = index.add %second, %offset_6 : index
+    view.store %shuffled_6, %output_view[%shuffled_position_6] : i8, view<2016xi8>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : vector<7xi8>
+    %first_0 = vector.extract %first[0] : vector<7xi8> -> i8
+    %first_position_0 = index.add %third, %offset_0 : index
+    view.store %first_0, %output_view[%first_position_0] : i8, view<2016xi8>
+    %first_1 = vector.extract %first[1] : vector<7xi8> -> i8
+    %first_position_1 = index.add %third, %offset_1 : index
+    view.store %first_1, %output_view[%first_position_1] : i8, view<2016xi8>
+    %first_2 = vector.extract %first[2] : vector<7xi8> -> i8
+    %first_position_2 = index.add %third, %offset_2 : index
+    view.store %first_2, %output_view[%first_position_2] : i8, view<2016xi8>
+    %first_3 = vector.extract %first[3] : vector<7xi8> -> i8
+    %first_position_3 = index.add %third, %offset_3 : index
+    view.store %first_3, %output_view[%first_position_3] : i8, view<2016xi8>
+    %first_4 = vector.extract %first[4] : vector<7xi8> -> i8
+    %first_position_4 = index.add %third, %offset_4 : index
+    view.store %first_4, %output_view[%first_position_4] : i8, view<2016xi8>
+    %first_5 = vector.extract %first[5] : vector<7xi8> -> i8
+    %first_position_5 = index.add %third, %offset_5 : index
+    view.store %first_5, %output_view[%first_position_5] : i8, view<2016xi8>
+    %first_6 = vector.extract %first[6] : vector<7xi8> -> i8
+    %first_position_6 = index.add %third, %offset_6 : index
+    view.store %first_6, %output_view[%first_position_6] : i8, view<2016xi8>
+  }
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_transport_f16_3() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 3 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 288 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<96xf16>
+  %output_view = buffer.view %output[%base] : buffer -> view<864xf16>
+  %offset_0 = index.constant 0 : index
+  %input_0 = index.add %input_position, %offset_0 : index
+  %element_0 = view.load %input_view[%input_0] : view<96xf16> -> f16
+  %offset_1 = index.constant 1 : index
+  %input_1 = index.add %input_position, %offset_1 : index
+  %element_1 = view.load %input_view[%input_1] : view<96xf16> -> f16
+  %offset_2 = index.constant 2 : index
+  %input_2 = index.add %input_position, %offset_2 : index
+  %element_2 = view.load %input_view[%input_2] : view<96xf16> -> f16
+  %value = vector.from_elements %element_0, %element_1, %element_2 : vector<3xf16>
+  %named = kernel.subgroup.broadcast %value from %source_lane : vector<3xf16>, i32
+  %named_0 = vector.extract %named[0] : vector<3xf16> -> f16
+  %named_position_0 = index.add %position, %offset_0 : index
+  view.store %named_0, %output_view[%named_position_0] : f16, view<864xf16>
+  %named_1 = vector.extract %named[1] : vector<3xf16> -> f16
+  %named_position_1 = index.add %position, %offset_1 : index
+  view.store %named_1, %output_view[%named_position_1] : f16, view<864xf16>
+  %named_2 = vector.extract %named[2] : vector<3xf16> -> f16
+  %named_position_2 = index.add %position, %offset_2 : index
+  view.store %named_2, %output_view[%named_position_2] : f16, view<864xf16>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : vector<3xf16>, i32, i32
+  scf.if %valid {
+    %shuffled_0 = vector.extract %shuffled[0] : vector<3xf16> -> f16
+    %shuffled_position_0 = index.add %second, %offset_0 : index
+    view.store %shuffled_0, %output_view[%shuffled_position_0] : f16, view<864xf16>
+    %shuffled_1 = vector.extract %shuffled[1] : vector<3xf16> -> f16
+    %shuffled_position_1 = index.add %second, %offset_1 : index
+    view.store %shuffled_1, %output_view[%shuffled_position_1] : f16, view<864xf16>
+    %shuffled_2 = vector.extract %shuffled[2] : vector<3xf16> -> f16
+    %shuffled_position_2 = index.add %second, %offset_2 : index
+    view.store %shuffled_2, %output_view[%shuffled_position_2] : f16, view<864xf16>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : vector<3xf16>
+    %first_0 = vector.extract %first[0] : vector<3xf16> -> f16
+    %first_position_0 = index.add %third, %offset_0 : index
+    view.store %first_0, %output_view[%first_position_0] : f16, view<864xf16>
+    %first_1 = vector.extract %first[1] : vector<3xf16> -> f16
+    %first_position_1 = index.add %third, %offset_1 : index
+    view.store %first_1, %output_view[%first_position_1] : f16, view<864xf16>
+    %first_2 = vector.extract %first[2] : vector<3xf16> -> f16
+    %first_position_2 = index.add %third, %offset_2 : index
+    view.store %first_2, %output_view[%first_position_2] : f16, view<864xf16>
+  }
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_transport_bf16_4() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 4 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 384 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<128xbf16>
+  %output_view = buffer.view %output[%base] : buffer -> view<1152xbf16>
+  %value = vector.load %input_view[%input_position] : view<128xbf16> -> vector<4xbf16>
+  %named = kernel.subgroup.broadcast %value from %source_lane : vector<4xbf16>, i32
+  vector.store %named, %output_view[%position] : vector<4xbf16>, view<1152xbf16>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : vector<4xbf16>, i32, i32
+  scf.if %valid {
+    vector.store %shuffled, %output_view[%second] : vector<4xbf16>, view<1152xbf16>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : vector<4xbf16>
+    vector.store %first, %output_view[%third] : vector<4xbf16>, view<1152xbf16>
+  }
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_transport_f8e4m3_8() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 8 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 768 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<256xf8E4M3>
+  %output_view = buffer.view %output[%base] : buffer -> view<2304xf8E4M3>
+  %value = vector.load %input_view[%input_position] : view<256xf8E4M3> -> vector<8xf8E4M3>
+  %named = kernel.subgroup.broadcast %value from %source_lane : vector<8xf8E4M3>, i32
+  vector.store %named, %output_view[%position] : vector<8xf8E4M3>, view<2304xf8E4M3>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : vector<8xf8E4M3>, i32, i32
+  scf.if %valid {
+    vector.store %shuffled, %output_view[%second] : vector<8xf8E4M3>, view<2304xf8E4M3>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : vector<8xf8E4M3>
+    vector.store %first, %output_view[%third] : vector<8xf8E4M3>, view<2304xf8E4M3>
+  }
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_transport_f8e5m2_8() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 8 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 768 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<256xf8E5M2>
+  %output_view = buffer.view %output[%base] : buffer -> view<2304xf8E5M2>
+  %value = vector.load %input_view[%input_position] : view<256xf8E5M2> -> vector<8xf8E5M2>
+  %named = kernel.subgroup.broadcast %value from %source_lane : vector<8xf8E5M2>, i32
+  vector.store %named, %output_view[%position] : vector<8xf8E5M2>, view<2304xf8E5M2>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : vector<8xf8E5M2>, i32, i32
+  scf.if %valid {
+    vector.store %shuffled, %output_view[%second] : vector<8xf8E5M2>, view<2304xf8E5M2>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : vector<8xf8E5M2>
+    vector.store %first, %output_view[%third] : vector<8xf8E5M2>, view<2304xf8E5M2>
+  }
+  kernel.return
+}
+
+// ====
+kernel.def @subgroup_transport_f64_2() {
+  %unit = index.constant 1 : index
+  %items = index.constant 96 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%selected: index, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %cluster = index.constant 32 : index
+  %relative_lane = index.rem %item, %cluster : index
+  %elements = index.constant 2 : index
+  %position = index.mul %item, %elements : index
+  %input_position = index.mul %relative_lane, %elements : index
+  %group = index.constant 192 : index
+  %second = index.add %position, %group : index
+  %third = index.add %second, %group : index
+  %bounded = index.assume %selected [range(%selected, 0, 31)] : index
+  %source_lane = index.cast %bounded : index to i32
+  %input_view = buffer.view %input[%base] : buffer -> view<64xf64>
+  %output_view = buffer.view %output[%base] : buffer -> view<576xf64>
+  %value = vector.load %input_view[%input_position] : view<64xf64> -> vector<2xf64>
+  %named = kernel.subgroup.broadcast %value from %source_lane : vector<2xf64>, i32
+  vector.store %named, %output_view[%position] : vector<2xf64>, view<576xf64>
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<index> %value, %source_lane, %width : vector<2xf64>, i32, i32
+  scf.if %valid {
+    vector.store %shuffled, %output_view[%second] : vector<2xf64>, view<576xf64>
+  }
+  %first_lane = index.constant 5 : index
+  %end_lane = index.constant 10 : index
+  %above = index.cmp uge, %relative_lane, %first_lane : index
+  %below = index.cmp ult, %relative_lane, %end_lane : index
+  %active = scalar.andi %above, %below : i1
+  scf.if %active {
+    %first = kernel.subgroup.broadcast.first %value : vector<2xf64>
+    vector.store %first, %output_view[%third] : vector<2xf64>, view<576xf64>
+  }
+  kernel.return
+}
+
+// ====
+// Uniform arguments arrive in a different register bank from per-lane loads.
+// Every result still crosses the native exchange instructions as raw bits.
+kernel.def @subgroup_transport_uniform() {
+  %unit = index.constant 1 : index
+  %items = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%value_0: i8, %value_1: i16, %value_2: i32, %value_3: i64, %value_4: f8E4M3, %value_5: f8E5M2, %value_6: f16, %value_7: bf16, %value_8: f32, %value_9: f64, %output: buffer) {
+  %item = kernel.workitem.id<x> : index
+  %stride = index.constant 80 : index
+  %position = index.mul %item, %stride : index
+  %address = index.cast %position : index to offset
+  %selected = scalar.constant 7 : i32
+  %first_0 = kernel.subgroup.broadcast.first %value_0 : i8
+  %named_0 = kernel.subgroup.broadcast %first_0 from %selected : i8, i32
+  %field_0 = index.constant 0 : offset
+  %address_0 = index.add %address, %field_0 : offset
+  %output_0 = buffer.view %output[%address_0] : buffer -> view<1xi8>
+  view.store %named_0, %output_0[0] : i8, view<1xi8>
+  %first_1 = kernel.subgroup.broadcast.first %value_1 : i16
+  %named_1 = kernel.subgroup.broadcast %first_1 from %selected : i16, i32
+  %field_1 = index.constant 8 : offset
+  %address_1 = index.add %address, %field_1 : offset
+  %output_1 = buffer.view %output[%address_1] : buffer -> view<1xi16>
+  view.store %named_1, %output_1[0] : i16, view<1xi16>
+  %first_2 = kernel.subgroup.broadcast.first %value_2 : i32
+  %named_2 = kernel.subgroup.broadcast %first_2 from %selected : i32, i32
+  %field_2 = index.constant 16 : offset
+  %address_2 = index.add %address, %field_2 : offset
+  %output_2 = buffer.view %output[%address_2] : buffer -> view<1xi32>
+  view.store %named_2, %output_2[0] : i32, view<1xi32>
+  %first_3 = kernel.subgroup.broadcast.first %value_3 : i64
+  %named_3 = kernel.subgroup.broadcast %first_3 from %selected : i64, i32
+  %field_3 = index.constant 24 : offset
+  %address_3 = index.add %address, %field_3 : offset
+  %output_3 = buffer.view %output[%address_3] : buffer -> view<1xi64>
+  view.store %named_3, %output_3[0] : i64, view<1xi64>
+  %first_4 = kernel.subgroup.broadcast.first %value_4 : f8E4M3
+  %named_4 = kernel.subgroup.broadcast %first_4 from %selected : f8E4M3, i32
+  %field_4 = index.constant 32 : offset
+  %address_4 = index.add %address, %field_4 : offset
+  %output_4 = buffer.view %output[%address_4] : buffer -> view<1xf8E4M3>
+  view.store %named_4, %output_4[0] : f8E4M3, view<1xf8E4M3>
+  %first_5 = kernel.subgroup.broadcast.first %value_5 : f8E5M2
+  %named_5 = kernel.subgroup.broadcast %first_5 from %selected : f8E5M2, i32
+  %field_5 = index.constant 40 : offset
+  %address_5 = index.add %address, %field_5 : offset
+  %output_5 = buffer.view %output[%address_5] : buffer -> view<1xf8E5M2>
+  view.store %named_5, %output_5[0] : f8E5M2, view<1xf8E5M2>
+  %first_6 = kernel.subgroup.broadcast.first %value_6 : f16
+  %named_6 = kernel.subgroup.broadcast %first_6 from %selected : f16, i32
+  %field_6 = index.constant 48 : offset
+  %address_6 = index.add %address, %field_6 : offset
+  %output_6 = buffer.view %output[%address_6] : buffer -> view<1xf16>
+  view.store %named_6, %output_6[0] : f16, view<1xf16>
+  %first_7 = kernel.subgroup.broadcast.first %value_7 : bf16
+  %named_7 = kernel.subgroup.broadcast %first_7 from %selected : bf16, i32
+  %field_7 = index.constant 56 : offset
+  %address_7 = index.add %address, %field_7 : offset
+  %output_7 = buffer.view %output[%address_7] : buffer -> view<1xbf16>
+  view.store %named_7, %output_7[0] : bf16, view<1xbf16>
+  %first_8 = kernel.subgroup.broadcast.first %value_8 : f32
+  %named_8 = kernel.subgroup.broadcast %first_8 from %selected : f32, i32
+  %field_8 = index.constant 64 : offset
+  %address_8 = index.add %address, %field_8 : offset
+  %output_8 = buffer.view %output[%address_8] : buffer -> view<1xf32>
+  view.store %named_8, %output_8[0] : f32, view<1xf32>
+  %first_9 = kernel.subgroup.broadcast.first %value_9 : f64
+  %named_9 = kernel.subgroup.broadcast %first_9 from %selected : f64, i32
+  %field_9 = index.constant 72 : offset
+  %address_9 = index.add %address, %field_9 : offset
+  %output_9 = buffer.view %output[%address_9] : buffer -> view<1xf64>
+  view.store %named_9, %output_9[0] : f64, view<1xf64>
+  kernel.return
+}
+
+// Reproduce named, indexed, and first-active exchange as byte copies from the
+// same 32-lane input block consumed by each target cluster.
+func.def inline @subgroup_transport_bytes_oracle(%selected: index, %record_byte_count: index, %input: buffer, %output: buffer) {
+  %begin = index.constant 0 : index
+  %item_count = index.constant 96 : index
+  %step = index.constant 1 : index
+  %cluster_width = index.constant 32 : index
+  %first_active_lane = index.constant 5 : index
+  %active_lane_end = index.constant 10 : index
+  %second_plane = index.mul %item_count, %record_byte_count : index
+  %c2 = index.constant 2 : index
+  %third_plane = index.mul %second_plane, %c2 : index
+  %bounded_selected = index.assume %selected [range(%selected, 0, 31)] : index
+  %selected_record = index.mul %bounded_selected, %record_byte_count : index
+  %first_active_record = index.mul %first_active_lane, %record_byte_count : index
+  scf.for %item = [%begin to %item_count step %step] {
+    %record = index.mul %item, %record_byte_count : index
+    %indexed_record = index.add %second_plane, %record : index
+    scf.for %component = [%begin to %record_byte_count step %step] {
+      %source_index = index.add %selected_record, %component : index
+      %source_offset = index.cast %source_index : index to offset
+      %byte = buffer.load.i8.u %input[%source_offset]
+      %named_index = index.add %record, %component : index
+      %named_offset = index.cast %named_index : index to offset
+      buffer.store.i8 %byte, %output[%named_offset]
+      %indexed_index = index.add %indexed_record, %component : index
+      %indexed_offset = index.cast %indexed_index : index to offset
+      buffer.store.i8 %byte, %output[%indexed_offset]
+    }
+    %relative_lane = index.rem %item, %cluster_width : index
+    %above_first = index.cmp uge, %relative_lane, %first_active_lane : index
+    %below_end = index.cmp ult, %relative_lane, %active_lane_end : index
+    %active = scalar.andi %above_first, %below_end : i1
+    scf.if %active {
+      %first_record = index.add %third_plane, %record : index
+      scf.for %component = [%begin to %record_byte_count step %step] {
+        %source_index = index.add %first_active_record, %component : index
+        %source_offset = index.cast %source_index : index to offset
+        %byte = buffer.load.i8.u %input[%source_offset]
+        %result_index = index.add %first_record, %component : index
+        %result_offset = index.cast %result_index : index to offset
+        buffer.store.i8 %byte, %output[%result_offset]
+      }
+    }
+  }
+  func.return
+}
+
+func.def @subgroup_transport_i64_1_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 8 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @subgroup_transport_i8_7_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 7 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @subgroup_transport_f16_3_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 6 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @subgroup_transport_bf16_4_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 8 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @subgroup_transport_f8e4m3_8_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 8 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @subgroup_transport_f8e5m2_8_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 8 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+func.def @subgroup_transport_f64_2_oracle(%selected: index, %input: buffer, %output: buffer) {
+  %record_byte_count = index.constant 16 : index
+  func.call @subgroup_transport_bytes_oracle(%selected, %record_byte_count, %input, %output) : (index, index, buffer, buffer)
+  func.return
+}
+
+check.scenario @subgroup_transport_i64_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-81985529216486896) step(81985529216486895) period(32) : tensor<32xi64>
+    %storage = check.generate.fill value(-123) : tensor<320xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<320xi64> -> tensor<16xi64>
+    %output = check.tensor.view %storage offset(128) : tensor<320xi64> -> tensor<288xi64>
+    %suffix = check.tensor.view %storage offset(2432) : tensor<320xi64> -> tensor<16xi64>
+    check.compare<@subgroup_transport_i64_1, @subgroup_transport_i64_1_oracle>(%selected, %input, %output) : (index, tensor<32xi64>, tensor<288xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<288xi64>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi64>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_transport_i8_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) period(224) : tensor<224xi8>
+    %storage = check.generate.fill value(-123) : tensor<2048xi8>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2048xi8> -> tensor<16xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<2048xi8> -> tensor<2016xi8>
+    %suffix = check.tensor.view %storage offset(2032) : tensor<2048xi8> -> tensor<16xi8>
+    check.compare<@subgroup_transport_i8_7, @subgroup_transport_i8_7_oracle>(%selected, %input, %output) : (index, tensor<224xi8>, tensor<2016xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2016xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi8>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi8>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(96) step(1) period(32) : tensor<224xi8>
+    %storage = check.generate.fill value(-123) : tensor<2048xi8>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2048xi8> -> tensor<16xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<2048xi8> -> tensor<2016xi8>
+    %suffix = check.tensor.view %storage offset(2032) : tensor<2048xi8> -> tensor<16xi8>
+    check.compare<@subgroup_transport_i8_7, @subgroup_transport_i8_7_oracle>(%selected, %input, %output) : (index, tensor<224xi8>, tensor<2016xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2016xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi8>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_transport_f16_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-16384) step(257) period(96) : tensor<96xi16>
+    %storage = check.generate.fill value(-123) : tensor<896xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<896xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<896xi16> -> tensor<864xi16>
+    %suffix = check.tensor.view %storage offset(1760) : tensor<896xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_f16_3, @subgroup_transport_f16_3_oracle>(%selected, %input, %output) : (index, tensor<96xi16>, tensor<864xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<864xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(-32768) period(2) : tensor<96xi16>
+    %storage = check.generate.fill value(-123) : tensor<896xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<896xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<896xi16> -> tensor<864xi16>
+    %suffix = check.tensor.view %storage offset(1760) : tensor<896xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_f16_3, @subgroup_transport_f16_3_oracle>(%selected, %input, %output) : (index, tensor<96xi16>, tensor<864xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<864xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(31744) step(1) period(96) : tensor<96xi16>
+    %storage = check.generate.fill value(-123) : tensor<896xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<896xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<896xi16> -> tensor<864xi16>
+    %suffix = check.tensor.view %storage offset(1760) : tensor<896xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_f16_3, @subgroup_transport_f16_3_oracle>(%selected, %input, %output) : (index, tensor<96xi16>, tensor<864xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<864xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1024) step(1) period(96) : tensor<96xi16>
+    %storage = check.generate.fill value(-123) : tensor<896xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<896xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<896xi16> -> tensor<864xi16>
+    %suffix = check.tensor.view %storage offset(1760) : tensor<896xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_f16_3, @subgroup_transport_f16_3_oracle>(%selected, %input, %output) : (index, tensor<96xi16>, tensor<864xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<864xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_transport_bf16_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-16384) step(257) period(128) : tensor<128xi16>
+    %storage = check.generate.fill value(-123) : tensor<1184xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<1184xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<1184xi16> -> tensor<1152xi16>
+    %suffix = check.tensor.view %storage offset(2336) : tensor<1184xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_bf16_4, @subgroup_transport_bf16_4_oracle>(%selected, %input, %output) : (index, tensor<128xi16>, tensor<1152xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1152xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(-32768) period(2) : tensor<128xi16>
+    %storage = check.generate.fill value(-123) : tensor<1184xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<1184xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<1184xi16> -> tensor<1152xi16>
+    %suffix = check.tensor.view %storage offset(2336) : tensor<1184xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_bf16_4, @subgroup_transport_bf16_4_oracle>(%selected, %input, %output) : (index, tensor<128xi16>, tensor<1152xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1152xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(32640) step(1) period(128) : tensor<128xi16>
+    %storage = check.generate.fill value(-123) : tensor<1184xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<1184xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<1184xi16> -> tensor<1152xi16>
+    %suffix = check.tensor.view %storage offset(2336) : tensor<1184xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_bf16_4, @subgroup_transport_bf16_4_oracle>(%selected, %input, %output) : (index, tensor<128xi16>, tensor<1152xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1152xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) period(128) : tensor<128xi16>
+    %storage = check.generate.fill value(-123) : tensor<1184xi16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<1184xi16> -> tensor<16xi16>
+    %output = check.tensor.view %storage offset(32) : tensor<1184xi16> -> tensor<1152xi16>
+    %suffix = check.tensor.view %storage offset(2336) : tensor<1184xi16> -> tensor<16xi16>
+    check.compare<@subgroup_transport_bf16_4, @subgroup_transport_bf16_4_oracle>(%selected, %input, %output) : (index, tensor<128xi16>, tensor<1152xi16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1152xi16>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi16>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi16>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_transport_f8e4m3_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) period(256) : tensor<256xi8>
+    %storage = check.generate.fill value(-123) : tensor<2336xi8>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2336xi8> -> tensor<16xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<2336xi8> -> tensor<2304xi8>
+    %suffix = check.tensor.view %storage offset(2320) : tensor<2336xi8> -> tensor<16xi8>
+    check.compare<@subgroup_transport_f8e4m3_8, @subgroup_transport_f8e4m3_8_oracle>(%selected, %input, %output) : (index, tensor<256xi8>, tensor<2304xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2304xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi8>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_transport_f8e5m2_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) period(256) : tensor<256xi8>
+    %storage = check.generate.fill value(-123) : tensor<2336xi8>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2336xi8> -> tensor<16xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<2336xi8> -> tensor<2304xi8>
+    %suffix = check.tensor.view %storage offset(2320) : tensor<2336xi8> -> tensor<16xi8>
+    check.compare<@subgroup_transport_f8e5m2_8, @subgroup_transport_f8e5m2_8_oracle>(%selected, %input, %output) : (index, tensor<256xi8>, tensor<2304xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2304xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi8>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @subgroup_transport_f64_values {
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-81985529216486896) step(81985529216486895) period(64) : tensor<64xi64>
+    %storage = check.generate.fill value(-123) : tensor<608xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<608xi64> -> tensor<16xi64>
+    %output = check.tensor.view %storage offset(128) : tensor<608xi64> -> tensor<576xi64>
+    %suffix = check.tensor.view %storage offset(4736) : tensor<608xi64> -> tensor<16xi64>
+    check.compare<@subgroup_transport_f64_2, @subgroup_transport_f64_2_oracle>(%selected, %input, %output) : (index, tensor<64xi64>, tensor<576xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<576xi64>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi64>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi64>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(-9223372036854775808) period(2) : tensor<64xi64>
+    %storage = check.generate.fill value(-123) : tensor<608xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<608xi64> -> tensor<16xi64>
+    %output = check.tensor.view %storage offset(128) : tensor<608xi64> -> tensor<576xi64>
+    %suffix = check.tensor.view %storage offset(4736) : tensor<608xi64> -> tensor<16xi64>
+    check.compare<@subgroup_transport_f64_2, @subgroup_transport_f64_2_oracle>(%selected, %input, %output) : (index, tensor<64xi64>, tensor<576xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<576xi64>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi64>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi64>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(9218868437227405312) step(1) period(64) : tensor<64xi64>
+    %storage = check.generate.fill value(-123) : tensor<608xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<608xi64> -> tensor<16xi64>
+    %output = check.tensor.view %storage offset(128) : tensor<608xi64> -> tensor<576xi64>
+    %suffix = check.tensor.view %storage offset(4736) : tensor<608xi64> -> tensor<16xi64>
+    check.compare<@subgroup_transport_f64_2, @subgroup_transport_f64_2_oracle>(%selected, %input, %output) : (index, tensor<64xi64>, tensor<576xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<576xi64>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi64>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi64>
+    }
+  }
+  check.trial[32](%selected: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-4503599627370496) step(1) period(64) : tensor<64xi64>
+    %storage = check.generate.fill value(-123) : tensor<608xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<608xi64> -> tensor<16xi64>
+    %output = check.tensor.view %storage offset(128) : tensor<608xi64> -> tensor<576xi64>
+    %suffix = check.tensor.view %storage offset(4736) : tensor<608xi64> -> tensor<16xi64>
+    check.compare<@subgroup_transport_f64_2, @subgroup_transport_f64_2_oracle>(%selected, %input, %output) : (index, tensor<64xi64>, tensor<576xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<576xi64>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi64>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi64>
+    }
+  }
+  check.return
+}
+
+func.def @subgroup_transport_uniform_oracle(%value_0: i8, %value_1: i16, %value_2: i32, %value_3: i64, %value_4: f8E4M3, %value_5: f8E5M2, %value_6: f16, %value_7: bf16, %value_8: f32, %value_9: f64, %output: buffer) {
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %stride = index.constant 80 : index
+  scf.for %item = [%begin to %end step %step] {
+    %position = index.mul %item, %stride : index
+    %address = index.cast %position : index to offset
+    %field_0 = index.constant 0 : offset
+    %address_0 = index.add %address, %field_0 : offset
+    %output_0 = buffer.view %output[%address_0] : buffer -> view<1xi8>
+    view.store %value_0, %output_0[0] : i8, view<1xi8>
+    %field_1 = index.constant 8 : offset
+    %address_1 = index.add %address, %field_1 : offset
+    %output_1 = buffer.view %output[%address_1] : buffer -> view<1xi16>
+    view.store %value_1, %output_1[0] : i16, view<1xi16>
+    %field_2 = index.constant 16 : offset
+    %address_2 = index.add %address, %field_2 : offset
+    %output_2 = buffer.view %output[%address_2] : buffer -> view<1xi32>
+    view.store %value_2, %output_2[0] : i32, view<1xi32>
+    %field_3 = index.constant 24 : offset
+    %address_3 = index.add %address, %field_3 : offset
+    %output_3 = buffer.view %output[%address_3] : buffer -> view<1xi64>
+    view.store %value_3, %output_3[0] : i64, view<1xi64>
+    %field_4 = index.constant 32 : offset
+    %address_4 = index.add %address, %field_4 : offset
+    %output_4 = buffer.view %output[%address_4] : buffer -> view<1xf8E4M3>
+    view.store %value_4, %output_4[0] : f8E4M3, view<1xf8E4M3>
+    %field_5 = index.constant 40 : offset
+    %address_5 = index.add %address, %field_5 : offset
+    %output_5 = buffer.view %output[%address_5] : buffer -> view<1xf8E5M2>
+    view.store %value_5, %output_5[0] : f8E5M2, view<1xf8E5M2>
+    %field_6 = index.constant 48 : offset
+    %address_6 = index.add %address, %field_6 : offset
+    %output_6 = buffer.view %output[%address_6] : buffer -> view<1xf16>
+    view.store %value_6, %output_6[0] : f16, view<1xf16>
+    %field_7 = index.constant 56 : offset
+    %address_7 = index.add %address, %field_7 : offset
+    %output_7 = buffer.view %output[%address_7] : buffer -> view<1xbf16>
+    view.store %value_7, %output_7[0] : bf16, view<1xbf16>
+    %field_8 = index.constant 64 : offset
+    %address_8 = index.add %address, %field_8 : offset
+    %output_8 = buffer.view %output[%address_8] : buffer -> view<1xf32>
+    view.store %value_8, %output_8[0] : f32, view<1xf32>
+    %field_9 = index.constant 72 : offset
+    %address_9 = index.add %address, %field_9 : offset
+    %output_9 = buffer.view %output[%address_9] : buffer -> view<1xf64>
+    view.store %value_9, %output_9[0] : f64, view<1xf64>
+  }
+  func.return
+}
+
+check.scenario @subgroup_transport_uniform_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %value_0 = check.literal value(-91) : i8
+    %value_1 = check.literal value(-23101) : i16
+    %value_2 = check.literal value(-19088743) : i32
+    %value_3 = check.literal value(-81985529216486896) : i64
+    %value_4 = check.literal value(-0.0) : f8E4M3
+    %value_5 = check.literal value(-0.0) : f8E5M2
+    %value_6 = check.literal value(-0.0) : f16
+    %value_7 = check.literal value(-0.0) : bf16
+    %value_8 = check.literal value(-0.0) : f32
+    %value_9 = check.literal value(-0.0) : f64
+    %storage = check.generate.fill value(-123) : tensor<2592xi8>
+    %prefix = check.tensor.view %storage offset(0) : tensor<2592xi8> -> tensor<16xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<2592xi8> -> tensor<2560xi8>
+    %suffix = check.tensor.view %storage offset(2576) : tensor<2592xi8> -> tensor<16xi8>
+    check.compare<@subgroup_transport_uniform, @subgroup_transport_uniform_oracle>(%value_0, %value_1, %value_2, %value_3, %value_4, %value_5, %value_6, %value_7, %value_8, %value_9, %output) : (i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, tensor<2560xi8>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2560xi8>
+      check.expect.bitwise actual(%prefix) expected(%prefix) : tensor<16xi8>
+      check.expect.bitwise actual(%suffix) expected(%suffix) : tensor<16xi8>
+    }
+  }
+  check.return
+}
