@@ -333,8 +333,8 @@ static iree_status_t loom_low_memory_bind_effects(
   loom_intern_probe_t probe = loom_intern_table_probe(
       &map->index, hash, loom_low_memory_binding_equal, &key);
   IREE_ASSERT_EQ(probe.index, UINT32_MAX);
-  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(map->arena, &map->index,
-                                                        hash, &probe.slot));
+  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+      map->arena, &map->index, hash, /*insertion_count=*/1, &probe.slot));
   if (map->index.count == map->capacity) {
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
         map->arena, map->index.count, map->index.count + 1,
@@ -479,7 +479,8 @@ static iree_status_t loom_low_memory_clone_scope(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-      clone->scratch_arena, &clone->scope_index, hash, &probe.slot));
+      clone->scratch_arena, &clone->scope_index, hash, /*insertion_count=*/1,
+      &probe.slot));
   if (clone->scope_index.count == clone->scope_capacity) {
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
         clone->scratch_arena, clone->scope_index.count,

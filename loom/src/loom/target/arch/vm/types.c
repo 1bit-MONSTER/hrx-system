@@ -144,15 +144,15 @@ iree_status_t loom_vm_reference_plan_bind(loom_vm_reference_plan_t* plan,
     *loom_vm_reference_entry_mutable(plan, ordinal) =
         (loom_vm_reference_entry_t){.key = key, .provisional_ordinal = ordinal};
     IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-        arena, &plan->index, key_hash, &canonical.slot));
+        arena, &plan->index, key_hash, /*insertion_count=*/1, &canonical.slot));
     loom_intern_table_insert(&plan->index, canonical.slot, key_hash,
                              ordinal | LOOM_VM_REFERENCE_KEY_TAG);
     // Canonical insertion can occupy the name's vacant slot or grow the table.
     name = loom_intern_table_probe(&plan->index, name_hash,
                                    loom_vm_reference_equal, &name_query);
   }
-  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(arena, &plan->index,
-                                                        name_hash, &name.slot));
+  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+      arena, &plan->index, name_hash, /*insertion_count=*/1, &name.slot));
   loom_intern_table_insert(&plan->index, name.slot, name_hash, ordinal);
   *out_ordinal = ordinal;
   return iree_ok_status();

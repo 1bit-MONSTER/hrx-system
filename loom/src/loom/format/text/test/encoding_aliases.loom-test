@@ -1,0 +1,38 @@
+// RUN: roundtrip
+
+// All source names remain usable, while structural interning retains the first
+// display name for the shared encoding.
+#row_major = #encoding.layout.strided<strides=[8, 1]>
+#equivalent = #encoding.layout.strided<strides=[8, 1]>
+#forwarded = #equivalent
+test.decl @aliases(%first: view<8x8xf32, #row_major>, %second: view<8x8xf32, #equivalent>, %third: view<8x8xf32, #forwarded>)
+
+// ----
+#row_major = #encoding.layout.strided<strides=[8, 1]>
+test.decl @aliases(%first: view<8x8xf32, #row_major>, %second: view<8x8xf32, #row_major>, %third: view<8x8xf32, #row_major>)
+
+// ====
+// RUN: format bytecode
+
+// A later alias promotes the already-interned inline encoding. Bytecode carries
+// the canonical display name for both the earlier and later use.
+test.decl @before(%value: view<8x8xf32, #encoding.layout.strided<strides=[8, 1]>>)
+#row_major = #encoding.layout.strided<strides=[8, 1]>
+test.decl @after(%value: view<8x8xf32, #row_major>)
+
+// ----
+#row_major = #encoding.layout.strided<strides=[8, 1]>
+test.decl @before(%value: view<8x8xf32, #row_major>)
+
+test.decl @after(%value: view<8x8xf32, #row_major>)
+
+// ====
+// RUN: verify
+
+// An alternate source name still occupies the source namespace even though
+// structural interning retained the first name for display.
+#first = #encoding.layout.dense
+#second = #first
+// ERROR@+1: PARSE/014 "duplicate encoding alias name"
+#second = #encoding.layout.strided<strides=[8, 1]>
+test.decl @retained_alias(%value: view<8x8xf32, #second>)

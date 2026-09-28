@@ -221,3 +221,32 @@ func.def @branches() {
 ^else:
   func.return
 }
+
+// ====
+// RUN: verify
+
+// An earlier diagnostic does not abort later argument or result signatures,
+// and errors inside a subsequent function remain visible.
+// ERROR@+1: PARSE/006 "missing.operation"
+missing.operation
+config.decl @extent : %width: index where [range(%width, 1, 32)]
+func.decl @shape(%input: index) -> (%extent: %input as index, tensor<[%extent]xf32>)
+test.signature_sink() : () -> (%width: index, vector<[%width]xf32>)
+func.def @later_signature(%input: f32) -> (f32) {
+  // ERROR@+1: PARSE/001 "later_missing"
+  test.use %later_missing : f32
+  func.return %input : f32
+}
+
+// ====
+// RUN: verify
+
+// A failed argument type stops that signature before attempting to bind its
+// name, even when a preceding argument used the same spelling.
+// ERROR@+1: PARSE/007 "missing_type"
+test.decl @failed_type(%value: i32, %value: missing_type)
+func.def @after_failed_type(%input: f32) -> (f32) {
+  // ERROR@+1: PARSE/001 "later_missing"
+  test.use %later_missing : f32
+  func.return %input : f32
+}

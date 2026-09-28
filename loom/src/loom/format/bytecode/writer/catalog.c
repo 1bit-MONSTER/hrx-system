@@ -435,7 +435,8 @@ loom_bytecode_numbering_intern_string_view_slow(
     slot = loom_intern_table_find_empty_slot(index, hash);
   } else {
     IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-        numbering->arena, &numbering->strings.external.index, hash, &slot));
+        numbering->arena, &numbering->strings.external.index, hash,
+        /*insertion_count=*/1, &slot));
   }
 
   const uint32_t writer_id =

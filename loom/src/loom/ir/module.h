@@ -465,7 +465,9 @@ iree_status_t loom_module_verify_canonical_attr_dict(
 // distinct encodings so text output can emit unambiguous alias definitions.
 // `name_id` and `alias_id` must be pre-interned in the module's string table.
 // Parameters may point to temporary storage; they are recursively
-// canonicalized into module-owned arena storage.
+// canonicalized into module-owned arena storage. Duplicate candidates release
+// their copied parameters. Failure preserves existing encoding rows and their
+// index; family-alias expansion may still intern string names before failing.
 iree_status_t loom_module_add_encoding(loom_module_t* module,
                                        const loom_encoding_t* encoding,
                                        uint16_t* out_encoding_id);

@@ -2529,7 +2529,8 @@ typedef struct loom_module_t {
   loom_intern_table_t string_intern;
   // Arena-owned deduplication buckets for canonical types.
   loom_intern_table_t type_intern;
-  // Arena-owned deduplication buckets for canonical encodings.
+  // Arena-owned structural and display-alias keys for canonical encodings.
+  // Both keys reference the same row; anonymous encodings have only one key.
   loom_intern_table_t encoding_intern;
 
   // Complete immutable canonical-payload identity index, published with types.

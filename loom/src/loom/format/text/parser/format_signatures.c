@@ -70,10 +70,11 @@ static iree_status_t loom_parse_format_assign_lhs_result_type(
 static iree_status_t loom_parse_format_append_signature_result(
     loom_parser_t* parser, loom_parsed_op_t* parsed, loom_type_t type,
     loom_token_t name_token) {
+  const uint32_t errors_before = parser->error_count;
   loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(
       loom_parser_define_value(parser, name_token, type, &value_id));
-  if (parser->error_count > 0) {
+  if (parser->error_count > errors_before) {
     return iree_ok_status();
   }
   return loom_parsed_op_add_result(parsed, &parser->parser_arena, value_id,
@@ -699,6 +700,7 @@ iree_status_t loom_parse_format_func_args(loom_parser_t* parser,
                                           const loom_format_element_t* element,
                                           uint16_t pending_func_arg_base,
                                           loom_parsed_op_t* parsed) {
+  const uint32_t errors_before = parser->error_count;
   uint16_t pending_arg_start = parser->pending_func_args.count;
   if (!loom_tokenizer_try_consume(&parser->tokenizer, LOOM_TOKEN_LPAREN)) {
     loom_token_t peek = loom_tokenizer_peek(&parser->tokenizer);
@@ -725,11 +727,14 @@ iree_status_t loom_parse_format_func_args(loom_parser_t* parser,
 
     loom_type_t type = {0};
     IREE_RETURN_IF_ERROR(loom_parse_type(parser, LOOM_TYPE_PARSE_ARG, &type));
+    if (parser->error_count > errors_before) {
+      return iree_ok_status();
+    }
 
     loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(
         loom_parser_define_value(parser, name_token, type, &value_id));
-    if (parser->error_count > 0) {
+    if (parser->error_count > errors_before) {
       return iree_ok_status();
     }
 

@@ -339,7 +339,7 @@ static iree_status_t loom_motion_read_barrier_table_append(
       &probe_context);
   IREE_ASSERT_EQ(probe.index, UINT32_MAX);
   IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-      table->arena, &table->index, hash, &probe.slot));
+      table->arena, &table->index, hash, /*insertion_count=*/1, &probe.slot));
 
   const uint32_t entry_index = table->entry_count;
   if ((entry_index & LOOM_MOTION_READ_BARRIER_ENTRY_SEGMENT_MASK) == 0) {

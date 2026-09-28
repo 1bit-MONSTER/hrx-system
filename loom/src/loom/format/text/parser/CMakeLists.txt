@@ -31,6 +31,7 @@ loom_cc_library(
     "types.h"
   SRCS
     "accumulator.c"
+    "aliases.c"
     "attrs.c"
     "diagnostics.c"
     "format.c"
@@ -80,6 +81,20 @@ loom_cc_test(
     loom::ops::type_registry
     loom::testing::diagnostic_matchers
     loom::util::stream
+)
+
+loom_cc_test(
+  NAME
+    aliases_test
+  SRCS
+    "aliases_test.cc"
+  DEPS
+    ::parser_impl
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::encoding
 )
 
 loom_cc_test(

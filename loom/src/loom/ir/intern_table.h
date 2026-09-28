@@ -78,7 +78,7 @@ iree_status_t loom_intern_table_initialize(iree_arena_allocator_t* arena,
 // Clears occupied buckets while retaining their storage and logical capacity.
 void loom_intern_table_clear(loom_intern_table_t* table);
 
-// Allocates initial capacity for an empty table or doubles a live table. The
+// Allocates initial capacity or grows to a larger power-of-two capacity. The
 // vacant seam is an empty old slot retained by a failed probe, ignored for an
 // empty table. Failure preserves the table and the prior arena allocation
 // state; successful growth invalidates previously retained probe slots.
@@ -146,17 +146,22 @@ static inline loom_intern_probe_t loom_intern_table_probe(
   }
 }
 
-// Reserves insertion after a miss, updating the known vacant slot only when
-// growth changes placement. No mutation may intervene between probe and
-// reserve. Failure preserves the table and the arena's prior allocation state.
+// Reserves a positive |insertion_count| after a miss, updating the first key's
+// known vacant slot only when growth changes placement. Remaining keys find
+// their slots after preceding insertions. No mutation may intervene between
+// probe and reserve. Failure preserves the table and prior arena allocation
+// state.
 static inline iree_status_t loom_intern_table_reserve_insert(
     iree_arena_allocator_t* arena, loom_intern_table_t* table, uint32_t hash,
-    iree_host_size_t* inout_slot) {
-  if (loom_intern_table_has_insert_capacity(table)) {
+    iree_host_size_t insertion_count, iree_host_size_t* inout_slot) {
+  const iree_host_size_t required_count = table->count + insertion_count;
+  if (required_count * 4 <= table->capacity * 3) {
     return iree_ok_status();
   }
-  const iree_host_size_t capacity =
-      table->capacity == 0 ? 32 : table->capacity * 2;
+  iree_host_size_t capacity = table->capacity == 0 ? 32 : table->capacity * 2;
+  if (required_count * 4 > capacity * 3) {
+    capacity = loom_intern_table_capacity_for_entries(required_count);
+  }
   IREE_RETURN_IF_ERROR(
       loom_intern_table_grow(arena, capacity, *inout_slot, table));
   *inout_slot = loom_intern_table_find_empty_slot(table, hash);
