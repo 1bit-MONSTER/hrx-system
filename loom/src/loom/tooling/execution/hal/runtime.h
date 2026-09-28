@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Generic HAL runtime setup for Loom execution sessions.
+// HAL runtime setup and completion handling for Loom execution sessions.
 
 #ifndef LOOM_TOOLING_EXECUTION_HAL_RUNTIME_H_
 #define LOOM_TOOLING_EXECUTION_HAL_RUNTIME_H_
@@ -61,6 +61,15 @@ iree_status_t loom_run_hal_runtime_initialize(
 
 // Releases all resources owned by |runtime|.
 void loom_run_hal_runtime_deinitialize(loom_run_hal_runtime_t* runtime);
+
+// Waits for |semaphore| to reach |value|. On failure, queries the semaphore for
+// its saved diagnostic and joins the wait error as context. If the semaphore
+// has not failed, returns the original wait error. The returned status is owned
+// independently of the semaphore. Successful waits do not query the semaphore.
+iree_status_t loom_run_hal_semaphore_wait(iree_hal_semaphore_t* semaphore,
+                                          uint64_t value,
+                                          iree_timeout_t timeout,
+                                          iree_async_wait_flags_t flags);
 
 #ifdef __cplusplus
 }  // extern "C"

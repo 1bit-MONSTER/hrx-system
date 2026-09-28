@@ -368,6 +368,24 @@ loom_cc_library(
 if(IREE_HAL_DRIVER_TASK)
 loom_cc_test(
   NAME
+    runtime_test
+  SRCS
+    "runtime_test.cc"
+  DEPS
+    ::runtime
+    iree::async
+    iree::async::platform
+    iree::base
+    iree::hal
+    iree::hal::drivers::task::semaphore
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+endif()
+
+if(IREE_HAL_DRIVER_TASK)
+loom_cc_test(
+  NAME
     execution_backend_test
   SRCS
     "execution_backend_test.cc"
