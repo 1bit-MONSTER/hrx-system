@@ -456,9 +456,13 @@ func.def @type_ref(%N: index, %v: vector<[%N]xi32>) -> (vector<[%N]xi32>) {
   EXPECT_EQ(
       loom_liveness_operation_use_ordinal(&analysis, return_point.use_start),
       FindValueOrdinal(analysis, args[1]));
+  EXPECT_FALSE(loom_liveness_operation_use_has_type_reference(
+      &analysis, return_point.use_start));
   EXPECT_EQ(loom_liveness_operation_use_ordinal(&analysis,
                                                 return_point.use_start + 1u),
             FindValueOrdinal(analysis, args[0]));
+  EXPECT_TRUE(loom_liveness_operation_use_has_type_reference(
+      &analysis, return_point.use_start + 1u));
 }
 
 TEST_F(LivenessTest, TiedResultOperandIsLiveThroughConsumingOp) {

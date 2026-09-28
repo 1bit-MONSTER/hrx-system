@@ -39,6 +39,8 @@ static_assert(sizeof(loom_liveness_operation_use_segment_t) == 4096,
 struct loom_liveness_operation_use_table_t {
   // Stable arena-backed operation-use segments.
   loom_segmented_storage_t segments;
+  // Bitset of direct uses that include an operand/result type reference.
+  const uint64_t* type_reference_words;
 };
 
 typedef struct loom_liveness_bitset_t {
@@ -128,6 +130,14 @@ typedef struct loom_liveness_build_state_t {
   iree_host_size_t operation_use_count;
   // Reusable set deduplicating one operation-use range.
   loom_liveness_bitset_t operation_use_seen;
+  // Reusable set identifying direct values referenced from operation types.
+  loom_liveness_bitset_t operation_type_reference_seen;
+  // Scratch type-reference bits indexed by retained operation use.
+  uint64_t* operation_use_type_reference_words;
+  // Allocated word capacity in |operation_use_type_reference_words|.
+  iree_host_size_t operation_use_type_reference_word_capacity;
+  // True while direct type references are being collected.
+  bool collecting_operation_type_references;
   // Mutable pressure summary state.
   loom_liveness_pressure_state_t pressure_state;
 } loom_liveness_build_state_t;
@@ -532,6 +542,26 @@ static loom_value_ordinal_t loom_liveness_operation_use_table_ordinal(
       ->ordinals[use_index & LOOM_LIVENESS_OPERATION_USE_SEGMENT_MASK];
 }
 
+static iree_status_t loom_liveness_mark_operation_use_type_reference(
+    loom_liveness_build_state_t* state, uint32_t use_index) {
+  const iree_host_size_t word_index = use_index / 64u;
+  if (word_index >= state->operation_use_type_reference_word_capacity) {
+    const iree_host_size_t old_capacity =
+        state->operation_use_type_reference_word_capacity;
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        state->scratch_arena, old_capacity, word_index + 1u,
+        sizeof(*state->operation_use_type_reference_words),
+        &state->operation_use_type_reference_word_capacity,
+        (void**)&state->operation_use_type_reference_words));
+    memset(state->operation_use_type_reference_words + old_capacity, 0,
+           (state->operation_use_type_reference_word_capacity - old_capacity) *
+               sizeof(*state->operation_use_type_reference_words));
+  }
+  state->operation_use_type_reference_words[word_index] |= UINT64_C(1)
+                                                           << (use_index % 64u);
+  return iree_ok_status();
+}
+
 static iree_status_t loom_liveness_append_operation_use(
     loom_liveness_build_state_t* state, loom_value_ordinal_t value_ordinal) {
   if (state->operation_use_count >= UINT32_MAX) {
@@ -582,6 +612,17 @@ static iree_status_t loom_liveness_note_use_at_point(void* user_data,
                                  value_ordinal)) {
       IREE_RETURN_IF_ERROR(loom_liveness_append_operation_use(
           state->build_state, value_ordinal));
+    }
+    if (state->build_state->collecting_operation_type_references) {
+      if (state->build_state->operation_type_reference_seen.words == NULL) {
+        IREE_RETURN_IF_ERROR(loom_liveness_bitset_allocate(
+            state->build_state->scratch_arena, state->build_state->word_count,
+            &state->build_state->operation_type_reference_seen));
+        loom_liveness_bitset_clear_all(
+            state->build_state->operation_type_reference_seen);
+      }
+      loom_liveness_bitset_set(
+          state->build_state->operation_type_reference_seen, value_ordinal);
     }
   }
   return iree_ok_status();
@@ -651,12 +692,32 @@ static iree_status_t loom_liveness_finalize_op_intervals(
       .operation_point = operation_point,
       .point = point,
   };
-  IREE_RETURN_IF_ERROR(loom_liveness_for_each_op_direct_use(
+  IREE_RETURN_IF_ERROR(loom_liveness_for_each_op_operand_use(
+      op, loom_liveness_value_callback_make(loom_liveness_note_use_at_point,
+                                            &use_state)));
+  state->collecting_operation_type_references = true;
+  const iree_status_t type_use_status = loom_liveness_for_each_op_type_use(
       state->module, op,
       loom_liveness_value_callback_make(loom_liveness_note_use_at_point,
-                                        &use_state)));
+                                        &use_state));
+  state->collecting_operation_type_references = false;
+  IREE_RETURN_IF_ERROR(type_use_status);
   operation_point->direct_use_count =
       (uint32_t)state->operation_use_count - operation_point->use_start;
+  if (state->operation_type_reference_seen.words != NULL) {
+    const uint32_t use_end = (uint32_t)state->operation_use_count;
+    for (uint32_t use_index = operation_point->use_start; use_index < use_end;
+         ++use_index) {
+      const loom_value_ordinal_t value_ordinal =
+          loom_liveness_operation_use_table_ordinal(state->operation_uses,
+                                                    use_index);
+      if (loom_liveness_bitset_reset(state->operation_type_reference_seen,
+                                     value_ordinal)) {
+        IREE_RETURN_IF_ERROR(
+            loom_liveness_mark_operation_use_type_reference(state, use_index));
+      }
+    }
+  }
   loom_liveness_reset_operation_use_range(state, operation_point->use_start);
   const uint32_t nested_use_start = (uint32_t)state->operation_use_count;
   IREE_RETURN_IF_ERROR(loom_liveness_for_each_nested_external_use(
@@ -1385,6 +1446,7 @@ loom_liveness_analyze_local_value_domain_with_dataflow_impl(
                                  (void**)&state.operation_uses);
   }
   if (iree_status_is_ok(status) && state.operation_capacity > 0) {
+    state.operation_uses->type_reference_words = NULL;
     loom_segmented_storage_initialize(
         sizeof(loom_liveness_operation_use_segment_t),
         iree_alignof(loom_liveness_operation_use_segment_t),
@@ -1429,6 +1491,25 @@ loom_liveness_analyze_local_value_domain_with_dataflow_impl(
   if (iree_status_is_ok(status)) {
     status = loom_liveness_finalize_segment_array(
         &state, &segments, &segment_count, &value_segment_ranges);
+  }
+
+  if (iree_status_is_ok(status) &&
+      state.operation_use_type_reference_words != NULL) {
+    const iree_host_size_t word_count =
+        loom_liveness_word_count(state.operation_use_count);
+    uint64_t* type_reference_words = NULL;
+    status = iree_arena_allocate_array(result_arena, word_count,
+                                       sizeof(*type_reference_words),
+                                       (void**)&type_reference_words);
+    if (iree_status_is_ok(status)) {
+      memset(type_reference_words, 0,
+             word_count * sizeof(*type_reference_words));
+      const iree_host_size_t populated_word_count = iree_min(
+          word_count, state.operation_use_type_reference_word_capacity);
+      memcpy(type_reference_words, state.operation_use_type_reference_words,
+             populated_word_count * sizeof(*type_reference_words));
+      state.operation_uses->type_reference_words = type_reference_words;
+    }
   }
 
   if (iree_status_is_ok(status)) {
@@ -1520,6 +1601,16 @@ loom_value_ordinal_t loom_liveness_operation_use_ordinal(
   IREE_ASSERT_ARGUMENT(analysis->operation_uses);
   return loom_liveness_operation_use_table_ordinal(analysis->operation_uses,
                                                    use_index);
+}
+
+bool loom_liveness_operation_use_has_type_reference(
+    const loom_liveness_analysis_t* analysis, uint32_t use_index) {
+  IREE_ASSERT_ARGUMENT(analysis);
+  IREE_ASSERT_LT(use_index, analysis->operation_use_count);
+  IREE_ASSERT_ARGUMENT(analysis->operation_uses);
+  const uint64_t* words = analysis->operation_uses->type_reference_words;
+  return words != NULL &&
+         (words[use_index / 64u] & (UINT64_C(1) << (use_index % 64u))) != 0;
 }
 
 const loom_liveness_interval_t* loom_liveness_interval_for_value(

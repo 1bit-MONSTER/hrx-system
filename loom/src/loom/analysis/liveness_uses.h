@@ -45,6 +45,16 @@ iree_status_t loom_liveness_for_each_nested_external_use(
     const loom_module_t* module, const loom_op_t* owner_op,
     loom_liveness_value_callback_t visitor);
 
+// Visits operation operand values without visiting their types.
+iree_status_t loom_liveness_for_each_op_operand_use(
+    const loom_op_t* op, loom_liveness_value_callback_t visitor);
+
+// Visits SSA references in operand and result types, excluding the operation's
+// own results. Repeated references may produce repeated visits.
+iree_status_t loom_liveness_for_each_op_type_use(
+    const loom_module_t* module, const loom_op_t* op,
+    loom_liveness_value_callback_t visitor);
+
 // Visits operands and SSA references in operand/result types, excluding the
 // operation's own results. Nested-region captures are visited separately.
 iree_status_t loom_liveness_for_each_op_direct_use(

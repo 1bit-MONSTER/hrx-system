@@ -338,6 +338,12 @@ iree_status_t loom_liveness_analyze_region_with_order(
 loom_value_ordinal_t loom_liveness_operation_use_ordinal(
     const loom_liveness_analysis_t* analysis, uint32_t use_index);
 
+// Returns true when the retained direct use includes an SSA reference embedded
+// in an operand or result type. Direct operation-use ranges remain distinct by
+// value; this preserves additional read provenance without duplicating rows.
+bool loom_liveness_operation_use_has_type_reference(
+    const loom_liveness_analysis_t* analysis, uint32_t use_index);
+
 // Returns the interval for |value_id|, or NULL when the value is not touched by
 // the analyzed region. This convenience helper scans the compact local value
 // list; production hot paths should keep their own frame-local direct lookup.
