@@ -310,8 +310,38 @@ def _validate_dma(tile: TileFacts) -> None:
     )
     if any(value <= 0 for value in positive_values):
         raise ValueError(f"{tile.kind.value}: invalid DMA resource limit")
+    if dma.address_maximum > (1 << 64) - 1:
+        raise ValueError(f"{tile.kind.value}: DMA address range exceeds u64")
+    if (
+        dma.buffer_descriptor_count > (1 << 16) - 1
+        or dma.maximum_task_repeat_count > (1 << 16) - 1
+    ):
+        raise ValueError(f"{tile.kind.value}: DMA u16 resource limit overflows")
     if not 0 <= dma.loopback_channel_count <= dma.channel_count_per_direction:
         raise ValueError(f"{tile.kind.value}: invalid DMA loopback channel range")
+    byte_values = (
+        dma.channel_count_per_direction,
+        dma.loopback_channel_count,
+        dma.address_dimension_count,
+        dma.address_alignment,
+        dma.address_encoding_shift,
+        dma.transfer_length_granularity,
+        dma.transfer_length_offset,
+        dma.memory_to_stream_port_base,
+        dma.memory_to_stream_port_stride,
+        dma.stream_to_memory_port_base,
+        dma.stream_to_memory_port_stride,
+        dma.step_size_bits,
+        dma.wrap_bits,
+        dma.iteration_bits,
+        dma.task_queue_depth,
+    )
+    if any(value < 0 or value > (1 << 8) - 1 for value in byte_values):
+        raise ValueError(f"{tile.kind.value}: DMA u8 fact overflows")
+    if dma.step_size_bits >= 32 or dma.wrap_bits >= 32:
+        raise ValueError(
+            f"{tile.kind.value}: DMA address dimension exceeds its u32 carrier"
+        )
     if dma.address_alignment & (dma.address_alignment - 1):
         raise ValueError(f"{tile.kind.value}: DMA alignment is not a power of two")
     if dma.address_maximum % dma.address_alignment:
@@ -487,7 +517,7 @@ def _resolve_register_field(
     raise ValueError(f"{expected_field.name!r}: unavailable canonical register field")
 
 
-def _validate_dma_register_field(family: ArrayFamily, tile: TileFacts) -> None:
+def _validate_dma_register_fields(family: ArrayFamily, tile: TileFacts) -> None:
     dma = tile.dma
     if dma is None:
         return
@@ -510,6 +540,97 @@ def _validate_dma_register_field(family: ArrayFamily, tile: TileFacts) -> None:
         raise ValueError(
             f"{tile.kind.value}: DMA length field does not cover buffer descriptors"
         )
+
+    descriptor_patterns = tuple(
+        candidate
+        for candidate in family.registers
+        if candidate.module is pattern.module
+        and any(
+            dimension.name == "buffer_descriptor"
+            and dimension.count == dma.buffer_descriptor_count
+            for dimension in candidate.dimensions
+        )
+    )
+
+    def indexed_fields(suffix: str) -> dict[int, RegisterField]:
+        result: dict[int, RegisterField] = {}
+        for descriptor_pattern in descriptor_patterns:
+            for candidate in descriptor_pattern.fields:
+                prefix, separator, candidate_suffix = candidate.name.partition("_")
+                if (
+                    separator
+                    and candidate_suffix == suffix
+                    and len(prefix) > 1
+                    and prefix[0] == "d"
+                    and prefix[1:].isdigit()
+                ):
+                    index = int(prefix[1:])
+                    if index in result:
+                        raise ValueError(
+                            f"{tile.kind.value}: duplicate DMA {suffix} dimension"
+                        )
+                    result[index] = candidate
+        return result
+
+    step_fields = indexed_fields("step_size")
+    expected_step_indices = set(range(dma.address_dimension_count))
+    if set(step_fields) != expected_step_indices or any(
+        field.bit_width != dma.step_size_bits for field in step_fields.values()
+    ):
+        raise ValueError(
+            f"{tile.kind.value}: DMA step fields disagree with address dimensions"
+        )
+
+    wrap_fields = indexed_fields("wrap")
+    expected_wrap_indices = set(range(dma.address_dimension_count - 1))
+    if set(wrap_fields) != expected_wrap_indices or any(
+        field.bit_width != dma.wrap_bits for field in wrap_fields.values()
+    ):
+        raise ValueError(
+            f"{tile.kind.value}: DMA wrap fields disagree with address dimensions"
+        )
+
+    queue_patterns = tuple(
+        candidate
+        for candidate in family.registers
+        if candidate.module is pattern.module
+        and any(field.name == "start_bd_id" for field in candidate.fields)
+    )
+    if len(queue_patterns) != 2:
+        raise ValueError(f"{tile.kind.value}: DMA queue directions are incomplete")
+    for queue_pattern in queue_patterns:
+        queue_fields = {field.name: field for field in queue_pattern.fields}
+        start_field = queue_fields.get("start_bd_id")
+        repeat_field = queue_fields.get("repeat_count")
+        token_field = queue_fields.get("enable_token_issue")
+        channel_dimensions = tuple(
+            dimension
+            for dimension in queue_pattern.dimensions
+            if dimension.name == "channel"
+        )
+        if (
+            start_field is None
+            or repeat_field is None
+            or token_field is None
+            or start_field.is_signed
+            or repeat_field.is_signed
+            or token_field.is_signed
+            or len(channel_dimensions) != 1
+            or channel_dimensions[0].count != dma.channel_count_per_direction
+        ):
+            raise ValueError(
+                f"{tile.kind.value}: DMA queue fields disagree with resources"
+            )
+        if dma.buffer_descriptor_count > 1 << start_field.bit_width:
+            raise ValueError(
+                f"{tile.kind.value}: DMA queue start field does not cover descriptors"
+            )
+        if dma.maximum_task_repeat_count > 1 << repeat_field.bit_width:
+            raise ValueError(
+                f"{tile.kind.value}: DMA queue repeat field does not cover tasks"
+            )
+        if token_field.bit_width != 1:
+            raise ValueError(f"{tile.kind.value}: DMA queue token field is not boolean")
 
 
 def validate_array_family(family: ArrayFamily) -> None:
@@ -559,7 +680,7 @@ def validate_array_family(family: ArrayFamily) -> None:
     _validate_stream_ports(family)
     _validate_registers(family)
     for tile in family.tiles:
-        _validate_dma_register_field(family, tile)
+        _validate_dma_register_fields(family, tile)
 
 
 def maximum_encoded_dma_transfer_length(tile: TileFacts) -> int:

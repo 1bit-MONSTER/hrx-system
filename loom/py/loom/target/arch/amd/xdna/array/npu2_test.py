@@ -278,6 +278,78 @@ def test_validator_rejects_dma_length_field_without_descriptor_coverage() -> Non
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("maximum_task_repeat_count", 1 << 16, "u16 resource limit overflows"),
+        ("address_dimension_count", 1 << 8, "u8 fact overflows"),
+        ("address_maximum", 1 << 64, "address range exceeds u64"),
+        ("step_size_bits", 32, "address dimension exceeds its u32 carrier"),
+    ],
+)
+def test_validator_rejects_dma_facts_outside_native_domains(
+    field_name: str, value: int, message: str
+) -> None:
+    shim = NPU2_ARRAY_FAMILY.tiles[0]
+    assert shim.dma is not None
+    invalid_shim = replace(
+        shim,
+        dma=replace(shim.dma, **{field_name: value}),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(invalid_shim, *NPU2_ARRAY_FAMILY.tiles[1:]),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("address_dimension_count", 4, "step fields disagree"),
+        ("step_size_bits", 19, "step fields disagree"),
+        ("wrap_bits", 9, "wrap fields disagree"),
+    ],
+)
+def test_validator_rejects_dma_facts_disagreeing_with_descriptor_fields(
+    field_name: str, value: int, message: str
+) -> None:
+    shim = NPU2_ARRAY_FAMILY.tiles[0]
+    assert shim.dma is not None
+    invalid_shim = replace(
+        shim,
+        dma=replace(shim.dma, **{field_name: value}),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(invalid_shim, *NPU2_ARRAY_FAMILY.tiles[1:]),
+            )
+        )
+
+
+def test_validator_rejects_dma_repeat_fact_outside_queue_field() -> None:
+    shim = NPU2_ARRAY_FAMILY.tiles[0]
+    assert shim.dma is not None
+    invalid_shim = replace(
+        shim,
+        dma=replace(shim.dma, maximum_task_repeat_count=257),
+    )
+
+    with pytest.raises(ValueError, match="queue repeat field does not cover tasks"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(invalid_shim, *NPU2_ARRAY_FAMILY.tiles[1:]),
+            )
+        )
+
+
 def test_npu2_direct_dma_loopback_pairs_match_the_stream_switch() -> None:
     # The pinned aie-rt compute and memory validators permit DMA-to-DMA only
     # with matching indices. Shim DMA uses a separate mux and south ports.

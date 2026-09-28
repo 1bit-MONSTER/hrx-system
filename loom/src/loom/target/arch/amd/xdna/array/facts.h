@@ -286,6 +286,10 @@ const loom_xdna_tile_facts_t* loom_xdna_array_tile_facts(
     const loom_xdna_array_family_t* family,
     loom_xdna_tile_coordinate_t coordinate);
 
+// Returns the unique generated facts for an admitted physical tile kind.
+const loom_xdna_tile_facts_t* loom_xdna_array_tile_kind_facts(
+    const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind);
+
 // Returns the programmable ordinal range for an architectural stream port
 // present in the generated family. Routing and register emission use only
 // generated port kinds for the selected tile and direction.

@@ -26,6 +26,18 @@ const loom_xdna_tile_facts_t* loom_xdna_array_tile_facts(
   return NULL;
 }
 
+const loom_xdna_tile_facts_t* loom_xdna_array_tile_kind_facts(
+    const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind) {
+  for (uint8_t i = 0; i < family->tile_count; ++i) {
+    const loom_xdna_tile_facts_t* facts = &family->tiles[i];
+    if (facts->kind == tile_kind) {
+      return facts;
+    }
+  }
+  IREE_ASSERT_UNREACHABLE("generated tile kinds cover target planning");
+  return NULL;
+}
+
 const loom_xdna_stream_port_range_t* loom_xdna_array_stream_port_range(
     const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind,
     loom_xdna_stream_direction_t direction, loom_xdna_stream_port_t port) {
