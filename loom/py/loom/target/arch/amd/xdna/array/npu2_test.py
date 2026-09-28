@@ -97,7 +97,11 @@ def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
         tile for tile in NPU2_ARRAY_FAMILY.tiles if tile.kind is TileKind.MEMORY
     )
 
-    assert (compute.memory.local_base, compute.memory.local_capacity) == (0, 64 * 1024)
+    assert (
+        compute.memory.local_base,
+        compute.memory.local_capacity,
+        compute.memory.local_load_base,
+    ) == (0, 64 * 1024, 0x70000)
     assert (compute.memory.program_base, compute.memory.program_capacity) == (
         0,
         16 * 1024,
@@ -117,7 +121,11 @@ def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
         "north": (0x60000, 64 * 1024, 32, 0, 1),
         "self": (0x70000, 64 * 1024, 48, 0, 0),
     }
-    assert (memory.memory.local_capacity, memory.memory.bank_count) == (512 * 1024, 8)
+    assert (
+        memory.memory.local_capacity,
+        memory.memory.local_load_base,
+        memory.memory.bank_count,
+    ) == (512 * 1024, 0x80000, 8)
 
 
 def test_validator_requires_complete_self_load_window() -> None:
@@ -135,6 +143,44 @@ def test_validator_requires_complete_self_load_window() -> None:
     )
 
     with pytest.raises(ValueError, match="no self load window covers local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_canonical_self_load_base() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    invalid_compute = replace(
+        compute,
+        memory=replace(compute.memory, local_load_base=0x30000),
+    )
+
+    with pytest.raises(ValueError, match="no self load window covers local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_rejects_self_load_range_outside_tile_address() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    *other_windows, self_window = compute.memory.load_windows
+    overflowing_base = (1 << NPU2_ARRAY_FAMILY.row_shift) - 64 * 1024 + 1
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            local_load_base=overflowing_base,
+            load_windows=(*other_windows, replace(self_window, base=overflowing_base)),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="local-memory native carrier overflows"):
         validate_array_family(
             replace(
                 NPU2_ARRAY_FAMILY,

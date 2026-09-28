@@ -599,6 +599,32 @@ ERR_XDNA_032 = ErrorDef(
     ),
 )
 
+# ERR_XDNA_033: A resident worker's local state cannot be placed.
+ERR_XDNA_033 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=33,
+    severity=Severity.ERROR,
+    summary="Resident worker local state cannot be placed.",
+    message=(
+        "AIE2P worker {worker} at tile ({column}, {row}) cannot place "
+        "{purpose} storage: {requested_bytes} bytes with {alignment_bytes}-byte "
+        "alignment do not fit the {capacity_bytes}-byte banked local-memory domain"
+    ),
+    params=(
+        ErrorParam("worker", ParamKind.U32),
+        ErrorParam("column", ParamKind.U32),
+        ErrorParam("row", ParamKind.U32),
+        ErrorParam("purpose", ParamKind.STRING),
+        ErrorParam("requested_bytes", ParamKind.U64),
+        ErrorParam("alignment_bytes", ParamKind.U64),
+        ErrorParam("capacity_bytes", ParamKind.U32),
+    ),
+    fix_hint=(
+        "Reduce the worker-local state, split the worker, or select a tile with "
+        "sufficient local memory."
+    ),
+)
+
 ALL_XDNA_ERRORS = (
     ERR_XDNA_001,
     ERR_XDNA_002,
@@ -632,4 +658,5 @@ ALL_XDNA_ERRORS = (
     ERR_XDNA_030,
     ERR_XDNA_031,
     ERR_XDNA_032,
+    ERR_XDNA_033,
 )

@@ -101,6 +101,7 @@ class TileMemoryFacts:
 
     local_base: int
     local_capacity: int
+    local_load_base: int
     bank_count: int
     program_base: int
     program_capacity: int
@@ -232,12 +233,20 @@ class ArrayFamily:
 
 def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
     memory = tile.memory
-    if memory.local_base < 0 or memory.local_capacity < 0 or memory.bank_count < 0:
+    if (
+        memory.local_base < 0
+        or memory.local_capacity < 0
+        or memory.local_load_base < 0
+        or memory.bank_count < 0
+    ):
         raise ValueError(f"{tile.kind.value}: invalid local-memory geometry")
     if (
         memory.local_base > _UINT32_MAXIMUM
         or memory.local_capacity > _UINT32_MAXIMUM
+        or memory.local_load_base > _UINT32_MAXIMUM
         or memory.local_base + memory.local_capacity > 1 << 32
+        or memory.local_load_base + memory.local_capacity > 1 << 32
+        or memory.local_load_base + memory.local_capacity > 1 << row_shift
         or memory.bank_count > _UINT8_MAXIMUM
         or len(memory.load_windows) > _UINT8_MAXIMUM
     ):
@@ -272,10 +281,14 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
         and window.owner_column_delta == 0
         and window.owner_row_delta == 0
     )
-    if memory.local_capacity and not any(
-        window.capacity >= memory.local_capacity for window in self_windows
+    if memory.local_capacity and (
+        len(self_windows) != 1
+        or self_windows[0].base != memory.local_load_base
+        or self_windows[0].capacity < memory.local_capacity
     ):
         raise ValueError(f"{tile.kind.value}: no self load window covers local memory")
+    if not memory.local_capacity and memory.local_load_base != 0:
+        raise ValueError(f"{tile.kind.value}: empty local memory has a load base")
     for index, window in enumerate(memory.load_windows):
         if (
             not window.name

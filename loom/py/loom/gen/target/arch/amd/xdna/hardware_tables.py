@@ -130,6 +130,7 @@ def emit_array_facts() -> str:
                 "        .memory = {",
                 f"            .local_base = UINT32_C(0x{tile.memory.local_base:08x}),",
                 f"            .local_capacity = UINT32_C(0x{tile.memory.local_capacity:08x}),",
+                f"            .local_load_base = UINT32_C(0x{tile.memory.local_load_base:08x}),",
                 f"            .program_base = UINT32_C(0x{tile.memory.program_base:08x}),",
                 f"            .program_capacity = UINT32_C(0x{tile.memory.program_capacity:08x}),",
                 f"            .program_load_base = UINT32_C(0x{tile.memory.program_load_base:08x}),",

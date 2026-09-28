@@ -105,6 +105,8 @@ typedef struct loom_xdna_tile_memory_facts_t {
   uint32_t local_base;
   // Addressable bytes in the tile's local allocation space.
   uint32_t local_capacity;
+  // Tile-relative base used to load the tile's own local allocation space.
+  uint32_t local_load_base;
   // Core startup address in program memory.
   uint32_t program_base;
   // Addressable program-memory bytes.

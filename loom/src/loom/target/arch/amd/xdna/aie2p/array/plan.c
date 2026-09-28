@@ -19,6 +19,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/abi_layout.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/binding.h"
+#include "loom/target/arch/amd/xdna/aie2p/array/local_memory.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/route.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/topology.h"
 #include "loom/target/arch/amd/xdna/aie2p/descriptors/array_descriptors.h"
@@ -715,58 +716,20 @@ static loom_aie2p_array_tile_state_t* loom_aie2p_array_tile_state(
   return &builder->tile_states[index];
 }
 
-static bool loom_aie2p_array_try_allocate_storage_in_bank(
-    loom_aie2p_array_tile_state_t* state, uint8_t bank, uint32_t byte_length,
-    uint32_t alignment, uint32_t* out_owner_offset) {
-  const uint32_t bank_capacity =
-      state->facts->memory.local_capacity / state->facts->memory.bank_count;
-  const uint32_t bank_begin = bank * bank_capacity;
-  const uint32_t bank_end = bank_begin + bank_capacity;
-  uint64_t cursor = bank_begin + state->allocation.bank_cursors[bank];
-  if (!iree_checked_align_u64(cursor, alignment, &cursor)) {
-    return false;
-  }
-  const uint64_t owner_end = cursor + byte_length;
-  if (owner_end > bank_end) {
-    // Keep single-bank record placement stable. Larger records consume every
-    // intervening bank prefix and cannot cross an already occupied prefix.
-    if (byte_length <= bank_capacity || cursor >= bank_end ||
-        owner_end > state->facts->memory.local_capacity) {
-      return false;
-    }
-    const uint8_t last_bank = (uint8_t)((owner_end - 1u) / bank_capacity);
-    for (uint8_t i = bank + 1u; i <= last_bank; ++i) {
-      if (state->allocation.bank_cursors[i] != 0) {
-        return false;
-      }
-    }
-    for (uint8_t i = bank; i < last_bank; ++i) {
-      state->allocation.bank_cursors[i] = bank_capacity;
-    }
-    state->allocation.bank_cursors[last_bank] =
-        (uint32_t)owner_end - last_bank * bank_capacity;
-  } else {
-    state->allocation.bank_cursors[bank] = (uint32_t)owner_end - bank_begin;
-  }
-  *out_owner_offset = (uint32_t)cursor;
-  return true;
-}
-
 static bool loom_aie2p_array_try_allocate_channel_storage(
     loom_aie2p_array_tile_state_t* state, uint32_t byte_length,
     uint32_t alignment, uint32_t* out_owner_offset) {
-  for (uint8_t attempt = 0; attempt < state->facts->memory.bank_count;
-       ++attempt) {
-    const uint8_t bank = (uint8_t)((state->next_bank + attempt) %
-                                   state->facts->memory.bank_count);
-    if (!loom_aie2p_array_try_allocate_storage_in_bank(
-            state, bank, byte_length, alignment, out_owner_offset)) {
-      continue;
-    }
-    state->next_bank = (uint8_t)((bank + 1u) % state->facts->memory.bank_count);
-    return true;
+  loom_aie2p_array_local_memory_proposal_t proposal;
+  if (!loom_aie2p_array_local_memory_propose_channel(
+          state->facts, state->allocation.bank_cursors, state->next_bank,
+          byte_length, alignment, &proposal)) {
+    return false;
   }
-  return false;
+  loom_aie2p_array_local_memory_commit(state->facts, &proposal,
+                                       state->allocation.bank_cursors,
+                                       &state->next_bank);
+  *out_owner_offset = proposal.owner_offset;
+  return true;
 }
 
 static iree_status_t loom_aie2p_array_allocate_channel_storage(
@@ -774,26 +737,6 @@ static iree_status_t loom_aie2p_array_allocate_channel_storage(
     uint32_t alignment, uint32_t* out_owner_offset) {
   if (loom_aie2p_array_try_allocate_channel_storage(
           state, byte_length, alignment, out_owner_offset)) {
-    return iree_ok_status();
-  }
-  return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                          "AIE2P tile local memory banks are exhausted");
-}
-
-// Packs persistent worker storage from high banks without perturbing the
-// round-robin cursor used by channel rings. Keeping the two allocation classes
-// independent gives equivalent workers stable ring addresses while separating
-// long-lived state from the first banks selected for streaming traffic.
-static iree_status_t loom_aie2p_array_allocate_worker_storage(
-    loom_aie2p_array_tile_state_t* state, uint32_t byte_length,
-    uint32_t alignment, uint32_t* out_owner_offset) {
-  const uint8_t bank_count = state->facts->memory.bank_count;
-  for (uint8_t attempt = 0; attempt < bank_count; ++attempt) {
-    const uint8_t bank = (uint8_t)(bank_count - attempt - 1u);
-    if (!loom_aie2p_array_try_allocate_storage_in_bank(
-            state, bank, byte_length, alignment, out_owner_offset)) {
-      continue;
-    }
     return iree_ok_status();
   }
   return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -1074,6 +1017,33 @@ static iree_status_t loom_aie2p_array_select_shim_dma(
                           "AIE2P shim DMA resources are exhausted");
 }
 
+static iree_status_t loom_aie2p_array_reject_worker_local_storage(
+    loom_aie2p_array_plan_builder_t* builder, uint32_t worker_index,
+    iree_string_view_t purpose, uint64_t requested_bytes,
+    uint64_t alignment_bytes) {
+  const loom_aie2p_array_worker_t* worker = &builder->workers[worker_index];
+  const loom_aie2p_array_tile_state_t* tile_state =
+      loom_aie2p_array_tile_state(builder, worker->coordinate);
+  const loom_diagnostic_param_t params[] = {
+      loom_param_u32(worker_index),
+      loom_param_u32(worker->coordinate.column),
+      loom_param_u32(worker->coordinate.row),
+      loom_param_string(purpose),
+      loom_param_u64(requested_bytes),
+      loom_param_u64(alignment_bytes),
+      loom_param_u32(tile_state->facts->memory.local_capacity),
+  };
+  const loom_diagnostic_emission_t emission = {
+      .op = loom_value_def_op(
+          loom_module_value(builder->module, worker->value_id)),
+      .error = LOOM_ERR_XDNA_033,
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+  };
+  builder->valid = false;
+  return iree_diagnostic_emit(builder->diagnostic_emitter, &emission);
+}
+
 static iree_status_t loom_aie2p_array_plan_workers(
     loom_aie2p_array_plan_builder_t* builder) {
   for (iree_host_size_t i = 0; i < builder->plan->worker_count; ++i) {
@@ -1099,26 +1069,29 @@ static iree_status_t loom_aie2p_array_plan_workers(
       if (requirement.byte_length == 0) {
         continue;
       }
-      if (requirement.byte_length > UINT32_MAX ||
-          requirement.minimum_alignment > UINT32_MAX) {
-        return iree_make_status(
-            IREE_STATUS_RESOURCE_EXHAUSTED,
-            "AIE2P worker storage requirement is not representable");
+      loom_aie2p_array_local_memory_proposal_t proposal;
+      if (!loom_aie2p_array_local_memory_propose_worker(
+              tile_state->facts, tile_state->allocation.bank_cursors,
+              requirement.byte_length, requirement.minimum_alignment,
+              &proposal)) {
+        iree_string_view_t storage_space_name = iree_string_view_empty();
+        (void)loom_low_storage_space_set_names(
+            loom_low_storage_space_set_for(storage_space), 1,
+            &storage_space_name);
+        return loom_aie2p_array_reject_worker_local_storage(
+            builder, (uint32_t)i, storage_space_name, requirement.byte_length,
+            requirement.minimum_alignment);
       }
-      uint32_t owner_offset = 0;
-      IREE_RETURN_IF_ERROR(loom_aie2p_array_allocate_worker_storage(
-          tile_state, (uint32_t)requirement.byte_length,
-          (uint32_t)requirement.minimum_alignment, &owner_offset));
-      uint32_t load_address = 0;
-      IREE_RETURN_IF_ERROR(loom_xdna_array_form_load_address(
-          builder->family, worker->coordinate, LOOM_XDNA_MEMORY_SPACE_DATA,
-          worker->coordinate, owner_offset, (uint32_t)requirement.byte_length,
-          &load_address));
+      loom_aie2p_array_local_memory_commit(tile_state->facts, &proposal,
+                                           tile_state->allocation.bank_cursors,
+                                           &tile_state->next_bank);
+      const uint32_t load_address =
+          tile_state->facts->memory.local_load_base + proposal.owner_offset;
       builder->worker_storage[builder->worker_storage_cursor++] =
           (loom_aie2p_array_worker_storage_plan_t){
               .worker_index = (uint32_t)i,
               .storage_space = storage_space,
-              .owner_offset = owner_offset,
+              .owner_offset = proposal.owner_offset,
               .load_address = load_address,
               .byte_length = (uint32_t)requirement.byte_length,
           };
@@ -1201,25 +1174,29 @@ static iree_status_t loom_aie2p_array_plan_fold_states(
       span_count += (lengths[i] >= fragment_byte_length) +
                     (lengths[i] % fragment_byte_length != 0);
     }
-    if (byte_length > UINT32_MAX) {
-      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                              "AIE2P worker fold state is not representable");
+    loom_aie2p_array_tile_state_t* tile_state =
+        loom_aie2p_array_tile_state(builder, worker->coordinate);
+    loom_aie2p_array_local_memory_proposal_t proposal;
+    if (!loom_aie2p_array_local_memory_propose_worker(
+            tile_state->facts, tile_state->allocation.bank_cursors, byte_length,
+            LOOM_AIE2P_ARRAY_CHANNEL_ALIGNMENT, &proposal)) {
+      return loom_aie2p_array_reject_worker_local_storage(
+          builder, worker_index, IREE_SV("private fold"), byte_length,
+          LOOM_AIE2P_ARRAY_CHANNEL_ALIGNMENT);
     }
+    loom_aie2p_array_fold_span_t* spans = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        builder->arena, span_count, sizeof(*spans), (void**)&spans));
+    loom_aie2p_array_local_memory_commit(tile_state->facts, &proposal,
+                                         tile_state->allocation.bank_cursors,
+                                         &tile_state->next_bank);
     loom_aie2p_array_fold_state_plan_t* state =
         &builder->worker_plans[worker_index].fold_state;
     state->byte_length = (uint32_t)byte_length;
     state->span_count = span_count;
-    IREE_RETURN_IF_ERROR(loom_aie2p_array_allocate_worker_storage(
-        loom_aie2p_array_tile_state(builder, worker->coordinate),
-        state->byte_length, LOOM_AIE2P_ARRAY_CHANNEL_ALIGNMENT,
-        &state->owner_offset));
-    IREE_RETURN_IF_ERROR(loom_xdna_array_form_load_address(
-        builder->family, worker->coordinate, LOOM_XDNA_MEMORY_SPACE_DATA,
-        worker->coordinate, state->owner_offset, state->byte_length,
-        &state->load_address));
-    loom_aie2p_array_fold_span_t* spans = NULL;
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        builder->arena, state->span_count, sizeof(*spans), (void**)&spans));
+    state->owner_offset = proposal.owner_offset;
+    state->load_address =
+        tile_state->facts->memory.local_load_base + proposal.owner_offset;
     state->spans = spans;
     uint32_t state_byte_offset = 0;
     uint32_t span_index = 0;
@@ -2091,7 +2068,13 @@ iree_status_t loom_aie2p_array_plan_build(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_workers(&builder));
+  if (!builder.valid) {
+    return iree_ok_status();
+  }
   IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_fold_states(&builder));
+  if (!builder.valid) {
+    return iree_ok_status();
+  }
   IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_channels(&builder));
   if (builder.valid) {
     loom_aie2p_array_finalize_worker_port_states(&builder);
