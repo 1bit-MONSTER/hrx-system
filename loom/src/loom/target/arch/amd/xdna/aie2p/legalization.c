@@ -108,6 +108,27 @@ static iree_status_t loom_aie2p_legalize_vector_to_scalar(
   return iree_ok_status();
 }
 
+static iree_status_t loom_aie2p_legalize_vector_splat(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_aie2p_legalizer_descriptor_set_is_core(context->descriptor_set)) {
+    return iree_ok_status();
+  }
+
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_splat(
+      context, op, &kAie2pVectorPacketPolicy, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_aie2p_legalize_table_lookup(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -310,6 +331,10 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I32,
         .match = loom_aie2p_match_scalar_multiply_add,
         .legalize = loom_aie2p_legalize_scalar_multiply_add,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SPLAT,
+        .legalize = loom_aie2p_legalize_vector_splat,
     },
     {
         .root_kind = LOOM_OP_VECTOR_BROADCAST,
