@@ -76,6 +76,12 @@ COMMAND_LINE_CHARACTER_LIMIT = 16_000
 C_FORMAT_BATCH_SIZE = 64
 C_FORMAT_DEFAULT_MAX_JOBS = 16
 SEMGREP_CONFIG = "build_tools/static_analysis/semgrep/iree.yml"
+SEMGREP_DOCUMENTATION_CONFIG = "build_tools/static_analysis/semgrep/amd-docs.yml"
+SEMGREP_DOCUMENTATION_TEST = "build_tools/static_analysis/semgrep/amd_docs_test.py"
+SEMGREP_CONFIGS = (
+    SEMGREP_CONFIG,
+    SEMGREP_DOCUMENTATION_CONFIG,
+)
 SEMGREP_EXTENSIONS = C_ANALYSIS_EXTENSIONS
 # Exact non-C policy surfaces scanned without broadening Semgrep to all Python.
 SEMGREP_POLICY_PATHS = frozenset(
@@ -1082,9 +1088,13 @@ def is_c_format_file(path: str) -> bool:
 
 
 def is_semgrep_candidate_file(path: str) -> bool:
-    return path in SEMGREP_POLICY_PATHS or (
-        path.startswith(SEMGREP_PATH_PREFIXES)
-        and Path(path).suffix in SEMGREP_EXTENSIONS
+    return (
+        path in SEMGREP_POLICY_PATHS
+        or path.startswith("docs/reference/amd/")
+        or (
+            path.startswith(SEMGREP_PATH_PREFIXES)
+            and Path(path).suffix in SEMGREP_EXTENSIONS
+        )
     )
 
 
@@ -1292,8 +1302,7 @@ def semgrep_scan_command(files: list[str]) -> list[str]:
         "ERROR",
         "--jobs",
         str(semgrep_jobs()),
-        "--config",
-        SEMGREP_CONFIG,
+        *[arg for config in SEMGREP_CONFIGS for arg in ("--config", config)],
         "--",
         *files,
     ]
@@ -1307,8 +1316,7 @@ def semgrep_validate_command() -> list[str]:
         "--disable-version-check",
         "--strict",
         "--validate",
-        "--config",
-        SEMGREP_CONFIG,
+        *[arg for config in SEMGREP_CONFIGS for arg in ("--config", config)],
     ]
 
 
@@ -1754,13 +1762,16 @@ def is_lefthook_test_trigger(path: str) -> bool:
 
 def run_semgrep(inputs: PresubmitInputs, profile: str, verbose: bool) -> bool:
     paths = inputs.selected_paths
-    validate_config = SEMGREP_CONFIG in paths
-    test_rules = validate_config or bool(SEMGREP_TEST_PATHS.intersection(paths))
+    validate_config = any(config in paths for config in SEMGREP_CONFIGS)
+    test_rules = SEMGREP_CONFIG in paths or bool(SEMGREP_TEST_PATHS.intersection(paths))
+    test_documentation = (
+        SEMGREP_DOCUMENTATION_CONFIG in paths or SEMGREP_DOCUMENTATION_TEST in paths
+    )
     candidate_paths = [path for path in paths if is_semgrep_candidate_file(path)]
-    if validate_config:
+    if SEMGREP_CONFIG in paths:
         candidate_paths.extend(SEMGREP_POLICY_PATHS)
     files = existing_files(candidate_paths)
-    if not files and not validate_config and not test_rules:
+    if not files and not validate_config and not test_rules and not test_documentation:
         return skip_step("Semgrep", "no selected policy inputs")
     if sys.platform == "win32":
         return skip_step(
@@ -1778,6 +1789,15 @@ def run_semgrep(inputs: PresubmitInputs, profile: str, verbose: bool) -> bool:
         )
     if test_rules:
         ok = run_command(semgrep_test_command(), "Semgrep rule tests", verbose) and ok
+    if test_documentation:
+        ok = (
+            run_command(
+                [sys.executable, SEMGREP_DOCUMENTATION_TEST],
+                "Semgrep documentation rule tests",
+                verbose,
+            )
+            and ok
+        )
     if files:
         commands = command_argument_batches(semgrep_scan_command([]), files)
         ok = (

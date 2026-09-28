@@ -284,7 +284,8 @@ class PresubmitTest(unittest.TestCase):
         self.assertIn("--strict", command)
         self.assertIn("--error", command)
         self.assertIn("ERROR", command)
-        self.assertIn(presubmit.SEMGREP_CONFIG, command)
+        for config in presubmit.SEMGREP_CONFIGS:
+            self.assertIn(config, command)
         self.assertIn("7", command)
         self.assertEqual(command[-1], "runtime/src/iree/base/status.c")
 
@@ -296,6 +297,35 @@ class PresubmitTest(unittest.TestCase):
         self.assertIn(presubmit.SEMGREP_CONFIG, command)
         for path in presubmit.SEMGREP_TEST_PATHS:
             self.assertIn(path, command)
+
+    def test_semgrep_documentation_candidates_are_scoped(self):
+        for path in (
+            "docs/reference/amd/README.md",
+            "docs/reference/amd/gpu/pm4/dispatch.md",
+            "docs/reference/amd/xdna/execution.rst",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(presubmit.is_semgrep_candidate_file(path))
+                self.assertFalse(presubmit.is_clang_tidy_candidate_file(path))
+        for path in (
+            "docs/reference/amd-other/README.md",
+            "docs/README.md",
+            "libamdf/docs/memory.md",
+            "libamdf/docs/experimental/README.md",
+            "libamdf/README.md",
+            "libamdf/README.extra.md",
+            "libamdf/docs-other/README.md",
+            "libamdf/cts/README.md",
+            "libamdf/experimental/cts/README.md",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(presubmit.is_semgrep_candidate_file(path))
+
+    def test_semgrep_validation_includes_all_configs(self):
+        command = presubmit.semgrep_validate_command()
+        self.assertIn("--validate", command)
+        for config in presubmit.SEMGREP_CONFIGS:
+            self.assertIn(config, command)
 
     def test_libamdf_static_analysis_scope_includes_sources_and_headers(self):
         for path in (
@@ -1458,6 +1488,73 @@ class PresubmitTest(unittest.TestCase):
         require_tool.assert_not_called()
         run_command.assert_not_called()
         self.assertIn("enforced by the Linux paranoid presubmit", output.getvalue())
+
+    def test_documentation_rule_changes_validate_and_test_semgrep(self):
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(presubmit.shutil, "which", return_value="semgrep"),
+            mock.patch.object(presubmit, "run_command", return_value=True) as run,
+            mock.patch.object(presubmit, "run_parallel_commands") as scan,
+        ):
+            self.assertTrue(
+                presubmit.run_semgrep(
+                    input_scope([presubmit.SEMGREP_DOCUMENTATION_CONFIG]),
+                    profile="ci",
+                    verbose=False,
+                )
+            )
+        self.assertEqual(len(run.call_args_list), 2)
+        self.assertEqual(
+            run.call_args_list[0].args[0], presubmit.semgrep_validate_command()
+        )
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            [sys.executable, presubmit.SEMGREP_DOCUMENTATION_TEST],
+        )
+        scan.assert_not_called()
+
+    def test_documentation_rule_test_change_runs_semgrep_regression(self):
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(presubmit.shutil, "which", return_value="semgrep"),
+            mock.patch.object(presubmit, "run_command", return_value=False) as run,
+        ):
+            self.assertFalse(
+                presubmit.run_semgrep(
+                    input_scope([presubmit.SEMGREP_DOCUMENTATION_TEST]),
+                    profile="ci",
+                    verbose=False,
+                )
+            )
+        self.assertEqual(
+            run.call_args.args[0],
+            [sys.executable, presubmit.SEMGREP_DOCUMENTATION_TEST],
+        )
+
+    def test_documentation_findings_fail_semgrep_without_code_inputs(self):
+        paths = [
+            "docs/reference/amd/README.md",
+            "libamdf/docs/memory.md",
+            "libamdf/cts/README.md",
+        ]
+        with (
+            mock.patch.object(presubmit.sys, "platform", "linux"),
+            mock.patch.object(presubmit.shutil, "which", return_value="semgrep"),
+            mock.patch.object(
+                presubmit, "existing_files", side_effect=lambda paths: paths
+            ),
+            mock.patch.object(presubmit, "run_command") as run,
+            mock.patch.object(
+                presubmit, "run_parallel_commands", return_value=False
+            ) as scan,
+        ):
+            self.assertFalse(
+                presubmit.run_semgrep(input_scope(paths), profile="ci", verbose=False)
+            )
+        run.assert_not_called()
+        self.assertEqual(
+            scan.call_args.args[0], [presubmit.semgrep_scan_command(paths[:1])]
+        )
 
     def test_workflows_and_requirements_trigger_devtools_tests(self):
         self.assertTrue(
