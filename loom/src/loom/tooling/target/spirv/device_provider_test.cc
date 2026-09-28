@@ -14,9 +14,11 @@
 #include "iree/hal/utils/device_spec_builder.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/target/arch/spirv/features.h"
 #include "loom/target/arch/spirv/profile.h"
 #include "loom/tooling/execution/hal/runtime.h"
 #include "loom/tooling/target/spirv/vulkan_profile.h"
+#include "vulkan/vulkan_core.h"
 
 namespace loom {
 namespace {
@@ -127,6 +129,8 @@ static iree_status_t CreateDeviceSpec(
       /*.physical_device_type=*/2,
       /*.enabled_features=*/enabled_features,
       /*.flags=*/IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*.subgroup_supported_operations=*/
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
   };
   iree_host_size_t vulkan_payload_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_device_spec_calculate_payload_size(
@@ -276,6 +280,8 @@ TEST_F(SpirvDeviceProviderTest, SelectsRawBdaTarget) {
   EXPECT_EQ(target_bundle->snapshot->max_workgroup_storage_bytes,
             kMaximumWorkgroupLocalMemorySize);
   EXPECT_EQ(target_bundle->export_plan->abi_kind, LOOM_TARGET_ABI_HAL_KERNEL);
+  EXPECT_TRUE(iree_all_bits_set(target_bundle->config->contract_feature_bits,
+                                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT));
 }
 
 TEST_F(SpirvDeviceProviderTest, SelectsForcedStaticBdaTarget) {

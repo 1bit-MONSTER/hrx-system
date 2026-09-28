@@ -115,6 +115,8 @@ typedef struct loom_spirv_vulkan_hal_profile_facts_t {
   uint32_t api_version;
   // Vulkan/SPIR-V feature and executable-format facts.
   loom_spirv_vulkan_hal_profile_flags_t flags;
+  // VkPhysicalDeviceSubgroupProperties::supportedOperations value.
+  uint32_t subgroup_supported_operations;
   // Fixed subgroup size in invocations, or zero when the device does not report
   // a fixed target-wide value.
   uint32_t subgroup_size;

@@ -12,6 +12,7 @@
 #include "loom/target/arch/spirv/cooperative_properties.h"
 #include "loom/target/arch/spirv/features.h"
 #include "loom/target/arch/spirv/records/target_records.h"
+#include "vulkan/vulkan_core.h"
 
 typedef struct loom_spirv_vulkan_hal_feature_row_t {
   // Vulkan HAL features required for this profile fact.
@@ -290,6 +291,8 @@ iree_status_t loom_spirv_vulkan_hal_profile_query(
       iree_hal_vulkan_device_spec_decode_facet(vulkan_facet, &vulkan_spec));
 
   out_facts->api_version = vulkan_spec.api_version;
+  out_facts->subgroup_supported_operations =
+      vulkan_spec.subgroup_supported_operations;
   if (iree_any_bit_set(
           vulkan_spec.flags,
           IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_FLOAT32_DENORM_PRESERVE)) {
@@ -395,6 +398,10 @@ static loom_spirv_feature_bits_t loom_spirv_vulkan_hal_profile_feature_bits(
           facts->flags,
           LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_FLOAT32_DENORM_PRESERVE)) {
     feature_bits |= LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE;
+  }
+  if (iree_any_bit_set(facts->subgroup_supported_operations,
+                       VK_SUBGROUP_FEATURE_BALLOT_BIT)) {
+    feature_bits |= LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT;
   }
   return feature_bits;
 }
