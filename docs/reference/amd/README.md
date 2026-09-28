@@ -1,5 +1,15 @@
 # AMD hardware reference
 
+This is an **unofficial guide**, assembled through best-effort reverse
+engineering and distillation of publicly available repositories and
+documentation, together with our own experiments. It is not an official AMD
+specification and uses no confidential or non-public vendor material.
+
+Correctness and completeness are not guaranteed. Citations and experimental
+results provide evidence for the specific behavior and conditions they cover;
+they do not establish correctness on other hardware, firmware, driver or
+software configurations.
+
 This reference describes AMD hardware and firmware programming: command and
 register representations, execution ordering, memory visibility, resource
 lifetime, and architecture-specific behavior. Native driver interfaces and
