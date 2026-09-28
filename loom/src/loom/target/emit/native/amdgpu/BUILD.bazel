@@ -177,6 +177,7 @@ loom_cc_library(
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
         "//loom/src/loom/target/arch/amdgpu:target_info",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
     ],
 )
 

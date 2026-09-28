@@ -578,35 +578,7 @@ static iree_status_t loom_amdgpu_hsaco_build_note(
       .kernels = payloads->metadata_kernels,
       .kernel_count = payloads->metadata_kernel_count,
   };
-
-  iree_string_builder_t measure_builder;
-  iree_string_builder_initialize(iree_allocator_null(), &measure_builder);
-  iree_status_t status =
-      loom_amdgpu_metadata_append_elf_note(&metadata, &measure_builder);
-  const iree_host_size_t note_size =
-      iree_status_is_ok(status) ? iree_string_builder_size(&measure_builder)
-                                : 0;
-  iree_string_builder_deinitialize(&measure_builder);
-  IREE_RETURN_IF_ERROR(status);
-
-  uint8_t* note_data = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate(arena, note_size + 1u, (void**)&note_data));
-  iree_string_builder_t note_builder;
-  iree_string_builder_initialize_with_storage((char*)note_data, note_size + 1u,
-                                              &note_builder);
-  status = loom_amdgpu_metadata_append_elf_note(&metadata, &note_builder);
-  if (iree_status_is_ok(status) &&
-      iree_string_builder_size(&note_builder) != note_size) {
-    status = iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "AMDGPU HSACO metadata note size changed between measure and emit");
-  }
-  iree_string_builder_deinitialize(&note_builder);
-  if (iree_status_is_ok(status)) {
-    *out_note = iree_make_const_byte_span(note_data, note_size);
-  }
-  return status;
+  return loom_amdgpu_metadata_build_elf_note(&metadata, out_note, arena);
 }
 
 static iree_status_t loom_amdgpu_hsaco_build_string_tables(

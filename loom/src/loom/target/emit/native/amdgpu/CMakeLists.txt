@@ -169,6 +169,7 @@ loom_cc_library(
     "metadata.c"
   DEPS
     iree::base
+    iree::base::internal::arena
     loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::target_info
     loom::target::types
