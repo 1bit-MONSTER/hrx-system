@@ -31,15 +31,6 @@ iree_py_library(
 )
 
 iree_py_binary(
-    name = "packed_vector_select",
-    testonly = True,
-    srcs = ["packed_vector_select.py"],
-    main = "packed_vector_select.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
     name = "narrow_float_subtraction",
     testonly = True,
     srcs = ["narrow_float_subtraction.py"],
