@@ -1207,6 +1207,11 @@ loom_region_t* loom_loop_like_body(loom_loop_like_t loop);
 // valid. For scf.while this returns the "before" region.
 loom_region_t* loom_loop_like_condition_region(loom_loop_like_t loop);
 
+// Returns the continuation predicate of a verified condition-controlled loop,
+// or LOOM_VALUE_ID_INVALID for counted loops or an invalid interface. The
+// condition region's single-block terminator exposes this as operand zero.
+loom_value_id_t loom_loop_like_condition(loom_loop_like_t loop);
+
 // Returns the induction variable value ID for a loop-like op, or
 // LOOM_VALUE_ID_INVALID for loops without an induction variable
 // (scf.while) or if |loop| is not valid. The IV is a block argument

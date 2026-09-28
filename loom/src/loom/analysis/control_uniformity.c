@@ -359,11 +359,13 @@ bool loom_control_uniformity_prove_execution(
       continue;
     }
     if (!loom_loop_like_has_counted_range(loop)) {
-      loom_control_uniformity_prove_value(
-          info, ancestor_op, LOOM_VALUE_ID_INVALID,
-          LOOM_CONTROL_UNIFORMITY_SOURCE_LOOP_CONDITION, required_scope,
-          out_failure);
-      return false;
+      if (!loom_control_uniformity_prove_value(
+              info, ancestor_op, loom_loop_like_condition(loop),
+              LOOM_CONTROL_UNIFORMITY_SOURCE_LOOP_CONDITION, required_scope,
+              out_failure)) {
+        return false;
+      }
+      continue;
     }
     if (!loom_control_uniformity_prove_value(
             info, ancestor_op, loom_loop_like_lower_bound(loop),
