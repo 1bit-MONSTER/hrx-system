@@ -783,8 +783,15 @@ iree_status_t loom_amdgpu_emit_memory_saddr(
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr_byte_offset_terms(
         context, source_op, sequence, (uint32_t)static_byte_offset,
         &low_u32_offset));
-    return loom_amdgpu_emit_sgpr64_add_u32_offset(
-        context, source_op, low_binding, low_u32_offset, out_low_saddr);
+    loom_value_id_t low_words[2];
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr64_add_u32_offset(
+        context, source_op, low_binding, low_u32_offset, low_words));
+    loom_type_t pointer_type = loom_type_none();
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_make_sgpr_range_type(context, 2, &pointer_type));
+    return loom_amdgpu_build_low_register_range(context, source_op, low_words,
+                                                IREE_ARRAYSIZE(low_words),
+                                                pointer_type, out_low_saddr);
   }
 
   loom_value_id_t low_offset = LOOM_VALUE_ID_INVALID;

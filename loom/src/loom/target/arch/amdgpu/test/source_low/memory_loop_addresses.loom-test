@@ -173,6 +173,7 @@ CHECK: * = s_lshl_b32_rhs_inline %clamped, 4
 CHECK: * = s_add_co_u32 *
 CHECK: * = s_addc_u32 *
 CHECK: * = s_sub_u32 *
+CHECK: * = concat(*) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x4>
 CHECK: %left_zero = buffer_load_b128 *
 CHECK: %right_zero = buffer_load_b128 *
 CHECK: %left_three = buffer_load_b128 * {offset = 4080}

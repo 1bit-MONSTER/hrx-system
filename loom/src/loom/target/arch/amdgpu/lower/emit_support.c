@@ -417,8 +417,9 @@ iree_status_t loom_amdgpu_emit_lane_mask_equal_scc(
 iree_status_t loom_amdgpu_emit_sgpr64_add_u32_offset(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_base, loom_value_id_t low_offset,
-    loom_value_id_t* out_low_sum) {
-  *out_low_sum = LOOM_VALUE_ID_INVALID;
+    loom_value_id_t out_low_words[2]) {
+  out_low_words[0] = LOOM_VALUE_ID_INVALID;
+  out_low_words[1] = LOOM_VALUE_ID_INVALID;
 
   loom_type_t sgpr_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_amdgpu_make_sgpr_type(context, &sgpr_type));
@@ -463,18 +464,8 @@ iree_status_t loom_amdgpu_emit_sgpr64_add_u32_offset(
   const loom_value_id_t low_sum_hi =
       loom_value_slice_get(loom_low_op_results(low_add_hi_op), 0);
 
-  loom_type_t sgpr_x2_type = loom_type_none();
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_make_sgpr_range_type(context, 2, &sgpr_x2_type));
-  loom_value_id_t sources[] = {
-      low_sum_lo,
-      low_sum_hi,
-  };
-  loom_op_t* concat_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_concat_build(
-      loom_low_lower_context_builder(context), sources, IREE_ARRAYSIZE(sources),
-      sgpr_x2_type, source_op->location, &concat_op));
-  *out_low_sum = loom_low_concat_result(concat_op);
+  out_low_words[0] = low_sum_lo;
+  out_low_words[1] = low_sum_hi;
   return iree_ok_status();
 }
 

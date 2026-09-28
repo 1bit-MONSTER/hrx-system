@@ -317,9 +317,9 @@ static iree_status_t loom_amdgpu_initialize_descriptor_offset(
                                                   scalar_type, &control));
   const loom_value_id_t byte_offset =
       loom_low_lower_realization_value(offset->byte_offset);
-  loom_value_id_t shifted_base = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t shifted_words[2];
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr64_add_u32_offset(
-      context, source_op, base, byte_offset, &shifted_base));
+      context, source_op, base, byte_offset, shifted_words));
   // Preparation proves the offset is bounded by both the imported resource
   // and source view extents. Subtraction cannot wrap for either descriptor
   // extent source, including an offset exactly at the end of the resource.
@@ -327,7 +327,8 @@ static iree_status_t loom_amdgpu_initialize_descriptor_offset(
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_binary(
       context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_SUB_U32, extent,
       byte_offset, scalar_type, &remaining_extent));
-  const loom_value_id_t fields[] = {shifted_base, remaining_extent, control};
+  const loom_value_id_t fields[] = {shifted_words[0], shifted_words[1],
+                                    remaining_extent, control};
   return loom_amdgpu_build_low_register_range(context, source_op, fields,
                                               IREE_ARRAYSIZE(fields),
                                               descriptor_type, out_value);
