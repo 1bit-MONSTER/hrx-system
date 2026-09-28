@@ -25,7 +25,7 @@ func.def @concat_ignores_empty_inputs(%empty0: vector<0xi8>, %lhs: vector<4xi8>,
 
 // ====
 
-// Static variadic concats become a left-associated binary chain.
+// Static variadic concats become an order-preserving binary tree.
 func.def @concat_variadic(%lhs: vector<2x3x1xi16>, %middle: vector<2x3x2xi16>, %rhs: vector<2x3x3xi16>) -> (vector<2x3x6xi16>) {
   %result = vector.concat<2> %lhs, %middle, %rhs : vector<2x3x1xi16>, vector<2x3x2xi16>, vector<2x3x3xi16> -> vector<2x3x6xi16>
   func.return %result : vector<2x3x6xi16>
@@ -35,6 +35,22 @@ func.def @concat_variadic(%lhs: vector<2x3x1xi16>, %middle: vector<2x3x2xi16>, %
   %5 = vector.concat<2> %lhs, %middle : vector<2x3x1xi16>, vector<2x3x2xi16> -> vector<2x3x3xi16>
   %result = vector.concat<2> %5, %rhs : vector<2x3x3xi16>, vector<2x3x3xi16> -> vector<2x3x6xi16>
   func.return %result : vector<2x3x6xi16>
+}
+
+// ====
+
+// Adjacent pairs compose before wider results, avoiding unsupported prefix
+// shapes when all inputs are native packets.
+func.def @concat_variadic_pairwise(%a: vector<4xi8>, %b: vector<4xi8>, %c: vector<4xi8>, %d: vector<4xi8>) -> (vector<16xi8>) {
+  %result = vector.concat<0> %a, %b, %c, %d : vector<4xi8>, vector<4xi8>, vector<4xi8>, vector<4xi8> -> vector<16xi8>
+  func.return %result : vector<16xi8>
+}
+// ----
+func.def @concat_variadic_pairwise(%a: vector<4xi8>, %b: vector<4xi8>, %c: vector<4xi8>, %d: vector<4xi8>) -> (vector<16xi8>) {
+  %6 = vector.concat<0> %a, %b : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %7 = vector.concat<0> %c, %d : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %result = vector.concat<0> %6, %7 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  func.return %result : vector<16xi8>
 }
 
 // ====

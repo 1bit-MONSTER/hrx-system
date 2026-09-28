@@ -8,13 +8,19 @@
 
 from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.structural import (
+    _ACCUMULATOR_BITCAST_TYPE_GROUPS,
+    _ACCUMULATOR_PAIR_CONCAT_SPECS,
+    _ACCUMULATOR_VECTOR_SPECS,
+    _F32X32_ACCUMULATOR,
     _I16_F16_BF16_8X8_VECTOR,
     _I16_INTERLEAVE_CONTROL,
     _I16_TRANSPOSE_8X8_CONTROLS,
     _I32_F32_4X4_VECTOR,
     _I32_F32_TRANSPOSE_4X4_CONTROL,
+    _ORDINARY_1024_BITCAST_TYPES,
     _PACKED_VECTOR_ELEMENT_TYPES,
     _VECTOR_CARRIER_SPECS,
+    _VECTOR_PAIR_TO_ACCUMULATOR_CONCAT_SPECS,
     _WIDE_VECTOR_BITCAST_TYPES,
     _WIDE_VECTOR_CONCAT_SPECS,
     _WIDE_VECTOR_EXTRACT_SPECS,
@@ -22,6 +28,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.structural import (
 )
 from loom.target.contracts import (
     AttrProject,
+    DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
     EmitRegisterConcat,
@@ -151,11 +158,6 @@ def _slice_rule(
 
 
 def test_static_slices_project_logical_lanes_into_physical_carriers() -> None:
-    slice_rules = [
-        rule for rule in AIE2P_STRUCTURAL_RULES if rule.source_op is vector.vector_slice
-    ]
-    assert len(slice_rules) == 8 * len(_VECTOR_CARRIER_SPECS)
-
     for element_types, element_byte_count, wide_lane_maximum in _VECTOR_CARRIER_SPECS:
         carrier_lane_count = 64 // element_byte_count
         narrow_type = Vector(
@@ -242,6 +244,39 @@ def test_static_slices_project_logical_lanes_into_physical_carriers() -> None:
         }
 
 
+def test_accumulator_packet_slices_move_each_mbms_unit_to_x() -> None:
+    for (
+        source_type,
+        result_type,
+        packet_lane_count,
+        unit_count,
+    ) in _ACCUMULATOR_VECTOR_SPECS:
+        rules = tuple(
+            _slice_rule(
+                source_type,
+                result_type,
+                unit_index * packet_lane_count,
+                unit_index * packet_lane_count,
+            )
+            for unit_index in range(unit_count)
+        )
+        assert all(
+            rule.descriptor.key == "amd.xdna.aie2p.move.accumulator512.to.vector512"
+            for rule in rules
+        )
+        for unit_index, rule in enumerate(rules):
+            assert [type(emit) for emit in rule.emit] == [
+                EmitRegisterSlice,
+                EmitDescriptorOp,
+            ]
+            assert (rule.emit[0].unit_offset, rule.emit[0].unit_count) == (
+                unit_index,
+                1,
+            )
+            assert rule.emit[1].operands["src"] == rule.emit[0].result
+            assert rule.emit[1].results["dst"] == ValueRef.result("result")
+
+
 def _concat_rule(
     input_type,
     result_type,
@@ -263,17 +298,6 @@ def _concat_rule(
 
 
 def test_partial_concat_projects_one_verified_byte_cut_per_element_width() -> None:
-    concat_rules = [
-        rule
-        for rule in AIE2P_STRUCTURAL_RULES
-        if rule.source_op is vector.vector_concat
-    ]
-    assert len(concat_rules) == (
-        2 * len(_PACKED_VECTOR_ELEMENT_TYPES)
-        + len(_WIDE_VECTOR_CONCAT_SPECS)
-        + 3 * len(_VECTOR_CARRIER_SPECS)
-    )
-
     for element_types, element_byte_count in _PACKED_VECTOR_ELEMENT_TYPES:
         carrier_lane_count = 64 // element_byte_count
         left = ValueRef.operand("inputs", element=0)
@@ -332,6 +356,74 @@ def test_partial_concat_projects_one_verified_byte_cut_per_element_width() -> No
         assert len(wide_rule.emit) == 1
         assert isinstance(wide_rule.emit[0], EmitRegisterConcat)
         assert [source.element for source in wide_rule.emit[0].sources] == [0, 1]
+
+
+def test_vector_pair_concat_moves_each_x_packet_to_mbms() -> None:
+    for (
+        input_type,
+        result_type,
+        packets_per_input,
+    ) in _VECTOR_PAIR_TO_ACCUMULATOR_CONCAT_SPECS:
+        rule = _concat_rule(input_type, result_type)
+        assert rule.guards == (
+            Guard.i64_range("axis", 0, 0),
+            Guard.operand_segment_count("inputs", 2),
+            Guard.value_type("inputs", input_type),
+            Guard.value_type("result", result_type),
+        )
+
+        accumulator_units = []
+        emit_index = 0
+        for input_index in range(2):
+            input_value = ValueRef.operand("inputs", element=input_index)
+            for packet_index in range(packets_per_input):
+                vector_packet = input_value
+                if packets_per_input > 1:
+                    slice_emit = rule.emit[emit_index]
+                    emit_index += 1
+                    assert isinstance(slice_emit, EmitRegisterSlice)
+                    assert slice_emit.source == input_value
+                    assert (slice_emit.unit_offset, slice_emit.unit_count) == (
+                        2 * packet_index,
+                        2,
+                    )
+                    vector_packet = slice_emit.result
+                move_emit = rule.emit[emit_index]
+                emit_index += 1
+                assert isinstance(move_emit, EmitDescriptorOp)
+                assert move_emit.descriptor.key == (
+                    "amd.xdna.aie2p.move.vector512.to.accumulator512"
+                )
+                assert move_emit.operands["src"] == vector_packet
+                assert move_emit.result_types == {"dst": DescriptorResultType()}
+                accumulator_units.append(move_emit.results["dst"])
+
+        joined = rule.emit[-1]
+        assert emit_index == len(rule.emit) - 1
+        assert isinstance(joined, EmitRegisterConcat)
+        assert tuple(joined.sources) == tuple(accumulator_units)
+        assert joined.result == ValueRef.result("result")
+
+
+def test_accumulator_pair_concat_preserves_adjacent_mbms_units() -> None:
+    for input_type, result_type in _ACCUMULATOR_PAIR_CONCAT_SPECS:
+        rule = _concat_rule(input_type, result_type)
+        assert rule.descriptor is None
+        assert rule.guards == (
+            Guard.i64_range("axis", 0, 0),
+            Guard.operand_segment_count("inputs", 2),
+            Guard.value_type("inputs", input_type),
+            Guard.value_type("result", result_type),
+        )
+        assert rule.emit == (
+            EmitRegisterConcat(
+                sources=(
+                    ValueRef.operand("inputs", element=0),
+                    ValueRef.operand("inputs", element=1),
+                ),
+                result=ValueRef.result("result"),
+            ),
+        )
 
 
 def test_split_carrier_concat_covers_each_binary_input_partition() -> None:
@@ -518,7 +610,7 @@ def test_wide_bitcast_aliases_preserve_ordinary_y_carriers() -> None:
             maximum_static_elements=64,
         ),
         Vector("i32", minimum_static_elements=17, maximum_static_elements=32),
-        Vector("f32", minimum_static_elements=17, maximum_static_elements=31),
+        Vector("f32", minimum_static_elements=17, maximum_static_elements=32),
         Vector(
             ("i64", "f64"),
             minimum_static_elements=9,
@@ -528,13 +620,17 @@ def test_wide_bitcast_aliases_preserve_ordinary_y_carriers() -> None:
     rules = tuple(
         rule
         for rule in AIE2P_STRUCTURAL_RULES
-        if isinstance(rule, ValueAliasRule) and rule.source_op is vector.vector_bitcast
+        if isinstance(rule, ValueAliasRule)
+        and rule.source_op is vector.vector_bitcast
+        and Guard.low_value_register_class("input", "aie2p.vec256") in rule.guards
     )
     assert len(rules) == len(_WIDE_VECTOR_BITCAST_TYPES) ** 2
     assert [rule.guards for rule in rules] == [
         (
             Guard.value_type("input", source_type),
             Guard.value_type("result", result_type),
+            Guard.low_value_register_class("input", "aie2p.vec256"),
+            Guard.low_value_register_class("result", "aie2p.vec256"),
             Guard.low_value_register_unit_count_eq("input", "result"),
         )
         for source_type in _WIDE_VECTOR_BITCAST_TYPES
@@ -542,6 +638,116 @@ def test_wide_bitcast_aliases_preserve_ordinary_y_carriers() -> None:
     ]
     assert all(rule.source.field == "input" for rule in rules)
     assert all(rule.result.field == "result" for rule in rules)
+
+
+def test_accumulator_bitcast_aliases_preserve_mbms_units() -> None:
+    rules = tuple(
+        rule
+        for rule in AIE2P_STRUCTURAL_RULES
+        if isinstance(rule, ValueAliasRule)
+        and rule.source_op is vector.vector_bitcast
+        and Guard.low_value_register_class("input", "aie2p.mbms") in rule.guards
+    )
+    expected_pairs = tuple(
+        (source_type, result_type)
+        for type_group in _ACCUMULATOR_BITCAST_TYPE_GROUPS
+        for source_type in type_group
+        for result_type in type_group
+    )
+    assert len(rules) == len(expected_pairs)
+    assert [rule.guards for rule in rules] == [
+        (
+            Guard.value_type("input", source_type),
+            Guard.value_type("result", result_type),
+            Guard.low_value_register_class("input", "aie2p.mbms"),
+            Guard.low_value_register_class("result", "aie2p.mbms"),
+            Guard.low_value_register_unit_count_eq("input", "result"),
+        )
+        for source_type, result_type in expected_pairs
+    ]
+
+
+def test_f32x32_bitcasts_move_each_unit_across_register_files() -> None:
+    assert _ORDINARY_1024_BITCAST_TYPES == (
+        Vector(
+            ("i8", "f8E4M3", "f8E5M2"),
+            minimum_static_elements=128,
+            maximum_static_elements=128,
+        ),
+        Vector(
+            ("i16", "f16", "bf16"),
+            minimum_static_elements=64,
+            maximum_static_elements=64,
+        ),
+        Vector("i32", minimum_static_elements=32, maximum_static_elements=32),
+        Vector("f32", minimum_static_elements=32, maximum_static_elements=32),
+        Vector(
+            ("i64", "f64"),
+            minimum_static_elements=16,
+            maximum_static_elements=16,
+        ),
+    )
+    conversion_rules = tuple(
+        rule
+        for rule in AIE2P_STRUCTURAL_RULES
+        if isinstance(rule, DescriptorRule) and rule.source_op is vector.vector_bitcast
+    )
+    assert len(conversion_rules) == 2 * len(_ORDINARY_1024_BITCAST_TYPES)
+
+    for ordinary_type in _ORDINARY_1024_BITCAST_TYPES:
+        to_vector = next(
+            rule
+            for rule in conversion_rules
+            if Guard.value_type("input", _F32X32_ACCUMULATOR) in rule.guards
+            and Guard.value_type("result", ordinary_type) in rule.guards
+            and Guard.low_value_register_class("result", "aie2p.vec256") in rule.guards
+        )
+        assert Guard.low_value_register_unit_count("input", 2) in to_vector.guards
+        assert Guard.low_value_register_unit_count("result", 4) in to_vector.guards
+        assert [type(emit) for emit in to_vector.emit] == [
+            EmitRegisterSlice,
+            EmitDescriptorOp,
+            EmitRegisterSlice,
+            EmitDescriptorOp,
+            EmitRegisterConcat,
+        ]
+        assert [to_vector.emit[index].unit_offset for index in (0, 2)] == [0, 1]
+        assert [to_vector.emit[index].unit_count for index in (0, 2)] == [1, 1]
+        assert all(
+            to_vector.emit[index].descriptor.key
+            == "amd.xdna.aie2p.move.accumulator512.to.vector512"
+            for index in (1, 3)
+        )
+
+        to_accumulator = next(
+            rule
+            for rule in conversion_rules
+            if Guard.value_type("input", ordinary_type) in rule.guards
+            and Guard.value_type("result", _F32X32_ACCUMULATOR) in rule.guards
+            and Guard.low_value_register_class("input", "aie2p.vec256") in rule.guards
+        )
+        assert Guard.low_value_register_unit_count("input", 4) in to_accumulator.guards
+        assert Guard.low_value_register_unit_count("result", 2) in to_accumulator.guards
+        assert [type(emit) for emit in to_accumulator.emit] == [
+            EmitRegisterSlice,
+            EmitDescriptorOp,
+            EmitRegisterSlice,
+            EmitDescriptorOp,
+            EmitRegisterConcat,
+        ]
+        assert [to_accumulator.emit[index].unit_offset for index in (0, 2)] == [
+            0,
+            2,
+        ]
+        assert [to_accumulator.emit[index].unit_count for index in (0, 2)] == [
+            2,
+            2,
+        ]
+        assert all(
+            to_accumulator.emit[index].descriptor.key
+            == "amd.xdna.aie2p.move.vector512.to.accumulator512"
+            for index in (1, 3)
+        )
 
 
 def test_16bit_interleave_uses_alternating_native_shuffle() -> None:

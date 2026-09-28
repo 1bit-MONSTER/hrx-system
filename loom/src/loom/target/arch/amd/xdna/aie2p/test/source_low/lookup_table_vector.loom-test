@@ -114,6 +114,71 @@ CHECK-NOT: * = vinsert.*
 
 // ====
 
+// Direct accumulator indices move to X packet by packet, while the four
+// packed word results move back to the accumulator file.
+func.def @i32_accumulator_boundaries(%table: vector<4xi32>, %indices: vector<64xi32>) -> (vector<64xi32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xi32>, vector<64xi32> -> vector<64xi32>
+  func.return %result : vector<64xi32>
+}
+
+// ----
+CHECK: * = slice %indices[0] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %indices[1] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %indices[2] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %indices[3] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = vsel.32*
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Four floating-point result packets compose through two native accumulator
+// halves instead of inventing an unsupported three-packet prefix.
+func.def @f32x64_accumulator_result(%table: vector<4xf32>, %indices: vector<64xi8>) -> (vector<64xf32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xf32>, vector<64xi8> -> vector<64xf32>
+  func.return %result : vector<64xf32>
+}
+
+// ----
+CHECK: * = vsel.32*
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Restoring a shaped 1024-bit result crosses from the flat accumulator
+// carrier back to its ordinary vector-file representation explicitly.
+func.def @shaped_f32_accumulator_result(%table: vector<4xf32>, %indices: vector<4x8xi8>) -> (vector<4x8xf32>) {
+  %result = vector.table.lookup %table[%indices] : vector<4xf32>, vector<4x8xi8> -> vector<4x8xf32>
+  func.return %result : vector<4x8xf32>
+}
+
+// ----
+CHECK: * = vsel.32*
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
 // A partial final result carrier retains its exact lane count after the first
 // native packet instead of padding the lookup or the logical result.
 func.def @partial_final_carrier(%table: vector<8xbf16>, %indices: vector<33xi16>) -> (vector<33xbf16>) {
@@ -148,8 +213,9 @@ CHECK-NOT: * = vinsert.*
 
 // ====
 
-// An index producer wider than the function ABI streams from its owning load;
-// no 2048-bit intermediate index carrier is materialized.
+// An index producer wider than the function ABI streams from its owning load.
+// Its four result packets compose as adjacent halves without materializing a
+// 2048-bit intermediate index carrier.
 func.def @streamed_i32_indices(%source: buffer, %table: vector<4xi8>) -> (vector<64xi8>) {
   %source_local = buffer.assume.memory_space<workgroup> %source : buffer
   %source_aligned = buffer.assume.alignment %source_local {minimum_alignment = 64} : buffer
@@ -165,7 +231,8 @@ CHECK: * = vlda.512.i32x16 %source_view, 0
 CHECK: * = vlda.512.i32x16 %source_view, 64
 CHECK: * = vlda.512.i32x16 %source_view, 128
 CHECK: * = vlda.512.i32x16 %source_view, 192
-CHECK: %result = vshift *
+CHECK: * = vshift *
+CHECK: %result = concat(*
 CHECK-NOT: * = storage *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*

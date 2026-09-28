@@ -94,14 +94,17 @@ static bool loom_aie2p_table_lookup_has_packet_result_carriers(loom_type_t type,
                                                                uint64_t count) {
   const loom_scalar_type_t element_type = loom_type_element_type(type);
   const uint32_t bit_count = loom_scalar_type_bitwidth(element_type);
-  if ((bit_count != 8 && bit_count != 16 && bit_count != 32) || count == 0 ||
-      count > 1024 / bit_count) {
+  if ((bit_count != 8 && bit_count != 16 && bit_count != 32) || count == 0) {
     return false;
   }
-  // F32x32 uses the accumulator file, while each packed selection result uses
-  // an ordinary X carrier. Their representation boundary needs an explicit
-  // conversion instead of an ordinary vector concat.
-  return element_type != LOOM_SCALAR_TYPE_F32 || count != 32;
+  if (count <= 1024 / bit_count) {
+    return true;
+  }
+  // The exact 2048-bit word accumulator types retain four 512-bit selection
+  // packets. Other vectors above 1024 bits have no source type mapping.
+  return loom_type_rank(type) == 1 && count == 64 &&
+         (element_type == LOOM_SCALAR_TYPE_I32 ||
+          element_type == LOOM_SCALAR_TYPE_F32);
 }
 
 iree_status_t loom_aie2p_table_lookup_rewrite(
