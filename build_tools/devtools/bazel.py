@@ -1736,10 +1736,8 @@ def header_path_for_include(header: str) -> Path | None:
 def infer_dep_for_header_path(
     bazel: str, header_path: Path, *, env: dict[str, str] | None
 ) -> str | None:
-    package_dir = header_path.parent
-    if not header_path.is_file():
-        return fallback_dep_for_header_dir(package_dir)
-    package_dir = nearest_package_dir(package_dir)
+    # Generated headers have declared owners before their output files exist.
+    package_dir = nearest_package_dir(header_path.parent)
     if package_dir is None:
         return None
     package_label = "//" + package_dir.relative_to(REPO_ROOT).as_posix()
