@@ -32,20 +32,20 @@ func.def target(@target) @round_away_rejected_by_math_policy(%input: f32) -> (f3
 
 wasm.target<simd128> @target
 
-func.def target(@target) @wide_roundeven_rejected_by_math_policy(%input: f64) -> (f64) {
-  // ERROR@+1: LOWERING/036 {op_name="scalar.roundevenf", phase_name="legalize-math", policy_name="wasm-math", math_op="roundevenf", lane_domain="scalar", element_type="f64", constraint_key="math.element.f32"}
-  %result = scalar.roundevenf %input : f64
-  func.return %result : f64
+func.def target(@target) @vector_round_away_rejected_by_math_policy(%input: vector<4xf32>) -> (vector<4xf32>) {
+  // ERROR@+1: LOWERING/036 {op_name="vector.roundf", phase_name="legalize-math", policy_name="wasm-math", math_op="roundf", lane_domain="vector", element_type="f32", constraint_key="math.op.supported"}
+  %result = vector.roundf %input : vector<4xf32>
+  func.return %result : vector<4xf32>
 }
 
 // ====
 
 wasm.target<simd128> @target
 
-func.def target(@target) @vector_roundeven_rejected_by_math_policy(%input: vector<4xf32>) -> (vector<4xf32>) {
-  // ERROR@+1: LOWERING/036 {op_name="vector.roundevenf", phase_name="legalize-math", policy_name="wasm-math", math_op="roundevenf", lane_domain="vector", element_type="f32", constraint_key="math.lane.scalar"}
-  %result = vector.roundevenf %input : vector<4xf32>
-  func.return %result : vector<4xf32>
+func.def target(@target) @wide_roundeven_rejected_by_math_policy(%input: f64) -> (f64) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.roundevenf", phase_name="legalize-math", policy_name="wasm-math", math_op="roundevenf", lane_domain="scalar", element_type="f64", constraint_key="math.element.f32"}
+  %result = scalar.roundevenf %input : f64
+  func.return %result : f64
 }
 
 // ====

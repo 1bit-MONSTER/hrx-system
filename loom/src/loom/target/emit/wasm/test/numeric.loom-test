@@ -115,6 +115,37 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compa
   return %eq, %ne, %lt, %gt, %le, %ge
 }
 
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @arithmetic_f32x4(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %add = f32x4.add %lhs, %rhs
+  %sub = f32x4.sub %lhs, %rhs
+  %mul = f32x4.mul %lhs, %rhs
+  %div = f32x4.div %lhs, %rhs
+  %min = f32x4.min %lhs, %rhs
+  %max = f32x4.max %lhs, %rhs
+  return %add, %sub, %mul, %div, %min, %max
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @unary_f32x4(%input: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %abs = f32x4.abs %input
+  %neg = f32x4.neg %input
+  %ceil = f32x4.ceil %input
+  %floor = f32x4.floor %input
+  %trunc = f32x4.trunc %input
+  %nearest = f32x4.nearest %input
+  %sqrt = f32x4.sqrt %input
+  return %abs, %neg, %ceil, %floor, %trunc, %nearest, %sqrt
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compare_f32x4(%lhs: reg<wasm.v128>, %rhs: reg<wasm.v128>) -> (reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>, reg<wasm.v128>) asm {
+  %eq = f32x4.eq %lhs, %rhs
+  %ne = f32x4.ne %lhs, %rhs
+  %lt = f32x4.lt %lhs, %rhs
+  %gt = f32x4.gt %lhs, %rhs
+  %le = f32x4.le %lhs, %rhs
+  %ge = f32x4.ge %lhs, %rhs
+  return %eq, %ne, %lt, %gt, %le, %ge
+}
+
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @lanes_i32(%first: reg<wasm.i32>, %last: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
   %splat = i32x4.splat %first
   %inserted = i32x4.replace_lane %splat, %last, 3
@@ -273,6 +304,25 @@ CHECK: f32.lt
 CHECK: f32.gt
 CHECK: f32.le
 CHECK: f32.ge
+CHECK: f32x4.add
+CHECK: f32x4.sub
+CHECK: f32x4.mul
+CHECK: f32x4.div
+CHECK: f32x4.min
+CHECK: f32x4.max
+CHECK: f32x4.abs
+CHECK: f32x4.neg
+CHECK: f32x4.ceil
+CHECK: f32x4.floor
+CHECK: f32x4.trunc
+CHECK: f32x4.nearest
+CHECK: f32x4.sqrt
+CHECK: f32x4.eq
+CHECK: f32x4.ne
+CHECK: f32x4.lt
+CHECK: f32x4.gt
+CHECK: f32x4.le
+CHECK: f32x4.ge
 CHECK: i32x4.splat
 CHECK: i32x4.replace_lane *3
 CHECK: i32x4.extract_lane *0
