@@ -187,6 +187,8 @@ typedef struct loom_aie2p_array_channel_t {
   uint32_t encoded_dma_record_length;
   // Physical transport selected by planning.
   loom_aie2p_array_channel_transport_t transport;
+  // Receiver-relative load base retained for neighbor-memory transport.
+  uint32_t neighbor_receiver_load_address_base;
 } loom_aie2p_array_channel_t;
 
 // Declared requirements associated with a worker entry symbol.

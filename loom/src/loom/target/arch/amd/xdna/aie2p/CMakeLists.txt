@@ -300,10 +300,12 @@ loom_cc_library(
   NAME
     array_plan
   HDRS
+    "array/channel_resources.h"
     "array/plan.h"
   SRCS
     "array/binding.c"
     "array/binding.h"
+    "array/channel_resources.c"
     "array/plan.c"
     "array/route.c"
     "array/route.h"
@@ -975,6 +977,22 @@ loom_cc_test(
     "array/local_memory_test.cc"
   DEPS
     ::array_local_memory
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amd::xdna::array_facts
+  LABELS
+    "iree-build-requirement=loom.target.arch.xdna"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    array_channel_resources_test
+  SRCS
+    "array/channel_resources_test.cc"
+  DEPS
+    ::array_plan
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::arch::amd::xdna::array_facts

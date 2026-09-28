@@ -244,13 +244,17 @@ loom_cc_library(
     srcs = [
         "array/binding.c",
         "array/binding.h",
+        "array/channel_resources.c",
         "array/plan.c",
         "array/route.c",
         "array/route.h",
         "array/topology.c",
         "array/topology.h",
     ],
-    hdrs = ["array/plan.h"],
+    hdrs = [
+        "array/channel_resources.h",
+        "array/plan.h",
+    ],
     deps = [
         ":array_abi_layout",
         ":array_descriptors",
@@ -840,6 +844,17 @@ loom_cc_test(
     srcs = ["array/local_memory_test.cc"],
     deps = [
         ":array_local_memory",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "array_channel_resources_test",
+    srcs = ["array/channel_resources_test.cc"],
+    deps = [
+        ":array_plan",
         "//loom/src/loom/target/arch/amd/xdna:array_facts",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

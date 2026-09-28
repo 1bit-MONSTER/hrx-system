@@ -274,6 +274,12 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
     names = [window.name for window in memory.load_windows]
     if len(names) != len(set(names)):
         raise ValueError(f"{tile.kind.value}: duplicate load-window name")
+    owner_windows = [
+        (window.owner_kind, window.owner_column_delta, window.owner_row_delta)
+        for window in memory.load_windows
+    ]
+    if len(owner_windows) != len(set(owner_windows)):
+        raise ValueError(f"{tile.kind.value}: duplicate load-window owner")
     self_windows = tuple(
         window
         for window in memory.load_windows
@@ -321,14 +327,36 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
                 )
 
 
-def _validate_lock_windows(family: ArrayFamily, tile: TileFacts) -> None:
+def _validate_load_window_resources(family: ArrayFamily, tile: TileFacts) -> None:
     tile_kinds = {row.kind: row for row in family.tiles}
+    if tile.kind is TileKind.COMPUTE and tile.row_count > 1:
+        owner_deltas = {
+            (window.owner_kind, window.owner_column_delta, window.owner_row_delta)
+            for window in tile.memory.load_windows
+        }
+        required_neighbors = {
+            (TileKind.COMPUTE, 0, -1),
+            (TileKind.COMPUTE, 0, 1),
+        }
+        if not required_neighbors.issubset(owner_deltas):
+            raise ValueError(
+                f"{tile.kind.value}: vertical neighbor load window is unavailable"
+            )
     lock_ranges: list[tuple[int, int, str]] = []
     for window in tile.memory.load_windows:
         owner = tile_kinds.get(window.owner_kind)
         if owner is None:
             raise ValueError(
                 f"{tile.kind.value}.{window.name}: lock owner kind is unavailable"
+            )
+        if (
+            tile.kind is TileKind.COMPUTE
+            and window.owner_kind is TileKind.COMPUTE
+            and window.capacity < owner.memory.local_capacity
+        ):
+            raise ValueError(
+                f"{tile.kind.value}.{window.name}: compute load window does not "
+                "cover owner local memory"
             )
         lock_end = window.lock_selector_base + owner.lock_count
         if lock_end > 1 << 16:
@@ -749,7 +777,7 @@ def validate_array_family(family: ArrayFamily) -> None:
         if tile.lock_value_minimum > 0 or tile.lock_value_maximum <= 0:
             raise ValueError(f"{tile.kind.value}: invalid lock domain")
         _validate_tile_memory(tile, family.row_shift)
-        _validate_lock_windows(family, tile)
+        _validate_load_window_resources(family, tile)
         _validate_dma(tile)
     if covered_rows != set(range(family.row_count)):
         raise ValueError(f"{family.key}: tile rows do not cover the array")

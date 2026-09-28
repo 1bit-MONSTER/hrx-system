@@ -212,6 +212,78 @@ def test_validator_rejects_load_window_displacement_outside_native_carrier() -> 
         )
 
 
+def test_validator_requires_unique_load_window_owner() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, west, north, self_window = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(
+                south,
+                west,
+                replace(
+                    north,
+                    owner_column_delta=south.owner_column_delta,
+                    owner_row_delta=south.owner_row_delta,
+                ),
+                self_window,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate load-window owner"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_complete_visible_compute_window() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, *remaining_windows = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(
+                replace(south, capacity=compute.memory.local_capacity - 1),
+                *remaining_windows,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="does not cover owner local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_vertical_neighbor_load_windows() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, west, _north, self_window = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(south, west, self_window),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="vertical neighbor load window"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [

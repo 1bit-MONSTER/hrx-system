@@ -83,16 +83,16 @@ ERR_XDNA_005 = ErrorDef(
     fix_hint="Place the stages in groups whose worker dependencies are acyclic.",
 )
 
-# ERR_XDNA_006: AIE2P channel has no available compute endpoint.
+# ERR_XDNA_006: An AIE2P channel cannot acquire physical resources.
 ERR_XDNA_006 = ErrorDef(
     domain=ErrorDomain.XDNA,
     code=6,
     severity=Severity.ERROR,
-    summary="AIE2P channel has no available compute endpoint.",
+    summary="AIE2P channel cannot acquire physical resources.",
     message=(
-        "AIE2P channel {channel} needs {capacity} records of {record_bytes} bytes, "
-        "compatible DMA channels, descriptors and locks on a compute tile visible "
-        "to worker ({column}, {row}); no candidate has all requested resources"
+        "AIE2P channel {channel} at worker ({column}, {row}) cannot acquire "
+        "physical resources for {capacity} records of {record_bytes} bytes: "
+        "{reason}"
     ),
     params=(
         ErrorParam("channel", ParamKind.U32),
@@ -100,8 +100,12 @@ ERR_XDNA_006 = ErrorDef(
         ErrorParam("row", ParamKind.U32),
         ErrorParam("capacity", ParamKind.U32),
         ErrorParam("record_bytes", ParamKind.U32),
+        ErrorParam("reason", ParamKind.STRING),
     ),
-    fix_hint="Reduce the channel capacity or record size, or change worker placement.",
+    fix_hint=(
+        "Reduce the channel capacity or record size, reduce competing channels, "
+        "or change worker placement."
+    ),
 )
 
 # ERR_XDNA_007: An array stream cannot be routed within link capacity.
