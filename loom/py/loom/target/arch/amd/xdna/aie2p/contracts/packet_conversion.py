@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
@@ -27,6 +28,7 @@ from loom.target.contracts import (
     EmitRegisterConcat,
     EmitRegisterSlice,
     Guard,
+    SourceNode,
     ValueProject,
     ValueRef,
     Vector,
@@ -283,13 +285,15 @@ def integer_widen_result_emits(
     return native_result, tuple(output_emits)
 
 
-def integer_pack_state_emits(pack_size: int) -> tuple[ContractEmit, ...]:
+def integer_pack_state_emits(
+    pack_size: int, *, saturation: int = 0
+) -> tuple[ContractEmit, ...]:
     """Builds the explicit configured state consumed by one VPACK form."""
 
     return (
         EmitDescriptorOp(
             descriptor=_descriptor("amd.xdna.aie2p.state.saturation.immediate"),
-            immediates={"i": 0},
+            immediates={"i": saturation},
             form=DescriptorEmitForm.OP,
         ),
         EmitDescriptorOp(
@@ -606,10 +610,13 @@ def _bf16_to_f32_vector_rule(lane_count: int) -> DescriptorRule:
     )
 
 
-def _integer_pack_rule(pack_case: IntegerPackCase) -> DescriptorRule:
-    pack = _descriptor(
-        f"amd.xdna.aie2p.pack.{pack_case.physical_width}.trunc.configured"
-    )
+def _integer_pack_emits(
+    pack_case: IntegerPackCase,
+    pack: Descriptor,
+    source: ValueRef,
+    *,
+    saturation: int = 0,
+) -> tuple[ContractEmit, ...]:
     packed_result = (
         ValueRef.temporary("packed_w")
         if pack_case.pad_result
@@ -619,7 +626,7 @@ def _integer_pack_rule(pack_case: IntegerPackCase) -> DescriptorRule:
     if pack_case.pad_result:
         result_emits = (
             EmitRegisterSlice(
-                source=ValueRef.operand(pack_case.source_field),
+                source=source,
                 result=ValueRef.temporary("unused_w"),
                 unit_offset=1,
                 unit_count=1,
@@ -629,6 +636,25 @@ def _integer_pack_rule(pack_case: IntegerPackCase) -> DescriptorRule:
                 result=ValueRef.result("result"),
             ),
         )
+    return (
+        *integer_pack_state_emits(pack_case.pack_size, saturation=saturation),
+        EmitDescriptorOp(
+            descriptor=pack,
+            operands={"src": source},
+            results={"dst": packed_result},
+            result_types=(
+                {"dst": DescriptorResultType()} if pack_case.pad_result else None
+            ),
+            form=DescriptorEmitForm.OP,
+        ),
+        *result_emits,
+    )
+
+
+def _integer_pack_rule(pack_case: IntegerPackCase) -> DescriptorRule:
+    pack = _descriptor(
+        f"amd.xdna.aie2p.pack.{pack_case.physical_width}.trunc.configured"
+    )
     return DescriptorRule(
         source_op=pack_case.source_op,
         descriptor=pack,
@@ -651,24 +677,83 @@ def _integer_pack_rule(pack_case: IntegerPackCase) -> DescriptorRule:
                 else ()
             ),
         ),
-        emit=(
-            *integer_pack_state_emits(pack_case.pack_size),
-            EmitDescriptorOp(
-                descriptor=pack,
-                operands={"src": ValueRef.operand(pack_case.source_field)},
-                results={"dst": packed_result},
-                result_types=(
-                    {"dst": DescriptorResultType()} if pack_case.pad_result else None
-                ),
-                form=DescriptorEmitForm.OP,
-            ),
-            *result_emits,
+        emit=_integer_pack_emits(
+            pack_case, pack, ValueRef.operand(pack_case.source_field)
         ),
         report_key=pack_case.report_key,
     )
 
 
+def _saturating_i4_pack_rule(
+    pack_case: IntegerPackCase,
+    outer_op: Op,
+    inner_op: Op,
+    value_fields: tuple[str, str],
+) -> DescriptorRule:
+    # The shared matcher requires each consumed clamp result to be adjacent and
+    # single-use. The original input and bound constants may have other users.
+    bounds = {vector.vector_maxsi: -8, vector.vector_minsi: 7}
+    bound_fields = tuple("rhs" if field == "lhs" else "lhs" for field in value_fields)
+    pack = _descriptor(
+        f"amd.xdna.aie2p.pack.{pack_case.physical_width}.signed.configured"
+    )
+    source = ValueRef.operand(value_fields[1], source_node="inner")
+    order = "min_max" if outer_op is vector.vector_minsi else "max_min"
+    return DescriptorRule(
+        source_op=vector.vector_bitpack,
+        descriptor=pack,
+        priority=1,
+        guards=(
+            Guard.value_type("source", _exact_vector("i8", pack_case.input_lanes)),
+            Guard.value_type("result", _exact_vector("i8", pack_case.result_lanes)),
+            Guard.i64_range("width", 4, 4),
+        ),
+        source_nodes=(
+            SourceNode.adjacent_definition(
+                "outer",
+                source_op=outer_op,
+                parent_operand=ValueRef.operand("source"),
+                node_result=ValueRef.result("result"),
+                guards=(
+                    Guard.value_exact_i64(bound_fields[0]),
+                    Guard.value_i64_range(
+                        bound_fields[0], bounds[outer_op], bounds[outer_op]
+                    ),
+                ),
+            ),
+            SourceNode.adjacent_definition(
+                "inner",
+                source_op=inner_op,
+                parent="outer",
+                parent_operand=ValueRef.operand(value_fields[0]),
+                node_result=ValueRef.result("result"),
+                guards=(
+                    Guard.value_exact_i64(bound_fields[1]),
+                    Guard.value_i64_range(
+                        bound_fields[1], bounds[inner_op], bounds[inner_op]
+                    ),
+                ),
+            ),
+        ),
+        emit=_integer_pack_emits(pack_case, pack, source, saturation=1),
+        report_key=(
+            f"native_saturating_signed_i8x{pack_case.input_lanes}_to_i4_"
+            f"{order}_{value_fields[0]}_{value_fields[1]}"
+        ),
+    )
+
+
 AIE2P_PACKET_CONVERSION_RULES = (
+    *(
+        _saturating_i4_pack_rule(pack_case, outer_op, inner_op, value_fields)
+        for pack_case in INTEGER_PACK_CASES
+        if pack_case.bit_width == 4
+        for outer_op, inner_op in (
+            (vector.vector_minsi, vector.vector_maxsi),
+            (vector.vector_maxsi, vector.vector_minsi),
+        )
+        for value_fields in product(("lhs", "rhs"), repeat=2)
+    ),
     *(
         _integer_shift_rule(source_op)
         for source_op in (vector.vector_shli, vector.vector_shrui, vector.vector_shrsi)
