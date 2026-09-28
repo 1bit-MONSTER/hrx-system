@@ -677,9 +677,7 @@ static iree_status_t loom_value_fact_table_compute_condition_loop_summary(
   const loom_value_id_t* condition_values =
       condition ? loom_op_const_operands(condition) : NULL;
   const loom_value_facts_t condition_facts =
-      condition_values
-          ? loom_value_fact_table_lookup(table, condition_values[0])
-          : loom_value_facts_unknown();
+      loom_value_fact_table_lookup(table, loom_loop_like_condition(loop));
   const loom_op_t* yield = loom_value_fact_region_terminator(body);
   const loom_value_id_t* yielded_values =
       yield ? loom_op_const_operands(yield) : NULL;

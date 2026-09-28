@@ -769,6 +769,31 @@ static iree_status_t loom_vector_memory_footprint_scale_axis_proof(
       state, bound, logical_element_count, out_bound);
 }
 
+// Keeps a compound expression's guarded SSA identity when its access coordinate
+// adds a constant. Expansion already retained the exact dynamic
+// materialization; querying it here does not walk the arithmetic producers
+// again.
+static iree_status_t loom_vector_memory_footprint_materialized_relation_expr(
+    loom_vector_memory_footprint_state_t* state, loom_value_id_t value,
+    loom_symbolic_expr_t* inout_expression, bool* out_changed) {
+  *out_changed = false;
+  loom_symbolic_expr_summary_t summary = {0};
+  if (!loom_symbolic_expr_context_try_lookup_summary(&state->expression_context,
+                                                     value, &summary) ||
+      summary.materialized_dynamic_value_id == LOOM_VALUE_ID_INVALID ||
+      summary.expression.constant == 0) {
+    return iree_ok_status();
+  }
+  loom_symbolic_expr_t dynamic = {0};
+  IREE_RETURN_IF_ERROR(loom_symbolic_expr_value(
+      &state->expression_context, summary.materialized_dynamic_value_id,
+      &dynamic));
+  IREE_RETURN_IF_ERROR(loom_vector_memory_footprint_expr_add_i64(
+      state, &dynamic, summary.expression.constant, inout_expression));
+  *out_changed = true;
+  return iree_ok_status();
+}
+
 static iree_status_t
 loom_vector_memory_footprint_prove_axis_upper_bound_from_origin_relation(
     loom_vector_memory_footprint_state_t* state,
@@ -791,8 +816,9 @@ loom_vector_memory_footprint_prove_axis_upper_bound_from_origin_relation(
   IREE_RETURN_IF_ERROR(
       loom_vector_memory_footprint_expr_add(state, &origin, extent, &end));
   loom_symbolic_expr_t bound = {0};
+  loom_value_id_t bound_value = LOOM_VALUE_ID_INVALID;
   if (loom_type_dim_is_dynamic_at(memory_access->view_type, view_axis)) {
-    loom_value_id_t bound_value =
+    bound_value =
         loom_type_dim_value_id_at(memory_access->view_type, view_axis);
     if (bound_value == LOOM_VALUE_ID_INVALID) {
       return iree_ok_status();
@@ -806,6 +832,25 @@ loom_vector_memory_footprint_prove_axis_upper_bound_from_origin_relation(
   }
   IREE_RETURN_IF_ERROR(
       loom_vector_memory_footprint_prove_le(state, &end, &bound, out_proven));
+  if (*out_proven) {
+    return iree_ok_status();
+  }
+
+  bool origin_changed = false;
+  bool bound_changed = false;
+  IREE_RETURN_IF_ERROR(loom_vector_memory_footprint_materialized_relation_expr(
+      state, origin_value, &origin, &origin_changed));
+  if (bound_value != LOOM_VALUE_ID_INVALID) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_memory_footprint_materialized_relation_expr(
+            state, bound_value, &bound, &bound_changed));
+  }
+  if (origin_changed || bound_changed) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_memory_footprint_expr_add(state, &origin, extent, &end));
+    return loom_vector_memory_footprint_prove_le(state, &end, &bound,
+                                                 out_proven);
+  }
   return iree_ok_status();
 }
 

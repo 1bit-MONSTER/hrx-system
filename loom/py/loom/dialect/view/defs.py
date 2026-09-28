@@ -427,6 +427,7 @@ view_atomic_rmw = Op(
     contracts=[ContractFamily.MEMORY_ATOMIC],
     interfaces=[CachePolicyInterface(), _atomic_memory_access_interface(value="value")],
     verify="loom_view_atomic_rmw_verify",
+    facts="loom_view_atomic_observation_facts",
     format=[
         TemplateParamFlags("kind", "memory_flags"),
         Ref("value"),
@@ -481,6 +482,7 @@ view_atomic_cmpxchg = Op(
         ),
     ],
     verify="loom_view_atomic_cmpxchg_verify",
+    facts="loom_view_atomic_observation_facts",
     format=[
         Ref("expected"),
         COMMA,
@@ -577,6 +579,7 @@ view_atomic_load = Op(
     interfaces=[CachePolicyInterface(), _memory_access_interface(atomic_ordering="ordering", atomic_scope="scope")],
     effective_traits="loom_view_atomic_load_effective_traits",
     verify="loom_view_atomic_load_verify",
+    facts="loom_view_atomic_observation_facts",
     format=[Ref("view"), IndexList("indices", "static_indices"), AttrDict(), COLON, TypeOf("view"), ARROW, ResultType("result")],
     examples=[
         "%generation = view.atomic.load %progress[0] {ordering = acquire, scope = system} : view<1xi32> -> i32",

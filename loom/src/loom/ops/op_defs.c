@@ -1092,6 +1092,15 @@ loom_region_t* loom_loop_like_condition_region(loom_loop_like_t loop) {
   return loom_op_regions(loop.op)[loop.vtable->condition_region_index];
 }
 
+loom_value_id_t loom_loop_like_condition(loom_loop_like_t loop) {
+  const loom_region_t* region = loom_loop_like_condition_region(loop);
+  if (!region) {
+    return LOOM_VALUE_ID_INVALID;
+  }
+  const loom_op_t* terminator = loom_region_const_entry_block(region)->last_op;
+  return loom_op_const_operands(terminator)[0];
+}
+
 loom_value_id_t loom_loop_like_iv(loom_loop_like_t loop) {
   if (!loop.vtable) {
     return LOOM_VALUE_ID_INVALID;
