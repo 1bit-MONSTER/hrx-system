@@ -1,0 +1,103 @@
+// RUN: pass canonicalize
+
+func.def @byte_truth(%input: i1) -> (i1) {
+  %byte = scalar.extui %input : i1 to i8
+  %c0 = scalar.constant 0 : i8
+  %result = scalar.cmpi ne, %byte, %c0 : i8
+  func.return %result : i1
+}
+// ----
+func.def @byte_truth(%input: i1) -> (i1) {
+  func.return %input : i1
+}
+
+// ====
+
+func.def @halfword_false(%input: i1) -> (i1) {
+  %halfword = scalar.extui %input : i1 to i16
+  %c0 = scalar.constant 0 : i16
+  %result = scalar.cmpi eq, %halfword, %c0 : i16
+  func.return %result : i1
+}
+// ----
+func.def @halfword_false(%input: i1) -> (i1) {
+  %5 = scalar.constant true : i1
+  %result = scalar.xori %input, %5 : i1
+  func.return %result : i1
+}
+
+// ====
+
+// Sign extension represents true as all bits set; its zero test is unchanged.
+func.def @swapped_signed_truth(%input: i1) -> (i1) {
+  %word = scalar.extsi %input : i1 to i32
+  %c0 = scalar.constant 0 : i32
+  %result = scalar.cmpi ne, %c0, %word : i32
+  func.return %result : i1
+}
+// ----
+func.def @swapped_signed_truth(%input: i1) -> (i1) {
+  func.return %input : i1
+}
+
+// ====
+
+func.def @swapped_signed_false(%input: i1) -> (i1) {
+  %word = scalar.extsi %input : i1 to i64
+  %c0 = scalar.constant 0 : i64
+  %result = scalar.cmpi eq, %c0, %word : i64
+  func.return %result : i1
+}
+// ----
+func.def @swapped_signed_false(%input: i1) -> (i1) {
+  %6 = scalar.constant true : i1
+  %result = scalar.xori %input, %6 : i1
+  func.return %result : i1
+}
+
+// ====
+
+// Replacing the comparison preserves other users of the extended value.
+func.def @retained_extension(%input: i1) -> (i8, i1) {
+  %byte = scalar.extsi %input : i1 to i8
+  %c0 = scalar.constant 0 : i8
+  %result = scalar.cmpi ne, %byte, %c0 : i8
+  func.return %byte, %result : i8, i1
+}
+// ----
+func.def @retained_extension(%input: i1) -> (i8, i1) {
+  %byte = scalar.extsi %input : i1 to i8
+  func.return %byte, %input : i8, i1
+}
+
+// ====
+
+// An extended byte still needs a comparison, including for even nonzero bytes.
+func.def @integer_truth(%input: i8) -> (i1) {
+  %word = scalar.extui %input : i8 to i32
+  %c0 = scalar.constant 0 : i32
+  %result = scalar.cmpi ne, %word, %c0 : i32
+  func.return %result : i1
+}
+// ----
+func.def @integer_truth(%input: i8) -> (i1) {
+  %word = scalar.extui %input : i8 to i32
+  %c0 = scalar.constant 0 : i32
+  %result = scalar.cmpi ne, %word, %c0 : i32
+  func.return %result : i1
+}
+
+// ====
+
+// A runtime comparison operand cannot stand in for the proven zero.
+func.def @dynamic_comparison(%input: i1, %other: i8) -> (i1) {
+  %byte = scalar.extui %input : i1 to i8
+  %result = scalar.cmpi ne, %byte, %other : i8
+  func.return %result : i1
+}
+// ----
+func.def @dynamic_comparison(%input: i1, %other: i8) -> (i1) {
+  %byte = scalar.extui %input : i1 to i8
+  %result = scalar.cmpi ne, %byte, %other : i8
+  func.return %result : i1
+}
