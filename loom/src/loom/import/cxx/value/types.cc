@@ -477,11 +477,9 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
     case cxx::TypeKind::kBoundedArray: {
       auto* array = cxx::type_cast<cxx::BoundedArrayType>(unqualified(input));
       auto element = get(array->elementType(), ast);
-      if (loom_type_kind(element) != LOOM_TYPE_SCALAR ||
-          loom_type_element_type(element) == LOOM_SCALAR_TYPE_I1) {
-        diagnostics_.reject(
-            unit_, ast,
-            "arrays require a supported non-boolean scalar element");
+      if (loom_type_kind(element) != LOOM_TYPE_SCALAR) {
+        diagnostics_.reject(unit_, ast,
+                            "arrays require a supported scalar element");
       }
       return loom_type_buffer();
     }
@@ -563,13 +561,11 @@ int64_t Types::storage_size(const cxx::Type* input, cxx::AST* owner) {
     require_record_storage(record, owner);
   } else {
     auto type = get(input, owner);
-    if ((loom_type_kind(type) != LOOM_TYPE_SCALAR &&
-         loom_type_kind(type) != LOOM_TYPE_VECTOR) ||
-        loom_type_element_type(type) == LOOM_SCALAR_TYPE_I1) {
+    if (loom_type_kind(type) != LOOM_TYPE_SCALAR &&
+        loom_type_kind(type) != LOOM_TYPE_VECTOR) {
       diagnostics_.reject(
           unit_, owner,
-          "memory objects require non-boolean scalar, vector or plain record "
-          "storage");
+          "memory objects require scalar, vector or plain record storage");
     }
   }
   auto bytes = unit_.control()->memoryLayout()->sizeOf(input);

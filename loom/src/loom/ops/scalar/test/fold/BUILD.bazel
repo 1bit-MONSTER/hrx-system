@@ -22,6 +22,7 @@ loom_check_test_suite(
         "arithmetici_structural.loom-test",
         "bitwisei.loom-test",
         "bitwisei_structural.loom-test",
+        "boolean_extension.loom-test",
         "comparison_structural.loom-test",
         "comparisonf.loom-test",
         "comparisoni.loom-test",

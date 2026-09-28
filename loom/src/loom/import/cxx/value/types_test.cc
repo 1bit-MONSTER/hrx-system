@@ -77,7 +77,6 @@ TEST(TypesTest, ObjectPointersDoNotRequirePointeeStorage) {
       source_type("Opaque"),
       source_type("Payload"),
       source_type("Owned"),
-      control->getBoolType(),
       control->getPointerType(control->getIntType()),
   };
   for (auto* pointee : pointees) {
@@ -309,8 +308,6 @@ TEST(TypesTest, RejectsRepresentationsThatLoseSourceSemantics) {
   Types types(source.unit(), source.diagnostics());
   auto* control = source.unit().control();
   auto* owner = source.unit().ast();
-  EXPECT_THROW(types.storage_size(control->getBoolType(), owner),
-               SourceRejected);
   EXPECT_THROW(
       types.get(control->getLvalueReferenceType(control->getIntType()), owner),
       SourceRejected);
@@ -406,7 +403,36 @@ TEST(TypesTest, BooleanEnumsKeepTheBooleanStorageContract) {
   EXPECT_EQ(loom_type_kind(types.get(
                 source.unit().control()->getPointerType(type), owner)),
             LOOM_TYPE_BUFFER);
-  EXPECT_THROW(types.storage_size(type, owner), SourceRejected);
+  EXPECT_EQ(types.storage_size(type, owner), 1);
+}
+
+TEST(TypesTest, BooleanObjectsHaveByteLayoutAndPredicateValues) {
+  for (auto model : {LOOM_CXX_DATA_MODEL_LP64, LOOM_CXX_DATA_MODEL_LLP64,
+                     LOOM_CXX_DATA_MODEL_ILP32}) {
+    loom_cxx_import_options_t options;
+    loom_cxx_import_options_initialize(&options);
+    options.data_model = model;
+    Source source(IREE_SV("int entry();"), IREE_SV("types.cpp"), options);
+    Types types(source.unit(), source.diagnostics());
+    auto* control = source.unit().control();
+    auto* owner = source.unit().ast();
+    const cxx::Type* elements[] = {
+        control->getBoolType(),
+        control->getQualType(control->getBoolType(), cxx::CvQualifiers::kConst),
+        control->getQualType(control->getBoolType(),
+                             cxx::CvQualifiers::kVolatile),
+    };
+    for (auto* element : elements) {
+      EXPECT_EQ(loom_type_element_type(types.get(element, owner)),
+                LOOM_SCALAR_TYPE_I1);
+      EXPECT_EQ(types.storage_size(element, owner), 1);
+      EXPECT_EQ(types.partition(control->getPointerType(element), owner).kind,
+                ValueKind::Pointer);
+      auto* array = control->getBoundedArrayType(element, 7);
+      EXPECT_EQ(loom_type_kind(types.get(array, owner)), LOOM_TYPE_BUFFER);
+      EXPECT_EQ(types.storage_size(array, owner), 7);
+    }
+  }
 }
 
 TEST(TypesTest, VectorProjectionKeepsLaneShapeAndRejectsPackedBoolAndPadding) {
