@@ -62,8 +62,10 @@ result contains final wire rows and immutable function bytecode, with no IR,
 analysis, or diagnostic surface. The target-owned
 [binary writer](../../emit/vm/module_binary.c) lays out that physical program;
 it cannot reach back into compiler state or reject a compiler invariant. The
-returned byte sequence owns its storage, so consumers can enumerate it or
-explicitly clone it when they need contiguous bytes.
+returned byte sequence retains the prepared instruction storage between its
+writer-owned prefix and suffix instead of copying function bytes. Consumers can
+enumerate that segmented storage or explicitly clone it when they need
+contiguous bytes.
 
 ## Where the contracts live
 

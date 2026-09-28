@@ -41,4 +41,21 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    module_binary_test
+  SRCS
+    "module_binary_test.cc"
+  DEPS
+    ::module_binary
+    ::program
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

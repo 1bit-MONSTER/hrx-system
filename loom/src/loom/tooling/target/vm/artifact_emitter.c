@@ -23,7 +23,7 @@ iree_status_t loom_vm_artifact_emit(const loom_target_emit_request_t* request,
   iree_status_t status = loom_vm_program_plan_prepare(
       request->module, request->function_versions,
       request->low_descriptor_registry, request->diagnostic_emitter,
-      request->scratch_arena, &accepted, &plan);
+      request->scratch_arena, request->allocator, &accepted, &plan);
   if (iree_status_is_ok(status) && accepted) {
     status = loom_vm_program_emit_binary(&plan, request->allocator,
                                          &out_artifact->contents);

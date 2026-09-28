@@ -21,7 +21,9 @@ extern "C" {
 //
 // Compiler preparation has finalized all semantic and wire-format facts. This
 // function only lays out sections and may fail when output storage cannot be
-// allocated. On success, the caller owns |out_binary|.
+// allocated. The result retains the plan's immutable function bytecode between
+// writer-owned prefix and suffix ranges instead of copying it. On success, the
+// caller owns |out_binary|.
 iree_status_t loom_vm_program_emit_binary(const loom_vm_program_plan_t* plan,
                                           iree_allocator_t allocator,
                                           iree_byte_sequence_t** out_binary);

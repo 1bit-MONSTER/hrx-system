@@ -249,7 +249,7 @@ TEST_F(VMEmissionTest, PreparationFailuresLeaveNoPartialPlan) {
     bool accepted = false;
     iree_status_t status = loom_vm_program_plan_prepare(
         input_.module, &pipeline_.function_versions.list, &registry_.registry,
-        {}, &plan_arena, &accepted, &plan);
+        {}, &plan_arena, allocations.allocator(), &accepted, &plan);
     const bool succeeded = iree_status_is_ok(status);
     if (succeeded) {
       EXPECT_TRUE(accepted);
@@ -288,7 +288,7 @@ TEST_F(VMEmissionTest, PreparedProgramCanBeEmittedRepeatedly) {
   bool accepted = false;
   IREE_ASSERT_OK(loom_vm_program_plan_prepare(
       input_.module, &pipeline_.function_versions.list, &registry_.registry, {},
-      &arena, &accepted, &plan));
+      &arena, iree_allocator_system(), &accepted, &plan));
   ASSERT_TRUE(accepted);
 
   iree_byte_sequence_t* first = nullptr;

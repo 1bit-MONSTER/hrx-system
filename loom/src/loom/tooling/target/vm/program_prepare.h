@@ -86,16 +86,19 @@ struct loom_vm_program_build_t {
 // scheduling, allocation, spill materialization, instruction selection,
 // branch fixups, and every wire-format limit are resolved before this returns.
 // Structured compiler rejection returns OK with |out_accepted| false. On
-// acceptance, all plan storage is owned by |arena| and remains valid until that
-// arena is reset. The caller must deinitialize the accepted plan before
-// resetting |arena|; writing the binary does not consume plan ownership. Any
-// rejection or failure leaves |out_plan| empty.
+// acceptance, plan tables are owned by |arena| and remain valid until that
+// arena is reset. The immutable function bytecode is owned by
+// |bytecode_allocator| so a target writer can retain it in an output without
+// copying. The caller must deinitialize the accepted plan; writing the binary
+// does not consume plan ownership. Any rejection or failure leaves |out_plan|
+// empty.
 iree_status_t loom_vm_program_plan_prepare(
     loom_module_t* module,
     const loom_function_version_list_t* function_versions,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
-    bool* out_accepted, loom_vm_program_plan_t* out_plan);
+    iree_allocator_t bytecode_allocator, bool* out_accepted,
+    loom_vm_program_plan_t* out_plan);
 
 #ifdef __cplusplus
 }  // extern "C"

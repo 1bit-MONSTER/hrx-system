@@ -89,8 +89,8 @@ typedef struct loom_vm_program_plan_t {
   bool has_rodata_section;
 } loom_vm_program_plan_t;
 
-// Releases resources retained by |plan|. Arena-owned rows and byte segments
-// remain owned by the arena supplied during preparation.
+// Releases resources retained by |plan|. Arena-owned rows remain owned by the
+// arena supplied during preparation.
 void loom_vm_program_plan_deinitialize(loom_vm_program_plan_t* plan);
 
 #ifdef __cplusplus

@@ -566,8 +566,8 @@ static iree_status_t loom_vm_program_prepare_functions(
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter,
     iree_arena_allocator_t* plan_arena, iree_arena_allocator_t* scratch_arena,
-    loom_vm_program_build_t* program, bool* out_accepted,
-    loom_vm_program_plan_t* out_plan) {
+    loom_vm_program_build_t* program, iree_allocator_t bytecode_allocator,
+    bool* out_accepted, loom_vm_program_plan_t* out_plan) {
   *out_accepted = false;
   if (!program->definition_count) {
     *out_accepted = true;
@@ -580,7 +580,7 @@ static iree_status_t loom_vm_program_prepare_functions(
   iree_io_stream_t* stream = NULL;
   IREE_RETURN_IF_ERROR(iree_io_vec_stream_create(
       IREE_IO_STREAM_MODE_WRITABLE | IREE_IO_STREAM_MODE_SEEKABLE, 32 * 1024,
-      iree_arena_allocator(plan_arena), &stream));
+      bytecode_allocator, &stream));
 
   uint32_t maximum_block_count = 0;
   bool functions_accepted = true;
@@ -666,7 +666,8 @@ iree_status_t loom_vm_program_plan_prepare(
     const loom_function_version_list_t* function_versions,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
-    bool* out_accepted, loom_vm_program_plan_t* out_plan) {
+    iree_allocator_t bytecode_allocator, bool* out_accepted,
+    loom_vm_program_plan_t* out_plan) {
   *out_accepted = false;
   *out_plan = (loom_vm_program_plan_t){
       .rodata_alignment = IREE_VM_BYTECODE_IMAGE_ALIGNMENT,
@@ -686,7 +687,7 @@ iree_status_t loom_vm_program_plan_prepare(
   if (iree_status_is_ok(status)) {
     status = loom_vm_program_prepare_functions(
         module, descriptor_registry, diagnostic_emitter, arena, &scratch_arena,
-        &program, &functions_accepted, out_plan);
+        &program, bytecode_allocator, &functions_accepted, out_plan);
   }
   if (iree_status_is_ok(status) && functions_accepted) {
     status = loom_vm_program_prepare_rodata(arena, &program, out_plan);
