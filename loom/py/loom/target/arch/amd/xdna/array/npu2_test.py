@@ -120,6 +120,83 @@ def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
     assert (memory.memory.local_capacity, memory.memory.bank_count) == (512 * 1024, 8)
 
 
+def test_validator_requires_complete_self_load_window() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=tuple(
+                window
+                for window in compute.memory.load_windows
+                if window.owner_column_delta != 0 or window.owner_row_delta != 0
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="no self load window covers local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_rejects_load_window_displacement_outside_native_carrier() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, *remaining_windows = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(
+                replace(south, owner_row_delta=-(1 << 7) - 1),
+                *remaining_windows,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="load-window native carrier overflows"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"lock_count": 1 << 8}, "invalid lock count"),
+        ({"lock_value_minimum": -(1 << 7) - 1}, "native carrier overflows"),
+        ({"lock_value_maximum": 1 << 7}, "native carrier overflows"),
+        ({"lock_value_maximum": 0}, "invalid lock domain"),
+    ],
+)
+def test_validator_rejects_locks_outside_native_planning_domain(
+    changes: dict[str, int], message: str
+) -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    invalid_compute = replace(compute, **changes)
+
+    with pytest.raises(ValueError, match=message):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_npu2_compute_lock_domain_admits_ready_and_credit_values() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+
+    assert compute.kind is TileKind.COMPUTE
+    assert (compute.lock_value_minimum, compute.lock_value_maximum) == (-64, 63)
+
+
 def test_npu2_stream_ordinals_match_programmable_register_order() -> None:
     port_ranges = {
         (row.tile_kind, row.direction, row.port): (row.ordinal, row.count)

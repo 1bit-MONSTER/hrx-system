@@ -810,6 +810,10 @@ iree_status_t loom_aie2p_array_topology_validate(
       .channels = mutable_channels,
   };
   const loom_aie2p_array_topology_t* topology = &topology_storage;
+  const uint32_t maximum_credit_lock_capacity =
+      (uint32_t)loom_xdna_array_tile_kind_facts(topology->plan->family,
+                                                LOOM_XDNA_TILE_KIND_COMPUTE)
+          ->lock_value_maximum;
   if (plan->worker_count == 0 || plan->channel_count == 0) {
     const loom_diagnostic_param_t params[] = {
         loom_param_u32((uint32_t)plan->worker_count),
@@ -959,10 +963,11 @@ iree_status_t loom_aie2p_array_topology_validate(
           topology, (uint32_t)i, IREE_SV("capacity"), channel->capacity, 1,
           IREE_SV("the minimum non-empty ring capacity"), 2);
     }
-    if (channel->capacity > INT8_MAX) {
+    if (channel->capacity > maximum_credit_lock_capacity) {
       return loom_aie2p_array_topology_reject_channel_ring(
           topology, (uint32_t)i, IREE_SV("capacity"), channel->capacity,
-          INT8_MAX, IREE_SV("the maximum credit-lock capacity"), 2);
+          maximum_credit_lock_capacity,
+          IREE_SV("the maximum credit-lock capacity"), 2);
     }
     if (channel->record_count == 0) {
       return loom_aie2p_array_topology_reject_channel_ring(
