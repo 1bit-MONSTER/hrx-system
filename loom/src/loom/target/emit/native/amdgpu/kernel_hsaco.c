@@ -70,7 +70,7 @@ iree_status_t loom_amdgpu_build_kernel_hsaco_contribution(
       .descriptor_options =
           {
               .flags = record.descriptor_flags,
-              .user_sgpr_count = record.user_sgpr_count,
+              .minimum_user_sgpr_count = record.user_sgpr_count,
           },
       .text = kernel_text,
       .text_fixups = kernel_text_fixups,
