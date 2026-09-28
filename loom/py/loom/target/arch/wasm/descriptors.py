@@ -263,6 +263,7 @@ _OP_I64_SHL = 0x86
 _OP_I64_SHR_S = 0x87
 _OP_I64_SHR_U = 0x88
 _OP_F32_ADD = 0x92
+_OP_F32_MUL = 0x94
 _OP_I32_WRAP_I64 = 0xA7
 _OP_I64_EXTEND_I32_S = 0xAC
 _OP_I64_EXTEND_I32_U = 0xAD
@@ -754,15 +755,21 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("ge_u", "ge.u64", _OP_I64_GE_U),
             )
         ),
-        Descriptor(
-            key="wasm.f32.add",
-            mnemonic="f32.add",
-            semantic_tag="float.add.f32",
-            encoding_id=_OP_F32_ADD,
-            operands=(_f32_result(), _f32_operand("lhs"), _f32_operand("rhs")),
-            asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
-            schedule_class=_SCHEDULE_SCALAR_F32,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        *(
+            Descriptor(
+                key=f"wasm.f32.{operation}",
+                mnemonic=f"f32.{operation}",
+                semantic_tag=f"float.{operation}.f32",
+                encoding_id=encoding_id,
+                operands=(_f32_result(), _f32_operand("lhs"), _f32_operand("rhs")),
+                asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
+                schedule_class=_SCHEDULE_SCALAR_F32,
+                flags=(DescriptorFlag.DEAD_REMOVABLE,),
+            )
+            for operation, encoding_id in (
+                ("add", _OP_F32_ADD),
+                ("mul", _OP_F32_MUL),
+            )
         ),
         Descriptor(
             key="wasm.i32.reinterpret_f32",

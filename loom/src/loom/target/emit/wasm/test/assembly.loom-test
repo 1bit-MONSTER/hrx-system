@@ -426,7 +426,8 @@ low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @float_lane_m
   %product = f32x4.mul %sum, %bias
   %lane = f32x4.extract_lane %product, 1
   %bumped = f32.add %lane, %scalar
-  %updated = f32x4.replace_lane %product, %bumped, 2
+  %scaled = f32.mul %bumped, %scalar
+  %updated = f32x4.replace_lane %product, %scaled, 2
   return %updated
 }
 
@@ -513,6 +514,10 @@ Disassembly of section CODE:
   local.get  3
   local.get  2
   f32.add
+  local.set  3
+  local.get  3
+  local.get  2
+  f32.mul
   local.set  2
   local.get  0
   local.get  2

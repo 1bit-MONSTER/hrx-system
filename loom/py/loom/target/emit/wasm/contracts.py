@@ -1028,7 +1028,13 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (scalar_bitwise.scalar_xori, "xor"),
             )
         ),
-        _binary_rule(scalar_arithmetic.scalar_addf, _F32, "wasm.f32.add"),
+        *(
+            _binary_rule(source_op, _F32, f"wasm.f32.{operation}")
+            for source_op, operation in (
+                (scalar_arithmetic.scalar_addf, "add"),
+                (scalar_arithmetic.scalar_mulf, "mul"),
+            )
+        ),
         *(
             _scalar_compare_rule(
                 scalar_comparison.scalar_cmpi,
