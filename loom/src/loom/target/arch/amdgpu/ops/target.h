@@ -12,7 +12,7 @@
 #include "iree/base/api.h"
 #include "loom/ir/ir.h"
 #include "loom/ops/op_defs.h"
-#include "loom/target/arch/amdgpu/profile.h"
+#include "loom/target/arch/amdgpu/facts.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/resolved_target.h"
 

@@ -181,6 +181,34 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "target_identity",
+    srcs = ["target_identity.c"],
+    hdrs = ["target_identity.h"],
+    visibility = (
+        _AMDGPU_BINDING_VISIBILITY +
+        _AMDGPU_NATIVE_VISIBILITY +
+        _AMDGPU_OPS_VISIBILITY +
+        _AMDGPU_TOOLING_VISIBILITY
+    ),
+    deps = [
+        ":target_info",
+        ":target_info_defs",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "target_identity_test",
+    srcs = ["target_identity_test.cc"],
+    deps = [
+        ":target_identity",
+        ":target_info",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "facts",
     srcs = ["facts.c"],
     hdrs = ["facts.h"],
@@ -193,6 +221,7 @@ loom_cc_library(
         _AMDGPU_TOOLING_VISIBILITY
     ),
     deps = [
+        ":target_identity",
         ":target_info",
         ":target_info_defs",
         "//loom/src/loom/codegen/low:target_binding",
@@ -212,7 +241,7 @@ loom_cc_library(
         _AMDGPU_TOOLING_VISIBILITY
     ),
     deps = [
-        ":facts",
+        ":target_identity",
         ":target_info",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -245,7 +274,7 @@ loom_cc_library(
     ),
     deps = [
         ":amdhsa_target_id",
-        ":facts",
+        ":target_identity",
         ":target_info",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -280,6 +309,7 @@ loom_cc_library(
     deps = [
         ":artifact_key",
         ":facts",
+        ":target_identity",
         ":target_info",
         "//loom/src/loom/target:profile",
         "//loom/src/loom/target/arch/amdgpu/records:target_records",
@@ -293,6 +323,7 @@ loom_cc_test(
     srcs = ["profile_test.cc"],
     deps = [
         ":artifact_key",
+        ":facts",
         ":profile",
         ":target_info",
         "//loom/src/loom/target:facts_builder",

@@ -123,12 +123,45 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_library(
   NAME
+    target_identity
+  HDRS
+    "target_identity.h"
+  SRCS
+    "target_identity.c"
+  DEPS
+    ::target_info
+    ::target_info_defs
+    iree::base
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
+    target_identity_test
+  SRCS
+    "target_identity_test.cc"
+  DEPS
+    ::target_identity
+    ::target_info
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_library(
+  NAME
     facts
   HDRS
     "facts.h"
   SRCS
     "facts.c"
   DEPS
+    ::target_identity
     ::target_info
     ::target_info_defs
     iree::base
@@ -148,7 +181,7 @@ loom_cc_library(
   SRCS
     "amdhsa_target_id.c"
   DEPS
-    ::facts
+    ::target_identity
     ::target_info
     iree::base
     iree::base::internal::arena
@@ -184,7 +217,7 @@ loom_cc_library(
     "artifact_key.c"
   DEPS
     ::amdhsa_target_id
-    ::facts
+    ::target_identity
     ::target_info
     iree::base
     iree::base::internal::arena
@@ -221,6 +254,7 @@ loom_cc_library(
   DEPS
     ::artifact_key
     ::facts
+    ::target_identity
     ::target_info
     iree::base
     loom::target::arch::amdgpu::records::target_records
@@ -238,6 +272,7 @@ loom_cc_test(
     "profile_test.cc"
   DEPS
     ::artifact_key
+    ::facts
     ::profile
     ::target_info
     iree::base::internal::arena

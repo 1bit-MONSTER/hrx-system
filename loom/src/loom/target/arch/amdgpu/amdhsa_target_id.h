@@ -11,7 +11,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
-#include "loom/target/arch/amdgpu/facts.h"
+#include "loom/target/arch/amdgpu/target_identity.h"
 
 #ifdef __cplusplus
 extern "C" {
