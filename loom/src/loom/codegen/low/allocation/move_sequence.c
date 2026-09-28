@@ -99,6 +99,15 @@ typedef struct loom_low_move_sequence_state_t {
   bool complete;
 } loom_low_move_sequence_state_t;
 
+struct loom_low_move_sequence_location_set_t {
+  // Sequencing scratch retaining the current group's location membership.
+  const loom_low_move_sequence_scratch_t* scratch;
+  // Descriptor set defining storage alias and atomic-unit identities.
+  const loom_low_descriptor_set_t* descriptor_set;
+  // Initialized power-of-two prefix of the scratch location table.
+  iree_host_size_t location_entry_count;
+};
+
 static uint64_t loom_low_move_sequence_mix64(uint64_t value) {
   value ^= value >> 33;
   value *= UINT64_C(0xff51afd7ed558ccd);
@@ -164,30 +173,118 @@ static iree_status_t loom_low_move_sequence_prepare_solver_scratch(
 }
 
 static loom_low_move_sequence_location_entry_t*
-loom_low_move_sequence_lookup_location(
-    loom_low_move_sequence_state_t* state,
+loom_low_move_sequence_find_location(
+    loom_low_move_sequence_location_entry_t* location_entries,
+    const loom_low_descriptor_set_t* descriptor_set,
+    iree_host_size_t location_entry_count,
     const loom_low_move_location_t* location) {
-  loom_low_move_sequence_scratch_t* scratch = state->scratch;
-  const iree_host_size_t mask = state->location_entry_count - 1;
+  const iree_host_size_t mask = location_entry_count - 1;
   iree_host_size_t index =
-      (iree_host_size_t)loom_low_move_sequence_location_hash(
-          state->options->descriptor_set, location) &
+      (iree_host_size_t)loom_low_move_sequence_location_hash(descriptor_set,
+                                                             location) &
       mask;
-  for (iree_host_size_t probe = 0; probe < state->location_entry_count;
-       ++probe) {
-    loom_low_move_sequence_location_entry_t* entry =
-        &scratch->location_entries[index];
+  for (iree_host_size_t probe = 0; probe < location_entry_count; ++probe) {
+    loom_low_move_sequence_location_entry_t* entry = &location_entries[index];
     if (!iree_any_bit_set(entry->flags,
                           LOOM_LOW_MOVE_SEQUENCE_LOCATION_FLAG_OCCUPIED)) {
       return NULL;
     }
     if (loom_low_move_locations_share_target_storage(
-            state->options->descriptor_set, &entry->location, location)) {
+            descriptor_set, &entry->location, location)) {
       return entry;
     }
     index = (index + 1) & mask;
   }
   return NULL;
+}
+
+static loom_low_move_sequence_location_entry_t*
+loom_low_move_sequence_lookup_location(
+    loom_low_move_sequence_state_t* state,
+    const loom_low_move_location_t* location) {
+  return loom_low_move_sequence_find_location(
+      state->scratch->location_entries, state->options->descriptor_set,
+      state->location_entry_count, location);
+}
+
+bool loom_low_move_sequence_location_set_contains(
+    const loom_low_move_sequence_location_set_t* occupied_locations,
+    const loom_low_move_location_t* location) {
+  const loom_low_move_sequence_scratch_t* scratch = occupied_locations->scratch;
+  const loom_low_descriptor_set_t* descriptor_set =
+      occupied_locations->descriptor_set;
+  const loom_low_allocation_assignment_t assignment = {
+      .descriptor_reg_class_id = location->descriptor_reg_class_id,
+      .location_kind = location->location_kind,
+      .location_base = location->location,
+      .location_count = 1,
+  };
+  if (!loom_low_allocation_storage_assignment_uses_explicit_physical_register(
+          descriptor_set, &assignment)) {
+    return loom_low_move_sequence_find_location(
+               scratch->location_entries, descriptor_set,
+               occupied_locations->location_entry_count, location) != NULL;
+  }
+  if (scratch->explicit_atomic_unit_epochs == NULL) {
+    return false;
+  }
+  const uint32_t atomic_unit_count =
+      loom_low_allocation_storage_assignment_atomic_unit_count(descriptor_set,
+                                                               &assignment);
+  for (uint32_t atomic_unit = 0; atomic_unit < atomic_unit_count;
+       ++atomic_unit) {
+    uint32_t ignored_storage_key = 0;
+    uint32_t atomic_location = 0;
+    loom_low_allocation_storage_assignment_atomic_unit(
+        descriptor_set, &assignment, atomic_unit, &ignored_storage_key,
+        &atomic_location);
+    if (scratch->explicit_atomic_unit_epochs[atomic_location] ==
+        scratch->explicit_atomic_unit_epoch) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static iree_status_t loom_low_move_sequence_mark_explicit_location(
+    loom_low_move_sequence_state_t* state,
+    const loom_low_move_location_t* location) {
+  const loom_low_descriptor_set_t* descriptor_set =
+      state->options->descriptor_set;
+  const loom_low_allocation_assignment_t assignment = {
+      .descriptor_reg_class_id = location->descriptor_reg_class_id,
+      .location_kind = location->location_kind,
+      .location_base = location->location,
+      .location_count = 1,
+  };
+  if (!loom_low_allocation_storage_assignment_uses_explicit_physical_register(
+          descriptor_set, &assignment)) {
+    return iree_ok_status();
+  }
+  loom_low_move_sequence_scratch_t* scratch = state->scratch;
+  if (scratch->explicit_atomic_unit_epochs == NULL) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        scratch->arena, descriptor_set->physical_register_unit_count,
+        sizeof(*scratch->explicit_atomic_unit_epochs),
+        (void**)&scratch->explicit_atomic_unit_epochs));
+    memset(scratch->explicit_atomic_unit_epochs, 0,
+           descriptor_set->physical_register_unit_count *
+               sizeof(*scratch->explicit_atomic_unit_epochs));
+  }
+  const uint32_t atomic_unit_count =
+      loom_low_allocation_storage_assignment_atomic_unit_count(descriptor_set,
+                                                               &assignment);
+  for (uint32_t atomic_unit = 0; atomic_unit < atomic_unit_count;
+       ++atomic_unit) {
+    uint32_t ignored_storage_key = 0;
+    uint32_t atomic_location = 0;
+    loom_low_allocation_storage_assignment_atomic_unit(
+        descriptor_set, &assignment, atomic_unit, &ignored_storage_key,
+        &atomic_location);
+    scratch->explicit_atomic_unit_epochs[atomic_location] =
+        scratch->explicit_atomic_unit_epoch;
+  }
+  return iree_ok_status();
 }
 
 static loom_low_move_sequence_location_entry_t*
@@ -296,10 +393,15 @@ static iree_status_t loom_low_move_sequence_resolve_temporary(
   }
   loom_low_move_location_t* temporary =
       &scratch->temporaries[scratch->temporary_count];
+  const loom_low_move_sequence_location_set_t occupied_locations = {
+      .scratch = scratch,
+      .descriptor_set = state->options->descriptor_set,
+      .location_entry_count = state->location_entry_count,
+  };
   bool resolved = false;
   IREE_RETURN_IF_ERROR(state->options->resolve_temporary.fn(
       state->options->resolve_temporary.user_data, storage_class,
-      scratch->moves, state->move_count, temporary, &resolved));
+      &occupied_locations, temporary, &resolved));
   if (!resolved) {
     state->complete = false;
     return iree_ok_status();
@@ -340,6 +442,14 @@ static iree_status_t loom_low_move_sequence_prepare(
   memset(scratch->nodes, 0, active_move_count * sizeof(*scratch->nodes));
   memset(scratch->location_entries, 0,
          state->location_entry_count * sizeof(*scratch->location_entries));
+  if (++scratch->explicit_atomic_unit_epoch == 0) {
+    if (scratch->explicit_atomic_unit_epochs != NULL) {
+      memset(scratch->explicit_atomic_unit_epochs, 0,
+             state->options->descriptor_set->physical_register_unit_count *
+                 sizeof(*scratch->explicit_atomic_unit_epochs));
+    }
+    scratch->explicit_atomic_unit_epoch = 1;
+  }
 
   for (iree_host_size_t i = 0; i < active_move_count; ++i) {
     scratch->nodes[i].flags = LOOM_LOW_MOVE_SEQUENCE_NODE_FLAG_ACTIVE;
@@ -354,6 +464,10 @@ static iree_status_t loom_low_move_sequence_prepare(
         loom_low_move_sequence_insert_location(state,
                                                &scratch->moves[i].source);
     ++source_entry->source_use_count;
+    IREE_RETURN_IF_ERROR(loom_low_move_sequence_mark_explicit_location(
+        state, &scratch->moves[i].destination));
+    IREE_RETURN_IF_ERROR(loom_low_move_sequence_mark_explicit_location(
+        state, &scratch->moves[i].source));
   }
 
   for (iree_host_size_t i = 0; i < active_move_count; ++i) {

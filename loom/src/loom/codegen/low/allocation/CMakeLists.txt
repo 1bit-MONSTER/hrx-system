@@ -837,10 +837,8 @@ loom_cc_library(
     "unit_location.c"
   DEPS
     ::assignment
-    ::live_range
     ::move
     ::storage
-    ::unit_liveness
     iree::base
     loom::codegen::low::descriptors
   PUBLIC
@@ -853,6 +851,38 @@ loom_cc_test(
     "unit_location_test.cc"
   DEPS
     ::unit_location
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
+    storage_liveness_index
+  HDRS
+    "storage_liveness_index.h"
+  SRCS
+    "storage_liveness_index.c"
+  DEPS
+    ::assignment
+    ::live_range
+    ::move
+    ::storage
+    ::unit_liveness
+    ::unit_location
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::descriptors
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    storage_liveness_index_test
+  SRCS
+    "storage_liveness_index_test.cc"
+  DEPS
+    ::storage_liveness_index
+    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
 )
@@ -892,7 +922,6 @@ loom_cc_test(
     "move_sequence_test.cc"
   DEPS
     ::move_sequence
-    ::storage
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
@@ -909,10 +938,9 @@ loom_cc_library(
     ::assignment_map
     ::move
     ::move_sequence
-    ::storage
+    ::storage_liveness_index
     ::target_constraints
     ::unit_liveness
-    ::unit_location
     iree::base
     iree::base::internal::arena
     loom::codegen::low::descriptors
