@@ -732,6 +732,7 @@ loom_check_test_suite(
     "test/source_low/vector_bitcast.loom-test"
     "test/source_low/vector_comparison.loom-test"
     "test/source_low/vector_concat.loom-test"
+    "test/source_low/vector_constant.loom-test"
     "test/source_low/vector_dot_interleave.loom-test"
     "test/source_low/vector_float_comparison.loom-test"
     "test/source_low/vector_large_insert.loom-test"
@@ -740,6 +741,7 @@ loom_check_test_suite(
     "test/source_low/vector_partial_carriers.loom-test"
     "test/source_low/vector_predicate.loom-test"
     "test/source_low/vector_slice.loom-test"
+    "test/source_low/vector_splat.loom-test"
     "test/source_low/vector_structural.loom-test"
   RUNNER
     ::loom-check

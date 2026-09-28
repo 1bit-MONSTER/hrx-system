@@ -144,6 +144,36 @@ static bool loom_vector_packet_shape_from_type(
   return true;
 }
 
+// Uniform producers do not need axis-aware slicing, so their packet plan can
+// cover any static logical shape in row-major lane order.
+static bool loom_vector_packet_uniform_shape_from_type(
+    const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
+    loom_vector_packet_shape_t* out_shape) {
+  *out_shape = (loom_vector_packet_shape_t){0};
+  uint64_t lane_count_u64 = 0;
+  if (!loom_type_is_vector(vector_type) ||
+      !loom_type_static_element_count(vector_type, &lane_count_u64) ||
+      lane_count_u64 < 1 || lane_count_u64 > UINT32_MAX) {
+    return false;
+  }
+  const uint32_t lane_count = (uint32_t)lane_count_u64;
+  uint32_t chunk_lane_count = 0;
+  uint64_t payload_bit_count = 0;
+  if (!loom_vector_packet_payload_bit_count(vector_type, lane_count,
+                                            &payload_bit_count) ||
+      payload_bit_count <= policy->maximum_unpacketized_bit_count ||
+      !loom_vector_packet_select_native_chunk_lane_count(
+          policy, vector_type, lane_count - 1u, &chunk_lane_count)) {
+    return false;
+  }
+  *out_shape = (loom_vector_packet_shape_t){
+      .lane_count = lane_count,
+      .chunk_lane_count = chunk_lane_count,
+      .chunk_count = (lane_count - 1u) / chunk_lane_count + 1u,
+  };
+  return true;
+}
+
 static bool loom_vector_packet_shape_constrain(
     const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
     loom_vector_packet_shape_t* inout_shape) {
@@ -1759,6 +1789,78 @@ static iree_status_t loom_vector_packet_erase_dead_sources(
     bool erased = false;
     IREE_RETURN_IF_ERROR(loom_rewriter_erase_if_dead(rewriter, op, &erased));
   }
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_packet_legalize_splat(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+  *out_rewritten = false;
+
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_vector_splat_result(op));
+  loom_vector_packet_shape_t shape = {0};
+  if (!loom_vector_packet_uniform_shape_from_type(policy, result_type,
+                                                  &shape)) {
+    return iree_ok_status();
+  }
+
+  const bool restore_shape = loom_type_rank(result_type) != 1;
+  const loom_type_t flat_type =
+      restore_shape
+          ? loom_type_shaped_1d(
+                LOOM_TYPE_VECTOR, loom_type_element_type(result_type),
+                loom_dim_pack_static(shape.lane_count), /*encoding_id=*/0)
+          : result_type;
+  iree_host_size_t operation_count = 0;
+  if (!iree_host_size_checked_mul((iree_host_size_t)shape.chunk_count, 2u,
+                                  &operation_count) ||
+      !iree_host_size_checked_add(operation_count - 1u,
+                                  (iree_host_size_t)restore_shape,
+                                  &operation_count) ||
+      operation_count > LOOM_VECTOR_PACKET_STATIC_OP_LIMIT) {
+    return iree_ok_status();
+  }
+
+  loom_value_id_t* packets = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->arena, shape.chunk_count, sizeof(*packets), (void**)&packets));
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t scalar = loom_vector_splat_scalar(op);
+  for (uint32_t chunk_index = 0; chunk_index < shape.chunk_count;
+       ++chunk_index) {
+    const uint32_t lane_offset = chunk_index * shape.chunk_lane_count;
+    const uint32_t packet_lane_count =
+        iree_min(shape.lane_count - lane_offset, shape.chunk_lane_count);
+    const loom_type_t packet_type =
+        loom_vector_packet_type(flat_type, packet_lane_count);
+    loom_op_t* packet_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_splat_build(builder, scalar, packet_type,
+                                                 op->location, &packet_op));
+    packets[chunk_index] = loom_vector_splat_result(packet_op);
+  }
+
+  loom_op_t* concat_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_concat_build(builder, /*axis=*/0, packets,
+                                                shape.chunk_count, flat_type,
+                                                op->location, &concat_op));
+  loom_value_id_t replacement = loom_vector_concat_result(concat_op);
+  if (restore_shape) {
+    loom_op_t* bitcast_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_bitcast_build(builder, replacement,
+                                                   flat_type, result_type,
+                                                   op->location, &bitcast_op));
+    replacement = loom_vector_bitcast_result(bitcast_op);
+  }
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, value_checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_rewritten = true;
   return iree_ok_status();
 }
 

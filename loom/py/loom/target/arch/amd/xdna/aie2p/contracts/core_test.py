@@ -250,65 +250,6 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
         ValueProjectKind.FLOAT_AS_F32_I32,
     ]
 
-    vector_constant_rules = [
-        rule for rule in rules if rule.source_op is vector.vector_constant
-    ]
-    assert [rule.descriptor.key for rule in vector_constant_rules] == [
-        "amd.xdna.aie2p.splat.i8x64",
-        "amd.xdna.aie2p.splat.i8x64",
-        "amd.xdna.aie2p.splat.i16x32",
-        "amd.xdna.aie2p.splat.i16x32",
-        "amd.xdna.aie2p.splat.i32x16",
-        "amd.xdna.aie2p.splat.i32x16",
-        "amd.xdna.aie2p.splat.i8x64",
-        "amd.xdna.aie2p.splat.i8x64",
-        "amd.xdna.aie2p.splat.i16x32",
-        "amd.xdna.aie2p.splat.i16x32",
-        "amd.xdna.aie2p.splat.i32x16",
-        "amd.xdna.aie2p.accumulator.clear.i32x64",
-        "amd.xdna.aie2p.accumulator.clear.f32x64",
-        "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
-    ]
-    assert [len(rule.emit) for rule in vector_constant_rules] == [
-        2,
-        3,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        2,
-        1,
-        1,
-        4,
-    ]
-    predicate_constant = vector_constant_rules[-1]
-    assert (
-        predicate_constant.guards[-1].minimum,
-        predicate_constant.guards[-1].maximum,
-    ) == (0, 1)
-    assert [emit.descriptor.key for emit in predicate_constant.emit] == [
-        "amd.xdna.aie2p.constant.i32.short",
-        "amd.xdna.aie2p.splat.i8x64",
-        "amd.xdna.aie2p.sub.i8x64",
-        "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
-    ]
-    assert predicate_constant.emit[0].immediates["i"].kind == (
-        ValueProjectKind.EXACT_I64
-    )
-    assert [
-        rule.emit[0].immediates["i"].kind for rule in vector_constant_rules[6:11]
-    ] == [
-        ValueProjectKind.FLOAT_BITS,
-        ValueProjectKind.FLOAT_BITS,
-        ValueProjectKind.FLOAT_BITS,
-        ValueProjectKind.FLOAT_BITS,
-        ValueProjectKind.FLOAT_AS_F32_I32,
-    ]
-
     vector_broadcast_rules = [
         rule for rule in rules if rule.source_op is vector.vector_broadcast
     ]
@@ -1419,4 +1360,121 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
     assert (
         len([rule for rule in alias_rules if rule.source_op is vector.vector_broadcast])
         == 3
+    )
+
+
+def test_vector_constant_rules_materialize_each_register_carrier() -> None:
+    rules = [
+        case
+        for case in AIE2P_CORE_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule) and case.source_op is vector.vector_constant
+    ]
+
+    def result_shape(rule: DescriptorRule):
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.field == "result" and guard.type_pattern is not None
+        )
+        return (
+            pattern.element,
+            pattern.minimum_static_elements,
+            pattern.maximum_static_elements,
+            pattern.lanes,
+        )
+
+    predicate = next(
+        rule
+        for rule in rules
+        if rule.descriptor.key == "amd.xdna.aie2p.cmp.lt.unsigned.i8x64"
+    )
+    assert (predicate.guards[-1].minimum, predicate.guards[-1].maximum) == (0, 1)
+    assert [emit.descriptor.key for emit in predicate.emit] == [
+        "amd.xdna.aie2p.constant.i32.short",
+        "amd.xdna.aie2p.splat.i8x64",
+        "amd.xdna.aie2p.sub.i8x64",
+        "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
+    ]
+    assert predicate.emit[0].immediates["i"].kind is ValueProjectKind.EXACT_I64
+
+    packet_families = (
+        ("i8", 64, 1),
+        ("i16", 32, 2),
+        ("i32", 16, 2),
+        ("f8E4M3", 64, 1),
+        ("f8E5M2", 64, 1),
+        ("f16", 32, 1),
+        ("bf16", 32, 1),
+        ("f32", 16, 1),
+    )
+    native = [
+        rule
+        for rule in rules
+        if len(rule.emit) == 2
+        and rule.descriptor.key.startswith("amd.xdna.aie2p.splat")
+    ]
+    assert sorted(result_shape(rule) for rule in native) == sorted(
+        (element, 1, lanes, None)
+        for element, lanes, rule_count in packet_families
+        for _ in range(rule_count)
+    )
+
+    wide = [
+        rule
+        for rule in rules
+        if len(rule.emit) == 3 and isinstance(rule.emit[-1], EmitRegisterConcat)
+    ]
+    assert sorted(result_shape(rule) for rule in wide) == sorted(
+        (element, lanes + 1, lanes * 2, None)
+        for element, lanes, rule_count in packet_families
+        for _ in range(rule_count)
+    )
+    assert all(
+        rule.emit[-1].sources == (rule.emit[-2].results["dst"],) * 2 for rule in wide
+    )
+    f32_wide = next(rule for rule in wide if result_shape(rule)[0] == "f32")
+    assert Guard.low_value_register_class("result", "aie2p.vec256") in f32_wide.guards
+    for rule in native + wide:
+        element = result_shape(rule)[0]
+        if element.startswith("f") or element == "bf16":
+            expected_kind = (
+                ValueProjectKind.FLOAT_AS_F32_I32
+                if element == "f32"
+                else ValueProjectKind.FLOAT_BITS
+            )
+            assert rule.emit[0].immediates["i"].kind is expected_kind
+
+    pair = [rule for rule in rules if result_shape(rule)[0] in ("i64", "f64")]
+    assert {result_shape(rule) for rule in pair} == {
+        ("i64", 1, 8, None),
+        ("f64", 1, 8, None),
+        ("i64", 9, 16, None),
+        ("f64", 9, 16, None),
+        ("i64", None, None, 32),
+    }
+    assert all(
+        [emit.immediates["i"].word_index for emit in rule.emit[:2]] == [0, 1]
+        and isinstance(rule.emit[2], EmitRegisterConcat)
+        and rule.emit[3].descriptor.key == "amd.xdna.aie2p.splat.i64x8"
+        for rule in pair
+    )
+
+    accumulator = [
+        rule
+        for rule in rules
+        if isinstance(rule.emit[-1], EmitRegisterConcat)
+        and rule.emit[-2].descriptor.key
+        == "amd.xdna.aie2p.move.vector512.to.accumulator512"
+    ]
+    assert sorted(
+        (result_shape(rule)[0], result_shape(rule)[3], len(rule.emit[-1].sources))
+        for rule in accumulator
+    ) == sorted(
+        [
+            ("i32", 64, 4),
+            ("i32", 64, 4),
+            ("f32", 32, 2),
+            ("f32", 64, 4),
+            ("i64", 32, 4),
+        ]
     )

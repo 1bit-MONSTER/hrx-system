@@ -95,8 +95,12 @@ contract retain precise diagnostic coverage in the shared-corpus fixture.
 
 ### Focused Output Checks
 
-When only a few properties matter, `with-checks` keeps assertions beside the IR
-without pinning the rest of a report or transformed program:
+Focused lowering examples use exact goldens. When a case lowers one operation
+and the output is small, the complete before/after IR is the assertion and
+`--update` maintains it. `with-checks` is for large transforms and reports whose
+output contains unrelated or unstable details that would obscure the property
+under test. It keeps those narrow assertions beside the IR without pinning the
+rest of the output:
 
 ```text
 // RUN: with-checks compile-report source-to-low,low-dce

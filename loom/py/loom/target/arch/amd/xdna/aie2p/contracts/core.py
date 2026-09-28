@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from enum import Enum
 
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import bitwise as scalar_bitwise
@@ -93,6 +94,12 @@ _I32_MAX = (2**31) - 1
 _U32_MAX = (2**32) - 1
 _SHORT_MIN = -1024
 _SHORT_MAX = 1023
+
+
+class _VectorConstantCarrier(Enum):
+    NATIVE = "native"
+    WIDE = "wide"
+    ACCUMULATOR = "accumulator"
 
 
 _I16_ELEMENTWISE_MULTIPLY_CONTROL = vector_data_path_control(
@@ -1013,6 +1020,60 @@ def _whole_vector_select_rule(
     )
 
 
+def _vector_constant_emits(
+    constant_descriptor_key: str,
+    broadcast_descriptor_key: str,
+    value: AttrProject | ValueProject,
+    carrier: _VectorConstantCarrier,
+    unit_count: int,
+) -> tuple[EmitDescriptorOp | EmitRegisterConcat, ...]:
+    broadcast = _descriptor(broadcast_descriptor_key)
+    scalar = ValueRef.temporary("scalar")
+    packet = (
+        ValueRef.result("result")
+        if carrier is _VectorConstantCarrier.NATIVE
+        else ValueRef.temporary("packet")
+    )
+    emits: list[EmitDescriptorOp | EmitRegisterConcat] = [
+        _const_emit(
+            _descriptor(constant_descriptor_key),
+            scalar,
+            value,
+            result_type=DescriptorResultType(),
+        ),
+        _op_emit(
+            broadcast,
+            operands={"src": scalar},
+            results={"dst": packet},
+            result_types=(
+                None
+                if carrier is _VectorConstantCarrier.NATIVE
+                else {"dst": DescriptorResultType()}
+            ),
+        ),
+    ]
+    if carrier is _VectorConstantCarrier.NATIVE:
+        return tuple(emits)
+    carrier_unit = packet
+    if carrier is _VectorConstantCarrier.ACCUMULATOR:
+        carrier_unit = ValueRef.temporary("accumulator_unit")
+        emits.append(
+            _op_emit(
+                _descriptor("amd.xdna.aie2p.move.vector512.to.accumulator512"),
+                operands={"src": packet},
+                results={"dst": carrier_unit},
+                result_types={"dst": DescriptorResultType()},
+            )
+        )
+    emits.append(
+        EmitRegisterConcat(
+            sources=(carrier_unit,) * unit_count,
+            result=ValueRef.result("result"),
+        )
+    )
+    return tuple(emits)
+
+
 def _vector_constant_rule(
     result_type: TypePattern,
     constant_descriptor_key: str,
@@ -1020,12 +1081,10 @@ def _vector_constant_rule(
     minimum: int,
     maximum: int,
     *,
-    packet_count: int = 1,
+    carrier: _VectorConstantCarrier = _VectorConstantCarrier.NATIVE,
+    unit_count: int = 1,
 ) -> DescriptorRule:
-    constant = _descriptor(constant_descriptor_key)
     broadcast = _descriptor(broadcast_descriptor_key)
-    result = ValueRef.result("result")
-    packet = result if packet_count == 1 else ValueRef.temporary("packet")
     return DescriptorRule(
         source_op=vector.vector_constant,
         descriptor=broadcast,
@@ -1034,27 +1093,12 @@ def _vector_constant_rule(
             Guard.value_type("result", result_type),
             Guard.i64_range("value", minimum, maximum),
         ),
-        emit=(
-            _const_emit(
-                constant,
-                ValueRef.temporary("scalar"),
-                AttrProject.direct("value"),
-                result_type=DescriptorResultType(),
-            ),
-            EmitDescriptorOp(
-                descriptor=broadcast,
-                operands={"src": ValueRef.temporary("scalar")},
-                results={"dst": packet},
-                result_types={"dst": DescriptorResultType()}
-                if packet_count > 1
-                else None,
-                form=DescriptorEmitForm.OP,
-            ),
-            *(
-                (EmitRegisterConcat(sources=(packet,) * packet_count, result=result),)
-                if packet_count > 1
-                else ()
-            ),
+        emit=_vector_constant_emits(
+            constant_descriptor_key,
+            broadcast_descriptor_key,
+            AttrProject.direct("value"),
+            carrier,
+            unit_count,
         ),
     )
 
@@ -1063,8 +1107,11 @@ def _float_vector_constant_rule(
     result_type: TypePattern,
     broadcast_descriptor_key: str,
     bits: ValueProject,
+    *,
+    carrier: _VectorConstantCarrier = _VectorConstantCarrier.NATIVE,
+    unit_count: int = 1,
+    extra_guards: Sequence[Guard] = (),
 ) -> DescriptorRule:
-    constant = _descriptor("amd.xdna.aie2p.constant.i32")
     broadcast = _descriptor(broadcast_descriptor_key)
     return DescriptorRule(
         source_op=vector.vector_constant,
@@ -1073,19 +1120,14 @@ def _float_vector_constant_rule(
             Guard.attr_kind("value", "f64"),
             Guard.value_type("result", result_type),
             Guard.value_exact_float("result"),
+            *extra_guards,
         ),
-        emit=(
-            _const_emit(
-                constant,
-                ValueRef.temporary("scalar"),
-                bits,
-                result_type=DescriptorResultType(),
-            ),
-            _op_emit(
-                broadcast,
-                operands={"src": ValueRef.temporary("scalar")},
-                results={"dst": ValueRef.result("result")},
-            ),
+        emit=_vector_constant_emits(
+            "amd.xdna.aie2p.constant.i32",
+            broadcast_descriptor_key,
+            bits,
+            carrier,
+            unit_count,
         ),
     )
 
