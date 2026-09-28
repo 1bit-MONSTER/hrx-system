@@ -1187,6 +1187,12 @@ struct NpuInitiatedCase {
   uint32_t word_count;
   // Accepted participants; a sole participant exercises prestart ABORT.
   Participants participants;
+  // Advertised construction role for all joint backing owners.
+  amdf_memory_profile_roles_t role = AMDF_MEMORY_PROFILE_ROLE_REGISTER;
+  // First participant submitted when both will run.
+  LaunchOrder order = LaunchOrder::kNpuFirst;
+  // Word offset from slot generation to payload, sharing or separating a line.
+  uint32_t word_offset = 16;
 };
 
 class ResidentNpuInitiatedTest
@@ -1195,11 +1201,12 @@ class ResidentNpuInitiatedTest
 
 TEST_P(ResidentNpuInitiatedTest, ReturnsEveryWord) {
   const auto& parameters = GetParam();
-  const auto order = parameters.participants == Participants::kGpu
-                         ? LaunchOrder::kGpuFirst
-                         : LaunchOrder::kNpuFirst;
-  Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, parameters.round_count, 0xFFFFFFFEu,
-      order, parameters.participants, {parameters.word_count, 16},
+  const auto order =
+      parameters.participants == Participants::kGpu   ? LaunchOrder::kGpuFirst
+      : parameters.participants == Participants::kNpu ? LaunchOrder::kNpuFirst
+                                                      : parameters.order;
+  Run(parameters.role, parameters.round_count, 0xFFFFFFFEu, order,
+      parameters.participants, {parameters.word_count, parameters.word_offset},
       ServiceSchedule::kNpuInitiated);
 }
 
@@ -1223,6 +1230,59 @@ INSTANTIATE_TEST_SUITE_P(
                       NpuInitiatedCase{17, 1, Participants::kBoth},
                       NpuInitiatedCase{17, 16, Participants::kBoth}),
     NpuInitiatedCaseName);
+
+std::vector<NpuInitiatedCase> NpuInitiatedBackingCases() {
+  std::vector<NpuInitiatedCase> cases;
+  for (amdf_memory_profile_roles_t role :
+       {AMDF_MEMORY_PROFILE_ROLE_CREATE, AMDF_MEMORY_PROFILE_ROLE_REGISTER}) {
+    if (role == AMDF_MEMORY_PROFILE_ROLE_CREATE) {
+      for (auto participant : {Participants::kGpu, Participants::kNpu}) {
+        cases.push_back({17, 16, participant, role});
+      }
+    }
+    for (auto order : {LaunchOrder::kGpuFirst, LaunchOrder::kNpuFirst}) {
+      for (uint32_t round_count : {0u, 1u, 17u, 257u}) {
+        // The registered anchors cover these three NPU-first counts.
+        if (role == AMDF_MEMORY_PROFILE_ROLE_REGISTER &&
+            order == LaunchOrder::kNpuFirst && round_count != 257) {
+          continue;
+        }
+        cases.push_back({round_count, 16, Participants::kBoth, role, order});
+      }
+    }
+    for (uint32_t word_count : {1u, 4u, 15u, 16u, 17u, 64u, 1024u}) {
+      for (uint32_t word_offset : {1u, 16u}) {
+        // Startup covers W16/P16; the registered anchor also covers W1/P16.
+        if (word_offset == 16 &&
+            (word_count == 16 ||
+             (role == AMDF_MEMORY_PROFILE_ROLE_REGISTER && word_count == 1))) {
+          continue;
+        }
+        cases.push_back({17, word_count, Participants::kBoth, role,
+                         LaunchOrder::kNpuFirst, word_offset});
+      }
+    }
+  }
+  return cases;
+}
+
+std::string NpuInitiatedBackingCaseName(
+    const ::testing::TestParamInfo<NpuInitiatedCase>& info) {
+  std::string name = info.param.role == AMDF_MEMORY_PROFILE_ROLE_REGISTER
+                         ? "Registered"
+                         : "Allocated";
+  if (info.param.participants != Participants::kBoth) {
+    return name + NpuInitiatedCaseName(info);
+  }
+  name += info.param.order == LaunchOrder::kGpuFirst ? "GpuFirst" : "NpuFirst";
+  return name + NpuInitiatedCaseName(info) +
+         (info.param.word_offset == 1 ? "SharedFirstLine"
+                                      : "SeparateFirstLine");
+}
+
+INSTANTIATE_TEST_SUITE_P(NpuInitiatedAndBacking, ResidentNpuInitiatedTest,
+                         ::testing::ValuesIn(NpuInitiatedBackingCases()),
+                         NpuInitiatedBackingCaseName);
 
 uint32_t SeedForPeerCause(uint32_t peer_cause) {
   // Held generation one's response is 3 * (seed + 257) + 1. Multiplication

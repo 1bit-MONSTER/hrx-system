@@ -213,11 +213,17 @@ its disjoint output path; it needs no complete intermediate vector in tile
 memory. The existing final GPU acknowledgement, ordinary NPU terminal transfer,
 custom DMA idle observations and both native joins close ownership.
 
-The cases exercise one and seventeen GPU returns with one- and sixteen-word
-payloads, registered backing, and separate payload/ready cache lines. Zero
-returns produce no payload or transcript. Sole-GPU and sole-NPU prestart ABORT
-cases terminate without peer traffic. All cases retain complete guards,
-padding, immutable storage and checked cleanup.
+The initial cases exercise one and seventeen GPU returns with one- and
+sixteen-word payloads, registered backing, and separate payload/ready cache
+lines. `NpuInitiatedAndBacking` expands this to allocated and registered
+backing, both submission orders, and zero/one/17/257 GPU returns at sixteen
+words. Payload coverage uses NPU-first submission and 1, 4, 15, 16, 17, 64, or
+1024 words beginning four or 64 bytes after ready. The matrices share the same
+compiled programs and omit shapes already covered by the initial cases.
+
+Zero returns produce no payload or transcript. Sole-GPU and sole-NPU prestart
+ABORT cases terminate without peer traffic for both backing roles. All cases
+retain complete guards, padding, immutable storage and checked cleanup.
 
 Each transcript row contains Q generation, R generation (zero when closing),
 two raw GPU clock samples and all Q words. The cold sample begins at GPU
