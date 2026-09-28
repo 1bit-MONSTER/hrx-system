@@ -47,6 +47,16 @@ _INDEX = Scalar("index")
 _I64_VECTOR = Vector("i64", minimum_static_elements=1, maximum_static_elements=8)
 _F64_VECTOR = Vector("f64", minimum_static_elements=1, maximum_static_elements=8)
 
+# Each stage dilates the active predicate bits into the low bit of progressively
+# wider groups. The final common step copies each bit into the adjacent 32-bit
+# payload-word position consumed by VSEL.32.
+_PAIR_VECTOR_SELECT_RANGES = (
+    (1, 1, ()),
+    (2, 2, ((1, 0x5),)),
+    (3, 4, ((2, 0x33), (1, 0x55))),
+    (5, 8, ((4, 0x0F0F), (2, 0x3333), (1, 0x5555))),
+)
+
 AIE2P_PAIR_VECTOR_TYPES = (_I64_VECTOR, _F64_VECTOR)
 AIE2P_PAIR_SCALAR_TYPES = (_I64, _F64)
 
@@ -484,6 +494,97 @@ def _pair_select_rule(type_pattern: TypePattern) -> DescriptorRule:
     )
 
 
+def _pair_vector_select_rule(
+    element_type: str,
+    minimum_lanes: int,
+    maximum_lanes: int,
+    spread_stages: Sequence[tuple[int, int]],
+) -> DescriptorRule:
+    value_type = Vector(
+        element_type,
+        minimum_static_elements=minimum_lanes,
+        maximum_static_elements=maximum_lanes,
+    )
+    condition_type = Vector(
+        "i1",
+        minimum_static_elements=minimum_lanes,
+        maximum_static_elements=maximum_lanes,
+    )
+    program = ScalarProgram()
+    constants: dict[int, ValueRef] = {}
+
+    def constant(value: int) -> ValueRef:
+        if value not in constants:
+            constants[value] = program.constant(f"selector_constant_{value:x}", value)
+        return constants[value]
+
+    # Predicates pack one bit per logical 64-bit lane, while VSEL.32 consumes
+    # one bit per physical 32-bit payload word. Mask undefined predicate bits,
+    # dilate each active bit into an even position, then copy it to the adjacent
+    # odd position. This selects both words of every i64/f64 lane together.
+    selector = program.binary(
+        "selector_active",
+        "predicate.mask.low32",
+        ValueRef.operand("condition"),
+        constant((1 << maximum_lanes) - 1),
+    )
+    for stage_index, (shift, mask) in enumerate(spread_stages):
+        shifted = program.binary(
+            f"selector_spread_{stage_index}_shifted",
+            "lshl.i32",
+            selector,
+            constant(shift),
+        )
+        combined = program.binary(
+            f"selector_spread_{stage_index}_combined",
+            "or.i32",
+            selector,
+            shifted,
+        )
+        selector = program.binary(
+            f"selector_spread_{stage_index}",
+            "and.i32",
+            combined,
+            constant(mask),
+        )
+    shifted = program.binary(
+        "selector_odd",
+        "lshl.i32",
+        selector,
+        constant(1),
+    )
+    hardware_selector = program.binary(
+        "hardware_selector",
+        "or.i32",
+        selector,
+        shifted,
+    )
+    select = _descriptor("amd.xdna.aie2p.select.i32x16")
+    return DescriptorRule(
+        source_op=vector.vector_select,
+        descriptor=select,
+        guards=(
+            Guard.value_type("condition", condition_type),
+            *_typed_guards(("true_value", "false_value", "result"), value_type),
+        ),
+        emit=(
+            *program.emits,
+            EmitDescriptorOp(
+                descriptor=select,
+                operands={
+                    # VSEL chooses s1 for zero and s2 for one.
+                    "s1": ValueRef.operand("false_value"),
+                    "s2": ValueRef.operand("true_value"),
+                    "sel": hardware_selector,
+                },
+                results={"d": ValueRef.result("result")},
+                form=DescriptorEmitForm.OP,
+                copy_operands=("sel",),
+            ),
+        ),
+    )
+
+
 def _pair_extract_rule(
     vector_type: TypePattern,
     scalar_type: TypePattern,
@@ -708,6 +809,16 @@ AIE2P_I64_RULES = (
     ),
     _pair_select_rule(_I64),
     _pair_select_rule(_F64),
+    *(
+        _pair_vector_select_rule(
+            element_type,
+            minimum_lanes,
+            maximum_lanes,
+            spread_stages,
+        )
+        for element_type in ("i64", "f64")
+        for minimum_lanes, maximum_lanes, spread_stages in (_PAIR_VECTOR_SELECT_RANGES)
+    ),
     *(
         rule
         for vector_type, scalar_type in (

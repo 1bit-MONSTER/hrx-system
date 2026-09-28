@@ -11,6 +11,7 @@ import random
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.scalar import comparison as scalar_comparison
+from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.i64 import AIE2P_I64_RULES
 from loom.target.contracts import (
     DescriptorRule,
@@ -137,6 +138,61 @@ def _evaluate_rule(rule: DescriptorRule, lhs: int, rhs: int) -> int:
     return result
 
 
+def _evaluate_vector_select_rule(
+    rule: DescriptorRule,
+    condition: int,
+    true_words: tuple[int, ...],
+    false_words: tuple[int, ...],
+) -> tuple[int, ...]:
+    values: dict[ValueRef, int | tuple[int, ...]] = {
+        ValueRef.operand("condition"): condition,
+        ValueRef.operand("true_value"): true_words,
+        ValueRef.operand("false_value"): false_words,
+    }
+    for emit in rule.emit:
+        assert isinstance(emit, EmitDescriptorOp)
+        operands = {name: values[ref] for name, ref in emit.operands.items()}
+        semantic_tag = emit.descriptor.semantic_tag
+        if semantic_tag == "integer.const.i32":
+            result: int | tuple[int, ...] = emit.immediates["i"]
+        elif semantic_tag in (
+            "integer.and.i32",
+            "integer.predicate.mask.low32",
+        ):
+            assert isinstance(operands["s0"], int)
+            assert isinstance(operands["s1"], int)
+            result = operands["s0"] & operands["s1"]
+        elif semantic_tag == "integer.or.i32":
+            assert isinstance(operands["s0"], int)
+            assert isinstance(operands["s1"], int)
+            result = operands["s0"] | operands["s1"]
+        elif semantic_tag == "integer.lshl.i32":
+            assert isinstance(operands["s0"], int)
+            assert isinstance(operands["s1"], int)
+            result = _logical_shift(operands["s0"], operands["s1"])
+        elif semantic_tag == "integer.select.i32x16":
+            selector = operands["sel"]
+            true_value = operands["s2"]
+            false_value = operands["s1"]
+            assert isinstance(selector, int)
+            assert isinstance(true_value, tuple)
+            assert isinstance(false_value, tuple)
+            result = tuple(
+                true_value[word] if selector & (1 << word) else false_value[word]
+                for word in range(16)
+            )
+        else:
+            raise AssertionError(f"unsupported vector-select operation {semantic_tag}")
+        assert len(emit.results) == 1
+        values[next(iter(emit.results.values()))] = (
+            _u32(result) if isinstance(result, int) else result
+        )
+
+    result = values[ValueRef.result("result")]
+    assert isinstance(result, tuple)
+    return result
+
+
 def _rule(source_op, *, predicate: str | None = None) -> DescriptorRule:
     candidates = [
         rule
@@ -245,3 +301,39 @@ def test_i64_comparison_recipes_are_exact() -> None:
             assert _evaluate_rule(rules[predicate], lhs, rhs) == int(
                 reference(lhs, rhs)
             )
+
+
+def test_pair_vector_select_recipes_preserve_lane_bits() -> None:
+    rules = [
+        rule
+        for rule in AIE2P_I64_RULES
+        if isinstance(rule, DescriptorRule) and rule.source_op is vector.vector_select
+    ]
+    assert len(rules) == 8
+
+    true_words = tuple(_u32(0x01234567 + word * 0x10203041) for word in range(16))
+    false_words = tuple(_u32(0xFEDCBA98 - word * 0x01030507) for word in range(16))
+    for rule in rules:
+        result_guard = next(guard for guard in rule.guards if guard.field == "result")
+        result_type = result_guard.type_pattern
+        assert result_type is not None
+        minimum_lanes = result_type.minimum_static_elements
+        maximum_lanes = result_type.maximum_static_elements
+        assert isinstance(minimum_lanes, int)
+        assert isinstance(maximum_lanes, int)
+        for lane_count in range(minimum_lanes, maximum_lanes + 1):
+            for condition in range(256):
+                # Bits outside the eight logical predicate positions may hold
+                # arbitrary carrier state and must not affect selected lanes.
+                result = _evaluate_vector_select_rule(
+                    rule,
+                    condition | 0xA5A5FF00,
+                    true_words,
+                    false_words,
+                )
+                for lane in range(lane_count):
+                    expected = true_words if condition & (1 << lane) else false_words
+                    assert (
+                        result[2 * lane : 2 * lane + 2]
+                        == expected[2 * lane : 2 * lane + 2]
+                    )
