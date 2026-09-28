@@ -72,6 +72,13 @@ bool loom_amdgpu_fragment_memory_vaddr_static_offset_u32(
     const loom_amdgpu_fragment_memory_plan_t* plan, uint16_t register_index,
     uint16_t element_index, uint64_t* out_static_byte_offset);
 
+// Adds the selected ABI lane projection to an already materialized source
+// component. Shared planning owns the initializer's source/entry dependencies.
+iree_status_t loom_amdgpu_emit_fragment_memory_lane_offset(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_fragment_memory_address_layout_t* layout,
+    loom_value_id_t base, loom_value_id_t* out_value);
+
 // Runtime address facts for one packet, excluding source-origin terms.
 typedef struct loom_amdgpu_fragment_memory_packet_offset_t {
   // Byte offset contributed by the packet's runtime register coordinates.

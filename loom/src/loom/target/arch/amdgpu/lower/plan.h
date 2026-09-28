@@ -32,6 +32,8 @@
 extern "C" {
 #endif
 
+typedef struct loom_low_lower_realization_t loom_low_lower_realization_t;
+
 typedef enum loom_amdgpu_constant_plan_kind_e {
   LOOM_AMDGPU_CONSTANT_PLAN_KIND_NONE = 0,
   LOOM_AMDGPU_CONSTANT_PLAN_KIND_U32_BITS = 1,
@@ -1492,6 +1494,16 @@ typedef struct loom_amdgpu_memory_access_t {
   // Operand path selected for source.retained_component, or NONE when the
   // packet keeps its canonical terms. Selection establishes the complete bound.
   loom_amdgpu_memory_dynamic_index_kind_t retained_component_kind;
+  // Shared physical values, independent of canonical source memory effects.
+  struct {
+    // Invariant or loop-carried dynamic vector offset, or NULL for direct
+    // emission.
+    const loom_low_lower_realization_t* vaddr;
+    // Bounds-checked buffer descriptor incorporating the scalar dynamic offset.
+    const loom_low_lower_realization_t* descriptor;
+    // Invariant scalar byte offset not covered by the packet's immediate.
+    const loom_low_lower_realization_t* soffset;
+  } realization;
   // Static byte offset folded into the scalar base pointer.
   uint64_t scalar_base_byte_offset;
   // Location selected for scalar dynamic and static address terms.
@@ -1677,6 +1689,8 @@ typedef struct loom_amdgpu_fragment_memory_plan_t {
   loom_low_source_memory_access_plan_t source;
   // Whether every dynamic source-address term is subgroup-uniform.
   bool dynamic_base_is_subgroup_uniform;
+  // Shared carried dynamic/lane address, or NULL for direct address emission.
+  const loom_low_lower_realization_t* address_realization;
   // Decode strategy and retained facts for an FP8 load payload.
   loom_amdgpu_fp8_decode_action_t fp8_load_decode;
   // Source store payload or load result SSA value.

@@ -233,6 +233,15 @@ bool loom_amdgpu_memory_access_select_vaddr_dynamic_terms(
 void loom_amdgpu_memory_access_route_dynamic_terms_through_vaddr(
     loom_amdgpu_memory_access_t* access);
 
+// Selects a bounds-checked buffer packet and partitions its static offset.
+// Dynamic contributions retain their canonical proof even when a physical
+// realization supplies the descriptor base and vector offset.
+bool loom_amdgpu_memory_access_try_select_buffer(
+    const loom_low_descriptor_set_t* descriptor_set,
+    loom_low_source_memory_operation_kind_t kind,
+    loom_amdgpu_memory_access_t* access,
+    loom_amdgpu_memory_access_diagnostic_t* diagnostic);
+
 // Emits the target buffer descriptor consumed by MUBUF-style packets from a low
 // HAL binding pointer. When the low resource has no explicit extent,
 // |source_access| may provide source view facts used to derive the descriptor

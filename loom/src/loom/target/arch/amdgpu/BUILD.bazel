@@ -110,7 +110,7 @@ loom_cc_library(
     name = "buffer_resource",
     srcs = ["buffer_resource.c"],
     hdrs = ["buffer_resource.h"],
-    visibility = _AMDGPU_HAL_VISIBILITY,
+    visibility = _AMDGPU_HAL_VISIBILITY + _AMDGPU_LOWER_VISIBILITY,
     deps = [
         ":target_info_defs",
         "//runtime/src/iree/base",

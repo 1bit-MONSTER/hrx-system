@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/lower/realization.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/lower/constants.h"
@@ -155,6 +156,9 @@ void loom_amdgpu_memory_access_resolve_dynamic_terms(
     const loom_amdgpu_memory_access_t* access,
     loom_amdgpu_memory_dynamic_term_sequence_t* out_sequence) {
   *out_sequence = (loom_amdgpu_memory_dynamic_term_sequence_t){0};
+  if (access->realization.vaddr) {
+    return;
+  }
   const loom_low_source_memory_access_plan_t* source = &access->source;
   const loom_amdgpu_memory_dynamic_index_kind_t* dynamic_term_kinds =
       access->dynamic_term_kinds;
@@ -451,6 +455,11 @@ iree_status_t loom_amdgpu_emit_memory_vaddr(
   loom_type_t vgpr_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &vgpr_type));
 
+  if (access->realization.vaddr) {
+    *out_low_vaddr =
+        loom_low_lower_realization_value(access->realization.vaddr);
+    return iree_ok_status();
+  }
   loom_value_id_t low_accumulator = LOOM_VALUE_ID_INVALID;
   bool affine_terms_selected = false;
   IREE_RETURN_IF_ERROR(loom_amdgpu_try_emit_memory_vaddr_affine_terms(

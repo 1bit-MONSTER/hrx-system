@@ -9,6 +9,7 @@
 
 #include "loom/codegen/low/builder.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/lower/realization.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/cache.h"
@@ -730,6 +731,33 @@ iree_status_t loom_amdgpu_emit_hal_buffer_descriptor(
   return iree_ok_status();
 }
 
+static iree_status_t loom_amdgpu_emit_memory_buffer_descriptor(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_binding, const loom_amdgpu_memory_access_t* access,
+    loom_value_id_t* out_descriptor) {
+  if (access->realization.descriptor) {
+    *out_descriptor =
+        loom_low_lower_realization_value(access->realization.descriptor);
+    return iree_ok_status();
+  }
+  return loom_amdgpu_emit_hal_buffer_descriptor(
+      context, source_op, low_binding, &access->source, out_descriptor);
+}
+
+static iree_status_t loom_amdgpu_emit_memory_buffer_soffset(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_memory_access_t* access,
+    const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
+    loom_value_id_t* out_soffset) {
+  if (access->realization.soffset) {
+    *out_soffset =
+        loom_low_lower_realization_value(access->realization.soffset);
+    return iree_ok_status();
+  }
+  return loom_amdgpu_emit_sgpr_byte_offset_terms(
+      context, source_op, sequence, access->scalar_byte_offset, out_soffset);
+}
+
 static bool loom_amdgpu_memory_packet_operand_matches_field(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_operand_t* operand, iree_string_view_t field_name) {
@@ -1154,8 +1182,8 @@ static iree_status_t loom_amdgpu_lower_memory_packet_load(
 
   if (access->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_BUFFER_OFF_ZERO) {
     loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-        context, source_op, low_resource, &access->source, &low_descriptor));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+        context, source_op, low_resource, access, &low_descriptor));
     loom_value_id_t operands[] = {low_descriptor};
     loom_op_t* low_op = NULL;
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_packet(
@@ -1183,11 +1211,11 @@ static iree_status_t loom_amdgpu_lower_memory_packet_load(
   }
 
   loom_value_id_t low_soffset = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr_byte_offset_terms(
-      context, source_op, &sequence, access->scalar_byte_offset, &low_soffset));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_soffset(
+      context, source_op, access, &sequence, &low_soffset));
   loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-      context, source_op, low_resource, &access->source, &low_descriptor));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+      context, source_op, low_resource, access, &low_descriptor));
   loom_value_id_t operands[] = {
       low_descriptor,
       low_vaddr,
@@ -1307,8 +1335,8 @@ static iree_status_t loom_amdgpu_lower_memory_packet_store(
 
   if (access->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_BUFFER_OFF_ZERO) {
     loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-        context, source_op, low_resource, &access->source, &low_descriptor));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+        context, source_op, low_resource, access, &low_descriptor));
     loom_value_id_t operands[] = {
         low_value,
         low_descriptor,
@@ -1343,11 +1371,11 @@ static iree_status_t loom_amdgpu_lower_memory_packet_store(
   }
 
   loom_value_id_t low_soffset = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr_byte_offset_terms(
-      context, source_op, &sequence, access->scalar_byte_offset, &low_soffset));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_soffset(
+      context, source_op, access, &sequence, &low_soffset));
   loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-      context, source_op, low_resource, &access->source, &low_descriptor));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_buffer_descriptor(
+      context, source_op, low_resource, access, &low_descriptor));
   loom_value_id_t operands[] = {
       low_value,
       low_descriptor,

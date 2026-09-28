@@ -755,6 +755,9 @@ static iree_status_t loom_low_lower_prepare_plan(
   if (observer != NULL) {
     IREE_RETURN_IF_ERROR(observer->end(observer_state, context));
   }
+  if (!loom_low_lower_context_should_stop(context)) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_memory_prepare(context));
+  }
   if (context->result->error_count == 0) {
     IREE_RETURN_IF_ERROR(loom_low_lower_function_boundary_finalize(context));
   }
@@ -1237,6 +1240,20 @@ static iree_status_t loom_low_lower_plan_op(loom_low_lower_context_t* context,
     return iree_ok_status();
   }
 
+  const loom_low_lower_source_memory_record_t* prepared_memory =
+      context->lowering.source_plan.memory.current;
+  if (prepared_memory &&
+      !loom_low_lower_plan_is_empty(prepared_memory->prepared_plan)) {
+    loom_low_lower_record_selected_plan(
+        context, (loom_low_lower_selected_plan_t){
+                     .source_op = source_op,
+                     .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+                     .rule_set_index = UINT16_MAX,
+                     .rule_index = UINT16_MAX,
+                     .data.target_plan = prepared_memory->prepared_plan,
+                 });
+    return iree_ok_status();
+  }
   bool selected_callback = false;
   IREE_RETURN_IF_ERROR(loom_low_lower_try_select_op_callback(
       context, context->policy->preselect_op, source_op, &selected_callback));

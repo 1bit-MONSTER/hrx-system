@@ -13,6 +13,7 @@
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/contract_query.h"
 #include "loom/codegen/low/lower/function_boundary.h"
+#include "loom/codegen/low/lower/realization.h"
 #include "loom/codegen/low/lower/report.h"
 #include "loom/codegen/low/lower/rule_emit.h"
 #include "loom/codegen/low/lower/rule_source_memory.h"
@@ -156,7 +157,7 @@ static iree_status_t loom_low_lower_map_blocks(
           context, source_block->arg_ids[arg_index], low_arg));
     }
   }
-  return iree_ok_status();
+  return loom_low_lower_realizations_map_blocks(context);
 }
 
 static iree_status_t loom_low_lower_emit_preamble(
@@ -563,12 +564,14 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_lower_structural_op(
       IREE_RETURN_IF_ERROR(loom_low_lower_lookup_successor_dest(
           context, source_op, 0, &low_dest));
       loom_value_slice_t args = loom_cfg_br_args(source_op);
-      loom_value_id_t* low_args = NULL;
+      loom_value_slice_t low_args = {0};
+      IREE_RETURN_IF_ERROR(
+          loom_low_lower_realizations_emit_edge(context, source_op));
       IREE_RETURN_IF_ERROR(loom_low_lower_remap_successor_args(
           context, source_op, 0, low_dest, args.values, args.count, &low_args));
       loom_op_t* low_br_op = NULL;
-      return loom_low_br_build(&context->builder, low_dest, low_args,
-                               args.count, source_op->location, &low_br_op);
+      return loom_low_br_build(&context->builder, low_dest, low_args.values,
+                               low_args.count, source_op->location, &low_br_op);
     }
     case LOOM_OP_CFG_COND_BR: {
       loom_block_t* low_true_dest = NULL;
@@ -1044,11 +1047,21 @@ static iree_status_t loom_low_lower_emit_region_ops(
           "emission");
       IREE_BUILTIN_UNREACHABLE();
     }
+    loom_low_lower_emission_scope_begin(context);
+    status = loom_low_lower_realizations_emit_entry(context, source_block);
+    loom_low_lower_emission_scope_end(context);
+    if (!iree_status_is_ok(status)) {
+      break;
+    }
     loom_op_t* source_op = NULL;
     loom_block_for_each_op(source_block, source_op) {
       const uint32_t before_error_count = context->result->error_count;
       loom_low_lower_emission_scope_begin(context);
       status = loom_low_lower_emit_source_op(context, source_op);
+      if (iree_status_is_ok(status) &&
+          context->result->error_count == before_error_count) {
+        status = loom_low_lower_realizations_emit_after(context, source_op);
+      }
       // Builders copy all caller-provided arrays and attribute payloads into
       // module-owned storage. Nested structured emission may reset this arena
       // while its parent is active because the parent builder has already

@@ -25,6 +25,7 @@ extern "C" {
 
 typedef struct loom_low_lower_resolved_emit_t loom_low_lower_resolved_emit_t;
 typedef struct loom_low_representation_plan_t loom_low_representation_plan_t;
+typedef struct loom_low_lower_realizations_t loom_low_lower_realizations_t;
 
 enum loom_low_lower_value_storage_flag_bits_e {
   // The source value must be materialized as a target-Low SSA value.
@@ -117,6 +118,8 @@ typedef struct loom_low_lower_source_plan_t {
   // Function-local physical-representation plan, or NULL when the target has
   // no representation observer or before that observer begins.
   loom_low_representation_plan_t* representation_plan;
+  // Shared pure-value placement, initialization and supplemental CFG payloads.
+  loom_low_lower_realizations_t* realizations;
   // Per-source-value storage demand flags indexed by source value ordinal.
   loom_low_lower_value_storage_flags_t* value_storage_flags;
   // Canonical accesses joined across observation and selection without an op

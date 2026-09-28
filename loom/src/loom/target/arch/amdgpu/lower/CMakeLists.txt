@@ -55,6 +55,7 @@ loom_cc_library(
     lower
   HDRS
     "abi.h"
+    "address_realization.h"
     "arithmetic.h"
     "async.h"
     "atomic_ordering.h"
@@ -146,6 +147,7 @@ loom_cc_library(
     "registry_tables.inl"
   SRCS
     "abi.c"
+    "address_realization.c"
     "arithmetic.c"
     "async.c"
     "atomic.c"
@@ -290,6 +292,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::abi::tsan
     loom::target::arch::amdgpu::abi::ubsan
     loom::target::arch::amdgpu::analysis::lds_bank_service
+    loom::target::arch::amdgpu::buffer_resource
     loom::target::arch::amdgpu::contracts
     loom::target::arch::amdgpu::encoding::encoding_defs
     loom::target::arch::amdgpu::error_defs

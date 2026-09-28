@@ -7,6 +7,7 @@
 #ifndef LOOM_CODEGEN_LOW_LOWER_SOURCE_MEMORY_H_
 #define LOOM_CODEGEN_LOW_LOWER_SOURCE_MEMORY_H_
 
+#include "loom/codegen/low/lower/lower.h"
 #include "loom/codegen/low/source_memory_plan.h"
 
 #ifdef __cplusplus
@@ -27,6 +28,12 @@ typedef struct loom_low_lower_source_memory_record_t {
   loom_low_source_memory_access_plan_t access;
   // Source-level rejection preserved for target selection diagnostics.
   loom_low_source_memory_access_diagnostic_t diagnostic;
+  // Complete target memory plan prepared after representation selection, or
+  // empty when ordinary rule/callback selection owns the operation.
+  loom_low_lower_plan_t prepared_plan;
+  // Canonical terms defined outside the containing natural loop, including
+  // ABI coordinates. Zero when the access has no containing CFG loop.
+  uint16_t invariant_term_mask;
   // True when canonical source planning accepted this access.
   bool available;
 } loom_low_lower_source_memory_record_t;
@@ -43,6 +50,12 @@ iree_status_t loom_low_lower_source_memory_observe(
     loom_low_lower_source_memory_builder_t* builder,
     loom_low_lower_context_t* context, const loom_op_t* source_op);
 
+// Prepares physical memory plans from retained records after representation
+// selection. Targets publish compact realization requests; shared lowering
+// freezes their placement and edge ownership before operation selection.
+iree_status_t loom_low_lower_source_memory_prepare(
+    loom_low_lower_context_t* context);
+
 // Advances the retained access cursor alongside per-operation selection.
 void loom_low_lower_source_memory_select_op(loom_low_lower_context_t* context,
                                             const loom_op_t* source_op);
@@ -53,6 +66,10 @@ void loom_low_lower_source_memory_select_op(loom_low_lower_context_t* context,
 const loom_low_source_memory_access_plan_t* loom_low_lower_source_memory_access(
     const loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_source_memory_access_diagnostic_t* out_diagnostic);
+
+// Returns the current access's retained loop-invariant canonical term set.
+uint16_t loom_low_lower_source_memory_invariant_terms(
+    const loom_low_lower_context_t* context);
 
 #ifdef __cplusplus
 }  // extern "C"

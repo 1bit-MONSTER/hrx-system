@@ -17,6 +17,7 @@
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/view/ops.h"
 #include "loom/target/arch/amdgpu/facts.h"
+#include "loom/target/arch/amdgpu/lower/address_realization.h"
 #include "loom/target/arch/amdgpu/lower/constants.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
@@ -437,14 +438,15 @@ void loom_amdgpu_mark_memory_access_plan_storage_demands(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_memory_access_plan_t* plan) {
   IREE_ASSERT_GT(plan->packet_count, 0u);
-  // Split packets only change static offsets and register slices; dynamic
-  // address storage is shared by every packet in the selected access plan.
-  loom_amdgpu_mark_source_memory_plan_storage_demands(
-      context, &plan->packets[0].access.source);
   for (uint32_t packet_index = 0; packet_index < plan->packet_count;
        ++packet_index) {
     const loom_amdgpu_memory_access_t* access =
         &plan->packets[packet_index].access;
+    if (access->realization.vaddr) {
+      continue;
+    }
+    loom_amdgpu_mark_source_memory_plan_storage_demands(context,
+                                                        &access->source);
     if (access->retained_component_kind ==
         LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE) {
       continue;
@@ -456,7 +458,6 @@ void loom_amdgpu_mark_memory_access_plan_storage_demands(
       loom_low_lower_require_source_value_storage(context,
                                                   term->stride_values[i]);
     }
-    break;
   }
 
   const loom_value_id_t value = loom_amdgpu_memory_access_payload_value(
@@ -1825,7 +1826,7 @@ static bool loom_amdgpu_memory_access_signed_i16_repair_is_available(
       descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_V_BFE_I32_OFFSET_WIDTH_INLINE);
 }
 
-static bool loom_amdgpu_memory_access_try_select_buffer(
+bool loom_amdgpu_memory_access_try_select_buffer(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_low_source_memory_operation_kind_t kind,
     loom_amdgpu_memory_access_t* access,
@@ -2891,6 +2892,8 @@ static iree_status_t loom_amdgpu_select_memory_plan(
   retained_plan->packet_count = selection.packet_count;
   for (uint32_t i = 0; i < selection.packet_count; ++i) {
     retained_plan->packets[i] = selection.packets[i];
+    IREE_RETURN_IF_ERROR(loom_amdgpu_prepare_memory_address_realizations(
+        context, source_op, &retained_plan->packets[i].access));
   }
   *out_plan = loom_low_lower_plan_make(source_op->kind, retained_plan);
   out_plan->access_flags = retained_plan->packets[0].access.source.access_flags;

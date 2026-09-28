@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/lower/context.h"
+#include "loom/codegen/low/lower/realization.h"
 #include "loom/ir/structural_hash.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/view/ops.h"
@@ -348,13 +349,17 @@ iree_status_t loom_low_lower_source_memory_observe(
   loom_low_lower_source_memory_record_t* record = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
       context, 1, sizeof(*record), (void**)&record));
-  *record = (loom_low_lower_source_memory_record_t){.source_op = source_op};
+  *record = (loom_low_lower_source_memory_record_t){
+      .source_op = source_op,
+      .prepared_plan = loom_low_lower_plan_empty(),
+  };
   record->available = loom_low_source_memory_access_plan_build(
       view_regions, source_op, &record->access, &record->diagnostic);
   if (record->available) {
-    loom_low_lower_memory_component_select(
-        builder, record,
-        loom_low_lower_memory_invariant_terms(context, record));
+    record->invariant_term_mask =
+        loom_low_lower_memory_invariant_terms(context, record);
+    loom_low_lower_memory_component_select(builder, record,
+                                           record->invariant_term_mask);
     if (record->access.retained_component.term == NULL) {
       loom_low_lower_memory_component_select(
           builder, record,
@@ -372,6 +377,39 @@ iree_status_t loom_low_lower_source_memory_observe(
   builder->last = record;
   context->lowering.source_plan.memory.current = record;
   return iree_ok_status();
+}
+
+iree_status_t loom_low_lower_source_memory_prepare(
+    loom_low_lower_context_t* context) {
+  const loom_low_lower_select_op_callback_t callback =
+      context->policy->prepare_source_memory;
+  if (callback.fn == NULL) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_low_lower_realizations_create(context));
+  iree_status_t status = iree_ok_status();
+  for (loom_low_lower_source_memory_record_t* record =
+           context->lowering.source_plan.memory.first;
+       record && iree_status_is_ok(status) &&
+       !loom_low_lower_context_should_stop(context);
+       record = record->next) {
+    if (!record->available || !loom_memory_access_isa(loom_memory_access_cast(
+                                  context->module, record->source_op))) {
+      continue;
+    }
+    context->lowering.source_plan.memory.current = record;
+    context->planning_arena_active = true;
+    status = callback.fn(callback.user_data, context, record->source_op,
+                         &record->prepared_plan);
+    context->planning_arena_active = false;
+    iree_arena_reset(&context->planning_arena);
+  }
+  context->lowering.source_plan.memory.current = NULL;
+  if (iree_status_is_ok(status) &&
+      !loom_low_lower_context_should_stop(context)) {
+    status = loom_low_lower_realizations_finalize(context);
+  }
+  return status;
 }
 
 void loom_low_lower_source_memory_select_op(loom_low_lower_context_t* context,
@@ -393,4 +431,9 @@ const loom_low_source_memory_access_plan_t* loom_low_lower_source_memory_access(
   IREE_ASSERT(record != NULL && record->source_op == source_op);
   *out_diagnostic = record->diagnostic;
   return record->available ? &record->access : NULL;
+}
+
+uint16_t loom_low_lower_source_memory_invariant_terms(
+    const loom_low_lower_context_t* context) {
+  return context->lowering.source_plan.memory.current->invariant_term_mask;
 }
