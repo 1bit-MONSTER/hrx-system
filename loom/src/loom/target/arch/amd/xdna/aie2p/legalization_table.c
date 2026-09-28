@@ -86,25 +86,58 @@ static bool loom_aie2p_table_lookup_has_vector_carrier(loom_type_t type,
                                                        uint64_t count) {
   const uint32_t bit_count =
       loom_scalar_type_bitwidth(loom_type_element_type(type));
-  return (bit_count == 8 || bit_count == 16 || bit_count == 32) && count > 0 &&
-         count <= 512 / bit_count;
+  return (bit_count == 8 || bit_count == 16 || bit_count == 32 ||
+          bit_count == 64) &&
+         count > 0 && count <= 512 / bit_count;
 }
 
 static bool loom_aie2p_table_lookup_has_packet_result_carriers(loom_type_t type,
                                                                uint64_t count) {
   const loom_scalar_type_t element_type = loom_type_element_type(type);
   const uint32_t bit_count = loom_scalar_type_bitwidth(element_type);
-  if ((bit_count != 8 && bit_count != 16 && bit_count != 32) || count == 0) {
+  if ((bit_count != 8 && bit_count != 16 && bit_count != 32 &&
+       bit_count != 64) ||
+      count == 0) {
     return false;
   }
   if (count <= 1024 / bit_count) {
     return true;
   }
-  // The exact 2048-bit word accumulator types retain four 512-bit selection
+  // The exact 2048-bit accumulator types retain four 512-bit selection
   // packets. Other vectors above 1024 bits have no source type mapping.
-  return loom_type_rank(type) == 1 && count == 64 &&
-         (element_type == LOOM_SCALAR_TYPE_I32 ||
-          element_type == LOOM_SCALAR_TYPE_F32);
+  return loom_type_rank(type) == 1 &&
+         ((count == 64 && (element_type == LOOM_SCALAR_TYPE_I32 ||
+                           element_type == LOOM_SCALAR_TYPE_F32)) ||
+          (count == 32 && element_type == LOOM_SCALAR_TYPE_I64));
+}
+
+static uint32_t loom_aie2p_table_lookup_64_bit_select_cost(
+    uint64_t result_count, uint32_t level_count) {
+  if (level_count == 0) {
+    return 0;
+  }
+
+  // Pair selection dilates each logical predicate bit into two adjacent
+  // VSEL.32 selector bits. Low CSE shares the scalar constants across levels
+  // and the complete expansion among every select at one tree level. The
+  // selector construction also materializes the same power-of-two constants
+  // used as spread distances.
+  uint32_t spread_stage_count = 0;
+  if (result_count > 4) {
+    spread_stage_count = 3;
+  } else if (result_count > 2) {
+    spread_stage_count = 2;
+  } else if (result_count > 1) {
+    spread_stage_count = 1;
+  }
+  const uint32_t constant_count = 1 + 2 * spread_stage_count;
+  const uint32_t shared_shift_count =
+      spread_stage_count > 0 ? spread_stage_count : 1;
+  const uint32_t operation_count_per_level = 4 + 3 * spread_stage_count;
+  const uint32_t reused_constant_count =
+      iree_min(level_count, shared_shift_count);
+  return constant_count - reused_constant_count +
+         operation_count_per_level * level_count;
 }
 
 iree_status_t loom_aie2p_table_lookup_rewrite(
@@ -127,6 +160,8 @@ iree_status_t loom_aie2p_table_lookup_rewrite(
   }
   const uint32_t index_bit_count =
       loom_scalar_type_bitwidth(loom_type_element_type(index_type));
+  const uint32_t result_bit_count =
+      loom_scalar_type_bitwidth(loom_type_element_type(result_type));
   if (loom_aie2p_table_lookup_has_packet_result_carriers(result_type,
                                                          result_count) &&
       (index_bit_count == 8 || index_bit_count == 16 ||
@@ -175,8 +210,12 @@ iree_status_t loom_aie2p_table_lookup_rewrite(
   // Halfword and word comparisons also complete their partial predicate.
   const uint32_t selector_cost = index_bit_count == 8 ? 4 : 5;
   // Each table entry needs one native broadcast, followed by T-1 selects.
-  const uint32_t packed_cost =
-      2 + selector_cost * levels + 2 * (uint32_t)table_count - 1;
+  const uint32_t pair_select_cost =
+      result_bit_count == 64
+          ? loom_aie2p_table_lookup_64_bit_select_cost(result_count, levels)
+          : 0;
+  const uint32_t packed_cost = 2 + selector_cost * levels + pair_select_cost +
+                               2 * (uint32_t)table_count - 1;
   // Scalar lookup needs an index extract, an optional narrow-index extension,
   // a table extract, and three result insertion/control operations per lane.
   // A known index folds the first two or three operations into one immediate

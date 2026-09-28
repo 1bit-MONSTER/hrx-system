@@ -1164,7 +1164,12 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
         if rule.source_op is vector.vector_select
         and rule.guards[1].type_pattern.element != "i1"
     ]
-    assert [rule.descriptor.key for rule in payload_select_rules] == [
+    native_payload_select_rules = [
+        rule
+        for rule in payload_select_rules
+        if rule.descriptor.key != "amd.xdna.aie2p.select.i32x16"
+    ]
+    assert [rule.descriptor.key for rule in native_payload_select_rules] == [
         "amd.xdna.aie2p.select.i8x64",
         "amd.xdna.aie2p.select.i8x64",
         "amd.xdna.aie2p.select.i8x64",
@@ -1174,11 +1179,38 @@ def test_core_contract_closes_scalar_and_integer_vector_families() -> None:
         "amd.xdna.aie2p.select.i32x16.mask64",
         "amd.xdna.aie2p.select.i32x16.mask64",
     ]
+    pair_payload_select_rules = [
+        rule
+        for rule in payload_select_rules
+        if rule.descriptor.key == "amd.xdna.aie2p.select.i32x16"
+    ]
+    assert [
+        (
+            rule.guards[1].type_pattern.element,
+            rule.guards[1].type_pattern.minimum_static_elements,
+            rule.guards[1].type_pattern.maximum_static_elements,
+        )
+        for rule in pair_payload_select_rules
+    ] == [
+        (element_type, minimum_lanes, maximum_lanes)
+        for element_type in ("i64", "f64")
+        for minimum_lanes, maximum_lanes in (
+            (1, 1),
+            (2, 2),
+            (3, 4),
+            (5, 8),
+        )
+    ]
     for rule in payload_select_rules:
-        select = rule.emit[0]
+        select = rule.emit[-1]
         assert select.operands["s1"].field == "false_value"
         assert select.operands["s2"].field == "true_value"
+    for rule in native_payload_select_rules:
+        select = rule.emit[-1]
         assert select.operands["sel"].field == "condition"
+    assert all(
+        rule.emit[-1].copy_operands == ("sel",) for rule in pair_payload_select_rules
+    )
 
     vector_compare_rules = [
         rule for rule in rules if rule.source_op is vector.vector_cmpi
