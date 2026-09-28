@@ -696,6 +696,8 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
 
   loom_attribute_t canonical_attr_dict = {0};
   loom_string_id_t canonical_name_id = encoding->name_id;
+  iree_arena_checkpoint_t candidate_checkpoint;
+  iree_status_t status = iree_ok_status();
   if (name_resolution.alias) {
     const loom_encoding_alias_descriptor_t* alias = name_resolution.alias;
     IREE_RETURN_IF_ERROR(loom_module_intern_string(
@@ -750,22 +752,31 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
       authored_updates[i] = loom_named_attr_replace(
           encoding->attributes[i].name_id, encoding->attributes[i].value);
     }
-    IREE_RETURN_IF_ERROR(loom_module_replace_canonical_attr_dict(
+    // Family and parameter names outlive a duplicate candidate. Only the
+    // unpublished parameter payloads belong to this checkpoint.
+    candidate_checkpoint = iree_arena_checkpoint_save(&module->arena);
+    status = loom_module_replace_canonical_attr_dict(
         module,
         loom_make_named_attr_slice(alias_entries, alias->parameter_count),
         (loom_named_attr_update_slice_t){
             .updates = authored_updates,
             .count = encoding->attribute_count,
         },
-        &canonical_attr_dict));
+        &canonical_attr_dict);
   } else {
-    IREE_RETURN_IF_ERROR(loom_module_make_canonical_attr_dict(
+    candidate_checkpoint = iree_arena_checkpoint_save(&module->arena);
+    status = loom_module_make_canonical_attr_dict(
         module,
         loom_make_named_attr_slice(encoding->attributes,
                                    encoding->attribute_count),
-        &canonical_attr_dict));
+        &canonical_attr_dict);
+  }
+  if (!iree_status_is_ok(status)) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
+    return status;
   }
   if (canonical_attr_dict.count > UINT8_MAX) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "encoding '%.*s' has %u parameters, max %u",
                             (int)encoding_name.size, encoding_name.data,
@@ -815,6 +826,7 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
       }
       iree_string_view_t alias_name =
           loom_string_table_get(&module->strings, canonical_encoding.alias_id);
+      iree_arena_checkpoint_restore(&candidate_checkpoint);
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "encoding alias '%.*s' already names a different encoding",
@@ -823,6 +835,7 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
   }
 
   if (existing_index != UINT32_MAX) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
     if (module->encodings.entries[existing_index].alias_id ==
             LOOM_STRING_ID_INVALID &&
         canonical_encoding.alias_id != LOOM_STRING_ID_INVALID) {
@@ -848,25 +861,32 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
   // UINT16_MAX is the maximum representable ID, so we can store at
   // most UINT16_MAX entries (IDs 1 through UINT16_MAX).
   if (module->encodings.count >= UINT16_MAX) {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "encoding table full (%" PRIhsz " entries, max %u)",
                             module->encodings.count, (unsigned)UINT16_MAX);
   }
 
-  IREE_RETURN_IF_ERROR(
-      loom_encoding_table_ensure_capacity(&module->arena, &module->encodings));
+  // Stage row growth before the final fallible bucket reserve. Rehash can
+  // mutate existing buckets, so only infallible publication follows it.
+  loom_encoding_table_t encodings = module->encodings;
+  status = loom_encoding_table_ensure_capacity(&module->arena, &encodings);
   iree_host_size_t slot = probe.slot;
-  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-      &module->arena, &module->encoding_intern, hash, &slot));
-
-  const uint32_t new_index = (uint32_t)module->encodings.count;
-  loom_encoding_t* entry = &module->encodings.entries[new_index];
-  *entry = canonical_encoding;
-  loom_intern_table_insert(&module->encoding_intern, slot, hash, new_index);
-
-  *out_encoding_id = (uint16_t)(new_index + 1);
-  ++module->encodings.count;
-  return iree_ok_status();
+  if (iree_status_is_ok(status)) {
+    status = loom_intern_table_reserve_insert(
+        &module->arena, &module->encoding_intern, hash, &slot);
+  }
+  if (iree_status_is_ok(status)) {
+    const uint32_t new_index = (uint32_t)encodings.count;
+    encodings.entries[new_index] = canonical_encoding;
+    ++encodings.count;
+    module->encodings = encodings;
+    loom_intern_table_insert(&module->encoding_intern, slot, hash, new_index);
+    *out_encoding_id = (uint16_t)(new_index + 1);
+  } else {
+    iree_arena_checkpoint_restore(&candidate_checkpoint);
+  }
+  return status;
 }
 
 const loom_encoding_vtable_t* loom_module_encoding_vtable(

@@ -212,6 +212,7 @@ loom_cc_test(
     "intern_table_test.cc"
     "module_block_order_test.cc"
     "module_dictionary_test.cc"
+    "module_encoding_test.cc"
     "module_location_test.cc"
     "module_source_test.cc"
     "module_string_test.cc"
@@ -223,6 +224,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::ops::encoding
     loom::ops::test
     loom::ops::type_registry
 )
