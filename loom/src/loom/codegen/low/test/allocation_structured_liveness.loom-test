@@ -26,6 +26,27 @@ CHECK: spills: 0
 
 // ====
 
+// RUN: emit low-allocation-json @type_reference_preserves_edge_source fixed=%source:target_id:0:1 fixed=%packed:target_id:1:1 fixed=%clobber:target_id:1:1 output=none
+
+test.target<low_core> @target
+
+low.func.decl target<test.low.core>(@target) @make_dependent(%width: reg<test.i32 : index>) -> (reg<test.i32 : vector<[%width]xf32>>)
+
+low.func.decl target<test.low.core>(@target) @consume_dependent(%width: reg<test.i32 : index>, %value: reg<test.i32 : vector<[%width]xf32>>)
+
+low.func.def target<test.low.core>(@target) @type_reference_preserves_edge_source(%source: reg<test.i32 : index>) -> (reg<test.i32>) asm {
+  // ERROR@+1: BACKEND/050 {value_name="packed", location_kind="target_id", location_base="1", location_count="1"}
+  %packed = concat(%source) : (reg<test.i32 : index>) -> reg<test.i32 : index>
+  %dependent = low.func.call @make_dependent(%packed) : (reg<test.i32 : index>) -> (reg<test.i32 : vector<[%packed]xf32>>)
+  %clobber = test.const.i32 3
+  low.br ^join(%packed: reg<test.i32 : index>, %dependent: reg<test.i32 : vector<[%packed]xf32>>)
+^join(%width: reg<test.i32 : index>, %value: reg<test.i32 : vector<[%width]xf32>>):
+  low.func.call @consume_dependent(%width, %value) : (reg<test.i32 : index>, reg<test.i32 : vector<[%width]xf32>>)
+  return %clobber
+}
+
+// ====
+
 // RUN: with-checks emit low-allocation @upper_survives_yield diagnostics=placement-decisions
 
 test.target<low_core> @target

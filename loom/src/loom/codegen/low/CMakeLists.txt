@@ -603,6 +603,7 @@ loom_cc_benchmark(
     iree::base::internal::arena
     iree::testing::benchmark_main
     loom::analysis::liveness
+    loom::codegen::low::allocation::unit_liveness
     loom::format::text::parser
     loom::ir
     loom::ops::func

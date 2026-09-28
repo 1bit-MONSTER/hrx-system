@@ -36,5 +36,33 @@ TEST(LowPlacementTest, ClassifiesEdgeCauses) {
       LOOM_LOW_PLACEMENT_CAUSE_SCHEDULE_PAIR_AFFINITY));
 }
 
+TEST(LowPlacementTest, ComposedRelationHasNoDirectSourceOperand) {
+  loom_low_placement_relation_t source_to_intermediate = {};
+  source_to_intermediate.result_ordinal = 1;
+  source_to_intermediate.source_ordinal = 0;
+  source_to_intermediate.result_unit_offset = 2;
+  source_to_intermediate.source_unit_offset = 4;
+  source_to_intermediate.unit_count = 3;
+  source_to_intermediate.source_operand_index = 1;
+  loom_low_placement_relation_t intermediate_to_result = {};
+  intermediate_to_result.result_ordinal = 2;
+  intermediate_to_result.source_ordinal = 1;
+  intermediate_to_result.result_unit_offset = 8;
+  intermediate_to_result.source_unit_offset = 3;
+  intermediate_to_result.unit_count = 3;
+  intermediate_to_result.source_operand_index = 2;
+
+  loom_low_placement_relation_t composed = {};
+  ASSERT_TRUE(loom_low_placement_relation_compose(
+      &source_to_intermediate, &intermediate_to_result, &composed));
+  EXPECT_EQ(composed.source_ordinal, 0u);
+  EXPECT_EQ(composed.result_ordinal, 2u);
+  EXPECT_EQ(composed.source_unit_offset, 5u);
+  EXPECT_EQ(composed.result_unit_offset, 8u);
+  EXPECT_EQ(composed.unit_count, 2u);
+  EXPECT_EQ(composed.source_operand_index,
+            LOOM_LOW_PLACEMENT_SOURCE_OPERAND_NONE);
+}
+
 }  // namespace
 }  // namespace loom

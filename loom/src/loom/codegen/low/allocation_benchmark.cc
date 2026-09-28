@@ -24,6 +24,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/allocation.h"
+#include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/codegen/low/verify.h"
@@ -110,7 +111,13 @@ enum class Shape {
   kTied,
   kFanout
 };
-enum class Phase { kModel, kLiveness, kPlacement, kAllocation };
+enum class Phase {
+  kModel,
+  kLiveness,
+  kPlacement,
+  kUnitLiveness,
+  kAllocation,
+};
 
 std::string MakeSource(uint32_t chain_length, uint32_t component_count,
                        uint32_t width, Shape shape) {
@@ -495,10 +502,16 @@ class AllocationBenchmark {
     if (phase_ != Phase::kModel) {
       InitializeModel(&base_arena_, &model_);
     }
-    if (phase_ == Phase::kPlacement) {
+    if (phase_ == Phase::kPlacement || phase_ == Phase::kUnitLiveness) {
       IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_dataflow(
           &model_.value_domain, &model_.liveness_dataflow,
           loom_liveness_order_empty(), &base_arena_, &liveness_));
+    }
+    if (phase_ == Phase::kUnitLiveness) {
+      IREE_CHECK_OK(loom_low_placement_analyze_region(
+          module_, model_.body, model_.target.descriptor_set,
+          &model_.value_domain, &liveness_,
+          loom_low_placement_pair_use_list_empty(), &base_arena_, &placement_));
     }
   }
 
@@ -540,6 +553,13 @@ class AllocationBenchmark {
           loom_low_placement_pair_use_list_empty(), &arena, &placement));
       result.value_count = placement.value_count;
       benchmark::DoNotOptimize(placement.relations);
+    } else if (phase_ == Phase::kUnitLiveness) {
+      loom_low_allocation_unit_liveness_t unit_liveness = {};
+      IREE_CHECK_OK(loom_low_allocation_unit_liveness_initialize(
+          &model_.target, &placement_, &model_.value_domain, &liveness_, &arena,
+          &unit_liveness));
+      result.value_count = liveness_.value_count;
+      benchmark::DoNotOptimize(unit_liveness.end_points);
     } else {
       loom_low_allocation_options_t options = {};
       options.fixed_values = fixed_values_.data();
@@ -656,8 +676,10 @@ class AllocationBenchmark {
   loom_target_low_descriptor_registry_t registry_ = {};
   // Retained function model when model construction is outside the timed phase.
   loom_low_function_model_t model_ = {};
-  // Retained semantic liveness for placement-only measurements.
+  // Retained semantic liveness for placement and unit-liveness measurements.
   loom_liveness_analysis_t liveness_ = {};
+  // Retained placement facts for unit-liveness-only measurements.
+  loom_low_placement_table_t placement_ = {};
   // Dense relocation source colors fixed outside the header destination set.
   std::vector<loom_low_allocation_fixed_value_t> fixed_values_;
   // Generated loop backedge used to validate final edge-copy materialization.
@@ -782,7 +804,7 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
        {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
         Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout}) {
     for (auto phase : {Phase::kModel, Phase::kLiveness, Phase::kPlacement,
-                       Phase::kAllocation}) {
+                       Phase::kUnitLiveness, Phase::kAllocation}) {
       if (shape == Shape::kLoopRelocation && phase != Phase::kAllocation) {
         continue;
       }
@@ -798,10 +820,11 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
                       : shape == Shape::kBranch         ? "branch/"
                       : shape == Shape::kTied           ? "tied/"
                                                         : "fanout/") +
-          (phase == Phase::kModel       ? "model"
-           : phase == Phase::kLiveness  ? "liveness"
-           : phase == Phase::kPlacement ? "placement"
-                                        : "allocation");
+          (phase == Phase::kModel          ? "model"
+           : phase == Phase::kLiveness     ? "liveness"
+           : phase == Phase::kPlacement    ? "placement"
+           : phase == Phase::kUnitLiveness ? "unit_liveness"
+                                           : "allocation");
       auto* registration = benchmark::RegisterBenchmark(
           name.c_str(),
           [=](benchmark::State& state) { RunBenchmark(state, shape, phase); });

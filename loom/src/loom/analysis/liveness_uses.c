@@ -133,12 +133,20 @@ static iree_status_t loom_liveness_result_type_ref_callback(
   return state->visitor.fn(state->visitor.user_data, value_id);
 }
 
-iree_status_t loom_liveness_for_each_op_direct_use(
+iree_status_t loom_liveness_for_each_op_operand_use(
+    const loom_op_t* op, loom_liveness_value_callback_t visitor) {
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    IREE_RETURN_IF_ERROR(visitor.fn(visitor.user_data, operands[i]));
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_liveness_for_each_op_type_use(
     const loom_module_t* module, const loom_op_t* op,
     loom_liveness_value_callback_t visitor) {
   const loom_value_id_t* operands = loom_op_const_operands(op);
   for (uint16_t i = 0; i < op->operand_count; ++i) {
-    IREE_RETURN_IF_ERROR(visitor.fn(visitor.user_data, operands[i]));
     IREE_RETURN_IF_ERROR(loom_liveness_for_each_type_ref(
         module, loom_module_value_type(module, operands[i]), visitor));
   }
@@ -153,6 +161,13 @@ iree_status_t loom_liveness_for_each_op_direct_use(
         module, result_type, loom_liveness_result_type_ref_callback, &state));
   }
   return iree_ok_status();
+}
+
+iree_status_t loom_liveness_for_each_op_direct_use(
+    const loom_module_t* module, const loom_op_t* op,
+    loom_liveness_value_callback_t visitor) {
+  IREE_RETURN_IF_ERROR(loom_liveness_for_each_op_operand_use(op, visitor));
+  return loom_liveness_for_each_op_type_use(module, op, visitor);
 }
 
 iree_status_t loom_liveness_for_each_op_use(
