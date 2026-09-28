@@ -124,6 +124,40 @@ Choose the level that expresses the algorithm. A subgroup reduction naturally
 uses subgroup values; a tiled matrix kernel often uses separate workgroup and
 workitem axes; a flat elementwise kernel can use the dispatch id.
 
+## Form masks over active subgroup lanes
+
+Subgroup votes describe cooperation without naming a backend.
+[`kernel.subgroup.vote.any`](../reference/dialects/kernel/ops/subgroup-vote-any.md)
+and
+[`kernel.subgroup.vote.all`](../reference/dialects/kernel/ops/subgroup-vote-all.md)
+reduce a predicate to one Boolean result.
+[`kernel.subgroup.vote.ballot`](../reference/dialects/kernel/ops/subgroup-vote-ballot.md)
+instead returns the physical lane positions whose predicates are true:
+
+```loom
+%lane = kernel.subgroup.lane.id : index
+%unit = index.constant 1 : index
+%parity = index.andi %lane, %unit : index
+%selected = index.cmp eq, %parity, %unit : index
+%selected_lanes = kernel.subgroup.vote.ballot %selected : i1 -> i64
+```
+
+Bit *i* in `%selected_lanes` represents physical lane *i*. The operation
+observes only invocations active at that call, so a ballot inside divergent
+control flow excludes lanes on other paths even when those lanes computed the
+predicate earlier. This makes ballots suitable for subgroup-local compaction,
+router selection, and sparse page or token lookups.
+
+The result may be `i32` or `i64`, and its width must cover the selected target's
+subgroup. Target selection diagnoses an unavailable ballot capability or a
+subgroup wider than the authored mask instead of truncating it. AMDGPU and
+Vulkan devices that report SPIR-V subgroup-ballot support use the same source
+contract.
+
+A vote exchanges predicate state; it does not make memory visible or wait for
+independent asynchronous work. Use a barrier or memory fence when the algorithm
+also requires a memory-ordering contract.
+
 ## Over-dispatch safely and preserve the proof
 
 Ceiling division usually creates inactive invocations in the final workgroup.
