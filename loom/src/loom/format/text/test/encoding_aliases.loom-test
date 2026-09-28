@@ -35,3 +35,4 @@ test.decl @after(%value: view<8x8xf32, #row_major>)
 #second = #first
 // ERROR@+1: PARSE/014 "duplicate encoding alias name"
 #second = #encoding.layout.strided<strides=[8, 1]>
+test.decl @retained_alias(%value: view<8x8xf32, #second>)

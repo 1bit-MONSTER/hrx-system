@@ -644,7 +644,7 @@ static iree_status_t loom_parse_op_into(
   if (parser->error_count == errors_before && func_args_consumed_by_region) {
     loom_parser_pending_block_args_truncate(&parser->pending_func_args,
                                             pending_func_arg_start);
-  } else if (parser->error_count > 0) {
+  } else if (parser->error_count > errors_before) {
     loom_parser_pending_block_args_truncate(&parser->pending_func_args,
                                             pending_func_arg_start);
     loom_parser_pending_block_args_clear(&parser->pending_block_args);
