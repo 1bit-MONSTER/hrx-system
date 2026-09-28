@@ -20,8 +20,8 @@
 extern "C" {
 #endif  // __cplusplus
 
-// Device-global cache of prepared single-dispatch native commands (ERT_START_CU
-// / START_NPU / START_DPU path), reused across one-shot command-buffer
+// Device-global cache of prepared single-dispatch native commands (START_CU,
+// START_NPU, PARTIAL_ELF, and START_DPU), reused across one-shot command-buffer
 // instances and rebound/rewritten in place to match a freshly recorded
 // dispatch. START_DPU keeps the instruction BO alive for the hwctx lifetime
 // (XRT module_run model) and restores+repatches it on each submit.

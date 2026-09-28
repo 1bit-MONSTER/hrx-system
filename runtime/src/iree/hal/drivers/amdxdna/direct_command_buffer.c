@@ -2113,6 +2113,10 @@ iree_hal_amdxdna_direct_command_buffer_submit_accumulated_single(
         IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_INSTRUCTION, &ctrl_code_buffer);
     void* instr_buffer_ptr = NULL;
     if (iree_status_is_ok(status)) {
+      status = iree_hal_amdxdna_native_queue_c_ensure_buffer_allocated(
+          group->queue, ctrl_code_buffer);
+    }
+    if (iree_status_is_ok(status)) {
       status = iree_hal_amdxdna_native_buffer_c_map(ctrl_code_buffer,
                                                     &instr_buffer_ptr);
     }
@@ -2653,7 +2657,14 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
     iree_hal_amdxdna_native_c_cu_index_t cu_idx,
     const iree_hal_amdxdna_u32_list_t* asm_inst,
     const iree_hal_amdxdna_u32_list_t* patch_table,
-    iree_const_byte_span_t constants, bool use_single_partial_elf,
+    const iree_hal_amdxdna_pdi_relocation_list_t* pdi_relocations,
+    const iree_hal_amdxdna_control_parameter_relocation_list_t*
+        control_parameter_relocations,
+    const iree_hal_executable_function_parameter_t* parameters,
+    iree_host_size_t parameter_count,
+    iree_hal_amdxdna_native_buffer_t* const* pdi_buffers,
+    iree_host_size_t pdi_count, iree_const_byte_span_t constants,
+    bool use_single_partial_elf, bool use_full_elf,
     const iree_hal_amdxdna_ctrlcode_dpu_slice_t* dpu_slices,
     iree_host_size_t dpu_slice_count) {
   IREE_TRACE_ZONE_BEGIN(z0);
@@ -2663,8 +2674,11 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
   iree_hal_amdxdna_native_buffer_t** binding_buffers = NULL;
   iree_device_size_t* binding_offsets = NULL;
   iree_device_size_t* binding_lengths = NULL;
+  uint64_t* pdi_addresses = NULL;
+  uint8_t* referenced_pdis = NULL;
   uint32_t* prepared_ctrl_words = NULL;
   iree_hal_amdxdna_native_buffer_t* ctrl_code_buffer = NULL;
+  iree_hal_amdxdna_native_buffer_t* control_parameter_buffer = NULL;
   iree_hal_amdxdna_native_command_t* command = NULL;
   iree_hal_amdxdna_native_command_t* submit_command = NULL;
   iree_hal_amdxdna_device_single_command_cache_t* single_command_cache = NULL;
@@ -2673,25 +2687,37 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
 
   const bool use_start_dpu =
       iree_hal_amdxdna_device_uses_start_dpu(command_buffer->device);
-  const bool collect_binding_addrs = use_single_partial_elf || use_start_dpu;
-  if (collect_binding_addrs) {
-    if (bindings.count != 0) {
+  const bool has_control_parameters = control_parameter_relocations &&
+                                      control_parameter_relocations->count != 0;
+  // Control parameter contents are mutable per dispatch. FULL_ELF commands
+  // also bind executable-owned standalone PDI BOs that the device-wide cache
+  // does not retain. Keep both out of that cache so an in-flight dispatch
+  // cannot observe later parameter values and no cache entry can outlive its
+  // PDI buffers.
+  const bool cache_single_command =
+      use_single_partial_elf && !has_control_parameters;
+  const bool needs_host_bindings =
+      use_single_partial_elf || use_full_elf || use_start_dpu;
+  const iree_host_size_t native_binding_count =
+      bindings.count + (has_control_parameters ? 1 : 0);
+  if (needs_host_bindings) {
+    if (native_binding_count != 0) {
       status = iree_allocator_malloc_array(
-          command_buffer->host_allocator, bindings.count,
+          command_buffer->host_allocator, native_binding_count,
           sizeof(*binding_addrs), (void**)&binding_addrs);
       if (iree_status_is_ok(status)) {
         status = iree_allocator_malloc_array(
-            command_buffer->host_allocator, bindings.count,
+            command_buffer->host_allocator, native_binding_count,
             sizeof(*binding_buffers), (void**)&binding_buffers);
       }
       if (iree_status_is_ok(status)) {
         status = iree_allocator_malloc_array(
-            command_buffer->host_allocator, bindings.count,
+            command_buffer->host_allocator, native_binding_count,
             sizeof(*binding_offsets), (void**)&binding_offsets);
       }
       if (iree_status_is_ok(status)) {
         status = iree_allocator_malloc_array(
-            command_buffer->host_allocator, bindings.count,
+            command_buffer->host_allocator, native_binding_count,
             sizeof(*binding_lengths), (void**)&binding_lengths);
       }
     }
@@ -2714,10 +2740,79 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
       }
     }
   }
+  uint64_t control_parameter_address = 0;
+  if (iree_status_is_ok(status) && has_control_parameters) {
+    const iree_device_size_t state_table_size = 32 * sizeof(uint32_t);
+    const iree_device_size_t allocation_size = state_table_size;
+    status = iree_hal_amdxdna_native_device_c_alloc_buffer(
+        command_buffer->device->native_device, allocation_size,
+        IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CONTROL_PARAMETER,
+        &control_parameter_buffer);
+    void* mapped_ptr = NULL;
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_amdxdna_native_buffer_c_map(control_parameter_buffer,
+                                                    &mapped_ptr);
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_amdxdna_stage_control_parameters(
+          parameters, parameter_count, constants,
+          iree_make_byte_span(mapped_ptr, state_table_size));
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_amdxdna_native_buffer_c_sync_all(
+          control_parameter_buffer,
+          IREE_HAL_AMDXDNA_NATIVE_BUFFER_SYNC_HOST_TO_DEVICE);
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_amdxdna_native_queue_c_prepare_control_parameter_buffer(
+          queue, control_parameter_buffer, &control_parameter_address);
+    }
+    if (iree_status_is_ok(status)) {
+      const iree_host_size_t parameter_binding = bindings.count;
+      binding_addrs[parameter_binding] = control_parameter_address;
+      binding_buffers[parameter_binding] = control_parameter_buffer;
+      binding_offsets[parameter_binding] = 0;
+      binding_lengths[parameter_binding] = allocation_size;
+    }
+  }
+  if (iree_status_is_ok(status) && use_full_elf && pdi_count != 0) {
+    status = iree_allocator_malloc_array(command_buffer->host_allocator,
+                                         pdi_count, sizeof(*pdi_addresses),
+                                         (void**)&pdi_addresses);
+    if (iree_status_is_ok(status)) {
+      memset(pdi_addresses, 0, pdi_count * sizeof(*pdi_addresses));
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_allocator_malloc_array(command_buffer->host_allocator,
+                                           pdi_count, sizeof(*referenced_pdis),
+                                           (void**)&referenced_pdis);
+    }
+    if (iree_status_is_ok(status) &&
+        !iree_hal_amdxdna_mark_referenced_pdis(
+            pdi_relocations ? pdi_relocations->data : NULL,
+            pdi_relocations ? pdi_relocations->count : 0, pdi_count,
+            referenced_pdis)) {
+      status =
+          iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                           "amdxdna FULL_ELF run has invalid PDI references");
+    }
+    for (iree_host_size_t i = 0; iree_status_is_ok(status) && i < pdi_count;
+         ++i) {
+      if (!referenced_pdis[i]) continue;
+      if (!pdi_buffers || !pdi_buffers[i]) {
+        status = iree_make_status(
+            IREE_STATUS_FAILED_PRECONDITION,
+            "amdxdna FULL_ELF standalone PDI buffer is missing");
+      } else {
+        status = iree_hal_amdxdna_native_queue_c_prepare_pdi_buffer(
+            queue, pdi_buffers[i], &pdi_addresses[i]);
+      }
+    }
+  }
 
   // Reuse a prepared single-dispatch native command across queue_execute calls,
   // keyed by the dispatch signature in the device single-command cache.
-  if (use_single_partial_elf) {
+  if (cache_single_command) {
     status = iree_allocator_malloc_array(
         command_buffer->host_allocator, asm_inst->count,
         sizeof(*prepared_ctrl_words), (void**)&prepared_ctrl_words);
@@ -2727,14 +2822,13 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
       status = iree_hal_amdxdna_patch_write32_constants(
           prepared_ctrl_words, asm_inst->count, constants);
     }
-    if (iree_status_is_ok(status) &&
+    if (iree_status_is_ok(status) && patch_table &&
         !iree_hal_amdxdna_apply_patch_table(
             prepared_ctrl_words, asm_inst->count, patch_table->data,
             patch_table->count, binding_addrs, bindings.count)) {
       status = iree_make_status(
           IREE_STATUS_INTERNAL,
-          "amdxdna PARTIAL_ELF single dispatch has an invalid host "
-          "patch table");
+          "amdxdna cached single dispatch has an invalid host patch table");
     }
     if (iree_status_is_ok(status)) {
       single_command_cache =
@@ -2750,7 +2844,7 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
         status = iree_hal_amdxdna_find_single_command_cache_entry(
             single_command_cache, queue, cu_idx.index, prepared_ctrl_words,
             asm_inst->count, binding_buffers, binding_addrs, binding_offsets,
-            binding_lengths, bindings.count, &single_cache_entry);
+            binding_lengths, native_binding_count, &single_cache_entry);
       }
       if (iree_status_is_ok(status) && single_cache_entry) {
         if (iree_hal_amdxdna_direct_command_buffer_uses_async_completion(
@@ -2775,11 +2869,11 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
 
   // Allocate a buffer object to hold the control code (`asm_inst`).
   size_t ctrl_code_size = asm_inst->count * sizeof(uint32_t);
+  const bool uses_native_instruction_buffer =
+      use_single_partial_elf || use_full_elf ||
+      iree_hal_amdxdna_device_uses_instruction_control_buffer(
+          command_buffer->device);
   if (iree_status_is_ok(status) && !submit_command) {
-    const bool uses_native_instruction_buffer =
-        use_single_partial_elf ||
-        iree_hal_amdxdna_device_uses_instruction_control_buffer(
-            command_buffer->device);
     status = iree_hal_amdxdna_alloc_buffer_with_reclaim(
         command_buffer->device, ctrl_code_size,
         uses_native_instruction_buffer
@@ -2789,12 +2883,17 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
   }
   void* instr_buffer_ptr = NULL;
   uint32_t* instr_buffer = NULL;
+  if (iree_status_is_ok(status) && !submit_command &&
+      uses_native_instruction_buffer) {
+    status = iree_hal_amdxdna_native_queue_c_ensure_buffer_allocated(
+        queue, ctrl_code_buffer);
+  }
   if (iree_status_is_ok(status) && !submit_command) {
     status = iree_hal_amdxdna_native_buffer_c_map(ctrl_code_buffer,
                                                   &instr_buffer_ptr);
     if (iree_status_is_ok(status)) {
       instr_buffer = (uint32_t*)instr_buffer_ptr;
-      if (use_single_partial_elf) {
+      if (cache_single_command) {
         memcpy(instr_buffer, prepared_ctrl_words, ctrl_code_size);
       } else {
         memcpy(instr_buffer, asm_inst->data, ctrl_code_size);
@@ -2811,6 +2910,33 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
               "amdxdna START_DPU single dispatch has an invalid host "
               "patch table");
         }
+        if (iree_status_is_ok(status) && use_full_elf && patch_table &&
+            !iree_hal_amdxdna_apply_patch_table(
+                instr_buffer, asm_inst->count, patch_table->data,
+                patch_table->count, binding_addrs, bindings.count)) {
+          status = iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "amdxdna FULL_ELF run has an invalid host patch table");
+        }
+        if (iree_status_is_ok(status) && use_full_elf && pdi_relocations &&
+            !iree_hal_amdxdna_apply_pdi_relocations(
+                instr_buffer, asm_inst->count, pdi_relocations->data,
+                pdi_relocations->count, pdi_addresses, pdi_count)) {
+          status = iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "amdxdna FULL_ELF run has invalid PDI relocations");
+        }
+        if (iree_status_is_ok(status) && use_full_elf &&
+            control_parameter_relocations &&
+            !iree_hal_amdxdna_apply_control_parameter_relocations(
+                instr_buffer, asm_inst->count,
+                control_parameter_relocations->data,
+                control_parameter_relocations->count,
+                control_parameter_address)) {
+          status = iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "amdxdna FULL_ELF run has invalid control parameter relocations");
+        }
       }
     }
     if (iree_status_is_ok(status) &&
@@ -2822,7 +2948,8 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
   }
 
   const iree_hal_amdxdna_native_c_command_opcode_t command_opcode =
-      use_single_partial_elf
+      use_full_elf ? IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_NPU_FULL_ELF
+      : use_single_partial_elf
           ? IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_NPU_PARTIAL_ELF
           : command_buffer->device->native_caps.default_dispatch_opcode;
   if (iree_status_is_ok(status) && !submit_command) {
@@ -2832,7 +2959,10 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
     if (iree_status_is_ok(status)) {
       status = iree_hal_amdxdna_native_command_c_set_cu_index(command, cu_idx);
     }
-    if (iree_status_is_ok(status) && use_single_partial_elf) {
+    if (iree_status_is_ok(status) && use_full_elf) {
+      status = iree_hal_amdxdna_native_command_c_add_control_buffer(
+          command, ctrl_code_buffer, ctrl_code_size);
+    } else if (iree_status_is_ok(status) && use_single_partial_elf) {
       status = iree_hal_amdxdna_native_command_c_add_control_buffer(
           command, ctrl_code_buffer, ctrl_code_size);
       if (iree_status_is_ok(status)) {
@@ -2884,12 +3014,25 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
   }
 
   if (iree_status_is_ok(status) && !submit_command) {
-    if (use_single_partial_elf || use_start_dpu) {
+    if (use_single_partial_elf || use_full_elf || use_start_dpu) {
       for (iree_host_size_t j = 0;
-           iree_status_is_ok(status) && j < bindings.count; ++j) {
+           iree_status_is_ok(status) && j < native_binding_count; ++j) {
         status = iree_hal_amdxdna_native_command_c_bind_buffer(
             command, /*position=*/j + 1, binding_buffers[j], binding_offsets[j],
             binding_lengths[j]);
+      }
+      // Linux must include standalone PDI BOs in the exec residency set.
+      // Windows materializes them in the context instruction aperture and
+      // intentionally treats these bindings as no-ops.
+      if (iree_status_is_ok(status) && use_full_elf) {
+        for (iree_host_size_t i = 0; iree_status_is_ok(status) && i < pdi_count;
+             ++i) {
+          if (!referenced_pdis[i]) continue;
+          status = iree_hal_amdxdna_native_command_c_bind_buffer(
+              command, /*position=*/native_binding_count + i + 1,
+              pdi_buffers[i], /*offset=*/0,
+              iree_hal_amdxdna_native_buffer_c_size(pdi_buffers[i]));
+        }
       }
     } else {
       for (iree_host_size_t j = 0;
@@ -2912,7 +3055,7 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
     }
   }
 
-  if (iree_status_is_ok(status) && use_single_partial_elf && !submit_command) {
+  if (iree_status_is_ok(status) && cache_single_command && !submit_command) {
     if (!single_command_cache) {
       single_command_cache =
           iree_hal_amdxdna_get_single_command_cache(command_buffer->device);
@@ -2932,14 +3075,14 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
       status = iree_hal_amdxdna_find_single_command_cache_entry(
           single_command_cache, queue, cu_idx.index, prepared_ctrl_words,
           asm_inst->count, binding_buffers, binding_addrs, binding_offsets,
-          binding_lengths, bindings.count, &single_cache_entry);
+          binding_lengths, native_binding_count, &single_cache_entry);
     }
     bool transferred_to_cache = false;
     if (iree_status_is_ok(status) && !single_cache_entry) {
       single_cache_entry = iree_hal_amdxdna_store_single_command_cache_entry(
           single_command_cache, queue, cu_idx.index, prepared_ctrl_words,
           asm_inst->count, binding_buffers, binding_addrs, binding_offsets,
-          binding_lengths, bindings.count, ctrl_code_buffer, command);
+          binding_lengths, native_binding_count, ctrl_code_buffer, command);
       transferred_to_cache = single_cache_entry != NULL;
     }
     if (iree_status_is_ok(status) && single_cache_entry) {
@@ -2965,9 +3108,13 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
 
   if (iree_status_is_ok(status) && !submit_command) {
     submit_command = command;
-    status =
-        iree_hal_amdxdna_direct_command_buffer_defer_native_command_and_buffer_destroy(
-            command_buffer, &command, &ctrl_code_buffer);
+    status = iree_hal_amdxdna_direct_command_buffer_defer_native_buffer_destroy(
+        command_buffer, &control_parameter_buffer);
+    if (iree_status_is_ok(status)) {
+      status =
+          iree_hal_amdxdna_direct_command_buffer_defer_native_command_and_buffer_destroy(
+              command_buffer, &command, &ctrl_code_buffer);
+    }
   }
 
   if (iree_status_is_ok(status)) {
@@ -2979,6 +3126,9 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_normal_run(
   }
   iree_hal_amdxdna_native_command_c_destroy(command);
   iree_hal_amdxdna_native_buffer_c_destroy(ctrl_code_buffer);
+  iree_hal_amdxdna_native_buffer_c_destroy(control_parameter_buffer);
+  iree_allocator_free(command_buffer->host_allocator, referenced_pdis);
+  iree_allocator_free(command_buffer->host_allocator, pdi_addresses);
   iree_allocator_free(command_buffer->host_allocator, prepared_ctrl_words);
   iree_allocator_free(command_buffer->host_allocator, binding_lengths);
   iree_allocator_free(command_buffer->host_allocator, binding_offsets);
@@ -3199,6 +3349,13 @@ iree_status_t iree_hal_amdxdna_dispatch_plan_initialize(
   out_plan->control_codes = kernel_params->asm_inst_runlist;
   out_plan->patch_table_count = kernel_params->patch_runlist_count;
   out_plan->patch_tables = kernel_params->patch_runlist;
+  out_plan->pdi_relocation_count = kernel_params->pdi_relocation_runlist_count;
+  out_plan->pdi_relocations = kernel_params->pdi_relocation_runlist;
+  out_plan->control_parameter_relocation_count =
+      kernel_params->control_parameter_relocation_runlist_count;
+  out_plan->control_parameter_relocations =
+      kernel_params->control_parameter_relocation_runlist;
+  out_plan->standalone_pdi_count = executable->pdi_count;
   out_plan->constant_patch_table_count =
       kernel_params->constant_patch_runlist_count;
   out_plan->constant_patch_tables = kernel_params->constant_patch_runlist;
@@ -3210,7 +3367,34 @@ iree_status_t iree_hal_amdxdna_dispatch_plan_initialize(
   out_plan->xclbin_span = iree_make_const_byte_span(
       kernel_params->xclbin.data, kernel_params->xclbin.count);
   out_plan->kernel_name = kernel_params->kernel_name;
+  bool has_pdi_relocations = false;
+  for (iree_host_size_t i = 0; i < out_plan->pdi_relocation_count; ++i) {
+    has_pdi_relocations |= out_plan->pdi_relocations[i].count != 0;
+  }
+  bool has_control_parameter_relocations = false;
+  for (iree_host_size_t i = 0; i < out_plan->control_parameter_relocation_count;
+       ++i) {
+    has_control_parameter_relocations |=
+        out_plan->control_parameter_relocations[i].count != 0;
+  }
+  if ((has_pdi_relocations || has_control_parameter_relocations) &&
+      (out_plan->control_code_count != 1 ||
+       out_plan->data_payload_count != 0)) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "amdxdna load_pdi dispatch requires exactly one control-code run");
+  }
+  if ((has_pdi_relocations || has_control_parameter_relocations) &&
+      (native_caps->dispatch_models &
+       IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_FULL_ELF) == 0) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "amdxdna executable requires FULL_ELF load_pdi dispatch support");
+  }
+  out_plan->use_native_full_elf =
+      has_pdi_relocations || has_control_parameter_relocations;
   out_plan->use_native_partial_elf_context =
+      !out_plan->use_native_full_elf &&
       (native_caps->dispatch_models &
        IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_PARTIAL_ELF) != 0 &&
       out_plan->data_payload_count == 0 &&
@@ -3220,14 +3404,16 @@ iree_status_t iree_hal_amdxdna_dispatch_plan_initialize(
           &out_plan->patch_tables[0]);
   out_plan->has_host_patch_table =
       out_plan->patch_table_count == out_plan->control_code_count;
-  out_plan->multi_control_code_or_pdi = kernel_params->n_pdi_loads > 1 ||
-                                        out_plan->control_code_count > 1 ||
-                                        out_plan->data_payload_count != 0;
+  out_plan->multi_control_code_or_pdi =
+      kernel_params->n_pdi_loads > 1 || out_plan->control_code_count > 1 ||
+      out_plan->data_payload_count != 0 || has_pdi_relocations ||
+      has_control_parameter_relocations;
   // Accumulate every host-patch-table dispatch. The accumulator is the common
   // host-patched native START_NPU/PARTIAL_ELF path; end() decides whether a
   // multi-child group can become a parent ERT_CMD_CHAIN or must fall back to
   // direct child submissions based on native caps.
-  out_plan->use_chain_accumulation_policy = out_plan->has_host_patch_table;
+  out_plan->use_chain_accumulation_policy =
+      out_plan->has_host_patch_table && !out_plan->use_native_full_elf;
   return iree_ok_status();
 }
 
@@ -3252,6 +3438,17 @@ iree_status_t iree_hal_amdxdna_direct_command_buffer_dispatch_plan(
   if (iree_status_is_ok(status)) {
     status = iree_hal_resource_set_insert(command_buffer->resource_set, 1,
                                           &plan->executable);
+  }
+  if (iree_status_is_ok(status) && plan->use_native_full_elf) {
+    for (iree_host_size_t i = 0; i < plan->pdi_relocation_count; ++i) {
+      const iree_hal_amdxdna_pdi_relocation_list_t* relocations =
+          &plan->pdi_relocations[i];
+      for (iree_host_size_t j = 0;
+           iree_status_is_ok(status) && j < relocations->count; ++j) {
+        status = iree_hal_amdxdna_executable_ensure_pdi_buffer(
+            plan->executable, relocations->data[j].pdi_ordinal);
+      }
+    }
   }
 
   iree_hal_amdxdna_native_context_ref_t* context_ref = NULL;
@@ -3397,9 +3594,19 @@ iree_status_t iree_hal_amdxdna_direct_command_buffer_dispatch_plan(
     // Normal kernel dispatch.
     const iree_hal_amdxdna_u32_list_t* patch_table =
         plan->patch_table_count == 0 ? NULL : &plan->patch_tables[0];
+    const iree_hal_amdxdna_pdi_relocation_list_t* pdi_relocations =
+        plan->pdi_relocation_count == 0 ? NULL : &plan->pdi_relocations[0];
+    const iree_hal_amdxdna_control_parameter_relocation_list_t*
+        control_parameter_relocations =
+            plan->control_parameter_relocation_count == 0
+                ? NULL
+                : &plan->control_parameter_relocations[0];
     status = iree_hal_amdxdna_direct_command_buffer_normal_run(
         bindings, command_buffer, queue, cu_idx, &plan->control_codes[0],
-        patch_table, constants, plan->use_native_partial_elf_context,
+        patch_table, pdi_relocations, control_parameter_relocations,
+        plan->kernel_params->parameters, plan->kernel_params->parameter_count,
+        executable->pdi_buffers, plan->standalone_pdi_count, constants,
+        plan->use_native_partial_elf_context, plan->use_native_full_elf,
         plan->kernel_params->dpu_slices, plan->kernel_params->dpu_slice_count);
   } else {
     for (size_t i = 0;
@@ -3416,8 +3623,13 @@ iree_status_t iree_hal_amdxdna_direct_command_buffer_dispatch_plan(
                                               : NULL;
         status = iree_hal_amdxdna_direct_command_buffer_normal_run(
             bindings, command_buffer, queue, cu_idx,
-            &plan->control_codes[run_idx], patch_table, constants,
-            /*use_single_partial_elf=*/false, /*dpu_slices=*/NULL,
+            &plan->control_codes[run_idx], patch_table,
+            /*pdi_relocations=*/NULL,
+            /*control_parameter_relocations=*/NULL,
+            /*parameters=*/NULL, /*parameter_count=*/0,
+            /*pdi_buffers=*/NULL, /*pdi_count=*/0, constants,
+            /*use_single_partial_elf=*/false,
+            /*use_full_elf=*/false, /*dpu_slices=*/NULL,
             /*dpu_slice_count=*/0);
       }
     }

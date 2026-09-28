@@ -26,11 +26,37 @@ static const size_t hrx_amdxdna_run_v0_record_length =
 static const size_t hrx_amdxdna_entry_point_v0_record_length =
     HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_executable_entry_point_t,
                                  run_count);
+static const size_t hrx_amdxdna_entry_point_control_parameters_record_length =
+    HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_executable_entry_point_t,
+                                 control_parameter_count);
+static const size_t hrx_amdxdna_control_parameter_v0_record_length =
+    HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_control_parameter_t, kind);
 static const size_t hrx_amdxdna_create_params_v0_record_length =
     HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_executable_create_params_t,
                                  entry_point_count);
+static const size_t hrx_amdxdna_run_pdi_relocations_record_length =
+    HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_executable_run_t,
+                                 pdi_relocation_count);
+static const size_t
+    hrx_amdxdna_run_control_parameter_relocations_record_length =
+        HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_executable_run_t,
+                                     control_parameter_relocation_count);
+static const size_t hrx_amdxdna_create_params_pdis_record_length =
+    HRX_AMDXDNA_V0_RECORD_LENGTH(hrx_amdxdna_executable_create_params_t,
+                                 pdi_count);
 static const size_t hrx_amdxdna_abi_header_length =
     offsetof(hrx_amdxdna_executable_run_t, abi_version) + sizeof(uint32_t);
+
+static bool hrx_amdxdna_record_has_field(uint32_t record_length,
+                                         size_t field_end) {
+  return record_length >= field_end;
+}
+
+static bool hrx_amdxdna_relocation_ranges_overlap(uint32_t lhs_offset,
+                                                  uint32_t rhs_offset) {
+  return lhs_offset < rhs_offset + sizeof(uint64_t) &&
+         rhs_offset < lhs_offset + sizeof(uint64_t);
+}
 
 static bool hrx_amdxdna_record_stride_is_valid(const void* record,
                                                uint32_t record_length,
@@ -55,6 +81,13 @@ static const hrx_amdxdna_executable_run_t* hrx_amdxdna_next_run(
                                                run->record_length);
 }
 
+static const hrx_amdxdna_control_parameter_t*
+hrx_amdxdna_next_control_parameter(
+    const hrx_amdxdna_control_parameter_t* parameter) {
+  return (const hrx_amdxdna_control_parameter_t*)((const uint8_t*)parameter +
+                                                  parameter->record_length);
+}
+
 static hrx_status_t hrx_amdxdna_validate_executable_create(
     const hrx_amdxdna_executable_create_params_t* params) {
   if (!params) {
@@ -70,8 +103,8 @@ static hrx_status_t hrx_amdxdna_validate_executable_create(
         HRX_STATUS_INVALID_ARGUMENT,
         "amdxdna executable parameter ABI header is truncated");
   }
-  if (params->abi_version !=
-      HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_0) {
+  if (params->abi_version >
+      HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_1) {
     return hrx_make_status(HRX_STATUS_UNIMPLEMENTED,
                            "unsupported amdxdna executable parameter ABI");
   }
@@ -103,6 +136,34 @@ static hrx_status_t hrx_amdxdna_validate_executable_create(
                              "xclbin data is too large");
     }
   }
+  const bool has_standalone_pdis = hrx_amdxdna_record_has_field(
+      params->record_length, hrx_amdxdna_create_params_pdis_record_length);
+  const size_t pdi_count = has_standalone_pdis ? params->pdi_count : 0;
+  if (pdi_count != 0 &&
+      params->abi_version <
+          HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_1) {
+    return hrx_make_status(
+        HRX_STATUS_INVALID_ARGUMENT,
+        "standalone PDIs require amdxdna executable parameter ABI version 1");
+  }
+  if (pdi_count != 0 && !params->pdis) {
+    return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                           "standalone PDI array is NULL");
+  }
+  if (pdi_count > UINT32_MAX) {
+    return hrx_make_status(HRX_STATUS_OUT_OF_RANGE,
+                           "standalone PDI count is too large");
+  }
+  for (size_t i = 0; i < pdi_count; ++i) {
+    if (!params->pdis[i].data || params->pdis[i].data_length == 0) {
+      return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                             "standalone PDI data is empty");
+    }
+    if (params->pdis[i].data_length > UINT32_MAX) {
+      return hrx_make_status(HRX_STATUS_OUT_OF_RANGE,
+                             "standalone PDI data is too large");
+    }
+  }
 
   const hrx_amdxdna_executable_entry_point_t* entry = params->entry_points;
   for (size_t i = 0; i < params->entry_point_count; ++i) {
@@ -115,8 +176,7 @@ static hrx_status_t hrx_amdxdna_validate_executable_create(
       return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
                              "amdxdna entry-point ABI header is truncated");
     }
-    if (entry->abi_version !=
-        HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_0) {
+    if (entry->abi_version > HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_1) {
       return hrx_make_status(HRX_STATUS_UNIMPLEMENTED,
                              "unsupported amdxdna entry-point record ABI");
     }
@@ -161,6 +221,87 @@ static hrx_status_t hrx_amdxdna_validate_executable_create(
                              "unknown amdxdna context mode");
     }
 
+    const bool has_control_parameters = hrx_amdxdna_record_has_field(
+        entry->record_length,
+        hrx_amdxdna_entry_point_control_parameters_record_length);
+    const size_t control_parameter_count =
+        has_control_parameters ? entry->control_parameter_count : 0;
+    if (control_parameter_count != 0 &&
+        entry->abi_version < HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_1) {
+      return hrx_make_status(
+          HRX_STATUS_INVALID_ARGUMENT,
+          "control parameters require amdxdna entry-point ABI version 1");
+    }
+    if (control_parameter_count != 0 && !entry->control_parameters) {
+      return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                             "control parameter array is NULL");
+    }
+    if (control_parameter_count > 32) {
+      return hrx_make_status(HRX_STATUS_OUT_OF_RANGE,
+                             "control parameter count exceeds 32 slots");
+    }
+    uint32_t used_state_slots = 0;
+    const hrx_amdxdna_control_parameter_t* parameter =
+        entry->control_parameters;
+    for (size_t j = 0; j < control_parameter_count; ++j) {
+      if (!hrx_amdxdna_record_stride_is_valid(
+              parameter, parameter->record_length,
+              hrx_amdxdna_control_parameter_v0_record_length,
+              _Alignof(hrx_amdxdna_control_parameter_t))) {
+        return hrx_make_status(
+            HRX_STATUS_INVALID_ARGUMENT,
+            "amdxdna control parameter record stride is invalid");
+      }
+      if (parameter->abi_version !=
+          HRX_AMDXDNA_CONTROL_PARAMETER_ABI_VERSION_0) {
+        return hrx_make_status(
+            HRX_STATUS_UNIMPLEMENTED,
+            "unsupported amdxdna control parameter record ABI");
+      }
+      if (!parameter->name.data || parameter->name.size == 0 ||
+          parameter->name.size > UINT32_MAX || !parameter->scalar_type.data ||
+          parameter->scalar_type.size == 0 ||
+          parameter->scalar_type.size > UINT32_MAX ||
+          parameter->byte_length == 0 || parameter->byte_length > 4 ||
+          parameter->constant_offset > UINT16_MAX ||
+          parameter->constant_offset > UINT32_MAX - parameter->byte_length) {
+        return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                               "amdxdna control parameter is invalid");
+      }
+      if (parameter->state_table_index >= 32 ||
+          (used_state_slots & (1u << parameter->state_table_index)) != 0) {
+        return hrx_make_status(
+            HRX_STATUS_INVALID_ARGUMENT,
+            "amdxdna control parameter state-table slot is invalid or reused");
+      }
+      used_state_slots |= 1u << parameter->state_table_index;
+      if (parameter->kind != HRX_AMDXDNA_CONTROL_PARAMETER_KIND_CORE &&
+          parameter->kind != HRX_AMDXDNA_CONTROL_PARAMETER_KIND_ADDRESS) {
+        return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                               "unknown amdxdna control parameter kind");
+      }
+      const hrx_amdxdna_control_parameter_t* other = entry->control_parameters;
+      for (size_t k = 0; k < j; ++k) {
+        const uint32_t parameter_end =
+            parameter->constant_offset + parameter->byte_length;
+        const uint32_t other_end = other->constant_offset + other->byte_length;
+        if (parameter->constant_offset < other_end &&
+            other->constant_offset < parameter_end) {
+          return hrx_make_status(
+              HRX_STATUS_INVALID_ARGUMENT,
+              "amdxdna control parameter constant ranges overlap");
+        }
+        if (parameter->name.size == other->name.size &&
+            memcmp(parameter->name.data, other->name.data,
+                   parameter->name.size) == 0) {
+          return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                                 "amdxdna control parameter name is reused");
+        }
+        other = hrx_amdxdna_next_control_parameter(other);
+      }
+      parameter = hrx_amdxdna_next_control_parameter(parameter);
+    }
+
     const hrx_amdxdna_executable_run_t* run = entry->runs;
     for (size_t j = 0; j < entry->run_count; ++j) {
       if ((uintptr_t)run % _Alignof(hrx_amdxdna_executable_run_t) != 0) {
@@ -171,7 +312,7 @@ static hrx_status_t hrx_amdxdna_validate_executable_create(
         return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
                                "amdxdna run ABI header is truncated");
       }
-      if (run->abi_version != HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_0) {
+      if (run->abi_version > HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_1) {
         return hrx_make_status(HRX_STATUS_UNIMPLEMENTED,
                                "unsupported amdxdna run record ABI");
       }
@@ -192,6 +333,103 @@ static hrx_status_t hrx_amdxdna_validate_executable_create(
           run->data_payload.data_length > UINT32_MAX) {
         return hrx_make_status(HRX_STATUS_OUT_OF_RANGE,
                                "amdxdna run data is too large");
+      }
+      const bool has_pdi_relocations = hrx_amdxdna_record_has_field(
+          run->record_length, hrx_amdxdna_run_pdi_relocations_record_length);
+      const size_t relocation_count =
+          has_pdi_relocations ? run->pdi_relocation_count : 0;
+      if (relocation_count != 0 &&
+          run->abi_version < HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_1) {
+        return hrx_make_status(
+            HRX_STATUS_INVALID_ARGUMENT,
+            "PDI relocations require amdxdna run ABI version 1");
+      }
+      if (relocation_count != 0 && !run->pdi_relocations) {
+        return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                               "PDI relocation array is NULL");
+      }
+      for (size_t k = 0; k < relocation_count; ++k) {
+        const hrx_amdxdna_pdi_relocation_t* relocation =
+            &run->pdi_relocations[k];
+        if ((relocation->transaction_offset % sizeof(uint32_t)) != 0 ||
+            run->transaction.data_length < sizeof(uint64_t) ||
+            relocation->transaction_offset >
+                run->transaction.data_length - sizeof(uint64_t)) {
+          return hrx_make_status(
+              HRX_STATUS_INVALID_ARGUMENT,
+              "PDI relocation does not name a 64-bit transaction address");
+        }
+        if (relocation->pdi_ordinal >= pdi_count) {
+          return hrx_make_status(HRX_STATUS_OUT_OF_RANGE,
+                                 "PDI relocation ordinal is out of range");
+        }
+        for (size_t other_k = 0; other_k < k; ++other_k) {
+          if (hrx_amdxdna_relocation_ranges_overlap(
+                  relocation->transaction_offset,
+                  run->pdi_relocations[other_k].transaction_offset)) {
+            return hrx_make_status(
+                HRX_STATUS_INVALID_ARGUMENT,
+                "PDI relocation transaction address ranges overlap");
+          }
+        }
+      }
+      const bool has_control_parameter_relocations =
+          hrx_amdxdna_record_has_field(
+              run->record_length,
+              hrx_amdxdna_run_control_parameter_relocations_record_length);
+      const size_t control_parameter_relocation_count =
+          has_control_parameter_relocations
+              ? run->control_parameter_relocation_count
+              : 0;
+      if (control_parameter_relocation_count != 0 &&
+          run->abi_version < HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_1) {
+        return hrx_make_status(
+            HRX_STATUS_INVALID_ARGUMENT,
+            "control parameter relocations require amdxdna run ABI version 1");
+      }
+      if (control_parameter_relocation_count != 0 &&
+          !run->control_parameter_relocations) {
+        return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,
+                               "control parameter relocation array is NULL");
+      }
+      if (control_parameter_relocation_count != 0 &&
+          control_parameter_count == 0) {
+        return hrx_make_status(
+            HRX_STATUS_INVALID_ARGUMENT,
+            "control parameter relocation requires parameter metadata");
+      }
+      for (size_t k = 0; k < control_parameter_relocation_count; ++k) {
+        const hrx_amdxdna_control_parameter_relocation_t* relocation =
+            &run->control_parameter_relocations[k];
+        if ((relocation->transaction_offset % sizeof(uint32_t)) != 0 ||
+            run->transaction.data_length < sizeof(uint64_t) ||
+            relocation->transaction_offset >
+                run->transaction.data_length - sizeof(uint64_t)) {
+          return hrx_make_status(
+              HRX_STATUS_INVALID_ARGUMENT,
+              "control parameter relocation does not name a 64-bit "
+              "transaction address");
+        }
+        for (size_t pdi_k = 0; pdi_k < relocation_count; ++pdi_k) {
+          if (hrx_amdxdna_relocation_ranges_overlap(
+                  relocation->transaction_offset,
+                  run->pdi_relocations[pdi_k].transaction_offset)) {
+            return hrx_make_status(
+                HRX_STATUS_INVALID_ARGUMENT,
+                "PDI and control parameter relocation ranges overlap");
+          }
+        }
+        for (size_t other_k = 0; other_k < k; ++other_k) {
+          if (hrx_amdxdna_relocation_ranges_overlap(
+                  relocation->transaction_offset,
+                  run->control_parameter_relocations[other_k]
+                      .transaction_offset)) {
+            return hrx_make_status(
+                HRX_STATUS_INVALID_ARGUMENT,
+                "control parameter relocation transaction address ranges "
+                "overlap");
+          }
+        }
       }
       run = hrx_amdxdna_next_run(run);
     }
@@ -245,17 +483,19 @@ hrx_amdxdna_create_entry_point(
     flatbuffers_builder_t* builder, flatbuffers_string_ref_t name_ref,
     int32_t pdi_index, int32_t xclbin_index,
     iree_hal_amdxdna_xclbin_RunDef_vec_ref_t runs_ref,
-    iree_hal_amdxdna_xclbin_FileLineLocDef_ref_t source_ref) {
-  if (source_ref) {
-    return iree_hal_amdxdna_xclbin_EntryPointDef_create(
-        builder, name_ref, pdi_index, xclbin_index, runs_ref, source_ref);
-  }
+    iree_hal_amdxdna_xclbin_FileLineLocDef_ref_t source_ref,
+    iree_hal_amdxdna_xclbin_ControlParameterDef_vec_ref_t parameters_ref) {
   if (iree_hal_amdxdna_xclbin_EntryPointDef_start(builder) ||
       iree_hal_amdxdna_xclbin_EntryPointDef_name_add(builder, name_ref) ||
       iree_hal_amdxdna_xclbin_EntryPointDef_pdi_index_add(builder, pdi_index) ||
       iree_hal_amdxdna_xclbin_EntryPointDef_xclbin_index_add(builder,
                                                              xclbin_index) ||
-      iree_hal_amdxdna_xclbin_EntryPointDef_runs_add(builder, runs_ref)) {
+      iree_hal_amdxdna_xclbin_EntryPointDef_runs_add(builder, runs_ref) ||
+      (source_ref && iree_hal_amdxdna_xclbin_EntryPointDef_source_location_add(
+                         builder, source_ref)) ||
+      (parameters_ref &&
+       iree_hal_amdxdna_xclbin_EntryPointDef_control_parameters_add(
+           builder, parameters_ref))) {
     return 0;
   }
   return iree_hal_amdxdna_xclbin_EntryPointDef_end(builder);
@@ -288,6 +528,7 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
   }
 
   iree_hal_amdxdna_xclbin_XclbinDef_ref_t* xclbin_refs = NULL;
+  iree_hal_amdxdna_xclbin_PdiDef_ref_t* pdi_refs = NULL;
   iree_hal_amdxdna_xclbin_EntryPointDef_ref_t* entry_refs = NULL;
   void* executable_data = NULL;
   size_t executable_data_size = 0;
@@ -310,6 +551,25 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
     if (!data_ref || !xclbin_refs[i]) {
       status = hrx_amdxdna_builder_failure(
           "failed to add xclbin to amdxdna executable package");
+      goto cleanup;
+    }
+  }
+
+  const bool has_standalone_pdis = hrx_amdxdna_record_has_field(
+      params->record_length, hrx_amdxdna_create_params_pdis_record_length);
+  const size_t pdi_count = has_standalone_pdis ? params->pdi_count : 0;
+  if (pdi_count != 0) {
+    status = hrx_amdxdna_allocate_ref_array(pdi_count, sizeof(*pdi_refs),
+                                            (void**)&pdi_refs);
+    if (!hrx_status_is_ok(status)) goto cleanup;
+  }
+  for (size_t i = 0; i < pdi_count; ++i) {
+    flatbuffers_uint8_vec_ref_t data_ref = flatbuffers_uint8_vec_create(
+        &builder, params->pdis[i].data, params->pdis[i].data_length);
+    pdi_refs[i] = iree_hal_amdxdna_xclbin_PdiDef_create(&builder, data_ref);
+    if (!data_ref || !pdi_refs[i]) {
+      status = hrx_amdxdna_builder_failure(
+          "failed to add standalone PDI to amdxdna executable package");
       goto cleanup;
     }
   }
@@ -358,9 +618,89 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
       }
       iree_hal_amdxdna_host_patch_table_deinitialize(iree_allocator_system(),
                                                      &patch_table);
+      iree_hal_amdxdna_xclbin_PdiRelocationDef_vec_ref_t relocations_ref = 0;
+      iree_hal_amdxdna_xclbin_PdiRelocationDef_ref_t* relocation_refs = NULL;
+      const bool has_pdi_relocations = hrx_amdxdna_record_has_field(
+          run->record_length, hrx_amdxdna_run_pdi_relocations_record_length);
+      const size_t relocation_count =
+          has_pdi_relocations ? run->pdi_relocation_count : 0;
+      if (hrx_status_is_ok(status) && relocation_count != 0) {
+        status = hrx_amdxdna_allocate_ref_array(relocation_count,
+                                                sizeof(*relocation_refs),
+                                                (void**)&relocation_refs);
+      }
+      for (size_t k = 0; k < relocation_count && hrx_status_is_ok(status);
+           ++k) {
+        const hrx_amdxdna_pdi_relocation_t* relocation =
+            &run->pdi_relocations[k];
+        relocation_refs[k] = iree_hal_amdxdna_xclbin_PdiRelocationDef_create(
+            &builder, relocation->transaction_offset, relocation->pdi_ordinal,
+            relocation->addend);
+        if (!relocation_refs[k]) {
+          status = hrx_amdxdna_builder_failure(
+              "failed to add PDI relocation to amdxdna executable package");
+        }
+      }
+      if (hrx_status_is_ok(status)) {
+        relocations_ref = iree_hal_amdxdna_xclbin_PdiRelocationDef_vec_create(
+            &builder, relocation_refs, relocation_count);
+        if (!relocations_ref) {
+          status = hrx_amdxdna_builder_failure(
+              "failed to add PDI relocation vector to amdxdna executable "
+              "package");
+        }
+      }
+      hrx_host_allocator_free(hrx_host_allocator_system(), relocation_refs);
+      if (!hrx_status_is_ok(status)) break;
+      iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_vec_ref_t
+          control_parameter_relocations_ref = 0;
+      iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_ref_t*
+          control_parameter_relocation_refs = NULL;
+      const bool has_control_parameter_relocations =
+          hrx_amdxdna_record_has_field(
+              run->record_length,
+              hrx_amdxdna_run_control_parameter_relocations_record_length);
+      const size_t control_parameter_relocation_count =
+          has_control_parameter_relocations
+              ? run->control_parameter_relocation_count
+              : 0;
+      if (control_parameter_relocation_count != 0) {
+        status = hrx_amdxdna_allocate_ref_array(
+            control_parameter_relocation_count,
+            sizeof(*control_parameter_relocation_refs),
+            (void**)&control_parameter_relocation_refs);
+      }
+      for (size_t k = 0;
+           k < control_parameter_relocation_count && hrx_status_is_ok(status);
+           ++k) {
+        const hrx_amdxdna_control_parameter_relocation_t* relocation =
+            &run->control_parameter_relocations[k];
+        control_parameter_relocation_refs[k] =
+            iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_create(
+                &builder, relocation->transaction_offset, relocation->addend);
+        if (!control_parameter_relocation_refs[k]) {
+          status = hrx_amdxdna_builder_failure(
+              "failed to add control parameter relocation to amdxdna "
+              "executable package");
+        }
+      }
+      if (hrx_status_is_ok(status)) {
+        control_parameter_relocations_ref =
+            iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_vec_create(
+                &builder, control_parameter_relocation_refs,
+                control_parameter_relocation_count);
+        if (!control_parameter_relocations_ref) {
+          status = hrx_amdxdna_builder_failure(
+              "failed to add control parameter relocation vector to amdxdna "
+              "executable package");
+        }
+      }
+      hrx_host_allocator_free(hrx_host_allocator_system(),
+                              control_parameter_relocation_refs);
       if (!hrx_status_is_ok(status)) break;
       run_refs[j] = iree_hal_amdxdna_xclbin_RunDef_create(
-          &builder, transaction_ref, payload_ref, patch_ref);
+          &builder, transaction_ref, payload_ref, patch_ref, relocations_ref,
+          control_parameter_relocations_ref);
       if (!run_refs[j]) {
         status = hrx_amdxdna_builder_failure(
             "failed to add run to amdxdna executable package");
@@ -369,14 +709,53 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
       run = hrx_amdxdna_next_run(run);
     }
 
+    iree_hal_amdxdna_xclbin_ControlParameterDef_ref_t* parameter_refs = NULL;
     if (hrx_status_is_ok(status)) {
       flatbuffers_string_ref_t name_ref = flatbuffers_string_create(
           &builder, entry->name.data, entry->name.size);
       iree_hal_amdxdna_xclbin_RunDef_vec_ref_t runs_ref =
           iree_hal_amdxdna_xclbin_RunDef_vec_create(&builder, run_refs,
                                                     entry->run_count);
+      iree_hal_amdxdna_xclbin_ControlParameterDef_vec_ref_t parameters_ref = 0;
+      const bool has_control_parameters = hrx_amdxdna_record_has_field(
+          entry->record_length,
+          hrx_amdxdna_entry_point_control_parameters_record_length);
+      const size_t control_parameter_count =
+          has_control_parameters ? entry->control_parameter_count : 0;
+      if (control_parameter_count != 0) {
+        status = hrx_amdxdna_allocate_ref_array(control_parameter_count,
+                                                sizeof(*parameter_refs),
+                                                (void**)&parameter_refs);
+      }
+      const hrx_amdxdna_control_parameter_t* parameter =
+          entry->control_parameters;
+      for (size_t j = 0;
+           j < control_parameter_count && hrx_status_is_ok(status); ++j) {
+        flatbuffers_string_ref_t parameter_name_ref = flatbuffers_string_create(
+            &builder, parameter->name.data, parameter->name.size);
+        flatbuffers_string_ref_t scalar_type_ref = flatbuffers_string_create(
+            &builder, parameter->scalar_type.data, parameter->scalar_type.size);
+        parameter_refs[j] = iree_hal_amdxdna_xclbin_ControlParameterDef_create(
+            &builder, parameter_name_ref, scalar_type_ref,
+            parameter->constant_offset, parameter->state_table_index,
+            parameter->byte_length, parameter->kind);
+        if (!parameter_name_ref || !scalar_type_ref || !parameter_refs[j]) {
+          status = hrx_amdxdna_builder_failure(
+              "failed to add control parameter to amdxdna executable package");
+        }
+        parameter = hrx_amdxdna_next_control_parameter(parameter);
+      }
+      if (hrx_status_is_ok(status) && control_parameter_count != 0) {
+        parameters_ref = iree_hal_amdxdna_xclbin_ControlParameterDef_vec_create(
+            &builder, parameter_refs, control_parameter_count);
+        if (!parameters_ref) {
+          status = hrx_amdxdna_builder_failure(
+              "failed to add control parameter vector to amdxdna executable "
+              "package");
+        }
+      }
       iree_hal_amdxdna_xclbin_FileLineLocDef_ref_t source_ref = 0;
-      if (entry->source_file.size != 0) {
+      if (hrx_status_is_ok(status) && entry->source_file.size != 0) {
         flatbuffers_string_ref_t filename_ref = flatbuffers_string_create(
             &builder, entry->source_file.data, entry->source_file.size);
         source_ref = iree_hal_amdxdna_xclbin_FileLineLocDef_create(
@@ -396,13 +775,15 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
               : -1;
       if (hrx_status_is_ok(status)) {
         entry_refs[i] = hrx_amdxdna_create_entry_point(
-            &builder, name_ref, pdi_index, xclbin_index, runs_ref, source_ref);
+            &builder, name_ref, pdi_index, xclbin_index, runs_ref, source_ref,
+            parameters_ref);
         if (!name_ref || !runs_ref || !entry_refs[i]) {
           status = hrx_amdxdna_builder_failure(
               "failed to add entry point to amdxdna executable package");
         }
       }
     }
+    hrx_host_allocator_free(hrx_host_allocator_system(), parameter_refs);
     hrx_host_allocator_free(hrx_host_allocator_system(), run_refs);
     if (!hrx_status_is_ok(status)) goto cleanup;
     entry = hrx_amdxdna_next_entry(entry);
@@ -412,15 +793,20 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
     iree_hal_amdxdna_xclbin_XclbinDef_vec_ref_t xclbins_ref =
         iree_hal_amdxdna_xclbin_XclbinDef_vec_create(&builder, xclbin_refs,
                                                      params->xclbin_count);
+    iree_hal_amdxdna_xclbin_PdiDef_vec_ref_t pdis_ref =
+        iree_hal_amdxdna_xclbin_PdiDef_vec_create(&builder, pdi_refs,
+                                                  pdi_count);
     iree_hal_amdxdna_xclbin_EntryPointDef_vec_ref_t entries_ref =
         iree_hal_amdxdna_xclbin_EntryPointDef_vec_create(
             &builder, entry_refs, params->entry_point_count);
-    if (!xclbins_ref || !entries_ref ||
+    if (!xclbins_ref || !pdis_ref || !entries_ref ||
         flatbuffers_failed(iree_hal_amdxdna_xclbin_ExecutableDef_xclbins_add(
             &builder, xclbins_ref)) ||
         flatbuffers_failed(
             iree_hal_amdxdna_xclbin_ExecutableDef_entry_points_add(
                 &builder, entries_ref)) ||
+        flatbuffers_failed(iree_hal_amdxdna_xclbin_ExecutableDef_pdis_add(
+            &builder, pdis_ref)) ||
         !iree_hal_amdxdna_xclbin_ExecutableDef_end_as_root(&builder)) {
       status = hrx_amdxdna_builder_failure(
           "failed to finish amdxdna executable package");
@@ -442,6 +828,7 @@ hrx_status_t hrx_amdxdna_xadx_serialize(
 cleanup:
   flatcc_builder_aligned_free(executable_data);
   hrx_host_allocator_free(hrx_host_allocator_system(), entry_refs);
+  hrx_host_allocator_free(hrx_host_allocator_system(), pdi_refs);
   hrx_host_allocator_free(hrx_host_allocator_system(), xclbin_refs);
   flatcc_builder_clear(&builder);
   return status;
@@ -462,10 +849,10 @@ hrx_status_t hrx_amdxdna_executable_create(
   hrx_status_t status = hrx_amdxdna_xadx_serialize(
       params, host_allocator, &executable_data, &executable_data_size);
   if (hrx_status_is_ok(status)) {
-    status = hrx_executable_load_data(
-        device, executable_data, executable_data_size,
-        HRX_AMDXDNA_EXECUTABLE_TARGET_FAMILY, HRX_AMDXDNA_EXECUTABLE_TARGET_KEY,
-        executable);
+    status =
+        hrx_executable_load_data(device, executable_data, executable_data_size,
+                                 HRX_AMDXDNA_EXECUTABLE_TARGET_FAMILY,
+                                 HRX_AMDXDNA_EXECUTABLE_TARGET_KEY, executable);
   }
   hrx_host_allocator_free(host_allocator, executable_data);
   return status;

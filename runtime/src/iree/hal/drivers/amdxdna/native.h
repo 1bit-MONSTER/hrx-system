@@ -42,6 +42,13 @@ typedef enum iree_hal_amdxdna_native_buffer_c_type_t {
   IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_HOST_ONLY = 0,
   IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CACHEABLE = 1,
   IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_INSTRUCTION = 2,
+  // A standalone PDI loaded by FULL_ELF control code. Windows materializes
+  // this only after a hardware context exists and assigns the context-local
+  // instruction-aperture address used by load_pdi.
+  IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_PDI = 3,
+  // Per-dispatch control state consumed by CREATE_SCRATCHPAD. Windows places
+  // this in a context-local instruction-aperture slot, matching XRT instr_bo.
+  IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CONTROL_PARAMETER = 4,
 } iree_hal_amdxdna_native_buffer_c_type_t;
 
 typedef struct iree_hal_amdxdna_native_c_cu_index_t {
@@ -54,6 +61,7 @@ typedef enum iree_hal_amdxdna_native_c_command_opcode_t {
   IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_NPU_PARTIAL_ELF = 2,
   IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_COMMAND_CHAIN = 3,
   IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_DPU = 4,
+  IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_NPU_FULL_ELF = 5,
 } iree_hal_amdxdna_native_c_command_opcode_t;
 
 typedef enum iree_hal_amdxdna_native_c_power_mode_t {
@@ -83,6 +91,7 @@ enum iree_hal_amdxdna_native_c_dispatch_model_bits_t {
   IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_PARTIAL_ELF = 1u << 2,
   IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_COMMAND_CHAIN = 1u << 3,
   IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_START_DPU = 1u << 4,
+  IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_FULL_ELF = 1u << 5,
 };
 
 enum iree_hal_amdxdna_native_c_completion_model_bits_t {
@@ -282,6 +291,26 @@ iree_status_t iree_hal_amdxdna_native_buffer_c_sync_all(
 
 iree_status_t iree_hal_amdxdna_native_buffer_c_ensure_allocated(
     iree_hal_amdxdna_native_buffer_t* buffer);
+
+// Materializes a deferred buffer in |queue|'s hardware-context partition.
+iree_status_t iree_hal_amdxdna_native_queue_c_ensure_buffer_allocated(
+    iree_hal_amdxdna_native_queue_t* queue,
+    iree_hal_amdxdna_native_buffer_t* buffer);
+
+// Materializes a standalone PDI in |queue|'s hardware context and returns the
+// address consumed by load_pdi. On current Windows NPUs this is a context-local
+// SRAM address; other platforms return their native BO device address.
+iree_status_t iree_hal_amdxdna_native_queue_c_prepare_pdi_buffer(
+    iree_hal_amdxdna_native_queue_t* queue,
+    iree_hal_amdxdna_native_buffer_t* buffer, uint64_t* out_address);
+
+// Materializes one dispatch's control-parameter state in |queue|'s hardware
+// context. Repeated preparation of the unchanged buffer in the same context is
+// idempotent; preparation in another context fails. The caller must not mutate
+// the buffer after its first successful preparation.
+iree_status_t iree_hal_amdxdna_native_queue_c_prepare_control_parameter_buffer(
+    iree_hal_amdxdna_native_queue_t* queue,
+    iree_hal_amdxdna_native_buffer_t* buffer, uint64_t* out_address);
 
 uint64_t iree_hal_amdxdna_native_buffer_c_device_address(
     iree_hal_amdxdna_native_buffer_t* buffer);

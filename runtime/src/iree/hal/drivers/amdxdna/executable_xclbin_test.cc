@@ -33,10 +33,32 @@ static std::vector<uint32_t> ToVector(iree_hal_amdxdna_u32_list_t value) {
   return std::vector<uint32_t>(value.data, value.data + value.count);
 }
 
+struct TestPdiRelocationDef {
+  uint32_t offset = 0;
+  uint32_t pdi_index = 0;
+  int64_t addend = 0;
+};
+
+struct TestControlParameterRelocationDef {
+  uint32_t offset = 0;
+  int64_t addend = 0;
+};
+
+struct TestControlParameterDef {
+  const char* name = nullptr;
+  const char* scalar_type = nullptr;
+  uint32_t constant_offset = 0;
+  uint32_t state_table_index = 0;
+  uint32_t byte_length = 0;
+  uint32_t kind = 0;
+};
+
 struct TestRunDef {
   std::vector<uint32_t> control_code;
   std::vector<uint32_t> data_payload;
   std::vector<uint32_t> patch_table;
+  std::vector<TestPdiRelocationDef> pdi_relocations;
+  std::vector<TestControlParameterRelocationDef> control_parameter_relocations;
 };
 
 static flatbuffers_uint32_vec_ref_t CreateUInt32Vec(
@@ -97,12 +119,15 @@ struct TestXadxEntryPointDef {
   int32_t pdi_index = -1;
   int32_t xclbin_index = -1;
   std::vector<TestRunDef> runs;
+  std::vector<TestControlParameterDef> control_parameters;
 };
 
 static iree_status_t MakeXadxExecutable(
     const std::vector<std::vector<uint8_t>>& xclbins,
     const std::vector<TestXadxEntryPointDef>& entry_points,
-    std::vector<uint8_t>* out_executable_data) {
+    std::vector<uint8_t>* out_executable_data,
+    const std::vector<std::vector<uint8_t>>& pdis = {},
+    bool include_extensions = true) {
   out_executable_data->clear();
   flatbuffers_builder_t builder;
   if (IREE_UNLIKELY(flatcc_builder_init(&builder) != 0)) {
@@ -133,16 +158,71 @@ static iree_status_t MakeXadxExecutable(
     }
   }
 
+  std::vector<iree_hal_amdxdna_xclbin_PdiDef_ref_t> pdi_refs;
+  if (iree_status_is_ok(status)) {
+    for (const auto& pdi : pdis) {
+      flatbuffers_uint8_vec_ref_t data_ref =
+          flatbuffers_uint8_vec_create(&builder, pdi.data(), pdi.size());
+      auto ref = iree_hal_amdxdna_xclbin_PdiDef_create(&builder, data_ref);
+      if (!data_ref || !ref) {
+        status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                  "failed to create standalone PdiDef");
+        break;
+      }
+      pdi_refs.push_back(ref);
+    }
+  }
+
   std::vector<iree_hal_amdxdna_xclbin_EntryPointDef_ref_t> entry_refs;
   if (iree_status_is_ok(status)) {
     for (const auto& ep : entry_points) {
       std::vector<iree_hal_amdxdna_xclbin_RunDef_ref_t> run_refs;
       for (const auto& run : ep.runs) {
-        iree_hal_amdxdna_xclbin_RunDef_ref_t run_ref =
-            iree_hal_amdxdna_xclbin_RunDef_create(
-                &builder, CreateUInt32Vec(&builder, run.control_code),
-                CreateUInt32Vec(&builder, run.data_payload),
-                CreateUInt32Vec(&builder, run.patch_table));
+        std::vector<iree_hal_amdxdna_xclbin_PdiRelocationDef_ref_t>
+            relocation_refs;
+        for (const auto& relocation : run.pdi_relocations) {
+          relocation_refs.push_back(
+              iree_hal_amdxdna_xclbin_PdiRelocationDef_create(
+                  &builder, relocation.offset, relocation.pdi_index,
+                  relocation.addend));
+        }
+        auto relocations_ref =
+            iree_hal_amdxdna_xclbin_PdiRelocationDef_vec_create(
+                &builder, relocation_refs.data(), relocation_refs.size());
+        std::vector<iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_ref_t>
+            control_parameter_relocation_refs;
+        for (const auto& relocation : run.control_parameter_relocations) {
+          control_parameter_relocation_refs.push_back(
+              iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_create(
+                  &builder, relocation.offset, relocation.addend));
+        }
+        auto control_parameter_relocations_ref =
+            iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_vec_create(
+                &builder, control_parameter_relocation_refs.data(),
+                control_parameter_relocation_refs.size());
+        const auto control_code_ref =
+            CreateUInt32Vec(&builder, run.control_code);
+        const auto data_payload_ref =
+            CreateUInt32Vec(&builder, run.data_payload);
+        const auto patch_table_ref = CreateUInt32Vec(&builder, run.patch_table);
+        iree_hal_amdxdna_xclbin_RunDef_ref_t run_ref = 0;
+        if (include_extensions) {
+          run_ref = iree_hal_amdxdna_xclbin_RunDef_create(
+              &builder, control_code_ref, data_payload_ref, patch_table_ref,
+              relocations_ref, control_parameter_relocations_ref);
+        } else if (!flatbuffers_failed(
+                       iree_hal_amdxdna_xclbin_RunDef_start(&builder)) &&
+                   !flatbuffers_failed(
+                       iree_hal_amdxdna_xclbin_RunDef_control_code_add(
+                           &builder, control_code_ref)) &&
+                   !flatbuffers_failed(
+                       iree_hal_amdxdna_xclbin_RunDef_data_payload_add(
+                           &builder, data_payload_ref)) &&
+                   !flatbuffers_failed(
+                       iree_hal_amdxdna_xclbin_RunDef_patch_table_add(
+                           &builder, patch_table_ref))) {
+          run_ref = iree_hal_amdxdna_xclbin_RunDef_end(&builder);
+        }
         if (!run_ref) {
           status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                                     "failed to create XADX run");
@@ -156,6 +236,22 @@ static iree_status_t MakeXadxExecutable(
       iree_hal_amdxdna_xclbin_RunDef_vec_ref_t runs_ref =
           iree_hal_amdxdna_xclbin_RunDef_vec_create(&builder, run_refs.data(),
                                                     run_refs.size());
+      std::vector<iree_hal_amdxdna_xclbin_ControlParameterDef_ref_t>
+          parameter_refs;
+      for (const auto& parameter : ep.control_parameters) {
+        auto parameter_name =
+            flatbuffers_string_create_str(&builder, parameter.name);
+        auto scalar_type =
+            flatbuffers_string_create_str(&builder, parameter.scalar_type);
+        parameter_refs.push_back(
+            iree_hal_amdxdna_xclbin_ControlParameterDef_create(
+                &builder, parameter_name, scalar_type,
+                parameter.constant_offset, parameter.state_table_index,
+                parameter.byte_length, parameter.kind));
+      }
+      auto parameters_ref =
+          iree_hal_amdxdna_xclbin_ControlParameterDef_vec_create(
+              &builder, parameter_refs.data(), parameter_refs.size());
       iree_hal_amdxdna_xclbin_EntryPointDef_ref_t ep_ref = 0;
       if (name_ref && runs_ref &&
           !flatbuffers_failed(
@@ -169,7 +265,11 @@ static iree_status_t MakeXadxExecutable(
               iree_hal_amdxdna_xclbin_EntryPointDef_xclbin_index_add(
                   &builder, ep.xclbin_index)) &&
           !flatbuffers_failed(iree_hal_amdxdna_xclbin_EntryPointDef_runs_add(
-              &builder, runs_ref))) {
+              &builder, runs_ref)) &&
+          (!include_extensions ||
+           !flatbuffers_failed(
+               iree_hal_amdxdna_xclbin_EntryPointDef_control_parameters_add(
+                   &builder, parameters_ref)))) {
         ep_ref = iree_hal_amdxdna_xclbin_EntryPointDef_end(&builder);
       }
       if (!ep_ref) {
@@ -185,15 +285,22 @@ static iree_status_t MakeXadxExecutable(
     iree_hal_amdxdna_xclbin_XclbinDef_vec_ref_t xclbins_ref =
         iree_hal_amdxdna_xclbin_XclbinDef_vec_create(
             &builder, xclbin_refs.data(), xclbin_refs.size());
+    iree_hal_amdxdna_xclbin_PdiDef_vec_ref_t pdis_ref =
+        include_extensions ? iree_hal_amdxdna_xclbin_PdiDef_vec_create(
+                                 &builder, pdi_refs.data(), pdi_refs.size())
+                           : 0;
     iree_hal_amdxdna_xclbin_EntryPointDef_vec_ref_t entries_ref =
         iree_hal_amdxdna_xclbin_EntryPointDef_vec_create(
             &builder, entry_refs.data(), entry_refs.size());
-    if (!xclbins_ref || !entries_ref ||
+    if (!xclbins_ref || (include_extensions && !pdis_ref) || !entries_ref ||
         flatbuffers_failed(iree_hal_amdxdna_xclbin_ExecutableDef_xclbins_add(
             &builder, xclbins_ref)) ||
         flatbuffers_failed(
             iree_hal_amdxdna_xclbin_ExecutableDef_entry_points_add(
-                &builder, entries_ref))) {
+                &builder, entries_ref)) ||
+        (include_extensions &&
+         flatbuffers_failed(iree_hal_amdxdna_xclbin_ExecutableDef_pdis_add(
+             &builder, pdis_ref)))) {
       status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                                 "failed to populate XADX executable");
     }
@@ -267,6 +374,111 @@ TEST(ExecutableXclbinTest, ParsesXadxXclbinDefinitions) {
   iree_hal_executable_release(base_executable);
 }
 
+TEST(ExecutableXclbinTest, ParsesLegacyXadxWithoutExtensionFields) {
+  std::vector<uint8_t> context_pdi(8, 0xC0);
+  std::vector<uint8_t> xclbin = BuildXclbin({context_pdi});
+  std::vector<uint8_t> executable_data;
+  IREE_ASSERT_OK(MakeXadxExecutable(
+      /*xclbins=*/{xclbin},
+      /*entry_points=*/
+      {{"legacy", /*pdi_index=*/0, /*xclbin_index=*/0, {{{10, 11}, {}, {}}}}},
+      &executable_data, /*pdis=*/{}, /*include_extensions=*/false));
+
+  iree_hal_executable_load_params_t params;
+  iree_hal_executable_load_params_initialize(&params);
+  params.executable_data =
+      iree_make_const_byte_span(executable_data.data(), executable_data.size());
+  iree_hal_executable_t* base_executable = nullptr;
+  IREE_ASSERT_OK(iree_hal_amdxdna_native_executable_create(
+      /*native_device=*/nullptr, &params, iree_allocator_system(),
+      &base_executable));
+  auto* executable = iree_hal_amdxdna_executable_cast(base_executable);
+  ASSERT_EQ(executable->entry_point_count, 1u);
+  EXPECT_EQ(executable->pdi_count, 0u);
+  ASSERT_EQ(executable->entry_points[0].pdi_relocation_runlist_count, 1u);
+  EXPECT_EQ(executable->entry_points[0].pdi_relocation_runlist[0].count, 0u);
+  iree_hal_executable_release(base_executable);
+}
+
+TEST(ExecutableXclbinTest, ParsesStandalonePdisAndRelocations) {
+  std::vector<uint8_t> context_pdi(8, 0xC0);
+  std::vector<uint8_t> xclbin = BuildXclbin({context_pdi});
+  std::vector<uint8_t> load_pdi0(12, 0xD0);
+  std::vector<uint8_t> load_pdi1(16, 0xD1);
+
+  std::vector<uint8_t> executable_data;
+  IREE_ASSERT_OK(MakeXadxExecutable(
+      /*xclbins=*/{xclbin},
+      /*entry_points=*/
+      {{"fused",
+        /*pdi_index=*/0,
+        /*xclbin_index=*/0,
+        {{{0, 0, 0, 0, 0, 0, 0, 0},
+          {},
+          {},
+          {{/*offset=*/4, /*pdi_index=*/1, /*addend=*/-16}},
+          {{/*offset=*/20, /*addend=*/0}}}},
+        {{"input_offset", "i32", /*constant_offset=*/0,
+          /*state_table_index=*/3, /*byte_length=*/4, /*kind=*/1}}}},
+      &executable_data,
+      /*pdis=*/{load_pdi0, load_pdi1}));
+
+  iree_hal_executable_load_params_t params;
+  iree_hal_executable_load_params_initialize(&params);
+  params.executable_data =
+      iree_make_const_byte_span(executable_data.data(), executable_data.size());
+
+  iree_hal_executable_t* base_executable = nullptr;
+  IREE_ASSERT_OK(iree_hal_amdxdna_native_executable_create(
+      /*native_device=*/nullptr, &params, iree_allocator_system(),
+      &base_executable));
+  iree_hal_amdxdna_executable* executable =
+      iree_hal_amdxdna_executable_cast(base_executable);
+
+  ASSERT_EQ(executable->pdi_count, 2u);
+  EXPECT_EQ(ToVector(executable->pdis[0]), load_pdi0);
+  EXPECT_EQ(ToVector(executable->pdis[1]), load_pdi1);
+  const auto& entry = executable->entry_points[0];
+  ASSERT_EQ(entry.pdi_relocation_runlist_count, 1u);
+  ASSERT_EQ(entry.pdi_relocation_runlist[0].count, 1u);
+  const auto& relocation = entry.pdi_relocation_runlist[0].data[0];
+  EXPECT_EQ(relocation.transaction_offset, 4u);
+  EXPECT_EQ(relocation.pdi_ordinal, 1u);
+  EXPECT_EQ(relocation.addend, -16);
+  ASSERT_EQ(entry.control_parameter_relocation_runlist_count, 1u);
+  ASSERT_EQ(entry.control_parameter_relocation_runlist[0].count, 1u);
+  EXPECT_EQ(
+      entry.control_parameter_relocation_runlist[0].data[0].transaction_offset,
+      20u);
+  ASSERT_EQ(entry.parameter_count, 1u);
+  EXPECT_EQ(entry.constant_byte_length, 4u);
+  EXPECT_EQ(ToString(entry.parameters[0].name), "input_offset");
+  EXPECT_EQ(entry.parameters[0].offset, 0u);
+  EXPECT_EQ(entry.parameters[0].native_abi_offset, 12u);
+
+  iree_hal_amdxdna_native_c_device_caps_t full_elf_caps = {};
+  full_elf_caps.dispatch_models =
+      IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_FULL_ELF;
+  iree_hal_amdxdna_dispatch_plan_t plan = {};
+  IREE_ASSERT_OK(iree_hal_amdxdna_dispatch_plan_initialize(
+      &full_elf_caps, base_executable,
+      iree_hal_executable_function_from_index(0), &plan));
+  EXPECT_TRUE(plan.use_native_full_elf);
+  EXPECT_FALSE(plan.use_native_partial_elf_context);
+  EXPECT_FALSE(plan.use_chain_accumulation_policy);
+
+  iree_hal_amdxdna_native_c_device_caps_t no_full_elf_caps = {};
+  no_full_elf_caps.dispatch_models =
+      IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_START_NPU;
+  EXPECT_THAT(
+      iree_hal_amdxdna_dispatch_plan_initialize(
+          &no_full_elf_caps, base_executable,
+          iree_hal_executable_function_from_index(0), &plan),
+      iree::testing::status::StatusIs(iree::StatusCode::kFailedPrecondition));
+
+  iree_hal_executable_release(base_executable);
+}
+
 TEST(ExecutableXclbinTest, LinuxCapsDoNotSelectPartialElfContext) {
   std::vector<uint8_t> pdi(8, 0xC0);
   std::vector<uint8_t> xclbin = BuildXclbin({pdi});
@@ -322,8 +534,7 @@ TEST(ExecutableXclbinTest, ErtStartNpuPreemptElfUsesPreemptDataPayload) {
   start->opcode = ERT_START_NPU_PREEMPT_ELF;
   start->type = ERT_CU;
   start->cu_mask = 1;
-  start->count =
-      1 + sizeof(ert_npu_preempt_data) / sizeof(uint32_t) + 2;
+  start->count = 1 + sizeof(ert_npu_preempt_data) / sizeof(uint32_t) + 2;
 
   ert_npu_preempt_data* npu_data = get_ert_npu_elf_data(start);
   ASSERT_NE(npu_data, nullptr);
@@ -340,8 +551,8 @@ TEST(ExecutableXclbinTest, ErtStartNpuPreemptElfUsesPreemptDataPayload) {
   regmap[1] = 0;
 
   EXPECT_TRUE(ert_valid_opcode(reinterpret_cast<ert_packet*>(start)));
-  EXPECT_EQ(regmap, start->data +
-                        sizeof(ert_npu_preempt_data) / sizeof(uint32_t));
+  EXPECT_EQ(regmap,
+            start->data + sizeof(ert_npu_preempt_data) / sizeof(uint32_t));
   EXPECT_EQ(get_ert_npu_preempt_data(start), nullptr);
 }
 
@@ -374,6 +585,36 @@ TEST(ExecutableXclbinTest, RejectsXadxPdiIndexWithoutXclbinContext) {
   ExpectInvalidXadxExecutable(
       {xclbin},
       {{"entry", /*pdi_index=*/0, /*xclbin_index=*/-1, {{{10}, {}, {}}}}});
+}
+
+TEST(ExecutableXclbinTest, RejectsOverlappingControlParameterRelocations) {
+  std::vector<uint8_t> xclbin = BuildXclbin({std::vector<uint8_t>(8, 0x1)});
+  ExpectInvalidXadxExecutable(
+      {xclbin},
+      {{"entry",
+        /*pdi_index=*/0,
+        /*xclbin_index=*/0,
+        {{{0, 0, 0, 0},
+          {},
+          {},
+          {},
+          {{/*offset=*/4, /*addend=*/0}, {/*offset=*/8, /*addend=*/0}}}},
+        {{"offset", "i32", /*constant_offset=*/0, /*state_table_index=*/0,
+          /*byte_length=*/4, /*kind=*/1}}}});
+}
+
+TEST(ExecutableXclbinTest, RejectsDuplicateControlParameterNames) {
+  std::vector<uint8_t> xclbin = BuildXclbin({std::vector<uint8_t>(8, 0x1)});
+  ExpectInvalidXadxExecutable(
+      {xclbin},
+      {{"entry",
+        /*pdi_index=*/0,
+        /*xclbin_index=*/0,
+        {{{0, 0}, {}, {}}},
+        {{"offset", "i32", /*constant_offset=*/0, /*state_table_index=*/0,
+          /*byte_length=*/4, /*kind=*/1},
+         {"offset", "i32", /*constant_offset=*/4, /*state_table_index=*/1,
+          /*byte_length=*/4, /*kind=*/1}}}});
 }
 
 }  // namespace

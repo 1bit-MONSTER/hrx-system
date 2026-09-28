@@ -22,14 +22,60 @@ table XclbinDef {
   xclbin:string;
 }
 
+// One standalone PDI used by an in-transaction `load_pdi`. These are separate
+// from the context PDI selected by EntryPointDef.pdi_index inside an xclbin.
+table PdiDef {
+  pdi:[uint8];
+}
+
+// Relocates one 64-bit PDI device address into `control_code`.
+table PdiRelocationDef {
+  offset:uint32;
+  pdi_index:uint32;
+  addend:int64;
+}
+
+// Reserved wire table from the pre-PR prototype. Retaining this declaration
+// and its RunDef field preserves the FlatBuffer field IDs of later members.
+table BindingRelocationDef {
+  offset:uint32;
+  binding_index:uint32;
+  addend:int64;
+}
+
+// One host-supplied scalar staged through the firmware control parameter
+// buffer. `constant_offset` addresses the dense HAL dispatch constants block;
+// `state_table_index` addresses one of the firmware's 32 four-byte slots.
+// `byte_length` is the scalar's in-memory width and `scalar_type` preserves the
+// producer's spelling (for example `i32` or `bf16`) for reflection. `kind` is
+// 0 for a core-visible parameter and 1 for an address-update parameter.
+table ControlParameterDef {
+  name:string;
+  scalar_type:string;
+  constant_offset:uint32;
+  state_table_index:uint32;
+  byte_length:uint32;
+  kind:uint32;
+}
+
+// Relocates the internally staged control parameter buffer's 64-bit device
+// address into `control_code`.
+table ControlParameterRelocationDef {
+  offset:uint32;
+  addend:int64;
+}
+
 // One executable run. `control_code` is an XAie transaction ("TXN") stream.
 // `data_payload`, when present, is the control-packet payload passed to a
 // reconfiguration run. `patch_table` is a flat list of
 // (offset, arg_idx, arg_plus) triples used by the ERT_CMD_CHAIN path.
 table RunDef {
-  control_code:[uint32];
-  data_payload:[uint32];
-  patch_table:[uint32];
+  control_code:[uint32] (id: 0);
+  data_payload:[uint32] (id: 1);
+  patch_table:[uint32] (id: 2);
+  pdi_relocations:[PdiRelocationDef] (id: 3);
+  binding_relocations:[BindingRelocationDef] (id: 4, deprecated);
+  control_parameter_relocations:[ControlParameterRelocationDef] (id: 5);
 }
 
 // One dispatchable entry point. `xclbin_index` references the context
@@ -42,6 +88,7 @@ table EntryPointDef {
   xclbin_index:int32;
   runs:[RunDef];
   source_location:FileLineLocDef;
+  control_parameters:[ControlParameterDef];
 }
 
 // An amdxdna executable with AXLF/xclbin context containers. This keeps the
@@ -50,6 +97,7 @@ table EntryPointDef {
 table ExecutableDef {
   xclbins:[XclbinDef];
   entry_points:[EntryPointDef];
+  pdis:[PdiDef];
 }
 
 root_type ExecutableDef;

@@ -42,6 +42,12 @@ typedef struct iree_hal_amdxdna_dispatch_plan_t {
   const iree_hal_amdxdna_u32_list_t* control_codes;
   iree_host_size_t patch_table_count;
   const iree_hal_amdxdna_u32_list_t* patch_tables;
+  iree_host_size_t pdi_relocation_count;
+  const iree_hal_amdxdna_pdi_relocation_list_t* pdi_relocations;
+  iree_host_size_t control_parameter_relocation_count;
+  const iree_hal_amdxdna_control_parameter_relocation_list_t*
+      control_parameter_relocations;
+  iree_host_size_t standalone_pdi_count;
   iree_host_size_t constant_patch_table_count;
   const iree_hal_amdxdna_write32_constant_patch_list_t* constant_patch_tables;
   iree_host_size_t data_payload_count;
@@ -51,6 +57,7 @@ typedef struct iree_hal_amdxdna_dispatch_plan_t {
   iree_const_byte_span_t xclbin_span;
   iree_string_view_t kernel_name;
   bool use_native_partial_elf_context;
+  bool use_native_full_elf;
   bool has_host_patch_table;
   bool multi_control_code_or_pdi;
   bool use_chain_accumulation_policy;

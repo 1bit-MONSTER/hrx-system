@@ -429,6 +429,8 @@ struct AllocPrivate {
 
 static_assert(sizeof(AllocPrivate) == 56,
               "Windows MCDM BO private packet must remain 56 bytes");
+static_assert(offsetof(AllocPrivate, reserved4) == 48,
+              "Windows MCDM BO private packet SramVA offset changed");
 
 uint64_t AlignUpToPage(uint64_t value) {
   return (value + 4095u) & ~uint64_t{4095u};
@@ -1567,8 +1569,13 @@ bool SubmitCommandToHwQueueAfterPaging(
 }
 
 bool CreateBuffer(const KmtApi& api, const Device& device, BufferKind kind,
-                  uint64_t size, Buffer* out_buffer, Error* out_error) {
+                  uint64_t size, Buffer* out_buffer, Error* out_error,
+                  uint8_t slot_index) {
   BufferKindInfo kind_info = GetBufferKindInfo(kind);
+  // Match hwcontext::alloc_bo: the KMD-assigned partition slot occupies
+  // xcl_bo_flags bits 23:16. Other flag fields retain their kind defaults.
+  kind_info.xcl_flags = (kind_info.xcl_flags & ~0x00FF0000u) |
+                        (static_cast<uint32_t>(slot_index) << 16);
   const McdmAbiInfo abi = GetMcdmAbiInfo(device.mcdm_abi);
   // XRT's exec BO submit path asks the driver for the logical command capacity
   // plus the negotiated private prefix used by SubmitCommandToHwQueue. A
@@ -1615,6 +1622,7 @@ bool CreateBuffer(const KmtApi& api, const Device& device, BufferKind kind,
   buffer.mapped_size = aligned_size;
   buffer.allocation = alloc_info.hAllocation;
   buffer.resource = create.hResource;
+  buffer.xcl_flags = alloc_private.xcl_flags;
 
   D3DDDI_MAPGPUVIRTUALADDRESS map = {};
   map.hPagingQueue = device.paging_queue;
@@ -1965,6 +1973,9 @@ bool CreateContext(const KmtApi& api, const Device& device,
     std::memcpy(&context.command_aperture_cookie,
                 private_data + cookie_offset,
                 sizeof(context.command_aperture_cookie));
+    // This KMD writeback is the partition slot XRT embeds in BO flags.
+    context.slot_index =
+        static_cast<uint8_t>(context.command_aperture_cookie);
   }
 
   D3DKMT_CREATEHWQUEUE create_queue = {};
@@ -2138,6 +2149,12 @@ bool CreateCommandAperture(const KmtApi& api, const Device& device,
     return false;
   }
   aperture.gpu_allocation = gpu_info.hAllocation;
+  // The miniport returns the context-local SRAM address in XRT_CREATE_BO_ARGS'
+  // final 64-bit field. Firmware transaction relocations consume this address,
+  // not the process GPU VA selected by D3DKMTMapGpuVirtualAddress.
+  if (gpu_private.reserved4) {
+    aperture.protocol_gpu_va = gpu_private.reserved4;
+  }
 
   D3DDDI_MAPGPUVIRTUALADDRESS map = {};
   map.hPagingQueue = device.paging_queue;

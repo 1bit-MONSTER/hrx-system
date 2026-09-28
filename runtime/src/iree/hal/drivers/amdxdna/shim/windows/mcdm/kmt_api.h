@@ -296,6 +296,7 @@ struct Buffer {
   D3DKMT_HANDLE resource = 0;
   D3DGPU_VIRTUAL_ADDRESS gpu_va = 0;
   void* cpu_ptr = nullptr;
+  uint32_t xcl_flags = 0;
   UINT64 paging_fence_value = 0;
   // The compact runlist ABI uses a miniport-facing BO record in each chain
   // entry. Keep its representation owned by this DDI layer.
@@ -305,6 +306,8 @@ struct Buffer {
 struct Context {
   D3DKMT_HANDLE context = 0;
   D3DKMT_HANDLE hw_queue = 0;
+  // Partition slot assigned by KMD through the context-private packet.
+  uint8_t slot_index = 0;
   D3DKMT_HANDLE progress_fence = 0;
   void* progress_fence_cpu = nullptr;
   D3DGPU_VIRTUAL_ADDRESS progress_fence_gpu = 0;
@@ -426,7 +429,8 @@ bool CreateDevice(const KmtApi& api, const Adapter& adapter, Device* out_device,
 void DestroyDevice(const KmtApi& api, Device* device);
 
 bool CreateBuffer(const KmtApi& api, const Device& device, BufferKind kind,
-                  uint64_t size, Buffer* out_buffer, Error* out_error);
+                  uint64_t size, Buffer* out_buffer, Error* out_error,
+                  uint8_t slot_index = 0);
 
 // Makes CPU writes to a Lock2-mapped buffer visible before device execution.
 // Buffer ownership must synchronize all writers into the calling thread.

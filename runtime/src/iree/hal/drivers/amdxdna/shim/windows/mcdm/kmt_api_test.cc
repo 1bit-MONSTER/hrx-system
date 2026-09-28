@@ -63,6 +63,7 @@ struct DestroyCall {
 DestroyCall g_destroy_calls[4] = {};
 size_t g_destroy_call_count = 0;
 size_t g_free_gpu_va_count = 0;
+uint32_t g_created_xcl_flags = 0;
 std::array<uint8_t, 0x40000> g_locked_aperture = {};
 
 void ResetFakes() {
@@ -100,6 +101,7 @@ void ResetFakes() {
   std::memset(g_destroy_calls, 0, sizeof(g_destroy_calls));
   g_destroy_call_count = 0;
   g_free_gpu_va_count = 0;
+  g_created_xcl_flags = 0;
   g_locked_aperture.fill(0);
 }
 
@@ -293,6 +295,11 @@ NTSTATUS APIENTRY FakeMakeResident(D3DDDI_MAKERESIDENT* args) {
 }
 
 NTSTATUS APIENTRY FakeCreateAllocation(D3DKMT_CREATEALLOCATION* args) {
+  std::memcpy(&g_created_xcl_flags,
+              static_cast<const uint8_t*>(
+                  args->pAllocationInfo2[0].pPrivateDriverData) +
+                  40,
+              sizeof(g_created_xcl_flags));
   args->pAllocationInfo2[0].hAllocation = 0x40;
   args->hResource = 0x41;
   return 0;
@@ -1282,6 +1289,26 @@ TEST(KmtApiTest,
                             g_locked_aperture.end(),
                             [](uint8_t value) { return value == 0; }));
   }
+}
+
+TEST(KmtApiTest, CreateCacheableBufferEmbedsBankAndContextSlot) {
+  ResetFakes();
+  KmtApi api = {};
+  api.create_allocation2 = FakeCreateAllocation;
+  api.map_gpu_virtual_address = FakeMapGpuVirtualAddress;
+  api.make_resident = FakeMakeResident;
+  api.lock2 = FakeLock2;
+  Device device = {};
+  device.device = 0x10;
+  device.paging_queue = 0x11;
+  Buffer buffer = {};
+  Error error = {};
+
+  ASSERT_TRUE(CreateBuffer(api, device, BufferKind::cacheable, 128, &buffer,
+                           &error, /*slot_index=*/3))
+      << ErrorMessage(&error);
+  EXPECT_EQ(g_created_xcl_flags, 0x01030000u);
+  EXPECT_EQ(buffer.xcl_flags, 0x01030000u);
 }
 
 TEST(KmtApiTest, ExecBufferAllocationPreservesLogicalCommandSize) {

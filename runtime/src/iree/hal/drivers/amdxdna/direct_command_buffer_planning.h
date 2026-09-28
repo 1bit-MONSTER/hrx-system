@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "iree/base/api.h"
+#include "iree/hal/executable.h"
 
 // Pure, host-side control-code planning helpers extracted from the amdxdna
 // direct command buffer. These do not touch device/native state and are unit
@@ -42,6 +43,27 @@ typedef struct iree_hal_amdxdna_host_patch_table_t {
   uint32_t* data;
   iree_host_size_t count;
 } iree_hal_amdxdna_host_patch_table_t;
+
+typedef struct iree_hal_amdxdna_pdi_relocation_t {
+  uint32_t transaction_offset;
+  uint32_t pdi_ordinal;
+  int64_t addend;
+} iree_hal_amdxdna_pdi_relocation_t;
+
+typedef struct iree_hal_amdxdna_pdi_relocation_list_t {
+  iree_hal_amdxdna_pdi_relocation_t* data;
+  iree_host_size_t count;
+} iree_hal_amdxdna_pdi_relocation_list_t;
+
+typedef struct iree_hal_amdxdna_control_parameter_relocation_t {
+  uint32_t transaction_offset;
+  int64_t addend;
+} iree_hal_amdxdna_control_parameter_relocation_t;
+
+typedef struct iree_hal_amdxdna_control_parameter_relocation_list_t {
+  iree_hal_amdxdna_control_parameter_relocation_t* data;
+  iree_host_size_t count;
+} iree_hal_amdxdna_control_parameter_relocation_list_t;
 
 void iree_hal_amdxdna_host_patch_table_deinitialize(
     iree_allocator_t host_allocator,
@@ -102,6 +124,34 @@ bool iree_hal_amdxdna_apply_patch_table_aie4(
     uint32_t* ctrl_code, size_t ctrl_words, const uint32_t* patches,
     size_t patch_count, const uint64_t* args, size_t arg_count,
     uint64_t control_code_addr);
+
+// Applies 64-bit standalone-PDI address relocations to a copied transaction.
+// Each relocation writes `pdi_addresses[pdi_ordinal] + addend` at its byte
+// offset. Returns false for malformed offsets, ordinals, or address overflow.
+bool iree_hal_amdxdna_apply_pdi_relocations(
+    uint32_t* ctrl_code, size_t ctrl_words,
+    const iree_hal_amdxdna_pdi_relocation_t* relocations,
+    size_t relocation_count, const uint64_t* pdi_addresses, size_t pdi_count);
+
+// Patches the internally staged control parameter buffer's raw 64-bit device
+// address into a copied transaction.
+bool iree_hal_amdxdna_apply_control_parameter_relocations(
+    uint32_t* ctrl_code, size_t ctrl_words,
+    const iree_hal_amdxdna_control_parameter_relocation_t* relocations,
+    size_t relocation_count, uint64_t control_parameter_address);
+
+// Materializes the 128-byte firmware state table from dense dispatch constants
+// according to executable parameter native ABI offsets.
+iree_status_t iree_hal_amdxdna_stage_control_parameters(
+    const iree_hal_executable_function_parameter_t* parameters,
+    iree_host_size_t parameter_count, iree_const_byte_span_t constants,
+    iree_byte_span_t state_table);
+
+// Marks the PDI ordinals referenced by a relocation set. This lets native
+// backends materialize only images that the control stream can load.
+bool iree_hal_amdxdna_mark_referenced_pdis(
+    const iree_hal_amdxdna_pdi_relocation_t* relocations,
+    size_t relocation_count, size_t pdi_count, uint8_t* referenced_pdis);
 
 // Rewrites only dynamic words in `ctrl_code` using immutable `template_code` as
 // the source of truth. This is intended for cached command-chain control-code

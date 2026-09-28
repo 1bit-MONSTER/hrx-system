@@ -14,9 +14,8 @@
 
 // Internal transaction parser seam shared with focused unit tests.
 bool iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
-    const uint8_t* bytes, size_t total, uint32_t op_count,
-    size_t queue_offset, uint32_t key, const uint8_t** out_dma,
-    const uint8_t** out_ddr);
+    const uint8_t* bytes, size_t total, uint32_t op_count, size_t queue_offset,
+    uint32_t key, const uint8_t** out_dma, const uint8_t** out_ddr);
 
 // Computes the touched word span for a transaction DMA descriptor. Arithmetic
 // saturates at UINT64_MAX so malformed dimensions cannot wrap to a small range.
@@ -32,8 +31,7 @@ typedef struct iree_hal_amdxdna_native_windows_buffer_range_t {
 // Sorts ranges by buffer and offset, drops empty ranges, and merges overlapping
 // or adjacent ranges in place. Returns the number of ranges retained.
 size_t iree_hal_amdxdna_native_windows_coalesce_buffer_ranges(
-    iree_hal_amdxdna_native_windows_buffer_range_t* ranges,
-    size_t range_count);
+    iree_hal_amdxdna_native_windows_buffer_range_t* ranges, size_t range_count);
 
 // Returns the initialized ERT packet size, including its header dword, if it
 // fits in the backing allocation.
@@ -64,15 +62,17 @@ bool iree_hal_amdxdna_native_windows_completion_slots_are_free(
 
 // Reserves the first contiguous run of persistent command-code slots.
 // Reservation is all-or-nothing.
-bool iree_hal_amdxdna_native_windows_reserve_code_slots(
-    uint8_t* slots_in_use, size_t slot_capacity, size_t requested_count,
-    size_t* out_first_slot);
+bool iree_hal_amdxdna_native_windows_reserve_code_slots(uint8_t* slots_in_use,
+                                                        size_t slot_capacity,
+                                                        size_t requested_count,
+                                                        size_t* out_first_slot);
 
 // Releases one complete contiguous run. Invalid or already-free ranges leave
 // the allocation table unchanged.
-bool iree_hal_amdxdna_native_windows_release_code_slots(
-    uint8_t* slots_in_use, size_t slot_capacity, size_t first_slot,
-    size_t slot_count);
+bool iree_hal_amdxdna_native_windows_release_code_slots(uint8_t* slots_in_use,
+                                                        size_t slot_capacity,
+                                                        size_t first_slot,
+                                                        size_t slot_count);
 
 // Returns one past the highest live slot, or zero when no slots are live.
 size_t iree_hal_amdxdna_native_windows_code_slot_high_watermark(
@@ -94,6 +94,13 @@ typedef struct iree_hal_amdxdna_native_windows_driver_identity_t {
   uint32_t hardware_type;
 } iree_hal_amdxdna_native_windows_driver_identity_t;
 
+// Returns whether the installed Windows NPU stack is in a driver line that
+// implements the XRT 2.21 FULL_ELF submission contract. Windows MCDM does not
+// expose a firmware-feature bit equivalent to Linux AIE2_PREEMPT, so this uses
+// the documented driver floor and fails closed for unknown version lines.
+bool iree_hal_amdxdna_native_windows_driver_supports_full_elf(
+    const iree_hal_amdxdna_native_windows_driver_identity_t* identity);
+
 // Maps the architecture's virtual-context budget to the Windows HAL cache
 // capacity.
 //
@@ -109,5 +116,23 @@ typedef struct iree_hal_amdxdna_native_windows_driver_identity_t {
 uint32_t iree_hal_amdxdna_native_windows_hardware_context_cache_capacity(
     uint32_t virtual_context_budget,
     const iree_hal_amdxdna_native_windows_driver_identity_t* identity);
+
+// Compares a candidate PDI with an existing command-aperture allocation while
+// rejecting ranges outside the mapped aperture.
+bool iree_hal_amdxdna_native_windows_pdi_content_matches(
+    const uint8_t* aperture, size_t aperture_size, size_t allocation_offset,
+    size_t allocation_size, const uint8_t* pdi, size_t pdi_size);
+
+typedef enum iree_hal_amdxdna_native_windows_context_ownership_t {
+  IREE_HAL_AMDXDNA_NATIVE_WINDOWS_CONTEXT_OWNERSHIP_PREPARE = 0,
+  IREE_HAL_AMDXDNA_NATIVE_WINDOWS_CONTEXT_OWNERSHIP_REUSE = 1,
+  IREE_HAL_AMDXDNA_NATIVE_WINDOWS_CONTEXT_OWNERSHIP_REJECT = 2,
+} iree_hal_amdxdna_native_windows_context_ownership_t;
+
+// Classifies whether context-local storage is unprepared, reusable in the same
+// context, or invalid for a different context.
+iree_hal_amdxdna_native_windows_context_ownership_t
+iree_hal_amdxdna_native_windows_classify_context_ownership(
+    const void* owner_context, const void* requested_context);
 
 #endif  // IREE_HAL_DRIVERS_AMDXDNA_NATIVE_WINDOWS_MCDM_INTERNAL_H_

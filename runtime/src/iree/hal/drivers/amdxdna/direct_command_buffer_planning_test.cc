@@ -51,6 +51,33 @@ TEST(TxnOpSizeTest, Ops3And4ReadSizeAtOffset24) {
   EXPECT_EQ(iree_hal_amdxdna_txn_op_size(b4.data(), b4.size(), 0), 40u);
 }
 
+TEST(TxnOpSizeTest, LoadPdiHasFixedSize) {
+  std::vector<uint8_t> b(16, 0);
+  b[0] = 8;
+  EXPECT_EQ(iree_hal_amdxdna_txn_op_size(b.data(), b.size(), 0), 16u);
+  EXPECT_EQ(iree_hal_amdxdna_txn_op_size(b.data(), b.size() - 1, 0), 0u);
+}
+
+TEST(TxnOpSizeTest, ScratchpadOpsHaveFixedSizes) {
+  const struct {
+    uint8_t opcode;
+    size_t size;
+  } cases[] = {
+      {10, 16},  // CREATE_SCRATCHPAD
+      {11, 8},   // UPDATE_STATE_TABLE
+      {12, 12},  // UPDATE_REG
+      {13, 4},   // UPDATE_SCRATCH
+  };
+  for (const auto& test_case : cases) {
+    std::vector<uint8_t> bytes(test_case.size, 0);
+    bytes[0] = test_case.opcode;
+    EXPECT_EQ(iree_hal_amdxdna_txn_op_size(bytes.data(), bytes.size(), 0),
+              test_case.size);
+    EXPECT_EQ(iree_hal_amdxdna_txn_op_size(bytes.data(), bytes.size() - 1, 0),
+              0u);
+  }
+}
+
 TEST(TxnOpSizeTest, CustomOpReadsSizeAtOffset4) {
   auto b = MakeOp(/*op=*/200, /*total=*/8, /*size_off=*/4, /*size=*/8);
   EXPECT_EQ(iree_hal_amdxdna_txn_op_size(b.data(), b.size(), 0), 8u);
@@ -226,7 +253,7 @@ TEST(BuildHostPatchTableTest, DerivesSemanticPatchTriple) {
   EXPECT_EQ(table.data[1], 2u);
   EXPECT_EQ(table.data[2], 0x40u);
   iree_hal_amdxdna_host_patch_table_deinitialize(iree_allocator_system(),
-                                                  &table);
+                                                 &table);
 }
 
 TEST(BuildHostPatchTableTest, RejectsPatchWithoutMatchingBlockWrite) {
@@ -244,7 +271,7 @@ TEST(BuildHostPatchTableTest, RejectsPatchWithoutMatchingBlockWrite) {
   EXPECT_EQ(iree_status_code(status), IREE_STATUS_INVALID_ARGUMENT);
   iree_status_ignore(status);
   iree_hal_amdxdna_host_patch_table_deinitialize(iree_allocator_system(),
-                                                  &table);
+                                                 &table);
 }
 
 TEST(BuildHostPatchTableTest, RejectsImpossibleOperationCount) {
@@ -284,7 +311,7 @@ TEST(BuildHostPatchTableTest, RejectsTrailingTransactionData) {
   EXPECT_EQ(iree_status_code(status), IREE_STATUS_INVALID_ARGUMENT);
   iree_status_ignore(status);
   iree_hal_amdxdna_host_patch_table_deinitialize(iree_allocator_system(),
-                                                  &table);
+                                                 &table);
 }
 
 // --- iree_hal_amdxdna_apply_patch_table --------------------------------------
@@ -400,9 +427,9 @@ TEST(ApplyPatchTableTest, AddsAieApertureOffsetForAllArgIndices) {
   // runtime patcher owns conversion to AIE-visible addresses, so every patched
   // BD gets the DDR aperture offset regardless of arg index.
   std::vector<uint32_t> ctrl(8, 0);  // bd A at byte 0, bd B at byte 16.
-  std::vector<uint32_t> patches = {/*offset=*/0u, /*arg_idx=*/4u,
+  std::vector<uint32_t> patches = {/*offset=*/0u,   /*arg_idx=*/4u,
                                    /*arg_plus=*/0u,
-                                   /*offset=*/16u, /*arg_idx=*/5u,
+                                   /*offset=*/16u,  /*arg_idx=*/5u,
                                    /*arg_plus=*/0u};
   uint64_t args[] = {0u, 0u, 0u, 0u, 0x1000u, 0x2000u};
   EXPECT_TRUE(iree_hal_amdxdna_apply_patch_table(
@@ -431,6 +458,123 @@ TEST(ApplyPatchTableTest, DoesNotDoubleCountBakedSubBufferOffset) {
   const uint64_t base = 0x1000u + 0x200u + kDdrAieAddrOffset;  // one offset.
   EXPECT_EQ(ctrl[1], static_cast<uint32_t>(base & 0xFFFFFFFC));
   EXPECT_EQ(ctrl[2], static_cast<uint32_t>(base >> 32));
+}
+
+TEST(ApplyPdiRelocationsTest, WritesAddressAndAddend) {
+  std::vector<uint32_t> ctrl(4, 0);
+  iree_hal_amdxdna_pdi_relocation_t relocations[] = {
+      {/*transaction_offset=*/4, /*pdi_ordinal=*/1, /*addend=*/0x20}};
+  uint64_t pdi_addresses[] = {0x1000, 0x1234567800000000ull};
+  EXPECT_TRUE(iree_hal_amdxdna_apply_pdi_relocations(
+      ctrl.data(), ctrl.size(), relocations, IREE_ARRAYSIZE(relocations),
+      pdi_addresses, IREE_ARRAYSIZE(pdi_addresses)));
+  const uint64_t expected = pdi_addresses[1] + 0x20;
+  EXPECT_EQ(ctrl[1], static_cast<uint32_t>(expected));
+  EXPECT_EQ(ctrl[2], static_cast<uint32_t>(expected >> 32));
+}
+
+TEST(ApplyPdiRelocationsTest, AppliesNegativeAddend) {
+  std::vector<uint32_t> ctrl(4, 0);
+  iree_hal_amdxdna_pdi_relocation_t relocation = {
+      /*transaction_offset=*/4, /*pdi_ordinal=*/0, /*addend=*/-0x20};
+  uint64_t pdi_addresses[] = {0x1234567800001000ull};
+  ASSERT_TRUE(iree_hal_amdxdna_apply_pdi_relocations(
+      ctrl.data(), ctrl.size(), &relocation, 1, pdi_addresses, 1));
+  const uint64_t expected = pdi_addresses[0] - 0x20;
+  EXPECT_EQ(ctrl[1], static_cast<uint32_t>(expected));
+  EXPECT_EQ(ctrl[2], static_cast<uint32_t>(expected >> 32));
+}
+
+TEST(ApplyPdiRelocationsTest, RejectsMalformedRelocations) {
+  std::vector<uint32_t> ctrl(4, 0);
+  uint64_t pdi_addresses[] = {0x1000};
+  iree_hal_amdxdna_pdi_relocation_t misaligned = {
+      /*transaction_offset=*/2, /*pdi_ordinal=*/0, /*addend=*/0};
+  EXPECT_FALSE(iree_hal_amdxdna_apply_pdi_relocations(
+      ctrl.data(), ctrl.size(), &misaligned, 1, pdi_addresses, 1));
+  iree_hal_amdxdna_pdi_relocation_t out_of_range = {
+      /*transaction_offset=*/4, /*pdi_ordinal=*/1, /*addend=*/0};
+  EXPECT_FALSE(iree_hal_amdxdna_apply_pdi_relocations(
+      ctrl.data(), ctrl.size(), &out_of_range, 1, pdi_addresses, 1));
+  iree_hal_amdxdna_pdi_relocation_t overflow = {
+      /*transaction_offset=*/4, /*pdi_ordinal=*/0, /*addend=*/INT64_MAX};
+  uint64_t high_pdi_address[] = {UINT64_MAX - 1};
+  EXPECT_FALSE(iree_hal_amdxdna_apply_pdi_relocations(
+      ctrl.data(), ctrl.size(), &overflow, 1, high_pdi_address, 1));
+  iree_hal_amdxdna_pdi_relocation_t underflow = {
+      /*transaction_offset=*/4, /*pdi_ordinal=*/0, /*addend=*/INT64_MIN};
+  EXPECT_FALSE(iree_hal_amdxdna_apply_pdi_relocations(
+      ctrl.data(), ctrl.size(), &underflow, 1, pdi_addresses, 1));
+}
+
+TEST(ControlParameterTest, RelocatesInternalBufferAddress) {
+  std::vector<uint32_t> ctrl(4, 0);
+  iree_hal_amdxdna_control_parameter_relocation_t relocation = {
+      /*transaction_offset=*/4, /*addend=*/0x20};
+  ASSERT_TRUE(iree_hal_amdxdna_apply_control_parameter_relocations(
+      ctrl.data(), ctrl.size(), &relocation, 1, 0x1234567800001000ull));
+  const uint64_t expected = 0x1234567800001020ull;
+  EXPECT_EQ(ctrl[1], static_cast<uint32_t>(expected));
+  EXPECT_EQ(ctrl[2], static_cast<uint32_t>(expected >> 32));
+}
+
+TEST(ControlParameterTest, StagesDenseConstantsIntoStateTableSlots) {
+  iree_hal_executable_function_parameter_t parameters[2] = {};
+  parameters[0].type = IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT;
+  parameters[0].flags =
+      IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_FLAG_NATIVE_ABI_OFFSET;
+  parameters[0].size = 4;
+  parameters[0].offset = 0;
+  parameters[0].native_abi_offset = 3 * sizeof(uint32_t);
+  parameters[1] = parameters[0];
+  parameters[1].size = 2;
+  parameters[1].offset = 4;
+  parameters[1].native_abi_offset = 7 * sizeof(uint32_t);
+  const uint8_t constants[] = {0x78, 0x56, 0x34, 0x12, 0xCD, 0xAB};
+  uint8_t state_table[32 * sizeof(uint32_t)];
+  std::memset(state_table, 0xFF, sizeof(state_table));
+
+  IREE_ASSERT_OK(iree_hal_amdxdna_stage_control_parameters(
+      parameters, IREE_ARRAYSIZE(parameters),
+      iree_make_const_byte_span(constants, sizeof(constants)),
+      iree_make_byte_span(state_table, sizeof(state_table))));
+
+  uint32_t first = 0;
+  std::memcpy(&first, state_table + 3 * sizeof(uint32_t), sizeof(first));
+  EXPECT_EQ(first, 0x12345678u);
+  EXPECT_EQ(state_table[7 * sizeof(uint32_t)], 0xCD);
+  EXPECT_EQ(state_table[7 * sizeof(uint32_t) + 1], 0xAB);
+  EXPECT_EQ(state_table[7 * sizeof(uint32_t) + 2], 0);
+  EXPECT_EQ(state_table[0], 0);
+}
+
+TEST(MarkReferencedPdisTest, MarksOnlyUniqueReferencedOrdinals) {
+  iree_hal_amdxdna_pdi_relocation_t relocations[] = {
+      {/*transaction_offset=*/4, /*pdi_ordinal=*/3, /*addend=*/0},
+      {/*transaction_offset=*/8, /*pdi_ordinal=*/1, /*addend=*/0},
+      {/*transaction_offset=*/12, /*pdi_ordinal=*/3, /*addend=*/0}};
+  uint8_t referenced[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  ASSERT_TRUE(iree_hal_amdxdna_mark_referenced_pdis(
+      relocations, IREE_ARRAYSIZE(relocations), IREE_ARRAYSIZE(referenced),
+      referenced));
+  EXPECT_EQ(referenced[0], 0);
+  EXPECT_EQ(referenced[1], 1);
+  EXPECT_EQ(referenced[2], 0);
+  EXPECT_EQ(referenced[3], 1);
+  EXPECT_EQ(referenced[4], 0);
+}
+
+TEST(MarkReferencedPdisTest, RejectsMissingAndOutOfRangeInputs) {
+  uint8_t referenced[] = {0xFF};
+  iree_hal_amdxdna_pdi_relocation_t relocation = {
+      /*transaction_offset=*/4, /*pdi_ordinal=*/1, /*addend=*/0};
+  EXPECT_FALSE(iree_hal_amdxdna_mark_referenced_pdis(
+      &relocation, 1, IREE_ARRAYSIZE(referenced), referenced));
+  EXPECT_FALSE(iree_hal_amdxdna_mark_referenced_pdis(
+      /*relocations=*/nullptr, 1, IREE_ARRAYSIZE(referenced), referenced));
+  EXPECT_FALSE(iree_hal_amdxdna_mark_referenced_pdis(
+      &relocation, 1, IREE_ARRAYSIZE(referenced),
+      /*referenced_pdis=*/nullptr));
 }
 
 // --- iree_hal_amdxdna_patch_dynamic_fields_from_template ---------------------
@@ -493,7 +637,8 @@ TEST(PatchDynamicFieldsFromTemplateTest,
       iree_allocator_system(), &patch_list);
 }
 
-TEST(PatchDynamicFieldsFromTemplateTest, RepeatedRewriteOverwritesBakedAddress) {
+TEST(PatchDynamicFieldsFromTemplateTest,
+     RepeatedRewriteOverwritesBakedAddress) {
   std::vector<uint32_t> templ(8, 0);
   // The template's BD address word carries a stale/baked offset (0x40). The
   // patcher must OVERWRITE it with buffer_base + arg_plus, not accumulate onto
@@ -528,9 +673,9 @@ TEST(PatchDynamicFieldsFromTemplateTest,
   // adds the AIE DDR aperture offset.
   std::vector<uint32_t> templ(8, 0);
   std::vector<uint32_t> ctrl = templ;
-  std::vector<uint32_t> patches = {/*offset=*/0u, /*arg_idx=*/4u,
+  std::vector<uint32_t> patches = {/*offset=*/0u,   /*arg_idx=*/4u,
                                    /*arg_plus=*/0u,
-                                   /*offset=*/16u, /*arg_idx=*/5u,
+                                   /*offset=*/16u,  /*arg_idx=*/5u,
                                    /*arg_plus=*/0u};
   uint64_t args[] = {0u, 0u, 0u, 0u, 0x1000u, 0x2000u};
 
@@ -547,13 +692,14 @@ TEST(PatchDynamicFieldsFromTemplateTest,
   EXPECT_EQ(ctrl[6], static_cast<uint32_t>(base5 >> 32));
 }
 
-TEST(PatchDynamicFieldsFromTemplateTest, DoesNotDoubleCountBakedSubBufferOffset) {
+TEST(PatchDynamicFieldsFromTemplateTest,
+     DoesNotDoubleCountBakedSubBufferOffset) {
   // Template-path counterpart of the apply_patch_table regression: the baked
   // sub-buffer offset in the template BD address must be overwritten, not added
   // to the DDR_PATCH addend that carries the same offset.
   std::vector<uint32_t> templ(8, 0);
-  templ[1] = 0x200u;         // baked intra-buffer offset.
-  templ[2] = 0xABCD0000u;    // bd[2] high 16 bits: BD control state, preserved.
+  templ[1] = 0x200u;       // baked intra-buffer offset.
+  templ[2] = 0xABCD0000u;  // bd[2] high 16 bits: BD control state, preserved.
   std::vector<uint32_t> ctrl = templ;
   std::vector<uint32_t> patches = {/*offset=*/0u, /*arg_idx=*/0u,
                                    /*arg_plus=*/0x200u};

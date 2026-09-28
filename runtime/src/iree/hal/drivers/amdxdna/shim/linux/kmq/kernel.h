@@ -10,6 +10,13 @@
 #include "bo.h"
 
 namespace shim_xdna {
+
+// Initializes the fixed ERT_START_NPU_PREEMPT_ELF payload. Kept separate from
+// BO handling so the firmware packet ABI can be unit tested without a device.
+void initialize_npu_elf_data(ert_npu_preempt_data* data,
+                             uint64_t instruction_buffer,
+                             uint32_t instruction_buffer_size);
+
 struct kernel {
   std::unique_ptr<bo> m_exec_buf_bo;
   ert_start_kernel_cmd* m_cmd_pkt = nullptr;

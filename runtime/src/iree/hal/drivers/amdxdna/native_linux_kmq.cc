@@ -423,6 +423,11 @@ uint32_t to_shim_buffer_flags(iree_hal_amdxdna_native_buffer_c_type_t type,
       return AMDXDNA_BO_FLAGS_HOST_ONLY;
     case IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CACHEABLE:
     case IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_INSTRUCTION:
+    case IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CONTROL_PARAMETER:
+      return AMDXDNA_BO_FLAGS_CACHEABLE;
+    case IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_PDI:
+      // LOAD_PDI reads from the device SRAM address space. Match XRT's
+      // xrt_core::bo_int::use_type::pdi allocation contract.
       return AMDXDNA_BO_FLAGS_CACHEABLE;
   }
   return AMDXDNA_BO_FLAGS_HOST_ONLY;
@@ -453,6 +458,8 @@ uint32_t to_ert_opcode(iree_hal_amdxdna_native_c_command_opcode_t opcode) {
       return ERT_START_NPU;
     case IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_COMMAND_CHAIN:
       return ERT_CMD_CHAIN;
+    case IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_NPU_FULL_ELF:
+      return ERT_START_NPU_PREEMPT_ELF;
   }
   return ERT_START_CU;
 }
@@ -490,6 +497,25 @@ iree_status_code_t iree_hal_amdxdna_native_linux_bo_allocation_status_code(
     return IREE_STATUS_UNAVAILABLE;
   }
   return iree_status_code_from_errno(normalized_error);
+}
+
+bool iree_hal_amdxdna_native_linux_firmware_supports_full_elf(bool has_version,
+                                                              uint32_t major,
+                                                              uint32_t minor,
+                                                              uint32_t patch,
+                                                              uint32_t build) {
+  if (!has_version) return false;
+  // The public release tuple is distinct from the internal firmware protocol
+  // tuple. 1.0.20.31 is the oldest upstream release known to carry protocol
+  // 6.12/AIE2_PREEMPT. Treat support as monotonic from that release onward.
+  constexpr uint32_t kMinMajor = 1;
+  constexpr uint32_t kMinMinor = 0;
+  constexpr uint32_t kMinPatch = 20;
+  constexpr uint32_t kMinBuild = 31;
+  if (major != kMinMajor) return major > kMinMajor;
+  if (minor != kMinMinor) return minor > kMinMinor;
+  if (patch != kMinPatch) return patch > kMinPatch;
+  return build >= kMinBuild;
 }
 
 iree_status_t iree_hal_amdxdna_native_resolve_device_options(
@@ -689,10 +715,10 @@ iree_status_t iree_hal_amdxdna_native_device_query_caps(
     caps.context_image_models =
         IREE_HAL_AMDXDNA_NATIVE_C_CONTEXT_IMAGE_MODEL_PDI;
     // START_NPU is used for command-chain children and is correct on Linux KMQ.
-    // Do not advertise PARTIAL_ELF here: its resident-instruction path currently
-    // produces wrong results for kernels with per-dispatch moving I/O. The
-    // command dirty hooks below only sync exec BO mutations; they do not make
-    // the PARTIAL_ELF resident-instruction model correct on Linux.
+    // Do not advertise PARTIAL_ELF here: its resident-instruction path
+    // currently produces wrong results for kernels with per-dispatch moving
+    // I/O. The command dirty hooks below only sync exec BO mutations; they do
+    // not make the PARTIAL_ELF resident-instruction model correct on Linux.
     caps.dispatch_models = IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_START_CU |
                            IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_START_NPU;
     if (device->supports_command_chain) {
@@ -701,6 +727,19 @@ iree_status_t iree_hal_amdxdna_native_device_query_caps(
     }
     caps.default_dispatch_opcode =
         IREE_HAL_AMDXDNA_NATIVE_C_COMMAND_OPCODE_START_CU;
+    // KMD owns the authoritative firmware-protocol feature mask, but it does
+    // not expose that mask through UAPI. Drivers paired with pre-protocol
+    // older firmware have accepted opcode 22 into KMQ and left it forever in
+    // ERT state NEW instead of returning EOPNOTSUPP. Fail closed below the
+    // oldest release known to carry AIE2_PREEMPT.
+    if (iree_hal_amdxdna_native_linux_firmware_supports_full_elf(
+            device->driver_stack.has_firmware_version,
+            device->driver_stack.firmware_major,
+            device->driver_stack.firmware_minor,
+            device->driver_stack.firmware_patch,
+            device->driver_stack.firmware_build)) {
+      caps.dispatch_models |= IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_FULL_ELF;
+    }
   }
   caps.completion_models =
       IREE_HAL_AMDXDNA_NATIVE_C_COMPLETION_MODEL_SYNCHRONOUS_WAIT |
@@ -1649,6 +1688,35 @@ extern "C" iree_status_t iree_hal_amdxdna_native_buffer_c_sync_all(
 extern "C" iree_status_t iree_hal_amdxdna_native_buffer_c_ensure_allocated(
     iree_hal_amdxdna_native_buffer_t* buffer) {
   return iree_hal_amdxdna_native_buffer_ensure_allocated(buffer);
+}
+
+extern "C" iree_status_t
+iree_hal_amdxdna_native_queue_c_ensure_buffer_allocated(
+    iree_hal_amdxdna_native_queue_t* queue,
+    iree_hal_amdxdna_native_buffer_t* buffer) {
+  IREE_ASSERT_ARGUMENT(queue);
+  return iree_hal_amdxdna_native_buffer_ensure_allocated(buffer);
+}
+
+extern "C" iree_status_t iree_hal_amdxdna_native_queue_c_prepare_pdi_buffer(
+    iree_hal_amdxdna_native_queue_t* queue,
+    iree_hal_amdxdna_native_buffer_t* buffer, uint64_t* out_address) {
+  IREE_ASSERT_ARGUMENT(queue);
+  IREE_ASSERT_ARGUMENT(out_address);
+  IREE_RETURN_IF_ERROR(iree_hal_amdxdna_native_buffer_ensure_allocated(buffer));
+  *out_address = iree_hal_amdxdna_native_buffer_device_address(buffer);
+  return iree_ok_status();
+}
+
+extern "C" iree_status_t
+iree_hal_amdxdna_native_queue_c_prepare_control_parameter_buffer(
+    iree_hal_amdxdna_native_queue_t* queue,
+    iree_hal_amdxdna_native_buffer_t* buffer, uint64_t* out_address) {
+  IREE_ASSERT_ARGUMENT(queue);
+  IREE_ASSERT_ARGUMENT(out_address);
+  IREE_RETURN_IF_ERROR(iree_hal_amdxdna_native_buffer_ensure_allocated(buffer));
+  *out_address = iree_hal_amdxdna_native_buffer_device_address(buffer);
+  return iree_ok_status();
 }
 
 extern "C" uint64_t iree_hal_amdxdna_native_buffer_c_device_address(

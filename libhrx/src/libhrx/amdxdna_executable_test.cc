@@ -35,9 +35,20 @@ struct ExecutableDescription {
   std::array<uint8_t, 4> xclbin0 = {0x01, 0x02, 0x03, 0x04};
   std::array<uint8_t, 3> xclbin1 = {0xA0, 0xA1, 0xA2};
   std::array<hrx_const_byte_span_t, 2> xclbins;
+  std::array<uint8_t, 3> pdi0 = {0xB0, 0xB1, 0xB2};
+  std::array<hrx_const_byte_span_t, 1> pdis;
   std::array<uint32_t, 4> transaction0 = {0, 0, 0, 0};
   std::array<uint32_t, 4> transaction1 = {0, 0, 0, 0};
   std::array<uint32_t, 2> payload = {0x11223344, 0x55667788};
+  std::array<hrx_amdxdna_pdi_relocation_t, 1> pdi_relocations = {
+      hrx_amdxdna_pdi_relocation_t{/*transaction_offset=*/0,
+                                   /*pdi_ordinal=*/0,
+                                   /*addend=*/-16}};
+  std::array<hrx_amdxdna_control_parameter_relocation_t, 1>
+      control_parameter_relocations = {
+          hrx_amdxdna_control_parameter_relocation_t{/*transaction_offset=*/8,
+                                                     /*addend=*/0}};
+  std::array<hrx_amdxdna_control_parameter_t, 1> control_parameters;
   std::array<hrx_amdxdna_executable_run_t, 2> runs;
   std::array<hrx_amdxdna_executable_entry_point_t, 2> entry_points;
   hrx_amdxdna_executable_create_params_t params;
@@ -45,16 +56,26 @@ struct ExecutableDescription {
   ExecutableDescription() {
     xclbins = {ByteSpan(xclbin0.data(), xclbin0.size()),
                ByteSpan(xclbin1.data(), xclbin1.size())};
+    pdis = {ByteSpan(pdi0.data(), pdi0.size())};
     runs[0] = hrx_amdxdna_executable_run_default();
+    runs[0].abi_version = HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_1;
     runs[0].transaction =
         ByteSpan(transaction0.data(), transaction0.size() * sizeof(uint32_t));
     runs[0].data_payload =
         ByteSpan(payload.data(), payload.size() * sizeof(uint32_t));
+    runs[0].pdi_relocations = pdi_relocations.data();
+    runs[0].pdi_relocation_count = pdi_relocations.size();
+    runs[0].control_parameter_relocations =
+        control_parameter_relocations.data();
+    runs[0].control_parameter_relocation_count =
+        control_parameter_relocations.size();
     runs[1] = hrx_amdxdna_executable_run_default();
     runs[1].transaction =
         ByteSpan(transaction1.data(), transaction1.size() * sizeof(uint32_t));
 
     entry_points[0] = hrx_amdxdna_executable_entry_point_default();
+    entry_points[0].abi_version =
+        HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_1;
     entry_points[0].name = StringView("create");
     entry_points[0].xclbin_ordinal = 1;
     entry_points[0].pdi_ordinal = 2;
@@ -62,6 +83,15 @@ struct ExecutableDescription {
     entry_points[0].source_file = StringView("model.mlir");
     entry_points[0].runs = runs.data();
     entry_points[0].run_count = runs.size();
+    control_parameters[0] = hrx_amdxdna_control_parameter_default();
+    control_parameters[0].name = StringView("input_offset");
+    control_parameters[0].scalar_type = StringView("i32");
+    control_parameters[0].constant_offset = 0;
+    control_parameters[0].state_table_index = 3;
+    control_parameters[0].byte_length = 4;
+    control_parameters[0].kind = HRX_AMDXDNA_CONTROL_PARAMETER_KIND_ADDRESS;
+    entry_points[0].control_parameters = control_parameters.data();
+    entry_points[0].control_parameter_count = control_parameters.size();
 
     entry_points[1] = hrx_amdxdna_executable_entry_point_default();
     entry_points[1].name = StringView("reuse");
@@ -70,10 +100,13 @@ struct ExecutableDescription {
     entry_points[1].run_count = 1;
 
     params = hrx_amdxdna_executable_create_params_default();
+    params.abi_version = HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_1;
     params.xclbins = xclbins.data();
     params.xclbin_count = xclbins.size();
     params.entry_points = entry_points.data();
     params.entry_point_count = entry_points.size();
+    params.pdis = pdis.data();
+    params.pdi_count = pdis.size();
   }
 };
 
@@ -109,6 +142,9 @@ void TestDefaults() {
   CHECK(params.record_length == sizeof(params));
   CHECK(params.abi_version ==
         HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_0);
+  auto parameter = hrx_amdxdna_control_parameter_default();
+  CHECK(parameter.record_length == sizeof(parameter));
+  CHECK(parameter.abi_version == HRX_AMDXDNA_CONTROL_PARAMETER_ABI_VERSION_0);
 }
 
 void TestCompleteDescription() {
@@ -135,6 +171,8 @@ void TestCompleteDescription() {
   CHECK(iree_hal_amdxdna_xclbin_XclbinDef_vec_len(xclbins) == 2);
   auto entries = iree_hal_amdxdna_xclbin_ExecutableDef_entry_points_get(root);
   CHECK(iree_hal_amdxdna_xclbin_EntryPointDef_vec_len(entries) == 2);
+  auto pdis = iree_hal_amdxdna_xclbin_ExecutableDef_pdis_get(root);
+  CHECK(iree_hal_amdxdna_xclbin_PdiDef_vec_len(pdis) == 1);
 
   auto create = iree_hal_amdxdna_xclbin_EntryPointDef_vec_at(entries, 0);
   CHECK(iree_hal_amdxdna_xclbin_EntryPointDef_xclbin_index_get(create) == 1);
@@ -144,6 +182,29 @@ void TestCompleteDescription() {
   auto first_run = iree_hal_amdxdna_xclbin_RunDef_vec_at(create_runs, 0);
   CHECK(flatbuffers_uint32_vec_len(
             iree_hal_amdxdna_xclbin_RunDef_data_payload_get(first_run)) == 2);
+  auto relocations =
+      iree_hal_amdxdna_xclbin_RunDef_pdi_relocations_get(first_run);
+  CHECK(iree_hal_amdxdna_xclbin_PdiRelocationDef_vec_len(relocations) == 1);
+  auto relocation =
+      iree_hal_amdxdna_xclbin_PdiRelocationDef_vec_at(relocations, 0);
+  CHECK(iree_hal_amdxdna_xclbin_PdiRelocationDef_offset_get(relocation) == 0);
+  CHECK(iree_hal_amdxdna_xclbin_PdiRelocationDef_pdi_index_get(relocation) ==
+        0);
+  CHECK(iree_hal_amdxdna_xclbin_PdiRelocationDef_addend_get(relocation) == -16);
+  auto parameter_relocations =
+      iree_hal_amdxdna_xclbin_RunDef_control_parameter_relocations_get(
+          first_run);
+  CHECK(iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_vec_len(
+            parameter_relocations) == 1);
+  auto parameters =
+      iree_hal_amdxdna_xclbin_EntryPointDef_control_parameters_get(create);
+  CHECK(iree_hal_amdxdna_xclbin_ControlParameterDef_vec_len(parameters) == 1);
+  auto parameter =
+      iree_hal_amdxdna_xclbin_ControlParameterDef_vec_at(parameters, 0);
+  CHECK(iree_hal_amdxdna_xclbin_ControlParameterDef_state_table_index_get(
+            parameter) == 3);
+  CHECK(iree_hal_amdxdna_xclbin_ControlParameterDef_byte_length_get(
+            parameter) == 4);
   auto source =
       iree_hal_amdxdna_xclbin_EntryPointDef_source_location_get(create);
   CHECK(source != nullptr);
@@ -156,6 +217,83 @@ void TestCompleteDescription() {
   CHECK(iree_hal_amdxdna_xclbin_EntryPointDef_pdi_index_get(reuse) == -1);
   CHECK(iree_hal_amdxdna_xclbin_EntryPointDef_source_location_get(reuse) ==
         nullptr);
+  hrx_host_allocator_free(allocator, data);
+}
+
+void TestPriorEntryPointRecordOmitsControlParameters() {
+  ExecutableDescription description;
+  description.params.entry_point_count = 1;
+  description.entry_points[0].run_count = 1;
+  description.entry_points[0].record_length =
+      offsetof(hrx_amdxdna_executable_entry_point_t, control_parameters);
+  description.entry_points[0].abi_version =
+      HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_0;
+  description.runs[0].control_parameter_relocation_count = 0;
+
+  hrx_host_allocator_t allocator = hrx_host_allocator_system();
+  uint8_t* data = nullptr;
+  size_t data_length = 0;
+  CHECK(CheckStatus(hrx_amdxdna_xadx_serialize(&description.params, allocator,
+                                               &data, &data_length),
+                    HRX_STATUS_OK));
+  CHECK(data != nullptr);
+  auto root = iree_hal_amdxdna_xclbin_ExecutableDef_as_root(data);
+  auto entries = iree_hal_amdxdna_xclbin_ExecutableDef_entry_points_get(root);
+  auto entry = iree_hal_amdxdna_xclbin_EntryPointDef_vec_at(entries, 0);
+  auto parameters =
+      iree_hal_amdxdna_xclbin_EntryPointDef_control_parameters_get(entry);
+  CHECK(iree_hal_amdxdna_xclbin_ControlParameterDef_vec_len(parameters) == 0);
+  hrx_host_allocator_free(allocator, data);
+}
+
+void TestPriorRunRecordOmitsRelocations() {
+  ExecutableDescription description;
+  description.params.entry_point_count = 1;
+  description.entry_points[0].run_count = 1;
+  description.runs[0].record_length =
+      offsetof(hrx_amdxdna_executable_run_t, pdi_relocations);
+  description.runs[0].abi_version = HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_0;
+
+  hrx_host_allocator_t allocator = hrx_host_allocator_system();
+  uint8_t* data = nullptr;
+  size_t data_length = 0;
+  CHECK(CheckStatus(hrx_amdxdna_xadx_serialize(&description.params, allocator,
+                                               &data, &data_length),
+                    HRX_STATUS_OK));
+  CHECK(data != nullptr);
+  auto root = iree_hal_amdxdna_xclbin_ExecutableDef_as_root(data);
+  auto entries = iree_hal_amdxdna_xclbin_ExecutableDef_entry_points_get(root);
+  auto entry = iree_hal_amdxdna_xclbin_EntryPointDef_vec_at(entries, 0);
+  auto runs = iree_hal_amdxdna_xclbin_EntryPointDef_runs_get(entry);
+  auto run = iree_hal_amdxdna_xclbin_RunDef_vec_at(runs, 0);
+  CHECK(iree_hal_amdxdna_xclbin_PdiRelocationDef_vec_len(
+            iree_hal_amdxdna_xclbin_RunDef_pdi_relocations_get(run)) == 0);
+  CHECK(iree_hal_amdxdna_xclbin_ControlParameterRelocationDef_vec_len(
+            iree_hal_amdxdna_xclbin_RunDef_control_parameter_relocations_get(
+                run)) == 0);
+  hrx_host_allocator_free(allocator, data);
+}
+
+void TestPriorCreateRecordOmitsStandalonePdis() {
+  ExecutableDescription description;
+  description.params.entry_point_count = 1;
+  description.entry_points[0].run_count = 1;
+  description.runs[0].pdi_relocation_count = 0;
+  description.params.record_length =
+      offsetof(hrx_amdxdna_executable_create_params_t, pdis);
+  description.params.abi_version =
+      HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_0;
+
+  hrx_host_allocator_t allocator = hrx_host_allocator_system();
+  uint8_t* data = nullptr;
+  size_t data_length = 0;
+  CHECK(CheckStatus(hrx_amdxdna_xadx_serialize(&description.params, allocator,
+                                               &data, &data_length),
+                    HRX_STATUS_OK));
+  CHECK(data != nullptr);
+  auto root = iree_hal_amdxdna_xclbin_ExecutableDef_as_root(data);
+  auto pdis = iree_hal_amdxdna_xclbin_ExecutableDef_pdis_get(root);
+  CHECK(iree_hal_amdxdna_xclbin_PdiDef_vec_len(pdis) == 0);
   hrx_host_allocator_free(allocator, data);
 }
 
@@ -194,6 +332,51 @@ void TestInvalidRecords() {
                                            allocator, &data, &data_length),
                 HRX_STATUS_INVALID_ARGUMENT);
   }
+
+  {
+    ExecutableDescription overlapping_relocations;
+    overlapping_relocations.control_parameter_relocations[0]
+        .transaction_offset = 4;
+    CheckStatus(hrx_amdxdna_xadx_serialize(&overlapping_relocations.params,
+                                           allocator, &data, &data_length),
+                HRX_STATUS_INVALID_ARGUMENT);
+  }
+}
+
+void TestVersion1RequiredForExtensions() {
+  hrx_host_allocator_t allocator = hrx_host_allocator_system();
+  uint8_t* data = nullptr;
+  size_t data_length = 0;
+
+  {
+    ExecutableDescription description;
+    description.params.abi_version =
+        HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_0;
+    CheckStatus(hrx_amdxdna_xadx_serialize(&description.params, allocator,
+                                           &data, &data_length),
+                HRX_STATUS_INVALID_ARGUMENT);
+  }
+  {
+    ExecutableDescription description;
+    description.params.pdis = nullptr;
+    description.params.pdi_count = 0;
+    description.entry_points[0].abi_version =
+        HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_0;
+    CheckStatus(hrx_amdxdna_xadx_serialize(&description.params, allocator,
+                                           &data, &data_length),
+                HRX_STATUS_INVALID_ARGUMENT);
+  }
+  {
+    ExecutableDescription description;
+    description.params.pdis = nullptr;
+    description.params.pdi_count = 0;
+    description.runs[0].pdi_relocations = nullptr;
+    description.runs[0].pdi_relocation_count = 0;
+    description.runs[0].abi_version = HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_0;
+    CheckStatus(hrx_amdxdna_xadx_serialize(&description.params, allocator,
+                                           &data, &data_length),
+                HRX_STATUS_INVALID_ARGUMENT);
+  }
 }
 
 }  // namespace
@@ -201,7 +384,11 @@ void TestInvalidRecords() {
 int main() {
   TestDefaults();
   TestCompleteDescription();
+  TestPriorEntryPointRecordOmitsControlParameters();
+  TestPriorRunRecordOmitsRelocations();
+  TestPriorCreateRecordOmitsStandalonePdis();
   TestInvalidRecords();
+  TestVersion1RequiredForExtensions();
   if (failure_count != 0) {
     std::fprintf(stderr, "amdxdna executable API test: %d failure(s)\n",
                  failure_count);

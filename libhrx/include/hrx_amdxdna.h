@@ -11,13 +11,19 @@ extern "C" {
 #endif
 
 #define HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_0 0u
+#define HRX_AMDXDNA_EXECUTABLE_RUN_ABI_VERSION_1 1u
 #define HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_0 0u
+#define HRX_AMDXDNA_EXECUTABLE_ENTRY_POINT_ABI_VERSION_1 1u
 #define HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_0 0u
+#define HRX_AMDXDNA_EXECUTABLE_CREATE_PARAMS_ABI_VERSION_1 1u
+#define HRX_AMDXDNA_CONTROL_PARAMETER_ABI_VERSION_0 0u
 
 // `{0}` is valid C but GCC C++ -Wmissing-field-initializers rejects it when
 // later members are omitted. Value-init with `{}` zeroes every field in C++.
 #ifdef __cplusplus
-#define HRX_AMDXDNA_STRUCT_ZERO_INIT {}
+#define HRX_AMDXDNA_STRUCT_ZERO_INIT \
+  {                                  \
+  }
 #else
 #define HRX_AMDXDNA_STRUCT_ZERO_INIT {0}
 #endif
@@ -34,14 +40,70 @@ enum hrx_amdxdna_context_mode_bits_t {
   HRX_AMDXDNA_CONTEXT_MODE_REUSE = 1u,
 };
 
+// One relocation of a standalone PDI device address into a transaction.
+// |transaction_offset| names the first byte of a little-endian 64-bit address
+// in the run transaction. |pdi_ordinal| indexes create_params.pdis.
+typedef struct hrx_amdxdna_pdi_relocation_t {
+  uint32_t transaction_offset;
+  uint32_t pdi_ordinal;
+  int64_t addend;
+} hrx_amdxdna_pdi_relocation_t;
+
+// One relocation of the internally staged control parameter buffer address
+// into a transaction.
+typedef struct hrx_amdxdna_control_parameter_relocation_t {
+  uint32_t transaction_offset;
+  int64_t addend;
+} hrx_amdxdna_control_parameter_relocation_t;
+
+typedef uint32_t hrx_amdxdna_control_parameter_kind_t;
+enum hrx_amdxdna_control_parameter_kind_bits_t {
+  // Firmware propagates the slot to storage read by AIE core code.
+  HRX_AMDXDNA_CONTROL_PARAMETER_KIND_CORE = 0u,
+  // Firmware uses the slot to update an address-bearing register.
+  HRX_AMDXDNA_CONTROL_PARAMETER_KIND_ADDRESS = 1u,
+};
+
+// One scalar staged from the dense dispatch constants block into the firmware
+// control parameter buffer. |constant_offset| addresses the dispatch constants
+// block and |state_table_index| addresses one of 32 four-byte firmware slots.
+// |scalar_type| is producer reflection metadata such as "i32" or "bf16"; HRX
+// copies |byte_length| raw bytes and does not interpret the scalar value.
+typedef struct hrx_amdxdna_control_parameter_t {
+  uint32_t record_length;
+  uint32_t abi_version;
+  hrx_string_view_t name;
+  hrx_string_view_t scalar_type;
+  uint32_t constant_offset;
+  uint32_t state_table_index;
+  uint32_t byte_length;
+  hrx_amdxdna_control_parameter_kind_t kind;
+} hrx_amdxdna_control_parameter_t;
+
+// Returns an initialized v0 control-parameter record.
+static inline hrx_amdxdna_control_parameter_t
+hrx_amdxdna_control_parameter_default(void) {
+  hrx_amdxdna_control_parameter_t parameter = HRX_AMDXDNA_STRUCT_ZERO_INIT;
+  parameter.record_length = (uint32_t)sizeof(parameter);
+  parameter.abi_version = HRX_AMDXDNA_CONTROL_PARAMETER_ABI_VERSION_0;
+  return parameter;
+}
+
 // One control-code run in an amdxdna executable. |transaction| contains an
 // XAie transaction and |data_payload| optionally contains reconfiguration
-// data. HRX derives backend-private relocation metadata from |transaction|.
+// data. HRX derives host-buffer relocation metadata from |transaction|.
+// |pdi_relocations| and |control_parameter_relocations| require ABI version 1.
+// They are optional and patch runtime-owned addresses used by the transaction.
 typedef struct hrx_amdxdna_executable_run_t {
   uint32_t record_length;
   uint32_t abi_version;
   hrx_const_byte_span_t transaction;
   hrx_const_byte_span_t data_payload;
+  const hrx_amdxdna_pdi_relocation_t* pdi_relocations;
+  size_t pdi_relocation_count;
+  const hrx_amdxdna_control_parameter_relocation_t*
+      control_parameter_relocations;
+  size_t control_parameter_relocation_count;
 } hrx_amdxdna_executable_run_t;
 
 // Returns an initialized v0 run record.
@@ -66,6 +128,10 @@ typedef struct hrx_amdxdna_executable_entry_point_t {
   hrx_string_view_t source_file;
   const hrx_amdxdna_executable_run_t* runs;
   size_t run_count;
+  // Optional scalar layout for the firmware control parameter buffer. Nonempty
+  // metadata requires entry-point ABI version 1.
+  const hrx_amdxdna_control_parameter_t* control_parameters;
+  size_t control_parameter_count;
 } hrx_amdxdna_executable_entry_point_t;
 
 // Returns an initialized v0 entry-point record.
@@ -91,6 +157,11 @@ typedef struct hrx_amdxdna_executable_create_params_t {
   size_t xclbin_count;
   const hrx_amdxdna_executable_entry_point_t* entry_points;
   size_t entry_point_count;
+  // Standalone PDIs referenced by run pdi_relocations. Nonempty PDI metadata
+  // requires create-parameter ABI version 1. The context PDI remains selected
+  // from an xclbin by entry_point.pdi_ordinal.
+  const hrx_const_byte_span_t* pdis;
+  size_t pdi_count;
 } hrx_amdxdna_executable_create_params_t;
 
 // Returns initialized v0 executable creation parameters.

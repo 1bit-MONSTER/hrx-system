@@ -42,6 +42,14 @@ uint32_t* kernel_regmap(kernel& k) {
 
 }  // namespace
 
+void initialize_npu_elf_data(ert_npu_preempt_data* data,
+                             uint64_t instruction_buffer,
+                             uint32_t instruction_buffer_size) {
+  std::memset(data, 0, sizeof(*data));
+  data->instruction_buffer = instruction_buffer;
+  data->instruction_buffer_size = instruction_buffer_size;
+}
+
 kernel::kernel(const pdev& p, uint32_t op) : m_op(op) {
   m_init_errno = bo::create(p, AMDXDNA_INVALID_CTX_HANDLE, MAX_EXEC_BO_SIZE,
                             AMDXDNA_BO_FLAGS_EXECBUF, &m_exec_buf_bo);
@@ -102,6 +110,14 @@ int kernel::add_ctrl_bo(bo& bo_ctrl, size_t instruction_size) {
       npu_data->instruction_buffer = bo_ctrl.get_paddr();
       npu_data->instruction_buffer_size = instr_bytes;
       npu_data->instruction_prop_count = 0;
+      return 0;
+    }
+    case ERT_START_NPU_PREEMPT_ELF: {
+      int err = inc_pkt_count(sizeof(ert_npu_preempt_data));
+      if (err) return err;
+      ert_npu_preempt_data* elf_data = get_ert_npu_elf_data(cmd_packet);
+      if (!elf_data) return EINVAL;
+      initialize_npu_elf_data(elf_data, bo_ctrl.get_paddr(), instr_bytes);
       return 0;
     }
     case ERT_START_DPU: {

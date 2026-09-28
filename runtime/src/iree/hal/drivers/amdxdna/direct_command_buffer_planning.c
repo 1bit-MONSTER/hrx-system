@@ -6,6 +6,7 @@
 
 #include "iree/hal/drivers/amdxdna/direct_command_buffer_planning.h"
 
+#include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -55,8 +56,7 @@ typedef struct iree_hal_amdxdna_bd_patch_site_t {
 } iree_hal_amdxdna_bd_patch_site_t;
 
 static uint32_t iree_hal_amdxdna_bd_patch_key(uint32_t register_address) {
-  return register_address &
-         ((0x7Fu << 25) | (0x1Fu << 20) | (0x1Fu << 5));
+  return register_address & ((0x7Fu << 25) | (0x1Fu << 20) | (0x1Fu << 5));
 }
 
 void iree_hal_amdxdna_write32_constant_patch_list_deinitialize(
@@ -83,6 +83,21 @@ uint32_t iree_hal_amdxdna_txn_op_size(const uint8_t* b, size_t total,
   if (op == 3 || op == 4) {
     if (p + 28 > total) return 0;
     return iree_hal_amdxdna_read_u32(b + p + 24);
+  }
+  if (op == 8) {  // LOAD_PDI.
+    return p + 16 <= total ? 16 : 0;
+  }
+  if (op == 10) {  // CREATE_SCRATCHPAD.
+    return p + 16 <= total ? 16 : 0;
+  }
+  if (op == 11) {  // UPDATE_STATE_TABLE.
+    return p + 8 <= total ? 8 : 0;
+  }
+  if (op == 12) {  // UPDATE_REG from scratchpad state.
+    return p + 12 <= total ? 12 : 0;
+  }
+  if (op == 13) {  // UPDATE_SCRATCH.
+    return p + 4 <= total ? 4 : 0;
   }
   if (op >= 128) {  // Custom op.
     if (p + 8 > total) return 0;
@@ -122,10 +137,10 @@ iree_status_t iree_hal_amdxdna_build_host_patch_table(
                             "amdxdna XAie operation count exceeds transaction");
   }
   if (op_count == 0) {
-    return total == 16
-               ? iree_ok_status()
-               : iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                  "amdxdna XAie transaction has trailing bytes");
+    return total == 16 ? iree_ok_status()
+                       : iree_make_status(
+                             IREE_STATUS_INVALID_ARGUMENT,
+                             "amdxdna XAie transaction has trailing bytes");
   }
 
   iree_hal_amdxdna_bd_patch_site_t* sites = NULL;
@@ -143,8 +158,7 @@ iree_status_t iree_hal_amdxdna_build_host_patch_table(
   iree_host_size_t patch_count = 0;
   size_t offset = 16;
   for (uint32_t i = 0; i < op_count; ++i) {
-    const uint32_t op_size =
-        iree_hal_amdxdna_txn_op_size(bytes, total, offset);
+    const uint32_t op_size = iree_hal_amdxdna_txn_op_size(bytes, total, offset);
     if (op_size == 0 || offset + op_size > total) {
       status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                 "amdxdna XAie operation %u is malformed", i);
@@ -179,10 +193,8 @@ iree_status_t iree_hal_amdxdna_build_host_patch_table(
         goto cleanup;
       }
       patches[patch_count++] = sites[site_index - 1].byte_offset;
-      patches[patch_count++] =
-          iree_hal_amdxdna_read_u32(bytes + offset + 32);
-      patches[patch_count++] =
-          iree_hal_amdxdna_read_u32(bytes + offset + 40);
+      patches[patch_count++] = iree_hal_amdxdna_read_u32(bytes + offset + 32);
+      patches[patch_count++] = iree_hal_amdxdna_read_u32(bytes + offset + 40);
     }
     offset += op_size;
   }
@@ -362,9 +374,9 @@ bool iree_hal_amdxdna_apply_patch_table(uint32_t* ctrl_code, size_t ctrl_words,
     }
     uint32_t bd2 = iree_hal_amdxdna_read_u32(b + offset + 8);
     // DDR_PATCH arg_plus already carries the intra-buffer byte offset. Compute
-    // the final AIE-visible BD address from scratch instead of accumulating onto
-    // a compiler-baked address word, which would double-count sub-buffer BDs.
-    // bd[2] bits [31:16] carry BD control state and must be preserved.
+    // the final AIE-visible BD address from scratch instead of accumulating
+    // onto a compiler-baked address word, which would double-count sub-buffer
+    // BDs. bd[2] bits [31:16] carry BD control state and must be preserved.
     uint64_t base = 0;
     if (!iree_hal_amdxdna_bd_base_address(args[arg_idx], arg_plus, &base)) {
       return false;
@@ -409,6 +421,122 @@ bool iree_hal_amdxdna_apply_patch_table_aie4(
     bd0 = (bd0 & 0xFE000000u) | (uint32_t)((base >> 32) & 0x1FFFFFFu);
     iree_hal_amdxdna_write_u32(b + offset, bd0);
     iree_hal_amdxdna_write_u32(b + offset + 4, bd1);
+  }
+  return true;
+}
+
+bool iree_hal_amdxdna_apply_pdi_relocations(
+    uint32_t* ctrl_code, size_t ctrl_words,
+    const iree_hal_amdxdna_pdi_relocation_t* relocations,
+    size_t relocation_count, const uint64_t* pdi_addresses, size_t pdi_count) {
+  if (relocation_count == 0) return true;
+  if (!ctrl_code || !relocations || !pdi_addresses) return false;
+  if (ctrl_words > SIZE_MAX / sizeof(uint32_t)) return false;
+  const size_t total = ctrl_words * sizeof(uint32_t);
+  uint8_t* bytes = (uint8_t*)ctrl_code;
+  for (size_t i = 0; i < relocation_count; ++i) {
+    const iree_hal_amdxdna_pdi_relocation_t* relocation = &relocations[i];
+    if (relocation->pdi_ordinal >= pdi_count ||
+        (relocation->transaction_offset % sizeof(uint32_t)) != 0 ||
+        total < sizeof(uint64_t) ||
+        relocation->transaction_offset > total - sizeof(uint64_t)) {
+      return false;
+    }
+    const uint64_t base = pdi_addresses[relocation->pdi_ordinal];
+    uint64_t address = 0;
+    if (relocation->addend >= 0) {
+      const uint64_t addend = (uint64_t)relocation->addend;
+      if (addend > UINT64_MAX - base) return false;
+      address = base + addend;
+    } else {
+      const uint64_t magnitude = (uint64_t)(-(relocation->addend + 1)) + 1;
+      if (magnitude > base) return false;
+      address = base - magnitude;
+    }
+    iree_hal_amdxdna_write_u32(bytes + relocation->transaction_offset,
+                               (uint32_t)address);
+    iree_hal_amdxdna_write_u32(bytes + relocation->transaction_offset + 4,
+                               (uint32_t)(address >> 32));
+  }
+  return true;
+}
+
+bool iree_hal_amdxdna_apply_control_parameter_relocations(
+    uint32_t* ctrl_code, size_t ctrl_words,
+    const iree_hal_amdxdna_control_parameter_relocation_t* relocations,
+    size_t relocation_count, uint64_t control_parameter_address) {
+  if (relocation_count == 0) return true;
+  if (!ctrl_code || !relocations || ctrl_words > SIZE_MAX / sizeof(uint32_t)) {
+    return false;
+  }
+  const size_t total = ctrl_words * sizeof(uint32_t);
+  uint8_t* bytes = (uint8_t*)ctrl_code;
+  for (size_t i = 0; i < relocation_count; ++i) {
+    const iree_hal_amdxdna_control_parameter_relocation_t* relocation =
+        &relocations[i];
+    if ((relocation->transaction_offset % sizeof(uint32_t)) != 0 ||
+        total < sizeof(uint64_t) ||
+        relocation->transaction_offset > total - sizeof(uint64_t)) {
+      return false;
+    }
+    uint64_t address = 0;
+    if (relocation->addend >= 0) {
+      const uint64_t addend = (uint64_t)relocation->addend;
+      if (addend > UINT64_MAX - control_parameter_address) return false;
+      address = control_parameter_address + addend;
+    } else {
+      const uint64_t magnitude = (uint64_t)(-(relocation->addend + 1)) + 1;
+      if (magnitude > control_parameter_address) return false;
+      address = control_parameter_address - magnitude;
+    }
+    iree_hal_amdxdna_write_u32(bytes + relocation->transaction_offset,
+                               (uint32_t)address);
+    iree_hal_amdxdna_write_u32(bytes + relocation->transaction_offset + 4,
+                               (uint32_t)(address >> 32));
+  }
+  return true;
+}
+
+iree_status_t iree_hal_amdxdna_stage_control_parameters(
+    const iree_hal_executable_function_parameter_t* parameters,
+    iree_host_size_t parameter_count, iree_const_byte_span_t constants,
+    iree_byte_span_t state_table) {
+  if (state_table.data_length != 32 * sizeof(uint32_t) || !state_table.data ||
+      (parameter_count != 0 && !parameters)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "amdxdna control parameter state table is invalid");
+  }
+  memset(state_table.data, 0, state_table.data_length);
+  for (iree_host_size_t i = 0; i < parameter_count; ++i) {
+    const iree_hal_executable_function_parameter_t* parameter = &parameters[i];
+    if (parameter->type !=
+            IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_CONSTANT ||
+        (parameter->flags &
+         IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_FLAG_NATIVE_ABI_OFFSET) == 0 ||
+        parameter->size == 0 || parameter->offset > constants.data_length ||
+        parameter->size > constants.data_length - parameter->offset ||
+        parameter->native_abi_offset > state_table.data_length ||
+        parameter->size >
+            state_table.data_length - parameter->native_abi_offset) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "amdxdna control parameter %" PRIhsz " is out of bounds", i);
+    }
+    memcpy(state_table.data + parameter->native_abi_offset,
+           constants.data + parameter->offset, parameter->size);
+  }
+  return iree_ok_status();
+}
+
+bool iree_hal_amdxdna_mark_referenced_pdis(
+    const iree_hal_amdxdna_pdi_relocation_t* relocations,
+    size_t relocation_count, size_t pdi_count, uint8_t* referenced_pdis) {
+  if (pdi_count != 0 && !referenced_pdis) return false;
+  if (pdi_count != 0) memset(referenced_pdis, 0, pdi_count);
+  if (relocation_count != 0 && !relocations) return false;
+  for (size_t i = 0; i < relocation_count; ++i) {
+    if (relocations[i].pdi_ordinal >= pdi_count) return false;
+    referenced_pdis[relocations[i].pdi_ordinal] = 1;
   }
   return true;
 }

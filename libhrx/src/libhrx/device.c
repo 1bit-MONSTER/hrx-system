@@ -8,6 +8,10 @@
 
 #include "hrx_internal.h"
 
+#ifdef HRX_HAS_IREE_AMDXDNA_DRIVER
+#include "iree/hal/drivers/amdxdna/device.h"
+#endif
+
 hrx_status_t hrx_device_query_total_memory_from_spec(
     hrx_device_t device, bool* out_known, iree_device_size_t* out_total) {
   if (!device || !out_known || !out_total) {
@@ -115,6 +119,32 @@ hrx_status_t hrx_device_get_property(hrx_device_t device,
       }
       *(uint32_t*)value = 0;  // Not available from local-task driver.
       return hrx_ok_status();
+    }
+    case HRX_DEVICE_PROPERTY_AMDXDNA_CAPABILITIES: {
+      if (value_size < sizeof(hrx_amdxdna_device_capability_t)) {
+        return hrx_make_status(
+            HRX_STATUS_OUT_OF_RANGE,
+            "buffer too small for hrx_amdxdna_device_capability_t");
+      }
+#ifdef HRX_HAS_IREE_AMDXDNA_DRIVER
+      iree_hal_amdxdna_device* amdxdna_device =
+          iree_hal_amdxdna_device_cast(device->hal_device);
+      if (!amdxdna_device) {
+        return hrx_make_status(HRX_STATUS_UNAVAILABLE,
+                               "device is not backed by amdxdna");
+      }
+      hrx_amdxdna_device_capability_t capabilities =
+          HRX_AMDXDNA_DEVICE_CAPABILITY_NONE;
+      if (amdxdna_device->native_caps.dispatch_models &
+          IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_FULL_ELF) {
+        capabilities |= HRX_AMDXDNA_DEVICE_CAPABILITY_FULL_ELF_LOAD_PDI;
+      }
+      *(hrx_amdxdna_device_capability_t*)value = capabilities;
+      return hrx_ok_status();
+#else
+      return hrx_make_status(HRX_STATUS_UNAVAILABLE,
+                             "amdxdna support is not built");
+#endif
     }
     default:
       return hrx_make_status(HRX_STATUS_INVALID_ARGUMENT,

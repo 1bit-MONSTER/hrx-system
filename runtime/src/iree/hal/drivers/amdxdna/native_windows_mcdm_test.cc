@@ -74,17 +74,15 @@ TEST(NativeWindowsMcdmTxnTest, ResolvesReusedBdBeforeEachQueuePush) {
 
   const uint8_t* dma = nullptr;
   const uint8_t* ddr = nullptr;
-  ASSERT_TRUE(
-      iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
-          bytes.data(), bytes.size(), /*op_count=*/6, first_queue, kKey, &dma,
-          &ddr));
+  ASSERT_TRUE(iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
+      bytes.data(), bytes.size(), /*op_count=*/6, first_queue, kKey, &dma,
+      &ddr));
   EXPECT_EQ(dma, bytes.data() + first_dma);
   EXPECT_EQ(ddr, bytes.data() + first_ddr);
 
-  ASSERT_TRUE(
-      iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
-          bytes.data(), bytes.size(), /*op_count=*/6, second_queue, kKey, &dma,
-          &ddr));
+  ASSERT_TRUE(iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
+      bytes.data(), bytes.size(), /*op_count=*/6, second_queue, kKey, &dma,
+      &ddr));
   EXPECT_EQ(dma, bytes.data() + second_dma);
   EXPECT_EQ(ddr, bytes.data() + second_ddr);
 }
@@ -99,15 +97,15 @@ TEST(NativeWindowsMcdmTxnTest, RejectsMalformedOperationSizes) {
   const uint8_t* dma = reinterpret_cast<const uint8_t*>(1);
   const uint8_t* ddr = reinterpret_cast<const uint8_t*>(1);
   EXPECT_FALSE(iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
-      bytes.data(), bytes.size(), /*op_count=*/1, bytes.size(), /*key=*/0,
-      &dma, &ddr));
+      bytes.data(), bytes.size(), /*op_count=*/1, bytes.size(), /*key=*/0, &dma,
+      &ddr));
   EXPECT_EQ(dma, nullptr);
   EXPECT_EQ(ddr, nullptr);
 
   WriteU32(bytes, malformed + 12, 64);
   EXPECT_FALSE(iree_hal_amdxdna_native_windows_find_partial_elf_bd_ops(
-      bytes.data(), bytes.size(), /*op_count=*/1, bytes.size(), /*key=*/0,
-      &dma, &ddr));
+      bytes.data(), bytes.size(), /*op_count=*/1, bytes.size(), /*key=*/0, &dma,
+      &ddr));
 }
 
 TEST(NativeWindowsMcdmTxnTest, IgnoresDescriptorsAfterQueuePush) {
@@ -145,9 +143,9 @@ TEST(NativeWindowsMcdmTxnTest, ComputesMultidimensionalDmaSpan) {
 
   // dim2_size=24/(2*3)=4. Strided span is
   // 1 + 1*4 + 2*8 + 3*16 = 69, then two iterator strides of 32.
-  EXPECT_EQ(iree_hal_amdxdna_native_windows_partial_elf_dma_span_words(
-                dma.data()),
-            133u);
+  EXPECT_EQ(
+      iree_hal_amdxdna_native_windows_partial_elf_dma_span_words(dma.data()),
+      133u);
 }
 
 TEST(NativeWindowsMcdmTxnTest, HandlesMaximumEncodedDmaSpan) {
@@ -158,9 +156,9 @@ TEST(NativeWindowsMcdmTxnTest, HandlesMaximumEncodedDmaSpan) {
   WriteU32(dma, 36, 0xFFFFFu);
   WriteU32(dma, 40, (1023u << 20) | 0xFFFFFu);
 
-  EXPECT_EQ(iree_hal_amdxdna_native_windows_partial_elf_dma_span_words(
-                dma.data()),
-            7518289921ull);
+  EXPECT_EQ(
+      iree_hal_amdxdna_native_windows_partial_elf_dma_span_words(dma.data()),
+      7518289921ull);
 }
 
 TEST(NativeWindowsMcdmBufferRangeTest,
@@ -172,9 +170,8 @@ TEST(NativeWindowsMcdmBufferRangeTest,
       {buffer_a, 32, 32}, {nullptr, 0, 64},  {buffer_a, 256, 0},
       {buffer_a, 256, 16}};
 
-  const size_t count =
-      iree_hal_amdxdna_native_windows_coalesce_buffer_ranges(
-          ranges, std::size(ranges));
+  const size_t count = iree_hal_amdxdna_native_windows_coalesce_buffer_ranges(
+      ranges, std::size(ranges));
 
   ASSERT_EQ(count, 3u);
   EXPECT_EQ(ranges[0].buffer, buffer_a);
@@ -193,9 +190,8 @@ TEST(NativeWindowsMcdmBufferRangeTest, SaturatesOverflowingRangeEnd) {
   iree_hal_amdxdna_native_windows_buffer_range_t ranges[] = {
       {buffer, UINT64_MAX - 7, 16}, {buffer, UINT64_MAX - 3, 4}};
 
-  const size_t count =
-      iree_hal_amdxdna_native_windows_coalesce_buffer_ranges(
-          ranges, std::size(ranges));
+  const size_t count = iree_hal_amdxdna_native_windows_coalesce_buffer_ranges(
+      ranges, std::size(ranges));
 
   ASSERT_EQ(count, 1u);
   EXPECT_EQ(ranges[0].offset, UINT64_MAX - 7);
@@ -230,6 +226,43 @@ TEST(NativeWindowsMcdmBufferTest, DefersOnlyContextOwnedCommandStorage) {
       IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CACHEABLE));
   EXPECT_TRUE(iree_hal_amdxdna_native_windows_buffer_requires_context(
       IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_INSTRUCTION));
+  EXPECT_TRUE(iree_hal_amdxdna_native_windows_buffer_requires_context(
+      IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_PDI));
+  EXPECT_TRUE(iree_hal_amdxdna_native_windows_buffer_requires_context(
+      IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_CONTROL_PARAMETER));
+}
+
+TEST(NativeWindowsMcdmPdiTest, MatchesOnlyEqualInBoundsApertureContent) {
+  const uint8_t aperture[] = {0x10, 0x20, 0x30, 0x40, 0x50};
+  const uint8_t equal_pdi[] = {0x20, 0x30, 0x40};
+  const uint8_t different_pdi[] = {0x20, 0x31, 0x40};
+  EXPECT_TRUE(iree_hal_amdxdna_native_windows_pdi_content_matches(
+      aperture, std::size(aperture), /*allocation_offset=*/1,
+      /*allocation_size=*/3, equal_pdi, std::size(equal_pdi)));
+  EXPECT_FALSE(iree_hal_amdxdna_native_windows_pdi_content_matches(
+      aperture, std::size(aperture), /*allocation_offset=*/1,
+      /*allocation_size=*/3, different_pdi, std::size(different_pdi)));
+  EXPECT_FALSE(iree_hal_amdxdna_native_windows_pdi_content_matches(
+      aperture, std::size(aperture), /*allocation_offset=*/4,
+      /*allocation_size=*/3, equal_pdi, std::size(equal_pdi)));
+  EXPECT_FALSE(iree_hal_amdxdna_native_windows_pdi_content_matches(
+      aperture, std::size(aperture), /*allocation_offset=*/1,
+      /*allocation_size=*/2, equal_pdi, std::size(equal_pdi)));
+}
+
+TEST(NativeWindowsMcdmControlParameterTest,
+     ReusesOnlyWithinThePreparingContext) {
+  int first_context = 0;
+  int second_context = 0;
+  EXPECT_EQ(iree_hal_amdxdna_native_windows_classify_context_ownership(
+                nullptr, &first_context),
+            IREE_HAL_AMDXDNA_NATIVE_WINDOWS_CONTEXT_OWNERSHIP_PREPARE);
+  EXPECT_EQ(iree_hal_amdxdna_native_windows_classify_context_ownership(
+                &first_context, &first_context),
+            IREE_HAL_AMDXDNA_NATIVE_WINDOWS_CONTEXT_OWNERSHIP_REUSE);
+  EXPECT_EQ(iree_hal_amdxdna_native_windows_classify_context_ownership(
+                &first_context, &second_context),
+            IREE_HAL_AMDXDNA_NATIVE_WINDOWS_CONTEXT_OWNERSHIP_REJECT);
 }
 
 TEST(NativeWindowsMcdmCompletionSlotTest, ReservesAndReleasesAtomically) {
@@ -248,8 +281,8 @@ TEST(NativeWindowsMcdmCompletionSlotTest, ReservesAndReleasesAtomically) {
 
   uint32_t unavailable_offset = 0;
   EXPECT_FALSE(iree_hal_amdxdna_native_windows_reserve_completion_slots(
-      slots, std::size(slots), 1, /*start_slot=*/next_slot,
-      &unavailable_offset, &next_slot));
+      slots, std::size(slots), 1, /*start_slot=*/next_slot, &unavailable_offset,
+      &next_slot));
   EXPECT_TRUE(iree_hal_amdxdna_native_windows_release_completion_slots(
       slots, std::size(slots), std::size(offsets), offsets));
   EXPECT_EQ(std::vector<uint8_t>(std::begin(slots), std::end(slots)),
@@ -298,10 +331,10 @@ TEST(NativeWindowsMcdmCompletionSlotTest, DetectsUnownedReservedSlots) {
   const uint8_t leaked_slot[] = {0, 1, 0};
   EXPECT_FALSE(iree_hal_amdxdna_native_windows_completion_slots_are_free(
       leaked_slot, std::size(leaked_slot)));
-  EXPECT_TRUE(iree_hal_amdxdna_native_windows_completion_slots_are_free(
-      nullptr, 0));
-  EXPECT_FALSE(iree_hal_amdxdna_native_windows_completion_slots_are_free(
-      nullptr, 1));
+  EXPECT_TRUE(
+      iree_hal_amdxdna_native_windows_completion_slots_are_free(nullptr, 0));
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_completion_slots_are_free(nullptr, 1));
 }
 
 TEST(NativeWindowsMcdmCodeSlotTest, ReusesReleasedContiguousRuns) {
@@ -355,9 +388,8 @@ TEST(NativeWindowsMcdmCodeSlotTest, ShrinksHighWatermarkAfterTailRelease) {
   EXPECT_EQ(iree_hal_amdxdna_native_windows_code_slot_high_watermark(
                 slots, std::size(slots)),
             2u);
-  EXPECT_EQ(iree_hal_amdxdna_native_windows_code_slot_high_watermark(nullptr,
-                                                                    0),
-            0u);
+  EXPECT_EQ(
+      iree_hal_amdxdna_native_windows_code_slot_high_watermark(nullptr, 0), 0u);
 }
 
 TEST(NativeWindowsMcdmContextPoolTest,
@@ -386,6 +418,46 @@ TEST(NativeWindowsMcdmContextPoolTest,
   EXPECT_EQ(iree_hal_amdxdna_native_windows_hardware_context_cache_capacity(
                 0, nullptr),
             0u);
+}
+
+TEST(NativeWindowsMcdmFullElfTest, UsesDocumentedXrt221DriverFloor) {
+  iree_hal_amdxdna_native_windows_driver_identity_t identity = {
+      true, 32, 0, 203, 329, true, 3};
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+
+  identity.driver_version_revision = 376;
+  EXPECT_TRUE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+
+  identity.driver_version_build = 20101;
+  identity.driver_version_revision = 3759;
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+
+  identity.driver_version_revision = 3760;
+  EXPECT_TRUE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+
+  identity.driver_version_build = 20102;
+  identity.driver_version_revision = 3930;
+  EXPECT_TRUE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+}
+
+TEST(NativeWindowsMcdmFullElfTest, FailsClosedForUnknownDriverIdentity) {
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(nullptr));
+  iree_hal_amdxdna_native_windows_driver_identity_t identity = {};
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+
+  identity = {true, 31, 0, 203, 999, true, 3};
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
+  identity = {true, 32, 0, 999, 999, true, 3};
+  EXPECT_FALSE(
+      iree_hal_amdxdna_native_windows_driver_supports_full_elf(&identity));
 }
 
 TEST(NativeWindowsMcdmContextPoolTest,

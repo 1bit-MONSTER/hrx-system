@@ -190,7 +190,14 @@ typedef enum hrx_device_property_t {
   HRX_DEVICE_PROPERTY_MAX_SHARED_MEMORY,
   HRX_DEVICE_PROPERTY_CLOCK_RATE,
   HRX_DEVICE_PROPERTY_PCI_BUS_ID,
+  // hrx_amdxdna_device_capability_t. Returns HRX_STATUS_UNAVAILABLE for
+  // devices not backed by the amdxdna driver.
+  HRX_DEVICE_PROPERTY_AMDXDNA_CAPABILITIES,
 } hrx_device_property_t;
+
+typedef uint64_t hrx_amdxdna_device_capability_t;
+#define HRX_AMDXDNA_DEVICE_CAPABILITY_NONE 0x0000000000000000ull
+#define HRX_AMDXDNA_DEVICE_CAPABILITY_FULL_ELF_LOAD_PDI 0x0000000000000001ull
 
 // Memory type bitfield. Values match iree_hal_memory_type_t.
 typedef uint32_t hrx_memory_type_t;
