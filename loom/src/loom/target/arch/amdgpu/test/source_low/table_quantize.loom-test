@@ -54,6 +54,19 @@ CHECK-NOT: * = v_bfe_u32 *
 
 // ====
 
+func.def @f32_i64_partial_packet(%values: vector<9xf32>, %thresholds: vector<3xf32>) -> (vector<9xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<9xf32>, vector<3xf32> -> vector<9xi64>
+  func.return %codes : vector<9xi64>
+}
+
+// ----
+CHECK: low.func.def * @f32_i64_partial_packet(*) -> (reg<amdgpu.vgpr x18>) asm {
+CHECK: * = v_cmp_lt_f32 *, *
+CHECK: %codes = concat(*)* -> reg<amdgpu.vgpr x18>
+CHECK-NOT: * = v_bfe_u32 *
+
+// ====
+
 func.def @f16_predicate(%values: vector<9xf16>, %thresholds: vector<1xf16>) -> (vector<9xi1>) {
   %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = upper} : vector<9xf16>, vector<1xf16> -> vector<9xi1>
   func.return %codes : vector<9xi1>

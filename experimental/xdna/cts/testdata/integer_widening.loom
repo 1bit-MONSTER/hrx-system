@@ -1,0 +1,40 @@
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+pipeline.def<kernel> public retain target(@array_target) @widen_packets() launch(%input: buffer, %output: buffer) {
+  %count = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %workers = group.create %count : index -> group
+  %input_view = buffer.view %input[%origin] : buffer -> view<1x16x192xi8>
+  %output_view = buffer.view %output[%origin] : buffer -> view<1x16x384xi8>
+  %packets = pipeline.scatter %input_view across %workers : view<1x16x192xi8>, group -> pipeline.flow<tile<192xi8>>
+  %results = pipeline.stage @widen_partial on %workers(%packets) : (group, pipeline.flow<tile<192xi8>>) -> (pipeline.flow<tile<384xi8>>)
+  pipeline.write %results to %output_view : pipeline.flow<tile<384xi8>>, view<1x16x384xi8>
+  pipeline.return
+}
+
+func.def target(@core_target) @widen_partial(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %source_i32 = buffer.view %source[%origin] : buffer -> view<48xi32>
+  %source_f32 = buffer.view %source[%origin] : buffer -> view<48xf32>
+  %destination_i32 = buffer.view %destination[%origin] : buffer -> view<96xi32>
+  %destination_i64 = buffer.view %destination[%origin] : buffer -> view<48xi64>
+  %sentinel = vector.constant -1515870811 : vector<16xi32>
+  vector.store<volatile> %sentinel, %destination_i32[0] : vector<16xi32>, view<96xi32>
+  vector.store<volatile> %sentinel, %destination_i32[16] : vector<16xi32>, view<96xi32>
+  vector.store<volatile> %sentinel, %destination_i32[32] : vector<16xi32>, view<96xi32>
+  vector.store<volatile> %sentinel, %destination_i32[48] : vector<16xi32>, view<96xi32>
+  vector.store<volatile> %sentinel, %destination_i32[64] : vector<16xi32>, view<96xi32>
+  vector.store<volatile> %sentinel, %destination_i32[80] : vector<16xi32>, view<96xi32>
+  %integers = vector.load %source_i32[0] : view<48xi32> -> vector<9xi32>
+  %unsigned = vector.extui %integers : vector<9xi32> to vector<9xi64>
+  %signed = vector.extsi %integers : vector<9xi32> to vector<9xi64>
+  %values = vector.load %source_f32[16] : view<48xf32> -> vector<9xf32>
+  %thresholds = vector.load %source_f32[32] : view<48xf32> -> vector<3xf32>
+  %quantized = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<9xf32>, vector<3xf32> -> vector<9xi64>
+  vector.store %unsigned, %destination_i64[0] : vector<9xi64>, view<48xi64>
+  vector.store %signed, %destination_i64[16] : vector<9xi64>, view<48xi64>
+  vector.store %quantized, %destination_i64[32] : vector<9xi64>, view<48xi64>
+  func.return
+}
