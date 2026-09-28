@@ -1033,6 +1033,9 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (scalar_arithmetic.scalar_addi, "add"),
                 (scalar_arithmetic.scalar_subi, "sub"),
                 (scalar_arithmetic.scalar_muli, "mul"),
+                (scalar_arithmetic.scalar_divsi, "div_s"),
+                (scalar_arithmetic.scalar_divui, "div_u"),
+                (scalar_arithmetic.scalar_remsi, "rem_s"),
                 (scalar_arithmetic.scalar_remui, "rem_u"),
                 (scalar_bitwise.scalar_andi, "and"),
                 (scalar_bitwise.scalar_ori, "or"),
@@ -1333,14 +1336,20 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (index.index_shrui, "shr_u"),
             )
         ),
-        _binary_rule(
-            index.index_rem,
-            _INDEX,
-            "wasm.i32.rem_u",
-            guards=tuple(
-                Guard.value_i64_range(field, 0, (1 << 32) - 1)
-                for field in ("lhs", "rhs")
-            ),
+        *(
+            _binary_rule(
+                source_op,
+                _INDEX,
+                descriptor_key,
+                guards=tuple(
+                    Guard.value_i64_range(field, 0, (1 << 32) - 1)
+                    for field in ("lhs", "rhs")
+                ),
+            )
+            for source_op, descriptor_key in (
+                (index.index_div, "wasm.i32.div_u"),
+                (index.index_rem, "wasm.i32.rem_u"),
+            )
         ),
         _extract_rule(_V4I1, _I1, "wasm.i32x4.extract_lane"),
         _extract_rule(_V4I32, _I32, "wasm.i32x4.extract_lane"),
