@@ -235,7 +235,18 @@ loom_low_allocation_concat_reservation_default_source_assembles_result(
     }
   }
 
-  *out_assembles_result = true;
+  // A future reservation can begin after every source has been consumed but
+  // still overlap the assembled result. Piece placement alone does not prove
+  // that the result can keep the same storage for its longer lifetime.
+  *out_assembles_result = !loom_low_allocation_search_location_conflicts(
+      context, result_interval, result_capacity.descriptor_reg_class_id,
+      source_capacity.location_kind, result_location_base,
+      result_interval->unit_count,
+      /*ignored_value_ids=*/NULL,
+      /*ignored_value_count=*/0,
+      /*ignored_storage_lease_value_ids=*/NULL,
+      /*ignored_storage_lease_value_count=*/0,
+      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE);
   return iree_ok_status();
 }
 

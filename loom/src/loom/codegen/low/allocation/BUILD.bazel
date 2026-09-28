@@ -212,6 +212,19 @@ loom_cc_library(
     ],
 )
 
+loom_cc_test(
+    name = "concat_reservation_test",
+    srcs = ["concat_reservation_test.cc"],
+    deps = [
+        ":active_set",
+        ":concat_reservation",
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "coalescing",
     srcs = ["coalescing.c"],
