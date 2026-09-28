@@ -58,17 +58,26 @@ explains why retaining host resources does not exclude wake-up cost.
 ### Timer registers and alignment
 
 In AIE2IPU and AIE2P, each event module has timer control, low/high timer
-values, and a programmable timer-event threshold. `Timer_Control` can reset
-the timer directly or select an event that resets it. A broadcast route can
-distribute one reset event to the participating modules. `XAie_SyncTimer`
-implements this by configuring the broadcast network and reset selectors for
-ungated tiles, generating the event, and clearing that temporary
-configuration. [Timer implementation][aie-timers]
+values, and a programmable timer-event threshold. [AIE2IPU timer
+modules][aie2ipu-timer-modules], [AIE2P timer modules][aie2p-timer-modules],
+[threshold programming][aie-timer-thresholds]
 
-This aligns the timers to a program event, not to a CPU clock. Event
-propagation also takes time along the route. Cross-tile differences therefore
-include any reset-arrival skew. A trace decoder needs the timer epoch as well
-as the source tile and module to place samples on a shared timeline.
+`Timer_Control` can reset the timer directly or select an event that resets
+it. [Direct reset][aie-timer-reset], [reset-event selection][aie-timer-reset-event]
+A broadcast route can distribute one reset event to the participating modules.
+`XAie_SyncTimer` implements this by configuring the broadcast network and reset
+selectors for ungated tiles, generating the event, and clearing that temporary
+configuration. [Timer synchronization][aie-timer-sync]
+
+The AM025-derived shim register description places `Timer_Low` at local offset
+`0x340f8` and `Timer_High` at `0x340fc`, each holding 32 bits. Those offsets
+describe the register interface; a firmware timer-record operation has its own
+sampling implementation. [Shim timer registers][shim-timer-registers]
+
+The reset broadcast aligns the timers to a program event, not to a CPU clock.
+Event propagation also takes time along the route. Cross-tile differences
+therefore include any reset-arrival skew. A trace decoder needs the timer epoch
+as well as the source tile and module to place samples on a shared timeline.
 
 The register interface and the core instruction are different read paths.
 `XAie_ReadTimer` performs separate low-word and high-word register reads; it
@@ -415,7 +424,7 @@ context:
 | Operation | Input | Result |
 | --- | --- | --- |
 | `READ_REGS` | A list of array register addresses. | Register values copied into the firmware result buffer. |
-| `RECORD_TIMER` | A caller-selected marker; the NPU4/NPU5 optimized encoding retains its low 24 bits. | A marker and timer record appended to the firmware result buffer. |
+| `RECORD_TIMER` | A caller-selected marker. | A marker and timer record appended to the firmware result buffer. |
 
 The transaction definitions assign these opcodes `0x82` and `0x83`. The XDP
 timeline reader consumes each timer record as three 32-bit words: ID, timer
@@ -426,21 +435,22 @@ record is not a paired sample of the tile's `cntr` and a host clock.
 [Transaction definitions][transaction-ops], [timeline result
 reader][xdp-timeline]
 
-On NPU4 and NPU5, the optimized `RECORD_TIMER` handler takes the low 24 bits
-of its opcode-16 instruction as the marker ID and samples the partition-base
-shim timer. It reads `Timer_High` at local offset `0x340fc` followed by
-`Timer_Low` at `0x340f8`, then writes marker, high word, and low word to the
-result buffer. The two reads have no rollover retry. A low-word wrap between
-them can therefore produce a sample from the preceding high-word epoch and
-must be handled when adjacent records are differenced. [AIE2P timer
-registers][aie2p-registers], [optimized transaction
-interpreter][dynamic-dispatch]
+DynamicDispatch's microcode converter assigns `OP_RECORD_TIMESTAMP` opcode
+16 and dispatches it through `ExecRecordTimestamp`. When `__AIESIM__` is
+absent and `_ENABLE_IPU_LX6_` is defined, that function passes its
+`partBaseAddr` argument and the low 24 bits of the instruction word to
+`RecordTimestampImpl`; it then advances by one word. The public wrapper
+delegates the sample to that helper without defining timer selection, read
+order or rollover handling. The marker encoding and the result-word layout
+therefore do not establish an atomic sampling sequence. [Opcode
+definition][dynamic-timer-opcode], [marker and helper call][dynamic-timer-call],
+[dispatch][dynamic-timer-dispatch]
 
-This is an array clock-domain timer. Records within one continuously active
-timer epoch can describe interpreter progress, but the counter does not supply
-a continuously advancing epoch across array idle, power gating, reset, or
-independent native lifetimes. A frequency written into a trace-file header is
-format metadata, not a device contract. Host correlation still requires
+Converting records to durations requires the sampled timer's clock domain,
+frequency history and epoch, including its behavior across idle, power gating,
+reset and independent native lifetimes. Neither the opcode nor the three-word
+result supplies those properties. A frequency written into a trace-file header
+is format metadata, not a device contract. Host correlation still requires
 explicit host bracketing and, for tile work, program-owned `cntr` samples.
 
 ### Linux context attachment
@@ -480,10 +490,15 @@ native context lifetime.
 Linux `DRM_AMDXDNA_QUERY_CLOCK_METADATA` returns two named integer-MHz values.
 The AIE2 driver labels them `MP-NPU Clock` and `H Clock`; the AIE4 driver
 labels the corresponding fields `NPU H Clock` and `AIE Clock`. The query
-returns operating-clock information, not a counter sample. The surrounding
-native query resumes the device and holds a runtime-power reference, so
-polling it can affect idle behavior. [AIE2 clock query][linux-aie2], [AIE4
-clock query][linux-aie4]
+returns operating-clock information, not a counter sample. [Clock
+fields][linux-clock-fields], [AIE2 clock query][linux-aie2-clock], [AIE4 clock
+query][linux-aie4-clock]
+
+With runtime PM enabled, the surrounding native query resumes the device and
+holds a runtime-power reference, so polling it can affect idle behavior.
+[AIE2 query lifetime][linux-aie2-query-power], [AIE4 query
+lifetime][linux-aie4-query-power], [runtime PM condition][linux-query-runtime-pm],
+[locked query entry][linux-query-runtime-pm-lock]
 
 In the NPU4 register backend, the H-clock field is populated from the sensor's
 NPU-clock reading; the MP-NPU field comes from the separate MP-NPU reading.
@@ -509,13 +524,13 @@ implementation][linux-dpt]
 Payload reads carry a cursor and can block waiting for new data. `ESTALE`
 reports that a disable/enable cycle invalidated the cursor and returns the new
 cursor with zero payload. `ESHUTDOWN` reports a disabled channel and ends the
-watch. A blocking read holds native power resources while waiting. These
-notifications describe the diagnostic stream, not application queue
-completion. [Payload protocol][linux-uapi], [native query
-lifetime][linux-aie2]
+watch. With runtime PM enabled, a blocking read holds a runtime-power
+reference while waiting. These notifications describe the diagnostic stream,
+not application queue completion. [Payload protocol][linux-uapi], [AIE2 query
+lifetime][linux-aie2-trace-query], [AIE4 query lifetime][linux-aie4-trace-query],
+[runtime PM condition][linux-query-runtime-pm]
 
 [cycle-counter]: https://download.amd.com/docnav/aiengine/xilinx2026_1/aiengine_ml_v2_intrinsics/intrinsics/group__intr__counter.html
-[aie-timers]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c
 [aie-timer-read]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L327-L407
 [aie2ipu-registers]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2ipugbl_reginit.c
 [aie2p-registers]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2pgbl_reginit.c
@@ -539,14 +554,30 @@ lifetime][linux-aie2]
 [xdp-timeline]: https://github.com/Xilinx/XDP/blob/03ba80bf6c4942f51eebc71f7d154d9254426396/profile/plugin/ml_timeline/clientDev/ml_timeline.cpp
 [xdp-edge-timers]: https://github.com/Xilinx/XDP/blob/03ba80bf6c4942f51eebc71f7d154d9254426396/profile/plugin/aie_trace/edge/aie_trace.cpp
 [transaction-ops]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/common/xaie_txn.h
-[dynamic-dispatch]: https://github.com/amd/DynamicDispatch/blob/b3051f03e20aab237cda3bbe4cd2081f76b72b06/src/txn/txn_utils.cpp
 [linux-context]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c
 [linux-messages]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_message.c
 [linux-buffer]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/buffer.cpp
 [linux-uapi]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/include/uapi/drm/amdxdna_accel.h
-[linux-aie2]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c
-[linux-aie4]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_pci.c
 [linux-npu4-clocks]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu4_regs.c
 [linux-aie4-messages]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_message.c
 [linux-ioctls]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_drm.c
 [linux-dpt]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.c
+[aie2ipu-timer-modules]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2ipugbl_reginit.c#L3875-L3917
+[aie2p-timer-modules]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2pgbl_reginit.c#L4207-L4249
+[aie-timer-thresholds]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L74-L128
+[aie-timer-reset]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L149-L210
+[aie-timer-reset-event]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L235-L326
+[aie-timer-sync]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L882-L968
+[dynamic-timer-opcode]: https://github.com/amd/DynamicDispatch/blob/b3051f03e20aab237cda3bbe4cd2081f76b72b06/src/txn/txn_utils.cpp#L738-L739
+[dynamic-timer-call]: https://github.com/amd/DynamicDispatch/blob/b3051f03e20aab237cda3bbe4cd2081f76b72b06/src/txn/txn_utils.cpp#L1307-L1315
+[dynamic-timer-dispatch]: https://github.com/amd/DynamicDispatch/blob/b3051f03e20aab237cda3bbe4cd2081f76b72b06/src/txn/txn_utils.cpp#L1773-L1776
+[shim-timer-registers]: https://github.com/Xilinx/mlir-aie/blob/c69fb4c8f2fb853d5ca62d19f829796d3ae4ba34/lib/Dialect/AIE/Util/aie_registers_aie2.json#L77678-L77719
+[linux-clock-fields]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/include/uapi/drm/amdxdna_accel.h#L408-L428
+[linux-aie2-clock]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L742-L769
+[linux-aie4-clock]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_pci.c#L975-L1002
+[linux-aie2-query-power]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L819-L883
+[linux-aie4-query-power]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_pci.c#L1174-L1244
+[linux-aie2-trace-query]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L885-L965
+[linux-aie4-trace-query]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie4_pci.c#L1298-L1377
+[linux-query-runtime-pm]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pm.c#L108-L134
+[linux-query-runtime-pm-lock]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pm.h#L20-L29

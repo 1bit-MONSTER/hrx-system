@@ -21,7 +21,7 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [MLIR-AIE and IRON dataflow][mlir-aie-dataflow] | `41fa359ea1f66f7e5c572f8d0cc8c7646262adf5` | Object FIFOs, task ownership, descriptor allocation, DMA lowering, and stream routes. |
 | [XRT runtime][xrt] | `ecad6cf22171ffec754fdd36afc2ae200af5c3a6` | Buffer synchronization delegation, ZYNQ/ZOCL GMIO channel completion, and managed external-buffer task ownership. |
 | [XDP][xdp] | `03ba80bf6c4942f51eebc71f7d154d9254426396` | Array profiling, trace storage and offload, and host/device timeline consumers. |
-| [DynamicDispatch][dynamic-dispatch] | `b3051f03e20aab237cda3bbe4cd2081f76b72b06` | Firmware transaction construction and timer-read operations. |
+| [DynamicDispatch][dynamic-dispatch] | `b3051f03e20aab237cda3bbe4cd2081f76b72b06` | Firmware transaction construction and timestamp-marker encoding. |
 
 HSA's [System Architecture 1.2][hsa-system] defines standard AQL packets,
 publication, signal, and fence-scope semantics. Its [Programmer's Reference
