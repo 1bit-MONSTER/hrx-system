@@ -20,12 +20,18 @@ _CONFIGURED_CASES = [
     "pipelined_guarded_recurrence.loom",
 ]
 
+_SCENARIO_CASES = [
+    "packed_vector_select.loom",
+    "predicate_logic.loom",
+    "vector_i64_bitwise.loom",
+]
+
 _CASES = glob(
     ["*.loom"],
-    exclude = _CONFIGURED_CASES,
+    exclude = _CONFIGURED_CASES + _SCENARIO_CASES,
 )
 
-exports_files(_CASES + _CONFIGURED_CASES)
+exports_files(_CASES + _CONFIGURED_CASES + _SCENARIO_CASES)
 
 loom_generated_file_family(
     name = "subgroup_transport_gen",
