@@ -294,35 +294,32 @@ loom_check_compile_tests(
     loom::target::spirv::vulkan1.3+bda+extended-types
 )
 
-loom_generated_file_family(
-  NAME
-    vector_i64_bitwise_gen
-  GENERATOR
-    loom::py::loom::gen::test::vector_i64_bitwise
-  OUTPUTS
-    "vector_i64_bitwise_cases.loom"
-    "vector_i64_bitwise_arrays"
-  OUTPUT_FLAGS
-    "--output"
-    "--arrays"
-  TESTONLY
-)
-
 loom_test_module(
   NAME
     vector_i64_bitwise_test_module
   SRCS
     "vector_i64_bitwise.loom"
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_i64_bitwise_cases.loom"
-  DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_i64_bitwise_arrays"
-    "${CMAKE_CURRENT_BINARY_DIR}/vector_i64_bitwise_cases.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
-    vector_i64_bitwise_test_execute_amdgpu_hardware_test
+    vector_i64_bitwise_test_execute_vm_reference_test
+  MODULE
+    "::vector_i64_bitwise_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    vector_i64_bitwise_test_execute_amdgpu_hardware_vm_oracle_test
   MODULE
     "::vector_i64_bitwise_test_module"
   RUNNER_ARGS
@@ -332,9 +329,10 @@ loom_execution_test(
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
     "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-build-requirement=loom.target.arch.vm"
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
+    "loom-execution-profile=amdgpu_hardware_vm_oracle"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"
@@ -343,10 +341,10 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
-    vector_i64_bitwise_test_execute_amdgpu_access_test
+    vector_i64_bitwise_test_execute_amdgpu_access_vm_oracle_test
   MODULE
     "::vector_i64_bitwise_test_module"
   RUNNER_ARGS
@@ -358,9 +356,10 @@ loom_execution_test(
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
     "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-build-requirement=loom.target.arch.vm"
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
+    "loom-execution-profile=amdgpu_access_vm_oracle"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"
@@ -368,20 +367,6 @@ loom_execution_test(
     "gpu-device"
 )
 endif()
-
-loom_check_compile_tests(
-  NAME
-    "vector_i64_bitwise_test"
-  SRC
-    "::vector_i64_bitwise_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
 
 loom_generated_file_family(
   NAME
