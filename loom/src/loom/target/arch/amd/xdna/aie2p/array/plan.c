@@ -533,6 +533,7 @@ static void loom_aie2p_array_extract_channel(
   loom_aie2p_array_channel_t* channel = &builder->channels[channel_index];
   channel->value_id = loom_op_results(op)[0];
   channel->source_channel_index = channel_index;
+  channel->binding_plan_index = UINT32_MAX;
   channel->first_channel_slot = UINT32_MAX;
   channel->sender_dma_index = UINT32_MAX;
   channel->sender_endpoint_index =
@@ -1470,6 +1471,110 @@ static iree_status_t loom_aie2p_array_admit_dma_record_length(
   return iree_diagnostic_emit(builder->diagnostic_emitter, &emission);
 }
 
+static iree_status_t loom_aie2p_array_diagnose_binding_transfer(
+    loom_aie2p_array_plan_builder_t* builder, uint32_t channel_index,
+    const loom_aie2p_array_endpoint_t* binding_endpoint,
+    const loom_aie2p_array_endpoint_t* base_binding_endpoint,
+    iree_string_view_t reason) {
+  loom_diagnostic_param_t source_type =
+      loom_param_type(base_binding_endpoint->message_type);
+  loom_diagnostic_param_t byte_offset =
+      loom_param_u64(binding_endpoint->binding_byte_offset);
+  if (binding_endpoint->binding_view_source_endpoint_index == UINT32_MAX) {
+    source_type = loom_param_with_field_ref(
+        source_type,
+        loom_diagnostic_field_ref(LOOM_DIAGNOSTIC_FIELD_RESULT, 0));
+  } else {
+    byte_offset = loom_param_with_field_ref(
+        byte_offset,
+        loom_diagnostic_field_ref(LOOM_DIAGNOSTIC_FIELD_OPERAND, 1));
+  }
+  const loom_diagnostic_param_t params[] = {
+      loom_param_u32(channel_index),
+      loom_param_with_field_ref(
+          loom_param_type(binding_endpoint->message_type),
+          loom_diagnostic_field_ref(LOOM_DIAGNOSTIC_FIELD_RESULT, 0)),
+      source_type,
+      byte_offset,
+      loom_param_string(reason),
+  };
+  const loom_diagnostic_emission_t emission = {
+      .module = builder->module,
+      .op = loom_value_def_op(loom_value_table_const_value(
+          &builder->module->values, binding_endpoint->value_id)),
+      .error = LOOM_ERR_XDNA_032,
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+  };
+  builder->valid = false;
+  return iree_diagnostic_emit(builder->diagnostic_emitter, &emission);
+}
+
+// Admits every host-facing transfer before any physical resource cursor moves.
+// Ingress binding multicast retains one canonical patch row, matching its
+// shared shim DMA. Egress branches each target a distinct binding and retain a
+// distinct patch even when their worker-side compute DMA is shared.
+static iree_status_t loom_aie2p_array_admit_binding_transfers(
+    loom_aie2p_array_plan_builder_t* builder) {
+  const loom_xdna_dma_facts_t* shim_dma_facts =
+      &loom_xdna_array_tile_kind_facts(builder->family,
+                                       LOOM_XDNA_TILE_KIND_SHIM_NOC)
+           ->dma;
+  for (iree_host_size_t i = 0; i < builder->plan->channel_count; ++i) {
+    const uint32_t channel_index = (uint32_t)i;
+    loom_aie2p_array_channel_t* channel = &builder->channels[channel_index];
+    if (channel->transport != LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_EXTERNAL_DMA) {
+      continue;
+    }
+    const loom_aie2p_array_endpoint_t* sender =
+        &builder->endpoints[channel->sender_endpoint_index];
+    const loom_aie2p_array_endpoint_t* receiver =
+        &builder->endpoints[channel->receiver_endpoint_index];
+    const bool ingress =
+        loom_aie2p_array_topology_base_endpoint(builder->plan, sender)
+            ->owner_kind == LOOM_AIE2P_ARRAY_ENDPOINT_OWNER_BINDING;
+    const loom_aie2p_array_endpoint_t* binding_endpoint =
+        ingress ? sender : receiver;
+    const loom_aie2p_array_endpoint_t* base_binding_endpoint =
+        loom_aie2p_array_topology_base_endpoint(builder->plan,
+                                                binding_endpoint);
+    const loom_aie2p_array_channel_t* source_channel =
+        loom_aie2p_array_source_channel(builder, channel_index);
+    if (ingress && source_channel != NULL) {
+      IREE_ASSERT_NE(source_channel->binding_plan_index, UINT32_MAX);
+      channel->binding_plan_index = source_channel->binding_plan_index;
+      continue;
+    }
+
+    IREE_ASSERT_LT(builder->binding_plan_cursor,
+                   builder->plan->binding_plan_count);
+    channel->binding_plan_index = (uint32_t)builder->binding_plan_cursor++;
+    loom_aie2p_array_binding_plan_t* binding_plan =
+        &builder->binding_plans[channel->binding_plan_index];
+    *binding_plan = (loom_aie2p_array_binding_plan_t){
+        .binding_index = base_binding_endpoint->owner_index,
+        .channel_index = channel_index,
+        .dma_index = UINT32_MAX,
+        .partition_lane = binding_endpoint->partition_lane,
+        .partition_lane_count = binding_endpoint->partition_lane_count,
+        .completion_route_index = UINT32_MAX,
+    };
+    iree_string_view_t reason = iree_string_view_empty();
+    if (!loom_aie2p_array_resolve_binding_transfer(
+            builder->module, &builder->facts, builder->family,
+            base_binding_endpoint->message_type, binding_endpoint->message_type,
+            binding_endpoint->binding_byte_offset,
+            binding_endpoint->binding_view_partitioned,
+            binding_endpoint->partition_lane, channel->record_byte_length,
+            channel->record_count, shim_dma_facts, binding_plan, &reason)) {
+      return loom_aie2p_array_diagnose_binding_transfer(
+          builder, channel_index, binding_endpoint, base_binding_endpoint,
+          reason);
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_aie2p_array_plan_external_channel(
     loom_aie2p_array_plan_builder_t* builder, uint32_t channel_index,
     const loom_aie2p_array_endpoint_t* sender,
@@ -1478,10 +1583,6 @@ static iree_status_t loom_aie2p_array_plan_external_channel(
   const bool ingress =
       loom_aie2p_array_topology_base_endpoint(builder->plan, sender)
           ->owner_kind == LOOM_AIE2P_ARRAY_ENDPOINT_OWNER_BINDING;
-  const loom_aie2p_array_endpoint_t* binding_endpoint =
-      ingress ? sender : receiver;
-  const loom_aie2p_array_endpoint_t* base_binding_endpoint =
-      loom_aie2p_array_topology_base_endpoint(builder->plan, binding_endpoint);
   const loom_aie2p_array_endpoint_t* worker_endpoint =
       ingress ? receiver : sender;
   const loom_aie2p_array_worker_t* worker =
@@ -1559,27 +1660,13 @@ static iree_status_t loom_aie2p_array_plan_external_channel(
   }
 
   if (owns_shim_dma) {
-    loom_aie2p_array_binding_plan_t binding_plan = {
-        .binding_index = base_binding_endpoint->owner_index,
-        .channel_index = channel_index,
-        .dma_index = shim_dma_index,
-        .partition_lane = binding_endpoint->partition_lane,
-        .partition_lane_count = binding_endpoint->partition_lane_count,
-        .completion_route_index = ingress
-                                      ? UINT32_MAX
-                                      : loom_aie2p_array_plan_completion_route(
-                                            builder, shim_dma->coordinate),
-    };
-    const loom_xdna_tile_facts_t* shim_tile =
-        loom_xdna_array_tile_facts(builder->family, shim_dma->coordinate);
-    IREE_RETURN_IF_ERROR(loom_aie2p_array_plan_binding_transfer(
-        builder->module, &builder->facts, builder->family,
-        base_binding_endpoint->message_type, binding_endpoint->message_type,
-        binding_endpoint->binding_byte_offset,
-        binding_endpoint->binding_view_partitioned,
-        binding_endpoint->partition_lane, channel->record_byte_length,
-        channel->record_count, &shim_tile->dma, &binding_plan));
-    builder->binding_plans[builder->binding_plan_cursor++] = binding_plan;
+    loom_aie2p_array_binding_plan_t* binding_plan =
+        &builder->binding_plans[channel->binding_plan_index];
+    binding_plan->dma_index = shim_dma_index;
+    binding_plan->completion_route_index =
+        ingress ? UINT32_MAX
+                : loom_aie2p_array_plan_completion_route(builder,
+                                                         shim_dma->coordinate);
   }
   if (owns_compute_dma) {
     loom_aie2p_array_bind_worker_port(builder, worker_endpoint, channel_index,
@@ -1996,6 +2083,10 @@ iree_status_t loom_aie2p_array_plan_build(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_aie2p_array_allocate_physical_plan(&builder));
+  if (!builder.valid) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_aie2p_array_admit_binding_transfers(&builder));
   if (!builder.valid) {
     return iree_ok_status();
   }

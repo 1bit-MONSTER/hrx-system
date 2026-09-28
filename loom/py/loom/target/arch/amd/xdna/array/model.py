@@ -338,6 +338,10 @@ def _validate_dma(tile: TileFacts) -> None:
     )
     if any(value < 0 or value > (1 << 8) - 1 for value in byte_values):
         raise ValueError(f"{tile.kind.value}: DMA u8 fact overflows")
+    if dma.step_size_bits >= 32 or dma.wrap_bits >= 32:
+        raise ValueError(
+            f"{tile.kind.value}: DMA address dimension exceeds its u32 carrier"
+        )
     if dma.address_alignment & (dma.address_alignment - 1):
         raise ValueError(f"{tile.kind.value}: DMA alignment is not a power of two")
     if dma.address_maximum % dma.address_alignment:
@@ -585,6 +589,48 @@ def _validate_dma_register_fields(family: ArrayFamily, tile: TileFacts) -> None:
         raise ValueError(
             f"{tile.kind.value}: DMA wrap fields disagree with address dimensions"
         )
+
+    queue_patterns = tuple(
+        candidate
+        for candidate in family.registers
+        if candidate.module is pattern.module
+        and any(field.name == "start_bd_id" for field in candidate.fields)
+    )
+    if len(queue_patterns) != 2:
+        raise ValueError(f"{tile.kind.value}: DMA queue directions are incomplete")
+    for queue_pattern in queue_patterns:
+        queue_fields = {field.name: field for field in queue_pattern.fields}
+        start_field = queue_fields.get("start_bd_id")
+        repeat_field = queue_fields.get("repeat_count")
+        token_field = queue_fields.get("enable_token_issue")
+        channel_dimensions = tuple(
+            dimension
+            for dimension in queue_pattern.dimensions
+            if dimension.name == "channel"
+        )
+        if (
+            start_field is None
+            or repeat_field is None
+            or token_field is None
+            or start_field.is_signed
+            or repeat_field.is_signed
+            or token_field.is_signed
+            or len(channel_dimensions) != 1
+            or channel_dimensions[0].count != dma.channel_count_per_direction
+        ):
+            raise ValueError(
+                f"{tile.kind.value}: DMA queue fields disagree with resources"
+            )
+        if dma.buffer_descriptor_count > 1 << start_field.bit_width:
+            raise ValueError(
+                f"{tile.kind.value}: DMA queue start field does not cover descriptors"
+            )
+        if dma.maximum_task_repeat_count > 1 << repeat_field.bit_width:
+            raise ValueError(
+                f"{tile.kind.value}: DMA queue repeat field does not cover tasks"
+            )
+        if token_field.bit_width != 1:
+            raise ValueError(f"{tile.kind.value}: DMA queue token field is not boolean")
 
 
 def validate_array_family(family: ArrayFamily) -> None:

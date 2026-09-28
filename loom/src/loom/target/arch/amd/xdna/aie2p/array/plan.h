@@ -169,6 +169,9 @@ typedef struct loom_aie2p_array_channel_t {
   // fanout shares producer storage, DMA, and locks. Binding fanout shares the
   // host-facing shim DMA and runtime binding patch.
   uint32_t source_channel_index;
+  // Admitted host-facing binding patch row, or UINT32_MAX for an internal
+  // channel. Ingress binding fanout shares its canonical source row.
+  uint32_t binding_plan_index;
   // First record in channel_slots for this channel's contiguous ring.
   uint32_t first_channel_slot;
   // DMA row serving the sending endpoint, or UINT32_MAX for memory transport.

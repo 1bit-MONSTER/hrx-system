@@ -575,6 +575,30 @@ ERR_XDNA_031 = ErrorDef(
     ),
 )
 
+# ERR_XDNA_032: An external binding transfer is not representable by shim DMA.
+ERR_XDNA_032 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=32,
+    severity=Severity.ERROR,
+    summary="External binding transfer is not representable by shim DMA.",
+    message=(
+        "AIE2P channel {channel} cannot transfer {record_type} records from "
+        "binding source {source_type} at byte offset {byte_offset} with shim "
+        "DMA: {reason}"
+    ),
+    params=(
+        ErrorParam("channel", ParamKind.U32),
+        ErrorParam("record_type", ParamKind.TYPE),
+        ErrorParam("source_type", ParamKind.TYPE),
+        ErrorParam("byte_offset", ParamKind.U64),
+        ErrorParam("reason", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Use an exact source layout whose partition offset, transfer span, "
+        "repeats, and address dimensions fit the shim DMA fields."
+    ),
+)
+
 ALL_XDNA_ERRORS = (
     ERR_XDNA_001,
     ERR_XDNA_002,
@@ -607,4 +631,5 @@ ALL_XDNA_ERRORS = (
     ERR_XDNA_029,
     ERR_XDNA_030,
     ERR_XDNA_031,
+    ERR_XDNA_032,
 )

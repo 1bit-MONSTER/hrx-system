@@ -284,6 +284,7 @@ def test_validator_rejects_dma_length_field_without_descriptor_coverage() -> Non
         ("maximum_task_repeat_count", 1 << 16, "u16 resource limit overflows"),
         ("address_dimension_count", 1 << 8, "u8 fact overflows"),
         ("address_maximum", 1 << 64, "address range exceeds u64"),
+        ("step_size_bits", 32, "address dimension exceeds its u32 carrier"),
     ],
 )
 def test_validator_rejects_dma_facts_outside_native_domains(
@@ -324,6 +325,23 @@ def test_validator_rejects_dma_facts_disagreeing_with_descriptor_fields(
     )
 
     with pytest.raises(ValueError, match=message):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(invalid_shim, *NPU2_ARRAY_FAMILY.tiles[1:]),
+            )
+        )
+
+
+def test_validator_rejects_dma_repeat_fact_outside_queue_field() -> None:
+    shim = NPU2_ARRAY_FAMILY.tiles[0]
+    assert shim.dma is not None
+    invalid_shim = replace(
+        shim,
+        dma=replace(shim.dma, maximum_task_repeat_count=257),
+    )
+
+    with pytest.raises(ValueError, match="queue repeat field does not cover tasks"):
         validate_array_family(
             replace(
                 NPU2_ARRAY_FAMILY,
