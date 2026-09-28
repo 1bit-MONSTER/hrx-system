@@ -48,6 +48,16 @@ TEST(XdnaArrayFactsTest, ExposesCompleteNpu2Topology) {
   EXPECT_EQ(tile->dma.memory_to_stream_port_stride, 1u);
   EXPECT_EQ(tile->dma.stream_to_memory_port_base, 0u);
   EXPECT_EQ(tile->dma.stream_to_memory_port_stride, 1u);
+
+  tile = loom_xdna_array_tile_kind_facts(family, LOOM_XDNA_TILE_KIND_SHIM_NOC);
+  EXPECT_EQ(tile->kind, LOOM_XDNA_TILE_KIND_SHIM_NOC);
+  EXPECT_EQ(tile->first_row, 0u);
+  tile = loom_xdna_array_tile_kind_facts(family, LOOM_XDNA_TILE_KIND_MEMORY);
+  EXPECT_EQ(tile->kind, LOOM_XDNA_TILE_KIND_MEMORY);
+  EXPECT_EQ(tile->first_row, 1u);
+  tile = loom_xdna_array_tile_kind_facts(family, LOOM_XDNA_TILE_KIND_COMPUTE);
+  EXPECT_EQ(tile->kind, LOOM_XDNA_TILE_KIND_COMPUTE);
+  EXPECT_EQ(tile->first_row, 2u);
 }
 
 TEST(XdnaArrayFactsTest, CanonicalizesComputeNeighborAliases) {
