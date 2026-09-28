@@ -261,7 +261,7 @@ typedef struct loom_spirv_feature_atom_descriptor_t {
   loom_spirv_feature_atom_t atom;
   // Stable feature atom name for diagnostics.
   iree_string_view_t name;
-  // Atom bits that must also be selected.
+  // Transitive atom dependencies that must also be selected.
   loom_spirv_feature_bits_t required_atom_bits;
   // Minimum SPIR-V binary version required by this atom.
   uint32_t minimum_spirv_version;
@@ -335,6 +335,12 @@ iree_string_view_t loom_spirv_feature_atom_name(loom_spirv_feature_atom_t atom);
 
 // Returns the feature atoms currently modeled by this target package.
 loom_spirv_feature_bits_t loom_spirv_known_feature_bits(void);
+
+// Includes the generated transitive dependencies of every selected atom.
+// Unknown bits are preserved for validation by
+// |loom_spirv_feature_set_prepare|.
+loom_spirv_feature_bits_t loom_spirv_feature_bits_with_dependencies(
+    loom_spirv_feature_bits_t atom_bits);
 
 // Returns true when |feature_set| contains |atom|.
 bool loom_spirv_feature_set_has_atom(

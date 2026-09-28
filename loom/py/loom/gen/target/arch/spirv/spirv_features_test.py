@@ -16,6 +16,7 @@ from loom.target.arch.spirv.features import (
     FEATURE_ATOMS,
     FeatureAtom,
     FeatureProfile,
+    feature_dependency_keys,
     validate_feature_catalog,
 )
 
@@ -45,6 +46,13 @@ def test_generation_emits_compact_feature_tables() -> None:
     assert "#ifndef LOOM_TARGET_ARCH_SPIRV_FEATURES_H_" not in tables
     assert "typedef enum loom_spirv_feature_bit_e" not in tables
     assert "loom_spirv_feature_set_prepare" not in tables
+
+
+def test_feature_dependencies_include_transitive_parents() -> None:
+    assert feature_dependency_keys("group_non_uniform_ballot") == (
+        "vulkan_shader",
+        "group_non_uniform",
+    )
 
 
 def test_validation_rejects_unknown_dependency() -> None:

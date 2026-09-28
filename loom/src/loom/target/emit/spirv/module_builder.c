@@ -272,9 +272,10 @@ iree_status_t loom_spirv_module_builder_finalize(
   IREE_ASSERT_ARGUMENT(out_module);
 
   *out_module = (loom_spirv_module_binary_t){0};
+  const loom_spirv_feature_bits_t closed_feature_bits =
+      loom_spirv_feature_bits_with_dependencies(builder->required_feature_bits);
   IREE_RETURN_IF_ERROR(loom_spirv_feature_set_prepare(
-      builder->target_name, builder->required_feature_bits,
-      &builder->feature_set));
+      builder->target_name, closed_feature_bits, &builder->feature_set));
   IREE_RETURN_IF_ERROR(
       loom_spirv_module_builder_emit_feature_preamble(builder));
 

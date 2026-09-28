@@ -472,6 +472,30 @@ def feature_bits_value(
     return bits
 
 
+def feature_dependency_keys(
+    atom_key: str,
+    *,
+    atoms: Iterable[FeatureAtom] = FEATURE_ATOMS,
+) -> tuple[str, ...]:
+    """Returns every transitive dependency of an atom in catalog order."""
+    atom_rows = tuple(atoms)
+    atoms_by_key = atom_by_key(atom_rows)
+    if atom_key not in atoms_by_key:
+        raise ValueError(f"unknown SPIR-V feature atom {atom_key!r}")
+
+    dependencies: set[str] = set()
+
+    def collect(key: str) -> None:
+        for required_key in atoms_by_key[key].required:
+            if required_key in dependencies:
+                continue
+            dependencies.add(required_key)
+            collect(required_key)
+
+    collect(atom_key)
+    return tuple(atom.key for atom in atom_rows if atom.key in dependencies)
+
+
 def feature_row_capacity(
     field_name: str,
     *,
