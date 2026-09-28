@@ -155,6 +155,16 @@ class TileFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class TileResourceTotals:
+    """Aggregate resources across all physical tiles of one kind."""
+
+    physical_tile_count: int
+    lock_count: int
+    dma_channel_count_per_direction: int
+    dma_buffer_descriptor_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class EventModuleFacts:
     """Event identifier domain implemented by one register module."""
 
@@ -229,6 +239,22 @@ class ArrayFamily:
     stream_ports: tuple[StreamPortRange, ...]
     registers: tuple[RegisterPattern, ...]
     provenance: Provenance
+
+
+def tile_resource_totals(family: ArrayFamily, tile: TileFacts) -> TileResourceTotals:
+    """Derives family-wide resource totals for one tile-kind row."""
+    physical_tile_count = family.column_count * tile.row_count
+    dma = tile.dma
+    return TileResourceTotals(
+        physical_tile_count=physical_tile_count,
+        lock_count=physical_tile_count * tile.lock_count,
+        dma_channel_count_per_direction=(
+            physical_tile_count * dma.channel_count_per_direction if dma else 0
+        ),
+        dma_buffer_descriptor_count=(
+            physical_tile_count * dma.buffer_descriptor_count if dma else 0
+        ),
+    )
 
 
 def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
@@ -781,6 +807,45 @@ def validate_array_family(family: ArrayFamily) -> None:
         _validate_dma(tile)
     if covered_rows != set(range(family.row_count)):
         raise ValueError(f"{family.key}: tile rows do not cover the array")
+    resource_totals = tuple(tile_resource_totals(family, tile) for tile in family.tiles)
+    if any(
+        value > _UINT32_MAXIMUM
+        for totals in resource_totals
+        for value in (
+            totals.physical_tile_count,
+            totals.lock_count,
+            totals.dma_channel_count_per_direction,
+            totals.dma_buffer_descriptor_count,
+        )
+    ):
+        raise ValueError(f"{family.key}: aggregate tile resource carrier overflows")
+
+    # Every physical channel consumes at least one unique directional DMA
+    # endpoint or lock pair. Counting every family resource produces a
+    # planner-policy-independent upper bound for all result-table carriers.
+    maximum_channel_capacity = max(tile.lock_value_maximum for tile in family.tiles)
+    maximum_dma_endpoint_count = sum(
+        totals.dma_channel_count_per_direction * 2 for totals in resource_totals
+    )
+    maximum_lock_pair_count = sum(totals.lock_count // 2 for totals in resource_totals)
+    maximum_channel_count = maximum_dma_endpoint_count + maximum_lock_pair_count
+    maximum_route_count = maximum_dma_endpoint_count * (
+        family.column_count + family.row_count
+    )
+    maximum_worker_storage_count = (
+        sum(totals.physical_tile_count for totals in resource_totals) * _UINT8_MAXIMUM
+    )
+    if any(
+        value > _UINT32_MAXIMUM
+        for value in (
+            maximum_channel_count,
+            maximum_channel_count * maximum_channel_capacity,
+            maximum_channel_count * 2,
+            maximum_route_count,
+            maximum_worker_storage_count,
+        )
+    ):
+        raise ValueError(f"{family.key}: physical-plan carrier overflows")
     event_modules = [event.module for event in family.events]
     if not set(event_modules).issubset(modules) or len(event_modules) != len(
         set(event_modules)

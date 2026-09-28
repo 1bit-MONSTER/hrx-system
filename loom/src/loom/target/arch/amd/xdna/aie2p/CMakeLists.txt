@@ -600,6 +600,7 @@ loom_check_test_suite(
     "test/array_plan/record_contracts.loom-test"
     "test/array_plan/ring_wrap.loom-test"
     "test/array_plan/route_capacity.loom-test"
+    "test/array_plan/shim_resource_admission.loom-test"
     "test/array_plan/strided_transfer.loom-test"
     "test/array_plan/temporal_fold.loom-test"
     "test/array_plan/topology_admission.loom-test"

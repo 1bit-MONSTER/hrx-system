@@ -132,6 +132,33 @@ loom_aie2p_array_channel_resources_propose_compute(
   return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_NONE;
 }
 
+loom_aie2p_array_channel_resource_failure_t
+loom_aie2p_array_channel_resources_propose_shim(
+    const loom_aie2p_array_tile_resources_t* resources,
+    loom_xdna_tile_coordinate_t coordinate,
+    loom_aie2p_array_dma_direction_t direction, uint16_t descriptor_count,
+    loom_aie2p_array_shim_endpoint_proposal_t* out_proposal) {
+  const uint8_t next_channel =
+      direction == LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM
+          ? resources->next_memory_to_stream_channel
+          : resources->next_stream_to_memory_channel;
+  if (next_channel >= resources->facts->dma.channel_count_per_direction) {
+    return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_DMA_CHANNEL;
+  }
+  if ((uint32_t)resources->next_buffer_descriptor + descriptor_count >
+      resources->facts->dma.buffer_descriptor_count) {
+    return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_DMA_DESCRIPTORS;
+  }
+  *out_proposal = (loom_aie2p_array_shim_endpoint_proposal_t){
+      .coordinate = coordinate,
+      .direction = direction,
+      .dma_channel = next_channel,
+      .buffer_descriptor_start = resources->next_buffer_descriptor,
+      .buffer_descriptor_count = descriptor_count,
+  };
+  return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_NONE;
+}
+
 void loom_aie2p_array_channel_resources_commit_ring(
     const loom_aie2p_array_ring_resource_proposal_t* proposal,
     loom_aie2p_array_tile_resources_t* resources) {
@@ -158,4 +185,16 @@ void loom_aie2p_array_channel_resources_commit_compute(
     resources->flags |= LOOM_AIE2P_ARRAY_TILE_RESOURCE_FLAG_HAS_DMA_SERVICE;
   }
   loom_aie2p_array_channel_resources_commit_ring(&proposal->ring, resources);
+}
+
+void loom_aie2p_array_channel_resources_commit_shim(
+    const loom_aie2p_array_shim_endpoint_proposal_t* proposal,
+    loom_aie2p_array_tile_resources_t* resources) {
+  uint8_t* next_channel =
+      proposal->direction == LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM
+          ? &resources->next_memory_to_stream_channel
+          : &resources->next_stream_to_memory_channel;
+  *next_channel = proposal->dma_channel + 1u;
+  resources->next_buffer_descriptor =
+      proposal->buffer_descriptor_start + proposal->buffer_descriptor_count;
 }

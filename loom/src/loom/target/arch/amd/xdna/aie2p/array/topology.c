@@ -69,6 +69,45 @@ static uint32_t loom_aie2p_array_topology_neighbor_load_address_base(
   return 0;
 }
 
+// Retains exact physical ownership after transport and canonical multicast
+// selection. Worker sender ownership crosses external and routed branches, so
+// it is classified once here instead of independently by later consumers.
+static loom_aie2p_array_channel_resource_flags_t
+loom_aie2p_array_topology_channel_resource_flags(
+    const loom_aie2p_array_topology_t* topology, uint32_t channel_index) {
+  const loom_aie2p_array_channel_t* channel =
+      &topology->channels[channel_index];
+  const bool owns_source = channel->source_channel_index == channel_index;
+  switch (channel->transport) {
+    case LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_EXTERNAL_DMA: {
+      const loom_aie2p_array_endpoint_t* sender =
+          &topology->plan->endpoints[channel->sender_endpoint_index];
+      const loom_aie2p_array_endpoint_t* base_sender =
+          loom_aie2p_array_topology_base_endpoint(topology->plan, sender);
+      if (base_sender->owner_kind == LOOM_AIE2P_ARRAY_ENDPOINT_OWNER_BINDING) {
+        return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_STREAM_TO_MEMORY |
+               (owns_source
+                    ? LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_SHIM_MEMORY_TO_STREAM
+                    : 0);
+      }
+      return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_SHIM_STREAM_TO_MEMORY |
+             (owns_source
+                  ? LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_MEMORY_TO_STREAM
+                  : 0);
+    }
+    case LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_NEIGHBOR_MEMORY:
+      return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_NEIGHBOR_RING;
+    case LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA:
+      return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_STREAM_TO_MEMORY |
+             (owns_source
+                  ? LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_MEMORY_TO_STREAM
+                  : 0);
+    default:
+      IREE_ASSERT_UNREACHABLE("validated AIE2P channel transport");
+      return 0;
+  }
+}
+
 static iree_status_t loom_aie2p_array_topology_reject_group_lane(
     const loom_aie2p_array_topology_t* topology, const loom_op_t* op,
     uint32_t group_index, uint32_t lane, uint32_t worker_count) {
@@ -1122,6 +1161,13 @@ iree_status_t loom_aie2p_array_topology_validate(
         channel->transport = LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA;
       }
     }
+  }
+
+  for (iree_host_size_t channel_index = 0; channel_index < plan->channel_count;
+       ++channel_index) {
+    topology->channels[channel_index].resource_flags =
+        loom_aie2p_array_topology_channel_resource_flags(
+            topology, (uint32_t)channel_index);
   }
 
   bool worker_interfaces_valid = false;

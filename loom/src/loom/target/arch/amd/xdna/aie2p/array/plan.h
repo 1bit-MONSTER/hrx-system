@@ -54,6 +54,22 @@ typedef enum loom_aie2p_array_channel_transport_e {
   LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA = 3,
 } loom_aie2p_array_channel_transport_t;
 
+typedef uint8_t loom_aie2p_array_channel_resource_flags_t;
+enum loom_aie2p_array_channel_resource_flag_bits_e {
+  // The channel owns one compute memory-to-stream DMA endpoint and ring.
+  LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_MEMORY_TO_STREAM = 1u
+                                                                         << 0,
+  // The channel owns one compute stream-to-memory DMA endpoint and ring.
+  LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_STREAM_TO_MEMORY = 1u
+                                                                         << 1,
+  // The channel owns one shim memory-to-stream DMA endpoint.
+  LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_SHIM_MEMORY_TO_STREAM = 1u << 2,
+  // The channel owns one shim stream-to-memory DMA endpoint.
+  LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_SHIM_STREAM_TO_MEMORY = 1u << 3,
+  // The channel owns one neighbor-visible ring and synchronization pair.
+  LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_NEIGHBOR_RING = 1u << 4,
+};
+
 // DMA transfer direction relative to local memory.
 typedef enum loom_aie2p_array_dma_direction_e {
   LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM = 1,
@@ -189,6 +205,8 @@ typedef struct loom_aie2p_array_channel_t {
   loom_aie2p_array_channel_transport_t transport;
   // Receiver-relative load base retained for neighbor-memory transport.
   uint32_t neighbor_receiver_load_address_base;
+  // Exact physical resources owned after transport and multicast selection.
+  loom_aie2p_array_channel_resource_flags_t resource_flags;
 } loom_aie2p_array_channel_t;
 
 // Declared requirements associated with a worker entry symbol.

@@ -177,6 +177,18 @@ typedef struct loom_xdna_dma_facts_t {
   loom_xdna_dma_feature_bits_t feature_bits;
 } loom_xdna_dma_facts_t;
 
+// Aggregate resources across all physical tiles of one kind.
+typedef struct loom_xdna_tile_resource_totals_t {
+  // Number of physical tiles of this kind in the complete array.
+  uint32_t physical_tile_count;
+  // Total number of hardware locks across the tiles.
+  uint32_t lock_count;
+  // Total DMA channels in each transfer direction across the tiles.
+  uint32_t dma_channel_count_per_direction;
+  // Total DMA buffer descriptors across the tiles.
+  uint32_t dma_buffer_descriptor_count;
+} loom_xdna_tile_resource_totals_t;
+
 // All physical resources shared by tiles of one kind.
 typedef struct loom_xdna_tile_facts_t {
   // Physical tile role.
@@ -193,6 +205,8 @@ typedef struct loom_xdna_tile_facts_t {
   int8_t lock_value_maximum;
   // Bit set of configuration-register modules present on the tile.
   uint8_t register_module_bits;
+  // Aggregate resources across all physical tiles of this kind.
+  loom_xdna_tile_resource_totals_t array_resources;
   // Local and program memory geometry.
   loom_xdna_tile_memory_facts_t memory;
   // DMA engine resources and limits.

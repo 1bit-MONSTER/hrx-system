@@ -132,6 +132,20 @@ typedef struct loom_aie2p_array_compute_endpoint_proposal_t {
   loom_aie2p_array_compute_endpoint_proposal_flags_t flags;
 } loom_aie2p_array_compute_endpoint_proposal_t;
 
+// Exact shim DMA transition retained for commit.
+typedef struct loom_aie2p_array_shim_endpoint_proposal_t {
+  // Physical shim tile owning the endpoint.
+  loom_xdna_tile_coordinate_t coordinate;
+  // DMA transfer direction relative to external memory.
+  loom_aie2p_array_dma_direction_t direction;
+  // Direction-local physical DMA channel ordinal.
+  uint8_t dma_channel;
+  // First tile-local buffer descriptor selected for the endpoint.
+  uint16_t buffer_descriptor_start;
+  // Number of contiguous buffer descriptors selected for the endpoint.
+  uint16_t buffer_descriptor_count;
+} loom_aie2p_array_shim_endpoint_proposal_t;
+
 // Selects one neighbor-memory ring and lock pair without mutating |resources|.
 // The output is defined only when NONE is returned.
 loom_aie2p_array_channel_resource_failure_t
@@ -151,6 +165,15 @@ loom_aie2p_array_channel_resources_propose_compute(
     const loom_aie2p_array_compute_endpoint_request_t* request,
     loom_aie2p_array_compute_endpoint_proposal_t* out_proposal);
 
+// Selects one shim DMA endpoint without mutating |resources|. The output is
+// defined only when NONE is returned.
+loom_aie2p_array_channel_resource_failure_t
+loom_aie2p_array_channel_resources_propose_shim(
+    const loom_aie2p_array_tile_resources_t* resources,
+    loom_xdna_tile_coordinate_t coordinate,
+    loom_aie2p_array_dma_direction_t direction, uint16_t descriptor_count,
+    loom_aie2p_array_shim_endpoint_proposal_t* out_proposal);
+
 // Applies a previously selected ring transition without placement work.
 void loom_aie2p_array_channel_resources_commit_ring(
     const loom_aie2p_array_ring_resource_proposal_t* proposal,
@@ -160,6 +183,12 @@ void loom_aie2p_array_channel_resources_commit_ring(
 // work or resource checks.
 void loom_aie2p_array_channel_resources_commit_compute(
     const loom_aie2p_array_compute_endpoint_proposal_t* proposal,
+    loom_aie2p_array_tile_resources_t* resources);
+
+// Applies a previously selected shim-endpoint transition without resource
+// checks.
+void loom_aie2p_array_channel_resources_commit_shim(
+    const loom_aie2p_array_shim_endpoint_proposal_t* proposal,
     loom_aie2p_array_tile_resources_t* resources);
 
 #ifdef __cplusplus

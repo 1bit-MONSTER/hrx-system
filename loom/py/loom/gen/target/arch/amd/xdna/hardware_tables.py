@@ -26,6 +26,7 @@ from loom.target.arch.amd.xdna.array.model import (
     StreamPort,
     TileKind,
     maximum_encoded_dma_transfer_length,
+    tile_resource_totals,
     validate_array_family,
 )
 from loom.target.arch.amd.xdna.array.npu2 import (
@@ -111,6 +112,7 @@ def emit_array_facts() -> str:
             for window in tile.memory.load_windows
         )
         register_module_bits = " | ".join(f"LOOM_XDNA_REGISTER_MODULE_BIT({_REGISTER_MODULE_IDS[module]})" for module in tile.register_modules)
+        resource_totals = tile_resource_totals(family, tile)
         dma = tile.dma
         assert dma is not None
         maximum_encoded_transfer_length = maximum_encoded_dma_transfer_length(tile)
@@ -127,6 +129,12 @@ def emit_array_facts() -> str:
                 f"        .lock_value_minimum = {tile.lock_value_minimum},",
                 f"        .lock_value_maximum = {tile.lock_value_maximum},",
                 f"        .register_module_bits = {register_module_bits},",
+                "        .array_resources = {",
+                f"            .physical_tile_count = {resource_totals.physical_tile_count},",
+                f"            .lock_count = {resource_totals.lock_count},",
+                f"            .dma_channel_count_per_direction = {resource_totals.dma_channel_count_per_direction},",
+                f"            .dma_buffer_descriptor_count = {resource_totals.dma_buffer_descriptor_count},",
+                "        },",
                 "        .memory = {",
                 f"            .local_base = UINT32_C(0x{tile.memory.local_base:08x}),",
                 f"            .local_capacity = UINT32_C(0x{tile.memory.local_capacity:08x}),",

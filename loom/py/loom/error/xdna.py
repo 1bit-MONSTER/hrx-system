@@ -91,8 +91,8 @@ ERR_XDNA_006 = ErrorDef(
     summary="AIE2P channel cannot acquire physical resources.",
     message=(
         "AIE2P channel {channel} at worker ({column}, {row}) cannot acquire "
-        "physical resources for {capacity} records of {record_bytes} bytes: "
-        "{reason}"
+        "physical resources with capacity {capacity} and {record_bytes}-byte "
+        "records: {reason}"
     ),
     params=(
         ErrorParam("channel", ParamKind.U32),

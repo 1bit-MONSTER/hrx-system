@@ -15,6 +15,11 @@ const loom_xdna_tile_facts_t* ComputeFacts() {
                                          LOOM_XDNA_TILE_KIND_COMPUTE);
 }
 
+const loom_xdna_tile_facts_t* ShimFacts() {
+  return loom_xdna_array_tile_kind_facts(loom_xdna_npu2_array_family(),
+                                         LOOM_XDNA_TILE_KIND_SHIM_NOC);
+}
+
 loom_aie2p_array_tile_resources_t MakeResources(uint32_t* bank_cursors) {
   loom_aie2p_array_tile_resources_t resources = {};
   resources.facts = ComputeFacts();
@@ -158,6 +163,62 @@ TEST(Aie2pArrayChannelResourcesTest, NeighborReportsOwningResource) {
   for (uint32_t cursor : bank_cursors) {
     EXPECT_EQ(cursor, 0u);
   }
+}
+
+TEST(Aie2pArrayChannelResourcesTest, ShimProposalRetainsExactTransition) {
+  loom_aie2p_array_tile_resources_t resources = {};
+  resources.facts = ShimFacts();
+  resources.next_buffer_descriptor = 7;
+  resources.next_memory_to_stream_channel = 1;
+  loom_aie2p_array_shim_endpoint_proposal_t proposal = {};
+
+  EXPECT_EQ(
+      loom_aie2p_array_channel_resources_propose_shim(
+          &resources, {3, 0}, LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM,
+          /*descriptor_count=*/2, &proposal),
+      LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_NONE);
+  EXPECT_EQ(resources.next_memory_to_stream_channel, 1u);
+  EXPECT_EQ(resources.next_stream_to_memory_channel, 0u);
+  EXPECT_EQ(resources.next_buffer_descriptor, 7u);
+  EXPECT_EQ(proposal.coordinate.column, 3u);
+  EXPECT_EQ(proposal.coordinate.row, 0u);
+  EXPECT_EQ(proposal.dma_channel, 1u);
+  EXPECT_EQ(proposal.buffer_descriptor_start, 7u);
+  EXPECT_EQ(proposal.buffer_descriptor_count, 2u);
+
+  loom_aie2p_array_channel_resources_commit_shim(&proposal, &resources);
+  EXPECT_EQ(resources.next_memory_to_stream_channel, 2u);
+  EXPECT_EQ(resources.next_stream_to_memory_channel, 0u);
+  EXPECT_EQ(resources.next_buffer_descriptor, 9u);
+}
+
+TEST(Aie2pArrayChannelResourcesTest, ShimProposalRejectsWithoutMutation) {
+  loom_aie2p_array_tile_resources_t resources = {};
+  resources.facts = ShimFacts();
+  resources.next_memory_to_stream_channel =
+      ShimFacts()->dma.channel_count_per_direction;
+  loom_aie2p_array_shim_endpoint_proposal_t proposal = {};
+
+  EXPECT_EQ(
+      loom_aie2p_array_channel_resources_propose_shim(
+          &resources, {0, 0}, LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM,
+          /*descriptor_count=*/1, &proposal),
+      LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_DMA_CHANNEL);
+  EXPECT_EQ(resources.next_memory_to_stream_channel,
+            ShimFacts()->dma.channel_count_per_direction);
+  EXPECT_EQ(resources.next_buffer_descriptor, 0u);
+
+  resources.next_memory_to_stream_channel = 0;
+  resources.next_buffer_descriptor =
+      ShimFacts()->dma.buffer_descriptor_count - 1u;
+  EXPECT_EQ(
+      loom_aie2p_array_channel_resources_propose_shim(
+          &resources, {0, 0}, LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM,
+          /*descriptor_count=*/2, &proposal),
+      LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FAILURE_DMA_DESCRIPTORS);
+  EXPECT_EQ(resources.next_memory_to_stream_channel, 0u);
+  EXPECT_EQ(resources.next_buffer_descriptor,
+            ShimFacts()->dma.buffer_descriptor_count - 1u);
 }
 
 }  // namespace

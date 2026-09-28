@@ -19,6 +19,7 @@ from loom.target.arch.amd.xdna.array.model import (
     TileKind,
     maximum_encoded_dma_transfer_length,
     register_field_count,
+    tile_resource_totals,
     validate_array_family,
 )
 from loom.target.arch.amd.xdna.array.npu2 import (
@@ -87,6 +88,25 @@ def test_npu2_topology_and_resource_domains_are_complete() -> None:
         RegisterModule.MEMORY_TILE: 161,
         RegisterModule.SHIM_PL: 128,
     }
+
+    assert tuple(
+        (
+            totals.physical_tile_count,
+            totals.lock_count,
+            totals.dma_channel_count_per_direction,
+            totals.dma_buffer_descriptor_count,
+        )
+        for totals in (tile_resource_totals(family, tile) for tile in family.tiles)
+    ) == (
+        (8, 128, 16, 128),
+        (8, 512, 48, 384),
+        (32, 512, 64, 512),
+    )
+
+
+def test_validator_rejects_physical_plan_carrier_overflow() -> None:
+    with pytest.raises(ValueError, match="physical-plan carrier overflows"):
+        validate_array_family(replace(NPU2_ARRAY_FAMILY, column_count=(1 << 16) - 1))
 
 
 def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
