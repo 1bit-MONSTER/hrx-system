@@ -49,24 +49,6 @@ iree_py_binary(
 )
 
 iree_py_binary(
-    name = "predicate_bitwise",
-    testonly = True,
-    srcs = ["predicate_bitwise.py"],
-    main = "predicate_bitwise.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
-    name = "predicate_select",
-    testonly = True,
-    srcs = ["predicate_select.py"],
-    main = "predicate_select.py",
-    visibility = ["//loom/src/loom/test/corpus/conformance:__pkg__"],
-    deps = [":kernel_fixture"],
-)
-
-iree_py_binary(
     name = "numeric_conversion_matrix",
     srcs = [
         "__init__.py",
