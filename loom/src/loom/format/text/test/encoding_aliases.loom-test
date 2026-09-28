@@ -25,3 +25,13 @@ test.decl @after(%value: view<8x8xf32, #row_major>)
 test.decl @before(%value: view<8x8xf32, #row_major>)
 
 test.decl @after(%value: view<8x8xf32, #row_major>)
+
+// ====
+// RUN: verify
+
+// An alternate source name still occupies the source namespace even though
+// structural interning retained the first name for display.
+#first = #encoding.layout.dense
+#second = #first
+// ERROR@+1: PARSE/014 "duplicate encoding alias name"
+#second = #encoding.layout.strided<strides=[8, 1]>

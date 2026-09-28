@@ -29,35 +29,6 @@
 #include "loom/ops/op_defs.h"
 
 //===----------------------------------------------------------------------===//
-// Alias table
-//===----------------------------------------------------------------------===//
-
-iree_status_t loom_alias_table_add(loom_alias_table_t* table,
-                                   iree_arena_allocator_t* arena,
-                                   iree_string_view_t name,
-                                   uint16_t encoding_id) {
-  if (table->count >= table->capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        arena, table->count, 8, sizeof(loom_alias_entry_t), &table->capacity,
-        (void**)&table->entries));
-  }
-  table->entries[table->count].name = name;
-  table->entries[table->count].encoding_id = encoding_id;
-  ++table->count;
-  return iree_ok_status();
-}
-
-uint16_t loom_alias_table_lookup(const loom_alias_table_t* table,
-                                 iree_string_view_t name) {
-  for (iree_host_size_t i = 0; i < table->count; ++i) {
-    if (iree_string_view_equal(table->entries[i].name, name)) {
-      return table->entries[i].encoding_id;
-    }
-  }
-  return 0;
-}
-
-//===----------------------------------------------------------------------===//
 // Keyword matching
 //===----------------------------------------------------------------------===//
 
@@ -1119,7 +1090,8 @@ static iree_status_t loom_parse_module_body(loom_parser_t* parser) {
                                       LOOM_REGION_SYNTAX_DEFAULT);
           continue;
         }
-        if (loom_alias_table_lookup(&parser->aliases, alias_token.text) != 0) {
+        if (loom_alias_table_lookup(&parser->aliases, parser->module,
+                                    alias_token.text) != 0) {
           loom_diagnostic_param_t params[] = {
               loom_param_string(IREE_SV("duplicate encoding alias name")),
           };
@@ -1147,7 +1119,7 @@ static iree_status_t loom_parse_module_body(loom_parser_t* parser) {
         if (encoding_id != 0) {
           IREE_RETURN_IF_ERROR(
               loom_alias_table_add(&parser->aliases, &parser->parser_arena,
-                                   alias_token.text, encoding_id));
+                                   alias_name_id, encoding_id));
         }
         continue;
       }

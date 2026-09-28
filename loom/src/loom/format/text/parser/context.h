@@ -56,7 +56,6 @@ typedef struct loom_parser_t {
   // Parser-owned reusable parameter slots, leased across nested type parsing.
   loom_parser_type_parameters_t* type_parameters_free_list;
 
-  loom_alias_table_t aliases;
   loom_symbol_map_t symbol_lookup;
   loom_diagnostic_sink_t diagnostic_sink;
 
@@ -109,6 +108,10 @@ typedef struct loom_parser_t {
     // First value created by the active list, or INVALID when inactive.
     loom_value_id_t value_start;
   } block_arg_scope;
+
+  // All source alias bindings, independent of canonical encoding display names.
+  // The bucket directory follows frequently accessed parser state.
+  loom_alias_table_t aliases;
 } loom_parser_t;
 
 // Returns true while parsing the body of the one active Scope(...) declaration
