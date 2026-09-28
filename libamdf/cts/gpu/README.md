@@ -7,8 +7,10 @@ separate translation units so the build can compile them concurrently.
 
 The [hardware reference](../../../docs/reference/amd/gpu/README.md) describes
 native command semantics. The [library queue guide](../../docs/gpu.md) describes
-the public caller contract. Neither source membership nor packet definitions
-alone establish a deployment's executed behavior.
+the public caller contract. The [coverage map](coverage.md) connects implemented
+behaviors, deployment paths and exact required-case invocations. Neither source
+membership nor packet definitions alone establish a deployment's executed
+behavior.
 
 ## Physical boundaries
 
@@ -28,12 +30,14 @@ gpu/
   lifecycle/                 # Completed resources and opt-in device recreation.
 ```
 
-[GPU/XDNA recipes](../interop/gpu/xdna/recipes/README.md) compose GPU memory
-transfers with finite NPU arithmetic and independent GPU readback. Platform
-memory, kernel-queue and external-API suites retain their separate dependencies.
-The `kernels` package owns compiled GPU fixtures and their provenance;
-`xdna/programs` owns the finite array fixtures. The `peer` package exports its
-design/readme without placeholder tests or executables.
+[GPU/XDNA recipes](../interop/gpu/xdna/recipes/README.md) cover finite GPU
+transfer/shader compositions and resident bidirectional exchange with the NPU.
+Resident programs own intermediate payload and credit handoffs; the host owns
+startup and terminal joins. Platform memory, kernel-queue and external-API suites
+retain their separate dependencies. The `kernels` package owns authored Loom GPU
+fixtures and their generated products; `xdna/programs` owns the finite and
+resident array fixtures. The `peer` package exports its design/readme without
+placeholder tests or executables.
 
 `CtsDeviceCache` creates one instance and one device per endpoint and engine
 kind for an executable, caching activation failures as well. GPU queue families
@@ -70,8 +74,9 @@ not imply Windows user-ring execution.
 Each `encoding/` package has one plain host-test binary. Package policy removes
 the GPU execution requirement for these exact packages, so byte-layout checks
 run without a GPU and do not reserve a GPU slot. GPU-family build enablement
-still applies. Native cases acquire neither Vulkan/D3D12 dependencies nor a
-shader compiler merely by using a GPU.
+still applies. Shader-bearing corpora build their Loom fixtures by default;
+SDMA and host encoding targets have no shader compiler dependency. Native
+command corpora acquire no Vulkan/D3D12 dependencies.
 
 Bazel declarations are authoritative; generated CMake targets preserve the
 same corpus, dynamic loading, requirements and resource group. For example,
@@ -106,7 +111,7 @@ remaining field, composition and architecture boundaries within each group.
 | Recipes | [recipes/BUILD.bazel](recipes/BUILD.bazel) | Additional backing classes, producer/consumer compositions and executable visibility. |
 | Manual lifecycle | [lifecycle/BUILD.bazel](lifecycle/BUILD.bazel) | Ordinary same-device copies are enabled; peer-device recreation remains disabled. |
 | Physical peers | No compiled cases | Multi-device admission, address reach, synchronization and runner requirements. |
-| GPU/NPU recipes | [interop/gpu/xdna/recipes/BUILD.bazel](../interop/gpu/xdna/recipes/BUILD.bazel) | TC/L2 ingress/readback and finite array arithmetic use host-relayed completion; shader-produced payloads and autonomous device dependencies require separate cases. |
+| GPU/NPU recipes | [interop/gpu/xdna/recipes/BUILD.bazel](../interop/gpu/xdna/recipes/BUILD.bazel) | Finite transfer/shader chains and resident exchanges cover both initiators, credits, independent workers and startup/drain. Cross-output-channel publication, other imported backing and simultaneous independent traffic require separate witnesses. |
 
 Cases use real commands and changing exact data. They do not exhaust their
 opcodes' fields. New cases add independent oracles, legal field partitions and

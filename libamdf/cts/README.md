@@ -1,7 +1,9 @@
 # libamdf conformance
 
 The conformance suites exercise the public [libamdf API](../README.md), native
-resource ownership and caller-visible results. Ordinary corpora use one
+resource ownership and caller-visible results. The
+[command and interop coverage map](gpu/coverage.md) connects behaviors to case
+sources, deployment paths and required-case invocations. Ordinary corpora use one
 runtime-loaded shared-library executable. The API-negotiation corpus also
 covers static and link-time shared binding. Source membership, successful
 compilation and an observed native result establish different facts.
@@ -14,8 +16,11 @@ compiler fixtures and manual lifecycle cases. The
 binding, CPU publication, arithmetic results, full guards and retirement with
 CTS-only fixtures compiled from [Loom source](xdna/programs/mul_i32.loom)
 during the build. The [GPU/XDNA recipes](interop/gpu/xdna/recipes/README.md)
-compose GPU TC/L2 ingress, finite NPU arithmetic and GPU readback with no host
-payload access between those phases. The
+cover finite GPU transfer/shader compositions and resident GPU/NPU exchanges.
+Resident cases exercise both dataflow initiators, one/two credits, independently
+progressing workers and explicit startup/drain, with no intermediate host relay.
+Finite cases join native phases on the host without accessing shared payloads
+between those phases. The
 [runtime XDNA execution suite](../../experimental/xdna/cts/README.md)
 separately exercises the runtime image integration. The XDNA API
 [queue cases](xdna/kernel_queue_test.cc) cover immutable ranges, capacity,
@@ -38,9 +43,11 @@ remain reachable. A passing payload alone is not successful cleanup.
 
 ## Build and resource selection
 
-The XDNA arithmetic corpora require `LOOM_BUILD` and `LOOM_TARGET_XDNA` to
-compile their program sources. Other libamdf corpora and production library
-builds remain independent of Loom.
+Shader-bearing corpora compile their fixtures with Loom during the build.
+GPU fixtures require its AMDGPU target/emitter, XDNA fixtures require its XDNA
+target/emitter, and GPU/XDNA recipes require both. SDMA and host encoding tests
+have no shader compiler dependency. Production library builds remain independent
+of Loom, the runtime and their image loaders.
 
 Hardware-backed suites declare `libamdf.resource.amd_gpu` or
 `libamdf.resource.xdna`. CMake exposes `runtime-resource=amd-gpu` and
