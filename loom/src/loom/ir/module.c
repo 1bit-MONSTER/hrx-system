@@ -126,7 +126,8 @@ static iree_status_t loom_module_reserve_type_insert(
   }
   if (iree_status_is_ok(status)) {
     status = loom_intern_table_reserve_insert(
-        &module->arena, &module->type_intern, hash, inout_slot);
+        &module->arena, &module->type_intern, hash, /*insertion_count=*/1,
+        inout_slot);
   }
   if (iree_status_is_ok(status)) {
     module->types = types;
@@ -600,7 +601,9 @@ void loom_value_u32_scratch_release_zeroed(loom_value_u32_scratch_t* scratch) {
 //===----------------------------------------------------------------------===//
 
 typedef struct loom_encoding_equal_context_t {
+  // Module owning the indexed canonical encoding rows.
   const loom_module_t* module;
+  // Candidate structural identity or display alias being queried.
   const loom_encoding_t* encoding;
 } loom_encoding_equal_context_t;
 
@@ -609,6 +612,23 @@ static bool loom_encoding_equal_fn(const void* context, uint32_t index) {
       (const loom_encoding_equal_context_t*)context;
   return loom_encoding_equal(&equal_context->module->encodings.entries[index],
                              equal_context->encoding);
+}
+
+static uint32_t loom_encoding_alias_hash(loom_string_id_t alias_id) {
+  return alias_id * 2654435769u;
+}
+
+static bool loom_encoding_alias_equal_fn(const void* context, uint32_t index) {
+  const loom_encoding_equal_context_t* equal_context = context;
+  return equal_context->module->encodings.entries[index].alias_id ==
+         equal_context->encoding->alias_id;
+}
+
+static void loom_module_index_encoding_alias(loom_module_t* module,
+                                             uint32_t hash, uint32_t index) {
+  const iree_host_size_t slot =
+      loom_intern_table_find_empty_slot(&module->encoding_intern, hash);
+  loom_intern_table_insert(&module->encoding_intern, slot, hash, index);
 }
 
 // Binds freshly canonicalized sparse parameters to their generated descriptor
@@ -813,17 +833,19 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
       &module->encoding_intern, hash, loom_encoding_equal_fn, &equal_context);
   const uint32_t existing_index = probe.index;
 
-  // Alias names are rare file-local shorthand. Scan only when one is authored
-  // and reject collisions against any structurally different encoding.
-  if (canonical_encoding.alias_id != LOOM_STRING_ID_INVALID) {
-    for (iree_host_size_t i = 0; i < module->encodings.count; ++i) {
-      if (i == existing_index) {
-        continue;
-      }
-      if (module->encodings.entries[i].alias_id !=
-          canonical_encoding.alias_id) {
-        continue;
-      }
+  // Structural and display-name keys share canonical rows and bucket storage.
+  // Each equality predicate checks its own key, including when a hash from
+  // the other domain collides. Anonymous entries only publish a structural key.
+  const bool has_alias = canonical_encoding.alias_id != LOOM_STRING_ID_INVALID;
+  const uint32_t alias_hash =
+      loom_encoding_alias_hash(canonical_encoding.alias_id);
+  loom_intern_probe_t alias_probe = {0};
+  if (has_alias) {
+    alias_probe =
+        loom_intern_table_probe(&module->encoding_intern, alias_hash,
+                                loom_encoding_alias_equal_fn, &equal_context);
+    if (alias_probe.index != UINT32_MAX &&
+        alias_probe.index != existing_index) {
       iree_string_view_t alias_name =
           loom_string_table_get(&module->strings, canonical_encoding.alias_id);
       iree_arena_checkpoint_restore(&candidate_checkpoint);
@@ -838,9 +860,14 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
     iree_arena_checkpoint_restore(&candidate_checkpoint);
     if (module->encodings.entries[existing_index].alias_id ==
             LOOM_STRING_ID_INVALID &&
-        canonical_encoding.alias_id != LOOM_STRING_ID_INVALID) {
+        has_alias) {
+      IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+          &module->arena, &module->encoding_intern, alias_hash,
+          /*insertion_count=*/1, &alias_probe.slot));
       module->encodings.entries[existing_index].alias_id =
           canonical_encoding.alias_id;
+      loom_intern_table_insert(&module->encoding_intern, alias_probe.slot,
+                               alias_hash, existing_index);
     }
     *out_encoding_id = (uint16_t)(existing_index + 1);
     return iree_ok_status();
@@ -874,7 +901,8 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
   iree_host_size_t slot = probe.slot;
   if (iree_status_is_ok(status)) {
     status = loom_intern_table_reserve_insert(
-        &module->arena, &module->encoding_intern, hash, &slot);
+        &module->arena, &module->encoding_intern, hash,
+        /*insertion_count=*/has_alias ? 2 : 1, &slot);
   }
   if (iree_status_is_ok(status)) {
     const uint32_t new_index = (uint32_t)encodings.count;
@@ -882,6 +910,9 @@ iree_status_t loom_module_add_encoding(loom_module_t* module,
     ++encodings.count;
     module->encodings = encodings;
     loom_intern_table_insert(&module->encoding_intern, slot, hash, new_index);
+    if (has_alias) {
+      loom_module_index_encoding_alias(module, alias_hash, new_index);
+    }
     *out_encoding_id = (uint16_t)(new_index + 1);
   } else {
     iree_arena_checkpoint_restore(&candidate_checkpoint);
@@ -1477,6 +1508,10 @@ iree_status_t loom_module_compact_symbols_preserving_symbol_refs(
     const iree_host_size_t slot =
         loom_intern_table_find_empty_slot(&module->encoding_intern, hash);
     loom_intern_table_insert(&module->encoding_intern, slot, hash, (uint32_t)i);
+    if (encoding->alias_id != LOOM_STRING_ID_INVALID) {
+      loom_module_index_encoding_alias(
+          module, loom_encoding_alias_hash(encoding->alias_id), (uint32_t)i);
+    }
   }
 
   for (iree_host_size_t old_index = 0; old_index < old_symbol_count;
@@ -2083,8 +2118,9 @@ iree_status_t loom_module_intern_string(loom_module_t* module,
     memcpy(copy, string.data, string.size);
   }
   iree_host_size_t slot = probe.slot;
-  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
-      &module->arena, &module->string_intern, hash, &slot));
+  IREE_RETURN_IF_ERROR(
+      loom_intern_table_reserve_insert(&module->arena, &module->string_intern,
+                                       hash, /*insertion_count=*/1, &slot));
   const uint32_t new_index = (uint32_t)module->strings.count;
   loom_string_segment_t* segment =
       (loom_string_segment_t*)loom_segmented_storage_segment(

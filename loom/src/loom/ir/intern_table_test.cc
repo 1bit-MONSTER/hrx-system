@@ -36,8 +36,8 @@ class InternTableTest : public ::testing::Test {
     ASSERT_EQ(probe.index, UINT32_MAX);
     const bool had_capacity = loom_intern_table_has_insert_capacity(table);
     auto slot = probe.slot;
-    IREE_ASSERT_OK(
-        loom_intern_table_reserve_insert(&arena_, table, hash, &slot));
+    IREE_ASSERT_OK(loom_intern_table_reserve_insert(
+        &arena_, table, hash, /*insertion_count=*/1, &slot));
     if (had_capacity) {
       EXPECT_EQ(slot, probe.slot);
     }
@@ -106,6 +106,40 @@ TEST_F(InternTableTest, SmallTableGrowthPreservesEveryHashOrder) {
     for (uint32_t index = 0; index < 4; ++index) {
       ASSERT_NO_FATAL_FAILURE(
           ExpectIndex(table, (sequence >> (index * 2)) & 3, index));
+    }
+    iree_arena_reset(&arena_);
+  }
+}
+
+TEST_F(InternTableTest, ReserveMultipleKeysBeforePublication) {
+  for (uint32_t insertion_count : {2u, 48u}) {
+    SCOPED_TRACE(insertion_count);
+    loom_intern_table_t table;
+    IREE_ASSERT_OK(loom_intern_table_initialize(&arena_, 4, &table));
+    // All keys collide across the end of the old table. The larger batch
+    // requires more than one doubling without publishing intermediate rows.
+    constexpr uint32_t kHash = 3;
+    for (uint32_t index = 0; index < 3; ++index) {
+      ASSERT_NO_FATAL_FAILURE(Insert(&table, kHash, index));
+    }
+    const uint32_t first_index = 3;
+    const auto probe =
+        loom_intern_table_probe(&table, kHash, EqualIndex, &first_index);
+    auto slot = probe.slot;
+    IREE_ASSERT_OK(loom_intern_table_reserve_insert(&arena_, &table, kHash,
+                                                    insertion_count, &slot));
+    EXPECT_EQ(table.count, first_index);
+    EXPECT_GE(table.capacity * 3 / 4, first_index + insertion_count);
+    const auto retained_bytes = arena_.used_allocation_size;
+    for (uint32_t index = first_index; index < first_index + insertion_count;
+         ++index) {
+      EXPECT_TRUE(loom_intern_table_has_insert_capacity(&table));
+      loom_intern_table_insert(&table, slot, kHash, index);
+      slot = loom_intern_table_find_empty_slot(&table, kHash);
+    }
+    EXPECT_EQ(arena_.used_allocation_size, retained_bytes);
+    for (uint32_t index = 0; index < first_index + insertion_count; ++index) {
+      ASSERT_NO_FATAL_FAILURE(ExpectIndex(table, kHash, index));
     }
     iree_arena_reset(&arena_);
   }

@@ -13,6 +13,7 @@ loom_check_test_suite(
   NAME
     test
   SRCS
+    "encoding_aliases.loom-test"
     "error_recovery.loom-test"
     "instance_flags.loom-test"
     "operand_dictionaries.loom-test"

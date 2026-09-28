@@ -48,8 +48,8 @@ static iree_status_t loom_source_table_index_appended(loom_module_t* module) {
     const uint32_t hash =
         loom_source_name_hash(module->sources.entries[source_id]);
     iree_host_size_t slot = loom_intern_table_find_empty_slot(index, hash);
-    IREE_RETURN_IF_ERROR(
-        loom_intern_table_reserve_insert(&module->arena, index, hash, &slot));
+    IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+        &module->arena, index, hash, /*insertion_count=*/1, &slot));
     loom_intern_table_insert(index, slot, hash, source_id);
   }
   return iree_ok_status();
@@ -114,8 +114,8 @@ loom_module_register_indexed_source(loom_module_t* module,
     return iree_ok_status();
   }
   iree_host_size_t slot = probe.slot;
-  IREE_RETURN_IF_ERROR(
-      loom_intern_table_reserve_insert(&module->arena, index, hash, &slot));
+  IREE_RETURN_IF_ERROR(loom_intern_table_reserve_insert(
+      &module->arena, index, hash, /*insertion_count=*/1, &slot));
   IREE_RETURN_IF_ERROR(loom_module_append_source(module, name, out_source_id));
   loom_intern_table_insert(index, slot, hash, *out_source_id);
   return iree_ok_status();

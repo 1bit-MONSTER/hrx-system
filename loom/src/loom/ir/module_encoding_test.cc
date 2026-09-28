@@ -4,6 +4,9 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <array>
+#include <string>
+
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/ir/context.h"
@@ -179,6 +182,93 @@ TEST_F(ModuleEncodingTest, FamilyAliasExpansionRetainsCanonicalParameters) {
   }
 }
 
+TEST_F(ModuleEncodingTest, OnlyCanonicalDisplayNamesReserveAliases) {
+  loom_string_id_t second_alias = LOOM_STRING_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_intern_string(module_, IREE_SV("second_layout"),
+                                           &second_alias));
+  uint16_t first_id = 0;
+  IREE_ASSERT_OK(Add(16, alias_id_, &first_id));
+  uint16_t id = 0;
+  IREE_ASSERT_OK(Add(16, second_alias, &id));
+  EXPECT_EQ(id, first_id);
+  EXPECT_EQ(loom_module_encoding(module_, id)->alias_id, alias_id_);
+
+  // An alternate spelling for an existing row does not become its display
+  // name or reserve another name in the module's canonical alias namespace.
+  IREE_ASSERT_OK(Add(32, second_alias, &id));
+  EXPECT_NE(id, first_id);
+  EXPECT_EQ(loom_module_encoding(module_, id)->alias_id, second_alias);
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        Add(16, second_alias, &id));
+  EXPECT_EQ(module_->encodings.count, 2u);
+}
+
+TEST_F(ModuleEncodingTest, AliasLookupSurvivesGrowthAndSymbolCompaction) {
+  std::array<loom_string_id_t, 128> aliases;
+  for (uint16_t i = 0; i < aliases.size(); ++i) {
+    const std::string name = "layout_" + std::to_string(i);
+    IREE_ASSERT_OK(loom_module_intern_string(
+        module_, iree_make_string_view(name.data(), name.size()), &aliases[i]));
+    uint16_t id = 0;
+    IREE_ASSERT_OK(Add(i + 1, aliases[i], &id));
+    EXPECT_EQ(id, i + 1);
+  }
+
+  // Removing a tombstone rebuilds the encoding index even when no encoding
+  // parameter itself contains a symbol reference.
+  uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
+  IREE_ASSERT_OK(loom_module_add_symbol(module_, alias_id_, &symbol_id));
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(&pool_, &scratch_arena);
+  iree_host_size_t removed_count = 0;
+  IREE_ASSERT_OK(
+      loom_module_compact_symbols(module_, &scratch_arena, &removed_count));
+  iree_arena_deinitialize(&scratch_arena);
+  EXPECT_EQ(removed_count, 1u);
+
+  const auto retained_bytes = module_->arena.used_allocation_size;
+  for (uint16_t i = 0; i < aliases.size(); ++i) {
+    SCOPED_TRACE(i);
+    uint16_t id = 0;
+    IREE_ASSERT_OK(Add(i + 1, aliases[i], &id));
+    EXPECT_EQ(id, i + 1);
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          Add(aliases.size() + 1, aliases[i], &id));
+  }
+  EXPECT_EQ(module_->encodings.count, aliases.size());
+  EXPECT_EQ(module_->arena.used_allocation_size, retained_bytes);
+}
+
+TEST_F(ModuleEncodingTest, FailedAliasPromotionPreservesAnonymousRow) {
+  for (iree_host_size_t failure_index = 0;; ++failure_index) {
+    SCOPED_TRACE(failure_index);
+    ASSERT_NO_FATAL_FAILURE(Prepare(96));
+    const auto interner = module_->encoding_intern;
+    const auto retained_bytes = module_->arena.used_allocation_size;
+    uint16_t id = 0;
+    failure_index_ = failure_index;
+    iree_status_t status = Add(1, alias_id_, &id);
+    failure_index_ = SIZE_MAX;
+    if (iree_status_is_ok(status)) {
+      EXPECT_LE(allocation_count_, failure_index);
+      EXPECT_EQ(id, 1);
+      EXPECT_EQ(loom_module_encoding(module_, id)->alias_id, alias_id_);
+      break;
+    }
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
+    EXPECT_EQ(id, 0);
+    EXPECT_EQ(module_->arena.used_allocation_size, retained_bytes);
+    EXPECT_EQ(module_->encoding_intern.count, interner.count);
+    EXPECT_EQ(module_->encoding_intern.capacity, interner.capacity);
+    EXPECT_EQ(loom_module_encoding(module_, 1)->alias_id,
+              LOOM_STRING_ID_INVALID);
+    IREE_ASSERT_OK(Add(1, alias_id_, &id));
+    EXPECT_EQ(id, 1);
+    EXPECT_EQ(loom_module_encoding(module_, id)->alias_id, alias_id_);
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Add(2, alias_id_, &id));
+  }
+}
+
 class ModuleEncodingFailureTest
     : public ModuleEncodingTest,
       public ::testing::WithParamInterface<uint16_t> {};
@@ -224,7 +314,7 @@ TEST_P(ModuleEncodingFailureTest, FailedPublicationPreservesRowsAndRetries) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Growth, ModuleEncodingFailureTest,
-                         ::testing::Values(0, 8, 96));
+                         ::testing::Values(0, 8, 95, 96));
 
 }  // namespace
 }  // namespace loom
