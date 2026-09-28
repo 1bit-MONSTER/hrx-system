@@ -762,8 +762,9 @@ static iree_status_t loom_scf_unroll_initialize_scheduled_tile(
   };
   const loom_op_t* unstructured_op = NULL;
   IREE_RETURN_IF_ERROR(loom_scf_body_build(
-      context->module, body_block, NULL, LOOM_SCF_BODY_MODE_SCHEDULE,
-      scratch_arena, &out_tile->body_ops, &unstructured_op));
+      context->module, body_block, /*capture_block=*/NULL, /*spaces=*/NULL,
+      LOOM_SCF_BODY_MODE_SCHEDULE, scratch_arena, &out_tile->body_ops,
+      &unstructured_op));
   if (unstructured_op != NULL) {
     return loom_scf_unroll_emit_policy_error(
         context, op, IREE_SV("schedule"), schedule,

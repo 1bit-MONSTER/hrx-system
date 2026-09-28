@@ -27,6 +27,8 @@ typedef struct loom_scf_body_builder_t {
   const loom_module_t* module;
   // Block defining the source iteration's local values.
   const loom_block_t* block;
+  // Optional enclosing block whose direct definitions are schedule captures.
+  const loom_block_t* capture_block;
   // Current operation, whose result-type self references need no dependency.
   const loom_op_t* op;
   // Destination plan populated in authored order.
@@ -53,7 +55,9 @@ static iree_status_t loom_scf_body_append_reference(loom_value_id_t value_id,
   const loom_value_t* value = loom_module_value(builder->module, value_id);
   bool allow_identity_mapping = false;
   if (loom_value_is_block_arg(value)) {
-    if (loom_value_def_block(value) != builder->block) {
+    const loom_block_t* definition_block = loom_value_def_block(value);
+    if (definition_block != builder->block &&
+        definition_block != builder->capture_block) {
       return iree_ok_status();
     }
   } else {
@@ -63,7 +67,8 @@ static iree_status_t loom_scf_body_append_reference(loom_value_id_t value_id,
     }
     if (!definition->parent_block) {
       allow_identity_mapping = true;
-    } else if (definition->parent_block != builder->block) {
+    } else if (definition->parent_block != builder->block &&
+               definition->parent_block != builder->capture_block) {
       return iree_ok_status();
     }
   }
@@ -330,13 +335,11 @@ static iree_status_t loom_scf_body_capture_operation(
   return iree_ok_status();
 }
 
-iree_status_t loom_scf_body_build(const loom_module_t* module,
-                                  const loom_block_t* block,
-                                  const loom_scf_memory_t* spaces,
-                                  loom_scf_body_mode_t mode,
-                                  iree_arena_allocator_t* arena,
-                                  loom_scf_body_t* out_body,
-                                  const loom_op_t** out_unstructured_op) {
+iree_status_t loom_scf_body_build(
+    const loom_module_t* module, const loom_block_t* block,
+    const loom_block_t* capture_block, const loom_scf_memory_t* spaces,
+    loom_scf_body_mode_t mode, iree_arena_allocator_t* arena,
+    loom_scf_body_t* out_body, const loom_op_t** out_unstructured_op) {
   *out_body = (loom_scf_body_t){0};
   *out_unstructured_op = NULL;
   loom_scf_body_builder_t builder = {
@@ -344,6 +347,7 @@ iree_status_t loom_scf_body_build(const loom_module_t* module,
       .mode = mode,
       .module = module,
       .block = block,
+      .capture_block = capture_block,
       .body = out_body,
       .arena = arena,
   };

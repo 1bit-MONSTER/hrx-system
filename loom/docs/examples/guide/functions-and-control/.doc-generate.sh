@@ -161,6 +161,16 @@ for policy in serial pipelined; do
     --benchmark="@cooperative_paged_attention_${policy}_n128_i256" \
     --dry-run --output="cooperative-${policy}.plan.json"
 done
+"${loom_report}" show cooperative-pipelined.report.json \
+  >cooperative-pipelined.show.txt
+sed -n '/^Source loop pipelines/,/^Source boundary projections/{
+  /^Source boundary projections/d
+  p
+}' cooperative-pipelined.show.txt >cooperative-pipeline-schedule.txt
+grep -Fq 'scf.if partition=guarded producer iteration_lookahead=2' \
+  cooperative-pipeline-schedule.txt
+grep -Fq 'scf.if partition=guarded consumer iteration_lookahead=0' \
+  cooperative-pipeline-schedule.txt
 "${loom_report}" suggest cooperative-pipelined.report.json >cooperative.suggest.txt
 sed -n '/^\[scf.compare_pipeline_depth\]/,/^$/p' cooperative.suggest.txt \
   >cooperative-pipeline-suggest.txt

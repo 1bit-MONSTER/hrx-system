@@ -119,9 +119,13 @@ typedef struct loom_scf_body_t {
 // the optional access arrays.
 //
 // Captures the verified |block|'s live operations, source effects and complete
-// local SSA dependencies in one traversal. A structured if/for and its
-// regions form one scheduling unit; their outer-body captures and effects are
-// retained together. Result-type dependencies come from the IR's
+// local SSA dependencies in one traversal. When |capture_block| is non-NULL,
+// values defined directly in that enclosing block are retained as dependencies
+// alongside values defined in |block|. This lets an enclosing schedule plan a
+// structured branch without turning definitions from deeper nested regions
+// into independent scheduling edges. A structured if/for and its regions form
+// one scheduling unit; their outer-body captures and effects are retained
+// together. Result-type dependencies come from the IR's
 // maintained type-use table. Attributes, including predicates and encoding
 // parameters, are traversed once during construction. External captures and
 // self references in an operation's result types need no scheduling edge.
@@ -132,13 +136,11 @@ typedef struct loom_scf_body_t {
 // Status failures identify allocation or size limits. All arrays belong to
 // |arena|, borrow the source IR, and remain valid while that IR is unchanged;
 // emitting clones does not invalidate them.
-iree_status_t loom_scf_body_build(const loom_module_t* module,
-                                  const loom_block_t* block,
-                                  const loom_scf_memory_t* spaces,
-                                  loom_scf_body_mode_t mode,
-                                  iree_arena_allocator_t* arena,
-                                  loom_scf_body_t* out_body,
-                                  const loom_op_t** out_unstructured_op);
+iree_status_t loom_scf_body_build(
+    const loom_module_t* module, const loom_block_t* block,
+    const loom_block_t* capture_block, const loom_scf_memory_t* spaces,
+    loom_scf_body_mode_t mode, iree_arena_allocator_t* arena,
+    loom_scf_body_t* out_body, const loom_op_t** out_unstructured_op);
 
 #ifdef __cplusplus
 }  // extern "C"

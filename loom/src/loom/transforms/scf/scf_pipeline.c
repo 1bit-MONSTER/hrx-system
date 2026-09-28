@@ -17,6 +17,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
+#include "loom/ops/vector/ops.h"
 #include "loom/pass/report.h"
 #include "loom/pass/value_facts.h"
 #include "loom/rewrite/materialize.h"
@@ -355,13 +356,35 @@ static iree_status_t loom_scf_pipeline_report(
   IREE_RETURN_IF_ERROR(loom_pass_report_append_detail(
       context->pass, IREE_SV("scf-pipeline"), fields, IREE_ARRAYSIZE(fields)));
   for (uint32_t i = 0; i < plan->body.count; ++i) {
+    const loom_scf_pipeline_stage_flags_t stages =
+        plan->stages ? plan->stages[i] : LOOM_SCF_PIPELINE_STAGE_CONSUMER;
     for (loom_scf_pipeline_stage_flags_t stage =
              LOOM_SCF_PIPELINE_STAGE_PRODUCER;
          stage <= LOOM_SCF_PIPELINE_STAGE_CONSUMER; stage <<= 1) {
-      if (!iree_any_bit_set(plan->stages[i], stage)) {
+      if (!iree_any_bit_set(stages, stage)) {
         continue;
       }
       const bool producer = stage == LOOM_SCF_PIPELINE_STAGE_PRODUCER;
+      if (plan->guarded_partitions && plan->guarded_partitions[i]) {
+        loom_pass_report_detail_field_t guarded_fields[] = {
+            loom_pass_report_detail_uint64_field(IREE_SV("loop"), loop_ordinal),
+            loom_pass_report_detail_uint64_field(IREE_SV("position"), i),
+            loom_pass_report_detail_string_field(
+                IREE_SV("op"),
+                loom_op_name(context->module, plan->body.operations[i].op)),
+            loom_pass_report_detail_string_field(IREE_SV("partition"),
+                                                 IREE_SV("guarded")),
+            loom_pass_report_detail_string_field(
+                IREE_SV("stage"),
+                producer ? IREE_SV("producer") : IREE_SV("consumer")),
+            loom_pass_report_detail_uint64_field(IREE_SV("iteration_lookahead"),
+                                                 producer ? depth - 1 : 0),
+        };
+        IREE_RETURN_IF_ERROR(loom_pass_report_append_detail(
+            context->pass, IREE_SV("scf-pipeline-stage"), guarded_fields,
+            IREE_ARRAYSIZE(guarded_fields)));
+        continue;
+      }
       loom_pass_report_detail_field_t stage_fields[] = {
           loom_pass_report_detail_uint64_field(IREE_SV("loop"), loop_ordinal),
           loom_pass_report_detail_uint64_field(IREE_SV("position"), i),
@@ -398,12 +421,29 @@ static iree_status_t loom_scf_pipeline_retain(
   IREE_RETURN_IF_ERROR(iree_arena_allocate(owner->arena, sizeof(*observation),
                                            (void**)&observation));
   loom_source_loop_pipeline_operation_t* operations = NULL;
-  const uint32_t operation_count =
-      plan->body.count + plan->rematerialized_count;
+  uint32_t operation_count = 0;
+  if (!plan->stages) {
+    operation_count = plan->body.count;
+  } else {
+    for (uint32_t i = 0; i < plan->body.count; ++i) {
+      operation_count +=
+          iree_any_bit_set(plan->stages[i], LOOM_SCF_PIPELINE_STAGE_PRODUCER);
+      operation_count +=
+          iree_any_bit_set(plan->stages[i], LOOM_SCF_PIPELINE_STAGE_CONSUMER);
+    }
+  }
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       owner->arena, operation_count, sizeof(*operations), (void**)&operations));
   uint32_t operation_index = 0;
   for (uint32_t i = 0; i < plan->body.count; ++i) {
+    if (!plan->stages) {
+      operations[operation_index++] = (loom_source_loop_pipeline_operation_t){
+          .source_position = i,
+          .op_name = loom_op_name(context->module, plan->body.operations[i].op),
+          .iteration_lookahead = 0,
+      };
+      continue;
+    }
     for (loom_scf_pipeline_stage_flags_t stage =
              LOOM_SCF_PIPELINE_STAGE_PRODUCER;
          stage <= LOOM_SCF_PIPELINE_STAGE_CONSUMER; stage <<= 1) {
@@ -411,9 +451,13 @@ static iree_status_t loom_scf_pipeline_retain(
         continue;
       }
       operations[operation_index++] = (loom_source_loop_pipeline_operation_t){
+          .source_position = i,
           .op_name = loom_op_name(context->module, plan->body.operations[i].op),
           .iteration_lookahead =
               stage == LOOM_SCF_PIPELINE_STAGE_PRODUCER ? depth - 1 : 0,
+          .partition = plan->guarded_partitions && plan->guarded_partitions[i]
+                           ? LOOM_SOURCE_LOOP_PIPELINE_PARTITION_GUARDED
+                           : LOOM_SOURCE_LOOP_PIPELINE_PARTITION_NONE,
       };
     }
   }
@@ -564,6 +608,272 @@ static iree_status_t loom_scf_pipeline_emit_serial(
   return status;
 }
 
+static iree_status_t loom_scf_pipeline_copy_op_presentation(
+    loom_scf_pipeline_context_t* context, const loom_op_t* source,
+    loom_op_t* target) {
+  target->instance_flags = source->instance_flags;
+  target->traits = source->traits;
+  target->flags |= source->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
+  iree_host_size_t comment_count = 0;
+  const iree_string_view_t* comments =
+      loom_module_op_comments(context->module, source, &comment_count);
+  return loom_module_attach_op_comments(context->module, target, comments,
+                                        comment_count);
+}
+
+static iree_status_t loom_scf_pipeline_copy_region_presentation(
+    loom_scf_pipeline_context_t* context, const loom_region_t* source,
+    loom_region_t* target) {
+  target->flags = source->flags;
+  target->source_flags = source->source_flags;
+  const loom_block_t* source_block = loom_region_const_entry_block(source);
+  loom_block_t* target_block = loom_region_entry_block(target);
+  target_block->flags = source_block->flags;
+  iree_host_size_t comment_count = 0;
+  const iree_string_view_t* comments =
+      loom_module_block_comments(context->module, source_block, &comment_count);
+  return loom_module_attach_block_comments(context->module, target_block,
+                                           comments, comment_count);
+}
+
+static iree_status_t loom_scf_pipeline_clone_body_operation(
+    loom_scf_pipeline_context_t* context, const loom_scf_body_t* body,
+    uint32_t operation, loom_ir_remap_t* remap) {
+  const loom_scf_body_access_unit_t* access = &body->accesses.units[operation];
+  remap->op_projection.entries =
+      access->count ? body->accesses.operations + access->begin : NULL;
+  remap->op_projection.count = access->count;
+  remap->op_projection.cursor = 0;
+  loom_op_t* clone = NULL;
+  IREE_RETURN_IF_ERROR(loom_ir_clone_op(&context->rewriter->builder,
+                                        body->operations[operation].op, remap,
+                                        &clone));
+  return loom_scf_memory_project(context->spaces, remap);
+}
+
+static loom_attribute_t loom_scf_pipeline_zero_attr(
+    loom_scalar_type_t element_type) {
+  if (loom_scalar_type_is_float(element_type)) {
+    return loom_attr_f64(0.0);
+  }
+  if (element_type == LOOM_SCALAR_TYPE_I1) {
+    return loom_attr_bool(false);
+  }
+  return loom_attr_i64(0);
+}
+
+static iree_status_t loom_scf_pipeline_build_guard_placeholder(
+    loom_scf_pipeline_context_t* context, loom_type_t type,
+    loom_location_id_t location, loom_value_id_t* out_value) {
+  loom_builder_t* builder = &context->rewriter->builder;
+  const loom_attribute_t zero =
+      loom_scf_pipeline_zero_attr(loom_type_element_type(type));
+  if (loom_type_is_scalar(type)) {
+    loom_op_t* constant = NULL;
+    if (loom_type_element_type(type) == LOOM_SCALAR_TYPE_INDEX ||
+        loom_type_element_type(type) == LOOM_SCALAR_TYPE_OFFSET) {
+      IREE_RETURN_IF_ERROR(
+          loom_index_constant_build(builder, zero, type, location, &constant));
+      *out_value = loom_index_constant_result(constant);
+    } else {
+      IREE_RETURN_IF_ERROR(
+          loom_scalar_constant_build(builder, zero, type, location, &constant));
+      *out_value = loom_scalar_constant_result(constant);
+    }
+    return iree_ok_status();
+  }
+  loom_op_t* vector = NULL;
+  if (loom_type_has_static_zero_extent(type)) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_empty_build(builder, type, location, &vector));
+    *out_value = loom_vector_empty_result(vector);
+  } else {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_constant_build(builder, zero, type, location, &vector));
+    *out_value = loom_vector_constant_result(vector);
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_scf_pipeline_emit_guarded_producer_branch(
+    loom_scf_pipeline_context_t* context,
+    const loom_scf_pipeline_guarded_partition_t* partition,
+    loom_ir_remap_t* remap, loom_value_id_t* yielded_values) {
+  const loom_scf_body_t* body =
+      &partition->branches[partition->producer_branch];
+  for (uint32_t i = 0; i < body->count; ++i) {
+    if (partition->producer_branch_stages[i] !=
+        LOOM_SCF_PIPELINE_STAGE_PRODUCER) {
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_scf_pipeline_clone_body_operation(context, body, i, remap));
+  }
+  for (uint32_t i = 0; i < partition->queue_value_count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_ir_remap_resolve_value(
+        remap, partition->queue_values[i], &yielded_values[i]));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_scf_pipeline_emit_guarded_producer(
+    loom_scf_pipeline_context_t* context,
+    const loom_scf_pipeline_guarded_partition_t* partition,
+    loom_ir_remap_t* remap) {
+  loom_builder_t* builder = &context->rewriter->builder;
+  const loom_op_t* source = partition->producer.op;
+  loom_value_id_t condition = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_ir_remap_resolve_value(
+      remap, loom_scf_if_condition(source), &condition));
+  loom_type_t* result_types = NULL;
+  loom_value_id_t* yielded_values = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(context->arena, partition->queue_value_count,
+                                sizeof(*result_types), (void**)&result_types));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->arena, partition->queue_value_count, sizeof(*yielded_values),
+      (void**)&yielded_values));
+  for (uint32_t i = 0; i < partition->queue_value_count; ++i) {
+    result_types[i] =
+        loom_module_value_type(context->module, partition->queue_values[i]);
+  }
+  loom_op_t* producer = NULL;
+  IREE_RETURN_IF_ERROR(loom_scf_if_build(
+      builder, LOOM_SCF_IF_BUILD_FLAG_HAS_ELSE_REGION, condition, result_types,
+      partition->queue_value_count, /*tied_results=*/NULL,
+      /*tied_result_count=*/0, source->location, &producer));
+
+  for (uint8_t branch = 0; branch < LOOM_SCF_PIPELINE_BRANCH_COUNT; ++branch) {
+    loom_region_t* region = branch == LOOM_SCF_PIPELINE_BRANCH_THEN
+                                ? loom_scf_if_then_region(producer)
+                                : loom_scf_if_else_region(producer);
+    loom_builder_ip_t saved_ip =
+        loom_builder_enter_region(builder, producer, region);
+    iree_status_t status = iree_ok_status();
+    if (branch == partition->producer_branch) {
+      status = loom_scf_pipeline_emit_guarded_producer_branch(
+          context, partition, remap, yielded_values);
+    } else {
+      for (uint32_t i = 0;
+           i < partition->queue_value_count && iree_status_is_ok(status); ++i) {
+        status = loom_scf_pipeline_build_guard_placeholder(
+            context, result_types[i], source->location, &yielded_values[i]);
+      }
+    }
+    loom_op_t* yield = NULL;
+    if (iree_status_is_ok(status)) {
+      status = loom_scf_yield_build(builder, yielded_values,
+                                    partition->queue_value_count,
+                                    source->location, &yield);
+    }
+    loom_builder_restore(builder, saved_ip);
+    IREE_RETURN_IF_ERROR(status);
+  }
+  const loom_value_id_t* producer_results = loom_op_const_results(producer);
+  IREE_RETURN_IF_ERROR(loom_ir_remap_map_values(remap, partition->queue_values,
+                                                producer_results,
+                                                partition->queue_value_count));
+  for (uint32_t i = 0; i < partition->queue_value_count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_module_copy_value_name(
+        context->module, partition->queue_values[i], producer_results[i]));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_scf_pipeline_emit_guarded_consumer_branch(
+    loom_scf_pipeline_context_t* context,
+    const loom_scf_pipeline_guarded_partition_t* partition, uint8_t branch,
+    loom_ir_remap_t* remap, loom_op_t* consumer) {
+  loom_builder_t* builder = &context->rewriter->builder;
+  const loom_scf_body_t* body = &partition->branches[branch];
+  loom_region_t* target_region = branch == LOOM_SCF_PIPELINE_BRANCH_THEN
+                                     ? loom_scf_if_then_region(consumer)
+                                     : loom_scf_if_else_region(consumer);
+  const loom_region_t* source_region =
+      branch == LOOM_SCF_PIPELINE_BRANCH_THEN
+          ? loom_scf_if_then_region(partition->consumer.op)
+          : loom_scf_if_else_region(partition->consumer.op);
+  IREE_RETURN_IF_ERROR(loom_scf_pipeline_copy_region_presentation(
+      context, source_region, target_region));
+  loom_builder_ip_t saved_ip =
+      loom_builder_enter_region(builder, consumer, target_region);
+  iree_status_t status = iree_ok_status();
+  for (uint32_t i = 0; i < body->count && iree_status_is_ok(status); ++i) {
+    if (branch == partition->producer_branch &&
+        partition->producer_branch_stages[i] !=
+            LOOM_SCF_PIPELINE_STAGE_CONSUMER) {
+      continue;
+    }
+    status = loom_scf_pipeline_clone_body_operation(context, body, i, remap);
+  }
+  const loom_op_t* source_yield = body->terminator.op;
+  const loom_value_slice_t source_values = loom_scf_yield_values(source_yield);
+  loom_value_id_t* yielded_values = NULL;
+  if (iree_status_is_ok(status)) {
+    status = iree_arena_allocate_array(context->arena, source_values.count,
+                                       sizeof(*yielded_values),
+                                       (void**)&yielded_values);
+  }
+  for (uint16_t i = 0; i < source_values.count && iree_status_is_ok(status);
+       ++i) {
+    status = loom_ir_remap_resolve_value(remap, source_values.values[i],
+                                         &yielded_values[i]);
+  }
+  loom_op_t* yield = NULL;
+  if (iree_status_is_ok(status)) {
+    status = loom_scf_yield_build(builder, yielded_values, source_values.count,
+                                  source_yield->location, &yield);
+  }
+  if (iree_status_is_ok(status)) {
+    status =
+        loom_scf_pipeline_copy_op_presentation(context, source_yield, yield);
+  }
+  loom_builder_restore(builder, saved_ip);
+  return status;
+}
+
+static iree_status_t loom_scf_pipeline_emit_guarded_consumer(
+    loom_scf_pipeline_context_t* context,
+    const loom_scf_pipeline_guarded_partition_t* partition,
+    loom_ir_remap_t* remap) {
+  loom_builder_t* builder = &context->rewriter->builder;
+  const loom_op_t* source = partition->consumer.op;
+  const loom_value_id_t checkpoint =
+      loom_rewriter_value_checkpoint(context->rewriter);
+  loom_value_id_t condition = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_ir_remap_resolve_value(
+      remap, loom_scf_if_condition(source), &condition));
+  loom_type_t* result_types = NULL;
+  loom_value_id_t* reserved_results = NULL;
+  if (source->result_count) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        context->arena, source->result_count, sizeof(*reserved_results),
+        (void**)&reserved_results));
+    IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+        builder, source->result_count, reserved_results));
+    IREE_RETURN_IF_ERROR(
+        loom_ir_remap_map_values(remap, loom_op_const_results(source),
+                                 reserved_results, source->result_count));
+    IREE_RETURN_IF_ERROR(
+        loom_ir_remap_value_types(remap, loom_op_const_results(source),
+                                  source->result_count, &result_types));
+  }
+  loom_op_t* consumer = NULL;
+  IREE_RETURN_IF_ERROR(loom_scf_if_build(
+      builder, LOOM_SCF_IF_BUILD_FLAG_HAS_ELSE_REGION, condition, result_types,
+      source->result_count, loom_op_tied_results(source),
+      source->tied_result_count, source->location, &consumer));
+  IREE_RETURN_IF_ERROR(
+      loom_scf_pipeline_copy_op_presentation(context, source, consumer));
+  for (uint8_t branch = 0; branch < LOOM_SCF_PIPELINE_BRANCH_COUNT; ++branch) {
+    IREE_RETURN_IF_ERROR(loom_scf_pipeline_emit_guarded_consumer_branch(
+        context, partition, branch, remap, consumer));
+  }
+  return loom_rewriter_preserve_result_names_on_new_values(
+      context->rewriter, source, loom_op_const_results(consumer),
+      source->result_count, checkpoint);
+}
+
 static iree_status_t loom_scf_pipeline_emit_stage(
     loom_scf_pipeline_context_t* context, const loom_scf_pipeline_plan_t* plan,
     loom_scf_pipeline_stage_flags_t stage, loom_ir_remap_t* remap) {
@@ -571,17 +881,18 @@ static iree_status_t loom_scf_pipeline_emit_stage(
     if (!iree_any_bit_set(plan->stages[i], stage)) {
       continue;
     }
-    remap->op_projection.entries = plan->body.accesses.units[i].count
-                                       ? plan->body.accesses.operations +
-                                             plan->body.accesses.units[i].begin
-                                       : NULL;
-    remap->op_projection.count = plan->body.accesses.units[i].count;
-    remap->op_projection.cursor = 0;
-    loom_op_t* clone = NULL;
-    IREE_RETURN_IF_ERROR(loom_ir_clone_op(&context->rewriter->builder,
-                                          plan->body.operations[i].op, remap,
-                                          &clone));
-    IREE_RETURN_IF_ERROR(loom_scf_memory_project(context->spaces, remap));
+    const loom_scf_pipeline_guarded_partition_t* partition =
+        plan->guarded_partitions ? plan->guarded_partitions[i] : NULL;
+    if (partition) {
+      IREE_RETURN_IF_ERROR(stage == LOOM_SCF_PIPELINE_STAGE_PRODUCER
+                               ? loom_scf_pipeline_emit_guarded_producer(
+                                     context, partition, remap)
+                               : loom_scf_pipeline_emit_guarded_consumer(
+                                     context, partition, remap));
+      continue;
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_scf_pipeline_clone_body_operation(context, &plan->body, i, remap));
   }
   return iree_ok_status();
 }
@@ -940,8 +1251,9 @@ static iree_status_t loom_scf_pipeline_process_loop(
     const loom_op_t* unstructured_op = NULL;
     IREE_RETURN_IF_ERROR(loom_scf_body_build(
         context->module, loom_region_entry_block(loom_scf_for_body(source)),
-        context->spaces, LOOM_SCF_BODY_MODE_PROJECT_MEMORY, context->arena,
-        &plan.body, &unstructured_op));
+        /*capture_block=*/NULL, context->spaces,
+        LOOM_SCF_BODY_MODE_PROJECT_MEMORY, context->arena, &plan.body,
+        &unstructured_op));
   }
   context->body = &plan.body;
   IREE_RETURN_IF_ERROR(
@@ -969,8 +1281,8 @@ static iree_status_t loom_scf_pipeline_prepare_loop(
   const loom_op_t* unstructured = NULL;
   IREE_RETURN_IF_ERROR(loom_scf_body_build(
       context->module, loom_region_entry_block(loom_scf_for_body(loop->source)),
-      context->spaces, LOOM_SCF_BODY_MODE_PROJECT_MEMORY, context->arena, &body,
-      &unstructured));
+      /*capture_block=*/NULL, context->spaces,
+      LOOM_SCF_BODY_MODE_PROJECT_MEMORY, context->arena, &body, &unstructured));
   // Generic clone correspondence accepts repeated source records in emission
   // order, so the unroller needs no private access-space callback or analysis.
   iree_host_size_t count = 0;

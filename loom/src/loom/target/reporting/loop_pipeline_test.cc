@@ -49,9 +49,19 @@ TEST(LoopPipelineReportTest, EntryMergeOwnsScheduleRows) {
                                        LOOM_LOCATION_UNKNOWN, &terminator));
 
   const loom_source_loop_pipeline_operation_t operations[] = {
-      {IREE_SVL("view.load"), 2},
-      {IREE_SVL("view.load"), 2},
-      {IREE_SVL("scalar.addf"), 0}};
+      {/*.source_position=*/0, /*.op_name=*/IREE_SV("view.load"),
+       /*.iteration_lookahead=*/2,
+       /*.partition=*/LOOM_SOURCE_LOOP_PIPELINE_PARTITION_NONE},
+      {/*.source_position=*/1, /*.op_name=*/IREE_SV("scf.if"),
+       /*.iteration_lookahead=*/2,
+       /*.partition=*/LOOM_SOURCE_LOOP_PIPELINE_PARTITION_GUARDED},
+      {/*.source_position=*/1, /*.op_name=*/IREE_SV("scf.if"),
+       /*.iteration_lookahead=*/0,
+       /*.partition=*/LOOM_SOURCE_LOOP_PIPELINE_PARTITION_GUARDED},
+      {/*.source_position=*/2, /*.op_name=*/IREE_SV("scalar.addf"),
+       /*.iteration_lookahead=*/0,
+       /*.partition=*/LOOM_SOURCE_LOOP_PIPELINE_PARTITION_NONE},
+  };
   loom_source_loop_pipeline_t pipeline = {};
   pipeline.depth = 3;
   pipeline.values_per_record = 2;
@@ -80,7 +90,7 @@ TEST(LoopPipelineReportTest, EntryMergeOwnsScheduleRows) {
   loom_target_compile_report_deinitialize(&source);
 
   EXPECT_EQ(merged.loop_pipeline_rows.count, 1u);
-  EXPECT_EQ(merged.loop_pipeline_stage_rows.count, 3u);
+  EXPECT_EQ(merged.loop_pipeline_stage_rows.count, 4u);
   for (auto mode : {LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_SUMMARY,
                     LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS}) {
     const loom_target_compile_report_format_options_t options = {mode};
@@ -96,6 +106,12 @@ TEST(LoopPipelineReportTest, EntryMergeOwnsScheduleRows) {
         text.find("depth=3 queue_records=2 values_per_record=2 read_count=2"),
         std::string::npos);
     if (mode == LOOM_TARGET_COMPILE_REPORT_FORMAT_MODE_DETAILS) {
+      EXPECT_NE(text.find("position=1 op=scf.if partition=guarded "
+                          "stage=producer iteration_lookahead=2"),
+                std::string::npos);
+      EXPECT_NE(text.find("position=1 op=scf.if partition=guarded "
+                          "stage=consumer iteration_lookahead=0"),
+                std::string::npos);
       EXPECT_NE(text.find("position=2 op=scalar.addf stage=consumer "
                           "iteration_lookahead=0"),
                 std::string::npos);

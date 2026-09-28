@@ -7,6 +7,8 @@
 // Carry uniform and lane-dependent collective results through nested control.
 // Every published state must retain its value across register banks. A row guard
 // and nested repetition loop preserve participation; no inactive row is read.
+// The guarded load and carried collective update stay in one source conditional;
+// fixed outer bounds let the pipeline retain its producer and consumer parts.
 // The subgroup reduction uses 16-lane clusters so its oracle is independent
 // of the target subgroup width. The workgroup reduction communicates across waves.
 template.decl @collective_rows(%input: buffer, %cluster_output: buffer, %group_output: buffer, %limit_input: index, %repeat_input: index, %end: index, %depth: index, %factor: index)
@@ -19,7 +21,6 @@ template.def<@collective_rows> @collective_rows_impl(%input: buffer, %cluster_ou
   %unit = index.constant 1 : index
   %cluster_size = index.constant 16 : index
   %base = index.constant 0 : offset
-  %identity = scalar.constant 0 : i32
   %initial = scalar.constant 37 : i32
   %multiplier = scalar.constant 2 : i32
   %source_aligned = buffer.assume.alignment %input {minimum_alignment = 4} : buffer
@@ -31,13 +32,8 @@ template.def<@collective_rows> @collective_rows_impl(%input: buffer, %cluster_ou
   %group_results = buffer.view %group_destination[%base] : buffer -> view<8xi32>
   %cluster_result, %group_result = scf.for %row = [%c0 to %end step %unit](%cluster_sum = %initial : i32, %group_sum = %initial : i32) -> (i32, i32) pipeline(%depth) unroll(%factor) {
     %valid = index.cmp slt, %row, %limit : index
-    %value = scf.if %valid -> (i32) {
-      %loaded = view.load %values[%row, %lane] : view<16x128xi32> -> i32
-      scf.yield %loaded : i32
-    } else {
-      scf.yield %identity : i32
-    }
     %next_cluster, %next_group = scf.if %valid -> (i32, i32) {
+      %value = view.load %values[%row, %lane] : view<16x128xi32> -> i32
       %repeated_cluster, %repeated_group = scf.for %iteration = [%c0 to %repeat step %unit](%cluster_partial = %cluster_sum : i32, %group_partial = %group_sum : i32) -> (i32, i32) {
         %cluster_reduced = kernel.subgroup.reduce<addi> %value {cluster_size = 16} : i32
         %group_reduced = kernel.workgroup.reduce<addi> %value : i32

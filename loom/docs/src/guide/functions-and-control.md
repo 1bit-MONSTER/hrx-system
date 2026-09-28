@@ -602,21 +602,30 @@ Depth one retains serial iteration and any separate unroll policy, providing a
 useful control. The depth must specialize to a positive exact value; the unroll
 factor must also specialize before its policy runs.
 
-Nested `scf.if` and `scf.for` normally remain intact within their assigned stage.
-A guarded load retains its guard, and a read-only inner reduction can produce
-one queued result for each outer iteration. A pure inner loop can consume
-queued values and the outer accumulator. Inner loops may also carry their own
-explicit pipeline and unroll policies; pipelining processes the inner policy
-before the outer one, then unrolling processes the reconstructed program.
-The [guarded-row example](../workflows/tune-loop-schedules.md#keep-guards-and-inner-loops-in-the-source)
-checks these combinations through native execution.
+Nested `scf.if` and `scf.for` normally remain intact within their assigned
+stage. A guarded load retains its guard, and a read-only inner reduction can
+produce one queued result for each outer iteration. One bounded exception lets
+a top-level `scf.if` contain a guarded load and the carried-state computation
+that consumes it. When exactly one branch reads, the compiler can retain the
+condition and branch-local read closure as a guarded producer, then rebuild the
+original conditional around the ordered consumer. The opposite branch, result
+types, yields, and skipped-update behavior remain unchanged. A pure inner loop
+can likewise consume queued values and the outer accumulator. Inner loops may
+also carry their own explicit pipeline and unroll policies; pipelining processes
+the inner policy before the outer one, then unrolling processes the reconstructed
+program. The [guarded-row example](../workflows/tune-loop-schedules.md#keep-guards-and-inner-loops-in-the-source)
+checks atomic nested units, and the
+[paged-attention example](../workflows/tune-loop-schedules.md#pipeline-cooperative-paged-attention)
+checks the retained guarded partition through native output.
 
 The read-ahead contract supports ordinary loads and memory-pure consumers, and
 global loads ahead of workgroup-memory consumers, with a positive exact step.
 Read prerequisites may depend on the induction variable and values outside the
-loop. For a nested unit containing reads, this includes
-all captured values, guards, bounds, and initial inner state: the whole unit
-must be independent of outer loop-carried state. A violation is diagnosed.
+loop. An atomic nested unit containing reads requires all captured values,
+guards, bounds, and initial inner state to be independent of outer loop-carried
+state. For a retained guarded partition, that requirement applies to the
+condition and branch-local producer closure; the consumer remainder may use the
+outer carried tuple. A violation is diagnosed.
 Cross-stage value types must be invariant across iterations. Global or unknown
 memory writes, global barriers, volatile effects, explicit asynchronous groups,
 source-order fences, other nested control such as `scf.while`, and consuming
@@ -647,11 +656,13 @@ Subgroup and workgroup reductions can remain in the ordered consumer when the
 requested loop's lower and upper bounds are compile-time exact. This keeps
 every original participant at the same collective site during startup, steady
 iteration, and drain. A fixed tile with runtime tail guards fits this contract:
-place guarded loads in one `scf.if` and the guarded reduction in a separate
-consumer `scf.if`. Each nested region is one scheduling unit, so a region mixing
-loads and collectives cannot advance. A collective result also cannot determine
-a read-ahead address or guard. Runtime bounds on the requested collective loop
-receive a diagnostic; depth one preserves the original loop.
+one top-level `scf.if` may contain the guarded loads, reduction, and carried
+update. The guarded producer advances only the independent read closure; the
+collective and update stay together in the consumer branch. A collective result
+cannot determine a read-ahead address or guard, and a conditional that cannot
+form this interior cut receives a diagnostic. Runtime bounds on the requested
+collective loop also receive a diagnostic; depth one preserves the original
+loop.
 
 The [checked collective recurrence](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/conformance/collective_loop_state.loom)
 applies one template with serial and pipelined policies. It combines 16-lane

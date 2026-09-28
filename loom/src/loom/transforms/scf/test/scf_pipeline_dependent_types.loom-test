@@ -83,3 +83,105 @@ func.def @dependent_pipeline_long(%lookup: view<64xi32>, %storage: buffer, %base
   test.use %view : view<[%rows]x4xi32, %layout>
   func.return %sum : i32
 }
+
+// ====
+
+// An iteration-invariant provider remains visible when the guarded queue slot
+// has a dependent vector type.
+func.def @guarded_dynamic_vector(%input: view<64xf32>, %width: index, %end: index, %initial: vector<[%width]xf32>, %condition: i1) -> (vector<[%width]xf32>) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : vector<[%width]xf32>) -> (vector<[%width]xf32>) pipeline(%depth) {
+    %next = scf.if %condition -> (vector<[%width]xf32>) {
+      %loaded = vector.load %input[%i] : view<64xf32> -> vector<[%width]xf32>
+      %updated = vector.addf %sum, %loaded : vector<[%width]xf32>
+      scf.yield %updated : vector<[%width]xf32>
+    } else {
+      scf.yield %sum : vector<[%width]xf32>
+    }
+    scf.yield %next : vector<[%width]xf32>
+  }
+  func.return %result : vector<[%width]xf32>
+}
+
+// ----
+func.def @guarded_dynamic_vector(%input: view<64xf32>, %width: index, %end: index, %initial: vector<[%width]xf32>, %condition: i1) -> (vector<[%width]xf32>) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %15 = index.constant 1 : index
+  %16 = index.cmp slt, %15, %end : index
+  %result = scf.if %16 -> (vector<[%width]xf32>) {
+    %loaded = scf.if %condition -> (vector<[%width]xf32>) {
+      %loaded = vector.load %input[%begin] : view<64xf32> -> vector<[%width]xf32>
+      scf.yield %loaded : vector<[%width]xf32>
+    } else {
+      %20 = vector.constant 0.0 : vector<[%width]xf32>
+      scf.yield %20 : vector<[%width]xf32>
+    }
+    %24, %25 = scf.for %21 = [%15 to %end step %step](%22 = %initial : vector<[%width]xf32>, %23 = %loaded : vector<[%width]xf32>) -> (vector<[%width]xf32>, vector<[%width]xf32>) {
+      %loaded = scf.if %condition -> (vector<[%width]xf32>) {
+        %loaded = vector.load %input[%21] : view<64xf32> -> vector<[%width]xf32>
+        scf.yield %loaded : vector<[%width]xf32>
+      } else {
+        %28 = vector.constant 0.0 : vector<[%width]xf32>
+        scf.yield %28 : vector<[%width]xf32>
+      }
+      %next = scf.if %condition -> (vector<[%width]xf32>) {
+        %updated = vector.addf %22, %23 : vector<[%width]xf32>
+        scf.yield %updated : vector<[%width]xf32>
+      } else {
+        scf.yield %22 : vector<[%width]xf32>
+      }
+      scf.yield %next, %loaded : vector<[%width]xf32>, vector<[%width]xf32>
+    }
+    %next = scf.if %condition -> (vector<[%width]xf32>) {
+      %updated = vector.addf %24, %25 : vector<[%width]xf32>
+      scf.yield %updated : vector<[%width]xf32>
+    } else {
+      scf.yield %24 : vector<[%width]xf32>
+    }
+    scf.yield %next : vector<[%width]xf32>
+  } else {
+    %35 = scf.for %33 = [%begin to %end step %step](%34 = %initial : vector<[%width]xf32>) -> (vector<[%width]xf32>) {
+      %next = scf.if %condition -> (vector<[%width]xf32>) {
+        %loaded = vector.load %input[%33] : view<64xf32> -> vector<[%width]xf32>
+        %updated = vector.addf %34, %loaded : vector<[%width]xf32>
+        scf.yield %updated : vector<[%width]xf32>
+      } else {
+        scf.yield %34 : vector<[%width]xf32>
+      }
+      scf.yield %next : vector<[%width]xf32>
+    }
+    scf.yield %35 : vector<[%width]xf32>
+  }
+  func.return %result : vector<[%width]xf32>
+}
+
+// ====
+
+// A queue slot whose type depends on this iteration cannot cross the stage
+// boundary even though both the provider and payload are producer operations.
+func.def @guarded_iteration_local_vector_type(%widths: view<8xi32>, %input: view<64xf32>, %initial: f32, %condition: i1) -> (f32) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %depth = index.constant 2 : index
+  %reduction_identity = scalar.constant 0.0 : f32
+  // ERROR@+1: STRUCTURE/014 {attr_name="pipeline", expected_constraint="iteration-invariant types for values carried between pipeline stages"}
+  %result = scf.for %i = [%begin to %end step %step](%sum = %initial : f32) -> (f32) pipeline(%depth) {
+    %next = scf.if %condition -> (f32) {
+      %width_i32 = view.load %widths[%i] : view<8xi32> -> i32
+      %width = index.cast %width_i32 : i32 to index
+      %payload = vector.load %input[%begin] : view<64xf32> -> vector<[%width]xf32>
+      %reduced = vector.reduce<addf> %payload, %reduction_identity : vector<[%width]xf32>, f32
+      %updated = scalar.addf %sum, %reduced : f32
+      scf.yield %updated : f32
+    } else {
+      scf.yield %sum : f32
+    }
+    scf.yield %next : f32
+  }
+  func.return %result : f32
+}
