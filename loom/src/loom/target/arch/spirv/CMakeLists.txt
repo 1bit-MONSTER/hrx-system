@@ -552,6 +552,7 @@ loom_check_test_suite(
     "test/source_low/source_low_diagnostics.loom-test"
     "test/source_low/structural_value_types_bytecode.loom-test"
     "test/source_low/structured_control.loom-test"
+    "test/source_low/subgroup_ballot.loom-test"
     "test/source_low/target_legalize.loom-test"
     "test/source_low/unbound_low.loom-test"
     "test/source_low/vector_atomic_policy.loom-test"

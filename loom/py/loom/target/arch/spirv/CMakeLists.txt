@@ -128,6 +128,7 @@ iree_py_library(
     loom::py::loom::target::arch::spirv::scalar_constant
     loom::py::loom::target::arch::spirv::scalar_conversion
     loom::py::loom::target::arch::spirv::scalar_memory
+    loom::py::loom::target::arch::spirv::subgroup
     loom::py::loom::core
     loom::py::loom::target::low_descriptors
     loom::py::loom::target::arch::package
@@ -168,6 +169,7 @@ iree_py_test(
     loom::py::loom::target::arch::spirv::scalar_constant
     loom::py::loom::target::arch::spirv::scalar_conversion
     loom::py::loom::target::arch::spirv::scalar_memory
+    loom::py::loom::target::arch::spirv::subgroup
     loom::py::loom::core
     loom::py::loom::target::low_descriptors
   PACKAGE_DIRS
@@ -353,6 +355,39 @@ iree_py_library(
     "scalar_memory.py"
   DEPS
     loom::py::loom::target::arch::spirv::features
+)
+
+iree_py_library(
+  NAME
+    subgroup
+  SRCS
+    "subgroup.py"
+  DEPS
+    loom::py::loom::target::arch::spirv::features
+    loom::py::loom::target::arch::spirv::ordinary_vector
+    loom::py::loom::target::arch::spirv::ordinary_vector_integer
+)
+
+iree_py_test(
+  NAME
+    subgroup_test
+  MAIN
+    "../../../tools/pytest_style_runner.py"
+  SRCS
+    "subgroup_test.py"
+    "../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.spirv.subgroup_test"
+  DEPS
+    loom::py::loom::target::arch::spirv::features
+    loom::py::loom::target::arch::spirv::ordinary_vector
+    loom::py::loom::target::arch::spirv::subgroup
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
 )
 
 iree_py_library(

@@ -108,6 +108,10 @@ from loom.target.arch.spirv.scalar_memory import (  # noqa: E402
     STORAGE_BUFFER_SCALARS,
     StorageBufferScalar,
 )
+from loom.target.arch.spirv.subgroup import (  # noqa: E402
+    SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
+    SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+)
 from loom.target.low_descriptors import (  # noqa: E402
     Descriptor,
     ImmediateFlag,
@@ -228,6 +232,7 @@ class _PacketRow:
     builtin: str | None = None
     component_index: int | None = None
     execution_scope: str | None = None
+    group_operation_scope: str | None = None
     memory_scope: str | None = None
     memory_semantics: str | None = None
     cooperative_matrix_layout: str | None = None
@@ -282,6 +287,8 @@ class _PacketRow:
             lines.append(f"            .payload.builtin_load.component_index = {self.component_index},")
         if self.execution_scope is not None:
             lines.append(f"            .payload.barrier.execution_scope = {self.execution_scope},")
+        if self.group_operation_scope is not None:
+            lines.append(f"            .payload.group_non_uniform.execution_scope = {self.group_operation_scope},")
         if self.memory_scope is not None:
             lines.append(f"            .payload.barrier.memory_scope = {self.memory_scope},")
         if self.memory_semantics is not None:
@@ -967,6 +974,22 @@ def _ordinary_vector_rows() -> list[_PacketRow]:
             *ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
             *ORDINARY_VECTOR_INTEGER_CONVERSION_INSTRUCTIONS,
             *ORDINARY_VECTOR_BIT_LAYOUT_INSTRUCTIONS,
+            *SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+        )
+    ]
+
+
+def _subgroup_rows() -> list[_PacketRow]:
+    row = SPIRV_SUBGROUP_BALLOT_INSTRUCTION
+    return [
+        _PacketRow(
+            row.key,
+            opcode=row.opcode,
+            form=row.packet_form,
+            result_type=_ordinary_vector_instruction_value(row.result_type),
+            operand_types=tuple(_ordinary_vector_instruction_value(operand_type) for operand_type in row.operand_types),
+            result_count=1,
+            group_operation_scope="LOOM_SPIRV_SCOPE_SUBGROUP",
         )
     ]
 
@@ -1232,6 +1255,7 @@ def _packet_rows() -> tuple[_PacketRow, ...]:
         *_scalar_binary_rows(),
         *_conversion_rows(),
         *_ordinary_vector_rows(),
+        *_subgroup_rows(),
         *_extended_math_rows(),
         *_builtin_index_rows(),
         *_builtin_scalar_index_rows(),

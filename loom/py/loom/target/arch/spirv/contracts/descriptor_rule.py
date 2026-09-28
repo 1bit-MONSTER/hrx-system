@@ -25,11 +25,11 @@ def logical_core_descriptor(key: str) -> Descriptor:
     return descriptor_by_key(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET, key)
 
 
-def descriptor_feature_guards(descriptor: Descriptor) -> tuple[Guard, ...]:
-    return (
-        (Guard.descriptor_available(descriptor),)
+def descriptor_feature_guards(*descriptors: Descriptor) -> tuple[Guard, ...]:
+    return tuple(
+        Guard.descriptor_available(descriptor)
+        for descriptor in descriptors
         if descriptor.feature_mask_words
-        else ()
     )
 
 
@@ -39,7 +39,7 @@ def emit_descriptor_op(
     operands: dict[str, ValueRef] | None = None,
     results: dict[str, ValueRef] | None = None,
     result_types: dict[str, ResultTypeBinding] | None = None,
-    immediates: dict[str, AttrProject] | None = None,
+    immediates: dict[str, AttrProject | int] | None = None,
     source_memory: SourceMemoryConstraint | None = None,
     source_memory_address_materializer: SourceMemoryAddressMaterializer | None = None,
 ) -> EmitDescriptorOp:

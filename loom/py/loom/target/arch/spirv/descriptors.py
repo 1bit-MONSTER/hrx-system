@@ -107,6 +107,11 @@ from loom.target.arch.spirv.scalar_memory import (
     STORAGE_BUFFER_SCALARS,
     StorageBufferScalar,
 )
+from loom.target.arch.spirv.subgroup import (
+    SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
+    SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+    SpirvSubgroupInstruction,
+)
 from loom.target.low_descriptors import (
     AsmForm,
     AsmImmediate,
@@ -653,6 +658,41 @@ def _ordinary_vector_descriptor(row: OrdinaryVectorInstruction) -> Descriptor:
             ),
         ),
         schedule_class=_SCHEDULE_ALU,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _subgroup_instruction_descriptor(row: SpirvSubgroupInstruction) -> Descriptor:
+    result_value_type = _ordinary_vector_result_value_type(row.result_type)
+    return Descriptor(
+        key=row.key,
+        mnemonic=row.mnemonic,
+        semantic_tag=row.key,
+        instruction_classes=(InstructionClass.OTHER,),
+        operands=(
+            _ordinary_vector_result(row.result_type),
+            *(
+                _ordinary_vector_operand(name, operand_type)
+                for name, operand_type in zip(
+                    row.operand_names, row.operand_types, strict=True
+                )
+            ),
+        ),
+        effects=(
+            Effect(
+                EffectKind.CONVERGENT,
+                flags=(EffectFlag.ORDERED,),
+            ),
+        ),
+        feature_mask_words=(row.feature_bits,),
+        asm_forms=_asm(
+            results=("dst",),
+            operands=row.operand_names,
+            result_value_types=(
+                (result_value_type,) if result_value_type is not None else ()
+            ),
+        ),
+        schedule_class=_SCHEDULE_VARIABLE,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
 
@@ -1864,6 +1904,11 @@ SPIRV_LOGICAL_CORE_DESCRIPTOR_SET = DescriptorSet(
             _ordinary_vector_descriptor(row)
             for row in ORDINARY_VECTOR_BIT_LAYOUT_INSTRUCTIONS
         ),
+        *(
+            _ordinary_vector_descriptor(row)
+            for row in SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS
+        ),
+        _subgroup_instruction_descriptor(SPIRV_SUBGROUP_BALLOT_INSTRUCTION),
         *(_extended_math_descriptor(row) for row in EXTENDED_MATH_INSTRUCTIONS),
         _coordinate_copy_descriptor(),
         _ternary_same_type_descriptor(

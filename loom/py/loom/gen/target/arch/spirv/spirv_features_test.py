@@ -40,6 +40,8 @@ def test_generation_emits_compact_feature_tables() -> None:
     assert 'IREE_SVL("SPV_KHR_bfloat16")' in tables
     assert "LOOM_SPIRV_CAPABILITY_B_FLOAT16_COOPERATIVE_MATRIX_KHR" in tables
     assert "LOOM_SPIRV_OP_COOPERATIVE_VECTOR_MATRIX_MUL_ADD_NV" in tables
+    assert "LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT" in tables
+    assert "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT" in tables
     assert "#ifndef LOOM_TARGET_ARCH_SPIRV_FEATURES_H_" not in tables
     assert "typedef enum loom_spirv_feature_bit_e" not in tables
     assert "loom_spirv_feature_set_prepare" not in tables

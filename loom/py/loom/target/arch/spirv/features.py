@@ -394,6 +394,16 @@ FEATURE_ATOMS = (
         extensions=("SPV_KHR_float_controls",),
         capabilities=("LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE",),
     ),
+    FeatureAtom(
+        key="group_non_uniform_ballot",
+        c_suffix="GROUP_NON_UNIFORM_BALLOT",
+        name="spirv.group_non_uniform.ballot",
+        doc="Subgroup ballot operations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT",),
+        opcodes=("LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT",),
+    ),
 )
 
 FEATURE_PROFILES = (

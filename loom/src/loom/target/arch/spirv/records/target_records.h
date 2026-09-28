@@ -27,6 +27,11 @@ extern const loom_target_bundle_t loom_spirv_low_target_bundle_extended_types;
 // Vulkan 1.3 BDA environment using the HAL kernel entry ABI.
 extern const loom_target_bundle_t loom_spirv_low_target_bundle_hal_kernel;
 
+// Vulkan 1.3 BDA HAL environment requiring subgroup size 32 and ballot
+// operations.
+extern const loom_target_bundle_t
+    loom_spirv_low_target_bundle_subgroup32_ballot_hal;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

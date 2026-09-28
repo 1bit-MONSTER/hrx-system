@@ -80,6 +80,7 @@ from loom.target.arch.spirv.contracts.memory import (
 from loom.target.arch.spirv.contracts.ordinary_vector import (
     SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
 from loom.target.arch.spirv.cooperative_matrix import (
     COOPERATIVE_MATRIX_CASES,
     CooperativeMatrixCase,
@@ -1496,6 +1497,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         _raw_storage_buffer_byte_store_rule(),
         *_storage_buffer_rules(),
         *SPIRV_ATOMIC_CONTRACT_CASES,
+        *SPIRV_SUBGROUP_CONTRACT_CASES,
         *_control_barrier_rules(),
         *_cooperative_matrix_rules(),
         DescriptorMatrixRule(
