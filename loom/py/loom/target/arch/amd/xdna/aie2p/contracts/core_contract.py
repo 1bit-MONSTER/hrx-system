@@ -68,6 +68,7 @@ from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
 from loom.target.contracts import (
     ContractCase,
     ContractFragment,
+    DescriptorEmitForm,
     DescriptorMatrixRule,
     Guard,
     RecipeRule,
@@ -293,6 +294,14 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
             "amd.xdna.aie2p.splat.i8x64",
             core_rules._I8_MIN,
             core_rules._I8_MAX,
+        ),
+        core_rules._vector_constant_rule(
+            core_rules._I8X128_VECTOR,
+            "amd.xdna.aie2p.constant.i32.short",
+            "amd.xdna.aie2p.splat.i8x64",
+            core_rules._I8_MIN,
+            core_rules._I8_MAX,
+            packet_count=2,
         ),
         core_rules._vector_constant_rule(
             core_rules._I16_VECTOR,
@@ -653,6 +662,18 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
             )
             for descriptor_key in (
                 f"amd.xdna.aie2p.{operation}.{signedness}.i{width}x{512 // width}",
+            )
+        ),
+        *(
+            core_rules._vector_binary_rule(
+                source_op,
+                core_rules._I8X128_VECTOR,
+                f"amd.xdna.aie2p.{operation}.signed.i8x64",
+                form=DescriptorEmitForm.PER_LANE,
+            )
+            for source_op, operation in (
+                (vector.vector_minsi, "min"),
+                (vector.vector_maxsi, "max"),
             )
         ),
         core_rules._vector_multiply_i16_rule(),
