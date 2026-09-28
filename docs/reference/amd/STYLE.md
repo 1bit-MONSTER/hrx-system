@@ -85,6 +85,12 @@ DWORD offsets, byte counts, DWORD counts, count-minus-one fields, and addresses
 are explicit. A DWORD is 32 bits. Hexadecimal constants use a `0x` prefix;
 field and symbol names use code formatting.
 
+The first field or register table includes each full native spelling, such as
+`COMPUTE_PGM_RSRC2`, even when nearby prose uses a shorter name. Alternate source
+spellings appear together, such as `COPY_LINEAR_SUBWIN` and `COPY_LINEAR_RECT`.
+Index descriptions include the corresponding packet or register names so an
+exact symbol search reaches both the mechanism and its navigation entry.
+
 Alignment and size constraints identify their owner. A compiler entry-point
 alignment, a command-buffer alignment, and the alignment chosen for a runtime
 allocation are distinct facts even when their numeric values coincide.

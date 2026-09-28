@@ -19,3 +19,23 @@ conditions. A compiler target, physical engine revision, operating-system
 interface, and runtime policy describe different parts of that applicability.
 Where sources disagree, the affected fields and source-specific interpretations
 remain explicit.
+
+## Programming tasks
+
+The family indexes organize the hardware mechanisms. These routes start from
+the operation a native caller needs to perform; packet and register names also
+provide exact search terms within the tree.
+
+| Task | Starting points |
+| --- | --- |
+| Identify the compiler target, physical GC or SDMA IP, and native transport | [Architecture identity and discovery](gpu/architectures.md). |
+| Reserve, publish and reuse queue storage | [PM4 ring frontiers](gpu/pm4/publication.md), [AQL header and doorbell publication](gpu/aql/publication.md), [SDMA reservation and ordered commit](gpu/sdma/publication.md). |
+| Launch a compiled GPU program | [PM4 `SET_SH_REG` and `DISPATCH_DIRECT`](gpu/pm4/dispatch.md), [AQL kernel dispatch and descriptors](gpu/aql/dispatch.md). |
+| Bind shared workgroup storage | [PM4 `LDS_SIZE`](gpu/pm4/lds.md), [AQL group storage](gpu/aql/dispatch.md#static-and-dynamic-group-storage). |
+| Make a producer's writes visible to its consumer | [GPU cache controls](gpu/pm4/cache.md), [CPU/GPU handoffs](gpu/recipes/host-device.md), [all six CPU/GPU/NPU directions](interop/README.md). |
+| Copy or fill memory and wait for completion | [SDMA packet index](gpu/sdma/README.md), [PM4 `DMA_DATA`](gpu/pm4/dma.md), [SDMA upload → AQL dispatch → SDMA download](gpu/recipes/README.md#sdma-upload-aql-dispatch-and-sdma-download). |
+| Replace or reuse commands and executable storage | [PM4 indirect buffers](gpu/pm4/command-buffers.md), [AQL command carriers](gpu/aql/transfers.md), [AQL executable lifetime](gpu/aql/dispatch.md#executable-publication-and-final-use), [SDMA command buffers](gpu/sdma/command-buffers.md). |
+| Configure an NPU transfer or split/join flow | [Tile DMA descriptors and task tokens](xdna/dma.md), [stream switches and multicast](xdna/interconnects.md), [pipeline ownership](interop/pipelines.md). |
+| Exchange resident GPU/NPU payloads and return credits | [GPU/NPU ready and completion edges](gpu/recipes/gpu-npu.md#resident-programs-and-per-generation-ownership), [slot generations and drain](interop/pipelines.md). |
+| Share Vulkan or D3D12 resources with a native consumer | [External memory, handle ownership and dependency objects](interop/external-memory.md). |
+| Measure dispatch, transfer or tile execution | [GPU clocks and counter ownership](gpu/observability.md), [PM4 timing bracket](gpu/pm4/timing.md#timestamp-visibility-and-storage-lifetime), [SDMA timestamps](gpu/sdma/timing.md), [XDNA timers, counters and trace](xdna/observability.md). |

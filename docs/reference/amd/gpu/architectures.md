@@ -26,6 +26,26 @@ the executable side of this mapping. Linux separately selects SDMA backends
 from native SDMA IP. [ROCr ISA registry][isa] [LLVM ABI][llvm] [SDMA
 discovery][sdma]
 
+### Discovering the native SDMA IP
+
+On Linux's AMDGPU DRM interface, `AMDGPU_INFO_HW_IP_INFO` with
+`query_hw_ip.type=AMDGPU_HW_IP_DMA` selects transfer-engine information.
+`drm_amdgpu_info_hw_ip.ip_discovery_version` encodes the native major in bits
+23:16, minor in bits 15:8 and revision in bits 7:0. The cited kernel fills it
+from `SDMA0_HWIP` on the Vega10-and-later path. Its separate
+`hw_ip_version_major` and `hw_ip_version_minor` fields come from the selected
+driver backend; they are not substitutes for the complete discovery version.
+[Query selector][ip-query] [Engine identifiers][ip-types] [Result layout][ip-result]
+[Native result construction][ip-construction]
+
+For example, discovery value `0x040402` identifies SDMA4.4.2, which Linux
+routes to its `sdma_v4_4_2` backend. The [copy chapter](sdma/copy.md#count-representation-and-native-ip)
+then supplies the corresponding count representation. A compiler `gfx942`
+string alone supplies neither that discovery value nor the deployed firmware
+version. A zero discovery field on another path leaves the native revision
+unspecified; the driver/native-device information must supply it before a
+revision-dependent packet recipe can be selected. [Backend selection][sdma]
+
 ## Mechanism families
 
 The packet chapters retain per-operation differences across these
@@ -69,3 +89,7 @@ Linux doorbell/write-pointer sequence supplies no Windows submission rule. The
 [isa]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/isa.cpp
 [llvm]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst
 [sdma]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c#L2785-L2836
+[ip-query]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/drm/amdgpu_drm.h#L1108-L1115
+[ip-types]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/drm/amdgpu_drm.h#L935-L951
+[ip-result]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/drm/amdgpu_drm.h#L1542-L1558
+[ip-construction]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_kms.c#L596-L629

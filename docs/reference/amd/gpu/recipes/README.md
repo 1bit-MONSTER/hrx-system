@@ -41,10 +41,15 @@ The following composition uses those copy obligations and HSA packet ordering:
 
 | Actor | Ordered work |
 | --- | --- |
+| CPU setup | Initialize signals and changing staging/kernarg bytes; perform the CPU mapping's required publication before making dependent device work visible. |
 | Upload SDMA | Satisfy input dependencies and required cache operations; copy staging to input; publish upload completion. |
 | AQL queue | BARRIER_AND on upload completion, followed by SYSTEM-acquire/SYSTEM-release kernel dispatch with its own completion signal. |
 | Download SDMA | Wait for compute completion; apply the destination/source mapping's required cache operations; copy output to readback; publish transfer completion. |
 | CPU | Acquire-observe final transfer completion, access readback, and retain all other resources until their independent final users have completed. |
+
+The [staged local-memory flow](local-memory.md#actor-flow-and-ownership)
+spells out this initial CPU publication and the separate code, control,
+staging and device-local payload owners.
 
 ROCr's blit kernel uses a NONE/NONE dependency barrier followed by a dispatch
 with SYSTEM acquire and release scopes. The barrier supplies the dependency;

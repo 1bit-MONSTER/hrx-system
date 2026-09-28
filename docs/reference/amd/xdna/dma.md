@@ -219,6 +219,15 @@ with an active descriptor. Neither observation alone transfers a result from
 an NPU mapping into a different CPU/GPU cache domain.
 [Capacity wait][capacity-wait] [Channel completion wait][done-wait]
 
+AIE2IPU and AIE2P S2MM also have a channel-level **finish-on-TLAST** mode.
+Here the programmed buffer length is capacity, and a packet's `TLAST` can
+complete a shorter transfer. The selected mode reports no count, sends the
+actual word count with a task token, or exposes it through a count FIFO. The
+[completion-mode discussion](observability.md#stop-flush-and-dma-completion)
+describes the controls; [completed-count consumption](observability.md#consuming-completed-transfer-counts)
+describes the single-reader FIFO-pop ownership and backpressure. A packet end
+does not by itself stop a multi-packet stream or retire its routes.
+
 ## External completion in the managed GMIO flow
 
 AMD's AI Engine-ML Kernel and Graph Programming Guide, UG1603 revision

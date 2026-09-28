@@ -38,21 +38,39 @@ nor a plausible delta establishes an indivisible live read or reset continuity.
 
 ## Timestamp visibility and storage lifetime
 
-PAL's timing-only `GpaSession` supplies a complete observation sequence:
+A CP-begin to shader-end bracket uses separate aligned 64-bit result slots,
+valid executable/argument storage and the native queue's publication protocol.
+Input producers complete their release before the consumer acquires those
+inputs. Any preceding work excluded from the interval must first be joined
+through its own execution dependency. A top-of-pipe begin sample does not
+itself drain earlier shaders. Binding the program before the begin sample
+excludes those binding commands from this particular interval; launch and
+scheduling remain inside it. [Stage selection][pal-stage]
+[Shader dependencies](dispatch.md#publication-and-shader-dependencies)
+
+PAL's timing-only `GpaSession` allocates the begin/end slots together and
+records the configured pre-sample in `BeginSample`. For a top-of-pipe begin
+and compute-shader end, the command and observation sequence is:
 
 ```text
-record the end sample at its requested stage
+publish executable, arguments, inputs and command storage
+  → join input producers and any excluded preceding work
+  → acquire inputs and bind the program
+  → confirmed COPY_DATA GPU-clock sample into begin
+  → DISPATCH_DIRECT
+  → RELEASE_MEM GPU-clock sample into end at shader/end-of-pipe completion
   → BOTTOM→TOP CoherCp→CoherMemory barrier
   → bottom-of-pipe session event
   → repeat the CoherCp→CoherMemory barrier
   → host readiness check → read the mapped begin/end slots
+  → retire the complete submission before reusing its remaining storage
 ```
 
 `EndSample` records the end timestamp. `End` flushes sampled data, sets the
 session event and then flushes event data. `IsReady` observes that event;
 additional queue-fence polling is conditional on the separate queue-timing
 feature. `TimingSample` reads both mapped uint64 values directly.
-[End sample][sample-end] [Session end][session-end]
+[Begin sample and allocation][sample-begin] [End sample][sample-end] [Session end][session-end]
 [Readiness][session-ready] [Result storage][sample-read]
 
 For the GFX11 non-PWS compute path, the CP-to-memory access transition requests
@@ -166,6 +184,7 @@ profiling-domain distinctions belong to [observability](../observability.md).
 [copy-fields]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L730-L916
 [release-fields]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L1888-L2074
 [release-builder]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L3335-L3537
+[sample-begin]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/gpuUtil/gpaSession.cpp#L1819-L1856
 [sample-end]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/gpuUtil/gpaSession.cpp#L1982-L2005
 [session-end]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/gpuUtil/gpaSession.cpp#L1537-L1618
 [session-ready]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/gpuUtil/gpaSession.cpp#L2030-L2059

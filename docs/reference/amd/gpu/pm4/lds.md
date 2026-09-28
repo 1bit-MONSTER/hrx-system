@@ -15,7 +15,7 @@ from the dispatch packet's total group bytes; a raw PM4 launch owner realizes
 the register field itself. This changes live launch state, not the linked
 compiler image. [Descriptor contract][llvm-size]
 
-For the GFX11 compute encoding, LDS_SIZE occupies RSRC2 bits 23:15, in
+For the GFX11 compute encoding, `COMPUTE_PGM_RSRC2.LDS_SIZE` occupies bits 23:15, in
 512-byte units. PAL initializes an HSA pipeline from fixed group bytes and
 can override it with the total dispatch allocation. The derived field is:
 

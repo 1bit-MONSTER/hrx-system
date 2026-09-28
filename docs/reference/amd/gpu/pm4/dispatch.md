@@ -69,12 +69,21 @@ overwrite all neighboring queue-context registers. [Register map][pal-registers]
 
 | Register interval | Meaning |
 | --- | --- |
-| `0x2e0c..0x2e0d`, PGM_LO/HI | Program entry address in 256-byte units. |
-| `0x2e12..0x2e13`, PGM_RSRC1/2 | Compiler resource and mode fields combined with applicable runtime trap/scratch state and realized LDS allocation. |
-| `0x2e28`, PGM_RSRC3 | Generation-specific prefetch and resource fields. |
-| `0x2e15`, RESOURCE_LIMITS | Launch resource/scheduling policy, including SIMD_DEST_CNTL. |
-| `0x2e04..0x2e09`, START_X/Y/Z and NUM_THREAD_X/Y/Z | Start coordinates and local workgroup dimensions. |
-| `0x2e40` onward, USER_DATA | ABI-selected user inputs, such as the low/high kernarg pointer. |
+| `0x2e0c..0x2e0d`, `COMPUTE_PGM_LO`, `COMPUTE_PGM_HI` | Program entry address in 256-byte units. |
+| `0x2e12..0x2e13`, `COMPUTE_PGM_RSRC1`, `COMPUTE_PGM_RSRC2` | Compiler resource and mode fields combined with applicable runtime trap/scratch state and realized LDS allocation. |
+| `0x2e28`, `COMPUTE_PGM_RSRC3` | Generation-specific prefetch and resource fields. |
+| `0x2e15`, `COMPUTE_RESOURCE_LIMITS` | Launch resource/scheduling policy, including `SIMD_DEST_CNTL`. |
+| `0x2e04..0x2e06`, `COMPUTE_START_X`, `COMPUTE_START_Y`, `COMPUTE_START_Z` | Start coordinates. |
+| `0x2e07..0x2e09`, `COMPUTE_NUM_THREAD_X`, `COMPUTE_NUM_THREAD_Y`, `COMPUTE_NUM_THREAD_Z` | Local workgroup dimensions. |
+| `0x2e40` onward, `COMPUTE_USER_DATA_0` and following registers | ABI-selected user inputs, such as the low/high kernarg pointer. |
+
+The compiler's target-specific resource words describe register allocation,
+enabled inputs and program modes. Their descriptor field definitions remain
+distinct from the live overrides: the launch owner realizes
+[`COMPUTE_PGM_RSRC2.LDS_SIZE`](lds.md#compiler-requirement-and-launch-allocation)
+and combines applicable trap/scratch policy as described below. Copying the
+compiler words without those native inputs is not a complete raw launch.
+[Compiler resource-word definitions][llvm-resource-words]
 
 The geometry interval ends before PIPELINESTAT_ENABLE and PERFCOUNT_ENABLE.
 Those enables belong to native queue/profiling policy. Linux's MQD initializer
@@ -90,6 +99,27 @@ Its builder sets ORDER_MODE for unordered asynchronous-compute launch; RADV
 has a distinct ordered-dispatch path that clears it. Neither choice is a
 shader-completion or payload-visibility operation. [PAL direct dispatch][pal-dispatch]
 [RADV dispatch policy][mesa-dispatch]
+
+Word 4 of `DISPATCH_DIRECT` carries `COMPUTE_DISPATCH_INITIATOR`. The
+ordinary PAL builder initializes it to zero and fills these controls from its
+launch arguments and compute-engine policy. Bit positions below follow the
+GFX10/GFX11 register definition; the final row is explicitly GFX11.
+[Initiator layout][pal-initiator] [Direct-dispatch builder][pal-dispatch]
+
+| Word 4 bit | Field | Value supplied by the ordinary builder |
+| --- | --- | --- |
+| 0 | `COMPUTE_SHADER_EN` | 1 to enable the compute dispatch. |
+| 2 | `FORCE_START_AT_000` | Select zero start coordinates when requested. |
+| 5 | `USE_THREAD_DIMENSIONS` | 1 for workitem dimensions; 0 for workgroup counts. |
+| 6 | `ORDER_MODE` | 1 for PAL's unordered asynchronous-compute policy. |
+| 13 | `TUNNEL_ENABLE` | The caller's tunneling selection. |
+| 15 | `CS_W32_EN` | 1 for a wave32 program; 0 for wave64. |
+| 17, GFX11 | `DISABLE_DISP_PREMPT_EN` | Set by the builder's disable-partial-preemption request. |
+
+The other modes and reserved bits remain zero in this builder. Tunneling and
+preemption choices belong to the native launch policy; neither is derived from
+workgroup dimensions. This table describes the cited ordinary path, not every
+ordered-append or alternate-engine dispatch mode.
 
 PAL derives SIMD_DEST_CNTL from whether the rounded waves per workgroup are a
 multiple of four, with settings that can override the choice. This scheduling
@@ -219,7 +249,9 @@ join/writeback sequence.
 [pal-padding]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Device.cpp#L5766-L5811
 [linux-prefetch]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager_v11.c#L59-L73
 [llvm-inputs]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/docs/AMDGPUUsage.rst#L6911-L7071
+[llvm-resource-words]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/docs/AMDGPUUsage.rst#L6197-L6792
 [pal-registers]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_offset.h#L193-L238
+[pal-initiator]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_registers.h#L4613-L4641
 [pal-set]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L4010-L4027
 [linux-mqd]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_mqd_manager_v11.c#L125-L186
 [pal-dispatch]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L1204-L1246
