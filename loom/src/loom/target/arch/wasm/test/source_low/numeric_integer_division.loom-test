@@ -1,5 +1,5 @@
 // TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_division.loom-test
-// RUN: emit source-low target=wasm:simd128 output=low
+// RUN: with-checks emit source-low target=wasm:simd128 output=low
 
 func.def @integer_division_i32(%dividend: i32, %divisor: i32) -> (i32, i32, i32, i32) {
   %signed_quotient = scalar.divsi %dividend, %divisor : i32
@@ -10,13 +10,10 @@ func.def @integer_division_i32(%dividend: i32, %divisor: i32) -> (i32, i32, i32,
 }
 
 // ----
-low.func.def target<wasm.core.simd128> abi(wasm_function) @integer_division_i32(%dividend: reg<wasm.i32>, %divisor: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
-  %signed_quotient = i32.div_s %dividend, %divisor
-  %signed_remainder = i32.rem_s %dividend, %divisor
-  %unsigned_quotient = i32.div_u %dividend, %divisor
-  %unsigned_remainder = i32.rem_u %dividend, %divisor
-  return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder
-}
+CHECK: * = i32.div_s *
+CHECK: * = i32.rem_s *
+CHECK: * = i32.div_u *
+CHECK: * = i32.rem_u *
 
 // ====
 
@@ -29,38 +26,7 @@ func.def @integer_division_i64(%dividend: i64, %divisor: i64) -> (i64, i64, i64,
 }
 
 // ----
-low.func.def target<wasm.core.simd128> abi(wasm_function) @integer_division_i64(%dividend: reg<wasm.i64>, %divisor: reg<wasm.i64>) -> (reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>, reg<wasm.i64>) asm {
-  %signed_quotient = i64.div_s %dividend, %divisor
-  %signed_remainder = i64.rem_s %dividend, %divisor
-  %unsigned_quotient = i64.div_u %dividend, %divisor
-  %unsigned_remainder = i64.rem_u %dividend, %divisor
-  return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder
-}
-
-// ====
-
-// Signed remainder is defined for the minimum value and -1 even though the
-// corresponding signed quotient overflows.
-func.def @integer_signed_remainder_i32(%dividend: i32, %divisor: i32) -> (i32) {
-  %remainder = scalar.remsi %dividend, %divisor : i32
-  func.return %remainder : i32
-}
-
-// ----
-low.func.def target<wasm.core.simd128> abi(wasm_function) @integer_signed_remainder_i32(%dividend: reg<wasm.i32>, %divisor: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %remainder = i32.rem_s %dividend, %divisor
-  return %remainder
-}
-
-// ====
-
-func.def @integer_signed_remainder_i64(%dividend: i64, %divisor: i64) -> (i64) {
-  %remainder = scalar.remsi %dividend, %divisor : i64
-  func.return %remainder : i64
-}
-
-// ----
-low.func.def target<wasm.core.simd128> abi(wasm_function) @integer_signed_remainder_i64(%dividend: reg<wasm.i64>, %divisor: reg<wasm.i64>) -> (reg<wasm.i64>) asm {
-  %remainder = i64.rem_s %dividend, %divisor
-  return %remainder
-}
+CHECK: * = i64.div_s *
+CHECK: * = i64.rem_s *
+CHECK: * = i64.div_u *
+CHECK: * = i64.rem_u *

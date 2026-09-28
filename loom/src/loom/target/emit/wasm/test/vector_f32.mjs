@@ -135,29 +135,47 @@ const binaryCases = [
     [0xC0000000, 0x3F000000, 0x40000000, 0x40000000],
   ],
 ];
-const binaryOperations = [
+const arithmeticOperations = [
   (lhs, rhs) => f32(lhs + rhs),
   (lhs, rhs) => f32(lhs - rhs),
   (lhs, rhs) => f32(lhs * rhs),
   (lhs, rhs) => f32(lhs / rhs),
+];
+const extremaOperations = [
   Math.min,
   Math.max,
 ];
 for (const [lhsWords, rhsWords] of binaryCases) {
   const lhsBytes = writeInput(lhsBase, lhsWords);
   const rhsBytes = writeInput(rhsBase, rhsWords);
-  const payloadSize = 6 * inputSize;
+  const payloadSize = arithmeticOperations.length * inputSize;
   prepareOutput(payloadSize);
-  exports.vector_f32_binary(
+  exports.vector_f32_arithmetic(
       lhsBase + guardSize, rhsBase + guardSize, outputBase + guardSize);
   const output = readOutput(payloadSize);
   for (let lane = 0; lane < 4; ++lane) {
     const lhs = bitsToF32(lhsWords[lane]);
     const rhs = bitsToF32(rhsWords[lane]);
-    binaryOperations.forEach((operation, index) => assertFloatEqual(
+    arithmeticOperations.forEach((operation, index) => assertFloatEqual(
         output.getFloat32(guardSize + index * inputSize + lane * 4, true),
         f32(operation(lhs, rhs)),
-        `binary operation ${index}, lane ${lane}`));
+        `arithmetic operation ${index}, lane ${lane}`));
+  }
+  assertInputsUnchanged(lhsBytes, rhsBytes);
+
+  const extremaPayloadSize = extremaOperations.length * inputSize;
+  prepareOutput(extremaPayloadSize);
+  exports.vector_f32_extrema(
+      lhsBase + guardSize, rhsBase + guardSize, outputBase + guardSize);
+  const extremaOutput = readOutput(extremaPayloadSize);
+  for (let lane = 0; lane < 4; ++lane) {
+    const lhs = bitsToF32(lhsWords[lane]);
+    const rhs = bitsToF32(rhsWords[lane]);
+    extremaOperations.forEach((operation, index) => assertFloatEqual(
+        extremaOutput.getFloat32(
+            guardSize + index * inputSize + lane * 4, true),
+        f32(operation(lhs, rhs)),
+        `extrema operation ${index}, lane ${lane}`));
   }
   assertInputsUnchanged(lhsBytes, rhsBytes);
 }

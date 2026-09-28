@@ -20,6 +20,7 @@ _CONFIGURED_CASES = [
 ]
 
 _SCENARIO_CASES = [
+    "numeric_vector_f32.loom",
     "packed_vector_select.loom",
     "predicate_logic.loom",
     "scalar_float_conversion.loom",
@@ -92,6 +93,15 @@ loom_test(
         "//loom/target/spirv:vulkan1.3+bda+extended-types",
     ],
     execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
+)
+
+loom_test(
+    name = "numeric_vector_f32_test",
+    srcs = [
+        "numeric_vector_f32.loom",
+        "//loom/src/loom/test/corpus/source_low:numeric_vector_f32_values.loom",
+    ],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(

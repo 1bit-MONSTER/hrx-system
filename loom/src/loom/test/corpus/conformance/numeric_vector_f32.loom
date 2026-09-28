@@ -1,0 +1,92 @@
+func.decl @vector_f32_unary(%input_buffer: buffer, %output_buffer: buffer)
+
+func.decl @vector_f32_arithmetic(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer)
+
+func.decl @vector_f32_comparisons(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer)
+
+func.decl @vector_f32_comparisons_no_nan(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer)
+
+// Each trial covers four independent lanes. The random finite domain exercises
+// ordinary ML values; target-specific suites own representation details such
+// as NaN payloads, subnormals, and signed zeros.
+check.scenario @numeric_vector_f32_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("unary_input") : check.entropy
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_input = check.generate.random.uniform seed(%input_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123.5) : tensor<36xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<36xf32> -> tensor<28xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<36xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(128) : tensor<36xf32> -> tensor<4xf32>
+    %guard = check.generate.fill value(-123.5) : tensor<4xf32>
+    check.compare<@vector_f32_unary>(%input, %output) : (tensor<4xf32>, tensor<28xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : tensor<28xf32>
+      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<4xf32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("arithmetic_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("arithmetic_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %expected_rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(-123.5) : tensor<24xf32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xf32> -> tensor<16xf32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<24xf32> -> tensor<4xf32>
+    %suffix = check.tensor.view %storage offset(80) : tensor<24xf32> -> tensor<4xf32>
+    %guard = check.generate.fill value(-123.5) : tensor<4xf32>
+    check.compare<@vector_f32_arithmetic>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<16xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : tensor<16xf32>
+      check.expect.bitwise actual(%lhs) expected(%expected_lhs) : tensor<4xf32>
+      check.expect.bitwise actual(%rhs) expected(%expected_rhs) : tensor<4xf32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("comparison_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("comparison_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %storage = check.generate.fill value(1515870810) : tensor<32xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<32xi32> -> tensor<24xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<32xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(112) : tensor<32xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(1515870810) : tensor<4xi32>
+    check.compare<@vector_f32_comparisons>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("equal_comparison_input") : check.entropy
+    %input_seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%input_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %output = check.generate.fill value(1515870810) : tensor<24xi32>
+    check.compare<@vector_f32_comparisons>(%input, %input, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24xi32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %lhs_entropy = check.entropy.fork %entropy name("no_nan_lhs") : check.entropy
+    %rhs_entropy = check.entropy.fork %entropy name("no_nan_rhs") : check.entropy
+    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
+    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
+    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
+    %output = check.generate.fill value(1515870810) : tensor<24xi32>
+    check.compare<@vector_f32_comparisons_no_nan>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<24xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<24xi32>
+    }
+  }
+  check.return
+}

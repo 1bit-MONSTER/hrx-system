@@ -1,0 +1,11 @@
+// Signed remainder is defined for the minimum value and -1 even though the
+// corresponding signed quotient overflows and traps in WebAssembly.
+func.def @integer_signed_remainder_i32(%dividend: i32, %divisor: i32) -> (i32) {
+  %remainder = scalar.remsi %dividend, %divisor : i32
+  func.return %remainder : i32
+}
+
+func.def @integer_signed_remainder_i64(%dividend: i64, %divisor: i64) -> (i64) {
+  %remainder = scalar.remsi %dividend, %divisor : i64
+  func.return %remainder : i64
+}

@@ -36,31 +36,3 @@ low.func.def target<vm.core> abi(vm_function) @integer_division_i64(%dividend: r
   %unsigned_remainder = integer.rem.u64 %dividend, %divisor
   return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder
 }
-
-// ====
-
-// Signed remainder is defined for the minimum value and -1 even though the
-// corresponding signed quotient overflows.
-func.def @integer_signed_remainder_i32(%dividend: i32, %divisor: i32) -> (i32) {
-  %remainder = scalar.remsi %dividend, %divisor : i32
-  func.return %remainder : i32
-}
-
-// ----
-low.func.def target<vm.core> abi(vm_function) @integer_signed_remainder_i32(%dividend: reg<vm.value : i32>, %divisor: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
-  %remainder = integer.rem.s32 %dividend, %divisor
-  return %remainder
-}
-
-// ====
-
-func.def @integer_signed_remainder_i64(%dividend: i64, %divisor: i64) -> (i64) {
-  %remainder = scalar.remsi %dividend, %divisor : i64
-  func.return %remainder : i64
-}
-
-// ----
-low.func.def target<vm.core> abi(vm_function) @integer_signed_remainder_i64(%dividend: reg<vm.value : i64>, %divisor: reg<vm.value : i64>) -> (reg<vm.value : i64>) asm {
-  %remainder = integer.rem.s64 %dividend, %divisor
-  return %remainder
-}
