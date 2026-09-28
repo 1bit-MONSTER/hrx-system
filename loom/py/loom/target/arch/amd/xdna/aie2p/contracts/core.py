@@ -770,6 +770,12 @@ def _predicate_complete_emit(
     )
 
 
+class _PredicateUpdate(Enum):
+    NONE = "none"
+    LHS = "lhs"
+    RHS = "rhs"
+
+
 def _predicate_binary_emits(
     operation: str,
     lhs: ValueRef,
@@ -777,82 +783,121 @@ def _predicate_binary_emits(
     result: ValueRef,
     *,
     temporary_prefix: str,
+    update: _PredicateUpdate,
 ) -> tuple[EmitDescriptorOp, ...]:
-    low = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.low32")
-    high = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.high32")
     low_result = ValueRef.temporary(f"{temporary_prefix}_low32")
+    if update is _PredicateUpdate.NONE:
+        low = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.low32")
+        high = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.high32")
+        low_operands = {"s0": lhs, "s1": rhs}
+        high_operands = {"s0": lhs, "s1": rhs, "storage": low_result}
+    else:
+        # The native scalar operation is commutative, so place whichever source
+        # value dies here in the tied s1 encoding role.
+        preserved, updated = (
+            (rhs, lhs) if update is _PredicateUpdate.LHS else (lhs, rhs)
+        )
+        low = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.low32.rhs_tied")
+        high = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.high32.rhs_tied")
+        low_operands = {"s0": preserved, "s1": updated}
+        high_operands = {"s0": preserved, "s1": low_result}
     return (
         _op_emit(
             low,
-            operands={"s0": lhs, "s1": rhs},
+            operands=low_operands,
             results={"d0": low_result},
             result_types={"d0": DescriptorResultType()},
         ),
         _op_emit(
             high,
-            operands={
-                "s0": lhs,
-                "s1": rhs,
-                "storage": low_result,
-            },
+            operands=high_operands,
             results={"d0": result},
             result_types={"d0": DescriptorResultType()},
         ),
     )
 
 
-def _vector_predicate_binary_rule(
+def _vector_predicate_binary_rules(
     source_op: Op,
     operation: str,
-) -> DescriptorRule:
-    descriptor = _descriptor(f"amd.xdna.aie2p.predicate.{operation}.high32")
-    return DescriptorRule(
-        source_op=source_op,
-        descriptor=descriptor,
-        guards=_typed_guards(("lhs", "rhs", "result"), _I1_VECTOR),
-        emit=_predicate_binary_emits(
-            operation,
-            ValueRef.operand("lhs"),
-            ValueRef.operand("rhs"),
-            ValueRef.result("result"),
-            temporary_prefix="predicate",
-        ),
+) -> tuple[DescriptorRule, ...]:
+    type_guards = _typed_guards(("lhs", "rhs", "result"), _I1_VECTOR)
+    return tuple(
+        DescriptorRule(
+            source_op=source_op,
+            descriptor=_descriptor(
+                f"amd.xdna.aie2p.predicate.{operation}.high32"
+                f"{'.rhs_tied' if update is not _PredicateUpdate.NONE else ''}"
+            ),
+            guards=(
+                *type_guards,
+                *((Guard.value_no_uses_after(field),) if field is not None else ()),
+            ),
+            emit=_predicate_binary_emits(
+                operation,
+                ValueRef.operand("lhs"),
+                ValueRef.operand("rhs"),
+                ValueRef.result("result"),
+                temporary_prefix="predicate",
+                update=update,
+            ),
+        )
+        for update, field in (
+            (_PredicateUpdate.RHS, "rhs"),
+            (_PredicateUpdate.LHS, "lhs"),
+            (_PredicateUpdate.NONE, None),
+        )
     )
 
 
-def _vector_predicate_select_rule() -> DescriptorRule:
+def _vector_predicate_select_rules() -> tuple[DescriptorRule, ...]:
     difference = ValueRef.temporary("difference")
     changes = ValueRef.temporary("changes")
-    return DescriptorRule(
-        source_op=vector.vector_select,
-        descriptor=_descriptor("amd.xdna.aie2p.predicate.xor.high32"),
-        guards=_typed_guards(
-            ("condition", "true_value", "false_value", "result"), _I1_VECTOR
-        ),
-        # Select each packed predicate bit without expanding its payload lane.
-        emit=(
-            *_predicate_binary_emits(
-                "xor",
-                ValueRef.operand("true_value"),
-                ValueRef.operand("false_value"),
-                difference,
-                temporary_prefix="difference",
+    type_guards = _typed_guards(
+        ("condition", "true_value", "false_value", "result"), _I1_VECTOR
+    )
+    return tuple(
+        DescriptorRule(
+            source_op=vector.vector_select,
+            descriptor=_descriptor("amd.xdna.aie2p.predicate.xor.high32.rhs_tied"),
+            guards=(
+                *type_guards,
+                *(
+                    (Guard.value_no_uses_after("true_value"),)
+                    if first_update is _PredicateUpdate.RHS
+                    else ()
+                ),
             ),
-            *_predicate_binary_emits(
-                "and",
-                ValueRef.operand("condition"),
-                difference,
-                changes,
-                temporary_prefix="changes",
+            # Select each packed predicate bit without expanding its payload lane.
+            # The two compiler-owned temporaries are single-use by construction.
+            emit=(
+                *_predicate_binary_emits(
+                    "xor",
+                    ValueRef.operand("false_value"),
+                    ValueRef.operand("true_value"),
+                    difference,
+                    temporary_prefix="difference",
+                    update=first_update,
+                ),
+                *_predicate_binary_emits(
+                    "and",
+                    ValueRef.operand("condition"),
+                    difference,
+                    changes,
+                    temporary_prefix="changes",
+                    update=_PredicateUpdate.RHS,
+                ),
+                *_predicate_binary_emits(
+                    "xor",
+                    ValueRef.operand("false_value"),
+                    changes,
+                    ValueRef.result("result"),
+                    temporary_prefix="selected",
+                    update=_PredicateUpdate.RHS,
+                ),
             ),
-            *_predicate_binary_emits(
-                "xor",
-                ValueRef.operand("false_value"),
-                changes,
-                ValueRef.result("result"),
-                temporary_prefix="selected",
-            ),
-        ),
+        )
+        for first_update in (_PredicateUpdate.RHS, _PredicateUpdate.NONE)
     )
 
 
@@ -914,7 +959,6 @@ def _vector_compare_rule(
         )
         forward = ValueRef.temporary("comparison_forward")
         reverse = ValueRef.temporary("comparison_reverse")
-        low = _descriptor("amd.xdna.aie2p.predicate.or.low32")
         emits = (
             _op_emit(
                 compare,
@@ -938,10 +982,12 @@ def _vector_compare_rule(
                     reverse,
                     result,
                     temporary_prefix="comparison",
+                    update=_PredicateUpdate.RHS,
                 ),
             )
-            descriptor = _descriptor("amd.xdna.aie2p.predicate.or.high32")
+            descriptor = _descriptor("amd.xdna.aie2p.predicate.or.high32.rhs_tied")
         else:
+            low = _descriptor("amd.xdna.aie2p.predicate.or.low32")
             comparison = ValueRef.temporary("comparison_low32")
             emits = (
                 *emits,

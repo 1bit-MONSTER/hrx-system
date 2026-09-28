@@ -86,7 +86,7 @@ func.def @f16_predicate(%values: vector<9xf16>, %thresholds: vector<1xf16>) -> (
 // ----
 CHECK: low.func.def * @f16_predicate(*) *
 CHECK: * = vextbcst.16 %thresholds, 0
-CHECK: %codes = predicate.xor.high32 *
+CHECK: %codes = predicate.xor.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 

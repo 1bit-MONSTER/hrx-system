@@ -57,6 +57,7 @@ from loom.target.contracts import (
     Scalar,
     ValueAliasRule,
     ValueProjectKind,
+    ValueRef,
     Vector,
 )
 
@@ -1081,12 +1082,13 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
             "amd.xdna.aie2p.extract.i32.immediate",
         ]
 
-    vector_bitwise_rules = [
+    payload_bitwise_rules = [
         rule
         for rule in rules
         if rule.source_op in (vector.vector_andi, vector.vector_ori, vector.vector_xori)
+        and not rule.descriptor.key.startswith("amd.xdna.aie2p.predicate.")
     ]
-    assert [rule.descriptor.key for rule in vector_bitwise_rules] == [
+    assert [rule.descriptor.key for rule in payload_bitwise_rules] == [
         "amd.xdna.aie2p.and.bits512",
         "amd.xdna.aie2p.and.bits512",
         "amd.xdna.aie2p.and.bits512",
@@ -1096,11 +1098,8 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         "amd.xdna.aie2p.sub.i8x64",
         "amd.xdna.aie2p.sub.i16x32",
         "amd.xdna.aie2p.sub.i32x16",
-        "amd.xdna.aie2p.predicate.and.high32",
-        "amd.xdna.aie2p.predicate.or.high32",
-        "amd.xdna.aie2p.predicate.xor.high32",
     ]
-    assert [len(rule.emit) for rule in vector_bitwise_rules] == [
+    assert [len(rule.emit) for rule in payload_bitwise_rules] == [
         1,
         1,
         1,
@@ -1110,9 +1109,6 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         3,
         3,
         3,
-        2,
-        2,
-        2,
     ]
 
     vector_splat_rules = [
@@ -1266,6 +1262,10 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         2,
         2,
         2,
+    ]
+    assert [emit.descriptor.key for emit in vector_compare_rules[1].emit[-2:]] == [
+        "amd.xdna.aie2p.predicate.or.low32.rhs_tied",
+        "amd.xdna.aie2p.predicate.or.high32.rhs_tied",
     ]
     assert [emit.descriptor.key for emit in vector_compare_rules[10].emit] == [
         "amd.xdna.aie2p.sub.i16x32",
@@ -1545,4 +1545,140 @@ def test_vector_constant_rules_materialize_each_register_carrier() -> None:
             ("f32", 64, 4),
             ("i64", 32, 4),
         ]
+    )
+
+
+def test_predicate_binary_rules_reuse_only_a_dead_source_operand() -> None:
+    rules = tuple(
+        case
+        for case in AIE2P_CORE_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+    )
+    for source_op, operation in (
+        (vector.vector_andi, "and"),
+        (vector.vector_ori, "or"),
+        (vector.vector_xori, "xor"),
+    ):
+        predicate_rules = [
+            rule
+            for rule in rules
+            if rule.source_op is source_op
+            and rule.descriptor.key.startswith(f"amd.xdna.aie2p.predicate.{operation}.")
+        ]
+        assert [rule.descriptor.key for rule in predicate_rules] == [
+            f"amd.xdna.aie2p.predicate.{operation}.high32.rhs_tied",
+            f"amd.xdna.aie2p.predicate.{operation}.high32.rhs_tied",
+            f"amd.xdna.aie2p.predicate.{operation}.high32",
+        ]
+
+        update_rhs, update_lhs, preserve_both = predicate_rules
+        assert update_rhs.guards[-1] == Guard.value_no_uses_after("rhs")
+        assert update_lhs.guards[-1] == Guard.value_no_uses_after("lhs")
+        assert len(preserve_both.guards) == 3
+
+        tied_keys = [
+            f"amd.xdna.aie2p.predicate.{operation}.low32.rhs_tied",
+            f"amd.xdna.aie2p.predicate.{operation}.high32.rhs_tied",
+        ]
+        assert [emit.descriptor.key for emit in update_rhs.emit] == tied_keys
+        assert update_rhs.emit[0].operands == {
+            "s0": ValueRef.operand("lhs"),
+            "s1": ValueRef.operand("rhs"),
+        }
+        assert update_rhs.emit[1].operands == {
+            "s0": ValueRef.operand("lhs"),
+            "s1": ValueRef.temporary("predicate_low32"),
+        }
+
+        assert [emit.descriptor.key for emit in update_lhs.emit] == tied_keys
+        assert update_lhs.emit[0].operands == {
+            "s0": ValueRef.operand("rhs"),
+            "s1": ValueRef.operand("lhs"),
+        }
+        assert update_lhs.emit[1].operands == {
+            "s0": ValueRef.operand("rhs"),
+            "s1": ValueRef.temporary("predicate_low32"),
+        }
+
+        assert [emit.descriptor.key for emit in preserve_both.emit] == [
+            f"amd.xdna.aie2p.predicate.{operation}.low32",
+            f"amd.xdna.aie2p.predicate.{operation}.high32",
+        ]
+        assert preserve_both.emit[1].operands == {
+            "s0": ValueRef.operand("lhs"),
+            "s1": ValueRef.operand("rhs"),
+            "storage": ValueRef.temporary("predicate_low32"),
+        }
+
+
+def test_predicate_select_reuses_true_value_only_at_its_last_use() -> None:
+    rules = [
+        case
+        for case in AIE2P_CORE_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op is vector.vector_select
+        and case.guards[1].type_pattern.element == "i1"
+    ]
+    assert len(rules) == 2
+    update_true, preserve_true = rules
+    assert update_true.guards[-1] == Guard.value_no_uses_after("true_value")
+    assert len(preserve_true.guards) == 4
+
+    tied_suffix = [
+        "amd.xdna.aie2p.predicate.and.low32.rhs_tied",
+        "amd.xdna.aie2p.predicate.and.high32.rhs_tied",
+        "amd.xdna.aie2p.predicate.xor.low32.rhs_tied",
+        "amd.xdna.aie2p.predicate.xor.high32.rhs_tied",
+    ]
+    assert [emit.descriptor.key for emit in update_true.emit] == [
+        "amd.xdna.aie2p.predicate.xor.low32.rhs_tied",
+        "amd.xdna.aie2p.predicate.xor.high32.rhs_tied",
+        *tied_suffix,
+    ]
+    assert update_true.emit[0].operands == {
+        "s0": ValueRef.operand("false_value"),
+        "s1": ValueRef.operand("true_value"),
+    }
+    assert [emit.descriptor.key for emit in preserve_true.emit] == [
+        "amd.xdna.aie2p.predicate.xor.low32",
+        "amd.xdna.aie2p.predicate.xor.high32",
+        *tied_suffix,
+    ]
+    assert preserve_true.emit[1].operands == {
+        "s0": ValueRef.operand("false_value"),
+        "s1": ValueRef.operand("true_value"),
+        "storage": ValueRef.temporary("difference_low32"),
+    }
+
+
+def test_predicate_not_equal_reuses_only_complete_comparison_storage() -> None:
+    rules = [
+        case
+        for case in AIE2P_CORE_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op is vector.vector_cmpi
+        and case.guards[0].enum_keyword == "ne"
+    ]
+    assert [rule.guards[1].type_pattern.element for rule in rules] == [
+        "i8",
+        "i16",
+        "i32",
+    ]
+    assert rules[0].emit[2].descriptor.key == (
+        "amd.xdna.aie2p.predicate.or.low32.rhs_tied"
+    )
+    assert rules[0].emit[2].operands == {
+        "s0": ValueRef.temporary("comparison_forward"),
+        "s1": ValueRef.temporary("comparison_reverse"),
+    }
+    assert rules[0].emit[3].descriptor.key == (
+        "amd.xdna.aie2p.predicate.or.high32.rhs_tied"
+    )
+    assert all(
+        rule.emit[2].descriptor.key == "amd.xdna.aie2p.predicate.or.low32"
+        for rule in rules[1:]
+    )
+    assert all(
+        rule.emit[3].descriptor.key == "amd.xdna.aie2p.predicate.complete.zero.high32"
+        for rule in rules[1:]
     )

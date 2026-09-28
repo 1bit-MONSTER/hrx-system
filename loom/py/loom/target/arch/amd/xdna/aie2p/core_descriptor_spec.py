@@ -41,6 +41,10 @@ class _DescriptorSpec:
     encoding_adapter_overrides: tuple[tuple[str, str], ...] = ()
     # Disjoint part preserved through the first result's tied storage input.
     storage_continuation_part: str | None = None
+    # Result/input pairs constrained to the same storage.
+    tied_updates: tuple[tuple[str, str], ...] = ()
+    # Result/input pairs constrained as destructive same-storage updates.
+    destructive_updates: tuple[tuple[str, str], ...] = ()
     # Input aggregates updated by co-indexed native outputs. The first output
     # names the aggregate SSA result tied to the input's storage.
     aggregate_updates: tuple[tuple[str, tuple[str, ...]], ...] = ()
