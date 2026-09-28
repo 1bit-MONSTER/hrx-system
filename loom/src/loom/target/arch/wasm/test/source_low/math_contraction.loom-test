@@ -1,12 +1,84 @@
 // TEMPLATE: loom/src/loom/test/corpus/source_low/math_contraction.loom-test
-// TEMPLATE-EXCLUDE: @scalar_contract Scalar F32 multiply/FMA lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @scalar_swapped Scalar F32 multiply/FMA lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @scalar_nonadjacent Scalar F32 multiply/FMA lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @scalar_multiuse Scalar F32 multiply/FMA lowering is not implemented for this profile.
-// TEMPLATE-EXCLUDE: @scalar_one_flag Scalar F32 multiply/FMA lowering is not implemented for this profile.
 // TEMPLATE-EXCLUDE: @scalar_explicit Scalar F32 multiply/FMA lowering is not implemented for this profile.
 // TEMPLATE-EXCLUDE: @vector16_contract This profile supports the four-lane SIMD carrier used by the retained cases.
 // RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @scalar_contract(%a: f32, %b: f32, %c: f32) -> (f32) {
+  %product = scalar.mulf<contract> %a, %b : f32
+  %result = scalar.addf<contract> %product, %c : f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_contract(%a: reg<wasm.f32>, %b: reg<wasm.f32>, %c: reg<wasm.f32>) -> (reg<wasm.f32>) asm {
+  %product = f32.mul %a, %b
+  %result = f32.add %product, %c
+  return %result
+}
+
+// ====
+
+func.def @scalar_swapped(%a: f32, %b: f32, %c: f32) -> (f32) {
+  %product = scalar.mulf<contract> %a, %b : f32
+  %result = scalar.addf<contract> %c, %product : f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_swapped(%a: reg<wasm.f32>, %b: reg<wasm.f32>, %c: reg<wasm.f32>) -> (reg<wasm.f32>) asm {
+  %product = f32.mul %a, %b
+  %result = f32.add %c, %product
+  return %result
+}
+
+// ====
+
+func.def @scalar_nonadjacent(%a: f32, %b: f32, %c: f32) -> (f32) {
+  %product = scalar.mulf<contract> %a, %b : f32
+  %addend = scalar.mulf %c, %c : f32
+  %result = scalar.addf<contract> %product, %addend : f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_nonadjacent(%a: reg<wasm.f32>, %b: reg<wasm.f32>, %c: reg<wasm.f32>) -> (reg<wasm.f32>) asm {
+  %product = f32.mul %a, %b
+  %addend = f32.mul %c, %c
+  %result = f32.add %product, %addend
+  return %result
+}
+
+// ====
+
+func.def @scalar_multiuse(%a: f32, %b: f32, %c: f32) -> (f32, f32) {
+  %product = scalar.mulf<contract> %a, %b : f32
+  %result = scalar.addf<contract> %product, %c : f32
+  func.return %product, %result : f32, f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_multiuse(%a: reg<wasm.f32>, %b: reg<wasm.f32>, %c: reg<wasm.f32>) -> (reg<wasm.f32>, reg<wasm.f32>) asm {
+  %product = f32.mul %a, %b
+  %result = f32.add %product, %c
+  return %product, %result
+}
+
+// ====
+
+func.def @scalar_one_flag(%a: f32, %b: f32, %c: f32) -> (f32) {
+  %product = scalar.mulf<contract> %a, %b : f32
+  %result = scalar.addf %product, %c : f32
+  func.return %result : f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_one_flag(%a: reg<wasm.f32>, %b: reg<wasm.f32>, %c: reg<wasm.f32>) -> (reg<wasm.f32>) asm {
+  %product = f32.mul %a, %b
+  %result = f32.add %product, %c
+  return %result
+}
+
+// ====
 
 func.def @vector4_contract(%a: vector<4xf32>, %b: vector<4xf32>, %c: vector<4xf32>) -> (vector<4xf32>) {
   %product = vector.mulf<contract> %a, %b : vector<4xf32>
