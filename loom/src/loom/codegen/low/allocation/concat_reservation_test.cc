@@ -114,12 +114,15 @@ TEST(LowAllocationConcatReservationTest,
   prefix.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
   prefix.location_count = 2;
   uint32_t high_water[] = {6};
+  uint32_t constrained_high_water[] = {prefix.location_count};
   loom_low_allocation_target_constraints_t constraints = {};
   constraints.module = module;
   constraints.target = &target;
   constraints.reserved_ranges = &prefix;
   constraints.reserved_range_count = 1;
   constraints.max_assigned_location_end_by_reg_class = high_water;
+  constraints.max_constrained_location_end_by_reg_class =
+      constrained_high_water;
 
   loom_low_allocation_assignment_t future = {};
   future.value_id = value_ids[3];
