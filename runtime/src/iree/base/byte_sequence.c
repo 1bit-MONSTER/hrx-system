@@ -132,6 +132,122 @@ IREE_API_EXPORT iree_status_t iree_byte_sequence_create_from_span_move(
 }
 
 //===----------------------------------------------------------------------===//
+// Concatenated sequence
+//===----------------------------------------------------------------------===//
+
+typedef struct iree_concat_byte_sequence_t {
+  // Byte sequence interface exposed to callers.
+  iree_byte_sequence_t base;
+  // Allocator owning this wrapper and its trailing sequence pointer array.
+  iree_allocator_t host_allocator;
+  // Number of retained non-empty sequences in |sequences|.
+  iree_host_size_t sequence_count;
+  // Retained non-empty sequences in logical order.
+  iree_byte_sequence_t* sequences[];
+} iree_concat_byte_sequence_t;
+
+static iree_concat_byte_sequence_t* iree_concat_byte_sequence_cast(
+    iree_byte_sequence_t* IREE_RESTRICT base_sequence) {
+  return (iree_concat_byte_sequence_t*)base_sequence;
+}
+
+static const iree_concat_byte_sequence_t* iree_concat_byte_sequence_const_cast(
+    const iree_byte_sequence_t* IREE_RESTRICT base_sequence) {
+  return (const iree_concat_byte_sequence_t*)base_sequence;
+}
+
+static void iree_concat_byte_sequence_destroy(
+    iree_byte_sequence_t* IREE_RESTRICT base_sequence) {
+  iree_concat_byte_sequence_t* sequence =
+      iree_concat_byte_sequence_cast(base_sequence);
+  iree_allocator_t host_allocator = sequence->host_allocator;
+  for (iree_host_size_t i = 0; i < sequence->sequence_count; ++i) {
+    iree_byte_sequence_release(sequence->sequences[i]);
+  }
+  iree_allocator_free(host_allocator, sequence);
+}
+
+static iree_status_t iree_concat_byte_sequence_enumerate(
+    const iree_byte_sequence_t* base_sequence,
+    iree_byte_sequence_segment_callback_t callback) {
+  const iree_concat_byte_sequence_t* sequence =
+      iree_concat_byte_sequence_const_cast(base_sequence);
+  for (iree_host_size_t i = 0; i < sequence->sequence_count; ++i) {
+    IREE_RETURN_IF_ERROR(
+        iree_byte_sequence_enumerate(sequence->sequences[i], callback));
+  }
+  return iree_ok_status();
+}
+
+static const iree_byte_sequence_vtable_t iree_concat_byte_sequence_vtable = {
+    .destroy = iree_concat_byte_sequence_destroy,
+    .enumerate = iree_concat_byte_sequence_enumerate,
+    .try_get_contiguous_span = NULL,
+};
+
+IREE_API_EXPORT iree_status_t iree_byte_sequence_create_concat(
+    iree_host_size_t sequence_count, iree_byte_sequence_t* const* sequences,
+    iree_allocator_t host_allocator, iree_byte_sequence_t** out_sequence) {
+  IREE_ASSERT_ARGUMENT(sequence_count == 0 || sequences);
+  IREE_ASSERT_ARGUMENT(out_sequence);
+  *out_sequence = NULL;
+
+  iree_host_size_t non_empty_count = 0;
+  uint64_t total_length = 0;
+  for (iree_host_size_t i = 0; i < sequence_count; ++i) {
+    if (!sequences[i]) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "byte sequence %" PRIhsz " is NULL", i);
+    }
+    const uint64_t length = iree_byte_sequence_length(sequences[i]);
+    if (UINT64_MAX - total_length < length) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "concatenated byte sequence length overflows");
+    }
+    total_length += length;
+    non_empty_count += length != 0;
+  }
+
+  if (non_empty_count <= 1 && sequence_count != 0) {
+    iree_byte_sequence_t* selected = sequences[0];
+    for (iree_host_size_t i = 0; i < sequence_count; ++i) {
+      if (iree_byte_sequence_length(sequences[i]) != 0) {
+        selected = sequences[i];
+        break;
+      }
+    }
+    iree_byte_sequence_retain(selected);
+    *out_sequence = selected;
+    return iree_ok_status();
+  }
+
+  if (sequence_count == 0) {
+    iree_byte_span_t empty_span = iree_byte_span_empty();
+    return iree_byte_sequence_create_from_span_move(&empty_span, host_allocator,
+                                                    out_sequence);
+  }
+
+  iree_concat_byte_sequence_t* sequence = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_struct_array(
+      host_allocator, sizeof(*sequence), non_empty_count,
+      sizeof(sequence->sequences[0]), (void**)&sequence));
+  iree_byte_sequence_initialize(&iree_concat_byte_sequence_vtable, total_length,
+                                &sequence->base);
+  sequence->host_allocator = host_allocator;
+  sequence->sequence_count = 0;
+  for (iree_host_size_t i = 0; i < sequence_count; ++i) {
+    if (iree_byte_sequence_length(sequences[i]) == 0) {
+      continue;
+    }
+    iree_byte_sequence_retain(sequences[i]);
+    sequence->sequences[sequence->sequence_count++] = sequences[i];
+  }
+
+  *out_sequence = &sequence->base;
+  return iree_ok_status();
+}
+
+//===----------------------------------------------------------------------===//
 // Contiguous clone
 //===----------------------------------------------------------------------===//
 
