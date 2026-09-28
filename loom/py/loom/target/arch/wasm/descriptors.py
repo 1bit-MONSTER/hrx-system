@@ -242,6 +242,12 @@ _OP_I64_LE_S = 0x57
 _OP_I64_LE_U = 0x58
 _OP_I64_GE_S = 0x59
 _OP_I64_GE_U = 0x5A
+_OP_F32_EQ = 0x5B
+_OP_F32_NE = 0x5C
+_OP_F32_LT = 0x5D
+_OP_F32_GT = 0x5E
+_OP_F32_LE = 0x5F
+_OP_F32_GE = 0x60
 _OP_I32_ADD = 0x6A
 _OP_I32_SUB = 0x6B
 _OP_I32_MUL = 0x6C
@@ -262,7 +268,20 @@ _OP_I64_XOR = 0x85
 _OP_I64_SHL = 0x86
 _OP_I64_SHR_S = 0x87
 _OP_I64_SHR_U = 0x88
+_OP_F32_ABS = 0x8B
+_OP_F32_NEG = 0x8C
+_OP_F32_CEIL = 0x8D
+_OP_F32_FLOOR = 0x8E
+_OP_F32_TRUNC = 0x8F
+_OP_F32_NEAREST = 0x90
+_OP_F32_SQRT = 0x91
 _OP_F32_ADD = 0x92
+_OP_F32_SUB = 0x93
+_OP_F32_MUL = 0x94
+_OP_F32_DIV = 0x95
+_OP_F32_MIN = 0x96
+_OP_F32_MAX = 0x97
+_OP_F32_COPYSIGN = 0x98
 _OP_I32_WRAP_I64 = 0xA7
 _OP_I64_EXTEND_I32_S = 0xAC
 _OP_I64_EXTEND_I32_U = 0xAD
@@ -370,6 +389,44 @@ def _scalar_binary_descriptor(
         schedule_class=_SCHEDULE_SCALAR_I32
         if type_name == "i32"
         else _SCHEDULE_SCALAR_I64,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _f32_unary_descriptor(
+    operation: str, semantic: str, encoding_id: int
+) -> Descriptor:
+    return Descriptor(
+        key=f"wasm.f32.{operation}",
+        mnemonic=f"f32.{operation}",
+        semantic_tag=f"float.{semantic}.f32",
+        encoding_id=encoding_id,
+        operands=(_f32_result(), _f32_operand("input")),
+        asm_forms=_asm(results=("dst",), operands=("input",)),
+        schedule_class=_SCHEDULE_SCALAR_F32,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _f32_binary_descriptor(
+    operation: str,
+    semantic: str,
+    encoding_id: int,
+    *,
+    comparison: bool = False,
+) -> Descriptor:
+    return Descriptor(
+        key=f"wasm.f32.{operation}",
+        mnemonic=f"f32.{operation}",
+        semantic_tag=f"float.{semantic}.f32",
+        encoding_id=encoding_id,
+        operands=(
+            _i32_result() if comparison else _f32_result(),
+            _f32_operand("lhs"),
+            _f32_operand("rhs"),
+        ),
+        asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
+        schedule_class=_SCHEDULE_SCALAR_F32,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
 
@@ -754,15 +811,42 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("ge_u", "ge.u64", _OP_I64_GE_U),
             )
         ),
-        Descriptor(
-            key="wasm.f32.add",
-            mnemonic="f32.add",
-            semantic_tag="float.add.f32",
-            encoding_id=_OP_F32_ADD,
-            operands=(_f32_result(), _f32_operand("lhs"), _f32_operand("rhs")),
-            asm_forms=_asm(results=("dst",), operands=("lhs", "rhs")),
-            schedule_class=_SCHEDULE_SCALAR_F32,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        *(
+            _f32_unary_descriptor(operation, semantic, encoding)
+            for operation, semantic, encoding in (
+                ("abs", "abs", _OP_F32_ABS),
+                ("neg", "neg", _OP_F32_NEG),
+                ("ceil", "ceil", _OP_F32_CEIL),
+                ("floor", "floor", _OP_F32_FLOOR),
+                ("trunc", "trunc", _OP_F32_TRUNC),
+                ("nearest", "round_even", _OP_F32_NEAREST),
+                ("sqrt", "sqrt", _OP_F32_SQRT),
+            )
+        ),
+        *(
+            _f32_binary_descriptor(operation, semantic, encoding)
+            for operation, semantic, encoding in (
+                ("add", "add", _OP_F32_ADD),
+                ("sub", "sub", _OP_F32_SUB),
+                ("mul", "mul", _OP_F32_MUL),
+                ("div", "div", _OP_F32_DIV),
+                ("min", "minimum", _OP_F32_MIN),
+                ("max", "maximum", _OP_F32_MAX),
+                ("copysign", "copysign", _OP_F32_COPYSIGN),
+            )
+        ),
+        *(
+            _f32_binary_descriptor(
+                operation, f"cmp.{semantic}", encoding, comparison=True
+            )
+            for operation, semantic, encoding in (
+                ("eq", "oeq", _OP_F32_EQ),
+                ("ne", "une", _OP_F32_NE),
+                ("lt", "olt", _OP_F32_LT),
+                ("gt", "ogt", _OP_F32_GT),
+                ("le", "ole", _OP_F32_LE),
+                ("ge", "oge", _OP_F32_GE),
+            )
         ),
         Descriptor(
             key="wasm.i32.reinterpret_f32",

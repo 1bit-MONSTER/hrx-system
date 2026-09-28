@@ -67,6 +67,38 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compa
   return %eq, %ne, %lt_s, %lt_u, %gt_s, %gt_u, %le_s, %le_u, %ge_s, %ge_u
 }
 
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @arithmetic_f32(%lhs: reg<wasm.f32>, %rhs: reg<wasm.f32>) -> (reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>) asm {
+  %add = f32.add %lhs, %rhs
+  %sub = f32.sub %lhs, %rhs
+  %mul = f32.mul %lhs, %rhs
+  %div = f32.div %lhs, %rhs
+  %min = f32.min %lhs, %rhs
+  %max = f32.max %lhs, %rhs
+  %copysign = f32.copysign %lhs, %rhs
+  return %add, %sub, %mul, %div, %min, %max, %copysign
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @unary_f32(%input: reg<wasm.f32>) -> (reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>, reg<wasm.f32>) asm {
+  %abs = f32.abs %input
+  %neg = f32.neg %input
+  %ceil = f32.ceil %input
+  %floor = f32.floor %input
+  %trunc = f32.trunc %input
+  %nearest = f32.nearest %input
+  %sqrt = f32.sqrt %input
+  return %abs, %neg, %ceil, %floor, %trunc, %nearest, %sqrt
+}
+
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @compare_f32(%lhs: reg<wasm.f32>, %rhs: reg<wasm.f32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %eq = f32.eq %lhs, %rhs
+  %ne = f32.ne %lhs, %rhs
+  %lt = f32.lt %lhs, %rhs
+  %gt = f32.gt %lhs, %rhs
+  %le = f32.le %lhs, %rhs
+  %ge = f32.ge %lhs, %rhs
+  return %eq, %ne, %lt, %gt, %le, %ge
+}
+
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @lanes_i32(%first: reg<wasm.i32>, %last: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
   %splat = i32x4.splat %first
   %inserted = i32x4.replace_lane %splat, %last, 3
@@ -199,6 +231,26 @@ CHECK: i64.le_s
 CHECK: i64.le_u
 CHECK: i64.ge_s
 CHECK: i64.ge_u
+CHECK: f32.add
+CHECK: f32.sub
+CHECK: f32.mul
+CHECK: f32.div
+CHECK: f32.min
+CHECK: f32.max
+CHECK: f32.copysign
+CHECK: f32.abs
+CHECK: f32.neg
+CHECK: f32.ceil
+CHECK: f32.floor
+CHECK: f32.trunc
+CHECK: f32.nearest
+CHECK: f32.sqrt
+CHECK: f32.eq
+CHECK: f32.ne
+CHECK: f32.lt
+CHECK: f32.gt
+CHECK: f32.le
+CHECK: f32.ge
 CHECK: i32x4.splat
 CHECK: i32x4.replace_lane *3
 CHECK: i32x4.extract_lane *0

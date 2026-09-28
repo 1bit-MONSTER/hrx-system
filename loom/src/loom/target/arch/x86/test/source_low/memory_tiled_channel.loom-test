@@ -1,4 +1,5 @@
 // TEMPLATE: loom/src/loom/test/corpus/source_low/memory_tiled_channel.loom-test
+// TEMPLATE-EXCLUDE: @tiled_channel_load_f32 Scalar f32 memory transport is tracked separately.
 // RUN: emit source-low target=x86:avx2 output=low
 
 // A flattened tile coordinate addresses the input while its remainder selects
