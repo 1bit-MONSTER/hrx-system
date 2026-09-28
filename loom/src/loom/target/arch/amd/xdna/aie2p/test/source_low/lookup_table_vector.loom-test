@@ -66,6 +66,93 @@ CHECK-NOT: * = vinsert.*
 
 // ====
 
+// Five double-word result lanes tie the packed setup cost, so avoid replacing
+// an equal-cost scalar realization at the boundary.
+func.def @i64_scalar_cost_boundary(%table: vector<2xi64>, %indices: vector<5xi8>) -> (vector<5xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<5xi8> -> vector<5xi64>
+  func.return %result : vector<5xi64>
+}
+
+// ----
+CHECK: * = vextract.8.imm %indices, 0
+CHECK: * = vextract.64.reg %table, *
+CHECK: %result = vinsert.64.reg *
+CHECK-NOT: * = vextbcst.64 *
+CHECK-NOT: * = vsel.32 *
+
+// ====
+
+// The sixth lane repays predicate expansion and selects each i64 as one pair
+// of adjacent 32-bit payload words.
+func.def @i64_packed_cost_boundary(%table: vector<2xi64>, %indices: vector<6xi8>) -> (vector<6xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<6xi8> -> vector<6xi64>
+  func.return %result : vector<6xi64>
+}
+
+// ----
+CHECK: * = vextbcst.64 %table, 0
+CHECK: * = vextbcst.64 %table, 1
+CHECK: * = predicate.mask.low32 *
+CHECK: %result = vsel.32 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// Floating-point payload bits and a multidimensional logical shape use the
+// same pair selector without conversion or scalar assembly.
+func.def @shaped_f64_table(%table: vector<2xf64>, %indices: vector<2x4xi16>) -> (vector<2x4xf64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xf64>, vector<2x4xi16> -> vector<2x4xf64>
+  func.return %result : vector<2x4xf64>
+}
+
+// ----
+CHECK: * = vextbcst.64 %table, 0
+CHECK: * = vextbcst.64 %table, 1
+CHECK: %result = vsel.32 *
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// A 1024-bit result is split into two native pair-selection packets and then
+// restored through the ordinary four-unit vector carrier.
+func.def @wide_i64_table(%table: vector<2xi64>, %indices: vector<16xi8>) -> (vector<16xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<16xi8> -> vector<16xi64>
+  func.return %result : vector<16xi64>
+}
+
+// ----
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+// The exact 2048-bit i64 accumulator carrier retains four vector-file
+// selection packets before crossing the register-file boundary once per unit.
+func.def @accumulator_i64_table(%table: vector<2xi64>, %indices: vector<32xi8>) -> (vector<32xi64>) {
+  %result = vector.table.lookup %table[%indices] : vector<2xi64>, vector<32xi8> -> vector<32xi64>
+  func.return %result : vector<32xi64>
+}
+
+// ----
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: * = vsel.32 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
 // Narrow indices make the packed tree cheaper at this boundary because scalar
 // extraction must extend every index lane.
 func.def @i16_narrow_index_boundary(%table: vector<9xi16>, %indices: vector<8xi16>) -> (vector<8xi16>) {
