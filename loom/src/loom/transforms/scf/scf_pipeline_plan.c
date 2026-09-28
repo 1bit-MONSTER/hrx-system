@@ -185,7 +185,7 @@ static void loom_scf_pipeline_clear_branch_owners(
 static iree_status_t loom_scf_pipeline_try_build_guarded_partition(
     loom_module_t* module, const loom_block_t* block, const loom_op_t* op,
     const loom_scf_memory_t* spaces, const loom_local_value_domain_t* domain,
-    bool* depends_on_carried, uint32_t* branch_owners,
+    bool has_static_bounds, bool* depends_on_carried, uint32_t* branch_owners,
     iree_arena_allocator_t* arena,
     loom_scf_pipeline_guarded_partition_t** out_partition) {
   *out_partition = NULL;
@@ -224,12 +224,18 @@ static iree_status_t loom_scf_pipeline_try_build_guarded_partition(
   for (uint32_t i = 0; i < producer_body->count; ++i) {
     const loom_scf_body_effect_flags_t effects =
         producer_body->operations[i].effects;
+    if (effects == LOOM_SCF_BODY_EFFECT_CONVERGENT && has_static_bounds) {
+      continue;
+    }
     if (effects != 0 && effects != LOOM_SCF_BODY_EFFECT_READ) {
       return iree_ok_status();
     }
   }
   for (uint32_t i = 0; i < other_body->count; ++i) {
-    if (other_body->operations[i].effects != 0) {
+    const loom_scf_body_effect_flags_t effects =
+        other_body->operations[i].effects;
+    if (effects != 0 &&
+        (effects != LOOM_SCF_BODY_EFFECT_CONVERGENT || !has_static_bounds)) {
       return iree_ok_status();
     }
   }
@@ -339,6 +345,7 @@ static iree_status_t loom_scf_pipeline_try_build_guarded_partition(
     IREE_RETURN_IF_ERROR(loom_scf_pipeline_guarded_append_operation_references(
         arena, partition, &reference_count, &reference_capacity, producer_body,
         &producer_body->operations[i]));
+    partition->consumer.effects |= producer_body->operations[i].effects;
   }
   IREE_RETURN_IF_ERROR(loom_scf_pipeline_guarded_append_operation_references(
       arena, partition, &reference_count, &reference_capacity, producer_body,
@@ -347,6 +354,7 @@ static iree_status_t loom_scf_pipeline_try_build_guarded_partition(
     IREE_RETURN_IF_ERROR(loom_scf_pipeline_guarded_append_operation_references(
         arena, partition, &reference_count, &reference_capacity, other_body,
         &other_body->operations[i]));
+    partition->consumer.effects |= other_body->operations[i].effects;
   }
   IREE_RETURN_IF_ERROR(loom_scf_pipeline_guarded_append_operation_references(
       arena, partition, &reference_count, &reference_capacity, other_body,
@@ -408,12 +416,19 @@ static bool loom_scf_pipeline_has_guard_placeholder(loom_type_t type) {
          element_type == LOOM_SCALAR_TYPE_OFFSET;
 }
 
+static bool loom_scf_pipeline_is_guarded_candidate(
+    const loom_scf_body_operation_t* operation) {
+  const loom_scf_body_effect_flags_t candidate_effects =
+      LOOM_SCF_BODY_EFFECT_READ | LOOM_SCF_BODY_EFFECT_CONVERGENT;
+  return (operation->effects == LOOM_SCF_BODY_EFFECT_READ ||
+          operation->effects == candidate_effects) &&
+         loom_scf_if_isa(operation->op);
+}
+
 static bool loom_scf_pipeline_has_guarded_candidate(
     const loom_scf_pipeline_plan_t* plan) {
   for (uint32_t i = 0; i < plan->body.count; ++i) {
-    const loom_scf_body_operation_t* operation = &plan->body.operations[i];
-    if (operation->effects == LOOM_SCF_BODY_EFFECT_READ &&
-        loom_scf_if_isa(operation->op)) {
+    if (loom_scf_pipeline_is_guarded_candidate(&plan->body.operations[i])) {
       return true;
     }
   }
@@ -458,13 +473,13 @@ static iree_status_t loom_scf_pipeline_plan_partition(
     }
     for (uint32_t i = 0; i < plan->body.count; ++i) {
       const loom_scf_body_operation_t* operation = &plan->body.operations[i];
-      if (operation->effects != LOOM_SCF_BODY_EFFECT_READ ||
-          !loom_scf_if_isa(operation->op)) {
+      if (!loom_scf_pipeline_is_guarded_candidate(operation)) {
         continue;
       }
       IREE_RETURN_IF_ERROR(loom_scf_pipeline_try_build_guarded_partition(
-          module, block, operation->op, spaces, domain, depends_on_carried,
-          branch_owners, arena, &plan->guarded_partitions[i]));
+          module, block, operation->op, spaces, domain, has_static_bounds,
+          depends_on_carried, branch_owners, arena,
+          &plan->guarded_partitions[i]));
       plan->guarded_partition_count += plan->guarded_partitions[i] != NULL;
     }
   }
@@ -534,15 +549,16 @@ static iree_status_t loom_scf_pipeline_plan_partition(
     if (operation->effects == 0) {
       continue;
     }
+    if (iree_any_bit_set(operation->effects, LOOM_SCF_BODY_EFFECT_CONVERGENT) &&
+        !has_static_bounds) {
+      *rejection = (loom_scf_pipeline_rejection_t){
+          .op = operation->op,
+          .constraint = IREE_SV("compile-time exact loop bounds to preserve "
+                                "convergent consumer participation"),
+      };
+      return iree_ok_status();
+    }
     if (operation->effects == LOOM_SCF_BODY_EFFECT_CONVERGENT) {
-      if (!has_static_bounds) {
-        *rejection = (loom_scf_pipeline_rejection_t){
-            .op = operation->op,
-            .constraint = IREE_SV("compile-time exact loop bounds to preserve "
-                                  "convergent consumer participation"),
-        };
-        return iree_ok_status();
-      }
       continue;
     }
     if (operation->effects ==

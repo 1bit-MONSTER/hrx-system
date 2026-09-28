@@ -273,7 +273,12 @@ jq '.source_low.loop_pipelines | {count, rows, stages}' kernel.details.json
 ```
 
 Each operation row identifies its compiled `function`, applied-policy `loop`
-ordinal, source-body `position`, `op`, `stage`, and `iteration_lookahead`.
+ordinal, source-body `position`, `op`, `stage`, and `iteration_lookahead`. An
+optional `partition=guarded` marks a top-level conditional whose independent
+read closure became a producer while its carried-state remainder stayed in the
+consumer. Producer and consumer rows then share the same source position: they
+are the two retained distances of one authored conditional, rather than two
+source operations.
 For depth four, producer operations run three original iterations ahead of the
 ordered consumer. `queue_records * values_per_record` counts retained SSA
 values. Target representations, allocation, and other live state determine the

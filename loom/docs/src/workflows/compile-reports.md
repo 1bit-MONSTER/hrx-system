@@ -129,8 +129,10 @@ remain visible instead of manufacturing geometry.
 Explicit loop pipeline policies appear under **Source loop pipelines**. Each
 policy records its compiled function, loop ordinal, applied depth, queue shape,
 and ordinary read count. Detailed reports include each source operation's
-producer or consumer stage and its lookahead in original iterations. Depth one
-records the author's serial policy. Unannotated loops produce no pipeline rows.
+producer or consumer stage and its lookahead in original iterations. A guarded
+conditional partition appears at one source position with separate producer
+and consumer rows. Depth one records the author's serial policy. Unannotated
+loops produce no pipeline rows.
 Loop ordinals distinguish applied policies within a function; they are not
 source locations or stable identifiers across arbitrary source edits.
 
@@ -449,12 +451,14 @@ experiment; it does not establish a gain. Expected whole-value fragments,
 untouched banks, very large decompositions, peer rejection, and generic
 transport rejection remain visible in `show` without speculative advice.
 
-Nested `scf.if` and `scf.for` appear as intact operations in the reported
-producer/consumer schedule. The read count includes static load operations
-inside their regions, including alternative branches; it is not a count of
-dynamic memory transactions. Independently pipelined inner loops have their
-own policy rows. Their transformed bodies then participate in the enclosing
-loop's schedule.
+Nested `scf.if` and `scf.for` normally appear as intact operations in the
+reported producer/consumer schedule. A retained guarded partition instead
+reports the same `scf.if` source position twice with `partition=guarded`, once
+for its read closure and once for its ordered remainder. The read count includes
+static load operations inside scheduled regions; it is not a count of dynamic
+memory transactions. Independently pipelined inner loops have their own policy
+rows. Their transformed bodies then participate in the enclosing loop's
+schedule.
 
 This source advice works across target families. When target-specific advice is
 unavailable, the result retains its reason in `target_unavailable_reason` while

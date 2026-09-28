@@ -46,8 +46,11 @@ policies are explicit; an unannotated loop receives no read-ahead transform.
 
 Cooperative reductions can also consume read-ahead values. A requested loop
 containing subgroup or workgroup collectives needs compile-time exact bounds;
-runtime tail guards can remain inside that fixed tile. Separate guarded reads
-from the collective consumer so each can retain its own stage. The
+runtime tail guards can remain inside that fixed tile. A top-level `scf.if` may
+keep guarded reads, a collective, and its ordered recurrence together in the
+source. When the guard and read prerequisites are independent of loop-carried
+state, the compiler retains the read closure as a guarded producer and the
+collective and update as its consumer. The
 [collective participation contract](../guide/functions-and-control.md#pipeline-reads-ahead-of-ordered-computation)
 explains this shape and its diagnostics.
 
@@ -146,12 +149,21 @@ and [`guarded-read-ahead-tests.loom`](../generated/examples/guide/functions-and-
 --8<-- "examples/guide/functions-and-control/guarded-read-ahead.loom"
 ```
 
-The outer producer is the complete `%partial = scf.if`, including its inner
-loop and lane guard. Its result enters the queue, and the outer sum consumes
-that result in row order. The inner sum starts from its own identity; it does
-not capture the outer `%sum`. Capturing `%sum` anywhere in this read-containing
-unit would make read-ahead impossible and produce a diagnostic. A pure inner
-loop can instead remain in the consumer and use the outer carried state.
+In this example the outer producer is the complete `%partial = scf.if`,
+including its inner loop and lane guard. Its result enters the queue, and the
+outer sum consumes that result in row order. The inner sum starts from its own
+identity, so the whole conditional is independent of the outer `%sum` and can
+run ahead as one atomic unit.
+
+A top-level conditional can also contain both sides of the read-ahead cut. If
+exactly one branch reads, the condition and branch-local read closure may run
+ahead while the carried-state update remains ordered. The compiler rebuilds
+the original conditional at consumer distance with the queued predicate and
+loaded values; the opposite branch, result types, yields, and skipped-update
+behavior remain unchanged. A guard, address, or other producer prerequisite
+that depends on outer carried state still receives a diagnostic. The
+[cooperative paged-attention example](#pipeline-cooperative-paged-attention)
+uses this fused form with a collective consumer.
 
 Both loop levels may have their own explicit pipeline depth. The checked
 composed caller uses serial, outer-only, and inner-plus-outer pipelining in one
@@ -552,13 +564,15 @@ and processes a fixed tile of sixteen rows. Repeated physical pages and shared
 page tables retain their logical row order.
 
 Inside that tile, `pipeline(%depth) unroll(%factor)` advances guarded K/V loads
-ahead of the subgroup QK reduction and the online softmax/PV recurrence. A
-separate guarded consumer updates the maximum, denominator and output
-accumulator. The fixed row count preserves collective participation; the
-runtime tail predicate prevents accesses to rows beyond the sequence length.
-The outer page count remains dynamic. Both policies instantiate one template:
-the serial caller passes depth one, the pipelined caller depth three, and both
-pass unroll two.
+ahead of the subgroup QK reduction and the online softmax/PV recurrence. The
+source keeps the loads, reduction, and carried update in one natural
+`scf.if %valid`. The compiler retains the guarded load closure as the producer
+and rebuilds the reduction and update as the ordered consumer. The fixed row
+count preserves collective participation; the runtime tail predicate prevents
+both accesses and state updates beyond the sequence length. The outer page
+count remains dynamic. Both policies instantiate one template: the serial
+caller passes depth one, the pipelined caller depth three, and both pass unroll
+two.
 
 Save the example, check it, and compare the same workload and input-reuse policy:
 
@@ -585,6 +599,15 @@ Independent analytic checks cover the scalar state and all output channels;
 varied-input comparisons exercise distinct queries and ragged lengths over
 shared pages. Minimal backing allocations expose accidental reads from absent
 pages or inactive tail rows.
+
+The detailed report shows one authored conditional at two retained distances.
+Source position `2` is the guarded producer two iterations ahead and the
+ordered consumer at the current iteration; it does not denote two source
+conditionals:
+
+```text
+--8<-- "generated/examples/guide/functions-and-control/cooperative-pipeline-schedule.txt"
+```
 
 This resource comparison is generated from the two callers for `gfx1151`:
 

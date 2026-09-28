@@ -286,21 +286,26 @@ shows runtime pitches through selections and loop recurrences.
 
 Streaming reductions, guarded ragged rows, and packed dequantization/dot loops
 are useful candidates. Ordinary loads and pure operations may contain nested
-`scf.if` and `scf.for`; each structured operation stays intact in its stage.
-Read-containing units require every capture, guard, inner bound, and initial
-value to be independent of the outer carried state. Pure inner loops may stay
-in the consumer and use that state. The
+`scf.if` and `scf.for`; each structured operation normally stays intact in its
+stage. A top-level conditional with reads in one branch may instead keep the
+natural guarded recurrence in source: the condition and independent read
+closure become a guarded producer, while the carried update remains the
+consumer. Read addresses and guards must still be independent of outer carried
+state. Pure inner loops may stay in the consumer and use that state. The
 [checked guarded-row motif](tune-loop-schedules.md#keep-guards-and-inner-loops-in-the-source)
-demonstrates independent inner and outer policies. Fixed-bound tiles can also
+demonstrates independent inner and outer policies, while the
+[cooperative paged-attention motif](tune-loop-schedules.md#pipeline-cooperative-paged-attention)
+shows guarded K/V loads, a subgroup reduction, and online-softmax state in one
+authored conditional. Fixed-bound tiles can also
 read global inputs ahead of ordered workgroup stores, shared reads, and
 workgroup-memory barriers. A requested full linear inner unroll can expose
 mixed load/store units; read-only reductions and independent schedules retain
 their existing shape. The [workgroup-staging example](tune-loop-schedules.md#read-ahead-across-workgroup-staging)
 covers publication and reuse of one shared allocation. Global or unknown
 writes, global barriers, source-order fences, `scf.while`, and explicit async
-groups have different scheduling requirements.
-Fixed-bound tiles can pipeline reads into a subgroup or workgroup reduction;
-the collective stays in a memory-pure consumer, separate from guarded loads.
+groups have different scheduling requirements. Fixed-bound tiles can pipeline
+reads into a subgroup or workgroup reduction; the collective stays in the
+memory-pure consumer even when it shares a guarded source branch with the loads.
 See the [participation contract](../guide/functions-and-control.md#pipeline-reads-ahead-of-ordered-computation)
 when the tile contains collectives.
 Unannotated loops receive no read-ahead transformation.

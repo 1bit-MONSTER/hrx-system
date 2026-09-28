@@ -9,8 +9,8 @@
 //
 // QK uses a subgroup reduction; max, denominator and PV advance in source order.
 // Approximate exp and contraction model ML-fast arithmetic without reassociation.
-// Fixed row bounds preserve collective participation across the pipeline split;
-// separate guarded load/consumer regions preserve the runtime ragged tail.
+// Fixed row bounds preserve collective participation across the guarded pipeline
+// partition, and the runtime tail suppresses both K/V reads and state updates.
 // The two callers compare serial and depth-three policies at the same unroll
 // factor. These are per-instantiation choices, not a universal schedule.
 template.decl @cooperative_paged_attention(%instance_count: index, %lengths: buffer, %query: buffer, %page_table: buffer, %keys: buffer, %values: buffer, %final_state: buffer, %output: buffer, %depth: index, %factor: index)
@@ -62,15 +62,10 @@ template.def<@cooperative_paged_attention> @cooperative_paged_attention_impl(%in
       %rows_max, %rows_sum, %rows_accumulator = scf.for %row = [%begin to %page_rows step %row_step](%row_max = %page_max : f32, %row_sum = %page_sum : f32, %row_accumulator = %page_accumulator : vector<[%fragment_width]xf32>) -> (f32, f32, vector<[%fragment_width]xf32>) pipeline(%depth) unroll(%factor) {
         %token = index.add %page_begin, %row : index
         %valid = index.cmp slt, %token, %count : index
-        %key, %value = scf.if %valid -> (vector<[%fragment_width]xf32>, vector<[%fragment_width]xf32>) {
-          %physical_row = index.add %page_row, %row : index
-          %loaded_key = vector.load %key_rows[%physical_row, %channel] : view<4096x128xf32> -> vector<[%fragment_width]xf32>
-          %loaded_value = vector.load %value_rows[%physical_row, %channel] : view<4096x128xf32> -> vector<[%fragment_width]xf32>
-          scf.yield %loaded_key, %loaded_value : vector<[%fragment_width]xf32>, vector<[%fragment_width]xf32>
-        } else {
-          scf.yield %initial_accumulator, %initial_accumulator : vector<[%fragment_width]xf32>, vector<[%fragment_width]xf32>
-        }
         %next_row_max, %next_row_sum, %next_row_accumulator = scf.if %valid -> (f32, f32, vector<[%fragment_width]xf32>) {
+          %physical_row = index.add %page_row, %row : index
+          %key = vector.load %key_rows[%physical_row, %channel] : view<4096x128xf32> -> vector<[%fragment_width]xf32>
+          %value = vector.load %value_rows[%physical_row, %channel] : view<4096x128xf32> -> vector<[%fragment_width]xf32>
           %partial_score = vector.dotf %query_fragment, %key, %identity : vector<[%fragment_width]xf32>, vector<[%fragment_width]xf32>, f32
           %dot = kernel.subgroup.reduce<addf> %partial_score : f32
           %score = scalar.mulf %dot, %score_scale : f32
