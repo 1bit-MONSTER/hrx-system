@@ -1,0 +1,207 @@
+// Exercise read-ahead startup, steady-state, and drain over a nonunit index
+// domain. The period-three payload makes every position visited by the
+// step-three loop equal one while neighboring positions remain distinct.
+config.decl @address.depth : %value: index where [range(%value, 1, 4)]
+
+config.decl @address.factor : %value: index where [range(%value, 1, 2)]
+
+template.decl @test.strided_sum(%end: index, %row: index, %values: view<10x27xi32>, %depth: index, %factor: index) -> (i32, index)
+
+template.def<@test.strided_sum> @strided_sum_impl(%end: index, %row: index, %values: view<10x27xi32>, %depth: index, %factor: index) -> (i32, index) {
+  %begin = index.constant 1 : index
+  %step = index.constant 3 : index
+  %initial_sum = scalar.constant 0 : i32
+  %initial_position = index.constant -2 : index
+  %sum, %last = scf.for %position = [%begin to %end step %step](%current_sum = %initial_sum : i32, %previous_position = %initial_position : index) -> (i32, index) pipeline(%depth) unroll(%factor) {
+    %value = view.load %values[%row, %position] : view<10x27xi32> -> i32
+    %next_sum = scalar.addi %current_sum, %value : i32
+    scf.yield %next_sum, %position : i32, index
+  }
+  template.return %sum, %last : i32, index
+}
+
+// Adjacent lanes execute zero through nine iterations. This crosses the
+// D-1/D/D+1 boundaries for both configured pipeline depths and the odd/even
+// boundary for the configured unroll factor.
+kernel.def @strided_length_matrix() {
+  %groups = index.constant 1 : index
+  %lanes = index.constant 10 : index
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index
+} launch(%value_buffer: buffer, %sum_buffer: buffer, %last_buffer: buffer) {
+  %row = kernel.workitem.id<x> : index
+  %begin = index.constant 1 : index
+  %step = index.constant 3 : index
+  %span = index.mul %row, %step : index
+  %end = index.add %begin, %span : index
+  %base = index.constant 0 : offset
+  %depth = config.get @address.depth : index
+  %factor = config.get @address.factor : index
+  %values_aligned = buffer.assume.alignment %value_buffer {minimum_alignment = 4} : buffer
+  %sums_aligned = buffer.assume.alignment %sum_buffer {minimum_alignment = 4} : buffer
+  %lasts_aligned = buffer.assume.alignment %last_buffer {minimum_alignment = 4} : buffer
+  %values_storage, %sums_storage, %lasts_storage = buffer.assume.noalias %values_aligned, %sums_aligned, %lasts_aligned : buffer, buffer, buffer
+  %values = buffer.view %values_storage[%base] : buffer -> view<10x27xi32>
+  %sums = buffer.view %sums_storage[%base] : buffer -> view<10xi32>
+  %lasts = buffer.view %lasts_storage[%base] : buffer -> view<10xi32>
+  %sum, %last = template.apply<@test.strided_sum>(%end, %row, %values, %depth, %factor) : (index, index, view<10x27xi32>, index, index) -> (i32, index)
+  %last_i32 = index.cast %last : index to i32
+  view.store %sum, %sums[%row] : i32, view<10xi32>
+  view.store %last_i32, %lasts[%row] : i32, view<10xi32>
+  kernel.return
+}
+
+// Bind only the bytes required by one logical row. Access instrumentation can
+// therefore observe an eager startup load in the empty case or a load beyond
+// the final valid strided position in the nonempty cases.
+kernel.def @strided_minimal_backing() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%iteration_count: index, %value_buffer: buffer, %sum_buffer: buffer, %last_buffer: buffer) {
+  %count = index.assume %iteration_count [range(%iteration_count, 0, 9)] : index
+  %begin = index.constant 1 : index
+  %step = index.constant 3 : index
+  %span = index.mul %count, %step : index
+  %end = index.add %begin, %span : index
+  %row = index.constant 0 : index
+  %base = index.constant 0 : offset
+  %depth = config.get @address.depth : index
+  %factor = config.get @address.factor : index
+  %values_aligned = buffer.assume.alignment %value_buffer {minimum_alignment = 4} : buffer
+  %sums_aligned = buffer.assume.alignment %sum_buffer {minimum_alignment = 4} : buffer
+  %lasts_aligned = buffer.assume.alignment %last_buffer {minimum_alignment = 4} : buffer
+  %values_storage, %sums_storage, %lasts_storage = buffer.assume.noalias %values_aligned, %sums_aligned, %lasts_aligned : buffer, buffer, buffer
+  %values = buffer.view %values_storage[%base] : buffer -> view<10x27xi32>
+  %sums = buffer.view %sums_storage[%base] : buffer -> view<1xi32>
+  %lasts = buffer.view %lasts_storage[%base] : buffer -> view<1xi32>
+  %sum, %last = template.apply<@test.strided_sum>(%end, %row, %values, %depth, %factor) : (index, index, view<10x27xi32>, index, index) -> (i32, index)
+  %last_i32 = index.cast %last : index to i32
+  view.store %sum, %sums[0] : i32, view<1xi32>
+  view.store %last_i32, %lasts[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// A physical byte-offset induction exercises the second scf.for address
+// domain. Seven i32 elements provide exactly the bytes through offset 24;
+// offset 28 is the exclusive bound and must never be read.
+kernel.def @offset_stride() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value_buffer: buffer, %output_buffer: buffer) {
+  %begin = index.constant 4 : offset
+  %end = index.constant 28 : offset
+  %step = index.constant 4 : offset
+  %depth = config.get @address.depth : index
+  %factor = config.get @address.factor : index
+  %initial = scalar.constant 0 : i32
+  %base = index.constant 0 : offset
+  %values_aligned = buffer.assume.alignment %value_buffer {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output_buffer {minimum_alignment = 4} : buffer
+  %values_storage, %output_storage = buffer.assume.noalias %values_aligned, %output_aligned : buffer, buffer
+  %sum = scf.for %position = [%begin to %end step %step](%current_sum = %initial : i32) -> (i32) pipeline(%depth) unroll(%factor) {
+    %element = buffer.view %values_storage[%position] : buffer -> view<1xi32>
+    %value = view.load %element[0] : view<1xi32> -> i32
+    %next_sum = scalar.addi %current_sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %output = buffer.view %output_storage[%base] : buffer -> view<1xi32>
+  view.store %sum, %output[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// The runtime lower bound is within eight positions of the signed 32-bit
+// limit. The checked three-iteration domain takes the depth-three long arm and
+// the depth-four short arm; neither may evaluate the overflowing unused next
+// induction value.
+kernel.def @near_index_limit() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%begin_input: index, %value_buffer: buffer, %output_buffer: buffer) {
+  %begin = index.assume %begin_input [range(%begin_input, 2147483639, 2147483647)] : index
+  %end = index.constant 2147483647 : index
+  %step = index.constant 3 : index
+  %depth = config.get @address.depth : index
+  %factor = config.get @address.factor : index
+  %initial = scalar.constant 0 : i32
+  %base = index.constant 0 : offset
+  %values_aligned = buffer.assume.alignment %value_buffer {minimum_alignment = 4} : buffer
+  %output_aligned = buffer.assume.alignment %output_buffer {minimum_alignment = 4} : buffer
+  %values_storage, %output_storage = buffer.assume.noalias %values_aligned, %output_aligned : buffer, buffer
+  %sum = scf.for %position = [%begin to %end step %step](%current_sum = %initial : i32) -> (i32) pipeline(%depth) unroll(%factor) {
+    %relative = index.sub %position, %begin : index
+    %bounded_relative = index.assume %relative [range(%relative, 0, 6)] : index
+    %value_view = buffer.view %values_storage[%base] : buffer -> view<7xi32>
+    %value = view.load %value_view[%bounded_relative] : view<7xi32> -> i32
+    %next_sum = scalar.addi %current_sum, %value : i32
+    scf.yield %next_sum : i32
+  }
+  %output = buffer.view %output_storage[%base] : buffer -> view<1xi32>
+  view.store %sum, %output[0] : i32, view<1xi32>
+  kernel.return
+}
+
+check.case @strided_length_boundaries {
+  %values = check.generate.iota offset(0) step(1) period(3) : tensor<10x27xi32>
+  %sums = check.generate.fill value(-1) : tensor<10xi32>
+  %lasts = check.generate.fill value(-1) : tensor<10xi32>
+  %expected_sums = check.generate.iota offset(0) step(1) : tensor<10xi32>
+  %expected_lasts = check.generate.iota offset(-2) step(3) : tensor<10xi32>
+  kernel.launch @strided_length_matrix(%values, %sums, %lasts) : (tensor<10x27xi32>, tensor<10xi32>, tensor<10xi32>)
+  check.expect.equal actual(%sums) expected(%expected_sums) : tensor<10xi32>
+  check.expect.equal actual(%lasts) expected(%expected_lasts) : tensor<10xi32>
+  check.return
+}
+
+check.case @strided_minimal_empty {
+  %count = check.literal value(0) : index
+  %values = check.generate.fill value(1) : tensor<1xi32>
+  %sum = check.generate.fill value(-1) : tensor<1xi32>
+  %last = check.generate.fill value(-1) : tensor<1xi32>
+  %expected_sum = check.generate.fill value(0) : tensor<1xi32>
+  %expected_last = check.generate.fill value(-2) : tensor<1xi32>
+  kernel.launch @strided_minimal_backing(%count, %values, %sum, %last) : (index, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  check.expect.equal actual(%sum) expected(%expected_sum) : tensor<1xi32>
+  check.expect.equal actual(%last) expected(%expected_last) : tensor<1xi32>
+  check.return
+}
+
+check.case @strided_minimal_drain {
+  %count = check.literal value(5) : index
+  %values = check.generate.iota offset(0) step(1) period(3) : tensor<14xi32>
+  %sum = check.generate.fill value(-1) : tensor<1xi32>
+  %last = check.generate.fill value(-1) : tensor<1xi32>
+  %expected_sum = check.generate.fill value(5) : tensor<1xi32>
+  %expected_last = check.generate.fill value(13) : tensor<1xi32>
+  kernel.launch @strided_minimal_backing(%count, %values, %sum, %last) : (index, tensor<14xi32>, tensor<1xi32>, tensor<1xi32>)
+  check.expect.equal actual(%sum) expected(%expected_sum) : tensor<1xi32>
+  check.expect.equal actual(%last) expected(%expected_last) : tensor<1xi32>
+  check.return
+}
+
+check.case @strided_minimal_steady_state {
+  %count = check.literal value(9) : index
+  %values = check.generate.iota offset(0) step(1) period(3) : tensor<26xi32>
+  %sum = check.generate.fill value(-1) : tensor<1xi32>
+  %last = check.generate.fill value(-1) : tensor<1xi32>
+  %expected_sum = check.generate.fill value(9) : tensor<1xi32>
+  %expected_last = check.generate.fill value(25) : tensor<1xi32>
+  kernel.launch @strided_minimal_backing(%count, %values, %sum, %last) : (index, tensor<26xi32>, tensor<1xi32>, tensor<1xi32>)
+  check.expect.equal actual(%sum) expected(%expected_sum) : tensor<1xi32>
+  check.expect.equal actual(%last) expected(%expected_last) : tensor<1xi32>
+  check.return
+}
+
+check.case @address_carrier_boundaries {
+  %offset_values = check.generate.iota offset(0) step(1) : tensor<7xi32>
+  %offset_sum = check.generate.fill value(-1) : tensor<1xi32>
+  %expected_offset_sum = check.generate.fill value(21) : tensor<1xi32>
+  kernel.launch @offset_stride(%offset_values, %offset_sum) : (tensor<7xi32>, tensor<1xi32>)
+  check.expect.equal actual(%offset_sum) expected(%expected_offset_sum) : tensor<1xi32>
+  %limit_value = check.generate.iota offset(1) step(1) period(3) : tensor<7xi32>
+  %limit_sum = check.generate.fill value(-1) : tensor<1xi32>
+  %expected_limit_sum = check.generate.fill value(3) : tensor<1xi32>
+  %limit_begin = check.literal value(2147483639) : index
+  kernel.launch @near_index_limit(%limit_begin, %limit_value, %limit_sum) : (index, tensor<7xi32>, tensor<1xi32>)
+  check.expect.equal actual(%limit_sum) expected(%expected_limit_sum) : tensor<1xi32>
+  check.return
+}
