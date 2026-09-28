@@ -25,6 +25,7 @@ _SCENARIO_CASES = [
     "predicate_logic.loom",
     "predicate_truncation.loom",
     "scalar_float_conversion.loom",
+    "subgroup_shuffle_participation.loom",
     "vector_i64_bitwise.loom",
 ]
 
@@ -53,8 +54,8 @@ loom_generated_file_family(
 loom_test(
     name = "subgroup_transport_test",
     srcs = [
+        "subgroup_shuffle_participation.loom",
         ":subgroup_transport_cases.loom",
-        "//loom/src/loom/test/corpus/source_low:subgroup_shuffle_participation.loom-test",
         "//loom/src/loom/test/corpus/source_low:subgroup_transport.loom-test",
         "//loom/src/loom/test/corpus/source_low:subgroup_transport_carrier.loom-test",
     ],
