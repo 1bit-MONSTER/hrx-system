@@ -283,12 +283,29 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    array_local_memory
+  HDRS
+    "array/local_memory.h"
+  SRCS
+    "array/local_memory.c"
+  DEPS
+    iree::base
+    loom::target::arch::amd::xdna::array_facts
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     array_plan
   HDRS
+    "array/channel_resources.h"
     "array/plan.h"
   SRCS
     "array/binding.c"
     "array/binding.h"
+    "array/channel_resources.c"
     "array/plan.c"
     "array/route.c"
     "array/route.h"
@@ -297,6 +314,7 @@ loom_cc_library(
   DEPS
     ::array_abi_layout
     ::array_descriptors
+    ::array_local_memory
     iree::base
     iree::base::internal::arena
     loom::analysis::scc
@@ -582,6 +600,7 @@ loom_check_test_suite(
     "test/array_plan/record_contracts.loom-test"
     "test/array_plan/ring_wrap.loom-test"
     "test/array_plan/route_capacity.loom-test"
+    "test/array_plan/shim_resource_admission.loom-test"
     "test/array_plan/strided_transfer.loom-test"
     "test/array_plan/temporal_fold.loom-test"
     "test/array_plan/topology_admission.loom-test"
@@ -590,6 +609,7 @@ loom_check_test_suite(
     "test/array_plan/worker_cycles.loom-test"
     "test/array_plan/worker_interface_admission.loom-test"
     "test/array_plan/worker_rate_admission.loom-test"
+    "test/array_plan/worker_storage_admission.loom-test"
     "test/descriptors/bf16_comparison.loom-test"
     "test/descriptors/bfp_move.loom-test"
     "test/descriptors/cascade.loom-test"
@@ -945,6 +965,38 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::codegen::low::function_requirements
+  LABELS
+    "iree-build-requirement=loom.target.arch.xdna"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    array_local_memory_test
+  SRCS
+    "array/local_memory_test.cc"
+  DEPS
+    ::array_local_memory
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amd::xdna::array_facts
+  LABELS
+    "iree-build-requirement=loom.target.arch.xdna"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    array_channel_resources_test
+  SRCS
+    "array/channel_resources_test.cc"
+  DEPS
+    ::array_plan
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amd::xdna::array_facts
   LABELS
     "iree-build-requirement=loom.target.arch.xdna"
 )

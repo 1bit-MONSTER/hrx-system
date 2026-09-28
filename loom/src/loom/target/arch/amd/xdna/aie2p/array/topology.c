@@ -47,6 +47,67 @@ static const loom_op_t* loom_aie2p_array_topology_defining_op(
   return loom_value_def_op(loom_module_value(topology->module, value_id));
 }
 
+// Returns the generated receiver-relative base for adjacent owner memory.
+// Family validation guarantees one complete window for every visible compute
+// owner. Topology retains the result with its transport decision so physical
+// planning never rediscovers the relationship.
+static uint32_t loom_aie2p_array_topology_neighbor_load_address_base(
+    const loom_xdna_array_family_t* family,
+    loom_xdna_tile_coordinate_t receiver, loom_xdna_tile_coordinate_t owner) {
+  const loom_xdna_tile_facts_t* receiver_facts =
+      loom_xdna_array_tile_facts(family, receiver);
+  for (uint8_t i = 0; i < receiver_facts->memory.window_count; ++i) {
+    const loom_xdna_address_window_t* window =
+        &family->address_windows[receiver_facts->memory.window_start + i];
+    if (window->owner_kind == LOOM_XDNA_TILE_KIND_COMPUTE &&
+        (int32_t)receiver.column + window->owner_column_delta == owner.column &&
+        (int32_t)receiver.row + window->owner_row_delta == owner.row) {
+      return window->base;
+    }
+  }
+  IREE_ASSERT_UNREACHABLE("adjacent compute owner has a generated load window");
+  return 0;
+}
+
+// Retains exact physical ownership after transport and canonical multicast
+// selection. Worker sender ownership crosses external and routed branches, so
+// it is classified once here instead of independently by later consumers.
+static loom_aie2p_array_channel_resource_flags_t
+loom_aie2p_array_topology_channel_resource_flags(
+    const loom_aie2p_array_topology_t* topology, uint32_t channel_index) {
+  const loom_aie2p_array_channel_t* channel =
+      &topology->channels[channel_index];
+  const bool owns_source = channel->source_channel_index == channel_index;
+  switch (channel->transport) {
+    case LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_EXTERNAL_DMA: {
+      const loom_aie2p_array_endpoint_t* sender =
+          &topology->plan->endpoints[channel->sender_endpoint_index];
+      const loom_aie2p_array_endpoint_t* base_sender =
+          loom_aie2p_array_topology_base_endpoint(topology->plan, sender);
+      if (base_sender->owner_kind == LOOM_AIE2P_ARRAY_ENDPOINT_OWNER_BINDING) {
+        return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_STREAM_TO_MEMORY |
+               (owns_source
+                    ? LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_SHIM_MEMORY_TO_STREAM
+                    : 0);
+      }
+      return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_SHIM_STREAM_TO_MEMORY |
+             (owns_source
+                  ? LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_MEMORY_TO_STREAM
+                  : 0);
+    }
+    case LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_NEIGHBOR_MEMORY:
+      return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_NEIGHBOR_RING;
+    case LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA:
+      return LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_STREAM_TO_MEMORY |
+             (owns_source
+                  ? LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_COMPUTE_MEMORY_TO_STREAM
+                  : 0);
+    default:
+      IREE_ASSERT_UNREACHABLE("validated AIE2P channel transport");
+      return 0;
+  }
+}
+
 static iree_status_t loom_aie2p_array_topology_reject_group_lane(
     const loom_aie2p_array_topology_t* topology, const loom_op_t* op,
     uint32_t group_index, uint32_t lane, uint32_t worker_count) {
@@ -810,6 +871,10 @@ iree_status_t loom_aie2p_array_topology_validate(
       .channels = mutable_channels,
   };
   const loom_aie2p_array_topology_t* topology = &topology_storage;
+  const uint32_t maximum_credit_lock_capacity =
+      (uint32_t)loom_xdna_array_tile_kind_facts(topology->plan->family,
+                                                LOOM_XDNA_TILE_KIND_COMPUTE)
+          ->lock_value_maximum;
   if (plan->worker_count == 0 || plan->channel_count == 0) {
     const loom_diagnostic_param_t params[] = {
         loom_param_u32((uint32_t)plan->worker_count),
@@ -959,10 +1024,11 @@ iree_status_t loom_aie2p_array_topology_validate(
           topology, (uint32_t)i, IREE_SV("capacity"), channel->capacity, 1,
           IREE_SV("the minimum non-empty ring capacity"), 2);
     }
-    if (channel->capacity > INT8_MAX) {
+    if (channel->capacity > maximum_credit_lock_capacity) {
       return loom_aie2p_array_topology_reject_channel_ring(
           topology, (uint32_t)i, IREE_SV("capacity"), channel->capacity,
-          INT8_MAX, IREE_SV("the maximum credit-lock capacity"), 2);
+          maximum_credit_lock_capacity,
+          IREE_SV("the maximum credit-lock capacity"), 2);
     }
     if (channel->record_count == 0) {
       return loom_aie2p_array_topology_reject_channel_ring(
@@ -1024,12 +1090,19 @@ iree_status_t loom_aie2p_array_topology_validate(
           &plan->workers[receiver->owner_index];
       const int row_delta = (int)sender_worker->coordinate.row -
                             (int)receiver_worker->coordinate.row;
-      channel->transport =
+      const bool workers_are_vertical_neighbors =
           sender_worker->coordinate.column ==
-                      receiver_worker->coordinate.column &&
-                  (row_delta == -1 || row_delta == 1)
-              ? LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_NEIGHBOR_MEMORY
-              : LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA;
+              receiver_worker->coordinate.column &&
+          (row_delta == -1 || row_delta == 1);
+      if (workers_are_vertical_neighbors) {
+        channel->transport = LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_NEIGHBOR_MEMORY;
+        channel->neighbor_receiver_load_address_base =
+            loom_aie2p_array_topology_neighbor_load_address_base(
+                topology->plan->family, receiver_worker->coordinate,
+                sender_worker->coordinate);
+      } else {
+        channel->transport = LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA;
+      }
     } else {
       return loom_aie2p_array_topology_reject_channel_connection(
           topology, (uint32_t)i,
@@ -1088,6 +1161,13 @@ iree_status_t loom_aie2p_array_topology_validate(
         channel->transport = LOOM_AIE2P_ARRAY_CHANNEL_TRANSPORT_ROUTED_DMA;
       }
     }
+  }
+
+  for (iree_host_size_t channel_index = 0; channel_index < plan->channel_count;
+       ++channel_index) {
+    topology->channels[channel_index].resource_flags =
+        loom_aie2p_array_topology_channel_resource_flags(
+            topology, (uint32_t)channel_index);
   }
 
   bool worker_interfaces_valid = false;

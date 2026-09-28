@@ -19,6 +19,7 @@ from loom.target.arch.amd.xdna.array.model import (
     TileKind,
     maximum_encoded_dma_transfer_length,
     register_field_count,
+    tile_resource_totals,
     validate_array_family,
 )
 from loom.target.arch.amd.xdna.array.npu2 import (
@@ -88,6 +89,25 @@ def test_npu2_topology_and_resource_domains_are_complete() -> None:
         RegisterModule.SHIM_PL: 128,
     }
 
+    assert tuple(
+        (
+            totals.physical_tile_count,
+            totals.lock_count,
+            totals.dma_channel_count_per_direction,
+            totals.dma_buffer_descriptor_count,
+        )
+        for totals in (tile_resource_totals(family, tile) for tile in family.tiles)
+    ) == (
+        (8, 128, 16, 128),
+        (8, 512, 48, 384),
+        (32, 512, 64, 512),
+    )
+
+
+def test_validator_rejects_physical_plan_carrier_overflow() -> None:
+    with pytest.raises(ValueError, match="physical-plan carrier overflows"):
+        validate_array_family(replace(NPU2_ARRAY_FAMILY, column_count=(1 << 16) - 1))
+
 
 def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
     compute = next(
@@ -97,7 +117,11 @@ def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
         tile for tile in NPU2_ARRAY_FAMILY.tiles if tile.kind is TileKind.MEMORY
     )
 
-    assert (compute.memory.local_base, compute.memory.local_capacity) == (0, 64 * 1024)
+    assert (
+        compute.memory.local_base,
+        compute.memory.local_capacity,
+        compute.memory.local_load_base,
+    ) == (0, 64 * 1024, 0x70000)
     assert (compute.memory.program_base, compute.memory.program_capacity) == (
         0,
         16 * 1024,
@@ -117,7 +141,198 @@ def test_npu2_memory_distinguishes_local_storage_from_load_apertures() -> None:
         "north": (0x60000, 64 * 1024, 32, 0, 1),
         "self": (0x70000, 64 * 1024, 48, 0, 0),
     }
-    assert (memory.memory.local_capacity, memory.memory.bank_count) == (512 * 1024, 8)
+    assert (
+        memory.memory.local_capacity,
+        memory.memory.local_load_base,
+        memory.memory.bank_count,
+    ) == (512 * 1024, 0x80000, 8)
+
+
+def test_validator_requires_complete_self_load_window() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=tuple(
+                window
+                for window in compute.memory.load_windows
+                if window.owner_column_delta != 0 or window.owner_row_delta != 0
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="no self load window covers local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_canonical_self_load_base() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    invalid_compute = replace(
+        compute,
+        memory=replace(compute.memory, local_load_base=0x30000),
+    )
+
+    with pytest.raises(ValueError, match="no self load window covers local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_rejects_self_load_range_outside_tile_address() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    *other_windows, self_window = compute.memory.load_windows
+    overflowing_base = (1 << NPU2_ARRAY_FAMILY.row_shift) - 64 * 1024 + 1
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            local_load_base=overflowing_base,
+            load_windows=(*other_windows, replace(self_window, base=overflowing_base)),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="local-memory native carrier overflows"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_rejects_load_window_displacement_outside_native_carrier() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, *remaining_windows = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(
+                replace(south, owner_row_delta=-(1 << 7) - 1),
+                *remaining_windows,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="load-window native carrier overflows"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_unique_load_window_owner() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, west, north, self_window = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(
+                south,
+                west,
+                replace(
+                    north,
+                    owner_column_delta=south.owner_column_delta,
+                    owner_row_delta=south.owner_row_delta,
+                ),
+                self_window,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate load-window owner"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_complete_visible_compute_window() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, *remaining_windows = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(
+                replace(south, capacity=compute.memory.local_capacity - 1),
+                *remaining_windows,
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="does not cover owner local memory"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_validator_requires_vertical_neighbor_load_windows() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    south, west, _north, self_window = compute.memory.load_windows
+    invalid_compute = replace(
+        compute,
+        memory=replace(
+            compute.memory,
+            load_windows=(south, west, self_window),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="vertical neighbor load window"):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"lock_count": 1 << 8}, "invalid lock count"),
+        ({"lock_value_minimum": -(1 << 7) - 1}, "native carrier overflows"),
+        ({"lock_value_maximum": 1 << 7}, "native carrier overflows"),
+        ({"lock_value_maximum": 0}, "invalid lock domain"),
+    ],
+)
+def test_validator_rejects_locks_outside_native_planning_domain(
+    changes: dict[str, int], message: str
+) -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+    invalid_compute = replace(compute, **changes)
+
+    with pytest.raises(ValueError, match=message):
+        validate_array_family(
+            replace(
+                NPU2_ARRAY_FAMILY,
+                tiles=(*NPU2_ARRAY_FAMILY.tiles[:-1], invalid_compute),
+            )
+        )
+
+
+def test_npu2_compute_lock_domain_admits_ready_and_credit_values() -> None:
+    compute = NPU2_ARRAY_FAMILY.tiles[-1]
+
+    assert compute.kind is TileKind.COMPUTE
+    assert (compute.lock_value_minimum, compute.lock_value_maximum) == (-64, 63)
 
 
 def test_npu2_stream_ordinals_match_programmable_register_order() -> None:

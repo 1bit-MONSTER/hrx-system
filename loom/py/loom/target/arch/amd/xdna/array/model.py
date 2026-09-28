@@ -12,6 +12,12 @@ from dataclasses import dataclass
 from enum import Enum, IntFlag
 from itertools import product
 
+_INT8_MINIMUM = -(1 << 7)
+_INT8_MAXIMUM = (1 << 7) - 1
+_UINT8_MAXIMUM = (1 << 8) - 1
+_UINT16_MAXIMUM = (1 << 16) - 1
+_UINT32_MAXIMUM = (1 << 32) - 1
+
 
 class Provenance(IntFlag):
     """Independent sources supporting one physical fact."""
@@ -95,6 +101,7 @@ class TileMemoryFacts:
 
     local_base: int
     local_capacity: int
+    local_load_base: int
     bank_count: int
     program_base: int
     program_capacity: int
@@ -145,6 +152,16 @@ class TileFacts:
     lock_value_maximum: int
     register_modules: tuple[RegisterModule, ...]
     dma: DmaEngineFacts | None
+
+
+@dataclass(frozen=True, slots=True)
+class TileResourceTotals:
+    """Aggregate resources across all physical tiles of one kind."""
+
+    physical_tile_count: int
+    lock_count: int
+    dma_channel_count_per_direction: int
+    dma_buffer_descriptor_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,10 +241,42 @@ class ArrayFamily:
     provenance: Provenance
 
 
+def tile_resource_totals(family: ArrayFamily, tile: TileFacts) -> TileResourceTotals:
+    """Derives family-wide resource totals for one tile-kind row."""
+    physical_tile_count = family.column_count * tile.row_count
+    dma = tile.dma
+    return TileResourceTotals(
+        physical_tile_count=physical_tile_count,
+        lock_count=physical_tile_count * tile.lock_count,
+        dma_channel_count_per_direction=(
+            physical_tile_count * dma.channel_count_per_direction if dma else 0
+        ),
+        dma_buffer_descriptor_count=(
+            physical_tile_count * dma.buffer_descriptor_count if dma else 0
+        ),
+    )
+
+
 def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
     memory = tile.memory
-    if memory.local_base < 0 or memory.local_capacity < 0 or memory.bank_count < 0:
+    if (
+        memory.local_base < 0
+        or memory.local_capacity < 0
+        or memory.local_load_base < 0
+        or memory.bank_count < 0
+    ):
         raise ValueError(f"{tile.kind.value}: invalid local-memory geometry")
+    if (
+        memory.local_base > _UINT32_MAXIMUM
+        or memory.local_capacity > _UINT32_MAXIMUM
+        or memory.local_load_base > _UINT32_MAXIMUM
+        or memory.local_base + memory.local_capacity > 1 << 32
+        or memory.local_load_base + memory.local_capacity > 1 << 32
+        or memory.local_load_base + memory.local_capacity > 1 << row_shift
+        or memory.bank_count > _UINT8_MAXIMUM
+        or len(memory.load_windows) > _UINT8_MAXIMUM
+    ):
+        raise ValueError(f"{tile.kind.value}: local-memory native carrier overflows")
     if memory.local_capacity == 0 and memory.bank_count != 0:
         raise ValueError(f"{tile.kind.value}: empty local memory declares banks")
     if memory.local_capacity and (
@@ -238,6 +287,11 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
         memory.program_base < 0
         or memory.program_capacity < 0
         or memory.program_load_base < 0
+        or memory.program_base > _UINT32_MAXIMUM
+        or memory.program_capacity > _UINT32_MAXIMUM
+        or memory.program_load_base > _UINT32_MAXIMUM
+        or memory.program_base + memory.program_capacity > 1 << 32
+        or memory.program_load_base + memory.program_capacity > 1 << 32
         or memory.program_load_base + memory.program_capacity > 1 << row_shift
     ):
         raise ValueError(f"{tile.kind.value}: invalid program-memory geometry")
@@ -246,6 +300,27 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
     names = [window.name for window in memory.load_windows]
     if len(names) != len(set(names)):
         raise ValueError(f"{tile.kind.value}: duplicate load-window name")
+    owner_windows = [
+        (window.owner_kind, window.owner_column_delta, window.owner_row_delta)
+        for window in memory.load_windows
+    ]
+    if len(owner_windows) != len(set(owner_windows)):
+        raise ValueError(f"{tile.kind.value}: duplicate load-window owner")
+    self_windows = tuple(
+        window
+        for window in memory.load_windows
+        if window.owner_kind is tile.kind
+        and window.owner_column_delta == 0
+        and window.owner_row_delta == 0
+    )
+    if memory.local_capacity and (
+        len(self_windows) != 1
+        or self_windows[0].base != memory.local_load_base
+        or self_windows[0].capacity < memory.local_capacity
+    ):
+        raise ValueError(f"{tile.kind.value}: no self load window covers local memory")
+    if not memory.local_capacity and memory.local_load_base != 0:
+        raise ValueError(f"{tile.kind.value}: empty local memory has a load base")
     for index, window in enumerate(memory.load_windows):
         if (
             not window.name
@@ -254,6 +329,18 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
             or window.lock_selector_base < 0
         ):
             raise ValueError(f"{tile.kind.value}: invalid load window")
+        if (
+            window.base > _UINT32_MAXIMUM
+            or window.capacity > _UINT32_MAXIMUM
+            or window.lock_selector_base > _UINT16_MAXIMUM
+            or window.owner_column_delta < _INT8_MINIMUM
+            or window.owner_column_delta > _INT8_MAXIMUM
+            or window.owner_row_delta < _INT8_MINIMUM
+            or window.owner_row_delta > _INT8_MAXIMUM
+        ):
+            raise ValueError(
+                f"{tile.kind.value}.{window.name}: load-window native carrier overflows"
+            )
         end = window.base + window.capacity
         if end > 1 << 32:
             raise ValueError(f"{tile.kind.value}.{window.name}: address overflow")
@@ -266,14 +353,36 @@ def _validate_tile_memory(tile: TileFacts, row_shift: int) -> None:
                 )
 
 
-def _validate_lock_windows(family: ArrayFamily, tile: TileFacts) -> None:
+def _validate_load_window_resources(family: ArrayFamily, tile: TileFacts) -> None:
     tile_kinds = {row.kind: row for row in family.tiles}
+    if tile.kind is TileKind.COMPUTE and tile.row_count > 1:
+        owner_deltas = {
+            (window.owner_kind, window.owner_column_delta, window.owner_row_delta)
+            for window in tile.memory.load_windows
+        }
+        required_neighbors = {
+            (TileKind.COMPUTE, 0, -1),
+            (TileKind.COMPUTE, 0, 1),
+        }
+        if not required_neighbors.issubset(owner_deltas):
+            raise ValueError(
+                f"{tile.kind.value}: vertical neighbor load window is unavailable"
+            )
     lock_ranges: list[tuple[int, int, str]] = []
     for window in tile.memory.load_windows:
         owner = tile_kinds.get(window.owner_kind)
         if owner is None:
             raise ValueError(
                 f"{tile.kind.value}.{window.name}: lock owner kind is unavailable"
+            )
+        if (
+            tile.kind is TileKind.COMPUTE
+            and window.owner_kind is TileKind.COMPUTE
+            and window.capacity < owner.memory.local_capacity
+        ):
+            raise ValueError(
+                f"{tile.kind.value}.{window.name}: compute load window does not "
+                "cover owner local memory"
             )
         lock_end = window.lock_selector_base + owner.lock_count
         if lock_end > 1 << 16:
@@ -368,7 +477,14 @@ def _validate_stream_ports(family: ArrayFamily) -> None:
         raise ValueError("duplicate stream-port range")
     tile_kinds = {tile.kind for tile in family.tiles}
     for row in family.stream_ports:
-        if row.tile_kind not in tile_kinds or row.ordinal < 0 or row.count <= 0:
+        if (
+            row.tile_kind not in tile_kinds
+            or row.ordinal < 0
+            or row.ordinal > _UINT8_MAXIMUM
+            or row.count <= 0
+            or row.count > _UINT8_MAXIMUM
+            or row.ordinal + row.count > 1 << 8
+        ):
             raise ValueError("invalid stream-port range")
     for tile_kind in tile_kinds:
         for direction in StreamDirection:
@@ -637,8 +753,22 @@ def validate_array_family(family: ArrayFamily) -> None:
     """Validates one complete materialized physical-array fact set."""
     if not family.key or family.revision <= 0:
         raise ValueError("array-family identity is incomplete")
+    if family.revision > _UINT32_MAXIMUM:
+        raise ValueError(f"{family.key}: revision native carrier overflows")
     if family.column_count <= 0 or family.row_count <= 0:
         raise ValueError(f"{family.key}: invalid array geometry")
+    if (
+        family.column_count > _UINT16_MAXIMUM
+        or family.row_count > _UINT16_MAXIMUM
+        or len(family.tiles) > _UINT8_MAXIMUM
+        or sum(len(tile.memory.load_windows) for tile in family.tiles) > _UINT16_MAXIMUM
+        or len(family.events) > _UINT8_MAXIMUM
+        or len(family.stream_ports) > _UINT8_MAXIMUM
+        or family.address_generation_granularity_bits > _UINT8_MAXIMUM
+        or int(family.provenance) < 0
+        or int(family.provenance) > _UINT32_MAXIMUM
+    ):
+        raise ValueError(f"{family.key}: array native carrier overflows")
     if not 0 < family.row_shift < family.column_shift < 64:
         raise ValueError(f"{family.key}: invalid tile address shifts")
     if family.address_generation_granularity_bits <= 0:
@@ -649,7 +779,12 @@ def validate_array_family(family: ArrayFamily) -> None:
     covered_rows: set[int] = set()
     modules: set[RegisterModule] = set()
     for tile in family.tiles:
-        if tile.first_row < 0 or tile.row_count <= 0:
+        if (
+            tile.first_row < 0
+            or tile.first_row > _UINT8_MAXIMUM
+            or tile.row_count <= 0
+            or tile.row_count > _UINT8_MAXIMUM
+        ):
             raise ValueError(f"{tile.kind.value}: invalid tile rows")
         rows = set(range(tile.first_row, tile.first_row + tile.row_count))
         if max(rows) >= family.row_count or covered_rows & rows:
@@ -658,13 +793,59 @@ def validate_array_family(family: ArrayFamily) -> None:
         if len(tile.register_modules) != len(set(tile.register_modules)):
             raise ValueError(f"{tile.kind.value}: duplicate register module")
         modules.update(tile.register_modules)
-        if tile.lock_count <= 0 or tile.lock_value_minimum >= tile.lock_value_maximum:
+        if tile.lock_count <= 0 or tile.lock_count > _UINT8_MAXIMUM:
+            raise ValueError(f"{tile.kind.value}: invalid lock count")
+        if (
+            tile.lock_value_minimum < _INT8_MINIMUM
+            or tile.lock_value_maximum > _INT8_MAXIMUM
+        ):
+            raise ValueError(f"{tile.kind.value}: lock-value native carrier overflows")
+        if tile.lock_value_minimum > 0 or tile.lock_value_maximum <= 0:
             raise ValueError(f"{tile.kind.value}: invalid lock domain")
         _validate_tile_memory(tile, family.row_shift)
-        _validate_lock_windows(family, tile)
+        _validate_load_window_resources(family, tile)
         _validate_dma(tile)
     if covered_rows != set(range(family.row_count)):
         raise ValueError(f"{family.key}: tile rows do not cover the array")
+    resource_totals = tuple(tile_resource_totals(family, tile) for tile in family.tiles)
+    if any(
+        value > _UINT32_MAXIMUM
+        for totals in resource_totals
+        for value in (
+            totals.physical_tile_count,
+            totals.lock_count,
+            totals.dma_channel_count_per_direction,
+            totals.dma_buffer_descriptor_count,
+        )
+    ):
+        raise ValueError(f"{family.key}: aggregate tile resource carrier overflows")
+
+    # Every physical channel consumes at least one unique directional DMA
+    # endpoint or lock pair. Counting every family resource produces a
+    # planner-policy-independent upper bound for all result-table carriers.
+    maximum_channel_capacity = max(tile.lock_value_maximum for tile in family.tiles)
+    maximum_dma_endpoint_count = sum(
+        totals.dma_channel_count_per_direction * 2 for totals in resource_totals
+    )
+    maximum_lock_pair_count = sum(totals.lock_count // 2 for totals in resource_totals)
+    maximum_channel_count = maximum_dma_endpoint_count + maximum_lock_pair_count
+    maximum_route_count = maximum_dma_endpoint_count * (
+        family.column_count + family.row_count
+    )
+    maximum_worker_storage_count = (
+        sum(totals.physical_tile_count for totals in resource_totals) * _UINT8_MAXIMUM
+    )
+    if any(
+        value > _UINT32_MAXIMUM
+        for value in (
+            maximum_channel_count,
+            maximum_channel_count * maximum_channel_capacity,
+            maximum_channel_count * 2,
+            maximum_route_count,
+            maximum_worker_storage_count,
+        )
+    ):
+        raise ValueError(f"{family.key}: physical-plan carrier overflows")
     event_modules = [event.module for event in family.events]
     if not set(event_modules).issubset(modules) or len(event_modules) != len(
         set(event_modules)
@@ -674,6 +855,8 @@ def validate_array_family(family: ArrayFamily) -> None:
         event.event_count <= 0
         or event.named_event_count <= 0
         or event.named_event_count > event.event_count
+        or event.event_count > _UINT16_MAXIMUM
+        or event.named_event_count > _UINT16_MAXIMUM
         for event in family.events
     ):
         raise ValueError(f"{family.key}: invalid event domain")

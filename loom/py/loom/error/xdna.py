@@ -83,16 +83,16 @@ ERR_XDNA_005 = ErrorDef(
     fix_hint="Place the stages in groups whose worker dependencies are acyclic.",
 )
 
-# ERR_XDNA_006: AIE2P channel has no available compute endpoint.
+# ERR_XDNA_006: An AIE2P channel cannot acquire physical resources.
 ERR_XDNA_006 = ErrorDef(
     domain=ErrorDomain.XDNA,
     code=6,
     severity=Severity.ERROR,
-    summary="AIE2P channel has no available compute endpoint.",
+    summary="AIE2P channel cannot acquire physical resources.",
     message=(
-        "AIE2P channel {channel} needs {capacity} records of {record_bytes} bytes, "
-        "compatible DMA channels, descriptors and locks on a compute tile visible "
-        "to worker ({column}, {row}); no candidate has all requested resources"
+        "AIE2P channel {channel} at worker ({column}, {row}) cannot acquire "
+        "physical resources with capacity {capacity} and {record_bytes}-byte "
+        "records: {reason}"
     ),
     params=(
         ErrorParam("channel", ParamKind.U32),
@@ -100,8 +100,12 @@ ERR_XDNA_006 = ErrorDef(
         ErrorParam("row", ParamKind.U32),
         ErrorParam("capacity", ParamKind.U32),
         ErrorParam("record_bytes", ParamKind.U32),
+        ErrorParam("reason", ParamKind.STRING),
     ),
-    fix_hint="Reduce the channel capacity or record size, or change worker placement.",
+    fix_hint=(
+        "Reduce the channel capacity or record size, reduce competing channels, "
+        "or change worker placement."
+    ),
 )
 
 # ERR_XDNA_007: An array stream cannot be routed within link capacity.
@@ -599,6 +603,32 @@ ERR_XDNA_032 = ErrorDef(
     ),
 )
 
+# ERR_XDNA_033: A resident worker's local state cannot be placed.
+ERR_XDNA_033 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=33,
+    severity=Severity.ERROR,
+    summary="Resident worker local state cannot be placed.",
+    message=(
+        "AIE2P worker {worker} at tile ({column}, {row}) cannot place "
+        "{purpose} storage: {requested_bytes} bytes with {alignment_bytes}-byte "
+        "alignment do not fit the {capacity_bytes}-byte banked local-memory domain"
+    ),
+    params=(
+        ErrorParam("worker", ParamKind.U32),
+        ErrorParam("column", ParamKind.U32),
+        ErrorParam("row", ParamKind.U32),
+        ErrorParam("purpose", ParamKind.STRING),
+        ErrorParam("requested_bytes", ParamKind.U64),
+        ErrorParam("alignment_bytes", ParamKind.U64),
+        ErrorParam("capacity_bytes", ParamKind.U32),
+    ),
+    fix_hint=(
+        "Reduce the worker-local state, split the worker, or select a tile with "
+        "sufficient local memory."
+    ),
+)
+
 ALL_XDNA_ERRORS = (
     ERR_XDNA_001,
     ERR_XDNA_002,
@@ -632,4 +662,5 @@ ALL_XDNA_ERRORS = (
     ERR_XDNA_030,
     ERR_XDNA_031,
     ERR_XDNA_032,
+    ERR_XDNA_033,
 )

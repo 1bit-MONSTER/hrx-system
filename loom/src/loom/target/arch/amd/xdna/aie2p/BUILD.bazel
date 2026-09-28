@@ -230,20 +230,35 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "array_local_memory",
+    srcs = ["array/local_memory.c"],
+    hdrs = ["array/local_memory.h"],
+    deps = [
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "array_plan",
     srcs = [
         "array/binding.c",
         "array/binding.h",
+        "array/channel_resources.c",
         "array/plan.c",
         "array/route.c",
         "array/route.h",
         "array/topology.c",
         "array/topology.h",
     ],
-    hdrs = ["array/plan.h"],
+    hdrs = [
+        "array/channel_resources.h",
+        "array/plan.h",
+    ],
     deps = [
         ":array_abi_layout",
         ":array_descriptors",
+        ":array_local_memory",
         "//loom/src/loom/analysis:scc",
         "//loom/src/loom/codegen/low:diagnostics",
         "//loom/src/loom/codegen/low:function_requirements",
@@ -500,6 +515,7 @@ loom_check_test_suite(
         "test/array_plan/record_contracts.loom-test",
         "test/array_plan/ring_wrap.loom-test",
         "test/array_plan/route_capacity.loom-test",
+        "test/array_plan/shim_resource_admission.loom-test",
         "test/array_plan/strided_transfer.loom-test",
         "test/array_plan/temporal_fold.loom-test",
         "test/array_plan/topology_admission.loom-test",
@@ -508,6 +524,7 @@ loom_check_test_suite(
         "test/array_plan/worker_cycles.loom-test",
         "test/array_plan/worker_interface_admission.loom-test",
         "test/array_plan/worker_rate_admission.loom-test",
+        "test/array_plan/worker_storage_admission.loom-test",
         "test/descriptors/bf16_comparison.loom-test",
         "test/descriptors/bfp_move.loom-test",
         "test/descriptors/cascade.loom-test",
@@ -818,6 +835,28 @@ loom_cc_test(
         ":array_program",
         "//loom/src/loom/codegen/low:function_requirements",
         "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "array_local_memory_test",
+    srcs = ["array/local_memory_test.cc"],
+    deps = [
+        ":array_local_memory",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "array_channel_resources_test",
+    srcs = ["array/channel_resources_test.cc"],
+    deps = [
+        ":array_plan",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

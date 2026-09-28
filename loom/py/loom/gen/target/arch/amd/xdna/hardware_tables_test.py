@@ -24,6 +24,9 @@ def test_hardware_table_family_is_emitted_from_one_materialized_source() -> None
     assert ".maximum_encoded_transfer_length = UINT32_C(0x00003fff)" in array_contents
     assert ".maximum_encoded_transfer_length = UINT32_C(0x0001ffff)" in array_contents
     assert ".maximum_encoded_transfer_length = UINT32_C(0xffffffff)" in array_contents
+    assert ".physical_tile_count = 32" in array_contents
+    assert ".dma_channel_count_per_direction = 64" in array_contents
+    assert ".dma_buffer_descriptor_count = 512" in array_contents
     assert "kLoomXdnaRegisterPatterns" in register_contents
     assert "kLoomXdnaRegisterFieldCount = 410" in register_contents
     assert "loom_xdna_device_profiles" in profile_contents

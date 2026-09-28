@@ -295,19 +295,21 @@ aie2p.target<array> @array_target
 
 aie2p.target<core> @core_target
 
-// ERROR@+1: XDNA/006 {channel="0", column="0", row="2", capacity="3", record_bytes="32768"}
 low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversized_ring() asm {
-  %one = constant.u32 1 : reg<aie2p.array.scalar : index>
-  %zero = constant.u32 0 : reg<aie2p.array.scalar : index>
-  %capacity = constant.u32 3 : reg<aie2p.array.scalar : index>
-  %row = constant.u32 2 : reg<aie2p.array.scalar : index>
-  %group = group %one
-  %worker = worker %group, %zero, @write_records
+  %worker_count = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %worker_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %worker_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %worker = worker %workers, %worker_ordinal, @write_records
   %binding = binding 0, "write"
   %sender = sender %worker, 0 : reg<aie2p.array.sender : tile<8192xi32>>
   %receiver = receiver %binding, 0 : reg<aie2p.array.receiver : tile<8192xi32>>
-  %channel = channel %sender, %receiver, %capacity, %one : reg<aie2p.array.channel : tile<8192xi32>>
-  constrain.location %worker, %zero, %row
+  // ERROR@+1: XDNA/006 {channel="0", column="0", row="2", capacity="3", record_bytes="32768", reason="no visible compute tile can host the sending DMA endpoint, ring, and locks"}
+  %channel = channel %sender, %receiver, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<8192xi32>>
+  constrain.location %worker, %tile_column, %worker_row
   return
 }
 
@@ -315,5 +317,46 @@ low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @wri
   %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %value = mov.short 7
   st %value, %output, 0
+  return
+}
+
+// ====
+
+// RUN: emit aie2p-array-plan @oversized_neighbor_ring
+
+// One full-width record fits the 64 KiB owner, but a two-record neighbor ring
+// cannot fit and is rejected at the channel that requested the resources.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @oversized_neighbor_ring() asm {
+  %worker_count = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %producer_ordinal = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %consumer_ordinal = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %channel_capacity = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %records_per_invocation = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %tile_column = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %producer_row = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %consumer_row = constant.u32 3 : reg<aie2p.array.scalar : index>
+  %workers = group %worker_count
+  %producer = worker %workers, %producer_ordinal, @produce_full_record
+  %consumer = worker %workers, %consumer_ordinal, @consume_full_record
+  %sender = sender %producer, 0 : reg<aie2p.array.sender : tile<16384xi32>>
+  %receiver = receiver %consumer, 0 : reg<aie2p.array.receiver : tile<16384xi32>>
+  // ERROR@+1: XDNA/006 {channel="0", column="0", row="2", capacity="2", record_bytes="65536", reason="the selected neighbor-memory owner cannot fit the channel ring"}
+  %channel = channel %sender, %receiver, %channel_capacity, %records_per_invocation : reg<aie2p.array.channel : tile<16384xi32>>
+  constrain.location %producer, %tile_column, %producer_row
+  constrain.location %consumer, %tile_column, %consumer_row
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @produce_full_record() asm {
+  %output = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @consume_full_record() asm {
+  %input = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   return
 }
