@@ -14,6 +14,7 @@
 #include "loom/codegen/low/allocation/assignment_map.h"
 #include "loom/codegen/low/allocation/move.h"
 #include "loom/codegen/low/allocation/move_sequence.h"
+#include "loom/codegen/low/allocation/storage_liveness_index.h"
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/descriptors.h"
@@ -56,6 +57,10 @@ typedef struct loom_low_allocation_move_plan_t {
   loom_low_allocation_move_plan_context_t context;
   // Arena retaining final move rows and cycle-scratch write indices.
   iree_arena_allocator_t* output_arena;
+  // Arena owning allocation-local indexes and sequencing workspace.
+  iree_arena_allocator_t* scratch_arena;
+  // Lazily built point-liveness index used only when a cycle needs scratch.
+  loom_low_allocation_storage_liveness_index_t storage_liveness_index;
   // Temporary liveness-row indices by top-level schedule node. NULL when no
   // schedule is supplied. Never retained in allocation tables.
   uint32_t* operation_indices_by_source_node;

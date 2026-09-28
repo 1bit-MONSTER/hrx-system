@@ -155,14 +155,20 @@ bool loom_low_allocation_storage_assignment_unit_physical_register(
     *out_physical_register_id = assignment->location_base;
     return true;
   }
-  loom_low_allocation_explicit_register_view_t view;
-  if (!loom_low_allocation_storage_resolve_explicit_register_view(
+  const loom_low_physical_register_view_t* view =
+      loom_low_descriptor_set_find_physical_register_view(
           descriptor_set, assignment->descriptor_reg_class_id,
-          assignment->location_base, assignment->location_count, unit_index,
-          &view)) {
+          assignment->location_base, assignment->location_count);
+  if (view == NULL) {
     return false;
   }
-  *out_physical_register_id = view.requested_unit_physical_register_id;
+  const uint16_t* unit_candidate_ordinals =
+      loom_low_descriptor_set_physical_register_view_unit_candidate_ordinals(
+          descriptor_set, view);
+  *out_physical_register_id =
+      loom_low_descriptor_set_physical_register_candidate(
+          descriptor_set, assignment->descriptor_reg_class_id,
+          unit_candidate_ordinals[unit_index]);
   return true;
 }
 

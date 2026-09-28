@@ -12,7 +12,6 @@
 #include "iree/base/api.h"
 #include "loom/codegen/low/allocation/assignment.h"
 #include "loom/codegen/low/allocation/move.h"
-#include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/descriptors.h"
 
 #ifdef __cplusplus
@@ -37,14 +36,6 @@ bool loom_low_allocation_unit_storage_classes_equal(
 bool loom_low_allocation_unit_locations_form_register_move(
     const loom_low_move_location_t* source,
     const loom_low_move_location_t* destination);
-
-// Returns true when |location| is occupied by any assignment at |point|.
-bool loom_low_allocation_unit_location_is_live_at_point(
-    const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_allocation_assignment_t* assignments,
-    iree_host_size_t assignment_count,
-    const loom_low_allocation_unit_liveness_t* unit_liveness,
-    const loom_low_move_location_t* location, uint32_t point);
 
 #ifdef __cplusplus
 }  // extern "C"

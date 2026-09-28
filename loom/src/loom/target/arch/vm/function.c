@@ -78,27 +78,19 @@ typedef struct loom_vm_return_state_t {
 // No temporary is reserved throughout the rest of the function.
 static iree_status_t loom_vm_return_temporary(
     void* user_data, const loom_low_move_location_t* storage_class,
-    const loom_low_move_t* moves, iree_host_size_t move_count,
+    const loom_low_move_sequence_location_set_t* occupied_locations,
     loom_low_move_location_t* out_temporary, bool* out_resolved) {
   loom_vm_return_state_t* states = user_data;
   loom_vm_return_state_t* state =
       &states[storage_class->descriptor_reg_class_id];
-  bool occupied[256] = {false};
-  for (iree_host_size_t i = 0; i < move_count; ++i) {
-    if (moves[i].source.descriptor_reg_class_id !=
-        storage_class->descriptor_reg_class_id) {
-      continue;
-    }
-    occupied[moves[i].source.location] = true;
-    occupied[moves[i].destination.location] = true;
-  }
-  uint32_t location = state->result_count;
-  while (occupied[location]) {
-    ++location;
-  }
   *out_temporary = *storage_class;
-  out_temporary->location = location;
-  state->register_count = iree_max(state->register_count, location + 1);
+  out_temporary->location = state->result_count;
+  while (loom_low_move_sequence_location_set_contains(occupied_locations,
+                                                      out_temporary)) {
+    ++out_temporary->location;
+  }
+  state->register_count =
+      iree_max(state->register_count, out_temporary->location + 1);
   *out_resolved = true;
   return iree_ok_status();
 }
