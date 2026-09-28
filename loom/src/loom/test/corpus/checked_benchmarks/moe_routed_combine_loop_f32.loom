@@ -15,6 +15,7 @@ kernel.def @moe_routed_combine_loop_f32() {
   %count = index.assume %route_count [range(%route_count, 0, 32)] : index
   %begin = index.constant 0 : index
   %step = index.constant 1 : index
+  %depth = index.constant 3 : index
   %base = index.constant 0 : offset
   %first_expert_id = scalar.constant 0 : i32
   %initial_lane = scalar.constant 0.0 : f32
@@ -28,7 +29,7 @@ kernel.def @moe_routed_combine_loop_f32() {
   %weights = buffer.view %weights_storage[%base] : buffer -> view<32xf32>
   %payloads = buffer.view %payload_storage[%base] : buffer -> view<4x4xf32>
   %output = buffer.view %output_storage[%base] : buffer -> view<4xf32>
-  %combined = scf.for %route = [%begin to %count step %step](%accumulator = %initial : vector<4xf32>) -> (vector<4xf32>) {
+  %combined = scf.for %route = [%begin to %count step %step](%accumulator = %initial : vector<4xf32>) -> (vector<4xf32>) pipeline(%depth) {
     %expert_id = view.load %ids[%route] : view<32xi32> -> i32
     %valid = scalar.cmpi sge, %expert_id, %first_expert_id : i32
     %next = scf.if %valid -> (vector<4xf32>) {

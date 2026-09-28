@@ -91,6 +91,7 @@ loom_cc_library(
     loom::ir
     loom::ops::index
     loom::ops::op_defs
+    loom::ops::scf
   PUBLIC
 )
 
@@ -114,6 +115,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::ops::scalar
     loom::ops::scf
+    loom::ops::vector
     loom::pass::report
     loom::pass::types
     loom::pass::value_facts

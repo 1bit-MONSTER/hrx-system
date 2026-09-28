@@ -21,12 +21,44 @@ enum loom_scf_pipeline_stage_bits_e {
   LOOM_SCF_PIPELINE_STAGE_CONSUMER = 1u << 1,
 };
 
+enum loom_scf_pipeline_branch_e {
+  LOOM_SCF_PIPELINE_BRANCH_THEN = 0,
+  LOOM_SCF_PIPELINE_BRANCH_ELSE = 1,
+  LOOM_SCF_PIPELINE_BRANCH_COUNT = 2,
+};
+
+// Retained interior cut for one top-level conditional scheduling unit. The
+// producer branch stages identify the ordinary-read closure within that source
+// branch. Everything else is reconstructed in the consumer conditional.
+typedef struct loom_scf_pipeline_guarded_partition_t {
+  // Source branch bodies in then/else order, including clone correspondence.
+  loom_scf_body_t branches[LOOM_SCF_PIPELINE_BRANCH_COUNT];
+  // Producer/consumer assignment for operations in producer_branch.
+  loom_scf_pipeline_stage_flags_t* producer_branch_stages;
+  // Stage-specific conditional dependencies used by the outer cut.
+  loom_scf_body_operation_t producer;
+  // Stage-specific conditional dependencies used by the outer cut.
+  loom_scf_body_operation_t consumer;
+  // Packed references owned by producer and consumer.
+  loom_scf_body_reference_t* references;
+  // Branch containing the retained ordinary-read closure.
+  uint8_t producer_branch;
+  // Branch-local producer values yielded by the synthetic producer condition.
+  loom_value_id_t* queue_values;
+  // Number of values in queue_values.
+  uint32_t queue_value_count;
+} loom_scf_pipeline_guarded_partition_t;
+
 typedef struct loom_scf_pipeline_plan_t {
   // Complete source operations and local payload dependencies.
   loom_scf_body_t body;
   // Stages executing each body operation, in authored order. Reconstructed
   // address arithmetic belongs to both stages with distinct iteration inputs.
   loom_scf_pipeline_stage_flags_t* stages;
+  // Optional guarded partition indexed by authored body operation.
+  loom_scf_pipeline_guarded_partition_t** guarded_partitions;
+  // Number of selected guarded partitions.
+  uint32_t guarded_partition_count;
   // Number of operations reconstructed in the consumer instead of queued.
   uint32_t rematerialized_count;
   // Source values carried from a producer iteration to its consumer.

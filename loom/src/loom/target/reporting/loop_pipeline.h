@@ -10,6 +10,7 @@
 #define LOOM_TARGET_REPORTING_LOOP_PIPELINE_H_
 
 #include "loom/ir/function_version.h"
+#include "loom/target/loop_pipeline.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +42,8 @@ typedef struct loom_target_compile_report_loop_pipeline_stage_row_t {
   iree_string_view_t op_name;
   // Original iterations ahead of the ordered consumer; zero for consumers.
   uint32_t iteration_lookahead;
+  // Interior partition used to place this operation copy.
+  loom_source_loop_pipeline_partition_t partition;
 } loom_target_compile_report_loop_pipeline_stage_row_t;
 
 // Copies retained schedules from the compiled versions into report-owned rows.

@@ -47,6 +47,10 @@ loom_target_compile_report_format_loop_pipeline_stage_row_json(
       &object, IREE_SV("position"), row->position));
   IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
       &object, IREE_SV("op"), row->op_name));
+  if (row->partition == LOOM_SOURCE_LOOP_PIPELINE_PARTITION_GUARDED) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
+        &object, IREE_SV("partition"), IREE_SV("guarded")));
+  }
   IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
       &object, IREE_SV("stage"),
       row->iteration_lookahead != 0 ? IREE_SV("producer")
@@ -137,10 +141,13 @@ iree_status_t loom_target_compile_report_format_loop_pipelines_text(
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           builder,
           "loop_pipeline_stage function=%.*s loop=%" PRIhsz
-          " position=%u op=%.*s stage=%s iteration_lookahead=%u\n",
+          " position=%u op=%.*s%s stage=%s iteration_lookahead=%u\n",
           (int)row->function_name.size, row->function_name.data,
           row->loop_ordinal, row->position, (int)row->op_name.size,
           row->op_name.data,
+          row->partition == LOOM_SOURCE_LOOP_PIPELINE_PARTITION_GUARDED
+              ? " partition=guarded"
+              : "",
           row->iteration_lookahead != 0 ? "producer" : "consumer",
           row->iteration_lookahead));
     }
