@@ -7,6 +7,12 @@
 """AMD XDNA AIE2P vector structural selection rules."""
 
 from loom.dialect.vector import defs as vector
+from loom.target.arch.amd.xdna.aie2p.contracts.accumulator_structural import (
+    _ACCUMULATOR_BITCAST_TYPE_GROUPS,
+    _ACCUMULATOR_CONCAT_RULES,
+    _ACCUMULATOR_VECTOR_SHAPES,
+    _F32X32_ACCUMULATOR,
+)
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
 )
@@ -70,38 +76,6 @@ _ORDINARY_1024_BITCAST_TYPES = tuple(
         maximum_static_elements=128 // element_byte_count,
     )
     for element_types, element_byte_count, _ in _VECTOR_CARRIER_SPECS
-)
-
-# Rank-one source types with accumulator-file representations. Each native
-# packet occupies one 512-bit X register before or after the explicit move.
-_F32X32_ACCUMULATOR = Vector("f32", lanes=32)
-_F32X64_ACCUMULATOR = Vector("f32", lanes=64)
-_I32X64_ACCUMULATOR = Vector("i32", lanes=64)
-_I64X32_ACCUMULATOR = Vector("i64", lanes=32)
-_ACCUMULATOR_VECTOR_SPECS = (
-    (_F32X32_ACCUMULATOR, Vector("f32", lanes=16), 16, 2),
-    (_F32X64_ACCUMULATOR, Vector("f32", lanes=16), 16, 4),
-    (_I32X64_ACCUMULATOR, Vector("i32", lanes=16), 16, 4),
-    (_I64X32_ACCUMULATOR, Vector("i64", lanes=8), 8, 4),
-)
-
-# Pairwise packet concatenation reaches each accumulator form through binary
-# operands that already represent adjacent halves. Ordinary vector-file halves
-# contain one or two 512-bit packets; the F32x64 halves are already MBMSx2.
-_VECTOR_PAIR_TO_ACCUMULATOR_CONCAT_SPECS = (
-    (Vector("f32", lanes=16), _F32X32_ACCUMULATOR, 1),
-    (Vector("i32", lanes=32), _I32X64_ACCUMULATOR, 2),
-    (Vector("i64", lanes=16), _I64X32_ACCUMULATOR, 2),
-)
-_ACCUMULATOR_PAIR_CONCAT_SPECS = ((_F32X32_ACCUMULATOR, _F32X64_ACCUMULATOR),)
-
-_ACCUMULATOR_BITCAST_TYPE_GROUPS = (
-    (_F32X32_ACCUMULATOR,),
-    (
-        _F32X64_ACCUMULATOR,
-        _I32X64_ACCUMULATOR,
-        _I64X32_ACCUMULATOR,
-    ),
 )
 
 # Ordinary source vectors wider than one 512-bit X register are carried as two
@@ -1410,62 +1384,6 @@ def _vector_concat_split_carrier_rules(
     )
 
 
-def _vector_pair_to_accumulator_concat_rule(
-    input_type: TypePattern,
-    result_type: TypePattern,
-    packets_per_input: int,
-) -> DescriptorRule:
-    move = _descriptor("amd.xdna.aie2p.move.vector512.to.accumulator512")
-    emits: list[ContractEmit] = []
-    accumulator_units: list[ValueRef] = []
-    for input_index in range(2):
-        input_value = ValueRef.operand("inputs", element=input_index)
-        for packet_index in range(packets_per_input):
-            vector_packet = input_value
-            if packets_per_input > 1:
-                vector_packet = ValueRef.temporary(
-                    f"input_{input_index}_packet_{packet_index}"
-                )
-                emits.append(
-                    EmitRegisterSlice(
-                        source=input_value,
-                        result=vector_packet,
-                        unit_offset=2 * packet_index,
-                        unit_count=2,
-                    )
-                )
-            accumulator_unit = ValueRef.temporary(
-                f"accumulator_unit_{input_index * packets_per_input + packet_index}"
-            )
-            emits.append(
-                EmitDescriptorOp(
-                    descriptor=move,
-                    operands={"src": vector_packet},
-                    results={"dst": accumulator_unit},
-                    result_types={"dst": DescriptorResultType()},
-                    form=DescriptorEmitForm.OP,
-                )
-            )
-            accumulator_units.append(accumulator_unit)
-    emits.append(
-        EmitRegisterConcat(
-            sources=accumulator_units,
-            result=ValueRef.result("result"),
-        )
-    )
-    return DescriptorRule(
-        source_op=vector.vector_concat,
-        descriptor=move,
-        guards=(
-            Guard.i64_range("axis", 0, 0),
-            Guard.operand_segment_count("inputs", 2),
-            Guard.value_type("inputs", input_type),
-            Guard.value_type("result", result_type),
-        ),
-        emit=tuple(emits),
-    )
-
-
 def _register_concat_pair_rule(
     input_type: TypePattern,
     result_type: TypePattern,
@@ -1526,14 +1444,12 @@ AIE2P_STRUCTURAL_RULES = (
     ),
     *(
         rule
-        for source_type, result_type, packet_lane_count, unit_count in (
-            _ACCUMULATOR_VECTOR_SPECS
-        )
+        for shape in _ACCUMULATOR_VECTOR_SHAPES
         for rule in _accumulator_vector_slice_rules(
-            source_type,
-            result_type,
-            packet_lane_count,
-            unit_count,
+            shape.source_type,
+            shape.packet_type,
+            shape.packet_lane_count,
+            shape.logical_packet_count,
         )
     ),
     *(
@@ -1561,20 +1477,7 @@ AIE2P_STRUCTURAL_RULES = (
             ),
         )
     ),
-    *(
-        _vector_pair_to_accumulator_concat_rule(
-            input_type,
-            result_type,
-            packets_per_input,
-        )
-        for input_type, result_type, packets_per_input in (
-            _VECTOR_PAIR_TO_ACCUMULATOR_CONCAT_SPECS
-        )
-    ),
-    *(
-        _register_concat_pair_rule(input_type, result_type)
-        for input_type, result_type in _ACCUMULATOR_PAIR_CONCAT_SPECS
-    ),
+    *_ACCUMULATOR_CONCAT_RULES,
     *(
         _register_concat_pair_rule(input_type, result_type)
         for input_type, result_type in _WIDE_VECTOR_CONCAT_SPECS

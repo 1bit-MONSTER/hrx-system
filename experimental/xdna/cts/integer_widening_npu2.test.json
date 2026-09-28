@@ -2,7 +2,7 @@
   "version": 1,
   "cases": [
     {
-      "name": "partial integer widening preserves signed, unsigned, and quantized lanes on NPU2",
+      "name": "accumulator-width integer widening preserves signed, unsigned, and quantized lanes on NPU2",
       "steps": [
         {
           "name": "fixtures",

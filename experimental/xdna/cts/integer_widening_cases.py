@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Independent integer and quantization oracle for partial widening."""
+"""Independent integer and quantization oracle across accumulator widening."""
 
 import math
 import struct
@@ -43,16 +43,16 @@ def main():
     expected = bytearray()
     for record in range(16):
         integers = [
-            INTEGER_VALUES[(record + lane) % len(INTEGER_VALUES)] for lane in range(9)
+            INTEGER_VALUES[(record + lane) % len(INTEGER_VALUES)] for lane in range(17)
         ]
         values = [
             QUANTIZE_VALUES[(record + lane) % len(QUANTIZE_VALUES)] for lane in range(9)
         ]
 
-        source = bytearray([0xA5] * 192)
-        source[0:36] = struct.pack("<9I", *integers)
-        source[64:100] = struct.pack("<9f", *values)
-        source[128:140] = struct.pack("<3f", *THRESHOLDS)
+        source = bytearray([0xA5] * 256)
+        source[0:68] = struct.pack("<17I", *integers)
+        source[96:132] = struct.pack("<9f", *values)
+        source[192:204] = struct.pack("<3f", *THRESHOLDS)
         inputs += source
 
         unsigned = integers
@@ -66,10 +66,10 @@ def main():
             else sum(threshold < value for threshold in THRESHOLDS)
             for value in values
         ]
-        result = bytearray([0xA5] * 384)
-        result[0:72] = struct.pack("<9Q", *unsigned)
-        result[128:200] = struct.pack("<9Q", *signed)
-        result[256:328] = struct.pack("<9Q", *quantized)
+        result = bytearray([0xA5] * 576)
+        result[0:136] = struct.pack("<17Q", *unsigned)
+        result[192:328] = struct.pack("<17Q", *signed)
+        result[384:456] = struct.pack("<9Q", *quantized)
         expected += result
 
     # Binding tails expose DMA writes beyond the declared pipeline views.
