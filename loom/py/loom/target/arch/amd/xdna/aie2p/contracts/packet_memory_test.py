@@ -10,7 +10,7 @@ from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     I4_UNPACK_SOURCE_LANE_COUNTS,
     INTEGER_PACK_CASES,
-    INTEGER_WIDEN_CASES,
+    INTEGER_WIDEN_INSTRUCTIONS,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_memory import (
     AIE2P_PACKET_MEMORY_RULES,
@@ -127,22 +127,22 @@ def test_fused_packet_memory_rules_cover_the_native_shape_matrix() -> None:
                 SourceMemoryOperation.LOAD,
                 (
                     f"native_memory_load_{signedness}_"
-                    f"{widen_case.input_element}x{widen_case.lane_count}_to_"
-                    f"{widen_case.result_element}x{widen_case.lane_count}"
+                    f"{instruction.input_element}x{instruction.native_lane_count}_to_"
+                    f"{instruction.result_element}x{instruction.native_lane_count}"
                 ),
                 (
-                    f"amd.xdna.aie2p.load.widen.{widen_case.physical_shape}."
+                    f"amd.xdna.aie2p.load.widen.{instruction.physical_shape}."
                     f"{signedness}.configured"
                 ),
-                int(widen_case.input_element[1:]) // 8,
-                widen_case.lane_count,
-                widen_case.memory_width_bits,
+                int(instruction.input_element[1:]) // 8,
+                instruction.native_lane_count,
+                instruction.memory_width_bits,
             )
             for source_op, signedness in (
                 (vector.vector_extui, "unsigned"),
                 (vector.vector_extsi, "signed"),
             )
-            for widen_case in INTEGER_WIDEN_CASES
+            for instruction in INTEGER_WIDEN_INSTRUCTIONS
         ),
         *(
             (

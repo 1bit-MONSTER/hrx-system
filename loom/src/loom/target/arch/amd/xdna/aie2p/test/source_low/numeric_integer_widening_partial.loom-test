@@ -1,0 +1,117 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @extui_i16x1_i32x1(%input: vector<1xi16>) -> (vector<1xi32>) {
+  %result = vector.extui %input : vector<1xi16> to vector<1xi32>
+  func.return %result : vector<1xi32>
+}
+
+// ----
+CHECK: low.func.def * @extui_i16x1_i32x1(*) *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extsi_i32x7_i64x7(%input: vector<7xi32>) -> (vector<7xi64>) {
+  %result = vector.extsi %input : vector<7xi32> to vector<7xi64>
+  func.return %result : vector<7xi64>
+}
+
+// ----
+CHECK: low.func.def * @extsi_i32x7_i64x7(*) *
+CHECK: * = vups.2x.w-to-b.signed *
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extsi_i8x16_i32x16(%input: vector<16xi8>) -> (vector<16xi32>) {
+  %result = vector.extsi %input : vector<16xi8> to vector<16xi32>
+  func.return %result : vector<16xi32>
+}
+
+// ----
+CHECK: low.func.def * @extsi_i8x16_i32x16(*) *
+CHECK: * = vups.4x.w-to-c.signed *
+CHECK: %result = vmov.accumulator512.to.vector512 *
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extui_i8x17_i32x17(%input: vector<17xi8>) -> (vector<17xi32>) {
+  %result = vector.extui %input : vector<17xi8> to vector<17xi32>
+  func.return %result : vector<17xi32>
+}
+
+// ----
+CHECK: low.func.def * @extui_i8x17_i32x17(*) *
+CHECK: * = vups.4x.w-to-c.unsigned *
+CHECK: %result = concat(*)*
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extui_i16x8_i64x8(%input: vector<8xi16>) -> (vector<8xi64>) {
+  %result = vector.extui %input : vector<8xi16> to vector<8xi64>
+  func.return %result : vector<8xi64>
+}
+
+// ----
+CHECK: low.func.def * @extui_i16x8_i64x8(*) *
+CHECK: * = vups.4x.w-to-c.unsigned *
+CHECK: %result = vmov.accumulator512.to.vector512 *
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extsi_i16x9_i64x9(%input: vector<9xi16>) -> (vector<9xi64>) {
+  %result = vector.extsi %input : vector<9xi16> to vector<9xi64>
+  func.return %result : vector<9xi64>
+}
+
+// ----
+CHECK: low.func.def * @extsi_i16x9_i64x9(*) *
+CHECK: * = vups.4x.w-to-c.signed *
+CHECK: %result = concat(*)*
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extsi_i16x17_i32x17(%input: vector<17xi16>) -> (vector<17xi32>) {
+  %result = vector.extsi %input : vector<17xi16> to vector<17xi32>
+  func.return %result : vector<17xi32>
+}
+
+// ----
+CHECK: low.func.def * @extsi_i16x17_i32x17(*) *
+CHECK: * = vups.2x.x-to-c.signed *
+CHECK: %result = concat(*)*
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*
+
+// ====
+
+func.def @extui_i32x15_i64x15(%input: vector<15xi32>) -> (vector<15xi64>) {
+  %result = vector.extui %input : vector<15xi32> to vector<15xi64>
+  func.return %result : vector<15xi64>
+}
+
+// ----
+CHECK: low.func.def * @extui_i32x15_i64x15(*) *
+CHECK: * = vups.2x.x-to-c.unsigned *
+CHECK: %result = concat(*)*
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+CHECK-NOT: *vshift*

@@ -24,9 +24,9 @@ from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     BF16_F32_PACKET_LANE_COUNTS,
     I4_UNPACK_SOURCE_LANE_COUNTS,
     INTEGER_PACK_CASES,
-    INTEGER_WIDEN_CASES,
+    INTEGER_WIDEN_INSTRUCTIONS,
     IntegerPackCase,
-    IntegerWidenCase,
+    IntegerWidenInstruction,
     integer_pack_state_emits,
     integer_unpack_state_emits,
     integer_widen_result_emits,
@@ -282,16 +282,18 @@ def _fused_integer_widen_load_rule(
     memory_spaces: tuple[str, ...],
     source_op: Op,
     signedness: str,
-    widen_case: IntegerWidenCase,
+    instruction: IntegerWidenInstruction,
     volatile: bool,
 ) -> DescriptorRule:
-    source_type = Vector(widen_case.input_element, lanes=widen_case.lane_count)
-    result_type = Vector(widen_case.result_element, lanes=widen_case.lane_count)
+    source_type = Vector(instruction.input_element, lanes=instruction.native_lane_count)
+    result_type = Vector(
+        instruction.result_element, lanes=instruction.native_lane_count
+    )
     address_family = (
         "immediate" if address_form is _MemoryAddressForm.IMMEDIATE else "register"
     )
     descriptor_key = (
-        f"amd.xdna.aie2p.load.widen.{widen_case.physical_shape}."
+        f"amd.xdna.aie2p.load.widen.{instruction.physical_shape}."
         f"{signedness}.configured.indexed.{address_family}"
     )
     if volatile:
@@ -302,14 +304,14 @@ def _fused_integer_widen_load_rule(
         address_form,
         root_kind=root_kind,
         memory_spaces=memory_spaces,
-        element_byte_count=int(widen_case.input_element[1:]) // 8,
-        vector_lane_count=widen_case.lane_count,
-        memory_width_bits=widen_case.memory_width_bits,
+        element_byte_count=int(instruction.input_element[1:]) // 8,
+        vector_lane_count=instruction.native_lane_count,
+        memory_width_bits=instruction.memory_width_bits,
     )
-    shift, state_emits = integer_widen_state_emits(widen_case.ups_mode)
+    shift, state_emits = integer_widen_state_emits(instruction.ups_mode)
     converted_result = ValueRef.result("result", source_node="convert")
     native_result, output_emits = integer_widen_result_emits(
-        widen_case,
+        instruction,
         converted_result,
     )
     return DescriptorRule(
@@ -348,7 +350,7 @@ def _fused_integer_widen_load_rule(
                 results={"dst": native_result},
                 result_types=(
                     None
-                    if widen_case.direct_accumulator_result
+                    if instruction.direct_accumulator_result
                     else {"dst": DescriptorResultType()}
                 ),
             ),
@@ -356,9 +358,9 @@ def _fused_integer_widen_load_rule(
         ),
         priority=1,
         report_key=(
-            f"native_memory_load_{signedness}_{widen_case.input_element}x"
-            f"{widen_case.lane_count}_to_{widen_case.result_element}x"
-            f"{widen_case.lane_count}"
+            f"native_memory_load_{signedness}_{instruction.input_element}x"
+            f"{instruction.native_lane_count}_to_{instruction.result_element}x"
+            f"{instruction.native_lane_count}"
         ),
     )
 
@@ -576,7 +578,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 memory_spaces=memory_spaces,
                 source_op=source_op,
                 signedness=signedness,
-                widen_case=widen_case,
+                instruction=instruction,
                 volatile=volatile,
             )
             for root_kind, memory_spaces in _MEMORY_ROOTS
@@ -584,7 +586,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 (vector.vector_extui, "unsigned"),
                 (vector.vector_extsi, "signed"),
             )
-            for widen_case in INTEGER_WIDEN_CASES
+            for instruction in INTEGER_WIDEN_INSTRUCTIONS
             for address_form in _MemoryAddressForm
         ),
         *(
