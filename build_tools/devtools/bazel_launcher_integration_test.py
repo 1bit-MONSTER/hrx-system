@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import signal
@@ -25,6 +26,7 @@ FIXTURE_TARGET = "//build_tools/devtools:bazel_launcher_integration_fixture"
 # This integration harness also runs directly from a source checkout in CI.
 sys.path.insert(0, str(REPO_ROOT))
 from build_tools.devtools import bazel as bazel_dev  # noqa: E402
+from build_tools.devtools import environment  # noqa: E402
 
 
 def dev_command(*args: str) -> list[str]:
@@ -174,6 +176,23 @@ def verify_exit_code(temporary_root: Path) -> None:
         )
 
 
+def verify_try_header_owners() -> None:
+    tool_env = environment.existing_or_system_environment(argparse.Namespace())
+    for header, expected in (
+        ("loom/error/error_catalog.h", "//loom/src/loom/error:error_defs"),
+        ("loom/format/bytecode/reader.h", "//loom/src/loom/format/bytecode:reader"),
+        ("loom/analysis/symbolic_value.h", "//loom/src/loom/analysis:symbolic_expr"),
+        ("loomc/target/amdgpu.h", "//loom/binding/c/target/amdgpu:amdgpu"),
+    ):
+        actual = bazel_dev.infer_dep_for_header(
+            tool_env.tool("bazel"), header, env=tool_env.path_env()
+        )
+        if actual != expected:
+            raise RuntimeError(
+                f"Bazel try inferred {actual!r} for {header!r}; expected {expected!r}"
+            )
+
+
 def verify_try_dependency_aliases(temporary_root: Path) -> None:
     source = temporary_root / "dependency_aliases.c"
     source.write_text(
@@ -299,6 +318,7 @@ def verify_try_lifecycle(temporary_root: Path) -> None:
 
 
 def main() -> int:
+    verify_try_header_owners()
     # The debug fixture consumes an artifact made by its own host-tool version.
     # Both versions are in its dependency closure when launch metadata is read.
     result = subprocess.run(
