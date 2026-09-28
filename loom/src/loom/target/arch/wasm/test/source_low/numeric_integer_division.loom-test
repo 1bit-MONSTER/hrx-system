@@ -1,0 +1,32 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_division.loom-test
+// RUN: with-checks emit source-low target=wasm:simd128 output=low
+
+func.def @integer_division_i32(%dividend: i32, %divisor: i32) -> (i32, i32, i32, i32) {
+  %signed_quotient = scalar.divsi %dividend, %divisor : i32
+  %signed_remainder = scalar.remsi %dividend, %divisor : i32
+  %unsigned_quotient = scalar.divui %dividend, %divisor : i32
+  %unsigned_remainder = scalar.remui %dividend, %divisor : i32
+  func.return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder : i32, i32, i32, i32
+}
+
+// ----
+CHECK: * = i32.div_s *
+CHECK: * = i32.rem_s *
+CHECK: * = i32.div_u *
+CHECK: * = i32.rem_u *
+
+// ====
+
+func.def @integer_division_i64(%dividend: i64, %divisor: i64) -> (i64, i64, i64, i64) {
+  %signed_quotient = scalar.divsi %dividend, %divisor : i64
+  %signed_remainder = scalar.remsi %dividend, %divisor : i64
+  %unsigned_quotient = scalar.divui %dividend, %divisor : i64
+  %unsigned_remainder = scalar.remui %dividend, %divisor : i64
+  func.return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder : i64, i64, i64, i64
+}
+
+// ----
+CHECK: * = i64.div_s *
+CHECK: * = i64.rem_s *
+CHECK: * = i64.div_u *
+CHECK: * = i64.rem_u *

@@ -9,17 +9,19 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM_3A4493E3 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
-file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_3A4493E3 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_3A4493E3 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_3A4493E3})
-file(GLOB _GLOB_PACKED_VECTOR_SELECT_LOOM_3A4493E3 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS packed_vector_select.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_3A4493E3 ${_GLOB_PACKED_VECTOR_SELECT_LOOM_3A4493E3})
-file(GLOB _GLOB_PREDICATE_LOGIC_LOOM_3A4493E3 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_logic.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_3A4493E3 ${_GLOB_PREDICATE_LOGIC_LOOM_3A4493E3})
-file(GLOB _GLOB_SCALAR_FLOAT_CONVERSION_LOOM_3A4493E3 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS scalar_float_conversion.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_3A4493E3 ${_GLOB_SCALAR_FLOAT_CONVERSION_LOOM_3A4493E3})
-file(GLOB _GLOB_VECTOR_I64_BITWISE_LOOM_3A4493E3 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS vector_i64_bitwise.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_3A4493E3 ${_GLOB_VECTOR_I64_BITWISE_LOOM_3A4493E3})
+file(GLOB _GLOB_X_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_08BBA5E4 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_08BBA5E4})
+file(GLOB _GLOB_NUMERIC_VECTOR_F32_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS numeric_vector_f32.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_08BBA5E4 ${_GLOB_NUMERIC_VECTOR_F32_LOOM_08BBA5E4})
+file(GLOB _GLOB_PACKED_VECTOR_SELECT_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS packed_vector_select.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_08BBA5E4 ${_GLOB_PACKED_VECTOR_SELECT_LOOM_08BBA5E4})
+file(GLOB _GLOB_PREDICATE_LOGIC_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS predicate_logic.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_08BBA5E4 ${_GLOB_PREDICATE_LOGIC_LOOM_08BBA5E4})
+file(GLOB _GLOB_SCALAR_FLOAT_CONVERSION_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS scalar_float_conversion.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_08BBA5E4 ${_GLOB_SCALAR_FLOAT_CONVERSION_LOOM_08BBA5E4})
+file(GLOB _GLOB_VECTOR_I64_BITWISE_LOOM_08BBA5E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS vector_i64_bitwise.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_08BBA5E4 ${_GLOB_VECTOR_I64_BITWISE_LOOM_08BBA5E4})
 loom_generated_file_family(
   NAME
     subgroup_transport_gen
@@ -240,6 +242,38 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx950
     loom::target::spirv::vulkan1.3+bda+extended-types
 )
+
+loom_test_module(
+  NAME
+    numeric_vector_f32_test_module
+  SRCS
+    "numeric_vector_f32.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_vector_f32_values.loom"
+)
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+loom_execution_test(
+  NAME
+    numeric_vector_f32_test_execute_amdgpu_hardware_test
+  MODULE
+    "::numeric_vector_f32_test_module"
+  RUNNER_ARGS
+    "--device=amdgpu"
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+    "loom-execution-profile=amdgpu_hardware"
+    "loom-target-family=amdgpu"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
 
 loom_test_module(
   NAME
@@ -1935,7 +1969,7 @@ loom_module(
   NAME
     conformance_cases
   SRCS
-    "${_GLOB_X_LOOM_3A4493E3}"
+    "${_GLOB_X_LOOM_08BBA5E4}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"
