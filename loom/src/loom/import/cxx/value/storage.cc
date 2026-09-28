@@ -24,6 +24,18 @@
 #include "loom/ops/view/ops.h"
 
 namespace loom::cxx_import {
+namespace {
+
+// C++ bool objects occupy a byte while their computed values are predicates.
+// All other admitted scalar and vector objects share their value
+// representation.
+loom_type_t object_storage_type(loom_type_t value_type) {
+  return loom_type_element_type(value_type) == LOOM_SCALAR_TYPE_I1
+             ? loom_type_scalar(LOOM_SCALAR_TYPE_I8)
+             : value_type;
+}
+
+}  // namespace
 
 Pointer Storage::root(loom_value_id_t buffer, cxx::AST* owner) {
   return {buffer,
@@ -136,7 +148,7 @@ StorageAccess Storage::dereference(StorageProjection base,
   if (!base.pointer_width_constrained) {
     base.pointer = constrain_origin(base.pointer, owner);
   }
-  auto element = types_.get(element_type, owner);
+  auto element = object_storage_type(types_.get(element_type, owner));
   auto* vector = types_.vector(element_type);
   auto view_type =
       loom_type_shaped_1d(LOOM_TYPE_VIEW, loom_type_element_type(element),
@@ -154,6 +166,7 @@ StorageAccess Storage::dereference(StorageProjection base,
 
 loom_value_id_t Storage::load(const StorageAccess& access,
                               const cxx::Type* element_type, cxx::AST* owner) {
+  auto value_type = types_.get(element_type, owner);
   int64_t selector = access.index ? INT64_MIN : 0;
   auto build = types_.vector(element_type) ? loom_vector_load_build
                                            : loom_view_load_build;
@@ -161,12 +174,21 @@ loom_value_id_t Storage::load(const StorageAccess& access,
   check(build(&builder_, 0, types_.memory_access_flags(element_type),
               access.view, access.index ? &*access.index : nullptr,
               access.index ? 1 : 0, &selector, 1, 0, 0,
-              types_.get(element_type, owner), locations_.get(owner), &op));
-  return loom_op_results(op)[0];
+              object_storage_type(value_type), locations_.get(owner), &op));
+  auto value = loom_op_results(op)[0];
+  return loom_type_element_type(value_type) == LOOM_SCALAR_TYPE_I1
+             ? scalars_.convert(value, unit_.control()->getUnsignedCharType(),
+                                element_type, owner)
+             : value;
 }
 
 void Storage::store(const StorageAccess& access, loom_value_id_t value,
                     const cxx::Type* element_type, cxx::AST* owner) {
+  if (loom_type_element_type(loom_module_value_type(builder_.module, value)) ==
+      LOOM_SCALAR_TYPE_I1) {
+    value = scalars_.convert(value, element_type,
+                             unit_.control()->getUnsignedCharType(), owner);
+  }
   int64_t selector = access.index ? INT64_MIN : 0;
   auto build = types_.vector(element_type) ? loom_vector_store_build
                                            : loom_view_store_build;
@@ -241,7 +263,8 @@ StorageAllocation Storage::allocate(const cxx::Type* type,
       scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(owner));
   auto* array = cxx::type_cast<cxx::BoundedArrayType>(types_.unqualified(type));
   auto* vector = types_.vector(type);
-  auto element = types_.get(array ? array->elementType() : type, owner);
+  auto element = object_storage_type(
+      types_.get(array ? array->elementType() : type, owner));
   auto count = array ? array->size() : vector ? vector->elementCount() : 1;
   auto view_type = loom_type_shaped_1d(
       LOOM_TYPE_VIEW, loom_type_element_type(element), count, 0);

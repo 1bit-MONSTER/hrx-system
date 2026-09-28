@@ -19,13 +19,6 @@ void store(void* storage, unsigned* value) {
 }
 
 // ====
-bool load(const void* storage) {
-  auto* pointer = static_cast<const bool*>(storage);
-  // ERROR@+1: LOWERING/059 "memory objects require non-boolean scalar, vector or plain record storage"
-  return *pointer;
-}
-
-// ====
 union Payload { unsigned integer; float real; };
 unsigned load(const void* storage) {
   auto* payload = static_cast<const Payload*>(storage);

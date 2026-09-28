@@ -47,11 +47,6 @@ struct Record { unsigned* pointers[4]; };
 unsigned read(const Record* record) { return *record->pointers[0]; }
 
 // ====
-struct Record { bool values[4]; };
-// ERROR@+1: LOWERING/059 "memory objects require non-boolean scalar, vector or plain record storage"
-bool read(const Record* record) { return record->values[0]; }
-
-// ====
 struct Record { unsigned values[4]; };
 // ERROR@+1: LOWERING/059 "mutation requires a non-const destination"
 void write(const Record* record) { record->values[0] = 7; }
@@ -60,11 +55,6 @@ void write(const Record* record) { record->values[0] = 7; }
 struct Record { unsigned values[4]; };
 // ERROR@+1: LOWERING/059 "mutation requires a non-const destination"
 void write(const Record* record) { auto* values = record->values; values[0] = 7; }
-
-// ====
-struct Record { bool value; };
-// ERROR@+1: LOWERING/059 "memory objects require non-boolean scalar, vector or plain record storage"
-bool read(const Record* record) { return record->value; }
 
 // ====
 #include <loomcxx/view.h>

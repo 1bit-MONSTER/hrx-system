@@ -48,6 +48,7 @@ _MODULES = [
     "aiter_swiglu_f16",
     "assumptions",
     "atomics",
+    "boolean_storage",
     "constant_loops",
     "control_flow",
     "early_returns",

@@ -47,6 +47,8 @@ struct StorageAllocation {
 // Owns the source memory representation contract for one output module.
 // Operands are already evaluated by the caller. Fixed array views are recorded
 // at allocation and reused directly, including through source aliases.
+// Boolean objects and Boolean-enum objects use byte views; loads and stores
+// convert between those bytes and the i1 value representation.
 // Source, type, scalar, location and insertion-point owners outlive this
 // object.
 class Storage {
@@ -97,9 +99,10 @@ class Storage {
   // Projects an object's scalar lane footprint at the pointer's current origin.
   StorageAccess dereference(StorageProjection base,
                             const cxx::Type* element_type, cxx::AST* owner);
-  // Reads an already resolved scalar/vector element. Reusing an
-  // access preserves its address across a source read/modify/write operation.
-  // The source element type supplies the footprint and memory qualifiers.
+  // Reads the value representation of an already resolved scalar/vector
+  // element. Reusing an access preserves its address across a read/modify/write
+  // operation. The source element type supplies the footprint and memory
+  // qualifiers.
   loom_value_id_t load(const StorageAccess& access,
                        const cxx::Type* element_type, cxx::AST* owner);
   // Writes to the same resolved location with the source element qualifiers.

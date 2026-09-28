@@ -372,5 +372,62 @@ TEST_F(StorageTest, ResolvedVectorAccessPreservesItsFootprint) {
             LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
 }
 
+TEST_F(StorageTest, BooleanByteAccessRetainsAliasesIndicesAndQualifiers) {
+  Locations locations(source_.unit(), source_.diagnostics(), module_);
+  Scalars scalars(source_.unit(), source_.diagnostics(), types_, locations,
+                  builder_);
+  Storage storage(source_.unit(), source_.diagnostics(), types_, scalars,
+                  locations, builder_);
+  auto* control = source_.unit().control();
+  auto* owner = source_.unit().ast();
+  auto* element = control->getQualType(control->getBoolType(),
+                                       cxx::CvQualifiers::kVolatile);
+  auto* array = control->getBoundedArrayType(element, 7);
+  auto allocation =
+      storage.allocate(array, LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE, 8, owner);
+  auto* alloca = producer(allocation.pointer.root);
+  EXPECT_EQ(loom_buffer_alloca_base_alignment(alloca), 8);
+  EXPECT_EQ(loom_attr_as_i64(loom_index_constant_value(
+                producer(loom_buffer_alloca_byte_length(alloca)))),
+            7);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, allocation.view),
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I8, 7, 0)));
+  auto access =
+      storage.subscript(storage.project(allocation.pointer, array, owner),
+                        scalars.integer(3, LOOM_SCALAR_TYPE_I32), array,
+                        control->getIntType(), owner);
+  EXPECT_EQ(access.view, allocation.view);
+  ASSERT_TRUE(access.index.has_value());
+  auto value = storage.load(access, element, owner);
+  EXPECT_EQ(loom_type_element_type(loom_module_value_type(module_, value)),
+            LOOM_SCALAR_TYPE_I1);
+  auto* truth = producer(value);
+  ASSERT_TRUE(loom_scalar_cmpi_isa(truth));
+  auto* load = producer(loom_scalar_cmpi_lhs(truth));
+  ASSERT_TRUE(loom_view_load_isa(load));
+  EXPECT_EQ(loom_view_load_view(load), allocation.view);
+  EXPECT_EQ(loom_view_load_memory_flags(load),
+            LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
+  EXPECT_EQ(loom_view_load_indices(load).values[0], *access.index);
+  storage.store(access, value, element, owner);
+  auto* store = loom_block_const_last_op(loom_module_block(module_));
+  ASSERT_TRUE(loom_view_store_isa(store));
+  EXPECT_EQ(loom_view_store_view(store), allocation.view);
+  EXPECT_EQ(loom_view_store_indices(store).values[0], *access.index);
+  EXPECT_EQ(loom_view_store_memory_flags(store),
+            LOOM_MEMORY_ACCESS_FLAG_VOLATILE);
+  EXPECT_EQ(loom_type_element_type(
+                loom_module_value_type(module_, loom_view_store_value(store))),
+            LOOM_SCALAR_TYPE_I8);
+  auto alias = storage.dereference(
+      storage.project(allocation.pointer, element, owner), element, owner);
+  EXPECT_EQ(loom_buffer_view_buffer(producer(alias.view)),
+            allocation.pointer.root);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, alias.view),
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I8, 1, 0)));
+}
+
 }  // namespace
 }  // namespace loom::cxx_import

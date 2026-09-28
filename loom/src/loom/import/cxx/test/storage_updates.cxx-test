@@ -242,15 +242,6 @@ LOOM_KERNEL void initialized() {
 }
 
 // ====
-// RUN: verify
-// Type admission remains owned by the shared storage representation.
-#include <loomcxx/kernel.h>
-LOOM_KERNEL void boolean_storage() {
-  // ERROR@+1: LOWERING/059 "memory objects require non-boolean scalar, vector or plain record storage"
-  LOOM_WORKGROUP bool slot;
-}
-
-// ====
 // Discarded compound results emit exactly one volatile read and write.
 void update(volatile unsigned* words, unsigned mask) {
   *words |= mask;

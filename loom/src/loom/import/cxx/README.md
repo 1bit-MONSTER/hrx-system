@@ -1188,9 +1188,8 @@ Fixed underlying types are checked for representability, including implicit
 enumerator increments. Inferred enums select the first type in the integer
 promotion order that contains their complete value range; values above 32 bits
 and the full unsigned 64-bit range remain intact. Template-dependent definitions
-are resolved when instantiated. Boolean enums use `i1` values. Accessing their
-memory requires a byte-storage projection and receives the same diagnostic as
-accessing storage through `bool*`; carrying either pointer is supported.
+are resolved when instantiated. Boolean enums use `i1` values and one-byte
+objects, with the same load/store conversion as `bool`.
 
 GNU `packed` enums select their smallest signed or unsigned storage while
 retaining the promotion selected from their enumerator range. An enum containing
@@ -1274,7 +1273,30 @@ come from the frontend's completed object layout; field stores leave padding
 and neighboring fields untouched. `&particles[index].flags` can pass through an
 ordinary helper as a typed pointer.
 
-Memory records admit non-boolean scalar, enum, vector and nested named fields,
+`bool` and enums with underlying type `bool` occupy one byte per object while
+their computed values, parameters and results use `i1`. Loads read `i8` and
+compare against zero; stores extend the predicate to the canonical byte value
+zero or one. This applies to pointer accesses, record fields, fixed arrays,
+addressed locals and workgroup storage. Const and volatile qualifiers retain
+their normal meaning.
+
+```cpp
+bool exchange(bool* destination, const bool* source) {
+  bool previous = *destination;
+  *destination = *source;
+  return previous;
+}
+```
+
+Both pointers address `view<1xi8>` storage; `previous` and the function result
+remain `i1`. Arrays advance by one byte and fields keep their source-layout
+offsets. Shared private storage promotion can eliminate addressed objects, and
+ordinary canonicalization folds direct predicate-to-byte-to-predicate conversions
+back to the original value. Packed Boolean vectors, typed Loom views and atomic
+bindings have separate representation contracts; admitting Boolean objects does not change
+their element-type requirements.
+
+Memory records admit scalar, enum, vector and nested named fields,
 including fixed arrays of those types and multidimensional arrays. Array
 members decay to borrowed pointers, so ordinary helpers can consume them.
 Indexing and pointer-to-array arithmetic preserve each source extent's stride.
@@ -1738,7 +1760,7 @@ unsigned update(unsigned input, bool enabled) {
 }
 ```
 
-Automatic storage supports the same non-boolean scalar and vector types as
+Automatic storage supports the same scalar and vector types as
 typed pointer storage. The importer emits `buffer.alloca<private>` at the
 object's declaration, using its source size and alignment, and initializes it
 with a store preserving its access qualifiers. A declaration without an
@@ -1758,7 +1780,7 @@ continue to import directly as SSA values. An aliased loop bound or induction
 object uses a general loop so indirect mutations cannot be lost by counted-loop
 lowering.
 
-Fixed one-dimensional arrays of non-boolean scalars use the same private storage
+Fixed one-dimensional arrays of scalars use the same private storage
 contract. Braced and parenthesized element initializers execute in order, with
 each element stored before evaluating the next clause. Omitted elements are
 value-initialized; a declaration without an initializer emits no stores.
