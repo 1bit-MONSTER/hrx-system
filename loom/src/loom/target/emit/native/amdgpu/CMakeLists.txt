@@ -541,6 +541,7 @@ loom_cc_library(
   DEPS
     ::encoding
     ::hsaco
+    ::hsaco_prepare
     ::kernel_entry
     ::kernel_record
     iree::base
@@ -591,12 +592,29 @@ loom_cc_library(
   SRCS
     "hsaco.c"
   DEPS
+    iree::base
+    iree::base::internal::arena
+    iree::io::stream
+    loom::target::emit::native::elf
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    hsaco_prepare
+  HDRS
+    "hsaco_prepare.h"
+  SRCS
+    "hsaco_prepare.c"
+  DEPS
     ::descriptor
+    ::hsaco
     ::metadata
     ::text_fixup
     iree::base
     iree::base::internal::arena
-    iree::io::stream
     loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::target_info
     loom::target::emit::native::elf
@@ -613,7 +631,7 @@ loom_cc_library(
   SRCS
     "runtime_globals.c"
   DEPS
-    ::hsaco
+    ::hsaco_prepare
     iree::base
     loom::target::arch::amdgpu::abi::asan
     loom::target::arch::amdgpu::abi::feedback
@@ -780,6 +798,7 @@ loom_cc_test(
   DEPS
     ::descriptor
     ::hsaco
+    ::hsaco_prepare
     ::metadata
     iree::base
     iree::base::internal::arena
@@ -823,6 +842,8 @@ loom_cc_test(
   SRCS
     "hsaco_hsa_test.cc"
   DEPS
+    ::hsaco
+    ::hsaco_prepare
     ::kernel_hsaco
     iree::base
     iree::base::internal

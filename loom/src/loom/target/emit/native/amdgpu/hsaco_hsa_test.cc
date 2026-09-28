@@ -41,6 +41,8 @@
 #include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/provider.h"
 #include "loom/target/arch/amdgpu/target_info.h"
+#include "loom/target/emit/native/amdgpu/hsaco.h"
+#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
 #include "loom/target/emit/native/amdgpu/kernel_hsaco.h"
 #include "loom/target/function_version.h"
 #include "loom/target/low_descriptor_registry.h"
@@ -1086,7 +1088,7 @@ iree_status_t EmitRuntimeGlobalKernelForAmdgpu(const AmdgpuHsaTarget& target,
   loom_amdgpu_hsaco_kernel_t revisioned_kernel = kernel;
   revisioned_kernel.metadata.target_extensions =
       target_profile.identity.target->kernel_metadata_extensions;
-  const loom_amdgpu_hsaco_file_t file = {
+  const loom_amdgpu_hsaco_input_t input = {
       /*.target=*/iree_make_string_view(target_id.data(), target_id.size()),
       /*.processor=*/processor->name,
       /*.kernels=*/&revisioned_kernel,
@@ -1097,8 +1099,10 @@ iree_status_t EmitRuntimeGlobalKernelForAmdgpu(const AmdgpuHsaTarget& target,
 
   StreamPtr stream = CreateStream();
   TestArena arena;
+  loom_amdgpu_hsaco_plan_t plan = {};
+  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_prepare(&input, &plan, arena.arena()));
   IREE_RETURN_IF_ERROR(
-      loom_amdgpu_hsaco_write_file(&file, stream.get(), arena.arena()));
+      loom_amdgpu_hsaco_write_plan(&plan, stream.get(), arena.arena()));
   *out_hsaco = StreamBytes(stream.get());
   return iree_ok_status();
 }

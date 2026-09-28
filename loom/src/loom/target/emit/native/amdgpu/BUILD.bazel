@@ -454,6 +454,7 @@ loom_cc_library(
     deps = [
         ":encoding",
         ":hsaco",
+        ":hsaco_prepare",
         ":kernel_entry",
         ":kernel_record",
         "//loom/src/loom/codegen/low:allocation",
@@ -494,7 +495,20 @@ loom_cc_library(
     srcs = ["hsaco.c"],
     hdrs = ["hsaco.h"],
     deps = [
+        "//loom/src/loom/target/emit/native:elf",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+    ],
+)
+
+loom_cc_library(
+    name = "hsaco_prepare",
+    srcs = ["hsaco_prepare.c"],
+    hdrs = ["hsaco_prepare.h"],
+    deps = [
         ":descriptor",
+        ":hsaco",
         ":metadata",
         ":text_fixup",
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
@@ -502,7 +516,6 @@ loom_cc_library(
         "//loom/src/loom/target/emit/native:elf",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/io:stream",
     ],
 )
 
@@ -512,7 +525,7 @@ loom_cc_library(
     hdrs = ["runtime_globals.h"],
     visibility = _AMDGPU_TOOLING_VISIBILITY,
     deps = [
-        ":hsaco",
+        ":hsaco_prepare",
         "//loom/src/loom/target/arch/amdgpu/abi:asan",
         "//loom/src/loom/target/arch/amdgpu/abi:feedback",
         "//loom/src/loom/target/arch/amdgpu/abi:tsan",
@@ -647,6 +660,7 @@ loom_cc_test(
     deps = [
         ":descriptor",
         ":hsaco",
+        ":hsaco_prepare",
         ":metadata",
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
         "//loom/src/loom/target/arch/amdgpu:profile",
@@ -685,6 +699,8 @@ loom_cc_test(
         "runtime-resource=amd-gpu",
     ],
     deps = [
+        ":hsaco",
+        ":hsaco_prepare",
         ":kernel_hsaco",
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:frame",

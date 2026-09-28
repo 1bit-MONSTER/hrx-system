@@ -20,7 +20,7 @@
 #include "loom/codegen/low/schedule/types.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
 #include "loom/target/emit/native/amdgpu/encoding.h"
-#include "loom/target/emit/native/amdgpu/hsaco.h"
+#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
 #include "loom/target/residency.h"
 
 #ifdef __cplusplus

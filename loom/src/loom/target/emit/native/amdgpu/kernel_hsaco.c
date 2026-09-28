@@ -12,6 +12,7 @@
 #include "loom/target/arch/amdgpu/planning/packet_plan.h"
 #include "loom/target/emit/native/amdgpu/encoding.h"
 #include "loom/target/emit/native/amdgpu/hsaco.h"
+#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
 #include "loom/target/emit/native/amdgpu/kernel_entry.h"
 #include "loom/target/emit/native/amdgpu/kernel_record.h"
 
@@ -182,7 +183,7 @@ iree_status_t loom_amdgpu_write_kernel_hsaco_contributions(
     kernels[i] = contribution->kernel;
   }
 
-  const loom_amdgpu_hsaco_file_t file = {
+  const loom_amdgpu_hsaco_input_t input = {
       .target = code_object_target_id,
       .processor = processor,
       .kernels = kernels,
@@ -190,7 +191,9 @@ iree_status_t loom_amdgpu_write_kernel_hsaco_contributions(
       .data_symbols = options ? options->data_symbols : NULL,
       .data_symbol_count = options ? options->data_symbol_count : 0,
   };
-  return loom_amdgpu_hsaco_write_file(&file, stream, scratch_arena);
+  loom_amdgpu_hsaco_plan_t plan = {0};
+  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_prepare(&input, &plan, scratch_arena));
+  return loom_amdgpu_hsaco_write_plan(&plan, stream, scratch_arena);
 }
 
 iree_status_t loom_amdgpu_emit_kernel_hsaco(
