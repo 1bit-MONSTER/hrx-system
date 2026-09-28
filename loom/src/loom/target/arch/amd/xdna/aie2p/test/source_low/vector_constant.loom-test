@@ -1,0 +1,90 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @shaped_wide_fp8_constant() -> (vector<2x64xf8E4M3>) {
+  %result = vector.constant 1.0625000000000002 : vector<2x64xf8E4M3>
+  func.return %result : vector<2x64xf8E4M3>
+}
+
+// ----
+CHECK: * = mov.i32 57
+CHECK: * = vbcst.8 *
+CHECK: %result = concat(*, *) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+CHECK: return %result
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @partial_f32_constant() -> (vector<31xf32>) {
+  %result = vector.constant -1.5 : vector<31xf32>
+  func.return %result : vector<31xf32>
+}
+
+// ----
+CHECK: * = mov.i32 -1077936128
+CHECK: * = vbcst.32 *
+CHECK: %result = concat(*, *) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+CHECK: return %result
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @flat_f32_accumulator_constant() -> (vector<32xf32>) {
+  %result = vector.constant 2.0 : vector<32xf32>
+  func.return %result : vector<32xf32>
+}
+
+// ----
+CHECK: * = mov.i32 1073741824
+CHECK: * = vbcst.32 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*, *) : (reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x2>
+CHECK: return %result
+
+// ====
+
+func.def @wide_i64_constant() -> (vector<32xi64>) {
+  %result = vector.constant -81985529216486896 : vector<32xi64>
+  func.return %result : vector<32xi64>
+}
+
+// ----
+CHECK: * = mov.i32 1985229328
+CHECK: * = mov.i32 -19088744
+CHECK: * = concat(*, *) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+CHECK: * = vbcst.64 *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*, *, *, *) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+CHECK: return %result
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
+func.def @wide_f64_negative_zero_constant() -> (vector<16xf64>) {
+  %result = vector.constant -0.0 : vector<16xf64>
+  func.return %result : vector<16xf64>
+}
+
+// ----
+CHECK: * = mov.i32 0
+CHECK: * = mov.i32 -2147483648
+CHECK: * = concat(*, *) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+CHECK: * = vbcst.64 *
+CHECK: %result = concat(*, *) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+CHECK: return %result
+
+// ====
+
+func.def @f64_negative_zero_constant() -> (vector<8xf64>) {
+  %result = vector.constant -0.0 : vector<8xf64>
+  func.return %result : vector<8xf64>
+}
+
+// ----
+CHECK: * = mov.i32 0
+CHECK: * = mov.i32 -2147483648
+CHECK: * = concat(*, *) : (reg<aie2p.er>, reg<aie2p.er>) -> reg<aie2p.er x2>
+CHECK: %result = vbcst.64 *
+CHECK: return %result
