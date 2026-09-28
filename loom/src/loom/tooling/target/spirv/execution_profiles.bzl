@@ -14,7 +14,6 @@ load(
     "EMIT_SPIRV",
     "EXECUTE_IREE_HAL",
     "TARGET_ARCH_SPIRV",
-    "TARGET_ARCH_VM",
 )
 load(
     "//runtime/requirements:defs.bzl",
@@ -23,8 +22,7 @@ load(
 
 def _spirv_vulkan_hardware_profile(
         name,
-        runner_args = [],
-        additional_build_requirements = []):
+        runner_args = []):
     return loom_execution_profile(
         name = name,
         build_requirements = [
@@ -32,7 +30,7 @@ def _spirv_vulkan_hardware_profile(
             EMIT_SPIRV,
             EXECUTE_IREE_HAL,
             HAL_VULKAN,
-        ] + additional_build_requirements,
+        ],
         executor = "hardware",
         resource_group = GPU_DEVICE_RESOURCE_GROUP,
         run_requirements = [VULKAN_DEVICE_RESOURCE],
@@ -46,11 +44,6 @@ def _spirv_vulkan_hardware_profile(
 
 SPIRV_VULKAN_HARDWARE_PROFILE = _spirv_vulkan_hardware_profile(
     name = "spirv_vulkan_hardware",
-)
-
-SPIRV_VULKAN_HARDWARE_VM_ORACLE_PROFILE = _spirv_vulkan_hardware_profile(
-    name = "spirv_vulkan_hardware_vm_oracle",
-    additional_build_requirements = [TARGET_ARCH_VM],
 )
 
 SPIRV_VULKAN_EXPLICIT_TARGET_HARDWARE_PROFILE = _spirv_vulkan_hardware_profile(

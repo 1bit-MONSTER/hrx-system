@@ -13,11 +13,7 @@ load(
     "loom_config_compatible_with",
 )
 load("//loom/build_tools/bazel:defs.bzl", "loom_test")
-load(
-    "//loom/target:execution_profiles.bzl",
-    "GPU_HARDWARE_PROFILES",
-    "GPU_HARDWARE_VM_ORACLE_PROFILES",
-)
+load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -61,7 +57,7 @@ loom_test(
 loom_test(
     name = "scenario_compare_test",
     srcs = ["testdata/scenario_compare_hal_vm.loom"],
-    execution_profiles = GPU_HARDWARE_VM_ORACLE_PROFILES,
+    execution_profiles = GPU_HARDWARE_PROFILES,
 )
 
 iree_executable_test(

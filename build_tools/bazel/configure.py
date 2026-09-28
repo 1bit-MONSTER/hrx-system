@@ -25,7 +25,7 @@ LOOM_EMITTERS = ("amdgpu", "spirv", "wasm", "xdna")
 AMDF_FAMILIES = ("rdna", "cdna", "xdna")
 HOST_DRIVERS = ("task",)
 DEFAULT_LOOM_EXECUTE = LOOM_EXECUTE_SUBSTRATES
-DEFAULT_LOOM_TARGETS = ("amdgpu", "spirv", "xdna", "x86")
+DEFAULT_LOOM_TARGETS = ("amdgpu", "spirv", "vm", "xdna", "x86")
 
 SDK_DRIVER_PACKAGES = {
     "amdgpu": (

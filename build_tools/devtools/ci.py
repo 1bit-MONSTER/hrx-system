@@ -582,7 +582,9 @@ def xdna_steps(targets: tuple[str, ...], config: str | None) -> list[CiStep]:
         "--//runtime/config/hal:drivers=task",
     )
     return [
-        bazel_configure_step(enabled_loom_targets=("xdna",), extra_options=options),
+        bazel_configure_step(
+            enabled_loom_targets=("vm", "xdna"), extra_options=options
+        ),
         bazel_build_step(
             f"Build IREE / XDNA{config_name}",
             targets,
@@ -668,7 +670,7 @@ def amdgpu_steps(targets: tuple[str, ...], target_selector: str) -> list[CiStep]
     return [
         bazel_configure_step(
             enabled_drivers=("amdgpu",),
-            enabled_loom_targets=("amdgpu",),
+            enabled_loom_targets=("amdgpu", "vm"),
         ),
         *amdgpu_build_and_test_steps(
             targets,
@@ -683,7 +685,7 @@ def amdgpu_steps(targets: tuple[str, ...], target_selector: str) -> list[CiStep]
 
 def loom_amdgpu_bazel_steps() -> list[CiStep]:
     return [
-        bazel_configure_step(enabled_loom_targets=("amdgpu",)),
+        bazel_configure_step(enabled_loom_targets=("amdgpu", "vm")),
         bazel_test_step(
             "Test Loom AMDGPU compile coverage",
             ci_config.LOOM_AMDGPU_BAZEL_COMPILE_TEST_TARGETS,
@@ -721,7 +723,7 @@ def vulkan_steps(targets: tuple[str, ...]) -> list[CiStep]:
     return [
         bazel_configure_step(
             enabled_drivers=("vulkan",),
-            enabled_loom_targets=("spirv",),
+            enabled_loom_targets=("spirv", "vm"),
             extra_options=api_options,
         ),
         bazel_build_step(
@@ -861,7 +863,7 @@ def cmake_amdgpu_steps(
         cmake_configure_step(
             command_name,
             enabled_drivers=("amdgpu",),
-            enabled_loom_targets=("amdgpu",),
+            enabled_loom_targets=("amdgpu", "vm"),
             amdgpu_target_selector=target_selector,
             sanitizer=sanitizer,
         ),
@@ -911,7 +913,7 @@ def cmake_amdgpu_steps(
 
 def cmake_loom_amdgpu_steps(command_name: str) -> list[CiStep]:
     return [
-        cmake_configure_step(command_name, enabled_loom_targets=("amdgpu",)),
+        cmake_configure_step(command_name, enabled_loom_targets=("amdgpu", "vm")),
         cmake_test_step(
             command_name,
             "Test Loom CMake AMDGPU compile coverage",
@@ -931,7 +933,7 @@ def cmake_vulkan_steps(command_name: str, sanitizer: str | None) -> list[CiStep]
         cmake_configure_step(
             command_name,
             enabled_drivers=("vulkan",),
-            enabled_loom_targets=("spirv",),
+            enabled_loom_targets=("spirv", "vm"),
             sanitizer=sanitizer,
             extra_options=("-DIREE_ENABLE_VULKAN=ON",),
         ),
@@ -1178,7 +1180,7 @@ def _steps_from_args(args: argparse.Namespace) -> list[CiStep]:
             return [
                 bazel_configure_step(
                     enabled_drivers=("amdgpu",),
-                    enabled_loom_targets=("amdgpu",),
+                    enabled_loom_targets=("amdgpu", "vm"),
                 ),
                 *amdgpu_config_steps(targets, amdgpu_target_selector, sanitizer),
             ]

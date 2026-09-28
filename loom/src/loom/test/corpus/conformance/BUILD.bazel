@@ -7,7 +7,7 @@
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_generated_file_family")
 load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
-load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE", "AMDGPU_HARDWARE_VM_ORACLE_PROFILE")
+load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -129,13 +129,13 @@ loom_test(
 loom_test(
     name = "vector_i64_bitwise_test",
     srcs = ["vector_i64_bitwise.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_VM_ORACLE_PROFILE],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(
     name = "predicate_logic_test",
     srcs = ["predicate_logic.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_VM_ORACLE_PROFILE],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(
@@ -430,7 +430,7 @@ loom_test(
 loom_test(
     name = "packed_vector_select_test",
     srcs = ["packed_vector_select.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_VM_ORACLE_PROFILE],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_module(

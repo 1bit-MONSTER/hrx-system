@@ -16,10 +16,10 @@ loom_test_module(
     "pipelined_address_domains.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    pipelined_address_domains_test_execute_amdgpu_hardware_vm_oracle_test
+    pipelined_address_domains_test_execute_amdgpu_hardware_test
   MODULE
     "::pipelined_address_domains_test_module"
   RUNNER_ARGS
@@ -29,10 +29,9 @@ loom_execution_test(
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
     "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-build-requirement=loom.target.arch.vm"
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware_vm_oracle"
+    "loom-execution-profile=amdgpu_hardware"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"
@@ -41,10 +40,10 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
 loom_execution_test(
   NAME
-    pipelined_address_domains_test_execute_spirv_vulkan_hardware_vm_oracle_test
+    pipelined_address_domains_test_execute_spirv_vulkan_hardware_test
   MODULE
     "::pipelined_address_domains_test_module"
   RUNNER_ARGS
@@ -55,10 +54,9 @@ loom_execution_test(
     "iree-build-requirement=loom.emit.spirv"
     "iree-build-requirement=loom.execute.iree_hal"
     "iree-build-requirement=runtime.hal.vulkan"
-    "iree-build-requirement=loom.target.arch.vm"
     "iree-run-requirement=vulkan.resource.device"
     "runtime-resource=vulkan-device"
-    "loom-execution-profile=spirv_vulkan_hardware_vm_oracle"
+    "loom-execution-profile=spirv_vulkan_hardware"
     "loom-target-family=spirv"
     "loom-target-class=gpu"
     "loom-executor=hardware"
@@ -67,10 +65,10 @@ loom_execution_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    pipelined_address_domains_test_execute_amdgpu_access_vm_oracle_test
+    pipelined_address_domains_test_execute_amdgpu_access_test
   MODULE
     "::pipelined_address_domains_test_module"
   RUNNER_ARGS
@@ -82,10 +80,9 @@ loom_execution_test(
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
     "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-build-requirement=loom.target.arch.vm"
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access_vm_oracle"
+    "loom-execution-profile=amdgpu_access"
     "loom-target-family=amdgpu"
     "loom-target-class=gpu"
     "loom-executor=hardware"
