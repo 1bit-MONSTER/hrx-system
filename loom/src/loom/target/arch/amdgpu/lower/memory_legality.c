@@ -108,12 +108,14 @@ iree_status_t loom_amdgpu_low_legality_verify_memory(
       loom_amdgpu_target_facts_cast(
           loom_target_low_legality_target_facts(context));
   IREE_ASSERT(target_facts != NULL);
-  if (!loom_amdgpu_memory_access_plan_select(
+  if (!loom_low_source_memory_access_plan_build(view_regions, op, &source,
+                                                &source_diagnostic) ||
+      !loom_amdgpu_memory_access_plan_select(
           module, loom_target_low_legality_fact_table(context), descriptor_set,
           view_regions, analysis, loom_target_low_legality_function(context),
           bundle, target_facts->properties.instruction_constraints,
           alloca_layout, LOOM_ATOMIC_SCOPE_THREAD, op, &source, &selection,
-          &source_diagnostic, &diagnostic)) {
+          &diagnostic)) {
     if (!iree_string_view_is_empty(diagnostic.atomic_constraint)) {
       return loom_amdgpu_low_legality_reject(context, op,
                                              diagnostic.atomic_constraint);

@@ -128,6 +128,7 @@ loom_check_test_suite(
     "test/source_low/memory_float8.loom-test"
     "test/source_low/memory_packed_tails.loom-test"
     "test/source_low/memory_scalar_narrow.loom-test"
+    "test/source_low/memory_shared_components.loom-test"
     "test/source_low/memory_signed_terms.loom-test"
     "test/source_low/memory_subview.loom-test"
     "test/source_low/memory_tiled_channel.loom-test"

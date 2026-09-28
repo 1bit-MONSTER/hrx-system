@@ -1489,6 +1489,9 @@ typedef struct loom_amdgpu_memory_access_t {
   // Mixed-bank realizations that fit u32 VADDR and eliminate dynamic SOFFSET.
   // Bits index source.dynamic_realizations; promotion requires the entire set.
   uint8_t vaddr_realization_mask;
+  // Operand path selected for source.retained_component, or NONE when the
+  // packet keeps its canonical terms. Selection establishes the complete bound.
+  loom_amdgpu_memory_dynamic_index_kind_t retained_component_kind;
   // Static byte offset folded into the scalar base pointer.
   uint64_t scalar_base_byte_offset;
   // Location selected for scalar dynamic and static address terms.

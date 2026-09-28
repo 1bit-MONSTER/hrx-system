@@ -30,6 +30,7 @@ loom_cc_library(
     "rule_value.h"
     "rules.h"
     "source_call.h"
+    "source_memory.h"
     "source_plan.h"
     "source_query.h"
     "visibility.h"
@@ -53,6 +54,7 @@ loom_cc_library(
     "rule_source_memory_materialize.c"
     "rule_value.c"
     "source_call.c"
+    "source_memory.c"
     "source_plan.c"
     "source_query.c"
     "visibility.c"
@@ -109,6 +111,7 @@ loom_cc_library(
     loom::util::cfg_execution
     loom::util::cfg_graph
     loom::util::cfg_loop_nest
+    loom::util::dominance
     loom::util::fact_table
     loom::util::string_pool
   PUBLIC

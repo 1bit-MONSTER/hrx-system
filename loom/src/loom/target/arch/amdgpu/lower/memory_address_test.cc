@@ -180,4 +180,83 @@ TEST(AmdgpuMemoryAddressTest, OtherAddressFormsKeepTheirOperandContracts) {
   }
 }
 
+TEST(AmdgpuMemoryAddressTest, RetainedNoncontiguousComponentLeavesWideScalar) {
+  auto access = MixedAccess();
+  access.source.dynamic_term_count = 3;
+  access.source.dynamic_terms[2] = access.source.dynamic_terms[1];
+  access.dynamic_term_kinds[2] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+  access.source.dynamic_terms[1] = Term(4, 0, INT64_MAX);
+  access.dynamic_term_kinds[1] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET;
+  const auto component = Term(5, 0, 1276);
+  access.source.retained_component = {&component, 0b101};
+  access.scalar_offset_placement =
+      LOOM_AMDGPU_MEMORY_SCALAR_OFFSET_PLACEMENT_BASE;
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR);
+  EXPECT_EQ(access.vaddr_realization_mask, 0);
+  EXPECT_EQ(access.dynamic_term_kinds[1],
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET);
+  EXPECT_EQ(access.source.dynamic_terms[1].byte_facts.range_hi, INT64_MAX);
+}
+
+TEST(AmdgpuMemoryAddressTest, RetainedComponentMustFitCompleteVectorOffset) {
+  auto access = MixedAccess();
+  auto component = Term(5, 0, 1276);
+  access.source.retained_component = {&component, 0b11};
+  access.vaddr_static_byte_offset = UINT32_MAX - 1276;
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR);
+  ++access.vaddr_static_byte_offset;
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE);
+
+  access.vaddr_static_byte_offset = 0;
+  access.source.dynamic_term_count = 3;
+  access.source.dynamic_terms[2] = Term(6, 0, UINT32_MAX - 1275);
+  access.dynamic_term_kinds[2] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE);
+}
+
+TEST(AmdgpuMemoryAddressTest, RetainedComponentKeepsCorrelatedBound) {
+  auto access = MixedAccess();
+  access.source.dynamic_terms[0] = Term(1, -64, 64);
+  access.source.dynamic_terms[1] = Term(2, 64, 252);
+  auto component = Term(5, 0, 316);
+  access.source.retained_component = {&component, 0b11};
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR);
+  component.byte_facts = loom_value_facts_unknown();
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE);
+}
+
+TEST(AmdgpuMemoryAddressTest, RetainedScalarComponentDoesNotNarrow) {
+  auto access = MixedAccess();
+  access.dynamic_term_kinds[1] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET;
+  const auto component = Term(5, 0, INT64_MAX);
+  access.source.retained_component = {&component, 0b11};
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET);
+}
+
+TEST(AmdgpuMemoryAddressTest,
+     RetainedComponentPreservesImplicitLaneAddressing) {
+  auto access = MixedAccess();
+  access.address_form = LOOM_AMDGPU_MEMORY_ADDRESS_FORM_DS_ADDTID;
+  access.dynamic_term_kinds[0] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+  const auto component = Term(5, 0, 1276);
+  access.source.retained_component = {&component, 0b11};
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE);
+}
+
 }  // namespace

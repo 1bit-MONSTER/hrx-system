@@ -563,6 +563,15 @@ iree_status_t loom_low_lower_rule_materialize_source_memory_byte_offset(
   }
 
   loom_value_id_t accumulator = LOOM_VALUE_ID_INVALID;
+  const loom_low_source_memory_dynamic_component_t* component =
+      loom_low_source_memory_access_retained_component(source_memory_access, 0,
+                                                       1);
+  const uint16_t retained_mask = component != NULL ? component->term_mask : 0;
+  if (component != NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_rule_materialize_source_memory_term(
+        context, rule_set, source_op, materializer, component->term,
+        offset_type, LOOM_VALUE_ID_INVALID, &accumulator));
+  }
   uint8_t term_ordinal = 0;
   uint8_t realization_ordinal = 0;
   while (term_ordinal < source_memory_access->dynamic_term_count) {
@@ -574,11 +583,19 @@ iree_status_t loom_low_lower_rule_materialize_source_memory_byte_offset(
                 .first_term == term_ordinal) {
       const loom_low_source_memory_dynamic_realization_t* realization =
           &source_memory_access->dynamic_realizations[realization_ordinal++];
-      if (loom_low_lower_source_value_has_low_mapping(
+      const uint16_t realization_mask =
+          (uint16_t)(((1u << realization->term_count) - 1u)
+                     << realization->first_term);
+      if (!(retained_mask & realization_mask) &&
+          loom_low_lower_source_value_has_low_mapping(
               context, realization->term.index)) {
         term = &realization->term;
         consumed_term_count = realization->term_count;
       }
+    }
+    if (retained_mask & (1u << term_ordinal)) {
+      ++term_ordinal;
+      continue;
     }
     loom_value_id_t term_value = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_low_lower_rule_materialize_source_memory_term(
@@ -784,9 +801,30 @@ loom_low_lower_rule_materialize_source_memory_complete_coordinate(
     (void)subtracted_view_base;
   }
 
+  const loom_low_source_memory_dynamic_component_t* component =
+      loom_low_source_memory_access_retained_component(
+          source_memory_access, first_canonical_term,
+          materializer->coordinate_unit_byte_count);
+  if (component != NULL) {
+    loom_value_id_t component_value = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_rule_materialize_source_memory_address_term(
+            context, rule_set, source_op, materializer, component->term,
+            &component_value));
+    if (accumulator == LOOM_VALUE_ID_INVALID) {
+      accumulator = component_value;
+    } else {
+      IREE_RETURN_IF_ERROR(loom_low_lower_rule_source_memory_emit_binary_op(
+          context, rule_set, materializer->add_coordinate_descriptor_ref,
+          accumulator, component_value, source_op->location, &accumulator));
+    }
+  }
   for (uint8_t term_ordinal = first_canonical_term;
        term_ordinal < source_memory_access->dynamic_term_count;
        ++term_ordinal) {
+    if (component != NULL && (component->term_mask & (1u << term_ordinal))) {
+      continue;
+    }
     loom_value_id_t term_value = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(
         loom_low_lower_rule_materialize_source_memory_address_term(

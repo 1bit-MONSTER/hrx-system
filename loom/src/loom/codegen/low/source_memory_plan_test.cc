@@ -1289,5 +1289,35 @@ TEST(SourceMemoryPlan, DynamicPacketOffsetsPreserveDivisibility) {
   EXPECT_EQ(interval.end_facts.known_divisor, 4);
 }
 
+TEST(SourceMemoryComponentTest, RetainedComponentConvertsExactCoordinateUnits) {
+  loom_low_source_memory_dynamic_term_t term = {};
+  term.byte_stride = 4;
+  loom_low_source_memory_access_plan_t access = {};
+  access.retained_component = {&term, 0b1010};
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 1),
+            &access.retained_component);
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 4),
+            &access.retained_component);
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 8),
+            nullptr);
+  term.byte_stride = -4;
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 4),
+            &access.retained_component);
+}
+
+TEST(SourceMemoryComponentTest, MaterializedPrefixCannotOverlapComponent) {
+  loom_low_source_memory_dynamic_term_t term = {};
+  term.byte_stride = 4;
+  loom_low_source_memory_access_plan_t access = {};
+  access.retained_component = {&term, 0b1010};
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 1, 1),
+            &access.retained_component);
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 2, 1),
+            nullptr);
+  access.retained_component = {};
+  EXPECT_EQ(loom_low_source_memory_access_retained_component(&access, 0, 1),
+            nullptr);
+}
+
 }  // namespace
 }  // namespace loom

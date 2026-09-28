@@ -1494,7 +1494,8 @@ def _wide_vector_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
 
 def _matrix_fragment_store_rules() -> tuple[DescriptorRule, ...]:
     # This native result layout is exactly four contiguous accumulator chunks.
-    # Its address uses the same retained source-memory plan as vector stores.
+    # The source plan supplies their logical origin; the chunk descriptors own
+    # the physical footprint independently of the fragment payload shape.
     return tuple(
         _chunked_vector_memory_rule(
             SourceMemoryOperation.STORE,
@@ -1504,7 +1505,7 @@ def _matrix_fragment_store_rules() -> tuple[DescriptorRule, ...]:
             root_kind=root_kind,
             memory_spaces=memory_spaces,
             element_byte_count=4,
-            vector_lane_count=64,
+            vector_lane_count=1,
             value_type=Vector(element_type, lanes=64),
             descriptor_prefix="amd.xdna.aie2p.store.accumulator.indexed",
             chunk_byte_offsets=_ACCUMULATOR_CHUNK_BYTE_OFFSETS,
