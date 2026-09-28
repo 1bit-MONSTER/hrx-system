@@ -181,6 +181,22 @@ TEST(SpirvTargetProfileTest, SelectsExplicitTypeAndAbiRequirements) {
                                                   LOOM_TARGET_FACT_FIELD_ABI));
   EXPECT_EQ(profile->base.target_bundle->export_plan->abi_kind,
             LOOM_TARGET_ABI_HAL_KERNEL);
+
+  IREE_ASSERT_OK(loom_spirv_target_profile_select(
+      IREE_SV("vulkan1.3+bda+subgroup32+ballot+hal"), &profile));
+  EXPECT_TRUE(loom_target_fact_field_set_contains(
+      profile->base.explicit_fields, LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE));
+  EXPECT_TRUE(loom_target_fact_field_set_contains(
+      profile->base.explicit_fields,
+      LOOM_TARGET_FACT_FIELD_CONTRACT_FEATURE_BITS));
+  EXPECT_TRUE(loom_target_fact_field_set_contains(profile->base.explicit_fields,
+                                                  LOOM_TARGET_FACT_FIELD_ABI));
+  EXPECT_EQ(profile->base.target_bundle->snapshot->subgroup_size, 32u);
+  EXPECT_TRUE(iree_all_bits_set(
+      profile->base.target_bundle->config->contract_feature_bits,
+      LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT));
+  EXPECT_EQ(profile->base.target_bundle->export_plan->abi_kind,
+            LOOM_TARGET_ABI_HAL_KERNEL);
 }
 
 TEST(SpirvTargetProfileTest, RejectsUnknownNamedProfile) {

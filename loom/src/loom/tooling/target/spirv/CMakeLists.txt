@@ -171,6 +171,7 @@ loom_cc_library(
     iree::hal::drivers::vulkan
     iree::hal::drivers::vulkan::api
     iree::hal::drivers::vulkan::device_spec
+    iree::third_party::vulkan_headers
     loom::target::arch::spirv::cooperative_properties
     loom::target::arch::spirv::features
     loom::target::arch::spirv::profile
@@ -221,6 +222,8 @@ loom_cc_test(
     iree::hal::utils::device_spec_builder
     iree::testing::gtest
     iree::testing::gtest_main
+    iree::third_party::vulkan_headers
+    loom::target::arch::spirv::features
     loom::target::arch::spirv::profile
     loom::tooling::execution::hal::runtime
   LABELS
@@ -280,6 +283,7 @@ loom_cc_test(
     iree::hal::utils::device_spec_builder
     iree::testing::gtest
     iree::testing::gtest_main
+    iree::third_party::vulkan_headers
     loom::target::arch::spirv::cooperative_properties
     loom::target::arch::spirv::features
     loom::target::arch::spirv::profile

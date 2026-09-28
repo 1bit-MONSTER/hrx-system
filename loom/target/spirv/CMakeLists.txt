@@ -31,4 +31,15 @@ loom_target_profile(
     LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV
 )
 
+loom_target_profile(
+  NAME
+    "vulkan1.3+bda+subgroup32+ballot+hal"
+  FAMILY
+    "spirv"
+  SELECTOR
+    "vulkan1.3+bda+subgroup32+ballot+hal"
+  REQUIRES
+    LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

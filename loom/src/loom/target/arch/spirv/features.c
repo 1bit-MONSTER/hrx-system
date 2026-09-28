@@ -40,6 +40,19 @@ loom_spirv_feature_bits_t loom_spirv_known_feature_bits(void) {
   return LOOM_SPIRV_FEATURE_KNOWN_BITS;
 }
 
+loom_spirv_feature_bits_t loom_spirv_feature_bits_with_dependencies(
+    loom_spirv_feature_bits_t atom_bits) {
+  loom_spirv_feature_bits_t closed_atom_bits = atom_bits;
+  for (uint32_t i = LOOM_SPIRV_FEATURE_ATOM_UNKNOWN + 1;
+       i < LOOM_SPIRV_FEATURE_ATOM_COUNT; ++i) {
+    const loom_spirv_feature_atom_t atom = (loom_spirv_feature_atom_t)i;
+    if (iree_any_bit_set(atom_bits, loom_spirv_feature_atom_bit(atom))) {
+      closed_atom_bits |= kSpirvFeatureAtoms[atom].required_atom_bits;
+    }
+  }
+  return closed_atom_bits;
+}
+
 bool loom_spirv_feature_set_has_atom(
     const loom_spirv_feature_set_t* feature_set,
     loom_spirv_feature_atom_t atom) {

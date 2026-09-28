@@ -285,6 +285,21 @@ loom_test(
 )
 
 loom_test(
+    name = "subgroup_ballot_test",
+    srcs = ["subgroup_ballot.loom"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx950",
+        "//loom/target/amdgpu:gfx1151",
+        "//loom/target/amdgpu:gfx1170",
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1250",
+        "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal",
+    ],
+    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
+)
+
+loom_test(
     name = "vector_atomic_test",
     srcs = ["vector_atomic.loom"],
     compile_targets = [

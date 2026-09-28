@@ -78,6 +78,7 @@ class GuardKind(Enum):
     VECTOR_EXTRACT_SHAPE = "vector_extract_shape"
     VALUE_STATIC_ELEMENT_COUNT_EQ = "value_static_element_count_eq"
     VALUE_MEMORY_SPACE = "value_memory_space"
+    TARGET_SUBGROUP_SIZE_RANGE = "target_subgroup_size_range"
 
 
 _LOW_VALUE_GUARD_KINDS = (
@@ -529,6 +530,22 @@ class Guard:
         )
 
     @classmethod
+    def target_subgroup_size_range(
+        cls,
+        minimum: int,
+        maximum: int,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        return cls(
+            kind=GuardKind.TARGET_SUBGROUP_SIZE_RANGE,
+            field="subgroup_size",
+            minimum=minimum,
+            maximum=maximum,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def value_packed_integer_payload_from_lanes(
         cls,
         lane_field: str,
@@ -680,6 +697,13 @@ class Guard:
             raise ValueError(f"{self.kind.value} guard cannot carry a memory-space set")
         if self.kind == GuardKind.VALUE_FLOAT_EQUALS and self.f64_value is None:
             raise ValueError(f"{self.kind.value} guard needs an f64 value")
+        if self.kind == GuardKind.TARGET_SUBGROUP_SIZE_RANGE and (
+            self.minimum is None
+            or self.maximum is None
+            or self.minimum <= 0
+            or self.maximum > _MAX_U32
+        ):
+            raise ValueError(f"{self.kind.value} guard needs a positive u32 range")
         if (
             self.kind == GuardKind.VALUE_STORAGE_ELEMENT_FORMAT
             and not self.numeric_format_c_expression
@@ -690,6 +714,8 @@ class Guard:
 
     def validate(self, source_op: Op) -> None:
         subject = f"guard {self.kind.value}"
+        if self.kind == GuardKind.TARGET_SUBGROUP_SIZE_RANGE:
+            return
         if self.kind == GuardKind.VALUE_TYPE:
             _require_value(source_op, self.field, subject)
             value_ref = (

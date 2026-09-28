@@ -41,6 +41,7 @@ from loom.target.arch.spirv.features import (  # noqa: E402
     FEATURE_PROFILES,
     feature_atom_enum,
     feature_bits_expression,
+    feature_dependency_keys,
     feature_row_capacity,
     validate_feature_catalog,
 )
@@ -154,7 +155,7 @@ def _emit_tables() -> str:
                 "        {",
                 f"            .atom = {feature_atom_enum(atom)},",
                 f"            .name = {_c_string_view(atom.name)},",
-                f"            .required_atom_bits = {feature_bits_expression(atom.required)},",
+                f"            .required_atom_bits = {feature_bits_expression(feature_dependency_keys(atom.key))},",
                 f"            .minimum_spirv_version = UINT32_C(0x{atom.minimum_spirv_version:08x}),",
                 f"            .addressing_model = {atom.addressing_model},",
                 f"            .memory_model = {atom.memory_model},",

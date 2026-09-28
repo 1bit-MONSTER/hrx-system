@@ -150,6 +150,28 @@ TEST(SpirvFeaturesTest, PreparesVulkanBdaProfile) {
       ContainsDecoration(feature_set, LOOM_SPIRV_DECORATION_ALIASED_POINTER));
 }
 
+TEST(SpirvFeaturesTest, PreparesSubgroupBallotCapability) {
+  loom_spirv_feature_set_t feature_set;
+  IREE_ASSERT_OK(loom_spirv_feature_set_prepare(
+      IREE_SV("test.subgroup_ballot"),
+      LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA |
+          LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      &feature_set));
+
+  EXPECT_TRUE(ContainsCapability(
+      feature_set, LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT));
+  EXPECT_TRUE(
+      ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT));
+}
+
+TEST(SpirvFeaturesTest, ClosesTransitiveSubgroupBallotDependencies) {
+  EXPECT_EQ(loom_spirv_feature_bits_with_dependencies(
+                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT),
+            LOOM_SPIRV_FEATURE_VULKAN_SHADER |
+                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM |
+                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT);
+}
+
 TEST(SpirvFeaturesTest, PreparesAllFeaturesIncludingDenormPreservation) {
   loom_spirv_feature_set_t feature_set;
   IREE_ASSERT_OK(loom_spirv_feature_set_prepare(IREE_SV("test.all_features"),

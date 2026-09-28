@@ -1107,6 +1107,14 @@ static iree_status_t loom_low_lower_rule_guard_matches(
       *out_matches =
           !iree_any_bit_set(source_op->instance_flags, guard->payload.u64);
       return iree_ok_status();
+    case LOOM_LOW_LOWER_GUARD_TARGET_SUBGROUP_SIZE_RANGE: {
+      const int64_t subgroup_size =
+          (int64_t)match_context->bundle->snapshot->subgroup_size;
+      *out_matches = subgroup_size != 0 &&
+                     subgroup_size >= guard->payload.i64_range.minimum &&
+                     subgroup_size <= guard->payload.i64_range.maximum;
+      return iree_ok_status();
+    }
     default:
       IREE_ASSERT_UNREACHABLE("unknown generated lower guard kind");
       IREE_BUILTIN_UNREACHABLE();

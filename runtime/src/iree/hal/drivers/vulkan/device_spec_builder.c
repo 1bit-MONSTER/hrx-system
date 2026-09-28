@@ -569,6 +569,8 @@ static iree_status_t iree_hal_vulkan_device_spec_populate_facet(
       .physical_device_type = physical_device_properties->deviceType,
       .enabled_features = params->device_plan->enabled_features,
       .flags = IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      .subgroup_supported_operations =
+          params->physical_device->subgroup_properties.supportedOperations,
   };
   const VkPhysicalDeviceFloatControlsProperties* float_controls =
       &params->physical_device->float_controls_properties;

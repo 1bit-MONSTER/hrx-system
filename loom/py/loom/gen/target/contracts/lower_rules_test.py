@@ -1191,6 +1191,20 @@ def test_guard_row_emits_value_memory_space_mask() -> None:
     assert (".payload = {.u64 = LOOM_LOW_LOWER_MEMORY_SPACE_UNKNOWN | LOOM_LOW_LOWER_MEMORY_SPACE_GLOBAL | LOOM_LOW_LOWER_MEMORY_SPACE_DESCRIPTOR}") in fields
 
 
+def test_guard_row_emits_target_subgroup_size_range() -> None:
+    fields = guard_row(
+        {},
+        LowerGuard(
+            kind=GuardKind.TARGET_SUBGROUP_SIZE_RANGE,
+            minimum_i64=1,
+            maximum_i64=64,
+        ),
+    )
+
+    assert ".kind = LOOM_LOW_LOWER_GUARD_TARGET_SUBGROUP_SIZE_RANGE" in fields
+    assert ".payload = {.i64_range = {.minimum = INT64_C(1), .maximum = INT64_C(64)}}" in fields
+
+
 def test_attr_copy_row_emits_portable_signed_i64_literal() -> None:
     fields = attr_copy_row(
         LowerAttrCopy(

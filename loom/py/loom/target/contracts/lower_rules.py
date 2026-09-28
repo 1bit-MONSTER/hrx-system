@@ -598,6 +598,31 @@ class _LowerRuleSetCompiler:
             )
             return
 
+        if guard.kind == GuardKind.TARGET_SUBGROUP_SIZE_RANGE:
+            if guard.minimum is None or guard.maximum is None:
+                raise ValueError(
+                    f"{source_op.name}: target subgroup-size guard needs bounds"
+                )
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _named_constraint_diagnostic(
+                                "target",
+                                "subgroup_size",
+                                "range",
+                            ),
+                        ),
+                    ),
+                    minimum_i64=guard.minimum,
+                    maximum_i64=guard.maximum,
+                )
+            )
+            return
+
         if guard.kind == GuardKind.DESCRIPTOR_AVAILABLE:
             if guard.descriptor is None:
                 raise ValueError(

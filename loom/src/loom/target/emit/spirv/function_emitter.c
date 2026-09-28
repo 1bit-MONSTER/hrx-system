@@ -882,6 +882,38 @@ static iree_status_t loom_spirv_emit_control_barrier_packet(
       row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands));
 }
 
+static iree_status_t loom_spirv_emit_group_non_uniform_ballot_packet(
+    loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
+    const loom_spirv_packet_row_t* row) {
+  loom_spirv_module_value_ref_t operands[1] = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_spirv_emit_load_packet_operands(state, packet, row, operands));
+  uint32_t result_type_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_type_id_for_value_type(
+      state->type_context, loom_spirv_packet_row_result_type(row),
+      &result_type_id));
+  uint32_t result_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_prepare_packet_result(
+      state, packet, result_type_id, loom_spirv_packet_row_result_type(row),
+      &result_id));
+  uint32_t execution_scope_id = 0;
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
+      state->type_context, row->payload.group_non_uniform.execution_scope,
+      &execution_scope_id));
+  const uint32_t instruction_operands[] = {
+      result_type_id,
+      result_id,
+      execution_scope_id,
+      operands[0].id,
+  };
+  IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
+      loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_FUNCTION),
+      row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands)));
+  return loom_spirv_emit_define_packet_result(
+      state, packet, result_id, result_type_id,
+      loom_spirv_packet_row_result_type(row));
+}
+
 static iree_status_t loom_spirv_emit_extended_instruction_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
@@ -988,6 +1020,9 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
                                                                row);
     case LOOM_SPIRV_PACKET_FORM_CONTROL_BARRIER:
       return loom_spirv_emit_control_barrier_packet(state, row);
+    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT:
+      return loom_spirv_emit_group_non_uniform_ballot_packet(state, packet,
+                                                             row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC:
       return loom_spirv_emit_atomic_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC_COMPARE_EXCHANGE:

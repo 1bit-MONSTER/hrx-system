@@ -52,6 +52,7 @@ enum loom_spirv_packet_form_e {
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_CAS = 23,
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_COMPARE_EXCHANGE = 24,
   LOOM_SPIRV_PACKET_FORM_EXTENDED_INSTRUCTION = 25,
+  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT = 26,
 };
 typedef uint8_t loom_spirv_packet_form_t;
 
@@ -100,6 +101,11 @@ typedef struct loom_spirv_packet_row_t {
       // SPIR-V memory semantics mask literal.
       uint32_t memory_semantics;
     } barrier;
+    // Group-non-uniform instruction literals.
+    struct {
+      // SPIR-V execution scope literal.
+      uint32_t execution_scope;
+    } group_non_uniform;
     // Cooperative-matrix packet literals.
     struct {
       // Cooperative matrix layout literal for load/store rows.

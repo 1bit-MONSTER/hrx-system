@@ -118,6 +118,7 @@ iree_py_library(
     loom::py::loom::target::arch::spirv::scalar_constant
     loom::py::loom::target::arch::spirv::scalar_conversion
     loom::py::loom::target::arch::spirv::scalar_memory
+    loom::py::loom::target::arch::spirv::subgroup
 )
 
 iree_py_test(

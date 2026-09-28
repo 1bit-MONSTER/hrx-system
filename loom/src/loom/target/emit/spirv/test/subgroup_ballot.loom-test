@@ -1,0 +1,50 @@
+// RUN: with-checks emit spirv-dis target=spirv:vulkan1.3+bda+subgroup32+ballot+hal input=source-low validate
+// REQUIRES: spirv-dis, spirv-val
+
+kernel.def @subgroup_ballot_i32() {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
+} launch(%output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %limit = index.constant 16 : index
+  %predicate = index.cmp ult, %lane, %limit : index
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<32xi32>
+  view.store %mask, %output_view[%lane] : i32, view<32xi32>
+  kernel.return
+}
+
+// ----
+CHECK: OpCapability GroupNonUniformBallot
+CHECK: * = OpGroupNonUniformBallot %v4uint %uint_3 %predicate
+CHECK: * = OpCompositeExtract %uint * 0
+CHECK: %mask = OpBitcast %int *
+CHECK-NOT: *OpCompositeConstruct*
+
+// ====
+
+kernel.def @subgroup_ballot_i64() {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
+} launch(%output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %limit = index.constant 16 : index
+  %predicate = index.cmp ult, %lane, %limit : index
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i64
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
+  view.store %mask, %output_view[%lane] : i64, view<32xi64>
+  kernel.return
+}
+
+// ----
+CHECK: OpCapability GroupNonUniformBallot
+CHECK: * = OpGroupNonUniformBallot %v4uint %uint_3 %predicate
+CHECK: * = OpCompositeExtract %uint * 0
+CHECK: * = OpCompositeExtract %uint * 1
+CHECK: * = OpCompositeConstruct %v2uint * *
+CHECK: * = OpBitcast %ulong *
+CHECK: %mask = OpBitcast %long *

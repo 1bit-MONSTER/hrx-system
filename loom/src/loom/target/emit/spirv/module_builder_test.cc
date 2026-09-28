@@ -625,6 +625,27 @@ TEST(SpirvModuleBuilderTest, EmitsCooperativeMatrixRawBdaHalKernelPreamble) {
   loom_spirv_module_binary_deinitialize(&module, iree_allocator_system());
 }
 
+TEST(SpirvModuleBuilderTest, EmitsTransitiveSubgroupBallotCapabilities) {
+  loom_spirv_module_builder_t builder;
+  IREE_ASSERT_OK(loom_spirv_module_builder_initialize(
+      &loom_spirv_low_target_bundle_subgroup32_ballot_hal,
+      iree_allocator_system(), &builder));
+  loom_spirv_module_builder_require_feature_bits(
+      &builder, LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT);
+
+  loom_spirv_module_binary_t module;
+  IREE_ASSERT_OK(loom_spirv_module_builder_finalize(&builder, &module));
+  loom_spirv_module_builder_deinitialize(&builder);
+
+  const std::vector<Instruction> instructions = ParseInstructions(module);
+  EXPECT_TRUE(HasInstruction(instructions, LOOM_SPIRV_OP_CAPABILITY,
+                             {LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM}));
+  EXPECT_TRUE(HasInstruction(instructions, LOOM_SPIRV_OP_CAPABILITY,
+                             {LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT}));
+
+  loom_spirv_module_binary_deinitialize(&module, iree_allocator_system());
+}
+
 TEST(SpirvModuleBuilderTest, RejectsNonSpirvTargetBundle) {
   const loom_target_snapshot_t snapshot = {
       /*.name=*/IREE_SVL("not-spirv"),

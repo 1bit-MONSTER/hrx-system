@@ -32,6 +32,8 @@ static iree_hal_vulkan_device_spec_t MakeTestSpec() {
           IREE_HAL_VULKAN_SHADER_ATOMIC_FEATURE_SHARED_FLOAT64_ADD,
       },
       /*.flags=*/IREE_HAL_VULKAN_DEVICE_SPEC_FLAG_NONE,
+      /*.subgroup_supported_operations=*/
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
   };
 }
 
@@ -66,6 +68,8 @@ TEST(DeviceSpecTest, EncodesAndDecodesPayload) {
   EXPECT_EQ(decoded.enabled_features.general, source.enabled_features.general);
   EXPECT_EQ(decoded.enabled_features.atomics, source.enabled_features.atomics);
   EXPECT_EQ(decoded.flags, source.flags);
+  EXPECT_EQ(decoded.subgroup_supported_operations,
+            source.subgroup_supported_operations);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
   iree_hal_vulkan_cooperative_matrix_property_t decoded_property = {};
   ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
@@ -157,6 +161,8 @@ TEST(DeviceSpecTest, AddsAndFindsCoreFacet) {
   EXPECT_EQ(decoded.enabled_features.general, source.enabled_features.general);
   EXPECT_EQ(decoded.enabled_features.atomics, source.enabled_features.atomics);
   EXPECT_EQ(decoded.physical_device_type, source.physical_device_type);
+  EXPECT_EQ(decoded.subgroup_supported_operations,
+            source.subgroup_supported_operations);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
 
   iree_hal_device_spec_release(device_spec);
@@ -267,6 +273,8 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   physical_device.properties11.maxMemoryAllocationSize = 1ull << 32;
   physical_device.id_properties.deviceUUID[0] = 0x11;
   physical_device.subgroup_properties.subgroupSize = 32;
+  physical_device.subgroup_properties.supportedOperations =
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT;
   physical_device.subgroup_size_control_properties.minSubgroupSize = 32;
   physical_device.subgroup_size_control_properties.maxSubgroupSize = 64;
   physical_device.calibrated_timestamp_time_domains =
@@ -460,6 +468,8 @@ TEST_P(DeviceSpecFloatControlsTest, CreatesSpecFromParams) {
   EXPECT_EQ(decoded.enabled_features.atomics,
             device_plan.enabled_features.atomics);
   EXPECT_EQ(decoded.physical_device_type, VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+  EXPECT_EQ(decoded.subgroup_supported_operations,
+            physical_device.subgroup_properties.supportedOperations);
   ASSERT_EQ(decoded.cooperative_matrix.count, 1);
   iree_hal_vulkan_cooperative_matrix_property_t decoded_property = {};
   ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(

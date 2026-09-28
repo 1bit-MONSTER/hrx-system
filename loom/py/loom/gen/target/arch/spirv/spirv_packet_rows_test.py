@@ -92,6 +92,15 @@ def _packet_row(descriptor_key: str) -> _PacketRow:
     return rows[_row_index(rows, descriptor_key)]
 
 
+def test_subgroup_ballot_row_carries_the_subgroup_execution_scope() -> None:
+    row = _packet_row("spirv.op_group_non_uniform_ballot.v4u32")
+    assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT"
+    assert row.result_count == 1
+    assert row.group_operation_scope == "LOOM_SPIRV_SCOPE_SUBGROUP"
+    generated = _generated_row(generate_tables(), row.descriptor_key)
+    assert ".payload.group_non_uniform.execution_scope = LOOM_SPIRV_SCOPE_SUBGROUP" in generated
+
+
 def _packet_value_types(row: _PacketRow) -> tuple[str, ...]:
     return ((row.result_type,) if row.result_type is not None else ()) + row.operand_types
 

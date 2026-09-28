@@ -15,6 +15,7 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/target/arch/spirv/cooperative_properties.h"
 #include "loom/target/arch/spirv/features.h"
+#include "vulkan/vulkan_core.h"
 
 namespace loom {
 namespace {
@@ -125,6 +126,8 @@ static iree_status_t CreateDeviceSpec(
       /*.physical_device_type=*/2,
       /*.enabled_features=*/enabled_features,
       /*.flags=*/flags,
+      /*.subgroup_supported_operations=*/
+      VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT,
   };
   iree_host_size_t vulkan_payload_size = 0;
   IREE_RETURN_IF_ERROR(iree_hal_vulkan_device_spec_calculate_payload_size(
@@ -181,6 +184,7 @@ static loom_spirv_vulkan_hal_profile_facts_t BaselineFacts() {
       /*.flags=*/LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_RAW_BDA_EXECUTABLE |
           LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_BUFFER_DEVICE_ADDRESS |
           LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_INT64,
+      /*.subgroup_supported_operations=*/0,
       /*.subgroup_size=*/32,
       /*.max_compute_workgroup_invocations=*/256,
       /*.max_compute_shared_memory_size=*/
@@ -317,6 +321,8 @@ TEST(VulkanProfileTest, QueryReadsHalDeviceFacts) {
   EXPECT_FALSE(iree_all_bits_set(
       facts.flags,
       LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_VULKAN_MEMORY_MODEL_DEVICE_SCOPE));
+  EXPECT_EQ(facts.subgroup_supported_operations,
+            VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT);
   EXPECT_EQ(facts.subgroup_size, 32u);
   EXPECT_EQ(facts.max_compute_workgroup_invocations, 256u);
   EXPECT_EQ(facts.max_compute_shared_memory_size,
@@ -472,6 +478,25 @@ TEST(VulkanProfileTest, MaterializesRawBdaHalKernelTarget) {
       storage.config.name, IREE_SV("spirv.logical.core.vulkan1.3.bda")));
   EXPECT_EQ(storage.config.contract_feature_bits,
             LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA);
+}
+
+TEST(VulkanProfileTest, MaterializesAdvertisedBallotCapability) {
+  for (uint32_t subgroup_operations :
+       {uint32_t{VK_SUBGROUP_FEATURE_BASIC_BIT},
+        uint32_t{VK_SUBGROUP_FEATURE_BASIC_BIT |
+                 VK_SUBGROUP_FEATURE_BALLOT_BIT}}) {
+    SCOPED_TRACE(subgroup_operations);
+    loom_spirv_vulkan_hal_profile_facts_t facts = BaselineFacts();
+    facts.subgroup_supported_operations = subgroup_operations;
+    loom_target_bundle_storage_t storage = {};
+    IREE_ASSERT_OK(loom_spirv_vulkan_hal_profile_initialize_target_bundle(
+        &facts, &storage));
+
+    EXPECT_EQ(
+        iree_any_bit_set(storage.config.contract_feature_bits,
+                         LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT),
+        iree_any_bit_set(subgroup_operations, VK_SUBGROUP_FEATURE_BALLOT_BIT));
+  }
 }
 
 TEST(VulkanProfileTest, RejectsVulkan12) {

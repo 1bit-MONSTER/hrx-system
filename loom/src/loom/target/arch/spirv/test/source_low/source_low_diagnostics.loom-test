@@ -387,6 +387,63 @@ func.def target(@target) @i64_to_index_requires_s32_proof(%input: i64) -> (index
 
 // ====
 
+spirv.target<vulkan1_3> @target {abi = hal_kernel}
+
+kernel.def target(@target) @subgroup_ballot_requires_known_width() {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
+} launch(%output: buffer) {
+  %predicate = scalar.constant true : i1
+  // ERROR@+1: TARGET/003 {subject_role="target", subject_name="subgroup_size", constraint_key="range"}
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %mask, %output_view[%position] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target {abi = hal_kernel, subgroup_size = 64}
+
+kernel.def target(@target) @subgroup_ballot_rejects_narrow_mask() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch(%output: buffer) {
+  %predicate = scalar.constant true : i1
+  // ERROR@+1: TARGET/003 {subject_role="target", subject_name="subgroup_size", constraint_key="range"}
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %mask, %output_view[%position] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target {abi = hal_kernel, subgroup_size = 32}
+
+kernel.def target(@target) @subgroup_ballot_requires_target_capability() {
+  %c1 = index.constant 1 : index
+  %c32 = index.constant 32 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
+} launch(%output: buffer) {
+  %predicate = scalar.constant true : i1
+  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_group_non_uniform_ballot.v4u32", constraint_key="descriptor_available"}
+  %mask = kernel.subgroup.vote.ballot %predicate : i1 -> i32
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %mask, %output_view[%position] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
 spirv.target<vulkan1_3> @target
 
 func.def target(@target) @index_to_offset_requires_non_negative_proof(%input: index) -> (offset) {
