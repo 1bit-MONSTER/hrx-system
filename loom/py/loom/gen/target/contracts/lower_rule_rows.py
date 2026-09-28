@@ -613,6 +613,7 @@ def guard_row(descriptor_refs: Mapping[str, int], row: LowerGuard) -> list[str]:
         GuardKind.I64_ARRAY_ELEMENT_RANGE,
         GuardKind.I64_ARRAY_ELEMENTS_RANGE,
         GuardKind.VALUE_I64_RANGE,
+        GuardKind.TARGET_SUBGROUP_SIZE_RANGE,
     ):
         _append_field(
             fields,
