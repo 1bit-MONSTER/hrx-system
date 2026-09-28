@@ -66,6 +66,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::cfg_value_identity
     loom::analysis::condition_facts
+    loom::analysis::consumption
     loom::analysis::contract_vector
     loom::analysis::control_uniformity
     loom::analysis::kernel_async_legality
@@ -216,6 +217,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::analysis::consumption
     loom::codegen::low::testing::source_workload
     loom::ir
     loom::ops::index

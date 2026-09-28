@@ -91,6 +91,7 @@ from loom.target.contracts.lower_rule_diagnostics import (
     _static_element_count_relation_diagnostic,
     _storage_element_format_diagnostic,
     _u32_divisor_magic_is_add_diagnostic,
+    _value_no_uses_after_diagnostic,
     _value_no_uses_diagnostic,
     _value_type_diagnostic,
 )
@@ -802,6 +803,25 @@ class _LowerRuleSetCompiler:
                         _guard_diagnostic(
                             guard,
                             _value_no_uses_diagnostic(guard.field),
+                        ),
+                    ),
+                )
+            )
+            return
+
+        if guard.kind == GuardKind.VALUE_NO_USES_AFTER:
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    value_ref_index=self._append_value_ref(
+                        source_op,
+                        _value_ref_for_source_field(source_op, guard.field),
+                    ),
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _value_no_uses_after_diagnostic(guard.field),
                         ),
                     ),
                 )

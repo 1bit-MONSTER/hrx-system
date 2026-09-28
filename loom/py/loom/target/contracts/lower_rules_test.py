@@ -1044,6 +1044,29 @@ def test_compile_lower_rule_set_compiles_guarded_value_elide_cases() -> None:
     assert compiled.spans[0].source_op is vector.vector_extract
 
 
+def test_compile_lower_rule_set_compiles_value_no_uses_after_guard() -> None:
+    table = ContractFragment(
+        name="test.consume",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            RecipeRule(
+                source_op=vector.vector_addi,
+                guards=(Guard.value_no_uses_after("lhs"),),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+
+    assert len(compiled.rules) == 1
+    assert compiled.rules[0].guard_count == 1
+    assert len(compiled.guards) == 1
+    assert compiled.guards[0].kind == GuardKind.VALUE_NO_USES_AFTER
+    value_ref = compiled.value_refs[compiled.guards[0].value_ref_index]
+    assert value_ref.kind == SourceValueKind.OPERAND
+    assert value_ref.index == 0
+
+
 def test_compile_lower_rule_set_compiles_recipe_cases() -> None:
     table = ContractFragment(
         name="test.recipe",

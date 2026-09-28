@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/analysis/consumption.h"
 #include "loom/analysis/contract_vector.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/lower/context.h"
@@ -1123,6 +1124,7 @@ static iree_status_t loom_low_lower_record_descriptor_matrix_plan(
 
 static iree_status_t loom_low_lower_plan_op_from_contract_index(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_consumption_region_query_t* consumption_query,
     const loom_low_lower_rule_set_t** inout_failed_rule_set,
     loom_low_lower_rule_failure_t* inout_rule_failure,
     loom_low_lower_rule_source_memory_state_t* source_memory_state,
@@ -1138,6 +1140,7 @@ static iree_status_t loom_low_lower_plan_op_from_contract_index(
   loom_low_lower_rule_match_context_t match_context;
   loom_low_lower_rule_match_context_initialize_from_lowering(
       context, /*view_regions=*/NULL, source_memory_state, &match_context);
+  match_context.consumption_query = consumption_query;
   bool view_regions_resolved = false;
 
   for (uint16_t i = 0; i < op_entry.case_count; ++i) {
@@ -1216,9 +1219,9 @@ static iree_status_t loom_low_lower_plan_op_from_contract_index(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_lower_plan_op(loom_low_lower_context_t* context,
-                                            const loom_op_t* source_op,
-                                            bool is_callable_exit) {
+static iree_status_t loom_low_lower_plan_op(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_consumption_region_query_t* consumption_query, bool is_callable_exit) {
   if (source_op->region_count != 0) {
     if (loom_low_lower_supported_structured_source_op(context, source_op)) {
       return iree_ok_status();
@@ -1283,7 +1286,7 @@ static iree_status_t loom_low_lower_plan_op(loom_low_lower_context_t* context,
   bool selected_rule = false;
   if (context->policy->contract.index != NULL) {
     IREE_RETURN_IF_ERROR(loom_low_lower_plan_op_from_contract_index(
-        context, source_op, &failed_rule_set, &rule_failure,
+        context, source_op, consumption_query, &failed_rule_set, &rule_failure,
         &source_memory_state, &selected_rule));
     if (selected_rule) {
       return iree_ok_status();
@@ -1322,6 +1325,10 @@ static void loom_low_lower_planning_scope_end(
 static iree_status_t loom_low_lower_plan_region(
     loom_low_lower_context_t* context, loom_region_t* source_region,
     const loom_op_t* block_arg_context_op, bool skip_entry_block_args) {
+  loom_consumption_region_query_t consumption_query;
+  loom_consumption_region_query_initialize(context->module, source_region,
+                                           &context->function_arena,
+                                           &consumption_query);
   const uint16_t* block_order =
       source_region == loom_func_like_body(context->source_function)
           ? context->lowering.source_plan.block_order
@@ -1346,8 +1353,8 @@ static iree_status_t loom_low_lower_plan_region(
           loom_low_lower_source_op_is_callable_exit(context, op);
       loom_low_lower_source_memory_select_op(context, op);
       loom_low_lower_planning_scope_begin(context);
-      iree_status_t status =
-          loom_low_lower_plan_op(context, op, is_callable_exit);
+      iree_status_t status = loom_low_lower_plan_op(
+          context, op, &consumption_query, is_callable_exit);
       loom_low_lower_planning_scope_end(context);
       IREE_RETURN_IF_ERROR(status);
       if (loom_low_lower_context_should_stop(context)) {

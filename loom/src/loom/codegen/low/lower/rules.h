@@ -723,6 +723,9 @@ typedef enum loom_low_lower_guard_kind_e {
   // Selected target subgroup size must be known and fall in the inclusive
   // payload i64 range.
   LOOM_LOW_LOWER_GUARD_TARGET_SUBGROUP_SIZE_RANGE = 34,
+  // Source value must have no ordinary operand use that can dynamically
+  // execute after the source operation. Type uses are ignored.
+  LOOM_LOW_LOWER_GUARD_VALUE_NO_USES_AFTER = 35,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;
