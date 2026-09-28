@@ -183,6 +183,53 @@ with shared or separate first lines. The startup matrix already covers the
 with NPU-first submission. The peer's initial cause matches the corresponding
 single-worker case, so their complete peer payload sequences are identical.
 
+### NPU-initiated dataflow
+
+`NpuInitiated/ResidentNpuInitiatedTest` starts with an NPU-produced payload.
+The GPU consumes it and returns transformed words, which the NPU consumes to
+produce the next payload. Both programs are separately authored in
+`resident_npu_initiated.loom`; native submission order alone does not reverse
+which device produces the first live data.
+
+For positive GPU return count `N`, payload word `i` follows this recurrence
+modulo 2^32:
+
+```text
+Q1[i]     = seed + 257 + 17*i
+Rg[i]     = 3*Qg[i] + g                 for g = 1..N
+Q(g+1)[i] = Rg[i] + 257*(g+1) + 17*i  for g = 1..N
+```
+
+The immutable seed goes only to the NPU. The GPU records every word of
+`Q1` through closing `Q(N+1)`, making even the final NPU consumption visible
+to the independent wordwise oracle. It produces no return for the closing
+payload. The physical writers stay fixed: the request allocation carries GPU
+returns `R`, and the response allocation carries NPU payloads `Q`.
+
+One paired slot provides one credit. Publishing `Rg` after the GPU's reads
+returns the Q slot to the NPU. Publishing `Q(g+1)` after all NPU input reads
+returns the R slot to the GPU. The NPU streams each input word directly into
+its disjoint output path; it needs no complete intermediate vector in tile
+memory. The existing final GPU acknowledgement, ordinary NPU terminal transfer,
+custom DMA idle observations and both native joins close ownership.
+
+The cases exercise one and seventeen GPU returns with one- and sixteen-word
+payloads, registered backing, and separate payload/ready cache lines. Zero
+returns produce no payload or transcript. Sole-GPU and sole-NPU prestart ABORT
+cases terminate without peer traffic. All cases retain complete guards,
+padding, immutable storage and checked cleanup.
+
+Each transcript row contains Q generation, R generation (zero when closing),
+two raw GPU clock samples and all Q words. The cold sample begins at GPU
+observation of RUN. The end sample drains Q reads, transcript stores and any R
+payload stores; the GPU carries it as the next start before releasing R-ready.
+The end sample's own transcript store follows the sample and is drained by the
+next release. For positive N the chronological partition is one cold row,
+`N-1` steady cycles and one closing row without further GPU-return production.
+The `resident_cycle_*` properties retain this distinction and the test checks
+carried-sample equality. Final acknowledgement and native joins lie outside
+these intervals. Raw correctness samples are not calibrated performance data.
+
 ## Build and execution
 
 The ordinary build compiles the `.loom` fixtures and embeds the GPU image and

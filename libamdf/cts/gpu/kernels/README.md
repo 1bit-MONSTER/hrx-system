@@ -214,7 +214,7 @@ corpus recompiles its images when the source, target profile or compiler changes
 An individual image can also be built and inspected directly:
 
 ```sh
-iree-bazel-build //libamdf/cts/gpu/kernels:lds_exchange_gfx942
+iree-bazel-build //libamdf/cts/gpu/kernels:lds_exchange_gfx942_embed
 iree-cmake-build libamdf_cts_gpu_kernels_lds_exchange_gfx942_embed
 ```
 

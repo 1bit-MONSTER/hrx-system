@@ -58,6 +58,16 @@ The caller supplies a matching context width and composes the disjoint custom
 routes and descriptors around the bound establishing invocation. The ordinary
 terminal waits precede the caller's final custom DMA idle observations.
 
+[resident_npu_initiated.loom](resident_npu_initiated.loom) starts from an
+NPU-produced payload and transforms each actual GPU return into the next NPU
+payload. Its one worker has the same two 64-byte configuration/terminal
+bindings and the same custom descriptor ownership as the one-credit service.
+Configuration adds an immutable seed. A closing full payload exposes every
+word of the final GPU return before the final acknowledgement and terminal
+drain. Zero returns and prestart ABORT issue no payload transfers. The
+[recipe](../../interop/gpu/xdna/recipes/README.md#npu-initiated-dataflow) specifies
+the complete recurrence, credit reuse and independent output checks.
+
 ## Building and inspecting images
 
 Enable `AMDF_BUILD`, `LOOM_BUILD` and `LOOM_TARGET_XDNA` in the repository

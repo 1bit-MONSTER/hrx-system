@@ -83,6 +83,8 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::resident_channels_gfx1151
     libamdf::cts::gpu::kernels::resident_exchange_gfx1150
     libamdf::cts::gpu::kernels::resident_exchange_gfx1151
+    libamdf::cts::gpu::kernels::resident_npu_initiated_gfx1150
+    libamdf::cts::gpu::kernels::resident_npu_initiated_gfx1151
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx1150
     libamdf::cts::gpu::kernels::transform_gfx1151
@@ -92,6 +94,7 @@ iree_cc_library(
     libamdf::cts::xdna::programs::mul_i32
     libamdf::cts::xdna::programs::resident_channels
     libamdf::cts::xdna::programs::resident_exchange
+    libamdf::cts::xdna::programs::resident_npu_initiated
     libamdf::cts::xdna::util::executable
     libamdf::cts::xdna::util::execution
   TESTONLY

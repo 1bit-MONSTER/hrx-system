@@ -1,0 +1,233 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// One immutable 64-byte configuration record drives one complete service.
+// Configuration words 0..3 are the unsigned GPU return count N, positive payload
+// word count W, one credit, and seed. The caller supplies N <= UINT32_MAX - 1
+// and W in 1..1024; all remaining words are zero.
+//
+// For positive N, the NPU first publishes Q1[i] = seed + 257 + 17*i. For each
+// GPU return Rg, it consumes every actual word and publishes
+// Q(g+1)[i] = Rg[i] + 257*(g+1) + 17*i, modulo 2^32. The GPU consumes closing
+// Q(N+1) without another return, then publishes the final ACK. Zero returns
+// bypass all payload traffic and wait for that ACK after RUN.
+//
+// Cold setup assigns shim DMA1 BDs 2/3 to the GPU generation/payload and BDs
+// 4/5 to the NPU payload/generation. BD 4 releases shim lock 0 by one and links
+// BD 5, which acquires one. Startup uses BD 10 in a separate allocation; final
+// ACK uses BD 15 at byte offset 192 in the control allocation. Physical payload
+// writers stay fixed: the current request slot carries GPU returns, and the
+// response slot carries NPU-produced Q. Each payload descriptor transfers W
+// words. The GPU return generation releases the prior Q slot only after all
+// GPU reads; the next Q generation releases the prior R slot only after all
+// NPU reads.
+//
+// Incoming DMA words reach Core0 without packet headers. Outgoing packet ID 7
+// reaches shim TileControl; ID 9 reaches S2MM1 with its header dropped. The
+// odd-parity one-word queue headers are 0x8001d21c for MM2S1 and 0x0001d20c for
+// S2MM1. Each payload is one complete packet, followed by a separate one-word
+// ready packet. Every packet marks only its final word with TLAST.
+//
+// Terminal words 0..5 hold state, completed GPU returns, W, and the final Q's
+// first word, last word, and sum modulo 2^32. Other words stay zero. ABORT and
+// zero returns leave all three summaries zero. Prestart ABORT returns without
+// peer payload or ACK traffic. Normal return publishes terminal through the
+// compiler's worker locks and S2MM0 task; the wrapper then parks on exhausted
+// configuration input. The command suffix owns custom DMA drain before native
+// completion.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @resident_npu_initiated_array() asm {
+  %c0 = constant.u32 0 : reg<aie2p.array.scalar : index>
+  %c1 = constant.u32 1 : reg<aie2p.array.scalar : index>
+  %c2 = constant.u32 2 : reg<aie2p.array.scalar : index>
+  %group = group %c1
+  %worker = worker %group, %c0, @resident_npu_initiated_service
+  %configuration = binding 0, "read"
+  %terminal = binding 1, "write"
+  %configuration_sender = sender %configuration, 0 : reg<aie2p.array.sender : tile<16xi32>>
+  %worker_configuration = receiver %worker, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %worker_terminal = sender %worker, 1 : reg<aie2p.array.sender : tile<16xi32>>
+  %terminal_receiver = receiver %terminal, 0 : reg<aie2p.array.receiver : tile<16xi32>>
+  %configuration_channel = channel %configuration_sender, %worker_configuration, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  %terminal_channel = channel %worker_terminal, %terminal_receiver, %c2, %c1 : reg<aie2p.array.channel : tile<16xi32>>
+  constrain.location %worker, %c0, %c2
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.core>(@core_target) abi(object_function) @resident_npu_initiated_service() asm {
+  %configuration = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %terminal = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %terminal_copy = copy %terminal : reg<aie2p.ep> -> reg<aie2p.ep>
+  %terminal_end = padda %terminal_copy, 64
+  %round_count = lda %configuration, 0
+  %word_count = lda %configuration, 4
+  %seed = lda %configuration, 12
+  %c0 = mov.short 0
+  %c1 = mov.short 1
+  %abort_state = mov.short 2
+  %generation_scale = mov.i32 257
+  %element_scale = mov.short 17
+  %control_route = mov.short 7
+  %data_route = mov.i32 -2147483639
+  %input_queue_header = mov.i32 -2147364324
+  %output_queue_header = mov.i32 119308
+  %return_generation_descriptor = mov.short 2
+  %return_payload_descriptor = mov.short 3
+  %output_chain_descriptor = mov.short 4
+  %startup_descriptor = mov.short 10
+  %complete_descriptor = mov.short 15
+
+  // The wrapper owns terminal output credit before entering this body.
+  st %c0, %terminal, 0
+  st %c0, %terminal, 4
+  st %c0, %terminal, 8
+  st %c0, %terminal, 12
+  st %c0, %terminal, 16
+  st %c0, %terminal, 20
+  st %c0, %terminal, 24
+  st %c0, %terminal, 28
+  st %c0, %terminal_end, -32
+  st %c0, %terminal_end, -28
+  st %c0, %terminal_end, -24
+  st %c0, %terminal_end, -20
+  st %c0, %terminal_end, -16
+  st %c0, %terminal_end, -12
+  st %c0, %terminal_end, -8
+  st %c0, %terminal_end, -4
+  st %word_count, %terminal, 8
+  low.br ^poll_startup
+
+^poll_startup:
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %startup_descriptor
+  %startup = mov.ss
+  %run = eq %startup, %c1
+  low.cond_br %run, ^begin_run, ^check_abort : reg<aie2p.er>
+
+^check_abort:
+  %abort = eq %startup, %abort_state
+  low.cond_br %abort, ^aborted, ^poll_startup : reg<aie2p.er>
+
+^aborted:
+  st %abort_state, %terminal, 0
+  return
+
+^begin_run:
+  %has_rounds = nez %round_count
+  low.cond_br %has_rounds, ^begin_initial_payload, ^poll_complete : reg<aie2p.er>
+
+^begin_initial_payload:
+  mov.ms %control_route
+  mov.ms %output_queue_header
+  mov.ms.last %output_chain_descriptor
+  mov.ms %data_route
+  %initial_first = add.rr %seed, %generation_scale
+  st %initial_first, %terminal, 12
+  low.br ^initial_words(%word_count: reg<aie2p.er>, %initial_first: reg<aie2p.er>, %c0: reg<aie2p.er>)
+
+^initial_words(%initial_remaining: reg<aie2p.er>, %initial_word: reg<aie2p.er>, %initial_sum: reg<aie2p.er>):
+  %next_initial_sum = add.rr %initial_sum, %initial_word
+  %next_initial_remaining = sub %initial_remaining, %c1
+  %has_next_initial_word = nez %next_initial_remaining
+  low.cond_br %has_next_initial_word, ^send_initial_word, ^send_initial_last : reg<aie2p.er>
+
+^send_initial_word:
+  mov.ms %initial_word
+  %next_initial_word = add.rr %initial_word, %element_scale
+  low.br ^initial_words(%next_initial_remaining: reg<aie2p.er>, %next_initial_word: reg<aie2p.er>, %next_initial_sum: reg<aie2p.er>)
+
+^send_initial_last:
+  mov.ms.last %initial_word
+  low.br ^publish_payload(%c1: reg<aie2p.er>, %initial_word: reg<aie2p.er>, %next_initial_sum: reg<aie2p.er>)
+
+^poll_return(%return_generation: reg<aie2p.er>):
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %return_generation_descriptor
+  %observed_generation = mov.ss
+  %return_ready = eq %observed_generation, %return_generation
+  low.cond_br %return_ready, ^begin_return_payload, ^retry_return : reg<aie2p.er>
+
+^retry_return:
+  low.br ^poll_return(%return_generation: reg<aie2p.er>)
+
+^begin_return_payload:
+  // Rg publication returns ownership of Qg before its replacement starts.
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %return_payload_descriptor
+  mov.ms %control_route
+  mov.ms %output_queue_header
+  mov.ms.last %output_chain_descriptor
+  mov.ms %data_route
+  %next_generation = add %return_generation, 1
+  %generation_term = mul %next_generation, %generation_scale
+
+  // Peeling the first word gives W=1 exactly one final stream write.
+  %first_returned_word = mov.ss
+  %first_payload_word = add.rr %first_returned_word, %generation_term
+  st %first_payload_word, %terminal, 12
+  %remaining_words = sub %word_count, %c1
+  %has_more_words = nez %remaining_words
+  low.cond_br %has_more_words, ^send_return_first, ^send_return_single : reg<aie2p.er>
+
+^send_return_single:
+  mov.ms.last %first_payload_word
+  low.br ^publish_payload(%next_generation: reg<aie2p.er>, %first_payload_word: reg<aie2p.er>, %first_payload_word: reg<aie2p.er>)
+
+^send_return_first:
+  mov.ms %first_payload_word
+  %first_element_term = add.rr %generation_term, %element_scale
+  low.br ^returned_words(%remaining_words: reg<aie2p.er>, %first_element_term: reg<aie2p.er>, %first_payload_word: reg<aie2p.er>)
+
+^returned_words(%remaining: reg<aie2p.er>, %element_term: reg<aie2p.er>, %payload_sum: reg<aie2p.er>):
+  %returned_word = mov.ss
+  %payload_word = add.rr %returned_word, %element_term
+  %next_payload_sum = add.rr %payload_sum, %payload_word
+  %next_remaining = sub %remaining, %c1
+  %has_next_word = nez %next_remaining
+  low.cond_br %has_next_word, ^send_return_word, ^send_return_last : reg<aie2p.er>
+
+^send_return_word:
+  mov.ms %payload_word
+  %next_element_term = add.rr %element_term, %element_scale
+  low.br ^returned_words(%next_remaining: reg<aie2p.er>, %next_element_term: reg<aie2p.er>, %next_payload_sum: reg<aie2p.er>)
+
+^send_return_last:
+  mov.ms.last %payload_word
+  low.br ^publish_payload(%next_generation: reg<aie2p.er>, %payload_word: reg<aie2p.er>, %next_payload_sum: reg<aie2p.er>)
+
+^publish_payload(%generation: reg<aie2p.er>, %last_payload_word: reg<aie2p.er>, %final_payload_sum: reg<aie2p.er>):
+  st %last_payload_word, %terminal, 16
+  st %final_payload_sum, %terminal, 20
+  // Ready follows every input read and the final output word. Its publication
+  // returns the GPU's R slot credit through the unchanged chained ready BD.
+  mov.ms %data_route
+  mov.ms.last %generation
+  %closing_payload = ltu %round_count, %generation
+  low.cond_br %closing_payload, ^poll_complete, ^next_return : reg<aie2p.er>
+
+^next_return:
+  low.br ^poll_return(%generation: reg<aie2p.er>)
+
+^poll_complete:
+  // ACK follows all closing Q reads and GPU transcript stores, with no R(N+1).
+  mov.ms %control_route
+  mov.ms %input_queue_header
+  mov.ms.last %complete_descriptor
+  %complete = mov.ss
+  %acknowledged = eq %complete, %c1
+  low.cond_br %acknowledged, ^completed, ^poll_complete : reg<aie2p.er>
+
+^completed:
+  st %c1, %terminal, 0
+  st %round_count, %terminal, 4
+  return
+}

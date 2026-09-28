@@ -24,6 +24,7 @@ exports_files([
     "private_roundtrip.loom",
     "resident_channels.loom",
     "resident_exchange.loom",
+    "resident_npu_initiated.loom",
     "transform.loom",
     "transform_alternate.loom",
 ])
@@ -157,6 +158,22 @@ amdf_cts_gpu_kernel(
     src = "resident_channels.loom",
     entry_point = "resident_channels",
     namespace = "kernels::gfx1151_resident_channels",
+    target = ":gfx1151",
+)
+
+amdf_cts_gpu_kernel(
+    name = "resident_npu_initiated_gfx1150",
+    src = "resident_npu_initiated.loom",
+    entry_point = "resident_npu_initiated",
+    namespace = "kernels::gfx1150_resident_npu_initiated",
+    target = ":gfx1150",
+)
+
+amdf_cts_gpu_kernel(
+    name = "resident_npu_initiated_gfx1151",
+    src = "resident_npu_initiated.loom",
+    entry_point = "resident_npu_initiated",
+    namespace = "kernels::gfx1151_resident_npu_initiated",
     target = ":gfx1151",
 )
 

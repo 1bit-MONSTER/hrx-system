@@ -192,4 +192,59 @@ iree_c_embed_data(
 )
 endif()
 
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+loom_kernel_binary(
+  NAME
+    "resident_npu_initiated_npu4"
+  COMPONENT
+    "//libamdf/cts/xdna/programs:resident_npu_initiated_npu4"
+  TARGET
+    "::npu4"
+  OUTPUT
+    "resident_npu_initiated_npu4.xdna"
+  SRCS
+    "resident_npu_initiated.loom"
+  ROOTS
+    "@resident_npu_initiated_array"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+loom_kernel_binary(
+  NAME
+    "resident_npu_initiated_npu5"
+  COMPONENT
+    "//libamdf/cts/xdna/programs:resident_npu_initiated_npu5"
+  TARGET
+    "::npu5"
+  OUTPUT
+    "resident_npu_initiated_npu5.xdna"
+  SRCS
+    "resident_npu_initiated.loom"
+  ROOTS
+    "@resident_npu_initiated_array"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+iree_c_embed_data(
+  NAME
+    resident_npu_initiated
+  SRCS
+    "${CMAKE_CURRENT_BINARY_DIR}/resident_npu_initiated_npu4.xdna"
+    "${CMAKE_CURRENT_BINARY_DIR}/resident_npu_initiated_npu5.xdna"
+  C_FILE_OUTPUT
+    "resident_npu_initiated.c"
+  H_FILE_OUTPUT
+    "resident_npu_initiated.h"
+  IDENTIFIER
+    "amdf_cts_xdna_resident_npu_initiated"
+  TESTONLY
+  FLATTEN
+  PUBLIC
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -13,8 +13,8 @@
 
 #include "gtest/gtest.h"
 
-// Paired request/response storage with one writer per direction. Publishing
-// the next request returns the previous response credit after its final read.
+// Paired storage with one writer per direction. Either program may initiate
+// the exchange; request and response addresses always follow physical writers.
 struct ResidentNpuSlot {
   // Four-byte GPU-produced request generation, preceding its payload.
   uint64_t request_generation_address;
