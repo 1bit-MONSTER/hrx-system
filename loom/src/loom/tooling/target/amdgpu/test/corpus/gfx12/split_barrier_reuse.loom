@@ -9,20 +9,20 @@
 // the second wave can stage the next record while that calculation continues.
 // An LDS completion wait before arrival makes every released read safe from the
 // next generation's overwrite.
-amdgpu.target<gfx1201> @target
+amdgpu.target<gfx12-generic> @target
 
-low.func.def target<amdgpu.rdna4.core>(@target) @split_arrive() asm {
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @split_arrive() asm {
   s_wait_dscnt {dscnt = 0}
   s_barrier_signal_all
   return
 }
 
-low.func.def target<amdgpu.rdna4.core>(@target) @split_wait() asm {
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @split_wait() asm {
   s_barrier_wait_all
   return
 }
 
-low.func.def target<amdgpu.rdna4.core>(@target) @long_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @long_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
   %sum0 = v_add_u32 %sum, %value
   %sum1 = v_add_u32_src0_inline %sum0, 1
   %sum2 = v_add_u32_src0_inline %sum1, 1
@@ -43,7 +43,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @long_accumulate(%value: reg<amd
   return %sum16
 }
 
-low.func.def target<amdgpu.rdna4.core>(@target) @short_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @short_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
   %sum0 = v_add_u32 %sum, %value
   %sum16 = v_add_u32_src0_inline %sum0, 16
   return %sum16
@@ -131,7 +131,7 @@ kernel.def target(@target) @full_barrier_reuse() {
 }
 
 check.case public @split_barrier_reuse_case {
-  check.requires<hal.amdgpu.descriptor_set> {descriptor_set = "amdgpu.rdna4.core"}
+  check.requires<hal.amdgpu.descriptor_set> {descriptor_set = "amdgpu.gfx12.generic.core"}
   %input = check.generate.iota offset(1) step(1) : tensor<4x64xi32>
   %split_output = check.generate.fill value(-1) : tensor<64xi32>
   %full_output = check.generate.fill value(-2) : tensor<64xi32>

@@ -84,22 +84,22 @@ loom_check_compile_tests(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_RDNA4_CORE)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_GFX12_GENERIC_CORE OR LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_RDNA4_CORE))
 loom_test_module(
   NAME
-    gfx1201_split_barrier_reuse_test_module
+    gfx12_split_barrier_reuse_test_module
   SRCS
-    "gfx1201/split_barrier_reuse.loom"
+    "gfx12/split_barrier_reuse.loom"
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_RDNA4_CORE)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_GFX12_GENERIC_CORE OR LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_RDNA4_CORE))
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    gfx1201_split_barrier_reuse_test_execute_amdgpu_hardware_test
+    gfx12_split_barrier_reuse_test_execute_amdgpu_hardware_test
   MODULE
-    "::gfx1201_split_barrier_reuse_test_module"
+    "::gfx12_split_barrier_reuse_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS
@@ -121,9 +121,9 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    gfx1201_split_barrier_reuse_test_execute_amdgpu_access_test
+    gfx12_split_barrier_reuse_test_execute_amdgpu_access_test
   MODULE
-    "::gfx1201_split_barrier_reuse_test_module"
+    "::gfx12_split_barrier_reuse_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
@@ -146,11 +146,11 @@ endif()
 
 loom_check_compile_tests(
   NAME
-    "gfx1201_split_barrier_reuse_test"
+    "gfx12_split_barrier_reuse_test"
   SRC
-    "::gfx1201_split_barrier_reuse_test_module"
+    "::gfx12_split_barrier_reuse_test_module"
   TARGETS
-    loom::target::amdgpu::gfx1201
+    loom::target::amdgpu::gfx12-generic
 )
 endif()
 

@@ -47,7 +47,7 @@ _AMDGPU_SOURCE_COMPATIBLE_WITH = loom_config_compatible_with([
 
 _GFX11_GENERIC_REPRESENTATION = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.gfx11.generic.core"]
 
-_RDNA4_REPRESENTATION = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.rdna4.core"]
+_GFX12_GENERIC_REPRESENTATION = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.gfx12.generic.core"]
 
 _GFX11_ARTIFACT_COMPATIBLE_WITH = loom_amdgpu_descriptor_set_compatible_with(
     _GFX11_GENERIC_REPRESENTATION,
@@ -60,10 +60,10 @@ _GFX11_COMPATIBLE_WITH = (
     )
 )
 
-_RDNA4_COMPATIBLE_WITH = (
+_GFX12_GENERIC_COMPATIBLE_WITH = (
     _GENERIC_COMPATIBLE_WITH +
     loom_amdgpu_iree_hal_representation_compatible_with(
-        _RDNA4_REPRESENTATION,
+        _GFX12_GENERIC_REPRESENTATION,
     )
 )
 
@@ -104,14 +104,14 @@ loom_test(
 )
 
 loom_test(
-    name = "gfx1201_split_barrier_reuse_test",
-    srcs = ["gfx1201/split_barrier_reuse.loom"],
-    compile_targets = ["//loom/target/amdgpu:gfx1201"],
+    name = "gfx12_split_barrier_reuse_test",
+    srcs = ["gfx12/split_barrier_reuse.loom"],
+    compile_targets = ["//loom/target/amdgpu:gfx12-generic"],
     execution_profiles = [
         AMDGPU_HARDWARE_PROFILE,
         AMDGPU_ACCESS_PROFILE,
     ],
-    target_compatible_with = _RDNA4_COMPATIBLE_WITH,
+    target_compatible_with = _GFX12_GENERIC_COMPATIBLE_WITH,
 )
 
 loom_test(
