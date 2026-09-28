@@ -91,6 +91,20 @@ IREE_API_EXPORT iree_status_t iree_byte_sequence_create_from_span_move(
     iree_byte_span_t* inout_span, iree_allocator_t host_allocator,
     iree_byte_sequence_t** out_sequence);
 
+// Creates a sequence that logically concatenates |sequences| in order.
+//
+// The returned sequence retains each non-empty input without copying its
+// bytes. Enumeration visits every input's segments in logical order. Empty
+// inputs contribute no segments. When only one input contributes bytes it is
+// retained and returned directly; an all-empty input list similarly retains
+// one empty input. A zero-length list produces a real empty sequence.
+//
+// On success the caller owns |out_sequence| and the input ownership is
+// unchanged. On failure |out_sequence| is NULL and no input is retained.
+IREE_API_EXPORT iree_status_t iree_byte_sequence_create_concat(
+    iree_host_size_t sequence_count, iree_byte_sequence_t* const* sequences,
+    iree_allocator_t host_allocator, iree_byte_sequence_t** out_sequence);
+
 // Clones |sequence| into one contiguous caller-owned allocation.
 //
 // The returned span is independent of |sequence| and must be freed with

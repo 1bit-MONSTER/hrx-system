@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/target/arch/vm/check.h"
+#include "loom/tooling/target/vm/check.h"
 
 #include "iree/vm/bytecode/disassembler.h"
-#include "loom/target/arch/vm/module.h"
 #include "loom/target/arch/vm/provider.h"
+#include "loom/tooling/target/vm/artifact_emitter.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/execute.h"
 #include "loom/tools/loom-check/source_low.h"
@@ -72,7 +72,7 @@ static iree_status_t loom_vm_check_emit(
   };
   loom_target_emit_artifact_t artifact = {0};
   bool emitted = false;
-  status = loom_vm_module_emit(&emit_request, &emitted, &artifact);
+  status = loom_vm_artifact_emit(&emit_request, &emitted, &artifact);
   iree_byte_span_t contents = iree_byte_span_empty();
   if (iree_status_is_ok(status) && emitted) {
     status = iree_byte_sequence_clone(artifact.contents,

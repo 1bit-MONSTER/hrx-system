@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/target/arch/vm/function.h"
+#include "loom/tooling/target/vm/function_plan.h"
 
 #include <string.h>
 
@@ -12,10 +12,11 @@
 #include "loom/codegen/low/allocation/move_sequence.h"
 #include "loom/codegen/low/frame.h"
 #include "loom/codegen/low/storage_layout.h"
+#include "loom/ir/context.h"
 #include "loom/ops/global/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/vm/descriptors/descriptors.h"
-#include "loom/target/arch/vm/module.h"
+#include "loom/tooling/target/vm/program_prepare.h"
 
 // Branch displacement fields are patched after the single emission walk. Dense
 // target indices come directly from the shared CFG, in scheduled block order.
@@ -192,7 +193,7 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_vm_function_return(
 // declaration-order table; symbols and ordinals share the same final binding.
 static iree_status_t loom_vm_function_rodata(const loom_module_t* module,
                                              loom_attribute_t value,
-                                             loom_vm_module_plan_t* plan,
+                                             loom_vm_program_build_t* plan,
                                              uint64_t* out_ordinal) {
   loom_symbol_ref_t symbol = value.symbol;
   if (value.kind != LOOM_ATTR_SYMBOL) {
@@ -215,6 +216,10 @@ static iree_status_t loom_vm_function_rodata(const loom_module_t* module,
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "VM rodata alignment exceeds u32");
     }
+    if (plan->rodata.count == UINT16_MAX) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "VM rodata count exceeds the u16 ordinal space");
+    }
     *ordinal = (uint16_t)plan->rodata.count;
     plan->rodata.values[plan->rodata.count++] = definition;
     plan->rodata.alignment =
@@ -228,7 +233,7 @@ static iree_status_t loom_vm_function_rodata(const loom_module_t* module,
 // register-allocation scope of frame and control-flow emission.
 IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_vm_function_packet(
     const loom_low_emission_frame_t* frame,
-    const loom_low_schedule_node_t* node, loom_vm_module_plan_t* module_plan,
+    const loom_low_schedule_node_t* node, loom_vm_program_build_t* module_plan,
     iree_io_stream_t* stream) {
   const loom_low_descriptor_t* descriptor = node->descriptor;
   const loom_low_operand_t* operands =
@@ -392,7 +397,7 @@ typedef struct loom_vm_call_scratch_t {
 // Reserve the canonical offset-zero packet before projecting local storage.
 static iree_status_t loom_vm_function_prepare_calls(
     const loom_low_emission_frame_t* frame,
-    const loom_vm_module_plan_t* functions, iree_arena_allocator_t* arena,
+    const loom_vm_program_build_t* functions, iree_arena_allocator_t* arena,
     loom_vm_call_scratch_t* scratch) {
   uint16_t max_arguments = 0, max_results = 0;
   uint32_t packet_bytes = 0;
@@ -400,7 +405,7 @@ static iree_status_t loom_vm_function_prepare_calls(
   for (iree_host_size_t i = 0; i < frame->schedule.call_node_count; ++i) {
     const loom_low_schedule_node_t* node =
         &frame->schedule.nodes[frame->schedule.call_node_indices[i]];
-    const loom_vm_module_callable_t* binding =
+    const loom_vm_program_callable_t* binding =
         functions
             ->bindings_by_symbol[loom_low_func_call_callee(node->op).symbol_id];
     // Open source declarations remain legal until an executable is requested.
@@ -491,9 +496,9 @@ static void loom_vm_function_call_bindings(
 IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_vm_function_call(
     const loom_low_emission_frame_t* frame,
     const loom_low_schedule_node_t* node,
-    const loom_vm_module_plan_t* functions, loom_vm_call_scratch_t* scratch,
+    const loom_vm_program_build_t* functions, loom_vm_call_scratch_t* scratch,
     iree_io_stream_t* stream, iree_vm_bytecode_v0_function_row_t* out_row) {
-  const loom_vm_module_callable_t* binding =
+  const loom_vm_program_callable_t* binding =
       functions
           ->bindings_by_symbol[loom_low_func_call_callee(node->op).symbol_id];
   loom_vm_call_bank_t* banks = scratch->banks;
@@ -724,13 +729,16 @@ static iree_status_t loom_vm_function_arguments(
   return status;
 }
 
-iree_status_t loom_vm_function_emit(
-    const loom_target_emit_request_t* request, loom_func_like_t function,
+iree_status_t loom_vm_function_plan_write(
+    loom_module_t* module, loom_func_like_t function,
     const loom_target_function_version_t* function_version,
+    const loom_low_descriptor_registry_t* descriptor_registry,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     const loom_vm_function_signature_t* signature,
-    loom_vm_module_plan_t* functions, iree_io_stream_t* stream,
-    bool* out_emitted, iree_vm_bytecode_v0_function_row_t* out_row) {
-  *out_emitted = false;
+    loom_vm_program_build_t* functions, iree_arena_allocator_t* arena,
+    iree_io_stream_t* stream, bool* out_accepted,
+    iree_vm_bytecode_v0_function_row_t* out_row) {
+  *out_accepted = false;
   uint16_t argument_count = 0;
   const loom_value_id_t* arguments =
       loom_func_like_arg_ids(function, &argument_count);
@@ -743,8 +751,7 @@ iree_status_t loom_vm_function_emit(
         signature->fields[i].kind_u16 == IREE_VM_BYTECODE_SIGNATURE_KIND_REF
             ? ref_ordinal++
             : value_ordinal++;
-    if (ordinal >= 16 ||
-        !loom_module_value_has_uses(request->module, arguments[i])) {
+    if (ordinal >= 16 || !loom_module_value_has_uses(module, arguments[i])) {
       continue;
     }
     fixed_values[fixed_count++] = (loom_low_allocation_fixed_value_t){
@@ -755,7 +762,7 @@ iree_status_t loom_vm_function_emit(
     };
   }
   const loom_low_emission_frame_options_t options = {
-      .descriptor_registry = request->low_descriptor_registry,
+      .descriptor_registry = descriptor_registry,
       .function_target_facts = function_version != NULL
                                    ? function_version->function_target_facts
                                    : NULL,
@@ -764,7 +771,7 @@ iree_status_t loom_vm_function_emit(
       .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
       .allocation_fixed_values = fixed_values,
       .allocation_fixed_value_count = fixed_count,
-      .emitter = request->diagnostic_emitter,
+      .emitter = diagnostic_emitter,
   };
   const loom_low_emission_frame_spill_free_options_t spill_options = {
       .materialization_options =
@@ -776,8 +783,8 @@ iree_status_t loom_vm_function_emit(
   loom_low_emission_frame_t frame = {0};
   bool frame_accepted = false;
   IREE_RETURN_IF_ERROR(loom_low_emission_frame_build_spill_free(
-      request->module, function.op, &options, &spill_options,
-      request->scratch_arena, &frame, &frame_accepted));
+      module, function.op, &options, &spill_options, arena, &frame,
+      &frame_accepted));
   if (!frame_accepted) {
     return iree_ok_status();
   }
@@ -791,8 +798,8 @@ iree_status_t loom_vm_function_emit(
   // Preparation writes the layout and location arrays. Each emitted call
   // initializes its own bank counts; leaves never access the banks.
   loom_vm_call_scratch_t call_scratch;
-  IREE_RETURN_IF_ERROR(loom_vm_function_prepare_calls(
-      &frame, functions, request->scratch_arena, &call_scratch));
+  IREE_RETURN_IF_ERROR(
+      loom_vm_function_prepare_calls(&frame, functions, arena, &call_scratch));
   out_row->local_byte_length_u16 =
       call_scratch.local_base + (uint16_t)local_storage.stack_bytes;
   out_row->value_register_count_u16 = (uint16_t)iree_max(
@@ -808,19 +815,18 @@ iree_status_t loom_vm_function_emit(
   out_row->block_count_u32 = (uint32_t)frame.schedule.block_count;
   loom_low_move_sequence_scratch_t return_scratch = {0};
   IREE_RETURN_IF_ERROR(loom_low_move_sequence_scratch_initialize(
-      request->scratch_arena,
+      arena,
       iree_min(16, signature->row.result_value_count_u16) +
           iree_min(16, signature->row.result_ref_count_u16),
       &return_scratch));
   const loom_cfg_graph_t* graph = &frame.schedule.cfg_graph;
   iree_io_stream_pos_t* block_offsets = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      request->scratch_arena, graph->block_count, sizeof(*block_offsets),
-      (void**)&block_offsets));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, graph->block_count,
+                                                 sizeof(*block_offsets),
+                                                 (void**)&block_offsets));
   loom_vm_branch_fixup_t* fixups = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(request->scratch_arena, graph->edge_count,
-                                sizeof(*fixups), (void**)&fixups));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, graph->edge_count, sizeof(*fixups), (void**)&fixups));
   iree_host_size_t fixup_count = 0;
   iree_host_size_t edge_copy_index = 0;
 
@@ -927,8 +933,8 @@ iree_status_t loom_vm_function_emit(
         status = iree_make_status(
             IREE_STATUS_UNIMPLEMENTED,
             "VM instruction emission for '%.*s' is unavailable",
-            (int)loom_op_name(request->module, node->op).size,
-            loom_op_name(request->module, node->op).data);
+            (int)loom_op_name(module, node->op).size,
+            loom_op_name(module, node->op).data);
       }
     }
   }
@@ -961,7 +967,7 @@ iree_status_t loom_vm_function_emit(
     }
   }
   if (iree_status_is_ok(status)) {
-    *out_emitted = true;
+    *out_accepted = true;
   }
   return status;
 }

@@ -68,7 +68,7 @@ _TARGET_VM_CHECK_COPTS = iree_select({
 })
 
 _TARGET_VM_CHECK_DEPS = iree_select({
-    "//loom/config/target/arch:vm": ["//loom/src/loom/target/arch/vm:check"],
+    "//loom/config/target/arch:vm": ["//loom/src/loom/tooling/target/vm:check"],
     "//conditions:default": [],
 })
 

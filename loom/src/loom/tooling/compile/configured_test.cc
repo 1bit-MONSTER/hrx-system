@@ -14,6 +14,9 @@
 #ifndef LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
 #define LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS 0
 #endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
+#ifndef LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
+#define LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS 0
+#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #ifndef LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #define LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS 0
 #endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
@@ -30,6 +33,16 @@ TEST(ConfiguredCompileTest, ReturnsStableCompleteEnvironment) {
   ASSERT_NE(environment->target_environment->provider_set, nullptr);
   EXPECT_GT(environment->target_environment->provider_set->provider_count, 0u);
   EXPECT_NE(environment->cleanup_pattern_provider_set, nullptr);
+
+  const loom_target_emitter_list_t emitters =
+      loom_target_environment_emitter_list(environment->target_environment);
+  bool has_vm_emitter = false;
+  for (iree_host_size_t i = 0; i < emitters.count; ++i) {
+    has_vm_emitter |=
+        iree_string_view_equal(emitters.values[i]->name, IREE_SV("vm"));
+  }
+  EXPECT_EQ(has_vm_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS));
 
   const loom_artifact_provider_registry_t* artifact_registry =
       environment->artifact_provider_registry;

@@ -4,19 +4,23 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef LOOM_TARGET_ARCH_VM_MODULE_H_
-#define LOOM_TARGET_ARCH_VM_MODULE_H_
+#ifndef LOOM_TOOLING_TARGET_VM_PROGRAM_PREPARE_H_
+#define LOOM_TOOLING_TARGET_VM_PROGRAM_PREPARE_H_
 
-#include "loom/target/arch/vm/function.h"
+#include "iree/base/internal/arena.h"
+#include "loom/codegen/low/descriptors.h"
+#include "loom/error/emitter.h"
+#include "loom/ops/op_defs.h"
+#include "loom/target/emit/vm/program.h"
 #include "loom/target/function_version.h"
-#include "loom/target/provider.h"
+#include "loom/tooling/target/vm/function_plan.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Module-owned call bindings shared by table and instruction emission.
-typedef struct loom_vm_module_callable_t {
+// Compiler-owned callable binding retained while preparing a VM program.
+typedef struct loom_vm_program_callable_t {
   // Borrowed function definition or import declaration and signature values.
   loom_func_like_t function;
   // Concrete compiler products retained by the shared compilation pipeline.
@@ -44,23 +48,22 @@ typedef struct loom_vm_module_callable_t {
   uint8_t target_kind;
   // Exact logical fields and their physical argument/result bank counts.
   loom_vm_function_signature_t signature;
-} loom_vm_module_callable_t;
+} loom_vm_program_callable_t;
 
-// Module-local emission plan. Function ordinals come from the symbol walk;
-// data ordinals are assigned on first emitted use, excluding other targets'
-// payloads without a second traversal of function bodies.
-typedef struct loom_vm_module_plan_t {
+// Compiler-owned state shared across function preparation. This representation
+// never crosses into the target binary writer.
+struct loom_vm_program_build_t {
   // Arena-owned local and imported callable records in source symbol order.
-  loom_vm_module_callable_t* values;
+  loom_vm_program_callable_t* values;
   // Direct symbol-indexed bindings for calls within the VM target contract.
   // Open declarations without an executable binding remain NULL until the
-  // selected caller's schedule is validated for artifact emission.
-  loom_vm_module_callable_t** bindings_by_symbol;
+  // selected caller's schedule is validated for artifact preparation.
+  loom_vm_program_callable_t** bindings_by_symbol;
   // Number of records in |values|, bounded by the module symbol ID space.
   uint32_t count;
   // Number of local definitions, retaining their collected ordinal space.
   uint32_t definition_count;
-  // Read-only payloads retained for the module's data section.
+  // Read-only payloads retained for the program's data section.
   struct {
     // Symbol-indexed data ordinals; UINT16_MAX marks an unreferenced payload.
     uint16_t* ordinals_by_symbol;
@@ -75,26 +78,30 @@ typedef struct loom_vm_module_plan_t {
     // Maximum block alignment, at least the image's eight-byte alignment.
     uint32_t alignment;
   } rodata;
-} loom_vm_module_plan_t;
+};
 
-// Emits VM functions in a prepared mixed-target module as one immutable .vm
-// artifact. Signature and export tables are sorted for runtime consumption;
-// the common compiler has already resolved the functions participating in the
-// module. Modules without definitions are valid; callable and function sections
-// are omitted when empty. Referenced read-only payloads retain their source
-// alignment and map to module-owned immutable buffers. Bytes are appended once
-// to a segmented stream and fixed table rows are backpatched. No instruction
-// sizing pass or contiguous image is required. Success transfers the byte
-// sequence to |out_artifact| and sets |out_emitted| true. A structured
-// diagnostic returns OK with |out_emitted| false and publishes nothing.
-// Infrastructure failure also publishes nothing. All emission-local scratch is
-// reclaimed before returning, preserving the caller's preceding allocations.
-iree_status_t loom_vm_module_emit(const loom_target_emit_request_t* request,
-                                  bool* out_emitted,
-                                  loom_target_emit_artifact_t* out_artifact);
+// Prepares one immutable physical VM program from a compiler-owned module.
+//
+// Target selection, signature interning, reference/import/export tables,
+// scheduling, allocation, spill materialization, instruction selection,
+// branch fixups, and every wire-format limit are resolved before this returns.
+// Structured compiler rejection returns OK with |out_accepted| false. On
+// acceptance, plan tables are owned by |arena| and remain valid until that
+// arena is reset. The immutable function bytecode is owned by
+// |bytecode_allocator| so a target writer can retain it in an output without
+// copying. The caller must deinitialize the accepted plan; writing the binary
+// does not consume plan ownership. Any rejection or failure leaves |out_plan|
+// empty.
+iree_status_t loom_vm_program_plan_prepare(
+    loom_module_t* module,
+    const loom_function_version_list_t* function_versions,
+    const loom_low_descriptor_registry_t* descriptor_registry,
+    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
+    iree_allocator_t bytecode_allocator, bool* out_accepted,
+    loom_vm_program_plan_t* out_plan);
 
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_ARCH_VM_MODULE_H_
+#endif  // LOOM_TOOLING_TARGET_VM_PROGRAM_PREPARE_H_

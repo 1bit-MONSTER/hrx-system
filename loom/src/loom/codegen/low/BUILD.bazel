@@ -31,6 +31,7 @@ _LOW_DESCRIPTOR_VISIBILITY = [
     "//loom/src/loom/target/reporting:__pkg__",
     "//loom/src/loom/target/test:__subpackages__",
     "//loom/src/loom/tooling/target/spirv:__pkg__",
+    "//loom/src/loom/tooling/target/vm:__pkg__",
     "//loom/src/loom/tooling/target/wasm:__pkg__",
     "//loom/src/loom/tools/loom-check:__pkg__",
 ]

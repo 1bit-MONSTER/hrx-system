@@ -34,11 +34,8 @@ loom_cc_library(
     "types.c"
   DEPS
     iree::base
-    iree::base::internal::arena
     loom::ir
     loom::ops::type_registry
-    loom::util::adaptive_sort
-    loom::util::segmented_storage
   PUBLIC
 )
 endif()
@@ -65,34 +62,6 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
-    module
-  HDRS
-    "function.h"
-    "module.h"
-  SRCS
-    "function.c"
-    "module.c"
-  DEPS
-    ::types
-    iree::base
-    iree::io::stream
-    iree::vm::bytecode::wire
-    loom::codegen::low::allocation::move_sequence
-    loom::codegen::low::frame
-    loom::codegen::low::storage_layout
-    loom::ir
-    loom::ops::global
-    loom::ops::low
-    loom::target::arch::vm::descriptors
-    loom::target::function_version
-    loom::target::provider
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
     provider
   HDRS
     "lower.h"
@@ -105,7 +74,6 @@ loom_cc_library(
     "math_policy.c"
     "provider.c"
   DEPS
-    ::module
     ::records
     ::types
     iree::base
@@ -305,25 +273,6 @@ loom_check_compile_tests(
     "test/storage.loom-test"
   TARGETS
     loom::target::vm::core
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
-    check
-  HDRS
-    "check.h"
-  SRCS
-    "check.c"
-  DEPS
-    ::module
-    ::provider
-    iree::base
-    iree::vm::bytecode::disassembler
-    loom::tools::loom-check::execute
-    loom::tools::loom-check::provider
-  PUBLIC
 )
 endif()
 

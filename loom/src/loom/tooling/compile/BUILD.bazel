@@ -26,6 +26,12 @@ _CONFIGURED_COMPILE_COPTS = (
         "//conditions:default": [],
     }) +
     iree_select({
+        "//loom/config/target/arch:vm": [
+            "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
         "//loom/config/target:wasm_artifacts": [
             "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1",
         ],
@@ -49,6 +55,12 @@ _CONFIGURED_COMPILE_DEPS = (
     iree_select({
         "//loom/config/target:spirv_artifacts": [
             "//loom/src/loom/tooling/target/spirv:artifact_provider",
+        ],
+        "//conditions:default": [],
+    }) +
+    iree_select({
+        "//loom/config/target/arch:vm": [
+            "//loom/src/loom/tooling/target/vm:artifact_emitter",
         ],
         "//conditions:default": [],
     }) +
