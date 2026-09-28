@@ -127,6 +127,7 @@ loom_check_test_suite(
     "test/assembly_allocation.loom-test"
     "test/assembly_aperture.loom-test"
     "test/assembly_cluster.loom-test"
+    "test/assembly_integer_add.loom-test"
     "test/assembly_integer_multiply.loom-test"
     "test/assembly_integer_subtract.loom-test"
     "test/assembly_q8.loom-test"
