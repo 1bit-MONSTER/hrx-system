@@ -17,6 +17,9 @@
 #ifndef LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
 #define LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS 0
 #endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
+#ifndef LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
+#define LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS 0
+#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #ifndef LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 #define LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS 0
 #endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
@@ -38,13 +41,17 @@
 #if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #include "loom/tooling/target/amd/xdna/artifact_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
+#if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
+#include "loom/tooling/target/vm/artifact_emitter.h"
+#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 #include "loom/tooling/target/wasm/artifact_emitter.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 
 enum {
   LOOM_TOOLING_CONFIGURED_COMPILE_ADDITIONAL_TARGET_PROVIDER_COUNT =
-      1 + LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS,
+      1 + LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS +
+      LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS,
   LOOM_TOOLING_CONFIGURED_COMPILE_TARGET_PROVIDER_CAPACITY = 64,
 };
 
@@ -109,6 +116,11 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
   configured_compile_storage
       .target_providers[configured_compile_storage.target_provider_count++] =
       &loom_cmd_target_provider;
+#if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
+  configured_compile_storage
+      .target_providers[configured_compile_storage.target_provider_count++] =
+      &loom_vm_artifact_emitter_provider;
+#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
   configured_compile_storage
       .target_providers[configured_compile_storage.target_provider_count++] =

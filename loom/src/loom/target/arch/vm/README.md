@@ -3,7 +3,8 @@
 The VM target compiles ordinary Loom functions into standalone `.vm` modules.
 It uses the same legalization, control-flow lowering, scheduling, and register
 allocation infrastructure as native targets. The VM package supplies the
-machine description and bytecode emission, not a separate compiler pipeline.
+machine description; compiler tooling prepares a physical VM program and the
+target writer serializes that program. There is no separate compiler pipeline.
 
 ## Compile a function
 
@@ -46,19 +47,23 @@ typed value and reference registers. Low assembly uses the VM mnemonics, while
 retaining compiler constructs such as SSA values and block arguments.
 
 The common frame builder schedules those Low operations, assigns registers and
-local storage, and plans edge copies and spills. [function.c](function.c)
-consumes that frame to write instruction packets, direct calls, transfers, and
-branches. Branch displacements are patched after their target positions are
-known. The emitter does not rerun whole-module verification or reconstruct a
-second allocation plan.
+local storage, and plans edge copies and spills. The tooling-owned
+[function planner](../../../tooling/target/vm/function_plan.c) consumes each
+frame once to produce final instruction packets, direct calls, transfers, and
+branches. Branch displacements are resolved before the physical program is
+published. Preparation does not rerun whole-module verification or reconstruct
+a second allocation plan.
 
-[module.c](module.c) collects VM functions from the prepared module and assigns
-their table ordinals. It consumes shared function-version information instead
-of performing its own callgraph specialization. Only referenced read-only
-payloads are included. Fixed table rows are reserved and patched around a single
-instruction-emission pass into a segmented stream. The returned byte sequence
-owns its storage; consumers can enumerate it or explicitly clone it when they
-need contiguous bytes.
+The [program preparer](../../../tooling/target/vm/program_prepare.c) collects VM
+functions from the prepared module and assigns their final table ordinals. It
+consumes shared function-version information instead of performing its own
+callgraph specialization, and retains only referenced read-only payloads. The
+result contains final wire rows and immutable function bytecode, with no IR,
+analysis, or diagnostic surface. The target-owned
+[binary writer](../../emit/vm/module_binary.c) lays out that physical program;
+it cannot reach back into compiler state or reject a compiler invariant. The
+returned byte sequence owns its storage, so consumers can enumerate it or
+explicitly clone it when they need contiguous bytes.
 
 ## Where the contracts live
 
@@ -70,13 +75,15 @@ need contiguous bytes.
 | Target registration and profile selection | [provider.c](provider.c) |
 | Type mapping and symbolic read-only data lowering | [lower.c](lower.c) |
 | Selection of native math forms or shared recipes | [math_policy.c](math_policy.c) |
-| Frame and module emission | [function.h](function.h), [module.h](module.h) |
+| Physical program preparation | [function_plan.h](../../../tooling/target/vm/function_plan.h), [program_prepare.h](../../../tooling/target/vm/program_prepare.h) |
+| VM image layout | [program.h](../../emit/vm/program.h), [module_binary.h](../../emit/vm/module_binary.h) |
 
 The Python projection imports the runtime specification. It maps the existing
 ISA into Loom's descriptor and constraint schemas instead of maintaining a
 parallel set of opcode numbers or packet layouts. Generated contract indices
 and descriptor tables are build outputs, consumed as immutable data by the
-shared lowering machinery and the target emitter.
+shared lowering machinery and physical program preparation. The binary writer
+only consumes the resulting target-owned plan.
 
 ## Supported source boundary
 
