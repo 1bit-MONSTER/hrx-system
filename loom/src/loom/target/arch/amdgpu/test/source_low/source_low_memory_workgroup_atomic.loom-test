@@ -93,12 +93,26 @@ kernel.def @lds_atomic_ordering_i32() {
 low.kernel.def target<amdgpu.gfx11.generic.core> workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @lds_atomic_ordering_i32() asm {
   %12 = storage {byte_alignment = 4, byte_length = 256} : low.storage<workgroup>
   %scratch_view = storage_address %12 : low.storage<workgroup> -> reg<amdgpu.vgpr>
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
   %15 = v_mov_b32 1
   ds_add_u32 %scratch_view, %15
   %old_acquire = ds_add_rtn_u32 %scratch_view, %15
+  s_waitcnt {lgkmcnt = 0}
+  buffer_gl0_inv
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
   %old_release = ds_add_rtn_u32 %scratch_view, %15
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
   %old_acq_rel = ds_add_rtn_u32 %scratch_view, %15
+  s_waitcnt {lgkmcnt = 0}
+  buffer_gl0_inv
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
   %old_seq_cst = ds_add_rtn_u32 %scratch_view, %15
+  s_waitcnt {lgkmcnt = 0}
+  buffer_gl0_inv
   return
 }
 

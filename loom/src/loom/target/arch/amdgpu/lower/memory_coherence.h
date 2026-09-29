@@ -54,6 +54,15 @@ typedef struct loom_amdgpu_memory_coherence_rule_t {
   uint8_t invalidate_count;
   // Completion required after invalidation, or zero for ordered invalidates.
   uint32_t invalidate_wait_mask;
+  // Ordering of ordinary global and LDS accesses around workgroup atomics.
+  struct {
+    // Completion before publication, in issue order.
+    uint32_t release_wait_masks[3];
+    // Number of populated release wait masks.
+    uint8_t release_wait_count;
+    // Cache invalidation after LDS completion, or zero for a shared cache.
+    loom_amdgpu_descriptor_ref_t invalidate;
+  } workgroup;
 } loom_amdgpu_memory_coherence_rule_t;
 
 // Returns the target's coherence recipe, or NULL for an unsupported model.

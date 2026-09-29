@@ -100,9 +100,24 @@ low.func.def target<amdgpu.rdna4.core> abi(hal_kernel) @workgroup_atomic_bitwise
   %cell = storage_address %17 : low.storage<workgroup> -> reg<amdgpu.vgpr>
   %19 = v_mov_b32 0
   ds_write_b32 %19, %initial
+  s_wait_loadcnt {loadcnt = 0}
+  s_wait_storecnt {storecnt = 0}
+  s_wait_dscnt {dscnt = 0}
   %exchanged = ds_wrxchg_rtn_b32 %cell, %replacement
+  s_wait_dscnt {dscnt = 0}
+  global_inv {scope = 1}
+  s_wait_loadcnt {loadcnt = 0}
+  s_wait_storecnt {storecnt = 0}
+  s_wait_dscnt {dscnt = 0}
   %succeeded = ds_cmpst_rtn_b32 %cell, %replacement, %initial
+  s_wait_dscnt {dscnt = 0}
+  global_inv {scope = 1}
+  s_wait_loadcnt {loadcnt = 0}
+  s_wait_storecnt {storecnt = 0}
+  s_wait_dscnt {dscnt = 0}
   %failed = ds_cmpst_rtn_b32 %cell, %replacement, %replacement
+  s_wait_dscnt {dscnt = 0}
+  global_inv {scope = 1}
   return %exchanged, %succeeded, %failed
 }
 
@@ -263,9 +278,24 @@ low.func.def target<amdgpu.rdna4.core> abi(hal_kernel) @workgroup_atomic_bitwise
   %cell = storage_address %17 : low.storage<workgroup> -> reg<amdgpu.vgpr>
   %19 = v_mov_b32 0
   ds_write_b64 %19, %initial
+  s_wait_loadcnt {loadcnt = 0}
+  s_wait_storecnt {storecnt = 0}
+  s_wait_dscnt {dscnt = 0}
   %exchanged = ds_wrxchg_rtn_b64 %cell, %replacement
+  s_wait_dscnt {dscnt = 0}
+  global_inv {scope = 1}
+  s_wait_loadcnt {loadcnt = 0}
+  s_wait_storecnt {storecnt = 0}
+  s_wait_dscnt {dscnt = 0}
   %succeeded = ds_cmpst_rtn_b64 %cell, %replacement, %initial
+  s_wait_dscnt {dscnt = 0}
+  global_inv {scope = 1}
+  s_wait_loadcnt {loadcnt = 0}
+  s_wait_storecnt {storecnt = 0}
+  s_wait_dscnt {dscnt = 0}
   %failed = ds_cmpst_rtn_b64 %cell, %replacement, %replacement
+  s_wait_dscnt {dscnt = 0}
+  global_inv {scope = 1}
   return %exchanged, %succeeded, %failed
 }
 
