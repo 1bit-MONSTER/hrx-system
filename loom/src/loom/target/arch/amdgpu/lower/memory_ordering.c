@@ -57,6 +57,7 @@ iree_string_view_t loom_amdgpu_atomic_memory_rejection_key(
   const bool is_workgroup =
       source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP;
   if (source->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL &&
+      source->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC &&
       !is_workgroup) {
     return IREE_SV("atomic.memory_space");
   }
@@ -188,6 +189,15 @@ iree_status_t loom_amdgpu_emit_memory_ordering_suffix(
   if (source->operation_kind != LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_LOAD ||
       source->atomic.ordering == LOOM_ATOMIC_ORDERING_RELAXED) {
     return iree_ok_status();
+  }
+  if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC) {
+    // A flat observation can complete through either global or LDS memory.
+    // Complete the local path before acquisition even if its value is unused.
+    const loom_amdgpu_memory_coherence_rule_t* rule =
+        loom_amdgpu_memory_coherence_rule(
+            loom_low_lower_context_descriptor_set(context));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_wait(context, source_op,
+                                                      rule->local_wait_mask));
   }
   if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP) {
     return loom_amdgpu_emit_workgroup_memory_acquire(

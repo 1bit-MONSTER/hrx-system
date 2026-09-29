@@ -2709,7 +2709,8 @@ bool loom_amdgpu_memory_access_plan_select(
 
   loom_low_source_memory_operation_kind_t kind = source->operation_kind;
   if (kind == LOOM_MEMORY_ACCESS_OPERATION_LOAD &&
-      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
+      (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL ||
+       source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC)) {
     source->read_visibility_scope = read_visibility_scope;
   }
   const bool is_atomic = kind == LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_LOAD ||
