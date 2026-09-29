@@ -967,6 +967,16 @@ _BASE_DESCRIPTOR_SPECS = (
         storage_overrides=(("dst", "VEC256"),),
         asm_mnemonic="vshuffle",
     ),
+    # This shuffle form can address BM0-BM3 but not BM4, so retain its exact
+    # 16-register storage domain.
+    _DescriptorSpec(
+        "VSHUFFLE_vec_shuffle_bm",
+        f"{_TARGET_KEY}.shuffle.x.to.accumulator512.configured",
+        "register.shuffle.x.to.accumulator512.configured",
+        "II_VSHUFFLE_vec_shuffle_bm",
+        storage_overrides=(("dst", "mBMSm"),),
+        asm_mnemonic="vshuffle.to.accumulator512",
+    ),
     _DescriptorSpec(
         "VSHIFT",
         f"{_TARGET_KEY}.shift.bytes.x.configured",

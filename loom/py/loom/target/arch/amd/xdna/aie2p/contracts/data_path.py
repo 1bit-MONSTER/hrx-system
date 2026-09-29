@@ -33,3 +33,13 @@ def vector_data_path_control(
         | multiplication_mode << 3
         | compute_mode << 5
     )
+
+
+# Shared configured-add mode for native binary32 accumulator arithmetic.
+F32_ACCUMULATOR_ADD_CONTROL = vector_data_path_control(
+    sign_x=False,
+    sign_y=False,
+    accumulator_mode=2,
+    multiplication_mode=3,
+    compute_mode=1,
+)
