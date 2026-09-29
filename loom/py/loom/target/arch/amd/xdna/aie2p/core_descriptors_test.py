@@ -1035,8 +1035,6 @@ def test_descriptor_encoding_ids_and_adapters_are_materialized() -> None:
     assert Constraint(ConstraintKind.REMATERIALIZABLE, 0) in static_offset.constraints
 
     for name in (
-        "splat.i16x32",
-        "splat.i32x16",
         "accumulator.clear.i32x64",
         "accumulator.clear.f32x64",
         "move.vector512.to.accumulator512",
@@ -1202,6 +1200,36 @@ def test_descriptor_encoding_ids_and_adapters_are_materialized() -> None:
             assert descriptor.operands[-1].reg_alts[0].reg_class == (
                 f"aie2p.state.{sign_register}"
             )
+
+
+def test_state_free_vector_broadcasts_can_rematerialize() -> None:
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    integer_shapes = ((8, 64), (16, 32), (32, 16), (64, 8))
+    keys = (
+        *(f"amd.xdna.aie2p.splat.i{width}x{lanes}" for width, lanes in integer_shapes),
+        *(
+            f"amd.xdna.aie2p.broadcast.i{width}x{lanes}.from-vector"
+            for width, lanes in integer_shapes
+        ),
+        "amd.xdna.aie2p.broadcast.bf16x8.to.bf16x32",
+    )
+    rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for key in keys:
+        descriptor = descriptors[key]
+        assert descriptor.op_kind is DescriptorOpKind.OP
+        assert descriptor.effects == ()
+        assert DescriptorFlag.DEAD_REMOVABLE in descriptor.flags
+        assert [operand.role for operand in descriptor.operands] == [
+            OperandRole.RESULT,
+            OperandRole.OPERAND,
+        ]
+        assert all(
+            OperandFlag.IMPLICIT not in operand.flags for operand in descriptor.operands
+        )
+        assert rematerializable in descriptor.constraints
 
 
 def test_scalar_address_descriptors_expose_fixed_register_state() -> None:

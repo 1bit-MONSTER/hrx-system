@@ -958,6 +958,7 @@ _BASE_DESCRIPTOR_SPECS = (
         "floating.broadcast.bf16x8.to.bf16x32",
         "II_VEXTBCST_128_vec_extract_broadcast_imm",
         asm_mnemonic="vbroadcast.bf16x8.to.bf16x32",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VSHUFFLE_vec_shuffle_x",
@@ -1274,6 +1275,7 @@ _BASE_DESCRIPTOR_SPECS = (
         f"{_TARGET_KEY}.splat.i8x64",
         "integer.splat.i8x64",
         "II_VBCST_8",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VBCST_16",
@@ -1294,6 +1296,7 @@ _BASE_DESCRIPTOR_SPECS = (
         f"{_TARGET_KEY}.splat.i64x8",
         "integer.splat.i64x8",
         "II_VBCST_64",
+        rematerializable=True,
     ),
     *PREDICATE_DESCRIPTOR_SPECS,
     *BF16_COMPARISON_DESCRIPTOR_SPECS,
@@ -1303,24 +1306,28 @@ _BASE_DESCRIPTOR_SPECS = (
         f"{_TARGET_KEY}.broadcast.i8x64.from-vector",
         "integer.broadcast.i8x64.from-vector",
         "II_VEXTBCST_8_vec_extract_broadcast_imm",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VEXTBCST_16_vec_extract_broadcast_imm",
         f"{_TARGET_KEY}.broadcast.i16x32.from-vector",
         "integer.broadcast.i16x32.from-vector",
         "II_VEXTBCST_16_vec_extract_broadcast_imm",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VEXTBCST_32_vec_extract_broadcast_imm",
         f"{_TARGET_KEY}.broadcast.i32x16.from-vector",
         "integer.broadcast.i32x16.from-vector",
         "II_VEXTBCST_32_vec_extract_broadcast_imm",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VEXTBCST_64_vec_extract_broadcast_imm",
         f"{_TARGET_KEY}.broadcast.i64x8.from-vector",
         "integer.broadcast.i64x8.from-vector",
         "II_VEXTBCST_64_vec_extract_broadcast_imm",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VEXTRACT_8_vec_extract_imm_vaddSign0",
