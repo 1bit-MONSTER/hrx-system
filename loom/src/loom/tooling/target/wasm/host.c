@@ -18,6 +18,8 @@ enum {
 
 static_assert(sizeof(loom_wasm_host_memory_region_t) == 12,
               "host memory region ABI must remain stable on wasm32");
+static_assert(sizeof(loom_wasm_value_type_t) == 4,
+              "host value type ABI must remain stable on wasm32");
 static_assert(offsetof(loom_wasm_host_memory_region_t, address) == 0,
               "host memory region address offset must remain stable");
 static_assert(offsetof(loom_wasm_host_memory_region_t, data) == 4,

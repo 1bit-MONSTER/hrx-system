@@ -17,6 +17,7 @@ const TYPE_F32 = 0x7d;
 const TYPE_F64 = 0x7c;
 const PAGE_SIZE = 65536;
 const REGION_STRIDE = 12;
+const TYPE_STRIDE = 4;
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
@@ -67,13 +68,18 @@ export function createImports(context) {
 
   function readTypes(pointer, count, label) {
     count >>>= 0;
-    const types = readBytes(pointer, count, label);
-    for (const type of types) {
+    refreshOuterMemory();
+    pointer = requireRange(
+        pointer, count * TYPE_STRIDE, outerBytes.length, label);
+    const types = new Uint8Array(count);
+    for (let i = 0; i < count; ++i) {
+      const type = outerView.getUint32(pointer + i * TYPE_STRIDE, true);
       if (type !== TYPE_I32 && type !== TYPE_I64 && type !== TYPE_F32 &&
           type !== TYPE_F64) {
         throw new Error(`${label} contains non-callable WebAssembly type 0x${
             type.toString(16)}`);
       }
+      types[i] = type;
     }
     return types;
   }
