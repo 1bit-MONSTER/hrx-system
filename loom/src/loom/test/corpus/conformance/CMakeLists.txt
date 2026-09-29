@@ -2464,6 +2464,8 @@ loom_module(
     "${_GLOB_X_LOOM_14D15B72}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic.loom-test"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic_atomic_addressing.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_workgroup_atomic_observations.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability_cfg.loom-test"
