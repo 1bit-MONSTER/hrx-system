@@ -6,8 +6,6 @@
 
 #include "libamdf/src/gpu/umd/kfd/memory_profile.h"
 
-#include <drm/amdgpu_drm.h>
-
 #include "amdf/gpu.h"
 #include "libamdf/src/gpu/umd/memory.h"
 #include "libamdf/src/platform/linux/dma_buf.h"
@@ -43,6 +41,11 @@ static amdf_status_t amdf_gpu_kfd_sdma_describe_site(
 static amdf_status_t amdf_gpu_kfd_sdma_system_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {
+  if (query->queue_family_info->command_type !=
+      AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
+    return amdf_gpu_umd_memory_describe_system_store_site(query,
+                                                          out_description);
+  }
   // A remote LOCAL projection retains consumer policy but cannot inherit
   // the owned SYSTEM backing's host-coherent construction contract.
   if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
@@ -64,68 +67,6 @@ static amdf_status_t amdf_gpu_kfd_sdma_local_describe_site(
   return amdf_gpu_kfd_sdma_describe_site(query, out_description);
 }
 
-// Owned coherent GTT on GMC11 uses GPU-UC, SYSTEM+SNOOPED mappings. SDMA
-// needs no payload cache operation; compute queues retain SYSTEM actions.
-static amdf_status_t amdf_gpu_kfd_gfx1151_system_describe_site(
-    const amdf_memory_site_query_t* query,
-    amdf_memory_site_description_t* out_description) {
-  // A remote LOCAL group projection can retain the consumer callback but
-  // cannot acquire the owned SYSTEM backing's coherence guarantee.
-  if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
-    return amdf_gpu_umd_memory_describe_site(query, out_description);
-  }
-  return amdf_gpu_kfd_sdma_describe_site(query, out_description);
-}
-
-// The selected native APU route forwards UC coherent-GTT CP swaps into the
-// host system's atomic domain. Queue encoding and exact access permissions
-// remain independent prerequisites; no other atomic operation is qualified.
-static amdf_status_t amdf_gpu_kfd_gfx1151_system_store_describe_site(
-    const amdf_memory_site_query_t* query,
-    amdf_memory_site_description_t* out_description) {
-  amdf_memory_site_description_t description = {0};
-  const amdf_status_t status =
-      amdf_gpu_umd_memory_describe_site(query, &description);
-  if (!amdf_status_is_ok(status)) {
-    return status;
-  }
-  const amdf_queue_family_info_t* family = query->queue_family_info;
-  if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) != 0 &&
-      (query->access & (AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE)) ==
-          (AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE) &&
-      (family->roles & AMDF_QUEUE_ROLE_ATOMIC) != 0) {
-    if ((family->atomic_capabilities.operations_32 &
-         AMDF_ATOMIC_OPERATION_STORE) != 0) {
-      description.atomic_reach.scope_32 = AMDF_ATOMIC_SCOPE_SYSTEM;
-    }
-    if ((family->atomic_capabilities.operations_64 &
-         AMDF_ATOMIC_OPERATION_STORE) != 0) {
-      description.atomic_reach.scope_64 = AMDF_ATOMIC_SCOPE_SYSTEM;
-    }
-    if (description.atomic_reach.scope_32 != AMDF_ATOMIC_SCOPE_NONE ||
-        description.atomic_reach.scope_64 != AMDF_ATOMIC_SCOPE_NONE) {
-      // Names the proven host-system serialization domain. Pair assembly
-      // separately establishes that both sites access the same backing.
-      description.atomic_domain.words[0] = UINT64_C(0x4b4644484f535400);
-    }
-  }
-  *out_description = description;
-  return AMDF_STATUS_OK;
-}
-
-// Atomic and SDMA qualification are independent construction facts. This
-// composition retains both policies when the endpoint supplies both facts.
-static amdf_status_t amdf_gpu_kfd_gfx1151_system_store_sdma_describe_site(
-    const amdf_memory_site_query_t* query,
-    amdf_memory_site_description_t* out_description) {
-  if (query->queue_family_info->command_type ==
-      AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
-    return amdf_gpu_kfd_gfx1151_system_describe_site(query, out_description);
-  }
-  return amdf_gpu_kfd_gfx1151_system_store_describe_site(query,
-                                                         out_description);
-}
-
 // Linux selects sdma_v4_4_2 for these engines; ROCr uses its V4 no-GCR path
 // across CDNA. This is independent of compiler ISA and compute PTE MTYPE.
 static bool amdf_gpu_kfd_supports_legacy_sdma_visibility(
@@ -142,18 +83,6 @@ static bool amdf_gpu_kfd_supports_gfx1151_system_visibility(
          topology->properties.gfx_ip.stepping == 1 && topology->sdma.ip.exact &&
          topology->sdma.ip.major == 6 && topology->sdma.ip.minor == 1 &&
          topology->sdma.ip.revision == 1;
-}
-
-static bool amdf_gpu_kfd_supports_gfx1151_system_store(
-    const amdf_gpu_kfd_topology_t* topology) {
-  return topology->properties.gfx_ip.major == 11 &&
-         topology->properties.gfx_ip.minor == 5 &&
-         topology->properties.gfx_ip.stepping == 1 && topology->gc_ip.exact &&
-         topology->gc_ip.major == 11 && topology->gc_ip.minor == 5 &&
-         topology->gc_ip.revision == 1 &&
-         (topology->device_flags & AMDGPU_IDS_FLAGS_FUSION) != 0 &&
-         ((topology->device_flags & AMDGPU_IDS_FLAGS_MODE_MASK) >>
-          AMDGPU_IDS_FLAGS_MODE_SHIFT) == AMDGPU_IDS_FLAGS_MODE_PF;
 }
 
 // KFD maps a fixed consumer set into the backing owner's native allocation.
@@ -320,18 +249,22 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
             AMDF_LINUX_DMA_BUF_DIRECT_HOST_PROVENANCE;
     profile.external_memory_support[1].flags &=
         ~AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_FOREIGN_API;
-    if (amdf_gpu_kfd_supports_gfx1151_system_store(topology)) {
-      profile.atomic_operations_32 = AMDF_ATOMIC_OPERATION_STORE;
-      profile.atomic_operations_64 = AMDF_ATOMIC_OPERATION_STORE;
-      profile.visibility.describe_site =
-          amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)
-              ? amdf_gpu_kfd_gfx1151_system_store_sdma_describe_site
-              : amdf_gpu_kfd_gfx1151_system_store_describe_site;
-    } else if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology)) {
+    // GMC11 maps coherent pinned GTT as UC. Native CPU route widths supply
+    // the independent AtomicOps requirement; compiler target spelling and
+    // allocation visibility do not establish that route.
+    if (topology->gc_ip.exact && topology->gc_ip.major == 11) {
+      if (topology->host_atomics.supports_32) {
+        profile.atomic_operations_32 = AMDF_ATOMIC_OPERATION_STORE;
+      }
+      if (topology->host_atomics.supports_64) {
+        profile.atomic_operations_64 = AMDF_ATOMIC_OPERATION_STORE;
+      }
+    }
+    profile.visibility.describe_site =
+        amdf_gpu_umd_memory_describe_system_store_site;
+    if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology) ||
+        amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)) {
       profile.visibility.describe_site = amdf_gpu_kfd_sdma_system_describe_site;
-    } else if (amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)) {
-      profile.visibility.describe_site =
-          amdf_gpu_kfd_gfx1151_system_describe_site;
     }
   } else if ((topology->memory_features &
               AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) != 0 &&

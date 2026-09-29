@@ -108,6 +108,20 @@ class KfdTopologyTest : public ::testing::Test {
     }
   }
 
+  void WriteIoLink(uint32_t ordinal, uint32_t destination, uint32_t gpu_id,
+                   uint32_t flags) {
+    const auto nodes = directory_ / "class/kfd/kfd/topology/nodes";
+    const auto link = nodes / "6/io_links" / std::to_string(ordinal);
+    const auto target = nodes / std::to_string(destination);
+    std::filesystem::create_directories(link);
+    std::filesystem::create_directories(target);
+    WriteAttribute(link / "properties", "type 2\nnode_from 6\nnode_to " +
+                                            std::to_string(destination) +
+                                            "\nflags " + std::to_string(flags) +
+                                            "\n");
+    WriteAttribute(target / "gpu_id", std::to_string(gpu_id) + "\n");
+  }
+
   // Temporary native metadata directory owned by this case.
   std::filesystem::path directory_;
   // Instance whose discovery root names only the test-owned directory.
@@ -388,6 +402,51 @@ TEST_F(KfdTopologyTest, FailedSnapshotAllocationsLeaveNoMetadataOrOutput) {
     }
     EXPECT_EQ(state.live_count, 0u);
   }
+}
+
+TEST_F(KfdTopologyTest, HostAtomicWidthsFollowEveryCpuRoute) {
+  WriteProperties("io_links_count 3\n");
+  WriteIoLink(0, 0, 0, 1);
+  // GPU peer atomic flags cannot qualify or restrict the CPU route.
+  WriteIoLink(2, 8, 42, 13);
+  for (uint32_t flags : {0u, 1u, 3u, 5u, 9u, 13u}) {
+    SCOPED_TRACE(flags);
+    WriteIoLink(1, 1, 0, flags);
+    amdf_gpu_kfd_topology_t topology = {};
+    ASSERT_EQ(amdf_gpu_kfd_topology_initialize(
+                  &endpoint_, amdf_allocator_system(), &topology),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(topology.host_atomics.supports_32, (flags & 5u) == 1u);
+    EXPECT_EQ(topology.host_atomics.supports_64, (flags & 9u) == 1u);
+    amdf_gpu_kfd_topology_deinitialize(&topology, amdf_allocator_system());
+  }
+}
+
+TEST_F(KfdTopologyTest, MissingCpuRouteDoesNotImplyAtomicSupport) {
+  for (const char* properties :
+       {"", "io_links_count 0\n", "io_links_count 1\n"}) {
+    SCOPED_TRACE(properties);
+    WriteProperties(properties);
+    WriteIoLink(0, 8, 42, 1);
+    amdf_gpu_kfd_topology_t topology = {};
+    ASSERT_EQ(amdf_gpu_kfd_topology_initialize(
+                  &endpoint_, amdf_allocator_system(), &topology),
+              AMDF_STATUS_OK);
+    EXPECT_FALSE(topology.host_atomics.supports_32);
+    EXPECT_FALSE(topology.host_atomics.supports_64);
+    amdf_gpu_kfd_topology_deinitialize(&topology, amdf_allocator_system());
+  }
+}
+
+TEST_F(KfdTopologyTest, IncompleteCpuRouteDoesNotPublishTopology) {
+  WriteProperties("io_links_count 1\n");
+  amdf_gpu_kfd_topology_t topology;
+  std::memset(&topology, 0xA5, sizeof(topology));
+  const auto original = topology;
+  EXPECT_EQ(amdf_gpu_kfd_topology_initialize(
+                &endpoint_, amdf_allocator_system(), &topology),
+            amdf_linux_error(ENOENT));
+  EXPECT_EQ(std::memcmp(&topology, &original, sizeof(topology)), 0);
 }
 
 }  // namespace

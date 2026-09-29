@@ -6,8 +6,6 @@
 
 #include "libamdf/src/gpu/umd/memory.h"
 
-#include <drm/amdgpu_drm.h>
-
 #include <cstring>
 
 #include "amdf/gpu.h"
@@ -777,10 +775,10 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151GroupUsesBackingAndConsumerFacts) {
             system.visibility.describe_site);
 }
 
-TEST(LinuxGpuMemoryProfileTest, Gfx1151NativeApuSystemQualifiesOnlyPm4Stores) {
+TEST(LinuxGpuMemoryProfileTest, SystemStoresPreserveIndependentSdmaPolicy) {
   auto device = MakeGfx1151Device();
   device.topology.gc_ip = {11, 5, 1, true};
-  device.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  device.topology.host_atomics = {true, true};
   amdf_gpu_endpoint_profile_t endpoint = {};
   ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
   ASSERT_EQ(endpoint.queue_family_count, 3u);
@@ -790,6 +788,8 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151NativeApuSystemQualifiesOnlyPm4Stores) {
   amdf_memory_site_query_t query = {
       .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
       .flags = profile.guaranteed_flags,
+      .atomic_operations_32 = profile.atomic_operations_32,
+      .atomic_operations_64 = profile.atomic_operations_64,
       .queue_family_info = &endpoint.queue_families[0],
   };
   amdf_memory_site_description_t description = {};
@@ -831,10 +831,10 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151NativeApuSystemQualifiesOnlyPm4Stores) {
   EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
 }
 
-TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemStoresDoNotRequireSdma) {
+TEST(LinuxGpuMemoryProfileTest, SystemStoresDoNotRequireSdma) {
   auto device = MakeGfx1151Device();
   device.topology.gc_ip = {11, 5, 1, true};
-  device.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  device.topology.host_atomics = {true, true};
   device.topology.sdma = {};
   amdf_gpu_endpoint_profile_t endpoint = {};
   ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
@@ -845,6 +845,8 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemStoresDoNotRequireSdma) {
   const amdf_memory_site_query_t query = {
       .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
       .flags = profile.guaranteed_flags,
+      .atomic_operations_32 = profile.atomic_operations_32,
+      .atomic_operations_64 = profile.atomic_operations_64,
       .queue_family_info = &endpoint.queue_families[0],
   };
   amdf_memory_site_description_t description = {};
@@ -855,51 +857,10 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemStoresDoNotRequireSdma) {
   ExpectSiteUnsupported(profile, kTransferFamily);
 }
 
-TEST(LinuxGpuMemoryProfileTest, SystemStoresRequireExactPhysicalApuRoute) {
-  auto qualified = MakeGfx1151Device();
-  qualified.topology.gc_ip = {11, 5, 1, true};
-  qualified.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
-  for (uint32_t mode : {AMDGPU_IDS_FLAGS_MODE_VF, AMDGPU_IDS_FLAGS_MODE_PT}) {
-    auto device = qualified;
-    device.topology.device_flags |= mode << AMDGPU_IDS_FLAGS_MODE_SHIFT;
-    const auto profile = QueryProfile(&device, 0);
-    EXPECT_EQ(profile.atomic_operations_32, 0u);
-    EXPECT_EQ(profile.atomic_operations_64, 0u);
-  }
-  for (uint32_t missing_fact = 0; missing_fact < 4; ++missing_fact) {
-    SCOPED_TRACE(missing_fact);
-    auto device = qualified;
-    switch (missing_fact) {
-      case 0:
-        device.topology.device_flags = 0;
-        break;
-      case 1:
-        device.topology.gc_ip.exact = false;
-        break;
-      case 2:
-        device.topology.gc_ip.revision = 2;
-        break;
-      case 3:
-        device.topology.properties.gfx_ip.stepping = 2;
-        break;
-    }
-    const auto profile = QueryProfile(&device, 0);
-    EXPECT_EQ(profile.atomic_operations_32, 0u);
-    EXPECT_EQ(profile.atomic_operations_64, 0u);
-  }
-  qualified.native_lifetime = AMDF_NATIVE_LIFETIME_PROCESS;
-  qualified.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
-  for (uint32_t ordinal : {1u, 2u}) {
-    const auto profile = QueryProfile(&qualified, ordinal);
-    EXPECT_EQ(profile.atomic_operations_32, 0u);
-    EXPECT_EQ(profile.atomic_operations_64, 0u);
-  }
-}
-
 TEST(LinuxGpuMemoryProfileTest, SystemGroupStoresRemainConsumerSpecific) {
   auto qualified = MakeGfx1151Device();
   qualified.topology.gc_ip = {11, 5, 1, true};
-  qualified.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
+  qualified.topology.host_atomics = {true, true};
   auto unqualified = MakeGfx1151Device();
   unqualified.topology.gpu_id = qualified.topology.gpu_id + 1;
   const auto qualified_profile = QueryProfile(&qualified, 0);
@@ -928,6 +889,8 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupStoresRemainConsumerSpecific) {
   const amdf_memory_site_query_t query = {
       .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
       .flags = projected.guaranteed_flags,
+      .atomic_operations_32 = projected.atomic_operations_32,
+      .atomic_operations_64 = projected.atomic_operations_64,
       .queue_family_info = &endpoint.queue_families[0],
   };
   amdf_memory_site_description_t description = {};
@@ -1031,8 +994,28 @@ TEST(LinuxGpuMemoryProfileTest, LegacySdmaPolicyExcludesOtherNativeEngines) {
     device.topology.sdma.ip = ip;
     for (uint32_t ordinal : {0u, 1u}) {
       const auto profile = QueryProfile(&device, ordinal);
-      EXPECT_EQ(profile.visibility.describe_site,
-                amdf_gpu_umd_memory_describe_site);
+      amdf_queue_family_info_t family = {
+          .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+          .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
+          .roles = AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL,
+          .cache_operations = AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                              AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
+          .cache_transition_kinds = AMDF_CACHE_TRANSITION_KINDS_GLOBAL,
+      };
+      const amdf_memory_site_query_t query = {
+          .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+          .flags = profile.guaranteed_flags,
+          .queue_family_info = &family,
+      };
+      amdf_memory_site_description_t description = {};
+      EXPECT_EQ(amdf_status_code(
+                    profile.visibility.describe_site(&query, &description)),
+                AMDF_STATUS_CODE_UNSUPPORTED);
+      family.format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR;
+      ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+                AMDF_STATUS_OK);
+      EXPECT_EQ(description.release.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+      EXPECT_EQ(description.acquire.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
     }
   }
 }
@@ -1097,6 +1080,47 @@ TEST(LinuxGpuMemoryProfileTest, LegacySdmaExcludesHostApertureAndRegistration) {
   const auto registered = QueryProfile(&device, 2);
   EXPECT_EQ(registered.visibility.describe_site,
             amdf_gpu_umd_memory_describe_site);
+}
+
+TEST(LinuxGpuMemoryProfileTest, SystemStoresRequireNativeMappingAndCpuRoutes) {
+  amdf_gpu_umd_device_t device = {};
+  device.native_lifetime = AMDF_NATIVE_LIFETIME_PROCESS;
+  device.page_size = 4096;
+  device.topology.virtual_address.begin = UINT64_C(0x10000);
+  device.topology.virtual_address.end = UINT64_C(1) << 48;
+  device.topology.gc_ip = {.major = 11, .exact = true};
+  device.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
+  for (uint32_t widths = 0; widths < 4; ++widths) {
+    SCOPED_TRACE(widths);
+    device.topology.host_atomics.supports_32 = (widths & 1) != 0;
+    device.topology.host_atomics.supports_64 = (widths & 2) != 0;
+    for (uint32_t major : {9u, 11u, 12u}) {
+      SCOPED_TRACE(major);
+      device.topology.gc_ip.major = major;
+      for (uint32_t ordinal = 0; ordinal < 3; ++ordinal) {
+        SCOPED_TRACE(ordinal);
+        const auto profile = QueryProfile(&device, ordinal);
+        const bool native_mapping = ordinal == 0 && major == 11;
+        EXPECT_EQ(profile.atomic_operations_32,
+                  native_mapping && (widths & 1) != 0
+                      ? AMDF_ATOMIC_OPERATION_STORE
+                      : 0u);
+        EXPECT_EQ(profile.atomic_operations_64,
+                  native_mapping && (widths & 2) != 0
+                      ? AMDF_ATOMIC_OPERATION_STORE
+                      : 0u);
+      }
+    }
+  }
+  device.topology.gc_ip = {
+      .major = 11, .minor = 5, .revision = 0, .exact = true};
+  EXPECT_EQ(QueryProfile(&device, 0).atomic_operations_64,
+            AMDF_ATOMIC_OPERATION_STORE);
+  device.topology.gc_ip.revision = 1;
+  EXPECT_EQ(QueryProfile(&device, 0).atomic_operations_64,
+            AMDF_ATOMIC_OPERATION_STORE);
+  device.topology.gc_ip.exact = false;
+  EXPECT_EQ(QueryProfile(&device, 0).atomic_operations_64, 0u);
 }
 
 }  // namespace

@@ -60,6 +60,8 @@ static amdf_status_t amdf_gpu_memory_describe_site(
   const amdf_memory_site_query_t query = {
       .access = access->info.access,
       .flags = memory->info.flags | access->info.flags,
+      .atomic_operations_32 = access->info.atomic_operations_32,
+      .atomic_operations_64 = access->info.atomic_operations_64,
       .queue_family_info = &queue_family_info,
   };
   return access->describe_site(&query, out_description);

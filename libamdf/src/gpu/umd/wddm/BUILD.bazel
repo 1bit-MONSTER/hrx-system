@@ -33,6 +33,8 @@ amdf_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         "//libamdf/src:memory_profile",
+        "//libamdf/src/gpu/umd:memory",
+        "//libamdf/src/gpu/umd/wddm/wkmi:bridge_api",
         "//libamdf/src/platform",
         "//libamdf/src/platform/windows:endpoint",
     ],

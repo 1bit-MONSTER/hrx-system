@@ -51,6 +51,10 @@ typedef struct amdf_memory_site_query_t {
   amdf_memory_access_t access;
   // Backing and access properties established by native construction.
   amdf_memory_flags_t flags;
+  // Native target operations established for naturally aligned 32-bit words.
+  amdf_atomic_operations_t atomic_operations_32;
+  // Native target operations established for naturally aligned 64-bit words.
+  amdf_atomic_operations_t atomic_operations_64;
   // Borrowed immutable properties of the exact local queue family.
   const amdf_queue_family_info_t* queue_family_info;
 } amdf_memory_site_query_t;

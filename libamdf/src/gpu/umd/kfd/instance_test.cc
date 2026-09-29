@@ -182,7 +182,6 @@ TEST_F(KfdInstanceTest, NativeMemoryQueryPrecedesBootstrapAndPublication) {
             native_.device_info.virtual_address_max);
   EXPECT_EQ(topology.virtual_address.alignment, 4096u);
   EXPECT_EQ(topology.memory_features, AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY);
-  EXPECT_EQ(topology.device_flags, native_.device_info.ids_flags);
   EXPECT_EQ(topology.vram.total_byte_length, UINT64_C(8) << 30);
 
   // Device recreation refreshes actual facts but never bootstraps an acquired
@@ -200,7 +199,6 @@ TEST_F(KfdInstanceTest, NativeMemoryQueryPrecedesBootstrapAndPublication) {
       (AMDGPU_IDS_FLAGS_MODE_PT << AMDGPU_IDS_FLAGS_MODE_SHIFT);
   ASSERT_EQ(PrepareVm(11, &descriptor, &topology), AMDF_STATUS_OK);
   EXPECT_EQ(topology.memory_features, 0u);
-  EXPECT_EQ(topology.device_flags, native_.device_info.ids_flags);
   EXPECT_EQ(native_.Count(Operation::kAcquire), 1u);
   EXPECT_EQ(native_.Count(Operation::kOpenRender), 1u);
 }

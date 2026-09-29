@@ -30,8 +30,13 @@ typedef struct amdf_gpu_kfd_topology_t {
   uint32_t gpu_id;
   // Exact graphics/compute IP identity from native discovery.
   amdf_gpu_kfd_ip_version_t gc_ip;
-  // Native DEV_INFO identity flags, including APU and virtualization mode.
-  uint64_t device_flags;
+  // Host atomic widths supported by every reported CPU-facing native route.
+  struct {
+    // Whether enabled CPU routes support naturally aligned 32-bit words.
+    bool supports_32;
+    // Whether enabled CPU routes support naturally aligned 64-bit words.
+    bool supports_64;
+  } host_atomics;
   // Physical local-memory reachability reported by the installed driver.
   struct {
     // Cached native DRM hive identity; zero when this GPU has no hive.
@@ -88,7 +93,7 @@ extern "C" {
 // Reads a coherent cached topology snapshot, including physical heap totals
 // and owned peer metadata. Success transfers discovery metadata to the caller;
 // failure leaves the output unchanged. No execution resources are acquired.
-// Device flags, memory features and the virtual-address interval are supplied
+// Memory features and the virtual-address interval are supplied
 // separately by native device metadata on the consuming connection.
 // A missing KFD node returns UNSUPPORTED; malformed or changing state is an
 // error.

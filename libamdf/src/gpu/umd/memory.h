@@ -100,6 +100,14 @@ amdf_status_t amdf_gpu_umd_memory_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description);
 
+// Describes owned SYSTEM backing whose native profile establishes CPU/CP
+// STORE support. Exact coherent read/write access and PM4 queue STORE support
+// are still required independently for each width. Other queue and memory
+// operations inherit the ordinary visibility description without atomic reach.
+amdf_status_t amdf_gpu_umd_memory_describe_system_store_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description);
+
 // Releases partial or complete native state and its metadata. Failure leaves
 // partial state for the common owner to abandon after preserving required
 // backing; this is not a surviving public memory handle.

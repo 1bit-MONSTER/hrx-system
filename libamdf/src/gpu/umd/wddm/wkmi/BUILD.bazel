@@ -19,6 +19,7 @@ amdf_cc_library(
     name = "bridge_api",
     hdrs = ["bridge_api.h"],
     target_compatible_with = ["@platforms//os:windows"],
+    visibility = ["//libamdf/src/gpu/umd/wddm:__pkg__"],
 )
 
 amdf_cc_library(

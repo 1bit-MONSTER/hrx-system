@@ -926,6 +926,8 @@ static amdf_status_t amdf_memory_profile_describe_site(
     const amdf_memory_site_query_t local_query = {
         .access = query->accesses[ordinal].requirements.access,
         .flags = amdf_memory_profile_access_flags(plan, query, ordinal),
+        .atomic_operations_32 = native->atomic_operations_32,
+        .atomic_operations_64 = native->atomic_operations_64,
         .queue_family_info = &family,
     };
     return native->visibility.describe_site(&local_query, out_description);

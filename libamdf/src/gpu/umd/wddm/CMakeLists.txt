@@ -36,6 +36,8 @@ iree_cc_library(
     "memory_profile.c"
   DEPS
     amdf::headers
+    libamdf::src::gpu::umd::memory
+    libamdf::src::gpu::umd::wddm::wkmi::bridge_api
     libamdf::src::memory_profile
     libamdf::src::platform
     libamdf::src::platform::windows::endpoint

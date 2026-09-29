@@ -33,8 +33,11 @@ extern "C" {
 // First version consuming GPU queues even when native destruction fails.
 #define AMDF_WKMI_BRIDGE_ABI_VERSION_4 4u
 
+// First version carrying native CPU atomic route properties.
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_5 5u
+
 // Most recent private bridge ABI version described by this header.
-#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_4
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_5
 
 // Result of one bridge operation.
 typedef uint32_t amdf_wkmi_bridge_result_t;
@@ -95,13 +98,17 @@ typedef struct amdf_wkmi_bridge_gpu_properties_t {
   uint32_t supports_pm4_kernel_queue;
   // Nonzero when a native SDMA hardware queue can be constructed.
   uint32_t supports_sdma_kernel_queue;
+  // Nonzero for a discrete adapter, zero for an integrated processor.
+  uint32_t is_discrete;
+  // Nonzero when the discrete adapter's platform route supports CPU atomics.
+  uint32_t supports_platform_atomics;
 } amdf_wkmi_bridge_gpu_properties_t;
 
 #ifdef __cplusplus
-static_assert(sizeof(amdf_wkmi_bridge_gpu_properties_t) == 56,
+static_assert(sizeof(amdf_wkmi_bridge_gpu_properties_t) == 64,
               "WKMI GPU property ABI must remain stable");
 #else
-_Static_assert(sizeof(amdf_wkmi_bridge_gpu_properties_t) == 56,
+_Static_assert(sizeof(amdf_wkmi_bridge_gpu_properties_t) == 64,
                "WKMI GPU property ABI must remain stable");
 #endif
 
