@@ -83,7 +83,7 @@ actual native queue service:
 | --- | --- | --- | --- |
 | Linux CDNA | Outside this corpus's compute matrix. | USER | USER |
 | Linux RDNA | USER | USER | USER |
-| Windows RDNA | KERNEL | Unavailable. | KERNEL |
+| Windows RDNA | KERNEL | Unavailable. | KERNEL on HWS-enabled engines. |
 
 Tests specifically exercising mapped USER state require that service
 independently of ordinary command behavior. Ordinary Linux RDNA AQL dispatch
@@ -91,6 +91,17 @@ does not imply support for the optional vendor barrier-value packet. A case
 using that packet requires its separate family capability before activation.
 SYSTEM-memory cases require their actual backing and visibility contract;
 only LOCAL-memory cases require a device-local heap.
+
+Windows SDMA admission requires a hardware-scheduled (HWS) engine. The provider
+does not expose the software-scheduled (SWS) submission path; deployments with
+only that path report no SDMA family. Ordinary discovery skips those cases,
+while an explicitly required SDMA case fails qualification.
+
+The CPU/PM4 atomic cases cover naturally aligned 32-bit and 64-bit STORE to
+owned coherent SYSTEM memory. They require matching prospective and achieved
+memory operation masks, queue operation support, and SYSTEM atomic reach in
+both directions. Other operations, backings, and mapping policies require
+their own contracts; payload visibility remains independent of atomic reach.
 
 Each `encoding/` package has one plain host-test binary. Package policy removes
 the GPU execution requirement for these exact packages, so byte-layout checks
