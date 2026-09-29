@@ -51,9 +51,9 @@ typedef struct loom_amdgpu_wait_completion_node_t {
   loom_amdgpu_wait_counter_mask_t completed_before_block_exit_counter_mask;
   // Counter domains in which the node can create a target hazard.
   loom_amdgpu_wait_counter_mask_t hazard_counter_mask;
-  // Counter classes advanced by workgroup-memory writes.
-  loom_amdgpu_wait_counter_mask_t workgroup_write_counter_mask;
-  // Workgroup-memory write counters observed by this node's barrier.
+  // Counter classes advanced by workgroup-memory accesses.
+  loom_amdgpu_wait_counter_mask_t workgroup_access_counter_mask;
+  // Workgroup-memory access counters observed by this node's barrier.
   loom_amdgpu_wait_counter_mask_t workgroup_barrier_counter_mask;
 } loom_amdgpu_wait_completion_node_t;
 
