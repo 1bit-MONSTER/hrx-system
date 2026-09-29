@@ -941,8 +941,8 @@ static iree_status_t loom_math_legalize_build_widen_f32_operand(
                                        source->location, out_value);
 }
 
-// Addition, subtraction and multiplication of f16/bf16 operands round correctly
-// through IEEE f32 arithmetic with gradual underflow.
+// Addition, subtraction and multiplication of FP8, f16 and bf16 operands round
+// correctly through IEEE f32 arithmetic with gradual underflow.
 // Other arithmetic requires its own proof against intermediate rounding.
 static iree_status_t loom_math_legalize_build_widen_f32_round(
     loom_builder_t* builder, const loom_math_legalize_recipe_context_t* context,

@@ -605,37 +605,37 @@ static iree_status_t loom_math_target_legalize_binary(
 static const loom_target_legalizer_rule_t kMathLegalizerRules[] = {
     {
         .root_kind = LOOM_OP_SCALAR_ADDF,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_math_target_legalize_binary,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
     },
     {
         .root_kind = LOOM_OP_SCALAR_SUBF,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_math_target_legalize_binary,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
     },
     {
         .root_kind = LOOM_OP_SCALAR_MULF,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_math_target_legalize_binary,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
     },
     {
         .root_kind = LOOM_OP_VECTOR_ADDF,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_math_target_legalize_binary,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
     },
     {
         .root_kind = LOOM_OP_VECTOR_SUBF,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_math_target_legalize_binary,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MULF,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .legalize = loom_math_target_legalize_binary,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
     },

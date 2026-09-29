@@ -135,7 +135,10 @@ static void loom_amdgpu_math_policy_query(
   if (query->math_op == LOOM_TARGET_MATH_OP_ADDF ||
       query->math_op == LOOM_TARGET_MATH_OP_SUBF ||
       query->math_op == LOOM_TARGET_MATH_OP_MULF) {
-    if (query->element_type == LOOM_SCALAR_TYPE_BF16) {
+    if (loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                          LOOM_SCALAR_TYPE_SET_F8E5M2 |
+                                          LOOM_SCALAR_TYPE_SET_BF16,
+                                      query->element_type)) {
       if (loom_amdgpu_math_policy_has_native_packed_bf16_binary(policy,
                                                                 query)) {
         *out_decision =

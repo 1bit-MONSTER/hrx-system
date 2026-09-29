@@ -232,11 +232,10 @@ static bool loom_amdgpu_select_scalar_storage(
     return true;
   }
   if (loom_type_is_scalar(type) &&
-      loom_scalar_type_set_contains(
-          LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16 |
-              LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2 |
-              LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
-          loom_type_element_type(type))) {
+      loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_I8 |
+                                        LOOM_SCALAR_TYPE_SET_I16 |
+                                        LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+                                    loom_type_element_type(type))) {
     *out_register_count = 1;
     return true;
   }
