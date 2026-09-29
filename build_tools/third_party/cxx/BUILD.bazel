@@ -39,6 +39,7 @@ exports_files([
     "record_layout_owner.patch",
     "reference_parameter_binding.patch",
     "reference_template_arguments.patch",
+    "rooted_subobject_addresses.patch",
     "semantic_model_generation.patch",
     "template_lookahead.patch",
     "unsigned_complement.patch",

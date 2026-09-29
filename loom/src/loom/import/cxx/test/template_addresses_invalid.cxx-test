@@ -229,3 +229,22 @@ unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
   return choose<forward(local)>();
 }
+
+// ====
+// Repeated bases require the selected inheritance path. Until member lookup
+// retains that path, reject the address instead of conflating both Base
+// subobjects through their shared field declaration.
+struct Base {
+  unsigned value;
+};
+struct Left : Base {};
+struct Right : Base {};
+struct Both : Left, Right {};
+extern Both object;
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object.Left::value>();
+}

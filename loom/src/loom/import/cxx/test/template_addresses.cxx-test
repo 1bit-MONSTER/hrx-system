@@ -34,6 +34,63 @@ func.def @choose_right(%input: i32) -> (i32) {
 }
 
 // ====
+// Field addresses retain their declared object through direct access,
+// reference-returning members, nested records, and arrays of records.
+struct Parameters {
+  unsigned scale, bias;
+  constexpr const unsigned& get() const { return scale; }
+};
+struct Pair {
+  Parameters left, right;
+};
+constexpr Parameters first{3, 5}, second{7, 11};
+constexpr Pair pair{{3, 5}, {7, 11}};
+constexpr Parameters table[2] = {{3, 5}, {7, 11}};
+extern Parameters external;
+template <const unsigned& value>
+struct Ref {};
+static_assert(__is_same(Ref<first.get()>, Ref<first.scale>));
+static_assert(!__is_same(Ref<first.scale>, Ref<second.scale>));
+static_assert(!__is_same(Ref<first.scale>, Ref<first.bias>));
+static_assert(__is_same(Ref<pair.left.get()>, Ref<pair.left.scale>));
+static_assert(!__is_same(Ref<pair.left.scale>, Ref<pair.right.scale>));
+static_assert(__is_same(Ref<table[1].get()>, Ref<table[1].scale>));
+static_assert(!__is_same(Ref<table[0].scale>, Ref<table[1].scale>));
+static_assert(__is_same(Ref<external.get()>, Ref<external.scale>));
+template <const unsigned& scale, const unsigned& bias>
+unsigned apply(unsigned value) {
+  return value * scale + bias;
+}
+unsigned entry(unsigned value) {
+  return apply<first.get(), first.bias>(value) +
+         apply<second.scale, second.bias>(value);
+}
+
+// ----
+func.def public @entry(%value: i32) -> (i32) {
+  %2 = func.call @apply_first_scale_first_bias(%value) : (i32) -> (i32)
+  %3 = func.call @apply_second_scale_second_bias(%value) : (i32) -> (i32)
+  %4 = scalar.addi %2, %3 : i32
+  func.return %4 : i32
+}
+
+func.def @apply_first_scale_first_bias(%value: i32) -> (i32) {
+  %7 = scalar.constant 3 : i32
+  %8 = scalar.muli %value, %7 : i32
+  %9 = scalar.constant 5 : i32
+  %10 = scalar.addi %8, %9 : i32
+  func.return %10 : i32
+}
+
+func.def @apply_second_scale_second_bias(%value: i32) -> (i32) {
+  %13 = scalar.constant 7 : i32
+  %14 = scalar.muli %value, %13 : i32
+  %15 = scalar.constant 11 : i32
+  %16 = scalar.addi %14, %15 : i32
+  func.return %16 : i32
+}
+
+// ====
 // Repeated references and aliases reuse a specialization; distinct objects do
 // not, regardless of equal scalar contents.
 constexpr unsigned left = 5, right = 5;

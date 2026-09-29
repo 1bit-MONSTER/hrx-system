@@ -1,0 +1,813 @@
+diff --git a/packages/cxx-frontend/src/Semantic.ts b/packages/cxx-frontend/src/Semantic.ts
+index 08c0e0f7f5..d4308eb789 100644
+--- a/packages/cxx-frontend/src/Semantic.ts
++++ b/packages/cxx-frontend/src/Semantic.ts
+@@ -188,7 +188,7 @@ function* typeItems(
+ const ConstComplexSlotBase = 0;
+ const ConstObjectSlotBase = ConstComplexSlotBase + 2;
+ const ConstAddressSlotBase = ConstObjectSlotBase + 3;
+-const ConstLabelAddressSlotBase = ConstAddressSlotBase + 5;
++const ConstLabelAddressSlotBase = ConstAddressSlotBase + 7;
+ const ASTSlotBase = 0;
+ const AttributeSpecifierASTSlotBase = ASTSlotBase + 3;
+ const AttributeTokenASTSlotBase = AttributeSpecifierASTSlotBase + 4;
+@@ -846,6 +846,19 @@ export class ConstAddress extends ModelObject {
+   get offset(): bigint {
+     return cxx.readMiscBigInt(this.handle, ConstAddressSlotBase + 4) as bigint;
+   }
++  get parent(): ConstAddress | undefined {
++    return objOf(
++      cxx.readMisc(this.handle, ConstAddressSlotBase + 5),
++      this.modelOwner,
++      ConstAddress,
++    );
++  }
++  get rootSymbol(): Symbol | undefined {
++    return symbolOf(
++      cxx.readMisc(this.handle, ConstAddressSlotBase + 6),
++      this.modelOwner,
++    );
++  }
+ }
+ export class ConstLabelAddress extends ModelObject {
+   get name(): string {
+diff --git a/src/js/cxx/reflection.cc b/src/js/cxx/reflection.cc
+index 8d22d65ab0..fa70aee07c 100644
+--- a/src/js/cxx/reflection.cc
++++ b/src/js/cxx/reflection.cc
+@@ -39,7 +39,7 @@ constexpr int ConstObjectSlotBase = ConstComplexSlotBase + 2;
+
+ constexpr int ConstAddressSlotBase = ConstObjectSlotBase + 3;
+
+-constexpr int ConstLabelAddressSlotBase = ConstAddressSlotBase + 5;
++constexpr int ConstLabelAddressSlotBase = ConstAddressSlotBase + 7;
+
+ constexpr int ASTSlotBase = 0;
+
+@@ -28109,6 +28109,16 @@ auto readMisc(std::intptr_t handle, int slot) -> double {
+       return static_cast<double>(reinterpret_cast<std::intptr_t>(
+           static_cast<const ::cxx::Literal*>(self->stringLiteral())));
+     }
++    case ConstAddressSlotBase + 5: {
++      auto self = reinterpret_cast<const ::cxx::ConstAddress*>(handle);
++      return static_cast<double>(
++          reinterpret_cast<std::intptr_t>(self->parent().get()));
++    }
++    case ConstAddressSlotBase + 6: {
++      auto self = reinterpret_cast<const ::cxx::ConstAddress*>(handle);
++      return static_cast<double>(reinterpret_cast<std::intptr_t>(
++          static_cast<const ::cxx::Symbol*>(self->rootSymbol())));
++    }
+   }
+   cxx_runtime_error("unknown model slot");
+ }
+diff --git a/src/parser/cxx/ast_interpreter.cc b/src/parser/cxx/ast_interpreter.cc
+index ebff4e7e78..f661fd1ac8 100644
+--- a/src/parser/cxx/ast_interpreter.cc
++++ b/src/parser/cxx/ast_interpreter.cc
+@@ -551,7 +551,7 @@ void ASTInterpreter::applyNsdmis(const std::shared_ptr<ConstObject>& obj) {
+   auto classType = unqualified_cast<ClassType>(obj->type());
+   auto classSymbol = classType ? classType->symbol() : nullptr;
+   if (!classSymbol) return;
+-  auto savedThis = std::exchange(thisObject_, obj);
++  auto savedThis = std::exchange(receiver_, Receiver{obj, {}});
+   for (auto member : classSymbol->members()) {
+     auto field = symbol_cast<FieldSymbol>(member);
+     if (!field || field->isStatic() || !field->initializer()) continue;
+@@ -560,14 +560,14 @@ void ASTInterpreter::applyNsdmis(const std::shared_ptr<ConstObject>& obj) {
+     obj->setMember(field, std::move(*value));
+     if (classSymbol->isUnion()) break;
+   }
+-  thisObject_ = std::move(savedThis);
++  receiver_ = std::move(savedThis);
+ }
+
+ auto ASTInterpreter::initializeDefaultedObject(
+     const std::shared_ptr<ConstObject>& obj, ClassSymbol* classSymbol) -> bool {
+   if (!obj || !classSymbol) return false;
+   classSymbol = classSymbol->resolvedDefinition();
+-  auto savedThis = std::exchange(thisObject_, obj);
++  auto savedThis = std::exchange(receiver_, Receiver{obj, {}});
+
+   for (auto base : classSymbol->baseClasses()) {
+     if (base->isVirtual()) continue;
+@@ -575,7 +575,7 @@ auto ASTInterpreter::initializeDefaultedObject(
+     if (!baseClass) continue;
+     auto value = defaultConstruct(baseClass->type());
+     if (!value) {
+-      thisObject_ = std::move(savedThis);
++      receiver_ = std::move(savedThis);
+       return false;
+     }
+     obj->addMember(base, std::move(*value));
+@@ -588,7 +588,7 @@ auto ASTInterpreter::initializeDefaultedObject(
+     if (field->initializer()) {
+       auto value = evaluate(field->initializer());
+       if (!value) {
+-        thisObject_ = std::move(savedThis);
++        receiver_ = std::move(savedThis);
+         return false;
+       }
+       obj->setMember(field, std::move(*value));
+@@ -599,7 +599,7 @@ auto ASTInterpreter::initializeDefaultedObject(
+     if (!obj->subobject(field)) {
+       auto value = defaultConstruct(field->type());
+       if (!value) {
+-        thisObject_ = std::move(savedThis);
++        receiver_ = std::move(savedThis);
+         return false;
+       }
+       obj->setMember(field, std::move(*value));
+@@ -607,7 +607,7 @@ auto ASTInterpreter::initializeDefaultedObject(
+     if (classSymbol->isUnion()) break;
+   }
+
+-  thisObject_ = std::move(savedThis);
++  receiver_ = std::move(savedThis);
+   return true;
+ }
+
+@@ -682,16 +682,16 @@ auto ASTInterpreter::constructSubobject(MemInitializerAST* ast,
+
+ void ASTInterpreter::applyMemInitializer(MemInitializerAST* ast,
+                                          std::vector<ConstValue> args) {
+-  if (!ast->symbol || !thisObject_) return;
++  if (!ast->symbol || !receiver_.object) return;
+
+   if (auto cls = symbol_cast<ClassSymbol>(ast->symbol)) {
+     if (cls != currentConstructorClass_) return;
+     if (!ast->constructor) return;
+-    auto result = evaluateConstructor(ast->constructor, thisObject_->type(),
+-                                      std::move(args));
++    auto result = evaluateConstructor(
++        ast->constructor, receiver_.object->type(), std::move(args));
+     if (result) {
+       if (auto obj = std::get_if<std::shared_ptr<ConstObject>>(&*result)) {
+-        if (*obj) *thisObject_ = **obj;
++        if (*obj) *receiver_.object = **obj;
+       }
+     }
+     return;
+@@ -705,11 +705,11 @@ void ASTInterpreter::applyMemInitializer(MemInitializerAST* ast,
+       auto result =
+           constructSubobject(ast, baseClassSym->type(), std::move(args));
+       if (result)
+-        thisObject_->setMember(base, std::move(*result));
++        receiver_.object->setMember(base, std::move(*result));
+       else
+         aborted_ = true;
+     } else if (!args.empty()) {
+-      thisObject_->setMember(base, std::move(args.front()));
++      receiver_.object->setMember(base, std::move(args.front()));
+     }
+     return;
+   }
+@@ -720,13 +720,14 @@ void ASTInterpreter::applyMemInitializer(MemInitializerAST* ast,
+   if (ast->constructor) {
+     auto result = constructSubobject(ast, field->type(), std::move(args));
+     if (result)
+-      thisObject_->setMember(field, std::move(*result));
++      receiver_.object->setMember(field, std::move(*result));
+     else
+       aborted_ = true;
+     return;
+   }
+
+-  if (!args.empty()) thisObject_->setMember(field, std::move(args.front()));
++  if (!args.empty())
++    receiver_.object->setMember(field, std::move(args.front()));
+ }
+
+ auto ASTInterpreter::defaultConstruct(const Type* type)
+@@ -854,8 +855,7 @@ auto ASTInterpreter::destroyValue(const Type* type, ConstValue& value) -> bool {
+ }
+
+ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
+-                                     CallResultKind kind,
+-                                     std::shared_ptr<ConstObject> object,
++                                     CallResultKind kind, Receiver receiver,
+                                      bool constructor) -> CallResult {
+   if (!function || !function->isConstexpr() || depth_ >= kMaxDepth) return {};
+   auto definition = function->definition();
+@@ -876,8 +876,14 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
+   auto savedCaptureAddress =
+       std::exchange(captureReturnAddress_, kind == CallResultKind::kAddress);
+   auto savedFunction = std::exchange(currentFunction_, function);
+-  auto savedThis = thisObject_;
+-  if (object) thisObject_ = std::move(object);
++  if (receiver.address && !receiver.object) {
++    auto value = loadAddress(*receiver.address, 0);
++    if (value) {
++      if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value))
++        receiver.object = *object;
++    }
++  }
++  auto savedThis = std::exchange(receiver_, std::move(receiver));
+   auto savedConstructor = std::exchange(
+       currentConstructorClass_,
+       constructor ? symbol_cast<ClassSymbol>(function->parent()) : nullptr);
+@@ -895,13 +901,13 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
+       for (auto field :
+            views::members(currentConstructorClass_->resolvedDefinition()) |
+                views::non_static_fields) {
+-        if (thisObject_->subobject(field)) continue;
++        if (receiver_.object->subobject(field)) continue;
+         auto value = defaultConstruct(field->type());
+         if (!value) {
+           aborted_ = true;
+           break;
+         }
+-        thisObject_->setMember(field, std::move(*value));
++        receiver_.object->setMember(field, std::move(*value));
+       }
+     }
+   }
+@@ -911,7 +917,7 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
+     returnValue_ = ConstValue{std::intmax_t{0}};
+   CallResult result;
+   if (constructor)
+-    result.value = thisObject_;
++    result.value = receiver_.object;
+   else if (kind == CallResultKind::kAddress)
+     result.value = returnAddress_;
+   else if (kind == CallResultKind::kLValue)
+@@ -929,7 +935,7 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
+   captureReturnLValue_ = savedCaptureLValue;
+   captureReturnAddress_ = savedCaptureAddress;
+   currentFunction_ = savedFunction;
+-  thisObject_ = std::move(savedThis);
++  receiver_ = std::move(savedThis);
+   currentConstructorClass_ = savedConstructor;
+   defaultInitializerContext_ = savedContext;
+   if (aborted_) return {};
+@@ -945,7 +951,9 @@ auto ASTInterpreter::evaluateCall(FunctionSymbol* func,
+   if (!func || !func->isConstexpr() || !bindParameters(frame, func, args))
+     return std::nullopt;
+   return executeFunction(func, std::move(frame), CallResultKind::kValue,
+-                         std::move(thisObject))
++                         thisObject ? Receiver{std::move(thisObject), {}}
++                         : func->isImplicitObjectMemberFunction() ? receiver_
++                                                                  : Receiver{})
+       .value;
+ }
+
+@@ -955,7 +963,8 @@ auto ASTInterpreter::evaluateCallLValue(FunctionSymbol* func,
+   Frame frame;
+   if (!func || !func->isConstexpr() || !bindParameters(frame, func, args))
+     return nullptr;
+-  return executeFunction(func, std::move(frame), CallResultKind::kLValue)
++  return executeFunction(func, std::move(frame), CallResultKind::kLValue,
++                         receiver_)
+       .lvalue;
+ }
+
+@@ -977,7 +986,8 @@ auto ASTInterpreter::evaluateConstructorFromExprs(
+   if (!bindParametersFromExprs(frame, constructor, arguments))
+     return std::nullopt;
+   return executeFunction(constructor, std::move(frame), CallResultKind::kValue,
+-                         std::make_shared<ConstObject>(type), true)
++                         Receiver{std::make_shared<ConstObject>(type), {}},
++                         true)
+       .value;
+ }
+
+@@ -1041,7 +1051,7 @@ auto ASTInterpreter::evaluateConstructor(FunctionSymbol* ctor,
+   if (!bindParameters(frame, ctor, args)) return std::nullopt;
+   auto obj = object ? object : std::make_shared<ConstObject>(classType);
+   return executeFunction(ctor, std::move(frame), CallResultKind::kValue,
+-                         std::move(obj), true)
++                         Receiver{std::move(obj), {}}, true)
+       .value;
+ }
+ }  // namespace cxx
+diff --git a/src/parser/cxx/ast_interpreter.h b/src/parser/cxx/ast_interpreter.h
+index 935307654b..894e42827d 100644
+--- a/src/parser/cxx/ast_interpreter.h
++++ b/src/parser/cxx/ast_interpreter.h
+@@ -314,9 +314,16 @@ class ASTInterpreter {
+   [[nodiscard]] auto evaluateCallExpression(CallExpressionAST* ast,
+                                             CallResultKind kind) -> CallResult;
+
++  struct Receiver {
++    // Readable evaluator value, absent for address-only external storage.
++    std::shared_ptr<ConstObject> object;
++    // Storage identity, independent of whether the object can be read.
++    std::shared_ptr<ConstAddress> address;
++  };
++
+   [[nodiscard]] auto executeFunction(FunctionSymbol* function, Frame frame,
+                                      CallResultKind kind,
+-                                     std::shared_ptr<ConstObject> object = {},
++                                     Receiver receiver = {},
+                                      bool constructor = false) -> CallResult;
+
+   [[nodiscard]] auto bindParameters(Frame& frame, FunctionSymbol* func,
+@@ -379,8 +386,11 @@ class ASTInterpreter {
+   [[nodiscard]] auto memberObject(MemberExpressionAST* ast)
+       -> std::shared_ptr<ConstObject>;
+
+-  [[nodiscard]] auto fieldOwner(ExpressionAST* ast)
+-      -> std::shared_ptr<ConstObject>;
++  [[nodiscard]] auto memberReceiver(MemberExpressionAST* ast) -> Receiver;
++
++  [[nodiscard]] auto addressOfField(const Receiver& receiver,
++                                    FieldSymbol* field)
++      -> std::optional<ConstValue>;
+
+   [[nodiscard]] auto typeInfoAddress(const Type* type)
+       -> std::optional<ConstValue>;
+@@ -405,10 +415,10 @@ class ASTInterpreter {
+   void setReturnValue(ConstValue value) { returnValue_ = std::move(value); }
+
+   [[nodiscard]] auto thisObject() const -> const std::shared_ptr<ConstObject>& {
+-    return thisObject_;
++    return receiver_.object;
+   }
+   void setThisObject(std::shared_ptr<ConstObject> obj) {
+-    thisObject_ = std::move(obj);
++    receiver_ = {std::move(obj), {}};
+   }
+
+   [[nodiscard]] auto evaluateBuiltinArithmeticOverflow(CallExpressionAST* ast)
+@@ -523,7 +533,7 @@ class ASTInterpreter {
+   bool captureReturnAddress_ = false;
+   std::optional<ConstValue> returnAddress_;
+
+-  std::shared_ptr<ConstObject> thisObject_;
++  Receiver receiver_;
+
+   ClassSymbol* currentConstructorClass_ = nullptr;
+
+diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_interpreter_expressions.cc
+index 2b7f48223a..655f98865b 100644
+--- a/src/parser/cxx/ast_interpreter_expressions.cc
++++ b/src/parser/cxx/ast_interpreter_expressions.cc
+@@ -912,9 +912,9 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
+     if (!sym) return nullptr;
+
+     if (auto field = symbol_cast<FieldSymbol>(sym)) {
+-      if (!field->isStatic() && thisObject_ &&
+-          traits.is_member_of_object_type(thisObject_->type(), field)) {
+-        return subobjectSlot(thisObject_, field);
++      if (!field->isStatic() && receiver_.object &&
++          traits.is_member_of_object_type(receiver_.object->type(), field)) {
++        return subobjectSlot(receiver_.object, field);
+       }
+       if (field->isStatic()) {
+         if (auto slot = lookupLocalSlot(sym)) return slot;
+@@ -961,10 +961,9 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
+       if (!objPtr) return nullptr;
+       auto idxVal = expression(sub->indexExpression);
+       if (!idxVal.has_value()) return nullptr;
+-      auto savedThis = thisObject_;
+-      thisObject_ = *objPtr;
++      auto savedThis = std::exchange(receiver_, Receiver{*objPtr, {}});
+       auto slot = evaluateCallLValue(op, {*idxVal});
+-      thisObject_ = savedThis;
++      receiver_ = savedThis;
+       return slot;
+     }
+
+@@ -1038,7 +1037,13 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
+     return std::make_shared<ConstAddress>(sym);
+
+   std::optional<ConstValue> storage;
+-  if (address.owner()) {
++  if (address.parent()) {
++    auto parent = loadAddress(*address.parent(), 0);
++    if (!parent) return std::nullopt;
++    auto object = std::get_if<std::shared_ptr<ConstObject>>(&*parent);
++    if (!object || !*object) return std::nullopt;
++    if (auto member = (*object)->subobject(sym)) storage = *member;
++  } else if (address.owner()) {
+     if (auto fv = address.owner()->subobject(sym)) storage = *fv;
+   } else if (auto slot = lookupLocalSlot(sym)) {
+     storage = *slot;
+@@ -1081,8 +1086,17 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
+   auto sym = address.symbol();
+   if (!sym) return nullptr;
+
+-  auto slot = address.owner() ? subobjectSlot(address.owner(), sym)
+-                              : lookupLocalSlot(sym);
++  ConstValue* slot = nullptr;
++  if (address.parent()) {
++    auto parent = addressSlot(*address.parent(), 0);
++    if (!parent) return nullptr;
++    auto object = std::get_if<std::shared_ptr<ConstObject>>(parent);
++    if (!object || !*object) return nullptr;
++    slot = subobjectSlot(*object, sym);
++  } else {
++    slot = address.owner() ? subobjectSlot(address.owner(), sym)
++                           : lookupLocalSlot(sym);
++  }
+   if (!slot) return nullptr;
+   if (index == 0 && objectType) {
+     if (traits.is_same(traits.remove_cvref(sym->type()),
+@@ -1122,17 +1136,57 @@ auto ASTInterpreter::memberObject(MemberExpressionAST* ast)
+   return object ? *object : nullptr;
+ }
+
+-auto ASTInterpreter::fieldOwner(ExpressionAST* ast)
+-    -> std::shared_ptr<ConstObject> {
+-  if (auto id = ast_cast<IdExpressionAST>(ast)) {
+-    if (symbol_cast<FieldSymbol>(id->symbol)) return thisObject_;
+-    return nullptr;
++auto ASTInterpreter::memberReceiver(MemberExpressionAST* ast) -> Receiver {
++  Receiver result;
++  auto base = ast->baseExpression;
++  const bool arrow = ast->accessOp == TokenKind::T_MINUS_GREATER;
++  auto value =
++      arrow || !is_glvalue(base) ? expression(base) : addressOfLvalue(base);
++  if (!value) return result;
++  if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value)) {
++    result.address = *address;
++    return result;
+   }
+-  if (auto member = ast_cast<MemberExpressionAST>(ast)) {
+-    if (!symbol_cast<FieldSymbol>(member->symbol)) return nullptr;
+-    return memberObject(member);
++  if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value))
++    result.object = *object;
++  return result;
++}
++
++auto ASTInterpreter::addressOfField(const Receiver& receiver,
++                                    FieldSymbol* field)
++    -> std::optional<ConstValue> {
++  const Type* receiverType = nullptr;
++  if (receiver.address && receiver.address->symbol()) {
++    receiverType = traits.remove_cvref(receiver.address->symbol()->type());
++    if (traits.is_array(receiverType))
++      receiverType = traits.remove_extent(receiverType);
++  } else if (receiver.object) {
++    receiverType = receiver.object->type();
++  }
++  // The path represents a direct field of its containing object. Inherited
++  // and anonymous members need their selected intermediate subobject path;
++  // a shared field declaration alone cannot distinguish repeated bases.
++  if (!receiverType || !traits.is_same(traits.remove_cvref(receiverType),
++                                       field->parent()->type()))
++    return std::nullopt;
++  std::shared_ptr<ConstAddress> result;
++  if (receiver.address) {
++    // A member requires a live receiver element, not a one-past pointer.
++    auto symbol = receiver.address->symbol();
++    if (!symbol) return std::nullopt;
++    auto array = unqualified_cast<BoundedArrayType>(symbol->type());
++    auto extent = array ? array->size() : std::uint64_t{1};
++    if (receiver.address->offset() < 0 ||
++        static_cast<std::uintmax_t>(receiver.address->offset()) >= extent)
++      return std::nullopt;
++    result = std::make_shared<ConstAddress>(receiver.address, field);
++  } else if (receiver.object) {
++    result = std::make_shared<ConstAddress>(receiver.object, field);
++  } else {
++    return std::nullopt;
+   }
+-  return nullptr;
++  if (traits.is_reference(field->type())) return loadAddress(*result, 0);
++  return result;
+ }
+
+ auto ASTInterpreter::typeInfoAddress(const Type* type)
+@@ -1186,9 +1240,7 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
+       if (field->isStatic()) {
+         return std::make_shared<ConstAddress>(field);
+       }
+-      if (auto owner = fieldOwner(ast))
+-        return std::make_shared<ConstAddress>(owner, idExpr->symbol);
+-      return std::nullopt;
++      return addressOfField(receiver_, field);
+     }
+     if (auto function = resolvedFunction(idExpr->symbol))
+       return std::make_shared<ConstAddress>(function);
+@@ -1196,10 +1248,12 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
+   }
+
+   if (auto member = ast_cast<MemberExpressionAST>(ast)) {
+-    if (!symbol_cast<FieldSymbol>(member->symbol)) return std::nullopt;
+-    if (auto owner = fieldOwner(ast))
+-      return std::make_shared<ConstAddress>(owner, member->symbol);
+-    return std::nullopt;
++    auto field = symbol_cast<FieldSymbol>(member->symbol);
++    if (!field) return std::nullopt;
++    auto receiver = memberReceiver(member);
++    if (!receiver.object && !receiver.address) return std::nullopt;
++    if (field->isStatic()) return std::make_shared<ConstAddress>(field);
++    return addressOfField(receiver, field);
+   }
+
+   if (auto typeidOfType = ast_cast<TypeidOfTypeExpressionAST>(ast)) {
+@@ -1362,6 +1416,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
+
+ auto ASTInterpreter::ExpressionVisitor::operator()(ThisExpressionAST* ast)
+     -> ExpressionResult {
++  if (interp.receiver_.address) return interp.receiver_.address;
+   if (!interp.thisObject()) return std::nullopt;
+   return ConstValue{interp.thisObject()};
+ }
+@@ -1674,10 +1729,9 @@ auto ASTInterpreter::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
+       op && op->isConstexpr()) {
+     if (auto objPtr =
+             std::get_if<std::shared_ptr<ConstObject>>(&*baseExpressionResult)) {
+-      auto savedThis = interp.thisObject();
+-      interp.setThisObject(*objPtr);
++      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
+       auto result = interp.evaluateCall(op, {*indexExpressionResult});
+-      interp.setThisObject(savedThis);
++      interp.receiver_ = std::move(savedThis);
+       return result;
+     }
+   }
+@@ -1713,7 +1767,7 @@ auto ASTInterpreter::evaluateCallExpression(CallExpressionAST* ast,
+   while (auto nested = ast_cast<NestedExpressionAST>(base))
+     base = nested->expression;
+   FunctionSymbol* function = nullptr;
+-  std::shared_ptr<ConstObject> object;
++  Receiver receiver;
+   if (auto id = ast_cast<IdExpressionAST>(base)) {
+     auto builtin = resolveBuiltinFunctionKind(id);
+     if (builtin != BuiltinFunctionKind::T_NONE) {
+@@ -1728,12 +1782,14 @@ auto ASTInterpreter::evaluateCallExpression(CallExpressionAST* ast,
+       return {evaluateBuiltinCall(builtin, std::move(arguments), ast), nullptr};
+     }
+     function = resolvedFunction(id->symbol);
++    if (function && function->isImplicitObjectMemberFunction())
++      receiver = receiver_;
+   } else if (auto member = ast_cast<MemberExpressionAST>(base)) {
+     function = resolvedFunction(member->symbol);
+     if (!function) return {};
+     if (function->isImplicitObjectMemberFunction()) {
+-      object = memberObject(member);
+-      if (!object) return {};
++      receiver = memberReceiver(member);
++      if (!receiver.object && !receiver.address) return {};
+     } else if (!expression(member->baseExpression))
+       return {};
+   }
+@@ -1758,7 +1814,7 @@ auto ASTInterpreter::evaluateCallExpression(CallExpressionAST* ast,
+   for (auto argument : ListView{ast->expressionList})
+     arguments.push_back(argument);
+   if (!bindParametersFromExprs(frame, function, arguments)) return {};
+-  return executeFunction(function, std::move(frame), kind, std::move(object));
++  return executeFunction(function, std::move(frame), kind, std::move(receiver));
+ }
+
+ auto ASTInterpreter::ExpressionVisitor::operator()(CallExpressionAST* ast)
+diff --git a/src/parser/cxx/ast_interpreter_statements.cc b/src/parser/cxx/ast_interpreter_statements.cc
+index a09f41557f..04dc12c9d7 100644
+--- a/src/parser/cxx/ast_interpreter_statements.cc
++++ b/src/parser/cxx/ast_interpreter_statements.cc
+@@ -360,10 +360,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverPointerIterator(
+     if (ast->usesMemberBeginEnd) {
+       auto objPtr = std::get_if<std::shared_ptr<ConstObject>>(&rangeVal);
+       if (!objPtr) return std::nullopt;
+-      auto savedThis = interp.thisObject();
+-      interp.setThisObject(*objPtr);
++      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
+       auto result = interp.evaluateCall(f, {});
+-      interp.setThisObject(savedThis);
++      interp.receiver_ = std::move(savedThis);
+       return result;
+     }
+     return interp.evaluateCall(f, {rangeVal});
+@@ -410,10 +409,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
+     if (ast->usesMemberBeginEnd) {
+       auto objPtr = std::get_if<std::shared_ptr<ConstObject>>(&rangeVal);
+       if (!objPtr) return std::nullopt;
+-      auto savedThis = interp.thisObject();
+-      interp.setThisObject(*objPtr);
++      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
+       auto result = interp.evaluateCall(f, {});
+-      interp.setThisObject(savedThis);
++      interp.receiver_ = std::move(savedThis);
+       return result;
+     }
+     return interp.evaluateCall(f, {rangeVal});
+@@ -432,10 +430,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
+           const std::shared_ptr<ConstObject>& it) -> std::optional<ConstValue> {
+     if (!f) return std::nullopt;
+     if (f->isImplicitObjectMemberFunction()) {
+-      auto savedThis = interp.thisObject();
+-      interp.setThisObject(it);
++      auto savedThis = std::exchange(interp.receiver_, Receiver{it, {}});
+       auto result = interp.evaluateCall(f, {});
+-      interp.setThisObject(savedThis);
++      interp.receiver_ = std::move(savedThis);
+       return result;
+     }
+     return interp.evaluateCall(f, {ConstValue{it}});
+@@ -445,10 +442,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
+           const std::shared_ptr<ConstObject>& b) -> std::optional<ConstValue> {
+     if (!f) return std::nullopt;
+     if (f->isImplicitObjectMemberFunction()) {
+-      auto savedThis = interp.thisObject();
+-      interp.setThisObject(a);
++      auto savedThis = std::exchange(interp.receiver_, Receiver{a, {}});
+       auto result = interp.evaluateCall(f, {ConstValue{b}});
+-      interp.setThisObject(savedThis);
++      interp.receiver_ = std::move(savedThis);
+       return result;
+     }
+     return interp.evaluateCall(f, {ConstValue{a}, ConstValue{b}});
+@@ -471,10 +467,10 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
+     if (bindByRef) {
+       ConstValue* slot = nullptr;
+       if (ast->derefFunction->isImplicitObjectMemberFunction()) {
+-        auto savedThis = interp.thisObject();
+-        interp.setThisObject(*beginObj);
++        auto savedThis =
++            std::exchange(interp.receiver_, Receiver{*beginObj, {}});
+         slot = interp.evaluateCallLValue(ast->derefFunction, {});
+-        interp.setThisObject(savedThis);
++        interp.receiver_ = std::move(savedThis);
+       } else {
+         slot = interp.evaluateCallLValue(ast->derefFunction,
+                                          {ConstValue{*beginObj}});
+diff --git a/src/parser/cxx/const_value.cc b/src/parser/cxx/const_value.cc
+index ab3dd17edf..6238f78909 100644
+--- a/src/parser/cxx/const_value.cc
++++ b/src/parser/cxx/const_value.cc
+@@ -87,9 +87,27 @@ auto ConstObject::mutableSubobject(const Symbol* symbol) -> ConstValue* {
+ ConstAddress::ConstAddress(Symbol* symbol, std::intmax_t offset)
+     : symbol_(symbol ? symbol->canonical() : nullptr), offset_(offset) {}
+
++ConstAddress::ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol)
++    : symbol_(symbol->canonical()), parent_(std::move(parent)) {}
++
++auto ConstAddress::rootSymbol() const -> Symbol* {
++  return parent_ ? parent_->rootSymbol() : owner_ ? nullptr : symbol_;
++}
++
+ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
+-  return symbol_ == other.symbol_ && owner_ == other.owner_ &&
+-         string_ == other.string_ && typeInfoFor_ == other.typeInfoFor_;
++  auto left = this;
++  auto right = &other;
++  for (;;) {
++    if (left->symbol_ != right->symbol_ || left->owner_ != right->owner_ ||
++        left->string_ != right->string_ ||
++        left->typeInfoFor_ != right->typeInfoFor_)
++      return false;
++    if (left->parent_ == right->parent_) return true;
++    if (!left->parent_ || !right->parent_) return false;
++    left = left->parent_.get();
++    right = right->parent_.get();
++    if (left->offset_ != right->offset_) return false;
++  }
+ }
+
+ auto ConstObject::operator==(const ConstObject& other) const -> bool {
+diff --git a/src/parser/cxx/const_value.h b/src/parser/cxx/const_value.h
+index 05c442db0f..e6b79c12a9 100644
+--- a/src/parser/cxx/const_value.h
++++ b/src/parser/cxx/const_value.h
+@@ -151,6 +151,9 @@ class ConstAddress {
+                std::intmax_t offset = 0)
+       : symbol_(symbol), owner_(std::move(owner)), offset_(offset) {}
+
++  // Field paths retain their receiver address and declared storage root.
++  ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol);
++
+   explicit ConstAddress(const Type* typeInfoFor) : typeInfoFor_(typeInfoFor) {}
+
+   [[nodiscard]] auto symbol() const -> Symbol* { return symbol_; }
+@@ -163,9 +166,20 @@ class ConstAddress {
+   }
+   [[nodiscard]] auto offset() const -> std::intmax_t { return offset_; }
+
++  // Returns the containing storage address for a subobject address.
++  [[nodiscard]] auto parent() const -> const std::shared_ptr<ConstAddress>& {
++    return parent_;
++  }
++
++  // Returns the canonical declaration owning this address path.
++  [[nodiscard]] auto rootSymbol() const -> Symbol*;
++
+   [[nodiscard]] auto sameTarget(const ConstAddress& other) const -> bool;
+
+   void setSymbol(Symbol* symbol) { symbol_ = symbol; }
++  void setParent(std::shared_ptr<ConstAddress> parent) {
++    parent_ = std::move(parent);
++  }
+   void setOwner(std::shared_ptr<ConstObject> owner) {
+     owner_ = std::move(owner);
+   }
+@@ -175,6 +189,8 @@ class ConstAddress {
+
+  private:
+   Symbol* symbol_ = nullptr;
++  // Immutable containing address; pointer arithmetic clones the leaf.
++  std::shared_ptr<ConstAddress> parent_;
+   std::shared_ptr<ConstObject> owner_;
+   const StringLiteral* string_ = nullptr;
+   const Type* typeInfoFor_ = nullptr;
+diff --git a/src/parser/cxx/name_printer.cc b/src/parser/cxx/name_printer.cc
+index c14319275b..0e816f75a0 100644
+--- a/src/parser/cxx/name_printer.cc
++++ b/src/parser/cxx/name_printer.cc
+@@ -41,7 +41,13 @@ struct TemplateArgumentPrinter {
+     }
+
+     auto name = to_string(symbol->name());
+-    for (auto scope = symbol->parent(); scope; scope = scope->parent()) {
++    if (address.parent()) {
++      auto parent = address_to_string(*address.parent(), nullptr);
++      if (parent.starts_with("&")) parent.erase(0, 1);
++      name = parent + "." + name;
++    }
++    for (auto scope = symbol->parent(); scope && !address.parent();
++         scope = scope->parent()) {
+       if (auto enclosingClass = symbol_cast<ClassSymbol>(scope)) {
+         auto qualifier = to_string(enclosingClass->type());
+         if (qualifier.starts_with("::")) {
+diff --git a/src/parser/cxx/private/semantic_model.h b/src/parser/cxx/private/semantic_model.h
+index 61a3db1055..e100696d55 100644
+--- a/src/parser/cxx/private/semantic_model.h
++++ b/src/parser/cxx/private/semantic_model.h
+@@ -2345,6 +2345,7 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
+     {"::cxx::ConstObject::Member", "symbol", FieldPersistence::kPersisted, ""},
+     {"::cxx::ConstObject::Member", "value", FieldPersistence::kPersisted, ""},
+     {"::cxx::ConstAddress", "symbol_", FieldPersistence::kPersisted, ""},
++    {"::cxx::ConstAddress", "parent_", FieldPersistence::kPersisted, ""},
+     {"::cxx::ConstAddress", "owner_", FieldPersistence::kPersisted, ""},
+     {"::cxx::ConstAddress", "string_", FieldPersistence::kPersisted, ""},
+     {"::cxx::ConstAddress", "typeInfoFor_", FieldPersistence::kPersisted, ""},
+diff --git a/src/parser/cxx/semantic_codec.cc b/src/parser/cxx/semantic_codec.cc
+index 664f9281e7..141a830bab 100644
+--- a/src/parser/cxx/semantic_codec.cc
++++ b/src/parser/cxx/semantic_codec.cc
+@@ -7074,6 +7074,8 @@ void SemanticEncoder::writecxxConstAddress(
+     ByteWriter& out, [[maybe_unused]] const cxx::ConstAddress* self) {
+   // ::cxx::ConstAddress::symbol_
+   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol())));
++  // ::cxx::ConstAddress::parent_
++  out.varU32(static_cast<std::uint32_t>(constRef(self->parent())));
+   // ::cxx::ConstAddress::owner_
+   out.varU32(static_cast<std::uint32_t>(constRef(self->owner())));
+   // ::cxx::ConstAddress::string_
+@@ -18211,20 +18213,25 @@ void SemanticDecoder::readcxxConstAddress(
+   // ::cxx::ConstAddress::symbol_
+   cxx::Symbol* value1 = symbolAt(SymbolRef{in.varU32()});
+   self->setSymbol(std::move(value1));
++  // ::cxx::ConstAddress::parent_
++  std::shared_ptr<cxx::ConstAddress> value2 =
++      std::static_pointer_cast<cxx::ConstAddress>(
++          constantAt(ConstRef{in.varU32()}));
++  self->setParent(std::move(value2));
+   // ::cxx::ConstAddress::owner_
+-  std::shared_ptr<cxx::ConstObject> value2 =
++  std::shared_ptr<cxx::ConstObject> value3 =
+       std::static_pointer_cast<cxx::ConstObject>(
+           constantAt(ConstRef{in.varU32()}));
+-  self->setOwner(std::move(value2));
++  self->setOwner(std::move(value3));
+   // ::cxx::ConstAddress::string_
+-  const cxx::StringLiteral* value3 = readStringLiteral(in);
+-  self->setStringLiteral(std::move(value3));
++  const cxx::StringLiteral* value4 = readStringLiteral(in);
++  self->setStringLiteral(std::move(value4));
+   // ::cxx::ConstAddress::typeInfoFor_
+-  const cxx::Type* value4 = typeAt(TypeRef{in.varU32()});
+-  self->setTypeInfoFor(std::move(value4));
++  const cxx::Type* value5 = typeAt(TypeRef{in.varU32()});
++  self->setTypeInfoFor(std::move(value5));
+   // ::cxx::ConstAddress::offset_
+-  long long value5 = static_cast<long long>(in.varI64());
+-  self->setOffset(std::move(value5));
++  long long value6 = static_cast<long long>(in.varI64());
++  self->setOffset(std::move(value6));
+ }
+
+ void SemanticDecoder::readcxxConstLabelAddress(
+diff --git a/src/parser/cxx/substitution.cc b/src/parser/cxx/substitution.cc
+index 57b8b931f9..63244477ee 100644
+--- a/src/parser/cxx/substitution.cc
++++ b/src/parser/cxx/substitution.cc
+@@ -835,9 +835,10 @@ auto isPermittedTemplateAddress(const ConstValue& value, bool isReference)
+       (*address)->owner()) {
+     return false;
+   }
+-  auto symbol = (*address)->symbol();
++  auto symbol = (*address)->rootSymbol();
+   if (!symbol) {
+-    return !isReference && (*address)->offset() == 0;
++    return !isReference && !(*address)->symbol() && !(*address)->parent() &&
++           (*address)->offset() == 0;
+   }
+   if (symbol_cast<FunctionSymbol>(symbol)) {
+     return (*address)->offset() == 0;
+@@ -860,10 +861,11 @@ auto isPermittedTemplateAddress(const ConstValue& value, bool isReference)
+   if (offset < 0) {
+     return false;
+   }
+-  if (unqualified_cast<UnboundedArrayType>(symbol->type())) {
++  auto target = (*address)->symbol();
++  if (unqualified_cast<UnboundedArrayType>(target->type())) {
+     return offset == 0;
+   }
+-  auto array = unqualified_cast<BoundedArrayType>(symbol->type());
++  auto array = unqualified_cast<BoundedArrayType>(target->type());
+   const auto extent = array ? array->size() : std::uint64_t{1};
+   return isReference ? static_cast<std::uintmax_t>(offset) < extent
+                      : static_cast<std::uintmax_t>(offset) <= extent;
