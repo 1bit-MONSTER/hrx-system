@@ -25,6 +25,7 @@ from loom.target.contracts.emits import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
     ResultTypeBinding,
 )
@@ -1311,6 +1312,16 @@ class _LowerRuleSetCompiler:
             self._append_structural_emit(
                 source_op,
                 LowerEmitKind.REGISTER_COPY,
+                (emit.source,),
+                emit.result,
+                emit.result_type,
+                temporary_ordinals,
+            )
+            return
+        if isinstance(emit, EmitRegisterMove):
+            self._append_structural_emit(
+                source_op,
+                LowerEmitKind.REGISTER_MOVE,
                 (emit.source,),
                 emit.result,
                 emit.result_type,

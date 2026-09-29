@@ -30,6 +30,7 @@ from loom.target.contracts import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
     Guard,
     GuardDiagnostic,
@@ -458,7 +459,7 @@ TEST_LOW_CORE_CONTRACT_FRAGMENT = ContractFragment(
                     result=ValueRef.temporary("reclassified"),
                     result_type=_F32,
                 ),
-                EmitRegisterCopy(
+                EmitRegisterMove(
                     source=ValueRef.temporary("reclassified"),
                     result=ValueRef.result("result"),
                     result_type=ValueRef.temporary("reclassified"),

@@ -35,6 +35,7 @@ from loom.target.contracts import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
     Guard,
     GuardDiagnostic,
@@ -159,7 +160,7 @@ def test_compile_structural_register_emits() -> None:
                         unit_offset=1,
                         unit_count=1,
                     ),
-                    EmitRegisterCopy(
+                    EmitRegisterMove(
                         source=ValueRef.temporary("element"),
                         result=ValueRef.temporary("reclassified"),
                         result_type=ValueRef.temporary("element"),
@@ -213,7 +214,7 @@ def test_compile_structural_register_emits() -> None:
     ]
     assert tuple(emit.kind for emit in slice_emits) == (
         LowerEmitKind.REGISTER_SLICE,
-        LowerEmitKind.REGISTER_COPY,
+        LowerEmitKind.REGISTER_MOVE,
         LowerEmitKind.REGISTER_SLICE,
     )
     assert slice_emits[0].operand_ref_count == 1

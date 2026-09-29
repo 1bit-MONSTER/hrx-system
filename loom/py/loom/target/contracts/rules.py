@@ -21,6 +21,7 @@ from loom.target.contracts.emits import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
 )
 from loom.target.contracts.guards import Guard
@@ -274,7 +275,12 @@ class DescriptorRule:
                 result_refs = tuple(emit.results.values())
             elif isinstance(
                 emit,
-                (EmitRegisterConcat, EmitRegisterCopy, EmitRegisterSlice),
+                (
+                    EmitRegisterConcat,
+                    EmitRegisterCopy,
+                    EmitRegisterMove,
+                    EmitRegisterSlice,
+                ),
             ):
                 result_refs = (emit.result,)
             else:
