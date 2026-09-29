@@ -407,3 +407,122 @@ check.case public @private_half_number_snan {
   check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
   check.return
 }
+
+// Every FP8 bit pattern participates in both successful and failed comparisons.
+// Independently loaded expected bits keep the comparison live after promotion;
+// signed zeros and NaNs compare by representation, without conversion.
+kernel.def @private_float8_compare() {
+  %unit = index.constant 1 : index
+  %width = index.constant 256 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %comparisons: buffer, %choice: i32, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %source = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %expected_source = buffer.view %comparisons[%origin] : buffer -> view<256xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<6x256xi8>
+  // Adjacent invocations alternate between the matching and nonmatching halves.
+  %item = kernel.workitem.id<x> : index
+  %pair_width = index.constant 2 : index
+  %half_width = index.constant 128 : index
+  %pair = index.div %item, %pair_width : index
+  %parity = index.rem %item, %pair_width : index
+  %half = index.mul %parity, %half_width : index
+  %lane = index.add %pair, %half : index
+  %initial_bits = view.load %source[%lane] : view<256xi8> -> i8
+  %expected_bits = view.load %expected_source[%lane] : view<256xi8> -> i8
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %offset_f8e4m3 = index.constant 0 : offset
+  %cell_f8e4m3 = buffer.view %storage[%offset_f8e4m3] : buffer -> view<1xf8E4M3>
+  %initial_f8e4m3 = scalar.bitcast %initial_bits : i8 to f8E4M3
+  %expected_f8e4m3 = scalar.bitcast %expected_bits : i8 to f8E4M3
+  %replacement_f8e4m3 = scalar.constant 1.0 : f8E4M3
+  view.store %initial_f8e4m3, %cell_f8e4m3[0] : f8E4M3, view<1xf8E4M3>
+  %old_f8e4m3 = view.atomic.cmpxchg %expected_f8e4m3, %replacement_f8e4m3, %cell_f8e4m3[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : f8E4M3, view<1xf8E4M3> -> f8E4M3
+  %final_f8e4m3 = view.load %cell_f8e4m3[0] : view<1xf8E4M3> -> f8E4M3
+  %selected_f8e4m3 = scf.select %condition, %initial_f8e4m3, %replacement_f8e4m3 : f8E4M3
+  %old_f8e4m3_bits = scalar.bitcast %old_f8e4m3 : f8E4M3 to i8
+  view.store %old_f8e4m3_bits, %results[0, %lane] : i8, view<6x256xi8>
+  %final_f8e4m3_bits = scalar.bitcast %final_f8e4m3 : f8E4M3 to i8
+  view.store %final_f8e4m3_bits, %results[1, %lane] : i8, view<6x256xi8>
+  %selected_f8e4m3_bits = scalar.bitcast %selected_f8e4m3 : f8E4M3 to i8
+  view.store %selected_f8e4m3_bits, %results[2, %lane] : i8, view<6x256xi8>
+  %offset_f8e5m2 = index.constant 1 : offset
+  %cell_f8e5m2 = buffer.view %storage[%offset_f8e5m2] : buffer -> view<1xf8E5M2>
+  %initial_f8e5m2 = scalar.bitcast %initial_bits : i8 to f8E5M2
+  %expected_f8e5m2 = scalar.bitcast %expected_bits : i8 to f8E5M2
+  %replacement_f8e5m2 = scalar.constant 1.0 : f8E5M2
+  view.store %initial_f8e5m2, %cell_f8e5m2[0] : f8E5M2, view<1xf8E5M2>
+  %old_f8e5m2 = view.atomic.cmpxchg %expected_f8e5m2, %replacement_f8e5m2, %cell_f8e5m2[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : f8E5M2, view<1xf8E5M2> -> f8E5M2
+  %final_f8e5m2 = view.load %cell_f8e5m2[0] : view<1xf8E5M2> -> f8E5M2
+  %selected_f8e5m2 = scf.select %condition, %initial_f8e5m2, %replacement_f8e5m2 : f8E5M2
+  %old_f8e5m2_bits = scalar.bitcast %old_f8e5m2 : f8E5M2 to i8
+  view.store %old_f8e5m2_bits, %results[3, %lane] : i8, view<6x256xi8>
+  %final_f8e5m2_bits = scalar.bitcast %final_f8e5m2 : f8E5M2 to i8
+  view.store %final_f8e5m2_bits, %results[4, %lane] : i8, view<6x256xi8>
+  %selected_f8e5m2_bits = scalar.bitcast %selected_f8e5m2 : f8E5M2 to i8
+  view.store %selected_f8e5m2_bits, %results[5, %lane] : i8, view<6x256xi8>
+  kernel.return
+}
+
+check.case public @private_float8_negative_matches {
+  %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+  %comparisons = check.generate.iota offset(-128) step(1) period(128) : tensor<256xi8>
+  %choice = check.literal value(1) : i32
+  %output = check.generate.fill value(-85) : tensor<6x256xi8>
+  kernel.launch @private_float8_compare(%input, %comparisons, %choice, %output) : (tensor<256xi8>, tensor<256xi8>, i32, tensor<6x256xi8>)
+  %old_e4 = check.tensor.view %output offset(0) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e4) expected(%input) : tensor<256xi8>
+  %matched_e4 = check.tensor.view %output offset(256) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e4 = check.generate.fill value(56) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e4) expected(%expected_match_e4) : tensor<128xi8>
+  %unmatched_e4 = check.tensor.view %output offset(384) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e4 = check.generate.iota offset(0) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e4) expected(%expected_unmatched_e4) : tensor<128xi8>
+  %selected_e4 = check.tensor.view %output offset(512) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%selected_e4) expected(%input) : tensor<256xi8>
+  %old_e5 = check.tensor.view %output offset(768) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e5) expected(%input) : tensor<256xi8>
+  %matched_e5 = check.tensor.view %output offset(1024) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e5 = check.generate.fill value(60) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e5) expected(%expected_match_e5) : tensor<128xi8>
+  %unmatched_e5 = check.tensor.view %output offset(1152) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e5 = check.generate.iota offset(0) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e5) expected(%expected_unmatched_e5) : tensor<128xi8>
+  %selected_e5 = check.tensor.view %output offset(1280) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%selected_e5) expected(%input) : tensor<256xi8>
+  check.return
+}
+
+check.case public @private_float8_positive_matches {
+  %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+  %comparisons = check.generate.iota offset(0) step(1) period(128) : tensor<256xi8>
+  %choice = check.literal value(0) : i32
+  %output = check.generate.fill value(-85) : tensor<6x256xi8>
+  kernel.launch @private_float8_compare(%input, %comparisons, %choice, %output) : (tensor<256xi8>, tensor<256xi8>, i32, tensor<6x256xi8>)
+  %old_e4 = check.tensor.view %output offset(0) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e4) expected(%input) : tensor<256xi8>
+  %matched_e4 = check.tensor.view %output offset(384) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e4 = check.generate.fill value(56) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e4) expected(%expected_match_e4) : tensor<128xi8>
+  %unmatched_e4 = check.tensor.view %output offset(256) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e4 = check.generate.iota offset(-128) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e4) expected(%expected_unmatched_e4) : tensor<128xi8>
+  %selected_e4 = check.tensor.view %output offset(512) : tensor<6x256xi8> -> tensor<256xi8>
+  %expected_selection_e4 = check.generate.fill value(56) : tensor<256xi8>
+  check.expect.bitwise actual(%selected_e4) expected(%expected_selection_e4) : tensor<256xi8>
+  %old_e5 = check.tensor.view %output offset(768) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e5) expected(%input) : tensor<256xi8>
+  %matched_e5 = check.tensor.view %output offset(1152) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e5 = check.generate.fill value(60) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e5) expected(%expected_match_e5) : tensor<128xi8>
+  %unmatched_e5 = check.tensor.view %output offset(1024) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e5 = check.generate.iota offset(-128) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e5) expected(%expected_unmatched_e5) : tensor<128xi8>
+  %selected_e5 = check.tensor.view %output offset(1280) : tensor<6x256xi8> -> tensor<256xi8>
+  %expected_selection_e5 = check.generate.fill value(60) : tensor<256xi8>
+  check.expect.bitwise actual(%selected_e5) expected(%expected_selection_e5) : tensor<256xi8>
+  check.return
+}

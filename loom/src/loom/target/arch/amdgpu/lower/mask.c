@@ -231,8 +231,12 @@ static bool loom_amdgpu_select_scalar_storage(
     *out_register_count = 2;
     return true;
   }
-  if (loom_amdgpu_type_is_i8(type) || loom_amdgpu_type_is_i16(type) ||
-      loom_amdgpu_type_is_f16_or_bf16(type)) {
+  if (loom_type_is_scalar(type) &&
+      loom_scalar_type_set_contains(
+          LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16 |
+              LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2 |
+              LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+          loom_type_element_type(type))) {
     *out_register_count = 1;
     return true;
   }
