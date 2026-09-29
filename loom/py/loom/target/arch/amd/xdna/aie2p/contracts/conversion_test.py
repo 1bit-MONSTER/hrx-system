@@ -37,6 +37,7 @@ from loom.target.contracts import (
     Guard,
     ValueAliasRule,
     ValueRef,
+    Vector,
     compile_lower_rule_set,
 )
 from loom.target.low_descriptors import Constraint, ConstraintKind, OperandRole
@@ -530,6 +531,56 @@ def test_native_bfloat16_packet_conversions_preserve_exact_width_and_rounding() 
     widen = _rule("native_bfloat16x32_to_binary32x32")
     assert [emit.descriptor.key for emit in widen.emit] == [
         "amd.xdna.aie2p.convert.bf16x32.to.f32x32"
+    ]
+
+    partial_narrow = _rule("native_binary32x1-15_to_bfloat16x1-15")
+    assert (
+        Guard.value_type("input", Vector("f32", minimum_lanes=1, maximum_lanes=15))
+        in partial_narrow.guards
+    )
+    assert (
+        Guard.value_type("result", Vector("bf16", minimum_lanes=1, maximum_lanes=15))
+        in partial_narrow.guards
+    )
+    assert [type(emit) for emit in partial_narrow.emit] == [
+        EmitDescriptorOp,
+        EmitDescriptorOp,
+        EmitDescriptorOp,
+        EmitRegisterSlice,
+        EmitRegisterConcat,
+    ]
+    assert [
+        emit.descriptor.key
+        for emit in partial_narrow.emit
+        if isinstance(emit, EmitDescriptorOp)
+    ] == [
+        "amd.xdna.aie2p.move.vector512.to.accumulator512",
+        "amd.xdna.aie2p.state.rounding.immediate",
+        "amd.xdna.aie2p.convert.f32x16.to.bf16x16",
+    ]
+    assert partial_narrow.emit[1].immediates == {"i": 12}
+
+    partial_widen = _rule("native_bfloat16x1-15_to_binary32x1-15")
+    assert (
+        Guard.value_type("input", Vector("bf16", minimum_lanes=1, maximum_lanes=15))
+        in partial_widen.guards
+    )
+    assert (
+        Guard.value_type("result", Vector("f32", minimum_lanes=1, maximum_lanes=15))
+        in partial_widen.guards
+    )
+    assert [type(emit) for emit in partial_widen.emit] == [
+        EmitRegisterSlice,
+        EmitDescriptorOp,
+        EmitDescriptorOp,
+    ]
+    assert [
+        emit.descriptor.key
+        for emit in partial_widen.emit
+        if isinstance(emit, EmitDescriptorOp)
+    ] == [
+        "amd.xdna.aie2p.convert.bf16x16.to.f32x16",
+        "amd.xdna.aie2p.move.accumulator512.to.vector512",
     ]
 
 

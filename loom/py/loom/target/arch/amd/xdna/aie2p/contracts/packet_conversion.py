@@ -174,6 +174,45 @@ class IntegerWidenRuleShape:
 
 
 @dataclass(frozen=True, slots=True)
+class BFloatConversionRuleShape:
+    """Logical lane interval realized by one physical BF16 conversion."""
+
+    # Native lane count converted by the physical instruction.
+    native_lane_count: int
+    # First logical lane count realized by this rule.
+    minimum_lane_count: int
+    # Last logical lane count realized by this rule.
+    maximum_lane_count: int
+
+    def __post_init__(self) -> None:
+        if not (
+            self.native_lane_count in BF16_F32_PACKET_LANE_COUNTS
+            and 1
+            <= self.minimum_lane_count
+            <= self.maximum_lane_count
+            <= self.native_lane_count
+        ):
+            raise ValueError("BF16 conversion logical lane interval is invalid")
+
+    def vector_type(self, element: str) -> Vector:
+        """Source-visible type interval for one side of the conversion."""
+
+        return Vector(
+            element,
+            minimum_lanes=self.minimum_lane_count,
+            maximum_lanes=self.maximum_lane_count,
+        )
+
+    @property
+    def report_lane_range(self) -> str:
+        """Stable logical lane spelling used by compile reports."""
+
+        if self.minimum_lane_count == self.maximum_lane_count:
+            return str(self.minimum_lane_count)
+        return f"{self.minimum_lane_count}-{self.maximum_lane_count}"
+
+
+@dataclass(frozen=True, slots=True)
 class IntegerPackCase:
     """One source-visible shape supported by native VPACK forms."""
 
@@ -291,6 +330,18 @@ INTEGER_WIDEN_RULE_SHAPES = (
     IntegerWidenRuleShape(_I16_TO_I64_W, 9, 15, 2),
     IntegerWidenRuleShape(_I16_TO_I32_X, 17, 31, 2),
     IntegerWidenRuleShape(_I32_TO_I64_X, 9, 15, 2),
+)
+
+# BF16 packet conversion is nontrapping, so a partial logical vector can use
+# every lane of its physical X carrier. The unused native results remain beyond
+# the logical value domain. Keep exact shapes for fused memory rules and stable
+# report identities while admitting the partial interval independently.
+BF16_F32_PACKET_RULE_SHAPES = (
+    *(
+        BFloatConversionRuleShape(lane_count, lane_count, lane_count)
+        for lane_count in BF16_F32_PACKET_LANE_COUNTS
+    ),
+    BFloatConversionRuleShape(16, 1, 15),
 )
 
 INTEGER_PACK_CASES = (
@@ -606,19 +657,22 @@ def _integer_shift_rule(source_op: Op) -> DescriptorRule:
     )
 
 
-def _f32_to_bf16_vector_rule(lane_count: int) -> DescriptorRule:
+def _f32_to_bf16_vector_rule(
+    rule_shape: BFloatConversionRuleShape,
+) -> DescriptorRule:
+    native_lane_count = rule_shape.native_lane_count
     set_rounding = _descriptor("amd.xdna.aie2p.state.rounding.immediate")
     convert = _descriptor(
-        f"amd.xdna.aie2p.convert.f32x{lane_count}.to.bf16x{lane_count}"
+        f"amd.xdna.aie2p.convert.f32x{native_lane_count}.to.bf16x{native_lane_count}"
     )
-    source_type = _exact_vector("f32", lane_count)
-    result_type = _exact_vector("bf16", lane_count)
+    source_type = rule_shape.vector_type("f32")
+    result_type = rule_shape.vector_type("bf16")
     native_source = ValueRef.operand("input")
     input_emits: tuple[ContractEmit, ...] = ()
     native_result = ValueRef.result("result")
     result_types = None
     output_emits: tuple[ContractEmit, ...] = ()
-    if lane_count == 16:
+    if native_lane_count == 16:
         native_source = ValueRef.temporary("source_accumulator")
         native_result = ValueRef.temporary("converted_w")
         result_types = {"dst": DescriptorResultType()}
@@ -668,22 +722,28 @@ def _f32_to_bf16_vector_rule(lane_count: int) -> DescriptorRule:
             ),
             *output_emits,
         ),
-        report_key=f"native_binary32x{lane_count}_to_bfloat16x{lane_count}",
+        report_key=(
+            f"native_binary32x{rule_shape.report_lane_range}_to_"
+            f"bfloat16x{rule_shape.report_lane_range}"
+        ),
     )
 
 
-def _bf16_to_f32_vector_rule(lane_count: int) -> DescriptorRule:
+def _bf16_to_f32_vector_rule(
+    rule_shape: BFloatConversionRuleShape,
+) -> DescriptorRule:
+    native_lane_count = rule_shape.native_lane_count
     convert = _descriptor(
-        f"amd.xdna.aie2p.convert.bf16x{lane_count}.to.f32x{lane_count}"
+        f"amd.xdna.aie2p.convert.bf16x{native_lane_count}.to.f32x{native_lane_count}"
     )
-    source_type = _exact_vector("bf16", lane_count)
-    result_type = _exact_vector("f32", lane_count)
+    source_type = rule_shape.vector_type("bf16")
+    result_type = rule_shape.vector_type("f32")
     native_source = ValueRef.operand("input")
     input_emits: tuple[ContractEmit, ...] = ()
     native_result = ValueRef.result("result")
     result_types = None
     output_emits: tuple[ContractEmit, ...] = ()
-    if lane_count == 16:
+    if native_lane_count == 16:
         native_source = ValueRef.temporary("source_w")
         native_result = ValueRef.temporary("converted_accumulator")
         result_types = {"dst": DescriptorResultType()}
@@ -722,7 +782,10 @@ def _bf16_to_f32_vector_rule(lane_count: int) -> DescriptorRule:
             ),
             *output_emits,
         ),
-        report_key=f"native_bfloat16x{lane_count}_to_binary32x{lane_count}",
+        report_key=(
+            f"native_bfloat16x{rule_shape.report_lane_range}_to_"
+            f"binary32x{rule_shape.report_lane_range}"
+        ),
     )
 
 
@@ -892,11 +955,11 @@ AIE2P_PACKET_CONVERSION_RULES = (
     ),
     *(_integer_pack_rule(pack_case) for pack_case in INTEGER_PACK_CASES),
     *(
-        _f32_to_bf16_vector_rule(lane_count)
-        for lane_count in BF16_F32_PACKET_LANE_COUNTS
+        _f32_to_bf16_vector_rule(rule_shape)
+        for rule_shape in BF16_F32_PACKET_RULE_SHAPES
     ),
     *(
-        _bf16_to_f32_vector_rule(lane_count)
-        for lane_count in BF16_F32_PACKET_LANE_COUNTS
+        _bf16_to_f32_vector_rule(rule_shape)
+        for rule_shape in BF16_F32_PACKET_RULE_SHAPES
     ),
 )

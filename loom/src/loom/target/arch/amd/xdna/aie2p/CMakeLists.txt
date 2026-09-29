@@ -681,6 +681,7 @@ loom_check_test_suite(
     "test/source_low/numeric_boolean_comparison.loom-test"
     "test/source_low/numeric_boolean_reduce.loom-test"
     "test/source_low/numeric_constant_remainder.loom-test"
+    "test/source_low/numeric_conversion_bf16_partial.loom-test"
     "test/source_low/numeric_conversion_f16.loom-test"
     "test/source_low/numeric_conversion_float8.loom-test"
     "test/source_low/numeric_conversion_wide.loom-test"
