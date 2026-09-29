@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
+#include "loom/target/emit/native/amdgpu/hsaco_build.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -1151,7 +1151,7 @@ static iree_status_t loom_amdgpu_hsaco_assign_read_addresses(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_hsaco_prepare_sections(
+static iree_status_t loom_amdgpu_hsaco_build_sections(
     const loom_amdgpu_hsaco_input_t* input,
     const loom_amdgpu_processor_info_t* processor,
     loom_amdgpu_hsaco_payloads_t* payloads, iree_arena_allocator_t* arena) {
@@ -1396,7 +1396,7 @@ static iree_status_t loom_amdgpu_hsaco_prepare_sections(
   return iree_ok_status();
 }
 
-static void loom_amdgpu_hsaco_prepare_segments(
+static void loom_amdgpu_hsaco_build_segments(
     loom_amdgpu_hsaco_payloads_t* payloads) {
   const loom_native_elf_section_t* text =
       loom_amdgpu_hsaco_section(payloads, LOOM_AMDGPU_HSACO_SECTION_TEXT);
@@ -1491,9 +1491,9 @@ static void loom_amdgpu_hsaco_prepare_segments(
   };
 }
 
-iree_status_t loom_amdgpu_hsaco_prepare(const loom_amdgpu_hsaco_input_t* input,
-                                        loom_amdgpu_hsaco_plan_t* out_plan,
-                                        iree_arena_allocator_t* arena) {
+iree_status_t loom_amdgpu_hsaco_plan_build(
+    const loom_amdgpu_hsaco_input_t* input, loom_amdgpu_hsaco_plan_t* out_plan,
+    iree_arena_allocator_t* arena) {
   *out_plan = (loom_amdgpu_hsaco_plan_t){0};
   IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_validate_input(input));
   const loom_amdgpu_processor_info_t* processor =
@@ -1522,7 +1522,7 @@ iree_status_t loom_amdgpu_hsaco_prepare(const loom_amdgpu_hsaco_input_t* input,
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_copy_metadata_kernels(input, &payloads, arena));
   IREE_RETURN_IF_ERROR(
-      loom_amdgpu_hsaco_prepare_sections(input, processor, &payloads, arena));
-  loom_amdgpu_hsaco_prepare_segments(&payloads);
+      loom_amdgpu_hsaco_build_sections(input, processor, &payloads, arena));
+  loom_amdgpu_hsaco_build_segments(&payloads);
   return iree_ok_status();
 }

@@ -18,17 +18,17 @@
 #include "loom/target/emit/spirv/program.h"
 #include "loom/target/function_version.h"
 
-typedef enum loom_spirv_prepare_function_disposition_e {
+typedef enum loom_spirv_program_function_disposition_e {
   // Function belongs to another target and is not part of this program.
-  LOOM_SPIRV_PREPARE_FUNCTION_SKIPPED = 0,
-  // Function was appended to the prepared program.
-  LOOM_SPIRV_PREPARE_FUNCTION_APPENDED = 1,
+  LOOM_SPIRV_PROGRAM_FUNCTION_SKIPPED = 0,
+  // Function was appended to the program plan.
+  LOOM_SPIRV_PROGRAM_FUNCTION_APPENDED = 1,
   // Function target resolution emitted a structured diagnostic.
-  LOOM_SPIRV_PREPARE_FUNCTION_REJECTED = 2,
-} loom_spirv_prepare_function_disposition_t;
+  LOOM_SPIRV_PROGRAM_FUNCTION_REJECTED = 2,
+} loom_spirv_program_function_disposition_t;
 
 typedef struct loom_spirv_program_build_t {
-  // Module containing the prepared Low functions.
+  // Module containing the target-low functions.
   loom_module_t* module;
   // Low representation registry used during target binding.
   const loom_low_descriptor_registry_t* descriptor_registry;
@@ -38,13 +38,13 @@ typedef struct loom_spirv_program_build_t {
   loom_symbol_fact_table_t symbol_facts;
   // Compiler function versions observed against this module symbol snapshot.
   loom_target_function_version_snapshot_t function_versions;
-  // Mutable prepared function storage.
+  // Mutable planned function storage.
   loom_spirv_function_plan_t* functions;
   // Number of initialized entries in |functions|.
   iree_host_size_t function_count;
   // Capacity of |functions|.
   iree_host_size_t function_capacity;
-  // Module contract established by the first prepared function.
+  // Module contract established by the first planned function.
   loom_spirv_module_contract_t contract;
   // Whether |contract| has been initialized.
   bool has_contract;
@@ -134,14 +134,14 @@ static const loom_target_facts_t* loom_spirv_program_function_target_facts(
                                   : NULL;
 }
 
-static iree_status_t loom_spirv_program_prepare_function(
+static iree_status_t loom_spirv_program_build_function(
     loom_spirv_program_build_t* build, loom_op_t* function_op,
     const loom_target_facts_t* selected_target_facts,
-    loom_spirv_prepare_function_disposition_t* out_disposition) {
-  *out_disposition = LOOM_SPIRV_PREPARE_FUNCTION_SKIPPED;
+    loom_spirv_program_function_disposition_t* out_disposition) {
+  *out_disposition = LOOM_SPIRV_PROGRAM_FUNCTION_SKIPPED;
   if (!loom_low_function_def_isa(function_op)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "SPIR-V preparation requires a Low function "
+                            "SPIR-V program planning requires a Low function "
                             "definition");
   }
 
@@ -153,7 +153,7 @@ static iree_status_t loom_spirv_program_prepare_function(
       build->module, &build->symbol_facts, function_op, function_target_facts,
       build->descriptor_registry, build->diagnostic_emitter, &target));
   if (target.descriptor_set == NULL) {
-    *out_disposition = LOOM_SPIRV_PREPARE_FUNCTION_REJECTED;
+    *out_disposition = LOOM_SPIRV_PROGRAM_FUNCTION_REJECTED;
     return iree_ok_status();
   }
 
@@ -167,7 +167,7 @@ static iree_status_t loom_spirv_program_prepare_function(
   if (target_bundle == NULL) {
     IREE_RETURN_IF_ERROR(
         loom_spirv_program_reject_missing_target(build, function_op));
-    *out_disposition = LOOM_SPIRV_PREPARE_FUNCTION_REJECTED;
+    *out_disposition = LOOM_SPIRV_PROGRAM_FUNCTION_REJECTED;
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_spirv_program_validate_contract(build, &target));
@@ -178,11 +178,11 @@ static iree_status_t loom_spirv_program_prepare_function(
       .target_bundle = target_bundle,
       .descriptor_set = target.descriptor_set,
   };
-  *out_disposition = LOOM_SPIRV_PREPARE_FUNCTION_APPENDED;
+  *out_disposition = LOOM_SPIRV_PROGRAM_FUNCTION_APPENDED;
   return iree_ok_status();
 }
 
-static iree_status_t loom_spirv_program_plan_prepare(
+static iree_status_t loom_spirv_program_plan_build(
     loom_module_t* module,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
@@ -201,7 +201,8 @@ static iree_status_t loom_spirv_program_plan_prepare(
   if (function_capacity == 0) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "SPIR-V preparation requires at least one Low function definition");
+        "SPIR-V program planning requires at least one Low function "
+        "definition");
   }
   loom_spirv_function_plan_t* functions = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -223,12 +224,12 @@ static iree_status_t loom_spirv_program_plan_prepare(
 
   if (options != NULL && options->entry_count != 0) {
     for (iree_host_size_t i = 0; i < options->entry_count; ++i) {
-      loom_spirv_prepare_function_disposition_t disposition =
-          LOOM_SPIRV_PREPARE_FUNCTION_SKIPPED;
-      IREE_RETURN_IF_ERROR(loom_spirv_program_prepare_function(
+      loom_spirv_program_function_disposition_t disposition =
+          LOOM_SPIRV_PROGRAM_FUNCTION_SKIPPED;
+      IREE_RETURN_IF_ERROR(loom_spirv_program_build_function(
           &build, options->entries[i].function_op,
           options->entries[i].target_facts, &disposition));
-      if (disposition == LOOM_SPIRV_PREPARE_FUNCTION_REJECTED) {
+      if (disposition == LOOM_SPIRV_PROGRAM_FUNCTION_REJECTED) {
         return iree_ok_status();
       }
     }
@@ -238,12 +239,12 @@ static iree_status_t loom_spirv_program_plan_prepare(
       if (!loom_low_function_def_isa(symbol->defining_op)) {
         continue;
       }
-      loom_spirv_prepare_function_disposition_t disposition =
-          LOOM_SPIRV_PREPARE_FUNCTION_SKIPPED;
-      IREE_RETURN_IF_ERROR(loom_spirv_program_prepare_function(
+      loom_spirv_program_function_disposition_t disposition =
+          LOOM_SPIRV_PROGRAM_FUNCTION_SKIPPED;
+      IREE_RETURN_IF_ERROR(loom_spirv_program_build_function(
           &build, symbol->defining_op, /*selected_target_facts=*/NULL,
           &disposition));
-      if (disposition == LOOM_SPIRV_PREPARE_FUNCTION_REJECTED) {
+      if (disposition == LOOM_SPIRV_PROGRAM_FUNCTION_REJECTED) {
         return iree_ok_status();
       }
     }
@@ -252,7 +253,8 @@ static iree_status_t loom_spirv_program_plan_prepare(
   if (build.function_count == 0) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "SPIR-V preparation found no compatible Low function definitions");
+        "SPIR-V program planning found no compatible Low function "
+        "definitions");
   }
   *out_plan = (loom_spirv_program_plan_t){
       .module = module,
@@ -276,7 +278,7 @@ iree_status_t loom_spirv_compile_module_binary(
 
   loom_spirv_program_plan_t program = {0};
   bool accepted = false;
-  IREE_RETURN_IF_ERROR(loom_spirv_program_plan_prepare(
+  IREE_RETURN_IF_ERROR(loom_spirv_program_plan_build(
       module, descriptor_registry, diagnostic_emitter, arena, options,
       &accepted, &program));
   if (!accepted) {

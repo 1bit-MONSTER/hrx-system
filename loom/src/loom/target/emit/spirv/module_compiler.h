@@ -31,17 +31,17 @@ typedef struct loom_spirv_compile_entry_t {
 } loom_spirv_compile_entry_t;
 
 typedef struct loom_spirv_compile_options_t {
-  // Optional compiler-owned function versions participating in preparation.
+  // Optional compiler-owned function versions participating in planning.
   const loom_function_version_list_t* function_versions;
   // Optional compiler-owned selected entry table in emission order. Every
-  // entry carries target facts. NULL prepares every SPIR-V Low function in
-  // source module order.
+  // entry carries target facts. NULL plans every compatible SPIR-V Low
+  // function in source module order.
   const loom_spirv_compile_entry_t* entries;
   // Number of entries in |entries|. Zero selects from the module.
   iree_host_size_t entry_count;
 } loom_spirv_compile_options_t;
 
-// Prepares and emits one SPIR-V module through the production boundary.
+// Plans and emits one SPIR-V module through the production boundary.
 // Structured semantic rejection returns OK with |out_emitted| false and no
 // binary.
 iree_status_t loom_spirv_compile_module_binary(

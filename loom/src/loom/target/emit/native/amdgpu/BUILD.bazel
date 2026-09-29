@@ -456,7 +456,7 @@ loom_cc_library(
     hdrs = ["kernel_emission.h"],
     deps = [
         ":encoding",
-        ":hsaco_prepare",
+        ":hsaco_build",
         ":kernel_assembly",
         ":kernel_entry",
         ":kernel_record",
@@ -488,9 +488,9 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "hsaco_prepare",
-    srcs = ["hsaco_prepare.c"],
-    hdrs = ["hsaco_prepare.h"],
+    name = "hsaco_build",
+    srcs = ["hsaco_build.c"],
+    hdrs = ["hsaco_build.h"],
     deps = [
         ":descriptor",
         ":hsaco",
@@ -517,15 +517,15 @@ iree_assert_dependency_boundary(
 )
 
 iree_assert_dependency_boundary(
-    name = "hsaco_prepare_compiler_boundary",
+    name = "hsaco_build_compiler_boundary",
     forbidden_subtrees = [
         "//loom/src/loom/codegen/...",
         "//loom/src/loom/ir/...",
         "//loom/src/loom/tooling/...",
         "//loom/src/loom/tools/...",
     ],
-    message = "AMDGPU HSACO preparation must not recover compiler, IR, or tooling state",
-    target = ":hsaco_prepare",
+    message = "AMDGPU HSACO plan construction must not recover compiler, IR, or tooling state",
+    target = ":hsaco_build",
 )
 
 loom_cc_library(
@@ -533,7 +533,7 @@ loom_cc_library(
     srcs = ["runtime_globals.c"],
     hdrs = ["runtime_globals.h"],
     deps = [
-        ":hsaco_prepare",
+        ":hsaco_build",
         "//loom/src/loom/target/arch/amdgpu/abi:asan",
         "//loom/src/loom/target/arch/amdgpu/abi:feedback",
         "//loom/src/loom/target/arch/amdgpu/abi:tsan",
@@ -558,7 +558,7 @@ loom_cc_library(
     visibility = _AMDGPU_TOOLING_VISIBILITY,
     deps = [
         ":hsaco",
-        ":hsaco_prepare",
+        ":hsaco_build",
         ":kernel_emission",
         ":preflight",
         ":runtime_globals",
@@ -674,7 +674,7 @@ loom_cc_test(
     deps = [
         ":descriptor",
         ":hsaco",
-        ":hsaco_prepare",
+        ":hsaco_build",
         ":metadata",
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
         "//loom/src/loom/target/arch/amdgpu:profile",
@@ -701,7 +701,7 @@ loom_cc_test(
     ],
     deps = [
         ":hsaco",
-        ":hsaco_prepare",
+        ":hsaco_build",
         ":kernel_emission",
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:frame",

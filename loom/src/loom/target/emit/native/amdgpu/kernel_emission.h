@@ -14,7 +14,7 @@
 #include "iree/base/string_builder.h"
 #include "loom/codegen/low/frame.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
-#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
+#include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/amdgpu/preflight.h"
 #include "loom/target/reporting/report.h"
 

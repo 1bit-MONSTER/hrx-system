@@ -31,7 +31,7 @@ enum {
 
 // Trusted final AMDGPU code-object plan consumed by the serializer.
 //
-// Section payloads borrow storage owned by the preparation arena. All section
+// Section payloads borrow storage owned by the plan arena. All section
 // and segment indices, addresses, links, and target flags are final.
 typedef struct loom_amdgpu_hsaco_plan_t {
   // Processor-specific ELF e_flags.

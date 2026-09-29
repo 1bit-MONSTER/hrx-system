@@ -17,7 +17,7 @@
 #include "loom/target/arch/amdgpu/abi/asan.h"
 #include "loom/target/arch/amdgpu/abi/feedback.h"
 #include "loom/target/arch/amdgpu/abi/tsan.h"
-#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
+#include "loom/target/emit/native/amdgpu/hsaco_build.h"
 
 #ifdef __cplusplus
 extern "C" {

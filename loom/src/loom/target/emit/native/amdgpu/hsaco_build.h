@@ -4,14 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// AMDGPU HSA code-object semantic preparation.
+// AMDGPU HSA code-object plan construction.
 //
 // This layer validates a complete code-object input and resolves AMDGPU ABI
 // policy into a final HSACO plan. Metadata notes, symbols, descriptor bytes,
 // executable text, fixups, and virtual addresses are all finalized here.
 
-#ifndef LOOM_TARGET_EMIT_NATIVE_AMDGPU_HSACO_PREPARE_H_
-#define LOOM_TARGET_EMIT_NATIVE_AMDGPU_HSACO_PREPARE_H_
+#ifndef LOOM_TARGET_EMIT_NATIVE_AMDGPU_HSACO_BUILD_H_
+#define LOOM_TARGET_EMIT_NATIVE_AMDGPU_HSACO_BUILD_H_
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
@@ -75,16 +75,16 @@ typedef struct loom_amdgpu_hsaco_input_t {
   iree_host_size_t data_symbol_count;
 } loom_amdgpu_hsaco_input_t;
 
-// Resolves |input| into a trusted final code-object |out_plan|.
+// Builds a trusted final code-object |out_plan| from |input|.
 //
 // All payload storage referenced by the plan is allocated from |arena|. The
 // input and arena must remain live until the plan has been written.
-iree_status_t loom_amdgpu_hsaco_prepare(const loom_amdgpu_hsaco_input_t* input,
-                                        loom_amdgpu_hsaco_plan_t* out_plan,
-                                        iree_arena_allocator_t* arena);
+iree_status_t loom_amdgpu_hsaco_plan_build(
+    const loom_amdgpu_hsaco_input_t* input, loom_amdgpu_hsaco_plan_t* out_plan,
+    iree_arena_allocator_t* arena);
 
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_EMIT_NATIVE_AMDGPU_HSACO_PREPARE_H_
+#endif  // LOOM_TARGET_EMIT_NATIVE_AMDGPU_HSACO_BUILD_H_

@@ -36,7 +36,7 @@
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/amdgpu/hsaco.h"
-#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
+#include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/amdgpu/kernel_emission.h"
 #include "loom/target/emit/native/amdgpu/preflight.h"
 #include "loom/target/emit/native/amdgpu/runtime_globals.h"
@@ -555,7 +555,7 @@ static const loom_target_artifact_manifest_target_projection_t
         .project = loom_amdgpu_hal_kernel_library_project_manifest_target,
 };
 
-static iree_status_t loom_amdgpu_hal_kernel_library_prepare_kernel_plan(
+static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel_plan(
     loom_module_t* module, loom_target_entry_t* entry,
     const loom_target_low_descriptor_registry_t* low_registry,
     loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
@@ -615,7 +615,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_verify_kernel_abi(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_hal_kernel_library_prepare_kernel_abi_layout(
+static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel_abi_layout(
     const loom_module_t* module,
     loom_amdgpu_hal_kernel_library_kernel_plan_t* plan,
     iree_arena_allocator_t* table_arena) {
@@ -900,7 +900,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
   for (uint16_t i = 0;
        i < entries.count && iree_status_is_ok(status) && !diagnostics_failed;
        ++i) {
-    status = loom_amdgpu_hal_kernel_library_prepare_kernel_plan(
+    status = loom_amdgpu_hal_kernel_library_build_kernel_plan(
         module, &entries.values[i], low_registry, diagnostic_emitter,
         table_arena, entry_reports != NULL ? &entry_reports[i] : NULL,
         &plans[i]);
@@ -943,7 +943,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
   for (uint16_t i = 0;
        i < entries.count && iree_status_is_ok(status) && !diagnostics_failed;
        ++i) {
-    status = loom_amdgpu_hal_kernel_library_prepare_kernel_abi_layout(
+    status = loom_amdgpu_hal_kernel_library_build_kernel_abi_layout(
         module, &plans[i], table_arena);
   }
 
@@ -1003,7 +1003,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
           .data_symbol_count = code_object_data_symbol_count,
       };
       status =
-          loom_amdgpu_hsaco_prepare(&hsaco_input, &hsaco_plan, table_arena);
+          loom_amdgpu_hsaco_plan_build(&hsaco_input, &hsaco_plan, table_arena);
     }
     if (iree_status_is_ok(status)) {
       status = loom_amdgpu_hal_kernel_library_write_hsaco(
