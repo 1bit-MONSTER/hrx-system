@@ -76,3 +76,61 @@ func.def public @boolean_unsigned_extensions(%input: i1) -> (i32, i64) {
   %wide = scalar.extui %input : i1 to i64
   func.return %word, %wide : i32, i64
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ====
+
+// This is the SSA shape of a promoted byte-sized Boolean local.
+func.def public @conditional_byte_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_byte = scalar.extui %input : i1 to i8
+  %inverse_byte = scalar.extui %inverse : i1 to i8
+  %selected = scf.select %enabled, %inverse_byte, %input_byte : i8
+  %c0_i8 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0_i8 : i8
+  %result = scalar.extui %truth : i1 to i32
+  func.return %result : i32
+}
+
+// ====
+
+func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_word = scalar.extsi %input : i1 to i32
+  %inverse_word = scalar.extsi %inverse : i1 to i32
+  %result = scf.select %enabled, %inverse_word, %input_word : i32
+  func.return %result : i32
+}

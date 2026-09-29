@@ -165,3 +165,103 @@ low.func.def public target<x86.avx2.core> abi(object_function) @boolean_unsigned
   %wide = select.gpr64 %word, %11, %13
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @conditional_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %input = cmp.ne.imm.gpr32 %input_bits, 0
+  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %16 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = xor.gpr32 %16, %input
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @conditional_inversion_false(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %input = cmp.ne.imm.gpr32 %input_bits, 0
+  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %16 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %inverse = xor.imm.gpr32 %16 {imm32 = 1}
+  %18 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = xor.gpr32 %18, %inverse
+  return %result
+}
+
+// ====
+
+// This is the SSA shape of a promoted byte-sized Boolean local.
+func.def public @conditional_byte_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_byte = scalar.extui %input : i1 to i8
+  %inverse_byte = scalar.extui %inverse : i1 to i8
+  %selected = scf.select %enabled, %inverse_byte, %input_byte : i8
+  %c0_i8 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0_i8 : i8
+  %result = scalar.extui %truth : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @conditional_byte_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %input = cmp.ne.imm.gpr32 %input_bits, 0
+  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %21 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = xor.gpr32 %21, %input
+  return %result
+}
+
+// ====
+
+func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_word = scalar.extsi %input : i1 to i32
+  %inverse_word = scalar.extsi %inverse : i1 to i32
+  %result = scf.select %enabled, %inverse_word, %input_word : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) @conditional_signed_inversion(%input_bits: reg<x86.gpr32>, %enabled_bits: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %c0 = mov.imm32 0
+  %input = cmp.ne.imm.gpr32 %input_bits, 0
+  %enabled = cmp.ne.imm.gpr32 %enabled_bits, 0
+  %22 = copy %enabled : reg<x86.gpr32> -> reg<x86.gpr32>
+  %23 = xor.gpr32 %22, %input
+  %24 = mov.imm32 -1
+  %25 = copy %c0 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = select.gpr32 %23, %24, %25
+  return %result
+}

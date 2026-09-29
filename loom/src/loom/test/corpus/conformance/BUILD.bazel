@@ -22,6 +22,7 @@ _SCENARIO_CASES = [
     "numeric_vector_f32.loom",
     "packed_vector_select.loom",
     "predicate_logic.loom",
+    "predicate_selection.loom",
     "predicate_truncation.loom",
     "scalar_float_conversion.loom",
     "subgroup_shuffle_participation.loom",
@@ -54,6 +55,12 @@ loom_test(
         "//loom/target/amdgpu:gfx1250",
     ],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "predicate_selection_test",
+    srcs = ["predicate_selection.loom"],
+    execution_profiles = GPU_HARDWARE_PROFILES,
 )
 
 loom_test(

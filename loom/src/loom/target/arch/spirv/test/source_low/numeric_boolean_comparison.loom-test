@@ -155,3 +155,107 @@ low.func.def public target<spirv.logical.core> abi(shader_entry_point) @boolean_
   %wide = OpSelect.i64 %input, %17, %18
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<spirv.logical.core> abi(shader_entry_point) @conditional_inversion(%input_bits: reg<spirv.id : i32>, %enabled_bits: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %c0 = OpConstant.i32 0
+  %input = OpINotEqual %input_bits, %c0
+  %enabled = OpINotEqual %enabled_bits, %c0
+  %selected = OpLogicalNotEqual.bool %enabled, %input
+  %21 = OpConstant.i32 1
+  %result = OpSelect %selected, %21, %c0
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<spirv.logical.core> abi(shader_entry_point) @conditional_inversion_false(%input_bits: reg<spirv.id : i32>, %enabled_bits: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %c0 = OpConstant.i32 0
+  %input = OpINotEqual %input_bits, %c0
+  %enabled = OpINotEqual %enabled_bits, %c0
+  %c1 = OpConstantTrue.bool
+  %inverse = OpLogicalNotEqual.bool %input, %c1
+  %selected = OpLogicalNotEqual.bool %enabled, %inverse
+  %23 = OpConstant.i32 1
+  %result = OpSelect %selected, %23, %c0
+  return %result
+}
+
+// ====
+
+// This is the SSA shape of a promoted byte-sized Boolean local.
+func.def public @conditional_byte_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_byte = scalar.extui %input : i1 to i8
+  %inverse_byte = scalar.extui %inverse : i1 to i8
+  %selected = scf.select %enabled, %inverse_byte, %input_byte : i8
+  %c0_i8 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0_i8 : i8
+  %result = scalar.extui %truth : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<spirv.logical.core> abi(shader_entry_point) @conditional_byte_inversion(%input_bits: reg<spirv.id : i32>, %enabled_bits: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %c0 = OpConstant.i32 0
+  %input = OpINotEqual %input_bits, %c0
+  %enabled = OpINotEqual %enabled_bits, %c0
+  %25 = OpLogicalNotEqual.bool %enabled, %input
+  %26 = OpConstant.i32 1
+  %result = OpSelect %25, %26, %c0
+  return %result
+}
+
+// ====
+
+func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_word = scalar.extsi %input : i1 to i32
+  %inverse_word = scalar.extsi %inverse : i1 to i32
+  %result = scf.select %enabled, %inverse_word, %input_word : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<spirv.logical.core> abi(shader_entry_point) @conditional_signed_inversion(%input_bits: reg<spirv.id : i32>, %enabled_bits: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %c0 = OpConstant.i32 0
+  %input = OpINotEqual %input_bits, %c0
+  %enabled = OpINotEqual %enabled_bits, %c0
+  %22 = OpLogicalNotEqual.bool %enabled, %input
+  %23 = OpConstant.i32 -1
+  %result = OpSelect %22, %23, %c0
+  return %result
+}
