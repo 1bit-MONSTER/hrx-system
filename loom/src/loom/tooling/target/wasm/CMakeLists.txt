@@ -44,7 +44,6 @@ loom_cc_library(
   SRCS
     "testbench.c"
   DEPS
-    ::artifact_emitter
     ::host
     iree::base
     iree::base::internal::arena
@@ -68,11 +67,11 @@ endif()
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME
-    artifact_emitter
+    module_provider
   HDRS
-    "artifact_emitter.h"
+    "module_provider.h"
   SRCS
-    "artifact_emitter.c"
+    "module_provider.c"
   DEPS
     iree::base
     loom::target::arch::wasm::ops

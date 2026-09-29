@@ -66,7 +66,7 @@ _CONFIGURED_COMPILE_DEPS = (
     }) +
     iree_select({
         "//loom/config/target:wasm_artifacts": [
-            "//loom/src/loom/tooling/target/wasm:artifact_emitter",
+            "//loom/src/loom/tooling/target/wasm:module_provider",
         ],
         "//conditions:default": [],
     }) +

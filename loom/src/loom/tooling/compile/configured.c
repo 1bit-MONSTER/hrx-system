@@ -45,7 +45,7 @@
 #include "loom/tooling/target/vm/artifact_emitter.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#include "loom/tooling/target/wasm/artifact_emitter.h"
+#include "loom/tooling/target/wasm/module_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 
 enum {
@@ -124,7 +124,7 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
   configured_compile_storage
       .target_providers[configured_compile_storage.target_provider_count++] =
-      &loom_wasm_artifact_emitter_provider;
+      &loom_wasm_module_provider;
 #endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
   configured_compile_storage.target_provider_set =
       loom_target_provider_set_make(

@@ -16,6 +16,7 @@
 #include "loom/ir/ir.h"
 #include "loom/target/emit/wasm/module_binary.h"
 #include "loom/target/emit/wasm/program.h"
+#include "loom/target/provider.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +40,9 @@ iree_status_t loom_wasm_compile_module_binary(
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
     iree_allocator_t allocator, bool* out_emitted,
     loom_wasm_module_binary_t* out_module);
+
+// Canonical Wasm binary module emitter.
+extern const loom_target_emitter_t loom_wasm_module_emitter;
 
 #ifdef __cplusplus
 }  // extern "C"
