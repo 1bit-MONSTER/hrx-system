@@ -41,6 +41,44 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    reference_plan
+  HDRS
+    "reference_plan.h"
+  SRCS
+    "reference_plan.c"
+  DEPS
+    ::types
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::util::adaptive_sort
+    loom::util::segmented_storage
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    reference_plan_test
+  SRCS
+    "reference_plan_test.cc"
+  DEPS
+    ::reference_plan
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::type_registry
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     types_test

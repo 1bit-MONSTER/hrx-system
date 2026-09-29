@@ -16,36 +16,6 @@ package(
 _VM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 loom_cc_library(
-    name = "reference_plan",
-    srcs = ["reference_plan.c"],
-    hdrs = ["reference_plan.h"],
-    visibility = ["//visibility:private"],
-    deps = [
-        "//loom/src/loom/ir",
-        "//loom/src/loom/target/arch/vm:types",
-        "//loom/src/loom/util:adaptive_sort",
-        "//loom/src/loom/util:segmented_storage",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_test(
-    name = "reference_plan_test",
-    srcs = ["reference_plan_test.cc"],
-    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
-    deps = [
-        ":reference_plan",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:type_registry",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-loom_cc_library(
     name = "program_prepare",
     srcs = [
         "function_plan.c",
@@ -57,7 +27,6 @@ loom_cc_library(
     ],
     visibility = ["//visibility:private"],
     deps = [
-        ":reference_plan",
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:frame",
         "//loom/src/loom/codegen/low:storage_layout",
@@ -68,6 +37,7 @@ loom_cc_library(
         "//loom/src/loom/ops/global",
         "//loom/src/loom/ops/low",
         "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target/arch/vm:reference_plan",
         "//loom/src/loom/target/arch/vm/descriptors",
         "//loom/src/loom/target/emit/vm:program",
         "//runtime/src/iree/base",

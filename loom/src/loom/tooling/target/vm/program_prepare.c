@@ -14,7 +14,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/global/ops.h"
 #include "loom/ops/low/ops.h"
-#include "loom/tooling/target/vm/reference_plan.h"
+#include "loom/target/arch/vm/reference_plan.h"
 
 // A signature is ordered by argument count/types then result count/types,
 // exactly as the wire callable table requires. Ordinals are assigned by
@@ -441,18 +441,19 @@ static iree_status_t loom_vm_program_prepare_metadata(
                                                    (void**)&reference_entries));
   }
   uint32_t reference_group_count = 0;
+  const loom_type_reference_key_t* previous_reference_key = NULL;
   for (uint32_t i = 0; i < references.count; ++i) {
     const loom_type_reference_key_t* key =
         loom_vm_reference_plan_key(&references, (uint16_t)i);
-    if (!i || !iree_string_view_equal(
-                  loom_vm_reference_plan_key(&references, (uint16_t)(i - 1))
-                      ->namespace_name,
-                  key->namespace_name)) {
+    if (previous_reference_key == NULL ||
+        !iree_string_view_equal(previous_reference_key->namespace_name,
+                                key->namespace_name)) {
       reference_groups[reference_group_count++] =
           (iree_vm_bytecode_v0_ref_type_group_row_t){
               .namespace_string_u16 = (uint16_t)string_count};
       strings[string_count++] = key->namespace_name;
     }
+    previous_reference_key = key;
     ++reference_groups[reference_group_count - 1].entry_count_u32;
     reference_entries[i] = (iree_vm_bytecode_v0_ref_type_entry_row_t){
         .type_name_string_u16 = (uint16_t)string_count};

@@ -12,44 +12,6 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
-    reference_plan
-  HDRS
-    "reference_plan.h"
-  SRCS
-    "reference_plan.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::ir
-    loom::target::arch::vm::types
-    loom::util::adaptive_sort
-    loom::util::segmented_storage
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_test(
-  NAME
-    reference_plan_test
-  SRCS
-    "reference_plan_test.cc"
-  DEPS
-    ::reference_plan
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::ir
-    loom::ops::type_registry
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
     program_prepare
   HDRS
     "function_plan.h"
@@ -58,7 +20,6 @@ loom_cc_library(
     "function_plan.c"
     "program_prepare.c"
   DEPS
-    ::reference_plan
     iree::base
     iree::base::internal::arena
     iree::io::stream
@@ -73,6 +34,7 @@ loom_cc_library(
     loom::ops::low
     loom::ops::op_defs
     loom::target::arch::vm::descriptors
+    loom::target::arch::vm::reference_plan
     loom::target::emit::vm::program
     loom::target::function_version
   PUBLIC

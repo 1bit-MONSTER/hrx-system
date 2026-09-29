@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef LOOM_TOOLING_TARGET_VM_REFERENCE_PLAN_H_
-#define LOOM_TOOLING_TARGET_VM_REFERENCE_PLAN_H_
+#ifndef LOOM_TARGET_ARCH_VM_REFERENCE_PLAN_H_
+#define LOOM_TARGET_ARCH_VM_REFERENCE_PLAN_H_
 
 #include "iree/base/internal/arena.h"
 #include "loom/ir/intern_table.h"
@@ -76,4 +76,4 @@ uint16_t loom_vm_reference_plan_ordinal(const loom_vm_reference_plan_t* plan,
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TOOLING_TARGET_VM_REFERENCE_PLAN_H_
+#endif  // LOOM_TARGET_ARCH_VM_REFERENCE_PLAN_H_

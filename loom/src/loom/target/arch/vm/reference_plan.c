@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/tooling/target/vm/reference_plan.h"
+#include "loom/target/arch/vm/reference_plan.h"
 
 #include "loom/ir/structural_hash.h"
 #include "loom/util/adaptive_sort.h"
