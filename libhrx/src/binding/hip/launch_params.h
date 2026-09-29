@@ -8,7 +8,8 @@
 #define HRX_BINDING_HIP_LAUNCH_PARAMS_H_
 
 #include "api.h"
-#include "common/internal.h"
+#include "common/device.h"
+#include "common/module.h"
 
 #ifdef __cplusplus
 extern "C" {
