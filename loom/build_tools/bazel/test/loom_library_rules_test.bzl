@@ -33,6 +33,15 @@ SERIALIZED_REFERENCE_PROFILE = loom_execution_profile(
     target_family = "test",
 )
 
+EXPLICIT_RUNNER_PROFILE = loom_execution_profile(
+    name = "explicit_runner",
+    executor = "hosted",
+    runner = "//loom/src/loom/tools/loom-format",
+    runner_args = ["--max-samples-per-case=1"],
+    target_class = "cpu",
+    target_family = "test",
+)
+
 def _find_action(env, actions, mnemonic):
     for action in actions:
         if action.mnemonic == mnemonic:
@@ -378,6 +387,39 @@ def _test_resource_profile_preserves_direct_execution_impl(env, target):
         if expected_tag not in tags:
             env.fail("expected %r in test tags %r" % (expected_tag, tags))
 
+def _test_explicit_runner_owns_profile_execution(name, **kwargs):
+    analysis_test(
+        name = name,
+        attr_values = {
+            "timeout": "short",
+        },
+        impl = _test_explicit_runner_owns_profile_execution_impl,
+        target = ":profiled_test_selected_execute_explicit_runner_test_launcher",
+        **kwargs
+    )
+
+def _test_explicit_runner_owns_profile_execution_impl(env, target):
+    info = target[LoomExecutionTestInfo]
+    env.expect.that_str(info.profile_name).equals("explicit_runner")
+    env.expect.that_str(info.test_runner.basename).contains("loom-format")
+    if info.benchmark_runner != None:
+        env.fail("explicit profile runner unexpectedly retained %r" % info.benchmark_runner)
+    if info.benchmark_runner_args:
+        env.fail("explicit profile runner received benchmark arguments %r" % info.benchmark_runner_args)
+    if info.test_runner_args != [
+        "--max-samples-per-case=1",
+        "--case=benchmark_case",
+        "--sample=0",
+    ]:
+        env.fail("unexpected explicit runner args %r" % info.test_runner_args)
+
+    runfiles = target[DefaultInfo].default_runfiles.files.to_list()
+    _expect_basename(env, runfiles, "profiled_module.loombc")
+    _expect_basename(env, runfiles, info.test_runner.basename)
+    for file in runfiles:
+        if file.basename.startswith("iree-benchmark-loom"):
+            env.fail("explicit profile runner retained benchmark runfile %r" % file)
+
 def _test_grouped_execution_root_sources(name, **kwargs):
     analysis_test(
         name = name,
@@ -444,6 +486,7 @@ def loom_library_rules_test_suite(name):
             _test_deps_only_library_propagates_dependencies,
             _test_execution_module_links_root_tests,
             _test_execution_profile_contract,
+            _test_explicit_runner_owns_profile_execution,
             _test_generated_kernel_binary_is_testonly,
             _test_grouped_execution_root_sources,
             _test_library_keeps_dependency_module_separate,

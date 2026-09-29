@@ -394,6 +394,7 @@ class LoomBuildFileFunctions(
         target_class,
         executor,
         runner_args=None,
+        runner=None,
         build_requirements=None,
         run_requirements=None,
         resource_group=None,
@@ -406,6 +407,7 @@ class LoomBuildFileFunctions(
             "target_family": target_family,
             "target_class": target_class,
             "executor": executor,
+            "runner": runner,
             "runner_args": runner_args,
             "build_requirements": build_requirements or [],
             "run_requirements": run_requirements or [],
@@ -578,6 +580,12 @@ class LoomBuildFileFunctions(
     def _loom_execution_test(
         self, name, module, profile, args, benchmark_smoke, tags, workload_args
     ):
+        if profile["runner"]:
+            self._converter.body += (
+                f"# {name} uses the Bazel execution runner {profile['runner']}; "
+                "no CMake execution target is available.\n\n"
+            )
+            return
         policy = bazel_to_cmake_requirements.CollectedPackagePolicy(
             build_requirements=profile["build_requirements"],
             run_requirements=profile["run_requirements"],

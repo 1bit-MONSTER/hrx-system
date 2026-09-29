@@ -29,6 +29,7 @@ load(":loom_check_rules_test.bzl", "loom_check_rules_test_suite")
 load(":loom_corpus_rules_test.bzl", "loom_corpus_rules_test_suite")
 load(
     ":loom_library_rules_test.bzl",
+    "EXPLICIT_RUNNER_PROFILE",
     "REFERENCE_PROFILE",
     "SERIALIZED_REFERENCE_PROFILE",
     "loom_library_rules_test_suite",
@@ -174,6 +175,7 @@ loom_test(
     args = ["--sample=0"],
     case = "benchmark_case",
     execution_profiles = [
+        EXPLICIT_RUNNER_PROFILE,
         REFERENCE_PROFILE,
         SERIALIZED_REFERENCE_PROFILE,
     ],
