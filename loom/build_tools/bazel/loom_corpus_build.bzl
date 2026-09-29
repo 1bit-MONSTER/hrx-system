@@ -111,7 +111,7 @@ def _declare_positive_compile(ctx, source, profile, xfails):
     )
     return artifact, compile_report
 
-def _declare_xfail_probes(ctx, source, profile, xfails):
+def _declare_xfail_probes(ctx, source, profile, xfails, require_all_roots):
     profile_info = profile[LoomTargetProfileInfo]
     output_stem = ctx.label.name + "/" + _profile_stem(profile)
     result = ctx.actions.declare_file(output_stem + ".xfails")
@@ -119,6 +119,8 @@ def _declare_xfail_probes(ctx, source, profile, xfails):
     args = ctx.actions.args()
     args.add("--compiler=%s" % compile_tool.executable.path)
     args.add("--stamp-output=%s" % result.path)
+    if require_all_roots:
+        args.add("--require-all-roots")
     for root in sorted(xfails):
         args.add("--expected-root=%s" % root)
         args.add("--expected-diagnostic=%s" % xfails[root])
@@ -168,6 +170,18 @@ def _loom_corpus_program_impl(ctx):
                     )
                 profile_xfails[root] = diagnostic
 
+    all_roots_xfail_by_label = {}
+    for target in ctx.attr.all_roots_xfail:
+        for profile in _target_profiles(target):
+            label = str(profile.label)
+            if label not in selected_labels:
+                fail("%s marks all roots xfail for unselected profile %s" % (ctx.label, label))
+            if label in all_roots_xfail_by_label:
+                fail("%s marks all roots xfail for profile %s more than once" % (ctx.label, label))
+            if label not in xfails_by_label:
+                fail("%s marks all roots xfail for profile %s without diagnostic xfails" % (ctx.label, label))
+            all_roots_xfail_by_label[label] = None
+
     excludes_by_label = {}
     for target, reason in ctx.attr.excludes.items():
         for profile in _target_profiles(target):
@@ -180,6 +194,8 @@ def _loom_corpus_program_impl(ctx):
                 fail("%s declares an exclusion for profile %s more than once" % (ctx.label, label))
             if label in xfails_by_label:
                 fail("%s cannot both exclude and xfail profile %s" % (ctx.label, label))
+            if label in all_roots_xfail_by_label:
+                fail("%s cannot both exclude and mark all roots xfail for profile %s" % (ctx.label, label))
             excludes_by_label[label] = reason
 
     active_profiles = [
@@ -195,20 +211,23 @@ def _loom_corpus_program_impl(ctx):
         for profile in active_profiles:
             label = str(profile.label)
             xfails = xfails_by_label.get(label, {})
-            artifact, compile_report = _declare_positive_compile(
-                ctx,
-                subject_module,
-                profile,
-                xfails,
-            )
-            artifacts.append(artifact)
-            compile_reports.append(compile_report)
+            require_all_roots = label in all_roots_xfail_by_label
+            if not require_all_roots:
+                artifact, compile_report = _declare_positive_compile(
+                    ctx,
+                    subject_module,
+                    profile,
+                    xfails,
+                )
+                artifacts.append(artifact)
+                compile_reports.append(compile_report)
             if xfails:
                 qualification_results.append(_declare_xfail_probes(
                     ctx,
                     subject_module,
                     profile,
                     xfails,
+                    require_all_roots,
                 ))
 
     artifacts_depset = depset(artifacts)
@@ -238,6 +257,13 @@ def _loom_corpus_program_impl(ctx):
 _loom_corpus_program = rule(
     implementation = _loom_corpus_program_impl,
     attrs = {
+        "all_roots_xfail": attr.label_list(
+            providers = [
+                [LoomTargetProfileInfo],
+                [LoomTargetSetInfo],
+            ],
+            doc = "Target profiles or sets whose complete default root set is covered by diagnostic xfails.",
+        ),
         "excludes": attr.label_keyed_string_dict(
             doc = "Target profiles or sets mapped to whole-source exclusion reasons.",
         ),
@@ -355,11 +381,30 @@ def _partition_exceptions(catalog, exceptions, kind):
             target_entries[key] = value
     return by_source
 
+def _partition_all_roots_xfail(catalog, all_roots_xfail):
+    by_source = {program.identity: [] for program in catalog.programs}
+    for target, source_identities in all_roots_xfail.items():
+        if type(source_identities) != "list":
+            fail("loom_corpus_build all_roots_xfail entries for %s must be a list" % target)
+        seen_sources = {}
+        for source_identity in source_identities:
+            if source_identity not in by_source:
+                fail("loom_corpus_build all_roots_xfail names unknown source %r" % source_identity)
+            if source_identity in seen_sources:
+                fail(
+                    "loom_corpus_build all_roots_xfail repeats %r for target %s" %
+                    (source_identity, target),
+                )
+            seen_sources[source_identity] = None
+            by_source[source_identity].append(target)
+    return by_source
+
 def loom_corpus_build(
         name,
         catalog,
         profiles,
         xfails = {},
+        all_roots_xfail = {},
         excludes = {},
         **kwargs):
     """Expands a shared source catalog into target-owned build actions.
@@ -374,6 +419,8 @@ def loom_corpus_build(
       catalog: Target-neutral catalog returned by `loom_corpus_catalog`.
       profiles: Target-owned compiler profiles or profile sets.
       xfails: Profile or set keyed maps from '<source>:@<root>' to diagnostics.
+      all_roots_xfail: Profile or set keyed lists of sources whose complete
+        default root set is declared by xfails.
       excludes: Profile or set keyed maps from source identities to reasons.
       **kwargs: Common rule attributes applied to programs and aggregates.
     """
@@ -384,6 +431,7 @@ def loom_corpus_build(
         fail("loom_corpus_build aggregate %r collides with a semantic manifest" % name)
 
     xfails_by_source = _partition_exceptions(catalog, xfails, "xfail")
+    all_roots_xfail_by_source = _partition_all_roots_xfail(catalog, all_roots_xfail)
     excludes_by_source = _partition_exceptions(catalog, excludes, "exclusion")
     program_labels = []
     programs_by_manifest = {manifest.name: [] for manifest in catalog.manifests}
@@ -409,6 +457,7 @@ def loom_corpus_build(
 
         _loom_corpus_program(
             name = program.target_name,
+            all_roots_xfail = all_roots_xfail_by_source[program.identity],
             excludes = source_excludes,
             profiles = profiles,
             source_identity = program.identity,

@@ -52,6 +52,9 @@ loom_target_set(
 
 loom_corpus_build(
     name = "all",
+    all_roots_xfail = {
+        ":profile_b": ["sample/other.loom"],
+    },
     catalog = TEST_CORPUS,
     excludes = {
         ":all_profiles": {
@@ -71,6 +74,7 @@ loom_corpus_build(
         ":profile_b": {
             "sample/fixture.loom:@unsupported": "TARGET/072",
             "sample/fixture.loom:@unsupported_other": "TYPE/001",
+            "sample/other.loom:@other": "TARGET/033",
         },
     },
 )

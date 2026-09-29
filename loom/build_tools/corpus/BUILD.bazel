@@ -57,6 +57,7 @@ loom_cc_test(
 iree_execution_test_suite(
     name = "compile_xfails_execution_test",
     data = [
+        "testdata/all_roots_xfail.loom",
         "testdata/diagnostic_xfails.loom",
     ],
     manifests = ["compile_xfails.test.json"],

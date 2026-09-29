@@ -2,6 +2,58 @@
   "version": 1,
   "cases": [
     {
+      "name": "accepts an exhaustive default root set",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--require-all-roots",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TARGET/033",
+          "--expected-root=@unsupported_vector_two",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/all_roots.stamp",
+          "{srcdir}/testdata/all_roots_xfail.loom",
+          "--target=vm:core"
+        ]
+      },
+      "stdout": {"empty": true},
+      "stderr": {"empty": true},
+      "files": [
+        {
+          "path": "{tmp}/all_roots.stamp",
+          "contains": [
+            "@unsupported_vector_one TARGET/033",
+            "@unsupported_vector_two TARGET/033"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rejects an unlisted default root",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--require-all-roots",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TARGET/033",
+          "--stamp-output={tmp}/incomplete.stamp",
+          "{srcdir}/testdata/all_roots_xfail.loom",
+          "--target=vm:core"
+        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "loom-compile stderr:",
+          "@unsupported_vector_two",
+          "declared xfail roots do not exhaust the default root set"
+        ]
+      },
+      "files": [{"path": "{tmp}/incomplete.stamp", "exists": false}]
+    },
+    {
       "name": "accepts all declared diagnostics",
       "run": {
         "tool": "loom-corpus-compile-xfails",

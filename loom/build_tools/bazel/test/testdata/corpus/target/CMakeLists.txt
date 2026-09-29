@@ -72,6 +72,13 @@ loom_corpus_build(
     "sample/fixture.loom"
     "@unsupported_other"
     "TYPE/001"
+    "loom::build_tools::bazel::test::testdata::corpus::target::profile_b"
+    "sample/other.loom"
+    "@other"
+    "TARGET/033"
+  ALL_ROOTS_XFAIL
+    "loom::build_tools::bazel::test::testdata::corpus::target::profile_b"
+    "sample/other.loom"
   EXCLUDES
     "loom::build_tools::bazel::test::testdata::corpus::target::all_profiles"
     "sample/excluded.loom"

@@ -19,6 +19,9 @@
 namespace loom {
 namespace {
 
+using ::iree::testing::status::StatusIs;
+using ::testing::HasSubstr;
+
 using ModulePtr = ::loom::testing::ModulePtr;
 
 static const loom_target_snapshot_t kTargetSnapshot = {
@@ -520,10 +523,11 @@ command.program.def public @Command123() launch() {
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_artifact_provider_registry_t registry = {};
   loom_compile_request_t request = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      loom_compile_request_resolve(module.get(), &options, &registry,
-                                   &environment_, &request));
+  iree::Status status(loom_compile_request_resolve(
+      module.get(), &options, &registry, &environment_, &request));
+  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+  EXPECT_THAT(status.ToString(),
+              HasSubstr("excluded roots empty the default command root set"));
 }
 
 TEST_F(CompileRequestTest, RequiresExplicitSelectionOfPrivateArrayPrograms) {
