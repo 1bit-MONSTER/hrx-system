@@ -212,6 +212,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::util::cfg_graph
+    loom::util::segmented_storage
   PUBLIC
 )
 endif()
