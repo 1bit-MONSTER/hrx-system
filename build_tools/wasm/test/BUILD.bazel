@@ -4,6 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+# Bazel rule and toolchain tests have no CMake surface.
+# bazel-to-cmake: skip
+
 load(":wasm_rules_test.bzl", "wasm_rules_test_suite")
 
 package(default_visibility = ["//visibility:public"])
