@@ -39,7 +39,7 @@ LoomLibraryInfo = _LoomLibraryInfo
 LoomExecutionTestInfo = provider(
     doc = "A test executing one linked Loom test module.",
     fields = {
-        "benchmark_runner": "Resolved single-iteration benchmark runner executable.",
+        "benchmark_runner": "Resolved benchmark runner, or None for correctness-only launchers.",
         "benchmark_runner_args": "Smoke, profile, and workload arguments passed to the benchmark runner.",
         "module": "Linked Loom module containing root-owned cases and benchmarks.",
         "profile_name": "Stable execution profile name.",
@@ -77,7 +77,7 @@ def loom_execution_profile(
       target_family: Compiler target family, such as amdgpu or spirv.
       target_class: Broad target class, such as gpu or cpu.
       executor: Execution environment, such as hardware or reference.
-      runner_args: Environment arguments passed to both numerical runners.
+      runner_args: Environment arguments passed to each selected numerical runner.
           Workload configs and case selection belong on loom_test.
       build_requirements: Build requirements needed by the execution runners.
       run_requirements: Runtime resources needed to execute the test.
@@ -349,16 +349,15 @@ def _loom_execution_test_launcher_impl(ctx):
         ),
     ]
 
-_loom_execution_test_launcher = rule(
-    implementation = _loom_execution_test_launcher_impl,
-    attrs = {
+def _execution_test_launcher_attrs():
+    return {
         "module": attr.label(
             mandatory = True,
             providers = [_LoomTestModuleInfo],
             doc = "Linked Loom module containing root-owned cases and benchmarks.",
         ),
         "profile_args": attr.string_list(
-            doc = "Profile arguments appended after the module for both runners.",
+            doc = "Profile arguments appended after the module for each selected runner.",
         ),
         "profile_name": attr.string(
             mandatory = True,
@@ -368,15 +367,50 @@ _loom_execution_test_launcher = rule(
             doc = "Arguments appended only to the correctness runner.",
         ),
         "workload_args": attr.string_list(
-            doc = "Configuration bindings and case selection shared by both runners.",
+            doc = "Configuration bindings and case selection shared by selected runners.",
         ),
-    },
+    }
+
+_loom_execution_test_launcher = rule(
+    implementation = _loom_execution_test_launcher_impl,
+    attrs = _execution_test_launcher_attrs(),
     doc = "Generates a launcher for one linked Loom test profile.",
     executable = True,
     toolchains = [
         _LOOM_BENCHMARK_TOOLCHAIN_TYPE,
         _LOOM_TEST_TOOLCHAIN_TYPE,
     ],
+)
+
+def _loom_correctness_test_launcher_impl(ctx):
+    test_tool = ctx.toolchains[_LOOM_TEST_TOOLCHAIN_TYPE].tool
+    module = ctx.attr.module[_LoomTestModuleInfo].module
+    test_runner_args = ctx.attr.profile_args + ctx.attr.workload_args + ctx.attr.test_args
+    output = _write_test_launcher(ctx, test_tool, module, test_runner_args)
+    runfiles = _tool_runfiles(ctx, test_tool, [])
+    runfiles = runfiles.merge(ctx.attr.module[DefaultInfo].default_runfiles)
+    return [
+        DefaultInfo(
+            executable = output,
+            files = depset([output]),
+            runfiles = runfiles,
+        ),
+        LoomExecutionTestInfo(
+            benchmark_runner = None,
+            benchmark_runner_args = [],
+            module = module,
+            profile_name = ctx.attr.profile_name,
+            test_runner = test_tool.executable,
+            test_runner_args = test_runner_args,
+        ),
+    ]
+
+_loom_correctness_test_launcher = rule(
+    implementation = _loom_correctness_test_launcher_impl,
+    attrs = _execution_test_launcher_attrs(),
+    doc = "Generates a correctness-only launcher for one Loom execution profile.",
+    executable = True,
+    toolchains = [_LOOM_TEST_TOOLCHAIN_TYPE],
 )
 
 def _loom_format_test_launcher_impl(ctx):
@@ -551,6 +585,7 @@ def _declare_execution_test(
         size,
         tags,
         visibility,
+        benchmark_smoke = True,
         target_compatible_with = [],
         workload_args = []):
     test_kwargs = apply_test_requirements(
@@ -571,9 +606,12 @@ def _declare_execution_test(
     )
     if visibility != None:
         test_kwargs["visibility"] = visibility
+    launcher_rule = (
+        _loom_execution_test_launcher if benchmark_smoke else _loom_correctness_test_launcher
+    )
     _declare_launcher_test(
         name = name,
-        launcher_rule = _loom_execution_test_launcher,
+        launcher_rule = launcher_rule,
         launcher_attrs = {
             "module": module,
             "profile_args": profile.runner_args,
@@ -879,6 +917,7 @@ def loom_test(
         variants = None,
         execution_profiles = [],
         compile_targets = [],
+        benchmark_smoke = True,
         size = "small",
         tags = [],
         visibility = None,
@@ -889,9 +928,9 @@ def loom_test(
     module containing every root-owned ``check.case`` and ``check.benchmark``
     plus their reachable dependencies. Test-only symbols from ``deps`` are not
     selected. The linked module is the only Loom input to the runners.
-    ``iree-test-loom`` executes correctness cases once, then
-    ``iree-benchmark-loom`` executes each benchmark with one measured iteration
-    and no warmup repetitions.
+    ``iree-test-loom`` executes correctness cases once. When benchmark smoke is
+    enabled, ``iree-benchmark-loom`` then executes each benchmark with one
+    measured iteration and no warmup repetitions.
 
     Args:
       name: Name of the suite containing all compilation and execution children.
@@ -904,9 +943,9 @@ def loom_test(
           again. Exclusive with srcs, deps, data, input_format, and inputopts;
           the source owner retains those inputs and its runtime fixtures.
       args: Additional arguments passed to the correctness runner.
-      configs: String-valued configuration bindings shared by compiler checks,
-          correctness, and benchmark smoke.
-      case: Optional case selector shared by correctness and benchmark smoke.
+      configs: String-valued configuration bindings shared by compiler checks
+          and selected execution runners.
+      case: Optional case selector passed to selected execution runners.
           Compiler checks continue to qualify the entire owned module.
       variants: Complete mapping of named workloads, each with optional configs
           and case fields overriding the common values. Omitted variants create
@@ -916,6 +955,7 @@ def loom_test(
       compile_targets: Typed compiler profiles qualifying the same linked test
           module offline, without execution profiles' device requirements.
           At least one execution or compiler profile is required.
+      benchmark_smoke: Whether correctness tests also run one benchmark iteration.
       size: Bazel test size.
       tags: Additional tags applied to the test.
       visibility: Bazel visibility of the generated test target.
@@ -951,6 +991,7 @@ def loom_test(
         workload_args = config_args + (["--case=" + workload.case] if workload.case else [])
         tests.extend(_declare_execution_tests(
             name = workload_name,
+            benchmark_smoke = benchmark_smoke,
             module = module,
             profiles = execution_profiles,
             workload_args = workload_args,

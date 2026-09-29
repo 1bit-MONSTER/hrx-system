@@ -12,4 +12,15 @@ set(IREE_PACKAGE_ROOT_PREFIX "loom/target")
 
 iree_add_all_subdirs()
 
+loom_target_set(
+  NAME
+    "all"
+  ALLOW_EMPTY
+  TARGETS
+    loom::target::amdgpu::all
+    loom::target::spirv::all
+    loom::target::vm::all
+    loom::target::wasm::all
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

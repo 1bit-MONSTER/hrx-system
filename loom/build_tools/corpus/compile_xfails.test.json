@@ -13,7 +13,6 @@
           "--expected-diagnostic=TARGET/033",
           "--stamp-output={tmp}/expected.stamp",
           "{srcdir}/testdata/diagnostic_xfails.loom",
-          "--product=module",
           "--target=vm:core"
         ]
       },
@@ -39,7 +38,6 @@
           "--expected-diagnostic=TYPE/001",
           "--stamp-output={tmp}/wrong.stamp",
           "{srcdir}/testdata/diagnostic_xfails.loom",
-          "--product=module",
           "--target=vm:core"
         ]
       },
@@ -65,7 +63,6 @@
           "--expected-diagnostic=TARGET/033",
           "--stamp-output={tmp}/xpass.stamp",
           "{srcdir}/testdata/diagnostic_xfails.loom",
-          "--product=module",
           "--target=vm:core"
         ]
       },
@@ -83,7 +80,6 @@
           "--expected-diagnostic=TARGET/033",
           "--stamp-output={tmp}/missing.stamp",
           "{srcdir}/testdata/diagnostic_xfails.loom",
-          "--product=module",
           "--target=vm:core"
         ]
       },

@@ -20,11 +20,16 @@ loom_target_profile(
     LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM
 )
 
+set(_all_platform_targets "")
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+  list(APPEND _all_platform_targets loom::target::wasm::simd128)
+endif()
 loom_target_set(
   NAME
     "all"
+  ALLOW_EMPTY
   TARGETS
-    ::simd128
+    ${_all_platform_targets}
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

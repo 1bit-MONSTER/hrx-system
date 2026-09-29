@@ -77,7 +77,7 @@ class CompilePreparationTest : public ::testing::Test {
 };
 
 TEST_F(CompilePreparationTest,
-       ExcludedModuleRootDoesNotRetainItsPrivateDependency) {
+       ExcludedModuleRootRetainsEveryOtherRootAndReachableDependency) {
   ModulePtr module = Parse(R"(
 func.def @shared(%value: i32) -> (i32) {
   func.return %value : i32
@@ -88,6 +88,9 @@ func.def @excluded_only(%value: i32) -> (i32) {
 func.def public @kept(%value: i32) -> (i32) {
   %result = func.call @shared(%value) : (i32) -> (i32)
   func.return %result : i32
+}
+func.def public @also_kept(%value: i32) -> (i32) {
+  func.return %value : i32
 }
 func.def public @excluded(%value: i32) -> (i32) {
   %shared_result = func.call @shared(%value) : (i32) -> (i32)
@@ -103,6 +106,7 @@ func.def public @excluded(%value: i32) -> (i32) {
   module = Materialize(std::move(module), request);
 
   EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("kept")));
+  EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("also_kept")));
   EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("shared")));
   EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded")));
   EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded_only")));

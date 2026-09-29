@@ -1507,6 +1507,7 @@ def is_bazel_to_cmake_global_trigger(path: str) -> bool:
         or path.startswith(
             (
                 "build_tools/bazel_to_cmake/",
+                "loom/build_tools/bazel_to_cmake/",
                 "loom/requirements/",
                 "runtime/requirements/",
             )

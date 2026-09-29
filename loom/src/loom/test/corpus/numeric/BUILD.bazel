@@ -4,28 +4,15 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_corpus", "loom_test")
-load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
+load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_sources")
+load(":manifest.bzl", "NUMERIC_CORPUS")
 
 package(
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],  # Apache 2.0
 )
 
-loom_test(
-    name = "extrema_test",
-    srcs = ["extrema.loom"],
-    execution_profiles = [VM_REFERENCE_PROFILE],
-)
-
-loom_corpus(
-    name = "numeric",
-    srcs = ["extrema.loom"],
-    products = {
-        "extrema.loom": "module",
-    },
-    targets = [
-        "//loom/target/vm:all",
-        "//loom/target/wasm:all",
-    ],
+loom_corpus_sources(
+    name = "all",
+    manifest = NUMERIC_CORPUS,
 )

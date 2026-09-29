@@ -222,7 +222,7 @@
             ]
           },
           "exit": {"nonzero": true},
-          "stderr": {"contains": ["link planning requires at least one root"]}
+          "stderr": {"contains": ["link planning requires a nonempty root set"]}
         }
       ]
     },

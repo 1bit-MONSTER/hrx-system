@@ -9,39 +9,13 @@
 
 iree_add_all_subdirs()
 
-loom_test_module(
+loom_corpus_sources(
   NAME
-    extrema_test_module
-  SRCS
-    "extrema.loom"
-)
-
-if(LOOM_TARGET_ARCH_VM)
-loom_execution_test(
-  NAME
-    extrema_test_execute_vm_reference_test
-  MODULE
-    "::extrema_test_module"
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-    "loom-execution-profile=vm_reference"
-    "loom-target-family=vm"
-    "loom-target-class=cpu"
-    "loom-executor=reference"
-)
-endif()
-
-loom_corpus(
-  NAME
+    "all"
+  MANIFEST
     "numeric"
   SRCS
     "extrema.loom"
-  TARGETS
-    loom::target::vm::all
-    loom::target::wasm::all
-  PRODUCTS
-    "extrema.loom"
-    "module"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

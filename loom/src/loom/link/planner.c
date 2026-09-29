@@ -1445,11 +1445,11 @@ static iree_status_t loom_link_plan_select_root_symbol_ordinals(
   return iree_ok_status();
 }
 
-static iree_status_t loom_link_plan_select_implicit_root(
+static iree_status_t loom_link_plan_select_policy_root_symbol(
     loom_link_plan_t* plan, const loom_link_plan_options_t* options,
     const loom_link_module_index_symbol_t* symbol) {
-  // Strip policies filter implicit export sets. Explicit roots still pass
-  // through required-symbol selection and diagnose a stripped symbol.
+  // Strip policies filter policy-selected export sets. Explicit roots still
+  // pass through required-symbol selection and diagnose a stripped symbol.
   if (loom_link_plan_symbol_is_stripped(options, plan, symbol)) {
     return iree_ok_status();
   }
@@ -1480,7 +1480,7 @@ static iree_status_t loom_link_plan_select_input_exports(
     const loom_link_module_index_symbol_t* symbol =
         loom_link_module_index_symbol_at(plan->index, input_exports.values[i]);
     IREE_RETURN_IF_ERROR(
-        loom_link_plan_select_implicit_root(plan, options, symbol));
+        loom_link_plan_select_policy_root_symbol(plan, options, symbol));
   }
   return iree_ok_status();
 }
@@ -1513,7 +1513,7 @@ static iree_status_t loom_link_plan_select_input_tests(
         }
         if (options->test_symbol_policy != LOOM_LINK_PLAN_TEST_SYMBOL_STRIP) {
           IREE_RETURN_IF_ERROR(
-              loom_link_plan_select_implicit_root(plan, options, symbol));
+              loom_link_plan_select_policy_root_symbol(plan, options, symbol));
           continue;
         }
 
@@ -1539,7 +1539,7 @@ static iree_status_t loom_link_plan_select_input_tests(
             continue;
           }
           IREE_RETURN_IF_ERROR(
-              loom_link_plan_select_implicit_root(plan, options, target));
+              loom_link_plan_select_policy_root_symbol(plan, options, target));
         }
       }
     }
@@ -1586,7 +1586,7 @@ static iree_status_t loom_link_plan_select_provider_exports(
           continue;
         }
         IREE_RETURN_IF_ERROR(
-            loom_link_plan_select_implicit_root(plan, options, symbol));
+            loom_link_plan_select_policy_root_symbol(plan, options, symbol));
       }
     }
   }
@@ -1659,7 +1659,7 @@ static iree_status_t loom_link_plan_select_roots(
   IREE_RETURN_IF_ERROR(loom_link_plan_select_root_facets(plan, options));
   if (plan->symbols.count == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "link planning requires at least one root");
+                            "link planning requires a nonempty root set");
   }
   return iree_ok_status();
 }

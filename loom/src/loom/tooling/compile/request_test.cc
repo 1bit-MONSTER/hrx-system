@@ -287,14 +287,14 @@ TEST_F(CompileRequestTest, InfersKernelAndCanonicalFormat) {
   EXPECT_EQ(request.explicit_target.target_profile, nullptr);
 }
 
-TEST_F(CompileRequestTest, ResolvesLowKernelProductsWithImplicitAndNamedRoots) {
+TEST_F(CompileRequestTest, ResolvesLowKernelProductsWithDefaultAndNamedRoots) {
   const loom_artifact_provider_t* providers[] = {&kExecutableProvider};
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   for (loom_op_kind_t kind : {LOOM_OP_LOW_FUNC_DEF, LOOM_OP_LOW_KERNEL_DEF}) {
     ModulePtr module = BuildLowRoot(kind, LOOM_TARGET_ABI_ARRAY_PROGRAM);
     loom_compile_request_options_t options = {};
     options.target = IREE_SV("TargetFamily123:Target456");
-    EXPECT_TRUE(loom_compile_request_symbol_is_canonical_root(
+    EXPECT_TRUE(loom_compile_request_default_root_set_contains(
         module.get(), LOOM_COMPILE_PRODUCT_KERNEL,
         &module->symbols.entries[0]));
     for (iree_host_size_t root_count : {0, 1}) {
@@ -315,7 +315,7 @@ TEST_F(CompileRequestTest, KeepsOrdinaryLowFunctionsAsModuleProducts) {
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   loom_compile_request_options_t options = {};
   options.format = IREE_SV("DiagnosticFormat123");
-  EXPECT_FALSE(loom_compile_request_symbol_is_canonical_root(
+  EXPECT_FALSE(loom_compile_request_default_root_set_contains(
       module.get(), LOOM_COMPILE_PRODUCT_KERNEL, &module->symbols.entries[0]));
   for (iree_host_size_t root_count : {0, 1}) {
     options.roots = {root_count, roots};
@@ -326,7 +326,7 @@ TEST_F(CompileRequestTest, KeepsOrdinaryLowFunctionsAsModuleProducts) {
   }
 }
 
-TEST_F(CompileRequestTest, ExcludesCanonicalModuleRoot) {
+TEST_F(CompileRequestTest, InfersModuleProductFromUnfilteredDefaultRootSet) {
   ModulePtr module = Parse(R"(
 func.def public @kept() {
   func.return
@@ -340,7 +340,6 @@ func.def @helper() {
 )");
   const iree_string_view_t excluded_roots[] = {IREE_SV("@excluded")};
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("module");
   options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_compile_request_t request = Resolve(module.get(), options,
@@ -352,11 +351,11 @@ func.def @helper() {
       module.get(), &request, &module->symbols.entries[0]));
   EXPECT_TRUE(loom_compile_request_symbol_is_excluded(
       module.get(), &request, &module->symbols.entries[1]));
-  EXPECT_FALSE(loom_compile_request_symbol_is_canonical_root(
+  EXPECT_FALSE(loom_compile_request_default_root_set_contains(
       module.get(), LOOM_COMPILE_PRODUCT_MODULE, &module->symbols.entries[2]));
 }
 
-TEST_F(CompileRequestTest, ExcludesCanonicalKernelRoot) {
+TEST_F(CompileRequestTest, PreservesRemainingDefaultKernelRoots) {
   ModulePtr module = Parse(R"(
 kernel.def @kept() {
   %one = index.constant 1 : index
@@ -373,7 +372,6 @@ kernel.def @excluded() {
 )");
   const iree_string_view_t excluded_roots[] = {IREE_SV("excluded")};
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("kernel");
   options.target = IREE_SV("TargetFamily123:Target456");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_artifact_provider_t* providers[] = {&kExecutableProvider};
@@ -386,22 +384,35 @@ kernel.def @excluded() {
       module.get(), &request, &module->symbols.entries[1]));
 }
 
-TEST_F(CompileRequestTest, RequiresProductForExcludedRoots) {
+TEST_F(CompileRequestTest, ExcludedKernelDoesNotParticipateInTargetSelection) {
   ModulePtr module = Parse(R"(
-func.def public @entry() {
-  func.return
+target.generic<reference> @Target789 {
+  subgroup_size = 32
+}
+target.decl @UnavailableTarget
+kernel.def target(@Target789) @kept() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+kernel.def target(@UnavailableTarget) @excluded() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
 }
 )");
-  const iree_string_view_t excluded_roots[] = {IREE_SV("entry")};
+  const iree_string_view_t excluded_roots[] = {IREE_SV("excluded")};
   loom_compile_request_options_t options = {};
-  options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
-  const loom_artifact_provider_registry_t registry = {};
-  loom_compile_request_t request = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      loom_compile_request_resolve(module.get(), &options, &registry,
-                                   &environment_, &request));
+  const loom_artifact_provider_t* providers[] = {&kExecutableProvider};
+  const loom_compile_request_t request =
+      Resolve(module.get(), options, providers, IREE_ARRAYSIZE(providers));
+
+  EXPECT_EQ(request.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
+  EXPECT_EQ(request.excluded_roots.count, 1u);
 }
 
 TEST_F(CompileRequestTest, RejectsExplicitAndExcludedRoots) {
@@ -491,16 +502,21 @@ func.def public @entry() {
                                    &environment_, &request));
 }
 
-TEST_F(CompileRequestTest, RejectsExcludingEveryCanonicalRoot) {
+TEST_F(CompileRequestTest, RejectsEmptyDefaultRootSet) {
   ModulePtr module = Parse(R"(
-func.def public @entry() {
-  func.return
+kernel.def @Kernel123() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+command.program.def public @Command123() launch() {
+  kernel.launch @Kernel123() : ()
+  command.return
 }
 )");
-  const iree_string_view_t excluded_roots[] = {IREE_SV("entry")};
+  const iree_string_view_t excluded_roots[] = {IREE_SV("Command123")};
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("module");
-  options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_artifact_provider_registry_t registry = {};
   loom_compile_request_t request = {};
@@ -514,7 +530,7 @@ TEST_F(CompileRequestTest, RequiresExplicitSelectionOfPrivateArrayPrograms) {
   ModulePtr module =
       BuildLowRoot(LOOM_OP_LOW_FUNC_DEF, LOOM_TARGET_ABI_ARRAY_PROGRAM,
                    /*visibility_flags=*/0);
-  EXPECT_FALSE(loom_compile_request_symbol_is_canonical_root(
+  EXPECT_FALSE(loom_compile_request_default_root_set_contains(
       module.get(), LOOM_COMPILE_PRODUCT_KERNEL, &module->symbols.entries[0]));
   const loom_artifact_provider_t* providers[] = {&kExecutableProvider};
   const iree_string_view_t roots[] = {IREE_SV("entry")};

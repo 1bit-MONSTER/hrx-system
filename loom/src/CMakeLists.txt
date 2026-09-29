@@ -21,11 +21,8 @@ set(IREE_IMPLICIT_DEFS_CC_DEPS loom_defs)
 
 include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_cc.cmake")
 include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_check.cmake")
-include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_corpus.cmake")
 include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_low_descriptor.cmake")
 include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_generated.cmake")
-include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_module.cmake")
-include("${PROJECT_SOURCE_DIR}/loom/build_tools/cmake/loom_test.cmake")
 
 iree_add_all_subdirs()
 

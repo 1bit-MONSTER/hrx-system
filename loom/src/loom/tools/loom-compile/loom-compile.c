@@ -89,7 +89,8 @@ static iree_status_t loom_compile_diagnostic_sink(
 IREE_FLAG(string, product, "",
           "Optional product: 'kernel', 'command', or 'module'. With explicit "
           "--root values this validates their inferred product. With no "
-          "roots this selects the product's canonical roots.");
+          "roots this selects the complete default root set for a command or "
+          "kernel product, or the whole module for a module product.");
 IREE_FLAG(string, format, "",
           "Optional exact artifact format, such as 'amdgpu-hsaco', "
           "'spirv-binary', 'loom-command', or 'wasm-binary'. Omit this to "
@@ -103,15 +104,17 @@ IREE_FLAG(string, target, "",
 IREE_FLAG_LIST(string, root,
                "Root symbol to materialize before compilation. Repeat for "
                "multiple roots. Roots must infer one homogeneous product. "
-               "When omitted, --product selects its canonical roots; without "
-               "either, public or retained command programs take precedence, "
-               "then kernel entries and public or retained kernel-scoped "
-               "pipelines or array programs, then the whole module.");
+               "When omitted, --product derives selection from the module; "
+               "without either, public or retained command programs take "
+               "precedence, then kernel entries and public or retained "
+               "kernel-scoped pipelines or array programs, then the whole "
+               "module.");
 IREE_FLAG_LIST_NAMED(
     string, exclude_root, "exclude-root",
-    "Canonical root to omit before target specialization and dependency "
-    "materialization. Repeat for multiple roots. Requires --product and "
-    "cannot be combined with --root.");
+    "Member of the selected default root set to omit before target "
+    "specialization and dependency materialization. Repeat for multiple "
+    "roots. Product inference occurs before exclusions are applied. Cannot "
+    "be combined with --root.");
 IREE_FLAG(string, pipeline, "default",
           "Pass pipeline to run before artifact emission. Use 'default' or "
           "empty for the selected format's default compile pipeline. 'none' "

@@ -44,7 +44,8 @@ def loom_module(
       mode: Module construction mode: merge or link.
       output: Generated module filename. Defaults to <name>.loom or .loombc.
       output_format: Generated representation: text or bc.
-      include_input_exports: Whether exported input symbols are implicit roots.
+      include_input_exports: Whether exported input symbols are selected as
+        roots.
       include_input_tests: Whether root-owned checks and benchmarks are roots.
       strip_check: Whether check.case and check.benchmark symbols are removed.
       require_resolved_config: Whether unresolved config.decl symbols fail.
