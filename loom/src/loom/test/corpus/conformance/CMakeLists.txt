@@ -1837,6 +1837,7 @@ loom_test_module(
   SRCS
     "generic_memory.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic.loom-test"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic_atomic_addressing.loom-test"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)

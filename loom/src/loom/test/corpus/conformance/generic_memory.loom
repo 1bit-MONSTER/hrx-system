@@ -1,3 +1,7 @@
+kernel.decl @generic_atomic_indexed_i32() launch(%storage: buffer, %output: buffer, %start: i32)
+
+kernel.decl @generic_atomic_uniform_i64() launch(%storage: buffer, %output: buffer, %position: i32)
+
 kernel.decl @generic_copy_i64() launch(%input: buffer, %output: buffer)
 
 kernel.decl @generic_copy_vector() launch(%input: buffer, %output: buffer)
@@ -109,5 +113,50 @@ check.case public @generic_workgroup_publication_values {
   %expected = check.generate.iota offset(65536) step(1) : tensor<16xi32>
   check.expect.bitwise actual(%global_values) expected(%expected) : tensor<16xi32>
   check.expect.bitwise actual(%local_values) expected(%expected) : tensor<16xi32>
+  check.return
+}
+
+check.case public @generic_atomic_indexed_values {
+  %storage = check.generate.fill value(10) : tensor<16450xi32>
+  %output = check.generate.fill value(-1) : tensor<128xi32>
+  %start = check.literal value(1) : i32
+  kernel.launch @generic_atomic_indexed_i32(%storage, %output, %start) : (tensor<16450xi32>, tensor<128xi32>, i32)
+  %add_values = check.tensor.view %output offset(0) : tensor<128xi32> -> tensor<64xi32>
+  %cas_values = check.tensor.view %output offset(256) : tensor<128xi32> -> tensor<64xi32>
+  %expected_add = check.generate.fill value(13) : tensor<64xi32>
+  %expected_cas = check.generate.fill value(18) : tensor<64xi32>
+  check.expect.bitwise actual(%add_values) expected(%expected_add) : tensor<64xi32>
+  check.expect.bitwise actual(%cas_values) expected(%expected_cas) : tensor<64xi32>
+  %updated = check.tensor.view %storage offset(65540) : tensor<16450xi32> -> tensor<64xi32>
+  %expected_updated = check.generate.fill value(21) : tensor<64xi32>
+  check.expect.bitwise actual(%updated) expected(%expected_updated) : tensor<64xi32>
+  %prefix = check.tensor.view %storage offset(65536) : tensor<16450xi32> -> tensor<1xi32>
+  %suffix = check.tensor.view %storage offset(65796) : tensor<16450xi32> -> tensor<1xi32>
+  %untouched = check.generate.fill value(10) : tensor<1xi32>
+  check.expect.bitwise actual(%prefix) expected(%untouched) : tensor<1xi32>
+  check.expect.bitwise actual(%suffix) expected(%untouched) : tensor<1xi32>
+  check.return
+}
+
+check.case public @generic_atomic_uniform_values {
+  %storage = check.generate.fill value(10) : tensor<10xi64>
+  %output = check.generate.fill value(-1) : tensor<2xi64>
+  %position = check.literal value(3) : i32
+  kernel.launch @generic_atomic_uniform_i64(%storage, %output, %position) : (tensor<10xi64>, tensor<2xi64>, i32)
+  %add_value = check.tensor.view %output offset(0) : tensor<2xi64> -> tensor<1xi64>
+  %cas_value = check.tensor.view %output offset(8) : tensor<2xi64> -> tensor<1xi64>
+  %expected_add = check.generate.fill value(4294967306) : tensor<1xi64>
+  %expected_cas = check.generate.fill value(8589934602) : tensor<1xi64>
+  check.expect.bitwise actual(%add_value) expected(%expected_add) : tensor<1xi64>
+  check.expect.bitwise actual(%cas_value) expected(%expected_cas) : tensor<1xi64>
+  %updated = check.tensor.view %storage offset(40) : tensor<10xi64> -> tensor<1xi64>
+  %expected_updated = check.generate.fill value(99) : tensor<1xi64>
+  check.expect.bitwise actual(%updated) expected(%expected_updated) : tensor<1xi64>
+  %prefix = check.tensor.view %storage offset(0) : tensor<10xi64> -> tensor<5xi64>
+  %suffix = check.tensor.view %storage offset(48) : tensor<10xi64> -> tensor<4xi64>
+  %untouched_prefix = check.generate.fill value(10) : tensor<5xi64>
+  %untouched_suffix = check.generate.fill value(10) : tensor<4xi64>
+  check.expect.bitwise actual(%prefix) expected(%untouched_prefix) : tensor<5xi64>
+  check.expect.bitwise actual(%suffix) expected(%untouched_suffix) : tensor<4xi64>
   check.return
 }

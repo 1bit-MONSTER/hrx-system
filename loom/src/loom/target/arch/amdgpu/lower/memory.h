@@ -183,13 +183,21 @@ bool loom_amdgpu_memory_access_plan_select(
     loom_amdgpu_memory_access_selection_t* out_selection,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
 
-// Selects a flat address plan for instrumentation that needs the actual
-// application pointer rather than a memory packet for the source access.
+// Selects a full-width flat address with every dynamic term routed through
+// VADDR. The byte offset initially belongs entirely to the pointer; packet
+// selection may split off a descriptor immediate afterward.
 bool loom_amdgpu_memory_access_select_flat_address(
     const loom_module_t* module,
     const loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_t* out_access,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
+
+// Splits a flat packet's static byte offset between the selected descriptor's
+// immediate and its full-width pointer. Shared by observations and updates.
+bool loom_amdgpu_memory_access_select_flat_offset(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t descriptor_ordinal, loom_amdgpu_memory_access_t* access,
+    loom_amdgpu_memory_access_diagnostic_t* diagnostic);
 
 // Selects an explicit VGPR byte-offset expression for source access
 // instrumentation.

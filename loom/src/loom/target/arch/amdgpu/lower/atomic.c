@@ -773,40 +773,34 @@ static void loom_amdgpu_atomic_append_saddr(
 
 static bool loom_amdgpu_atomic_select_offset(
     const loom_low_descriptor_set_t* descriptor_set,
-    loom_amdgpu_descriptor_ref_t descriptor_ref,
+    loom_amdgpu_memory_access_t* access,
     loom_amdgpu_atomic_selection_t* selection,
+    loom_amdgpu_memory_access_diagnostic_t* memory_diagnostic,
     loom_amdgpu_atomic_diagnostic_t* diagnostic) {
-  const uint32_t descriptor_ordinal =
-      loom_amdgpu_descriptor_ref_ordinal(descriptor_set, descriptor_ref);
+  const uint32_t descriptor_ordinal = loom_amdgpu_descriptor_ref_ordinal(
+      descriptor_set, selection->descriptor_ref);
   if (descriptor_ordinal == LOOM_LOW_DESCRIPTOR_ORDINAL_NONE) {
     diagnostic->rejection_bits |=
         LOOM_AMDGPU_ATOMIC_REJECTION_DESCRIPTOR_MISSING;
     return false;
+  }
+  if (selection->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT) {
+    if (!loom_amdgpu_memory_access_select_flat_offset(
+            descriptor_set, descriptor_ordinal, access, memory_diagnostic)) {
+      return false;
+    }
+    selection->immediate_offset = access->immediate_offset;
+    selection->scalar_byte_offset = 0;
+    return true;
   }
   loom_low_immediate_kind_t expected_kind = LOOM_LOW_IMMEDIATE_KIND_UNSIGNED;
   if (selection->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_GLOBAL_SADDR) {
     expected_kind = LOOM_LOW_IMMEDIATE_KIND_SIGNED;
   }
   loom_amdgpu_descriptor_offset_immediate_info_t offset_info;
-  if (selection->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT) {
-    if (!loom_amdgpu_descriptor_offset_immediate_info(
-            descriptor_set, descriptor_ordinal, 1, expected_kind,
-            &offset_info) ||
-        offset_info.unit_byte_count == 0) {
-      expected_kind = LOOM_LOW_IMMEDIATE_KIND_SIGNED;
-      if (!loom_amdgpu_descriptor_offset_immediate_info(
-              descriptor_set, descriptor_ordinal, 1, expected_kind,
-              &offset_info) ||
-          offset_info.unit_byte_count == 0) {
-        diagnostic->rejection_bits |=
-            LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_IMMEDIATE;
-        return false;
-      }
-    }
-  } else if (!loom_amdgpu_descriptor_offset_immediate_info(
-                 descriptor_set, descriptor_ordinal, 1, expected_kind,
-                 &offset_info) ||
-             offset_info.unit_byte_count == 0) {
+  if (!loom_amdgpu_descriptor_offset_immediate_info(
+          descriptor_set, descriptor_ordinal, 1, expected_kind, &offset_info) ||
+      offset_info.unit_byte_count == 0) {
     diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_IMMEDIATE;
     return false;
   }
@@ -926,11 +920,6 @@ static bool loom_amdgpu_atomic_select(
       break;
     case LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC:
       out_selection->address_form = LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT;
-      if (loom_low_source_memory_access_is_dynamic(&out_selection->source)) {
-        loom_amdgpu_memory_access_record_flat_dynamic_address_rejection(
-            module, &out_selection->source, memory_diagnostic);
-        return false;
-      }
       break;
     default:
       diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_MEMORY_SPACE;
@@ -966,7 +955,14 @@ static bool loom_amdgpu_atomic_select(
       .address_form = out_selection->address_form,
   };
   if (out_selection->source.memory_space ==
-      LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+      LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC) {
+    if (!loom_amdgpu_memory_access_select_flat_address(
+            module, &out_selection->source, &memory_access,
+            memory_diagnostic)) {
+      return false;
+    }
+  } else if (out_selection->source.memory_space ==
+             LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     if (!loom_amdgpu_memory_access_select_vaddr_dynamic_terms(
             module, &memory_access, memory_diagnostic)) {
       return false;
@@ -995,9 +991,9 @@ static bool loom_amdgpu_atomic_select(
         LOOM_AMDGPU_ATOMIC_REJECTION_DESCRIPTOR_MISSING;
     return false;
   }
-  if (!loom_amdgpu_atomic_select_offset(descriptor_set,
-                                        out_selection->descriptor_ref,
-                                        out_selection, diagnostic)) {
+  if (!loom_amdgpu_atomic_select_offset(descriptor_set, &memory_access,
+                                        out_selection, memory_diagnostic,
+                                        diagnostic)) {
     return false;
   }
   memory_access.address_form = out_selection->address_form;
@@ -1308,6 +1304,10 @@ iree_status_t loom_amdgpu_lower_atomic(loom_low_lower_context_t* context,
       .payload_register_count = payload_register_count,
       .packet_byte_count = packet_byte_count,
   };
+  if (loom_amdgpu_atomic_uses_flat_address(plan)) {
+    access.vaddr_static_byte_offset =
+        (uint64_t)(plan->source.static_byte_offset - plan->immediate_offset);
+  }
   for (iree_host_size_t i = 0; i < LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_CAPACITY;
        ++i) {
     access.dynamic_term_kinds[i] = plan->dynamic_term_kinds[i];

@@ -361,6 +361,7 @@ loom_test(
     srcs = [
         "generic_memory.loom",
         "//loom/src/loom/test/corpus/source_low:memory_generic.loom-test",
+        "//loom/src/loom/test/corpus/source_low:memory_generic_atomic_addressing.loom-test",
     ],
     compile_targets = [
         "//loom/target/amdgpu:gfx942",

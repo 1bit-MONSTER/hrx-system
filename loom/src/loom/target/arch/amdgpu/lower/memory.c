@@ -1463,21 +1463,30 @@ static bool loom_amdgpu_memory_access_split_global_smem_static_offset(
   return true;
 }
 
-static bool loom_amdgpu_memory_access_split_flat_static_offset(
-    loom_amdgpu_memory_access_t* access,
-    const loom_amdgpu_descriptor_offset_immediate_info_t* offset_info,
+bool loom_amdgpu_memory_access_select_flat_offset(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t descriptor_ordinal, loom_amdgpu_memory_access_t* access,
     loom_amdgpu_memory_access_diagnostic_t* diagnostic) {
-  if (offset_info->unit_byte_count != 1) {
+  const loom_low_descriptor_t* descriptor =
+      &descriptor_set->descriptors[descriptor_ordinal];
+  // Flat descriptors put their byte offset first. CDNA generic offsets are
+  // unsigned; global and RDNA offsets use the descriptor's signed range.
+  const loom_low_immediate_kind_t offset_kind =
+      descriptor_set->immediates[descriptor->immediate_start].kind;
+  loom_amdgpu_descriptor_offset_immediate_info_t offset_info;
+  if (!loom_amdgpu_descriptor_offset_immediate_info(
+          descriptor_set, descriptor_ordinal, 1, offset_kind, &offset_info) ||
+      offset_info.unit_byte_count != 1) {
     diagnostic->rejection_bits |=
         LOOM_AMDGPU_MEMORY_ACCESS_REJECTION_DESCRIPTOR_OFFSET_IMMEDIATE;
     return false;
   }
   const int64_t static_byte_offset = access->source.static_byte_offset;
-  const int64_t signed_max = offset_info->unsigned_max > INT64_MAX
+  const int64_t signed_max = offset_info.unsigned_max > INT64_MAX
                                  ? INT64_MAX
-                                 : (int64_t)offset_info->unsigned_max;
-  const int64_t minimum = offset_info->kind == LOOM_LOW_IMMEDIATE_KIND_SIGNED
-                              ? offset_info->signed_min
+                                 : (int64_t)offset_info.unsigned_max;
+  const int64_t minimum = offset_info.kind == LOOM_LOW_IMMEDIATE_KIND_SIGNED
+                              ? offset_info.signed_min
                               : 0;
   if (static_byte_offset < minimum) {
     diagnostic->rejection_bits |=
@@ -2109,19 +2118,8 @@ static bool loom_amdgpu_memory_access_select_flat_descriptor(
     loom_amdgpu_memory_access_record_descriptor_missing(access, diagnostic);
     return false;
   }
-  // Flat descriptors put their byte offset first. CDNA generic offsets are
-  // unsigned; global and RDNA offsets use the descriptor's signed range.
-  const loom_low_immediate_kind_t offset_kind =
-      descriptor_set->immediates[descriptor->immediate_start].kind;
-  loom_amdgpu_descriptor_offset_immediate_info_t offset_info;
-  if (!loom_amdgpu_descriptor_offset_immediate_info(
-          descriptor_set, descriptor_ordinal, 1, offset_kind, &offset_info)) {
-    diagnostic->rejection_bits |=
-        LOOM_AMDGPU_MEMORY_ACCESS_REJECTION_DESCRIPTOR_OFFSET_IMMEDIATE;
-    return false;
-  }
-  if (!loom_amdgpu_memory_access_split_flat_static_offset(access, &offset_info,
-                                                          diagnostic)) {
+  if (!loom_amdgpu_memory_access_select_flat_offset(
+          descriptor_set, descriptor_ordinal, access, diagnostic)) {
     return false;
   }
   access->descriptor = descriptor;
