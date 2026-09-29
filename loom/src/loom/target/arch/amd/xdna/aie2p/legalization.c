@@ -195,14 +195,6 @@ static iree_status_t loom_aie2p_legalize_table_quantize(
       result_bit_count > 64) {
     return iree_ok_status();
   }
-  uint64_t input_count = 0;
-  // Native i32-to-i64 widening consumes complete 512-bit result packets; a
-  // partial tail is not a legal VUPS conversion.
-  if (result_bit_count > 32 &&
-      (!loom_type_static_element_count(input_type, &input_count) ||
-       input_count % (packet_bit_count / result_bit_count) != 0)) {
-    return iree_ok_status();
-  }
   const loom_vector_table_quantize_policy_t policy = {
       .packet_bit_count = packet_bit_count,
       .comparison_element_type = input_element_type,

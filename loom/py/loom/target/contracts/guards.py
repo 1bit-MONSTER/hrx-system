@@ -73,6 +73,7 @@ class GuardKind(Enum):
     VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES = "value_packed_integer_payload_from_lanes"
     VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD = "value_packed_integer_lanes_from_payload"
     VALUE_NO_USES = "value_no_uses"
+    VALUE_NO_USES_AFTER = "value_no_uses_after"
     INSTANCE_FLAGS_HAS_ALL = "instance_flags_has_all"
     INSTANCE_FLAGS_HAS_NONE = "instance_flags_has_none"
     VECTOR_EXTRACT_SHAPE = "vector_extract_shape"
@@ -603,6 +604,19 @@ class Guard:
         )
 
     @classmethod
+    def value_no_uses_after(
+        cls,
+        field: str,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        return cls(
+            kind=GuardKind.VALUE_NO_USES_AFTER,
+            field=field,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def vector_extract_shape(
         cls,
         source_field: str,
@@ -804,7 +818,10 @@ class Guard:
         ):
             _validate_value_fact_guard(self, source_op, subject)
             return
-        if self.kind == GuardKind.VALUE_NO_USES:
+        if self.kind in (
+            GuardKind.VALUE_NO_USES,
+            GuardKind.VALUE_NO_USES_AFTER,
+        ):
             _require_value(source_op, self.field, subject)
             return
         if self.kind == GuardKind.VECTOR_EXTRACT_SHAPE:

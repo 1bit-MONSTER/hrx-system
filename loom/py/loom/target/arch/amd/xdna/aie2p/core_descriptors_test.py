@@ -854,6 +854,47 @@ def test_aggregate_updates_require_coindexed_unencoded_components() -> None:
             )
 
 
+def test_descriptor_updates_require_unique_known_operands() -> None:
+    spec = next(
+        spec
+        for spec in _DESCRIPTOR_SPECS
+        if spec.key == "amd.xdna.aie2p.predicate.and.low32.rhs_tied"
+    )
+    form = _MACHINE_FORMS[spec.form_name]
+    operand_names = tuple(operand.name for operand in (*form.outputs, *form.inputs))
+    with pytest.raises(ValueError, match="tied update names unknown operands"):
+        descriptor_constraints(
+            replace(
+                spec,
+                destructive_updates=(),
+                tied_updates=(("d0", "unknown"),),
+            ),
+            form,
+            operand_names,
+        )
+    with pytest.raises(ValueError, match="destructive update names unknown operands"):
+        descriptor_constraints(
+            replace(spec, destructive_updates=(("unknown", "s1"),)),
+            form,
+            operand_names,
+        )
+    with pytest.raises(ValueError, match="update pairs must be unique"):
+        descriptor_constraints(
+            replace(
+                spec,
+                destructive_updates=(("d0", "s1"), ("d0", "s1")),
+            ),
+            form,
+            operand_names,
+        )
+    with pytest.raises(ValueError, match="already imply same-storage ties"):
+        descriptor_constraints(
+            replace(spec, tied_updates=(("d0", "s1"),)),
+            form,
+            operand_names,
+        )
+
+
 def test_vector_encoding_roles_share_one_low_storage_class() -> None:
     descriptors = {
         descriptor.key: descriptor
@@ -994,8 +1035,6 @@ def test_descriptor_encoding_ids_and_adapters_are_materialized() -> None:
     assert Constraint(ConstraintKind.REMATERIALIZABLE, 0) in static_offset.constraints
 
     for name in (
-        "splat.i16x32",
-        "splat.i32x16",
         "accumulator.clear.i32x64",
         "accumulator.clear.f32x64",
         "move.vector512.to.accumulator512",
@@ -1163,6 +1202,58 @@ def test_descriptor_encoding_ids_and_adapters_are_materialized() -> None:
             )
 
 
+def test_state_free_vector_broadcasts_can_rematerialize() -> None:
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    integer_shapes = ((8, 64), (16, 32), (32, 16), (64, 8))
+    keys = (
+        *(f"amd.xdna.aie2p.splat.i{width}x{lanes}" for width, lanes in integer_shapes),
+        *(
+            f"amd.xdna.aie2p.broadcast.i{width}x{lanes}.from-vector"
+            for width, lanes in integer_shapes
+        ),
+        "amd.xdna.aie2p.broadcast.bf16x8.to.bf16x32",
+    )
+    rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for key in keys:
+        descriptor = descriptors[key]
+        assert descriptor.op_kind is DescriptorOpKind.OP
+        assert descriptor.effects == ()
+        assert DescriptorFlag.DEAD_REMOVABLE in descriptor.flags
+        assert [operand.role for operand in descriptor.operands] == [
+            OperandRole.RESULT,
+            OperandRole.OPERAND,
+        ]
+        assert all(
+            OperandFlag.IMPLICIT not in operand.flags for operand in descriptor.operands
+        )
+        assert rematerializable in descriptor.constraints
+
+
+def test_state_free_vector_bitwise_results_can_rematerialize() -> None:
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for operation in ("and", "or"):
+        descriptor = descriptors[f"amd.xdna.aie2p.{operation}.bits512"]
+        assert descriptor.op_kind is DescriptorOpKind.OP
+        assert descriptor.effects == ()
+        assert DescriptorFlag.DEAD_REMOVABLE in descriptor.flags
+        assert [operand.role for operand in descriptor.operands] == [
+            OperandRole.RESULT,
+            OperandRole.OPERAND,
+            OperandRole.OPERAND,
+        ]
+        assert all(
+            OperandFlag.IMPLICIT not in operand.flags for operand in descriptor.operands
+        )
+        assert rematerializable in descriptor.constraints
+
+
 def test_scalar_address_descriptors_expose_fixed_register_state() -> None:
     descriptors = {
         descriptor.key: descriptor
@@ -1260,13 +1351,38 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
         assert select.operands[-1].register_part == "aie2p.elpredicate.low32"
         assert select.operands[-1].encoding_adapter_id != 0
 
+    rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for width in (8, 16, 32):
+        suffix = ".el.low32" if width != 8 else ""
+        equality = descriptors[
+            f"amd.xdna.aie2p.cmp.eqz.i{width}x{512 // width}{suffix}"
+        ]
+        assert rematerializable in equality.constraints
+
     for operation in ("and", "or", "xor"):
         low = descriptors[f"amd.xdna.aie2p.predicate.{operation}.low32"]
+        tied_low = descriptors[f"amd.xdna.aie2p.predicate.{operation}.low32.rhs_tied"]
         high = descriptors[f"amd.xdna.aie2p.predicate.{operation}.high32"]
+        tied_high = descriptors[f"amd.xdna.aie2p.predicate.{operation}.high32.rhs_tied"]
         assert all(
             operand.register_part == "aie2p.elpredicate.low32"
             for operand in low.operands
         )
+        assert all(
+            operand.register_part == "aie2p.elpredicate.low32"
+            for operand in tied_low.operands
+        )
+        assert tied_low.constraints == (
+            Constraint(ConstraintKind.TIED, 0, 2),
+            Constraint(ConstraintKind.DESTRUCTIVE, 0, 2),
+        )
+        assert tied_low.asm_forms[0].operands == ("s0", "s1")
+        assert all(
+            operand.register_part == "aie2p.elpredicate.high32"
+            for operand in tied_high.operands
+        )
+        assert tied_high.constraints == (Constraint(ConstraintKind.TIED, 0, 2),)
+        assert tied_high.asm_forms[0].operands == ("s0", "s1")
         assert all(
             operand.register_part == "aie2p.elpredicate.high32"
             for operand in high.operands[:3]
@@ -1288,9 +1404,13 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
     assert complete.operands[0].register_part == "aie2p.elpredicate.high32"
     assert complete.operands[1].register_part == "aie2p.elpredicate.low32"
     assert OperandFlag.STORAGE_CONTINUATION in complete.operands[1].flags
-    assert complete.constraints[0].kind is ConstraintKind.TIED
-    assert complete.constraints[0].lhs_operand_index == 0
-    assert complete.constraints[0].rhs_operand_index == 1
+    assert rematerializable in complete.constraints
+    complete_ties = [
+        constraint
+        for constraint in complete.constraints
+        if constraint.kind is ConstraintKind.TIED
+    ]
+    assert complete_ties == [Constraint(ConstraintKind.TIED, 0, 1)]
     assert complete.asm_forms[0].operands == ("storage",)
 
 

@@ -35,8 +35,8 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @f32_cmpf_select(%
   %46 = predicate.complete.zero.high32 %45, 0
   %47 = vlt.u32x16.el.low32 %44, %42
   %48 = predicate.complete.zero.high32 %47, 0
-  %49 = predicate.or.low32 %46, %48
-  %50 = predicate.or.high32 %46, %48, %49
+  %49 = predicate.or.low32.rhs_tied %46, %48
+  %50 = predicate.or.high32.rhs_tied %46, %49
   %51 = mov.short 0
   %52 = vbcst.32 %51
   %53 = mov.i32 -2147483648
@@ -63,10 +63,10 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @f32_cmpf_select(%
   %74 = vsel.32.mask64 %72, %73, %71
   %75 = vlt.u32x16.el.low32 %65, %74
   %76 = predicate.complete.zero.high32 %75, 0
-  %77 = predicate.and.low32 %76, %50
-  %78 = predicate.and.high32 %76, %50, %77
-  %79 = predicate.xor.low32 %76, %78
-  %mask = predicate.xor.high32 %76, %78, %79
+  %77 = predicate.and.low32.rhs_tied %76, %50
+  %78 = predicate.and.high32.rhs_tied %76, %77
+  %79 = predicate.xor.low32.rhs_tied %76, %78
+  %mask = predicate.xor.high32.rhs_tied %76, %79
   %selected = vsel.32.mask64 %false_value, %true_value, %mask
   return %selected
 }
@@ -178,10 +178,10 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_cmpf_rhs_z
   %59 = vlt.u32x16.el.low32 %46, %57
   %60 = predicate.or.low32 %58, %59
   %61 = predicate.complete.zero.high32 %60, 0
-  %62 = predicate.and.low32 %61, %42
-  %63 = predicate.and.high32 %61, %42, %62
-  %64 = predicate.xor.low32 %61, %63
-  %mask = predicate.xor.high32 %61, %63, %64
+  %62 = predicate.and.low32.rhs_tied %61, %42
+  %63 = predicate.and.high32.rhs_tied %61, %62
+  %64 = predicate.xor.low32.rhs_tied %61, %63
+  %mask = predicate.xor.high32.rhs_tied %61, %64
   return %mask
 }
 

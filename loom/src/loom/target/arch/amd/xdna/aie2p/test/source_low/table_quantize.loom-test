@@ -62,6 +62,22 @@ CHECK-NOT: * = vinsert.*
 
 // ====
 
+func.def @f32_i64_partial_packet(%values: vector<9xf32>, %thresholds: vector<3xf32>) -> (vector<9xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<9xf32>, vector<3xf32> -> vector<9xi64>
+  func.return %codes : vector<9xi64>
+}
+
+// ----
+CHECK: low.func.def * @f32_i64_partial_packet(*) *
+CHECK: * = vlt.u32x16.el.low32 *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: %codes = concat(*)*
+CHECK-NOT: * = vextract.*
+CHECK-NOT: * = vinsert.*
+
+// ====
+
 func.def @f16_predicate(%values: vector<9xf16>, %thresholds: vector<1xf16>) -> (vector<9xi1>) {
   %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = upper} : vector<9xf16>, vector<1xf16> -> vector<9xi1>
   func.return %codes : vector<9xi1>
@@ -70,7 +86,7 @@ func.def @f16_predicate(%values: vector<9xf16>, %thresholds: vector<1xf16>) -> (
 // ----
 CHECK: low.func.def * @f16_predicate(*) *
 CHECK: * = vextbcst.16 %thresholds, 0
-CHECK: %codes = predicate.xor.high32 *
+CHECK: %codes = predicate.xor.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 

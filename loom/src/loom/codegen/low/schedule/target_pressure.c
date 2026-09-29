@@ -620,6 +620,30 @@ uint64_t loom_low_schedule_node_register_packing_result_units(
        resource_id];
 }
 
+bool loom_low_schedule_node_retains_aggregate_packing_from_class(
+    const loom_low_schedule_build_state_t* state, uint32_t node_index,
+    uint16_t reg_class_id) {
+  const loom_low_descriptor_set_t* descriptor_set =
+      state->target.descriptor_set;
+  for (uint16_t resource_id = 0;
+       resource_id < descriptor_set->register_packing_resource_count;
+       ++resource_id) {
+    const loom_low_register_packing_resource_t* resource =
+        &descriptor_set->register_packing_resources[resource_id];
+    if (!loom_low_schedule_register_packing_resource_has_aggregate_member(
+            descriptor_set, resource) ||
+        !loom_low_schedule_register_packing_resource_contains_class(
+            descriptor_set, resource, reg_class_id)) {
+      continue;
+    }
+    if (loom_low_schedule_node_register_packing_result_units(
+            state, node_index, resource_id) != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static uint64_t loom_low_schedule_node_register_packing_working_set(
     const loom_low_schedule_build_state_t* state, uint32_t node_index,
     const loom_low_register_packing_resource_t* resource,
@@ -789,12 +813,60 @@ uint32_t loom_low_schedule_target_pressure_full_unspillable_completion_capacity(
   return current_live_units >= domain->capacity ? domain->capacity : UINT32_MAX;
 }
 
-uint32_t
-loom_low_schedule_target_pressure_active_unspillable_completion_capacity(
+static uint64_t loom_low_schedule_target_pressure_unspillable_transaction_units(
     const loom_low_schedule_build_state_t* state,
-    loom_low_schedule_pressure_state_t* pressure_state,
-    uint32_t candidate_node) {
-  uint32_t active_capacity = UINT32_MAX;
+    const loom_low_schedule_pressure_state_t* pressure_state,
+    uint16_t completion_domain_id) {
+  const loom_low_schedule_completion_domain_t* domain =
+      &state->pressure_limits
+           .unspillable_completion_domains[completion_domain_id];
+  const uint16_t reg_class_id = domain->reg_class_id;
+  const uint16_t alias_set_id =
+      state->target.descriptor_set->reg_classes[reg_class_id].alias_set_id;
+  uint64_t current_live_units = 0;
+  int64_t candidate_delta_units = 0;
+  uint64_t candidate_early_added_units = 0;
+  uint32_t packing_reserve_units = 0;
+  if (alias_set_id != 0) {
+    const loom_low_schedule_alias_pressure_record_t* record =
+        &pressure_state->alias_sets.records[alias_set_id];
+    current_live_units = record->current_live_units;
+    candidate_delta_units = record->candidate_delta_units;
+    candidate_early_added_units = record->candidate_early_added_units;
+    packing_reserve_units = record->packing_reserve_units;
+  } else {
+    current_live_units =
+        pressure_state->current_live_units_by_reg_class[reg_class_id];
+    if (pressure_state->candidate_delta_touched_flags[reg_class_id]) {
+      candidate_delta_units =
+          pressure_state->candidate_delta_units_by_reg_class[reg_class_id];
+      candidate_early_added_units =
+          pressure_state
+              ->candidate_early_added_units_by_reg_class[reg_class_id];
+    }
+    packing_reserve_units =
+        pressure_state->packing_reserve_units_by_reg_class[reg_class_id];
+  }
+  const uint64_t projected_live_units = loom_low_schedule_project_live_units(
+      current_live_units, candidate_delta_units);
+  const uint64_t candidate_live_units =
+      iree_max(projected_live_units,
+               iree_math_saturating_add_u64(current_live_units,
+                                            candidate_early_added_units));
+  const uint32_t activation_units =
+      pressure_state
+          ->candidate_unspillable_activation_units[completion_domain_id];
+  const uint64_t activated_live_units =
+      iree_math_saturating_add_u64(projected_live_units, activation_units);
+  return iree_math_saturating_add_u64(
+      iree_max(candidate_live_units, activated_live_units),
+      packing_reserve_units);
+}
+
+static void loom_low_schedule_score_active_unspillable_completions(
+    const loom_low_schedule_build_state_t* state,
+    loom_low_schedule_pressure_state_t* pressure_state, uint32_t candidate_node,
+    loom_low_schedule_candidate_score_t* score) {
   const uint16_t completion_domain_count =
       state->pressure_limits.unspillable_completion_domain_count;
   for (uint16_t completion_domain_id = 0;
@@ -803,25 +875,60 @@ loom_low_schedule_target_pressure_active_unspillable_completion_capacity(
         &state->pressure_limits
              .unspillable_completion_domains[completion_domain_id];
     const uint32_t capacity = domain->capacity;
-    if (capacity >= active_capacity) {
+    const bool can_improve_active =
+        capacity < score->active_unspillable_completion_capacity;
+    const bool can_improve_transaction_final =
+        capacity < score->active_unspillable_transaction_final_capacity;
+    if (!can_improve_active && !can_improve_transaction_final) {
       continue;
     }
-    if (loom_low_schedule_target_pressure_full_unspillable_completion_capacity(
-            state, pressure_state, completion_domain_id) == UINT32_MAX) {
+    if (can_improve_active &&
+        loom_low_schedule_target_pressure_full_unspillable_completion_capacity(
+            state, pressure_state, completion_domain_id) != UINT32_MAX) {
+      const uint32_t final_sink = loom_low_schedule_completion_demand_select(
+          &pressure_state->unspillable_completion_demand, state->nodes,
+          LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_FINAL, completion_domain_id);
+      if (final_sink != LOOM_LOW_SCHEDULE_NODE_NONE &&
+          loom_low_schedule_completion_demand_contains(
+              &pressure_state->unspillable_completion_demand,
+              LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_FINAL,
+              completion_domain_id, candidate_node)) {
+        score->active_unspillable_completion_capacity = capacity;
+      }
+    }
+    if (loom_low_schedule_target_pressure_unspillable_transaction_units(
+            state, pressure_state, completion_domain_id) < capacity) {
       continue;
     }
-    const uint32_t active_completion_sink =
+    const uint32_t transaction_sink =
         loom_low_schedule_completion_demand_select(
             &pressure_state->unspillable_completion_demand, state->nodes,
+            LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION,
             completion_domain_id);
-    if (active_completion_sink != LOOM_LOW_SCHEDULE_NODE_NONE &&
-        loom_low_schedule_completion_demand_contains(
+    if (transaction_sink == LOOM_LOW_SCHEDULE_NODE_NONE ||
+        !loom_low_schedule_completion_demand_contains(
             &pressure_state->unspillable_completion_demand,
+            LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION,
             completion_domain_id, candidate_node)) {
-      active_capacity = capacity;
+      continue;
+    }
+    if (can_improve_active) {
+      score->active_unspillable_completion_capacity = capacity;
+    }
+    if (can_improve_transaction_final) {
+      const uint32_t final_sink =
+          loom_low_schedule_completion_demand_select_transaction_final(
+              &pressure_state->unspillable_completion_demand, state->nodes,
+              completion_domain_id);
+      if (final_sink != LOOM_LOW_SCHEDULE_NODE_NONE &&
+          loom_low_schedule_completion_demand_contains(
+              &pressure_state->unspillable_completion_demand,
+              LOOM_LOW_SCHEDULE_COMPLETION_SELECTION_TRANSACTION_FINAL,
+              completion_domain_id, candidate_node)) {
+        score->active_unspillable_transaction_final_capacity = capacity;
+      }
     }
   }
-  return active_capacity;
 }
 
 static void loom_low_schedule_score_candidate_register_packing_resources(
@@ -965,4 +1072,6 @@ void loom_low_schedule_target_pressure_score_candidate(
       state, pressure_state, candidate_node_index, score);
   loom_low_schedule_score_candidate_pressure_limits(state, pressure_state,
                                                     score);
+  loom_low_schedule_score_active_unspillable_completions(
+      state, pressure_state, candidate_node_index, score);
 }

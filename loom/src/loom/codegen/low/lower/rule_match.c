@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "iree/base/internal/math.h"
+#include "loom/analysis/consumption.h"
 #include "loom/analysis/symbolic_expr_proof.h"
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/rule_source_memory.h"
@@ -1093,6 +1094,21 @@ static iree_status_t loom_low_lower_rule_guard_matches(
           match_context->module, rule_set, source_op, guard->value_ref_index);
       *out_matches = loom_value_has_no_uses(
           loom_module_value(match_context->module, value_id));
+      return iree_ok_status();
+    }
+    case LOOM_LOW_LOWER_GUARD_VALUE_NO_USES_AFTER: {
+      if (match_context->consumption_query == NULL) {
+        *out_matches = false;
+        return iree_ok_status();
+      }
+      const loom_value_id_t value_id = loom_low_lower_rule_source_value(
+          match_context->module, rule_set, source_op, guard->value_ref_index);
+      loom_consumption_use_t use = {0};
+      bool use_found = false;
+      IREE_RETURN_IF_ERROR(loom_consumption_find_use_after(
+          match_context->consumption_query, source_op, value_id, &use,
+          &use_found));
+      *out_matches = !use_found;
       return iree_ok_status();
     }
     case LOOM_LOW_LOWER_GUARD_VECTOR_EXTRACT_SHAPE:

@@ -24,6 +24,7 @@ typedef struct loom_low_lower_rule_match_context_t
     loom_low_lower_rule_match_context_t;
 typedef struct loom_low_lower_rule_source_memory_state_t
     loom_low_lower_rule_source_memory_state_t;
+typedef struct loom_consumption_region_query_t loom_consumption_region_query_t;
 typedef struct loom_symbolic_expr_context_t loom_symbolic_expr_context_t;
 
 typedef iree_status_t (*loom_low_lower_rule_match_map_value_fn_t)(
@@ -117,6 +118,10 @@ struct loom_low_lower_rule_match_context_t {
   // Optional symbolic proof context used as a cold fallback for fact-backed
   // guard rows whose scalar intervals are inconclusive.
   loom_symbolic_expr_context_t* symbolic_expr_context;
+  // Optional reusable path-sensitive value-consumption query. Source planning
+  // supplies one for the source operation's region; standalone queries omit it
+  // and conservatively reject consumption-dependent optimization guards.
+  loom_consumption_region_query_t* consumption_query;
   // Match behavior flags.
   loom_low_lower_rule_match_flags_t flags;
   // One-based policy rule-set ordinal supplied by composed contract selection;

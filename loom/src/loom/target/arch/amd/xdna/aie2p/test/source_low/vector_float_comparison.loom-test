@@ -12,8 +12,8 @@ func.def @f16_eq(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, 
 CHECK: low.func.def * @f16_eq(*) *
 CHECK: * = mov.i32 31744
 CHECK: * = veqz.16*
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -28,8 +28,8 @@ func.def @f16_gt(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, 
 // ----
 CHECK: low.func.def * @f16_gt(*) *
 CHECK: * = vlt.u16x32* *, *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -44,8 +44,8 @@ func.def @f16_ge(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, 
 // ----
 CHECK: low.func.def * @f16_ge(*) *
 CHECK: * = vge.u16x32* *, *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -60,8 +60,8 @@ func.def @f16_lt(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, 
 // ----
 CHECK: low.func.def * @f16_lt(*) *
 CHECK: * = vlt.u16x32* *, *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -76,8 +76,8 @@ func.def @f16_le(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, 
 // ----
 CHECK: low.func.def * @f16_le(*) *
 CHECK: * = vge.u16x32* *, *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -91,9 +91,9 @@ func.def @f16_ne(%lhs: vector<32xf16>, %rhs: vector<32xf16>) -> (vector<32xi1>, 
 
 // ----
 CHECK: low.func.def * @f16_ne(*) *
-CHECK: * = predicate.or.high32 *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: * = predicate.or.high32.rhs_tied *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -110,8 +110,8 @@ CHECK: low.func.def * @f16_order(*) *
 CHECK: * = mov.short 1
 CHECK: * = vbcst.8 *
 CHECK: * = vlt.u8x64 *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: * = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: * = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*
 
@@ -131,7 +131,7 @@ CHECK: * = vband %lhs, *
 CHECK: * = vband %rhs, *
 CHECK: * = mov.i32 32640
 CHECK: * = vsel.16* *
-CHECK: %ordered = predicate.xor.high32 *
-CHECK: %unordered = predicate.or.high32 *
+CHECK: %ordered = predicate.xor.high32.rhs_tied *
+CHECK: %unordered = predicate.or.high32.rhs_tied *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*

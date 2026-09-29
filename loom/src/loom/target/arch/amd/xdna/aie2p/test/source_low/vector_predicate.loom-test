@@ -19,7 +19,7 @@ func.def target(@target) @cmp_i8_matrix(%lhs: vector<64xi8>, %rhs: vector<64xi8>
 // ----
 CHECK: low.func.def * @cmp_i8_matrix(*) *
 CHECK: %eq = veqz.8 *
-CHECK: %ne = predicate.or.high32 *
+CHECK: %ne = predicate.or.high32.rhs_tied *
 CHECK: %slt = vlt.s8x64 %lhs, %rhs
 CHECK: %sle = vge.s8x64 %rhs, %lhs
 CHECK: %sgt = vlt.s8x64 %rhs, %lhs
@@ -133,14 +133,14 @@ func.def target(@target) @predicate_logic_and_select(%lhs: vector<64xi8>, %rhs: 
 // ----
 CHECK: low.func.def * @predicate_logic_and_select(*) *
 CHECK: %byte_lt = vlt.s8x64 *
-CHECK: %byte_ne = predicate.or.high32 *
+CHECK: %byte_ne = predicate.or.high32.rhs_tied *
 CHECK: %byte_and = predicate.and.high32 *
-CHECK: %byte_or = predicate.or.high32 *
-CHECK: %byte_mask = predicate.xor.high32 *
+CHECK: %byte_or = predicate.or.high32.rhs_tied *
+CHECK: %byte_mask = predicate.xor.high32.rhs_tied *
 CHECK: %byte_result = vsel.8 *
-CHECK: %half_mask = predicate.or.high32 *
+CHECK: %half_mask = predicate.or.high32.rhs_tied *
 CHECK: %half_result = vsel.16* *
-CHECK: %word_mask = predicate.xor.high32 *
+CHECK: %word_mask = predicate.xor.high32.rhs_tied *
 CHECK: %word_result = vsel.32* *
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*

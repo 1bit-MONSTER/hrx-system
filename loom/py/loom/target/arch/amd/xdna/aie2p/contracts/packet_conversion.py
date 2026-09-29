@@ -45,27 +45,27 @@ I4_UNPACK_SOURCE_LANE_COUNTS = (32, 64)
 
 
 @dataclass(frozen=True, slots=True)
-class IntegerWidenCase:
-    """One source-visible shape supported by native VUPS forms."""
+class IntegerWidenInstruction:
+    """One physical vector shape consumed and produced by a VUPS form."""
 
     # Source vector element type.
     input_element: str
     # Result vector element type.
     result_element: str
-    # Logical lane count preserved by the conversion.
-    lane_count: int
+    # Native lane count converted by the instruction.
+    native_lane_count: int
 
     @property
     def memory_width_bits(self) -> int:
         """Number of source bits consumed by a fused widening load."""
 
-        return self.lane_count * int(self.input_element[1:])
+        return self.native_lane_count * int(self.input_element[1:])
 
     @property
     def result_width_bits(self) -> int:
         """Number of result bits produced by the widening operation."""
 
-        return self.lane_count * int(self.result_element[1:])
+        return self.native_lane_count * int(self.result_element[1:])
 
     @property
     def accumulator_unit_count(self) -> int:
@@ -99,6 +99,78 @@ class IntegerWidenCase:
         """Whether the result remains natively in the accumulator file."""
 
         return self.accumulator_unit_count == 4
+
+
+@dataclass(frozen=True, slots=True)
+class IntegerWidenRuleShape:
+    """Logical lane interval realized by one physical VUPS form."""
+
+    # Physical instruction shape used for the conversion.
+    instruction: IntegerWidenInstruction
+    # First logical lane count realized by this rule.
+    minimum_lane_count: int
+    # Last logical lane count realized by this rule.
+    maximum_lane_count: int
+    # Number of 512-bit result units containing logical lanes.
+    result_accumulator_unit_count: int
+
+    def __post_init__(self) -> None:
+        if not (
+            1
+            <= self.minimum_lane_count
+            <= self.maximum_lane_count
+            <= self.instruction.native_lane_count
+        ):
+            raise ValueError("integer widening logical lane interval is invalid")
+        if not (
+            1
+            <= self.result_accumulator_unit_count
+            <= self.instruction.accumulator_unit_count
+        ):
+            raise ValueError("integer widening result unit count is invalid")
+        result_lanes_per_unit = 512 // int(self.instruction.result_element[1:])
+        if (
+            self.minimum_lane_count
+            <= (self.result_accumulator_unit_count - 1) * result_lanes_per_unit
+            or self.maximum_lane_count
+            > self.result_accumulator_unit_count * result_lanes_per_unit
+        ):
+            raise ValueError(
+                "integer widening logical interval crosses a result carrier boundary"
+            )
+
+    @property
+    def input_type(self) -> Vector:
+        """Source-visible input type interval."""
+
+        return Vector(
+            self.instruction.input_element,
+            minimum_lanes=self.minimum_lane_count,
+            maximum_lanes=self.maximum_lane_count,
+        )
+
+    @property
+    def result_type(self) -> Vector:
+        """Source-visible result type interval."""
+
+        return Vector(
+            self.instruction.result_element,
+            minimum_lanes=self.minimum_lane_count,
+            maximum_lanes=self.maximum_lane_count,
+        )
+
+    def report_key(self, signedness: str) -> str:
+        """Stable compile-report key for this logical interval."""
+
+        lane_range = (
+            str(self.minimum_lane_count)
+            if self.minimum_lane_count == self.maximum_lane_count
+            else f"{self.minimum_lane_count}-{self.maximum_lane_count}"
+        )
+        return (
+            f"native_{signedness}_{self.instruction.input_element}x{lane_range}_to_"
+            f"{self.instruction.result_element}x{lane_range}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,15 +247,50 @@ class IntegerPackCase:
         return self.memory_width_bits == 256
 
 
-INTEGER_WIDEN_CASES = (
-    IntegerWidenCase("i16", "i32", 16),
-    IntegerWidenCase("i32", "i64", 8),
-    IntegerWidenCase("i8", "i32", 32),
-    IntegerWidenCase("i16", "i64", 16),
-    IntegerWidenCase("i16", "i32", 32),
-    IntegerWidenCase("i32", "i64", 16),
-    IntegerWidenCase("i8", "i32", 64),
-    IntegerWidenCase("i16", "i64", 32),
+_I16_TO_I32_W = IntegerWidenInstruction("i16", "i32", 16)
+_I32_TO_I64_W = IntegerWidenInstruction("i32", "i64", 8)
+_I8_TO_I32_W = IntegerWidenInstruction("i8", "i32", 32)
+_I16_TO_I64_W = IntegerWidenInstruction("i16", "i64", 16)
+_I16_TO_I32_X = IntegerWidenInstruction("i16", "i32", 32)
+_I32_TO_I64_X = IntegerWidenInstruction("i32", "i64", 16)
+_I8_TO_I32_X = IntegerWidenInstruction("i8", "i32", 64)
+_I16_TO_I64_X = IntegerWidenInstruction("i16", "i64", 32)
+
+# Exact physical shapes also own fused memory rules, whose access width cannot
+# exceed the source value's logical footprint.
+INTEGER_WIDEN_INSTRUCTIONS = (
+    _I16_TO_I32_W,
+    _I32_TO_I64_W,
+    _I8_TO_I32_W,
+    _I16_TO_I64_W,
+    _I16_TO_I32_X,
+    _I32_TO_I64_X,
+    _I8_TO_I32_X,
+    _I16_TO_I64_X,
+)
+
+# Standalone conversions can consume every physical lane in the source's X
+# carrier because integer VUPS is nontrapping and lanes outside the logical
+# value domain remain unobservable. Keep each interval within one result
+# carrier count so emission retains exactly the units containing logical lanes.
+INTEGER_WIDEN_RULE_SHAPES = (
+    *(
+        IntegerWidenRuleShape(
+            instruction,
+            instruction.native_lane_count,
+            instruction.native_lane_count,
+            instruction.accumulator_unit_count,
+        )
+        for instruction in INTEGER_WIDEN_INSTRUCTIONS
+    ),
+    IntegerWidenRuleShape(_I16_TO_I32_W, 1, 15, 1),
+    IntegerWidenRuleShape(_I32_TO_I64_W, 1, 7, 1),
+    IntegerWidenRuleShape(_I8_TO_I32_W, 1, 16, 1),
+    IntegerWidenRuleShape(_I8_TO_I32_W, 17, 31, 2),
+    IntegerWidenRuleShape(_I16_TO_I64_W, 1, 8, 1),
+    IntegerWidenRuleShape(_I16_TO_I64_W, 9, 15, 2),
+    IntegerWidenRuleShape(_I16_TO_I32_X, 17, 31, 2),
+    IntegerWidenRuleShape(_I32_TO_I64_X, 9, 15, 2),
 )
 
 INTEGER_PACK_CASES = (
@@ -230,12 +337,18 @@ def integer_widen_state_emits(
 
 
 def integer_widen_result_emits(
-    widen_case: IntegerWidenCase,
+    instruction: IntegerWidenInstruction,
     result: ValueRef,
+    result_accumulator_unit_count: int | None = None,
 ) -> tuple[ValueRef, tuple[ContractEmit, ...]]:
     """Bridges a native accumulator result to its source-visible carrier."""
 
-    if widen_case.direct_accumulator_result:
+    if result_accumulator_unit_count is None:
+        result_accumulator_unit_count = instruction.accumulator_unit_count
+    if (
+        instruction.direct_accumulator_result
+        and result_accumulator_unit_count == instruction.accumulator_unit_count
+    ):
         return result, ()
 
     native_result = ValueRef.temporary("wide_result")
@@ -244,9 +357,9 @@ def integer_widen_result_emits(
     move_from_accumulator = _descriptor(
         "amd.xdna.aie2p.move.accumulator512.to.vector512"
     )
-    for unit in range(widen_case.accumulator_unit_count):
+    for unit in range(result_accumulator_unit_count):
         accumulator_unit = native_result
-        if widen_case.accumulator_unit_count > 1:
+        if instruction.accumulator_unit_count > 1:
             accumulator_unit = ValueRef.temporary(f"accumulator_unit_{unit}")
             output_emits.append(
                 EmitRegisterSlice(
@@ -258,7 +371,7 @@ def integer_widen_result_emits(
             )
         vector_unit = (
             result
-            if widen_case.accumulator_unit_count == 1
+            if result_accumulator_unit_count == 1
             else ValueRef.temporary(f"vector_unit_{unit}")
         )
         output_emits.append(
@@ -268,14 +381,14 @@ def integer_widen_result_emits(
                 results={"dst": vector_unit},
                 result_types=(
                     {"dst": DescriptorResultType()}
-                    if widen_case.accumulator_unit_count > 1
+                    if result_accumulator_unit_count > 1
                     else None
                 ),
                 form=DescriptorEmitForm.OP,
             )
         )
         vector_units.append(vector_unit)
-    if widen_case.accumulator_unit_count > 1:
+    if result_accumulator_unit_count > 1:
         output_emits.append(
             EmitRegisterConcat(
                 sources=vector_units,
@@ -366,13 +479,12 @@ def _integer_bitunpack_rule(
 def _integer_widen_rule(
     source_op: Op,
     signedness: str,
-    widen_case: IntegerWidenCase,
+    rule_shape: IntegerWidenRuleShape,
 ) -> DescriptorRule:
-    input_type = _exact_vector(widen_case.input_element, widen_case.lane_count)
-    result_type = _exact_vector(widen_case.result_element, widen_case.lane_count)
+    instruction = rule_shape.instruction
     source = ValueRef.operand("input")
     input_emits: tuple[ContractEmit, ...] = ()
-    if widen_case.slice_input:
+    if instruction.slice_input:
         source = ValueRef.temporary("source_w")
         input_emits = (
             EmitRegisterSlice(
@@ -381,18 +493,22 @@ def _integer_widen_rule(
                 unit_count=1,
             ),
         )
-    shift, state_emits = integer_widen_state_emits(widen_case.ups_mode)
+    shift, state_emits = integer_widen_state_emits(instruction.ups_mode)
     result = ValueRef.result("result")
-    native_result, output_emits = integer_widen_result_emits(widen_case, result)
+    native_result, output_emits = integer_widen_result_emits(
+        instruction,
+        result,
+        rule_shape.result_accumulator_unit_count,
+    )
     widen = _descriptor(
-        f"amd.xdna.aie2p.widen.{widen_case.physical_shape}.{signedness}.configured"
+        f"amd.xdna.aie2p.widen.{instruction.physical_shape}.{signedness}.configured"
     )
     return DescriptorRule(
         source_op=source_op,
         descriptor=widen,
         guards=(
-            Guard.value_type("input", input_type),
-            Guard.value_type("result", result_type),
+            Guard.value_type("input", rule_shape.input_type),
+            Guard.value_type("result", rule_shape.result_type),
         ),
         emit=(
             *input_emits,
@@ -403,18 +519,18 @@ def _integer_widen_rule(
                 results={"dst": native_result},
                 result_types=(
                     None
-                    if widen_case.direct_accumulator_result
+                    if (
+                        instruction.direct_accumulator_result
+                        and rule_shape.result_accumulator_unit_count
+                        == instruction.accumulator_unit_count
+                    )
                     else {"dst": DescriptorResultType()}
                 ),
                 form=DescriptorEmitForm.OP,
             ),
             *output_emits,
         ),
-        report_key=(
-            f"native_{signedness}_{widen_case.input_element}x"
-            f"{widen_case.lane_count}_to_{widen_case.result_element}x"
-            f"{widen_case.lane_count}"
-        ),
+        report_key=rule_shape.report_key(signedness),
     )
 
 
@@ -767,12 +883,12 @@ AIE2P_PACKET_CONVERSION_RULES = (
         for source_lane_count in I4_UNPACK_SOURCE_LANE_COUNTS
     ),
     *(
-        _integer_widen_rule(source_op, signedness, widen_case)
+        _integer_widen_rule(source_op, signedness, rule_shape)
         for source_op, signedness in (
             (vector.vector_extui, "unsigned"),
             (vector.vector_extsi, "signed"),
         )
-        for widen_case in INTEGER_WIDEN_CASES
+        for rule_shape in INTEGER_WIDEN_RULE_SHAPES
     ),
     *(_integer_pack_rule(pack_case) for pack_case in INTEGER_PACK_CASES),
     *(

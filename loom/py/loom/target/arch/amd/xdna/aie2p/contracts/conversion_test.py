@@ -22,7 +22,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.conversion import (
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     INTEGER_PACK_CASES,
-    INTEGER_WIDEN_CASES,
+    INTEGER_WIDEN_RULE_SHAPES,
 )
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
@@ -34,6 +34,7 @@ from loom.target.contracts import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterSlice,
+    Guard,
     ValueAliasRule,
     ValueRef,
     compile_lower_rule_set,
@@ -592,21 +593,39 @@ def test_bfloat16_packet_to_signed_i32_is_exact_over_defined_domain() -> None:
         )
 
 
-def test_native_integer_packet_conversions_are_compact_exact_rules() -> None:
+def test_native_integer_widening_covers_each_logical_carrier_interval() -> None:
+    expected_lane_counts = {
+        ("i8", "i32"): {*range(1, 33), 64},
+        ("i16", "i32"): set(range(1, 33)),
+        ("i16", "i64"): {*range(1, 17), 32},
+        ("i32", "i64"): set(range(1, 17)),
+    }
+    covered_lane_counts = {key: set() for key in expected_lane_counts}
+    for rule_shape in INTEGER_WIDEN_RULE_SHAPES:
+        instruction = rule_shape.instruction
+        key = (instruction.input_element, instruction.result_element)
+        logical_lane_counts = set(
+            range(rule_shape.minimum_lane_count, rule_shape.maximum_lane_count + 1)
+        )
+        assert covered_lane_counts[key].isdisjoint(logical_lane_counts)
+        covered_lane_counts[key].update(logical_lane_counts)
+    assert covered_lane_counts == expected_lane_counts
+
     for source_op, signedness in (
         (vector.vector_extui, "unsigned"),
         (vector.vector_extsi, "signed"),
     ):
-        for widen_case in INTEGER_WIDEN_CASES:
-            rule = _rule(
-                f"native_{signedness}_{widen_case.input_element}x"
-                f"{widen_case.lane_count}_to_{widen_case.result_element}x"
-                f"{widen_case.lane_count}"
-            )
+        for rule_shape in INTEGER_WIDEN_RULE_SHAPES:
+            instruction = rule_shape.instruction
+            rule = _rule(rule_shape.report_key(signedness))
             assert rule.source_op is source_op
             assert rule.descriptor.key == (
-                f"amd.xdna.aie2p.widen.{widen_case.physical_shape}."
+                f"amd.xdna.aie2p.widen.{instruction.physical_shape}."
                 f"{signedness}.configured"
+            )
+            assert rule.guards == (
+                Guard.value_type("input", rule_shape.input_type),
+                Guard.value_type("result", rule_shape.result_type),
             )
             input_slices = [
                 emit
@@ -614,7 +633,7 @@ def test_native_integer_packet_conversions_are_compact_exact_rules() -> None:
                 if isinstance(emit, EmitRegisterSlice)
                 and emit.result.field == "source_w"
             ]
-            assert len(input_slices) == int(widen_case.slice_input)
+            assert len(input_slices) == int(instruction.slice_input)
             descriptor_keys = [
                 emit.descriptor.key
                 for emit in rule.emit
@@ -628,9 +647,13 @@ def test_native_integer_packet_conversions_are_compact_exact_rules() -> None:
             ]
             assert descriptor_keys[4:] == (
                 []
-                if widen_case.direct_accumulator_result
+                if (
+                    instruction.direct_accumulator_result
+                    and rule_shape.result_accumulator_unit_count
+                    == instruction.accumulator_unit_count
+                )
                 else ["amd.xdna.aie2p.move.accumulator512.to.vector512"]
-                * widen_case.accumulator_unit_count
+                * rule_shape.result_accumulator_unit_count
             )
             set_ups_mode = next(
                 emit
@@ -638,8 +661,10 @@ def test_native_integer_packet_conversions_are_compact_exact_rules() -> None:
                 if isinstance(emit, EmitDescriptorOp)
                 and emit.descriptor.key == "amd.xdna.aie2p.state.ups-mode.immediate"
             )
-            assert set_ups_mode.immediates == {"i": widen_case.ups_mode}
+            assert set_ups_mode.immediates == {"i": instruction.ups_mode}
 
+
+def test_native_integer_packing_uses_exact_packet_shapes() -> None:
     for pack_case in INTEGER_PACK_CASES:
         rule = _rule(pack_case.report_key)
         assert rule.source_op is pack_case.source_op

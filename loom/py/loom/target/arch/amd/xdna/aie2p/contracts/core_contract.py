@@ -850,14 +850,15 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
                 (core_rules._F32_VECTOR, "amd.xdna.aie2p.select.i32x16.mask64"),
             )
         ),
-        core_rules._vector_predicate_select_rule(),
+        *core_rules._vector_predicate_select_rules(),
         *(
-            core_rules._vector_predicate_binary_rule(source_op, operation)
+            rule
             for source_op, operation in (
                 (vector.vector_andi, "and"),
                 (vector.vector_ori, "or"),
                 (vector.vector_xori, "xor"),
             )
+            for rule in core_rules._vector_predicate_binary_rules(source_op, operation)
         ),
         *(
             core_rules._vector_compare_rule(predicate, operand_type, width)

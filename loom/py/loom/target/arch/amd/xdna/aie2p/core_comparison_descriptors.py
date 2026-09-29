@@ -60,6 +60,7 @@ PREDICATE_DESCRIPTOR_SPECS = (
         "integer.cmp.eq.i8x64",
         "II_VEQZ_8",
         storage_overrides=(("cmp", "eLPredicate"),),
+        rematerializable=True,
     ),
     *(
         _DescriptorSpec(
@@ -71,6 +72,7 @@ PREDICATE_DESCRIPTOR_SPECS = (
             asm_mnemonic=f"veqz.{width}.el.low32",
             operand_register_parts=(("cmp", _EL_LOW32_PART),),
             encoding_adapter_overrides=(("cmp", "LOOM_eL_low32"),),
+            rematerializable=True,
         )
         for width in (16, 32)
     ),
@@ -157,6 +159,32 @@ PREDICATE_DESCRIPTOR_SPECS = (
     *(
         _DescriptorSpec(
             operation.upper(),
+            f"{_TARGET_KEY}.predicate.{operation}.low32.rhs_tied",
+            f"integer.predicate.{operation}.low32",
+            f"II_{operation.upper()}",
+            storage_overrides=(
+                ("d0", "eLPredicate"),
+                ("s0", "eLPredicate"),
+                ("s1", "eLPredicate"),
+            ),
+            asm_mnemonic=f"predicate.{operation}.low32.rhs_tied",
+            operand_register_parts=(
+                ("d0", _EL_LOW32_PART),
+                ("s0", _EL_LOW32_PART),
+                ("s1", _EL_LOW32_PART),
+            ),
+            encoding_adapter_overrides=(
+                ("d0", "LOOM_eL_low32"),
+                ("s0", "LOOM_eL_low32"),
+                ("s1", "LOOM_eL_low32"),
+            ),
+            destructive_updates=(("d0", "s1"),),
+        )
+        for operation in ("and", "or", "xor")
+    ),
+    *(
+        _DescriptorSpec(
+            operation.upper(),
             f"{_TARGET_KEY}.predicate.{operation}.high32",
             f"integer.predicate.{operation}.high32",
             f"II_{operation.upper()}",
@@ -180,6 +208,32 @@ PREDICATE_DESCRIPTOR_SPECS = (
         )
         for operation in ("and", "or", "xor")
     ),
+    *(
+        _DescriptorSpec(
+            operation.upper(),
+            f"{_TARGET_KEY}.predicate.{operation}.high32.rhs_tied",
+            f"integer.predicate.{operation}.high32",
+            f"II_{operation.upper()}",
+            storage_overrides=(
+                ("d0", "eLPredicate"),
+                ("s0", "eLPredicate"),
+                ("s1", "eLPredicate"),
+            ),
+            asm_mnemonic=f"predicate.{operation}.high32.rhs_tied",
+            operand_register_parts=(
+                ("d0", _EL_HIGH32_PART),
+                ("s0", _EL_HIGH32_PART),
+                ("s1", _EL_HIGH32_PART),
+            ),
+            encoding_adapter_overrides=(
+                ("d0", "LOOM_eL_high32"),
+                ("s0", "LOOM_eL_high32"),
+                ("s1", "LOOM_eL_high32"),
+            ),
+            tied_updates=(("d0", "s1"),),
+        )
+        for operation in ("and", "or", "xor")
+    ),
     _DescriptorSpec(
         "MOVA",
         f"{_TARGET_KEY}.predicate.complete.zero.high32",
@@ -190,6 +244,7 @@ PREDICATE_DESCRIPTOR_SPECS = (
         operand_register_parts=(("dst", _EL_HIGH32_PART),),
         encoding_adapter_overrides=(("dst", "LOOM_eL_high32_OP_mLdaCg"),),
         storage_continuation_part=_EL_LOW32_PART,
+        rematerializable=True,
     ),
 )
 

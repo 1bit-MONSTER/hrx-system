@@ -564,16 +564,17 @@ static void loom_low_schedule_advance_source_pressure_cliff_floor(
   }
 }
 
-// A live value's final consumer stays nominated until it runs. Multiple values
-// can nominate the same consumer; scheduling that node retires them together.
+// A compiler-produced live value retains one downstream transaction. Its exact
+// final consumer is nominated separately once fanout collapses to one. Several
+// values may nominate the same node, and scheduling that node retires every
+// matching nomination.
 static void loom_low_schedule_nominate_unspillable_completion(
     const loom_low_schedule_build_state_t* state,
     loom_low_schedule_pressure_state_t* pressure_state,
     loom_value_ordinal_t value_ordinal) {
   const loom_low_schedule_value_record_t* value = &state->values[value_ordinal];
   const uint16_t reg_class_id = value->register_class_id;
-  if (!iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE) ||
-      pressure_state->remaining_consumer_counts[value_ordinal] != 1) {
+  if (!iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE)) {
     return;
   }
   const uint16_t completion_domain_id =
@@ -581,10 +582,28 @@ static void loom_low_schedule_nominate_unspillable_completion(
   if (completion_domain_id == UINT16_MAX) {
     return;
   }
+  const uint32_t transaction_sink = value->unspillable_completion.sink;
+  if (value->producer_node != LOOM_LOW_SCHEDULE_NODE_NONE &&
+      transaction_sink != LOOM_LOW_SCHEDULE_NODE_NONE &&
+      state->nodes[transaction_sink].scheduled_ordinal ==
+          LOOM_LOW_SCHEDULE_NODE_NONE) {
+    loom_low_schedule_completion_demand_nominate(
+        &pressure_state->unspillable_completion_demand,
+        LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_TRANSACTION,
+        completion_domain_id, transaction_sink);
+  }
+  if (pressure_state->remaining_consumer_counts[value_ordinal] != 1) {
+    return;
+  }
   const uint32_t consumer_node =
       pressure_state->remaining_consumer_node_xors[value_ordinal];
+  if (loom_low_schedule_node_retains_aggregate_packing_from_class(
+          state, consumer_node, reg_class_id)) {
+    return;
+  }
   loom_low_schedule_completion_demand_nominate(
-      &pressure_state->unspillable_completion_demand, completion_domain_id,
+      &pressure_state->unspillable_completion_demand,
+      LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_FINAL, completion_domain_id,
       consumer_node);
 }
 
@@ -1792,6 +1811,7 @@ void loom_low_schedule_pressure_score_candidate(
       .pressure_cliff_units = LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE,
       .units_until_pressure_cliff = LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE,
       .active_unspillable_completion_capacity = UINT32_MAX,
+      .active_unspillable_transaction_final_capacity = UINT32_MAX,
       .opened_unspillable_completion_capacity = UINT32_MAX,
       .active_register_packing_completion_capacity = UINT32_MAX,
       .source_ordinal = node->source_ordinal,
@@ -1808,12 +1828,10 @@ void loom_low_schedule_pressure_score_candidate(
   };
   loom_low_schedule_target_pressure_score_candidate(state, pressure_state,
                                                     node_index, out_score);
-  out_score->active_unspillable_completion_capacity =
-      loom_low_schedule_target_pressure_active_unspillable_completion_capacity(
-          state, pressure_state, node_index);
   out_score->opened_unspillable_completion_capacity =
       pressure_demand.opened_unspillable_completion_capacity;
-  if (out_score->active_unspillable_completion_capacity != UINT32_MAX ||
+  if (out_score->active_unspillable_transaction_final_capacity != UINT32_MAX ||
+      out_score->active_unspillable_completion_capacity != UINT32_MAX ||
       out_score->opened_unspillable_completion_capacity != UINT32_MAX) {
     out_score->flags |=
         LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION;

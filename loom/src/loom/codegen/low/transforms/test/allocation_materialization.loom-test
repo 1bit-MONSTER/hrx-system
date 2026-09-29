@@ -263,6 +263,59 @@ low.func.def target<test.low.core>(@test_target) @dense_slice_reload_cluster(%bl
 
 // ====
 
+// Tied packets consume their predecessors' storage. Rebuild the complete
+// ownership chain for each user so the clones consume distinct roots near
+// their uses.
+// RUN: pass low-materialize-allocation{spill-storage-spaces=none}
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @rematerialize_tied_chain(%block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %root = test.const.explicit32 3
+  %chain0 = test.rematerialize.tied.explicit32 %root
+  %chain1 = test.rematerialize.tied.explicit32 %chain0
+  %late = copy %seed : reg<test.i32> -> reg<test.explicit32>
+  %use0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %use1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %use2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %use3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %chain_use0 = copy %chain1 : reg<test.explicit32> -> reg<test.i32>
+  %chain_use1 = copy %chain1 : reg<test.explicit32> -> reg<test.i32>
+  %sum01 = test.add.i32 %use0, %use1
+  %sum23 = test.add.i32 %use2, %use3
+  %sum0123 = test.add.i32 %sum01, %sum23
+  %sum_chain = test.add.i32 %chain_use0, %chain_use1
+  %result = test.add.i32 %sum0123, %sum_chain
+  return %result
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @rematerialize_tied_chain(%block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %late = copy %seed : reg<test.i32> -> reg<test.explicit32>
+  %use0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %use1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %use2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %use3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %root_remat$20 = test.const.explicit32 3
+  %chain0_remat$21 = test.rematerialize.tied.explicit32 %root_remat$20
+  %chain1_remat$22 = test.rematerialize.tied.explicit32 %chain0_remat$21
+  %chain_use0 = copy %chain1_remat$22 : reg<test.explicit32> -> reg<test.i32>
+  %root_remat$23 = test.const.explicit32 3
+  %chain0_remat$24 = test.rematerialize.tied.explicit32 %root_remat$23
+  %chain1_remat$25 = test.rematerialize.tied.explicit32 %chain0_remat$24
+  %chain_use1 = copy %chain1_remat$25 : reg<test.explicit32> -> reg<test.i32>
+  %sum01 = test.add.i32 %use0, %use1
+  %sum23 = test.add.i32 %use2, %use3
+  %sum0123 = test.add.i32 %sum01, %sum23
+  %sum_chain = test.add.i32 %chain_use0, %chain_use1
+  %result = test.add.i32 %sum0123, %sum_chain
+  return %result
+}
+
+// ====
+
 // RUN: pass low-materialize-allocation{budgets=test.i32=3,diagnostics=spills}
 
 test.target<low_core> @test_target
@@ -370,6 +423,43 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_descriptor_op(%a
   %13 = low.reload %rematerialize_descriptor_op_spill_storage_0 : low.storage<private> -> reg<test.i32>
   %use1 = test.add.i32 %13, %derived_remat$11
   %out = test.add.i32 %use0, %use1
+  return %out
+}
+
+// ====
+
+// The packet captures %c before low.move consumes it. Replaying the packet at
+// its later user would read the consumed source instead of the captured value.
+// RUN: pass low-materialize-allocation{budgets=test.i32=3}
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_input(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
+  %derived = test.rematerialize.i32 %c
+  %ab = test.add.i32 %a, %b
+  %next = move %c : reg<test.i32> -> reg<test.i32>
+  %bc = test.add.i32 %b, %next
+  %use = test.add.i32 %bc, %derived
+  %out = test.add.i32 %use, %ab
+  return %out
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_input(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
+  %do_not_rematerialize_consumed_input_spill_storage_0 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %do_not_rematerialize_consumed_input_spill_storage_1 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  low.spill %a, %do_not_rematerialize_consumed_input_spill_storage_1 : reg<test.i32>, low.storage<private>
+  %derived = test.rematerialize.i32 %c
+  low.spill %derived, %do_not_rematerialize_consumed_input_spill_storage_0 : reg<test.i32>, low.storage<private>
+  %13 = low.reload %do_not_rematerialize_consumed_input_spill_storage_1 : low.storage<private> -> reg<test.i32>
+  %ab = test.add.i32 %13, %b
+  %next = move %c : reg<test.i32> -> reg<test.i32>
+  %bc = test.add.i32 %b, %next
+  %11 = low.reload %do_not_rematerialize_consumed_input_spill_storage_0 : low.storage<private> -> reg<test.i32>
+  %use = test.add.i32 %bc, %11
+  %out = test.add.i32 %use, %ab
   return %out
 }
 

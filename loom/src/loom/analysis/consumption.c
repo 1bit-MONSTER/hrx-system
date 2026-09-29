@@ -8,7 +8,50 @@
 
 #include <string.h>
 
+#include "loom/analysis/ownership.h"
 #include "loom/ir/module.h"
+
+bool loom_consumption_find_consuming_use(const loom_module_t* module,
+                                         const loom_value_t* value,
+                                         loom_consumption_use_t* out_use) {
+  if (out_use != NULL) {
+    *out_use = (loom_consumption_use_t){0};
+  }
+  const loom_use_t* use = NULL;
+  loom_value_for_each_use(value, use) {
+    const loom_op_t* user_op = loom_use_user_op(*use);
+    const uint16_t operand_index = loom_use_operand_index(*use);
+    const loom_tied_result_t* tied_results = loom_op_tied_results(user_op);
+    for (uint16_t i = 0; i < user_op->tied_result_count; ++i) {
+      if (tied_results[i].operand_index != operand_index) {
+        continue;
+      }
+      if (out_use != NULL) {
+        *out_use = (loom_consumption_use_t){
+            .op = user_op,
+            .operand_index = operand_index,
+        };
+      }
+      return true;
+    }
+    for (uint16_t i = 0; i < user_op->result_count; ++i) {
+      loom_ownership_result_effect_t effect = {0};
+      if (!loom_ownership_result_effect_at(module, user_op, i, &effect) ||
+          effect.effect != LOOM_RESULT_OWNERSHIP_MOVED ||
+          effect.source_operand_index != operand_index) {
+        continue;
+      }
+      if (out_use != NULL) {
+        *out_use = (loom_consumption_use_t){
+            .op = user_op,
+            .operand_index = operand_index,
+        };
+      }
+      return true;
+    }
+  }
+  return false;
+}
 
 static void loom_consumption_bitset_set(uint64_t* bits,
                                         iree_host_size_t word_count,

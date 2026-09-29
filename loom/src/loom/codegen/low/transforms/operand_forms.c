@@ -799,7 +799,8 @@ static iree_status_t loom_low_select_operand_form_rematerialize_operand(
   IREE_ASSERT(*inout_value_id < state->module->values.count);
 
   const loom_value_t* value = loom_module_value(state->module, *inout_value_id);
-  if (loom_value_is_block_arg(value) || loom_value_is_consumed(value)) {
+  if (loom_value_is_block_arg(value) ||
+      loom_consumption_find_consuming_use(state->module, value, NULL)) {
     return iree_ok_status();
   }
   const loom_low_register_type_resolver_t register_type_resolver =

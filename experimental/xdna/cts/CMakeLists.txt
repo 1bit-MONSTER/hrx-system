@@ -137,6 +137,38 @@ endif()
 
 iree_py_library(
   NAME
+    integer_widening_cases
+  MAIN
+    "integer_widening_cases.py"
+  SRCS
+    "integer_widening_cases.py"
+)
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_execution_test_suite(
+  NAME
+    integer_widening_npu2_test
+  MANIFESTS
+    "integer_widening_npu2.test.json"
+  TOOLS
+    "generate-cases=::integer_widening_cases"
+    "iree-xdna-run=iree::experimental::xdna::iree-xdna-run"
+    "loom-compile=loom::tools::loom-compile"
+  DATA
+    "${PROJECT_SOURCE_DIR}/experimental/xdna/cts/testdata/integer_widening.loom"
+  LABELS
+    "manual"
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+iree_py_library(
+  NAME
     bf16_vector_cases
   MAIN
     "bf16_vector_cases.py"

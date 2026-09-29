@@ -68,6 +68,7 @@ _GUARD_VALUE_REF_KINDS = frozenset(
         GuardKind.VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES,
         GuardKind.VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD,
         GuardKind.VALUE_NO_USES,
+        GuardKind.VALUE_NO_USES_AFTER,
         GuardKind.VECTOR_EXTRACT_SHAPE,
     )
 )

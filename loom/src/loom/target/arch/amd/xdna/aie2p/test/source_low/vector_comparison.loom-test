@@ -76,13 +76,13 @@ CHECK: low.func.def * @floating_comparison_flags(*) *
 CHECK: * = vband %lhs, *
 CHECK: * = vband %rhs, *
 CHECK: * = vlt.u32x16* *, *
-CHECK: * = predicate.or.high32 *
+CHECK: * = predicate.or.high32.rhs_tied *
 CHECK: * = veqz.32*
 CHECK: * = vsel.32* %lhs, *, *
 CHECK: * = vlt.s32x16* *, *
 CHECK: * = vadd.32 *
 CHECK: * = vsub.32 *
-CHECK: %mask = predicate.xor.high32 *
+CHECK: %mask = predicate.xor.high32.rhs_tied *
 CHECK: %result = vsel.32* *, *, %mask
 CHECK-NOT: * = vextract.*
 CHECK-NOT: * = vinsert.*

@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/analysis/consumption.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/descriptor_traits.h"
@@ -74,6 +75,118 @@ static bool loom_low_descriptor_packet_kind_may_rematerialize(
          kind == LOOM_LOW_DESCRIPTOR_PACKET_CONST;
 }
 
+typedef struct loom_low_rematerialization_recipe_t {
+  // Descriptor packets from the selected value toward its ownership root.
+  loom_op_t** packets;
+  // Number of packets in the ownership chain.
+  iree_host_size_t packet_count;
+} loom_low_rematerialization_recipe_t;
+
+static bool loom_low_rematerialization_packet_is_eligible(
+    loom_module_t* module, const loom_low_resolved_target_t* target,
+    loom_value_id_t value_id, loom_op_t** out_defining_op) {
+  *out_defining_op = NULL;
+  const loom_value_t* value = loom_module_value(module, value_id);
+  if (loom_value_is_block_arg(value) || loom_value_has_attribute_uses(value) ||
+      loom_module_value_has_type_uses(module, value_id)) {
+    return false;
+  }
+
+  const loom_type_t value_type = loom_module_value_type(module, value_id);
+  const loom_low_register_type_resolver_t register_type_resolver =
+      loom_low_register_type_resolver_for_descriptor_set(
+          target->descriptor_set);
+  if (loom_low_register_type_resolver_has_class_flags(
+          &register_type_resolver, value_type,
+          LOOM_LOW_REG_CLASS_FLAG_REFERENCE)) {
+    return false;
+  }
+
+  loom_op_t* defining_op = loom_value_def_op(value);
+  if (defining_op == NULL ||
+      iree_any_bit_set(defining_op->flags, LOOM_OP_FLAG_DEAD) ||
+      defining_op->result_count != 1 || defining_op->region_count != 0 ||
+      defining_op->successor_count != 0 ||
+      iree_any_bit_set(loom_op_effective_traits(module, defining_op),
+                       LOOM_TRAIT_OBSERVABLE_EFFECT)) {
+    return false;
+  }
+
+  const uint16_t result_index = loom_value_def_index(value);
+  loom_low_descriptor_packet_t packet = {0};
+  loom_low_descriptor_packet_initialize(target->descriptor_set, defining_op,
+                                        &packet);
+  if (!loom_low_descriptor_packet_kind_may_rematerialize(packet.kind) ||
+      !loom_low_descriptor_result_can_rematerialize(
+          target->descriptor_set, packet.descriptor, result_index)) {
+    return false;
+  }
+  *out_defining_op = defining_op;
+  return true;
+}
+
+static loom_value_id_t loom_low_rematerialization_tied_source(
+    const loom_op_t* op) {
+  const loom_tied_result_t tied = loom_op_tied_results(op)[0];
+  return loom_op_const_operands(op)[tied.operand_index];
+}
+
+static bool loom_low_rematerialization_inputs_remain_available(
+    const loom_module_t* module, const loom_op_t* op,
+    loom_value_id_t tied_source_value_id) {
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    if (operands[i] != tied_source_value_id &&
+        loom_consumption_find_consuming_use(
+            module, loom_module_value(module, operands[i]), NULL)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static iree_status_t loom_low_rematerialization_plan_recipe(
+    loom_module_t* module, const loom_low_resolved_target_t* target,
+    loom_value_id_t value_id, iree_arena_allocator_t* arena,
+    loom_low_rematerialization_recipe_t* out_recipe) {
+  *out_recipe = (loom_low_rematerialization_recipe_t){0};
+  loom_op_t** packets = NULL;
+  iree_host_size_t packet_count = 0;
+  iree_host_size_t packet_capacity = 0;
+  loom_value_id_t current_value_id = value_id;
+  for (;;) {
+    loom_op_t* defining_op = NULL;
+    if (!loom_low_rematerialization_packet_is_eligible(
+            module, target, current_value_id, &defining_op)) {
+      return iree_ok_status();
+    }
+    if (packet_count == packet_capacity) {
+      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+          arena, packet_count, packet_count + 1, sizeof(*packets),
+          &packet_capacity, (void**)&packets));
+    }
+    packets[packet_count++] = defining_op;
+    loom_value_id_t tied_source_value_id = LOOM_VALUE_ID_INVALID;
+    if (defining_op->tied_result_count != 0) {
+      tied_source_value_id =
+          loom_low_rematerialization_tied_source(defining_op);
+    }
+    if (!loom_low_rematerialization_inputs_remain_available(
+            module, defining_op, tied_source_value_id)) {
+      return iree_ok_status();
+    }
+    if (tied_source_value_id == LOOM_VALUE_ID_INVALID) {
+      break;
+    }
+    current_value_id = tied_source_value_id;
+  }
+  *out_recipe = (loom_low_rematerialization_recipe_t){
+      .packets = packets,
+      .packet_count = packet_count,
+  };
+  return iree_ok_status();
+}
+
 static bool loom_low_rematerialization_use_is_eligible(
     loom_value_id_t value_id, const loom_op_t* defining_op, loom_use_t use) {
   loom_op_t* user_op = loom_use_user_op(use);
@@ -104,9 +217,10 @@ static bool loom_low_rematerialization_use_shortens_live_range(
 }
 
 static iree_status_t loom_low_rematerialization_clone_for_use(
-    loom_rewriter_t* rewriter, const loom_op_t* defining_op,
-    uint16_t result_index, loom_value_id_t source_value_id, loom_use_t use,
-    iree_arena_allocator_t* arena, loom_value_id_t* out_cloned_value_id) {
+    loom_rewriter_t* rewriter,
+    const loom_low_rematerialization_recipe_t* recipe, loom_use_t use,
+    loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
+    loom_value_id_t* out_cloned_value_id) {
   *out_cloned_value_id = LOOM_VALUE_ID_INVALID;
 
   loom_ir_remap_t remap;
@@ -120,20 +234,36 @@ static iree_status_t loom_low_rematerialization_clone_for_use(
   loom_op_t* user_op = loom_use_user_op(use);
   loom_builder_ip_t saved_ip = loom_builder_save(&rewriter->builder);
   loom_builder_set_before(&rewriter->builder, user_op);
-  loom_op_t* cloned_op = NULL;
-  iree_status_t status =
-      loom_ir_clone_op(&rewriter->builder, defining_op, &remap, &cloned_op);
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = recipe->packet_count;
+       i > 0 && iree_status_is_ok(status); --i) {
+    loom_op_t* source_op = recipe->packets[i - 1];
+    loom_op_t* cloned_op = NULL;
+    status =
+        loom_ir_clone_op(&rewriter->builder, source_op, &remap, &cloned_op);
+    if (!iree_status_is_ok(status)) {
+      break;
+    }
+
+    const loom_value_id_t source_value_id = loom_op_const_results(source_op)[0];
+    const loom_value_id_t cloned_value_id = loom_op_results(cloned_op)[0];
+    status = loom_rewriter_clear_value_name(rewriter, cloned_value_id);
+    if (iree_status_is_ok(status)) {
+      status = loom_rewriter_try_set_derived_value_name(
+          rewriter, source_value_id, cloned_value_id, IREE_SV("remat"));
+    }
+    if (iree_status_is_ok(status)) {
+      iree_bitmap_set(state->per_user_values, cloned_value_id);
+      if (state->required_register_values != NULL &&
+          source_value_id < state->required_register_values->bit_count &&
+          iree_bitmap_test(*state->required_register_values, source_value_id)) {
+        iree_bitmap_set(*state->required_register_values, cloned_value_id);
+      }
+      *out_cloned_value_id = cloned_value_id;
+    }
+  }
   loom_builder_restore(&rewriter->builder, saved_ip);
   IREE_RETURN_IF_ERROR(status);
-
-  IREE_ASSERT(result_index < cloned_op->result_count);
-  const loom_value_id_t cloned_value_id =
-      loom_op_results(cloned_op)[result_index];
-  IREE_RETURN_IF_ERROR(
-      loom_rewriter_clear_value_name(rewriter, cloned_value_id));
-  IREE_RETURN_IF_ERROR(loom_rewriter_try_set_derived_value_name(
-      rewriter, source_value_id, cloned_value_id, IREE_SV("remat")));
-  *out_cloned_value_id = cloned_value_id;
   return iree_ok_status();
 }
 
@@ -152,42 +282,20 @@ iree_status_t loom_low_rematerialize_value_uses(
   }
 
   const loom_value_t* value = loom_module_value(module, value_id);
-  if (loom_value_is_block_arg(value) || loom_value_is_consumed(value) ||
+  if (loom_value_is_block_arg(value) ||
+      loom_consumption_find_consuming_use(module, value, NULL) ||
       loom_value_has_attribute_uses(value) || value->use_count == 0 ||
       loom_module_value_has_type_uses(module, value_id)) {
     return iree_ok_status();
   }
 
-  const loom_type_t value_type = loom_module_value_type(module, value_id);
-  const loom_low_register_type_resolver_t register_type_resolver =
-      loom_low_register_type_resolver_for_descriptor_set(
-          target->descriptor_set);
-  if (loom_low_register_type_resolver_has_class_flags(
-          &register_type_resolver, value_type,
-          LOOM_LOW_REG_CLASS_FLAG_REFERENCE)) {
+  loom_low_rematerialization_recipe_t recipe = {0};
+  IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_recipe(
+      module, target, value_id, arena, &recipe));
+  if (recipe.packet_count == 0) {
     return iree_ok_status();
   }
-
-  const uint16_t result_index = loom_value_def_index(value);
-  loom_op_t* defining_op = loom_value_def_op(value);
-  if (defining_op == NULL ||
-      iree_any_bit_set(defining_op->flags, LOOM_OP_FLAG_DEAD) ||
-      defining_op->result_count != 1 || defining_op->region_count != 0 ||
-      defining_op->successor_count != 0 ||
-      defining_op->tied_result_count != 0 ||
-      iree_any_bit_set(loom_op_effective_traits(module, defining_op),
-                       LOOM_TRAIT_OBSERVABLE_EFFECT)) {
-    return iree_ok_status();
-  }
-
-  loom_low_descriptor_packet_t packet = {0};
-  loom_low_descriptor_packet_initialize(target->descriptor_set, defining_op,
-                                        &packet);
-  if (!loom_low_descriptor_packet_kind_may_rematerialize(packet.kind) ||
-      !loom_low_descriptor_result_can_rematerialize(
-          target->descriptor_set, packet.descriptor, result_index)) {
-    return iree_ok_status();
-  }
+  loom_op_t* defining_op = recipe.packets[0];
 
   const uint32_t use_count = value->use_count;
   loom_use_t* uses = NULL;
@@ -208,21 +316,33 @@ iree_status_t loom_low_rematerialize_value_uses(
     return iree_ok_status();
   }
 
-  // Verified SSA makes the packet's inputs and external type/attribute captures
+  // Verified SSA makes every packet input and external type/attribute capture
   // available at its definition, which dominates each existing operand use.
-  // Cloning immediately before those users preserves availability transitively.
-  // Each eligible packet has one result and no regions. Reserve membership for
-  // its per-user clones before any mutation changes the module value count.
+  // Recipe planning rejects consumed external inputs, so cloning cannot cross
+  // an ownership transfer.
+  // Clone tied ownership chains from their root so each tied packet consumes a
+  // private predecessor instead of consuming one source several times. Each
+  // eligible packet has one result and no regions. Reserve membership for the
+  // worst-case per-use clones before mutation changes the module value count.
+  if (recipe.packet_count > UINT32_MAX / use_count) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "rematerialization clone count exceeds uint32 capacity");
+  }
+  const uint32_t maximum_clone_count =
+      (uint32_t)(recipe.packet_count * use_count);
+  if (maximum_clone_count > LOOM_VALUE_ID_INVALID - module->values.count) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "rematerialization value count exceeds value ID capacity");
+  }
+  const iree_host_size_t required_value_count =
+      module->values.count + maximum_clone_count;
   IREE_RETURN_IF_ERROR(loom_low_rematerialization_reserve_values(
-      module->values.count + use_count, state->arena, &state->per_user_values));
-  const bool requires_register =
-      state->required_register_values != NULL &&
-      value_id < state->required_register_values->bit_count &&
-      iree_bitmap_test(*state->required_register_values, value_id);
-  if (requires_register) {
+      required_value_count, state->arena, &state->per_user_values));
+  if (state->required_register_values != NULL) {
     IREE_RETURN_IF_ERROR(loom_low_rematerialization_reserve_values(
-        module->values.count + use_count, state->arena,
-        state->required_register_values));
+        required_value_count, state->arena, state->required_register_values));
   }
   // Index users by their first rewritten captured use. That exact operand
   // retains the clone ID for other occurrences in the same instruction.
@@ -256,8 +376,7 @@ iree_status_t loom_low_rematerialize_value_uses(
     loom_value_id_t cloned_value_id = LOOM_VALUE_ID_INVALID;
     if (first_user_use) {
       status = loom_low_rematerialization_clone_for_use(
-          &rewriter, defining_op, result_index, value_id, uses[i], arena,
-          &cloned_value_id);
+          &rewriter, &recipe, uses[i], state, arena, &cloned_value_id);
     } else {
       const loom_use_t first_use = uses[user_uses[user_slot] - 1];
       cloned_value_id =
@@ -270,26 +389,42 @@ iree_status_t loom_low_rematerialize_value_uses(
     if (iree_status_is_ok(status)) {
       if (first_user_use) {
         user_uses[user_slot] = i + 1;
-        iree_bitmap_set(state->per_user_values, cloned_value_id);
-        if (requires_register) {
-          iree_bitmap_set(*state->required_register_values, cloned_value_id);
-        }
-        ++result.cloned_packet_count;
+        result.cloned_packet_count += (uint32_t)recipe.packet_count;
       }
       ++result.rewritten_operand_count;
     }
   }
   if (iree_status_is_ok(status)) {
-    // Cloning the consumer may give its inputs additional users in other
+    // Cloning the chain may give external inputs additional users in other
     // blocks. Those inputs no longer retain a per-user placement guarantee.
-    const loom_value_id_t* operands = loom_op_operands(defining_op);
-    for (uint16_t i = 0; i < defining_op->operand_count; ++i) {
-      if (operands[i] < state->per_user_values.bit_count) {
-        iree_bitmap_reset(state->per_user_values, operands[i]);
+    for (iree_host_size_t packet_index = 0; packet_index < recipe.packet_count;
+         ++packet_index) {
+      const loom_op_t* packet = recipe.packets[packet_index];
+      const loom_value_id_t* operands = loom_op_const_operands(packet);
+      for (uint16_t operand_index = 0; operand_index < packet->operand_count;
+           ++operand_index) {
+        const loom_value_id_t operand = operands[operand_index];
+        bool is_recipe_result = false;
+        for (iree_host_size_t i = 0; i < recipe.packet_count; ++i) {
+          is_recipe_result |=
+              operand == loom_op_const_results(recipe.packets[i])[0];
+        }
+        if (!is_recipe_result && operand < state->per_user_values.bit_count) {
+          iree_bitmap_reset(state->per_user_values, operand);
+        }
       }
     }
+    // Erase the selected packet and every ownership predecessor made dead by
+    // its removal. Stop at the first predecessor retained by another use.
     IREE_ASSERT(loom_op_results_unused(module, defining_op));
-    status = loom_rewriter_erase(&rewriter, defining_op);
+    for (iree_host_size_t i = 0;
+         i < recipe.packet_count && iree_status_is_ok(status); ++i) {
+      loom_op_t* packet = recipe.packets[i];
+      if (!loom_op_results_unused(module, packet)) {
+        break;
+      }
+      status = loom_rewriter_erase(&rewriter, packet);
+    }
   }
   if (iree_status_is_ok(status)) {
     *out_result = result;

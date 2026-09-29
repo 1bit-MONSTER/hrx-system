@@ -1,0 +1,157 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @concat_i64_ordinary_boundary(%left: vector<16xi64>, %right: vector<1xi64>) -> (vector<17xi64>) {
+  %result = vector.concat<0> %left, %right : vector<16xi64>, vector<1xi64> -> vector<17xi64>
+  func.return %result : vector<17xi64>
+}
+
+// ----
+CHECK: low.func.def * @concat_i64_ordinary_boundary(%left: reg<aie2p.vec256 x4>, %right: reg<aie2p.vec256 x2>) -> (reg<aie2p.mbms x4>) *
+CHECK: * = slice %left[0] *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = slice %left[2] *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: * = vmov.vector512.to.accumulator512 %right
+CHECK: %result = concat(*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @concat_i32_ordinary_boundary(%left: vector<32xi32>, %right: vector<1xi32>) -> (vector<33xi32>) {
+  %result = vector.concat<0> %left, %right : vector<32xi32>, vector<1xi32> -> vector<33xi32>
+  func.return %result : vector<33xi32>
+}
+
+// ----
+CHECK: low.func.def * @concat_i32_ordinary_boundary(%left: reg<aie2p.vec256 x4>, %right: reg<aie2p.vec256 x2>) -> (reg<aie2p.mbms x4>) *
+CHECK: %result = concat(*)*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @quantize_i64_accumulator_tail(%values: vector<17xf32>, %thresholds: vector<1xf32>) -> (vector<17xi64>) {
+  %codes = vector.table.quantize %values, %thresholds {nan = zero, tie = lower} : vector<17xf32>, vector<1xf32> -> vector<17xi64>
+  func.return %codes : vector<17xi64>
+}
+
+// ----
+CHECK: low.func.def * @quantize_i64_accumulator_tail(*) -> (reg<aie2p.mbms x4>) *
+CHECK: * = vlt.u32x16.el.low32 *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: * = vups.2x.w-to-b.unsigned *
+CHECK: %codes = concat(*)*
+CHECK: return %codes
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @concat_i64_accumulator_left(%left: vector<17xi64>, %right: vector<1xi64>) -> (vector<18xi64>) {
+  %result = vector.concat<0> %left, %right : vector<17xi64>, vector<1xi64> -> vector<18xi64>
+  func.return %result : vector<18xi64>
+}
+
+// ----
+CHECK: low.func.def * @concat_i64_accumulator_left(%left: reg<aie2p.mbms x4>, %right: reg<aie2p.vec256 x2>) -> (reg<aie2p.mbms x4>) *
+CHECK: * = slice %left[2] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = mova.i32 8
+CHECK: * = vshift *
+CHECK: * = mova.i32 56
+CHECK: * = vshift *
+CHECK: * = vmov.vector512.to.accumulator512 *
+CHECK: %result = concat(*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @concat_i64_accumulator_right(%left: vector<1xi64>, %right: vector<17xi64>) -> (vector<18xi64>) {
+  %result = vector.concat<0> %left, %right : vector<1xi64>, vector<17xi64> -> vector<18xi64>
+  func.return %result : vector<18xi64>
+}
+
+// ----
+CHECK: low.func.def * @concat_i64_accumulator_right(%left: reg<aie2p.vec256 x2>, %right: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>) *
+CHECK: * = slice %right[0] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %right[1] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = slice %right[2] *
+CHECK: * = vmov.accumulator512.to.vector512 *
+CHECK: * = vshift *
+CHECK: * = vshift *
+CHECK: * = vshift *
+CHECK: %result = concat(*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @concat_f32_two_unit_boundary(%left: vector<31xf32>, %right: vector<1xf32>) -> (vector<32xf32>) {
+  %result = vector.concat<0> %left, %right : vector<31xf32>, vector<1xf32> -> vector<32xf32>
+  func.return %result : vector<32xf32>
+}
+
+// ----
+CHECK: low.func.def * @concat_f32_two_unit_boundary(*) -> (reg<aie2p.mbms x2>) *
+CHECK: * = mova.i32 60
+CHECK: * = vshift *
+CHECK: * = mova.i32 4
+CHECK: * = vshift *
+CHECK: %result = concat(*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @concat_f32_four_unit_boundary(%left: vector<32xf32>, %right: vector<1xf32>) -> (vector<33xf32>) {
+  %result = vector.concat<0> %left, %right : vector<32xf32>, vector<1xf32> -> vector<33xf32>
+  func.return %result : vector<33xf32>
+}
+
+// ----
+CHECK: low.func.def * @concat_f32_four_unit_boundary(%left: reg<aie2p.mbms x2>, %right: reg<aie2p.vec256 x2>) -> (reg<aie2p.mbms x4>) *
+CHECK: * = slice %left[0] *
+CHECK: * = slice %left[1] *
+CHECK: * = vmov.vector512.to.accumulator512 %right
+CHECK: %result = concat(*
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @partial_accumulator_bitcast(%words: vector<34xi32>) -> (vector<17xi64>) {
+  %double_words = vector.bitcast %words : vector<34xi32> to vector<17xi64>
+  func.return %double_words : vector<17xi64>
+}
+
+// ----
+CHECK: low.func.def * @partial_accumulator_bitcast(%double_words: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>) *
+CHECK: return %double_words
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*
+
+// ====
+
+func.def @slice_i64_partial_accumulator_tail(%source: vector<17xi64>) -> (vector<1xi64>) {
+  %result = vector.slice %source[16] : vector<17xi64> -> vector<1xi64>
+  func.return %result : vector<1xi64>
+}
+
+// ----
+CHECK: low.func.def * @slice_i64_partial_accumulator_tail(%source: reg<aie2p.mbms x4>) -> (reg<aie2p.vec256 x2>) *
+CHECK: * = slice %source[2] *
+CHECK: %result = vmov.accumulator512.to.vector512 *
+CHECK: return %result
+CHECK-NOT: *vextract*
+CHECK-NOT: *vinsert*

@@ -92,6 +92,23 @@ CHECK: copies: coalesced=0 materialized=0
 
 // ====
 
+// A destructive partial predicate update reuses its dying input even when the
+// other seven physical predicate registers remain live through the return.
+// RUN: with-checks emit low-allocation @partial_predicate_update
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core> @partial_predicate_update(%a: reg<aie2p.elpredicate>, %b: reg<aie2p.elpredicate>, %c: reg<aie2p.elpredicate>, %d: reg<aie2p.elpredicate>, %e: reg<aie2p.elpredicate>, %f: reg<aie2p.elpredicate>, %g: reg<aie2p.elpredicate>, %h: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %b_copy = copy %b : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
+  %low = predicate.and.low32.rhs_tied %a, %b_copy
+  %result = predicate.and.high32.rhs_tied %a, %low
+  return %result, %c, %d, %e, %f, %g, %h
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=1 materialized=0
+
+// ====
+
 // A detached index copy materializes into the fixed insertion register.
 // RUN: with-checks emit low-allocation @insert_lane diagnostics=copy-decisions
 
