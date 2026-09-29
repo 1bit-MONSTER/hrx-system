@@ -12,6 +12,15 @@ bazel_dep(name = "rules_cc", version = "0.2.21")
 bazel_dep(name = "rules_python", version = "2.1.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 
+# Unstamped Python build metadata is known during analysis and does not need a
+# subprocess action for each binary and test.
+single_version_override(
+    module_name = "rules_python",
+    patch_strip = 1,
+    patches = ["//build_tools/third_party/rules_python:unstamped_build_data.patch"],
+    version = "2.1.0",
+)
+
 # Windows toolchains expose compiler-owned sanitizer artifacts and declare
 # whether the linker supports Bazel's automatic DLL export helper.
 # Sanitizer debug information uses compiler-specific feature flags on all hosts.
