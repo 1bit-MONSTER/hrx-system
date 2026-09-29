@@ -22,8 +22,6 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-_SPIRV_TOOLING_VISIBILITY = ["//loom/src/loom/tooling/target/spirv:__pkg__"]
-
 _SPIRV_MODULE_COMPILER_VISIBILITY = [
     "//loom/binding/c/target/spirv:__pkg__",
     "//loom/src/loom/tooling/target/spirv:__pkg__",
@@ -64,7 +62,6 @@ loom_cc_library(
     name = "module_builder",
     srcs = ["module_builder.c"],
     hdrs = ["module_builder.h"],
-    visibility = _SPIRV_TOOLING_VISIBILITY,
     deps = [
         ":binary_format",
         ":binary_writer",
@@ -105,7 +102,6 @@ loom_cc_library(
 loom_cc_library(
     name = "program",
     hdrs = ["program.h"],
-    visibility = _SPIRV_TOOLING_VISIBILITY,
     deps = [
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/ir",
@@ -183,7 +179,6 @@ loom_cc_library(
         "module_emitter.c",
     ],
     hdrs = ["module_emitter.h"],
-    visibility = _SPIRV_TOOLING_VISIBILITY,
     deps = [
         ":binary_format",
         ":module_abi",

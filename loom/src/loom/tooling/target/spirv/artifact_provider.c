@@ -8,7 +8,6 @@
 
 #include "loom/target/arch/spirv/descriptors/low_registry.h"
 #include "loom/target/arch/spirv/profile.h"
-#include "loom/target/emit/spirv/module_builder.h"
 #include "loom/target/emit/spirv/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/function_contract.h"

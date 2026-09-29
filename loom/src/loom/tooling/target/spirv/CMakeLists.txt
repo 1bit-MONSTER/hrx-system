@@ -57,7 +57,6 @@ loom_cc_library(
     iree::base
     loom::target::arch::spirv::descriptors::low_registry
     loom::target::arch::spirv::profile
-    loom::target::emit::spirv::module_builder
     loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
     loom::target::function_contract
