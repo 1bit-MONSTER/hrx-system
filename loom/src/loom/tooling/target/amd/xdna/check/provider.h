@@ -6,8 +6,8 @@
 
 // loom-check provider for AMD XDNA AIE2P target-Low tests.
 
-#ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_CHECK_PROVIDER_H_
-#define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_CHECK_PROVIDER_H_
+#ifndef LOOM_TOOLING_TARGET_AMD_XDNA_CHECK_PROVIDER_H_
+#define LOOM_TOOLING_TARGET_AMD_XDNA_CHECK_PROVIDER_H_
 
 #include "loom/tools/loom-check/provider.h"
 
@@ -22,4 +22,4 @@ extern const loom_check_provider_t loom_aie2p_check_provider;
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_CHECK_PROVIDER_H_
+#endif  // LOOM_TOOLING_TARGET_AMD_XDNA_CHECK_PROVIDER_H_

@@ -6,15 +6,15 @@
 
 #include "loomc/target/amd/xdna.h"
 
-#include "loom/target/arch/amd/xdna/aie2p/emit/artifact.h"
 #include "loom/target/arch/amd/xdna/aie2p/profile.h"
 #include "loom/target/arch/amd/xdna/aie2p/provider.h"
+#include "loom/tooling/target/amd/xdna/artifact_provider.h"
 #include "loomc/iree.h"
 #include "target.h"
 
 static const loom_target_provider_t* const kXdnaProviders[] = {
     &loom_aie2p_target_provider,
-    &loom_aie2p_xdna_artifact_provider,
+    &loom_xdna_artifact_emitter_provider,
 };
 
 static const loom_target_provider_set_t kXdnaProviderSet = {

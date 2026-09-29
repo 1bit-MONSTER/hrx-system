@@ -4,11 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/target/arch/amd/xdna/aie2p/check/leaf.h"
+#include "loom/tooling/target/amd/xdna/check/leaf.h"
 
-#include "loom/target/arch/amd/xdna/aie2p/emit/leaf_compile.h"
 #include "loom/target/arch/amd/xdna/aie2p/machine/machine.h"
 #include "loom/target/reporting/report.h"
+#include "loom/tooling/target/amd/xdna/leaf_compile.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/low_emit.h"
 

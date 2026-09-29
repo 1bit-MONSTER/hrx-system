@@ -6,8 +6,8 @@
 
 // Scheduling, allocation repair, and native emission of AIE2P core functions.
 
-#ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_LEAF_COMPILE_H_
-#define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_LEAF_COMPILE_H_
+#ifndef LOOM_TOOLING_TARGET_AMD_XDNA_LEAF_COMPILE_H_
+#define LOOM_TOOLING_TARGET_AMD_XDNA_LEAF_COMPILE_H_
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
@@ -58,4 +58,4 @@ iree_status_t loom_aie2p_leaf_compile(
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_LEAF_COMPILE_H_
+#endif  // LOOM_TOOLING_TARGET_AMD_XDNA_LEAF_COMPILE_H_

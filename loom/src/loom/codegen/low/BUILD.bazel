@@ -30,6 +30,7 @@ _LOW_DESCRIPTOR_VISIBILITY = [
     "//loom/src/loom/target/emit:__subpackages__",
     "//loom/src/loom/target/reporting:__pkg__",
     "//loom/src/loom/target/test:__subpackages__",
+    "//loom/src/loom/tooling/target/amd/xdna:__pkg__",
     "//loom/src/loom/tooling/target/spirv:__pkg__",
     "//loom/src/loom/tooling/target/vm:__pkg__",
     "//loom/src/loom/tooling/target/wasm:__pkg__",

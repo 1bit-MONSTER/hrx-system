@@ -565,59 +565,6 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_XDNA)
-loom_cc_library(
-  NAME
-    check_provider
-  HDRS
-    "check/array_plan.h"
-    "check/leaf.h"
-    "check/provider.h"
-  SRCS
-    "check/array_plan.c"
-    "check/leaf.c"
-    "check/provider.c"
-  DEPS
-    ::array_plan
-    ::array_program
-    ::array_resident
-    ::leaf_compile
-    ::machine
-    ::provider
-    iree::base
-    loom::analysis::symbol_facts
-    loom::codegen::low::diagnostics
-    loom::codegen::low::function_requirements
-    loom::codegen::low::storage_layout
-    loom::codegen::low::target_binding
-    loom::codegen::low::text_asm
-    loom::error::error_defs
-    loom::format::text::printer
-    loom::ir
-    loom::ops::low
-    loom::ops::op_defs
-    loom::target::reporting::report
-    loom::tools::loom-check::execute
-    loom::tools::loom-check::provider
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_XDNA)
-loom_cc_binary(
-  NAME
-    loom-check
-  SRCS
-    "check/loom-check.c"
-  DEPS
-    ::check_provider
-    iree::base
-    loom::tools::loom-check::provider
-    loom::tools::loom-check::test_provider
-  TESTONLY
-)
-endif()
-
-if(LOOM_TARGET_ARCH_XDNA)
 loom_check_test_suite(
   NAME
     loom_check_file_test
@@ -788,7 +735,7 @@ loom_check_test_suite(
     "test/source_low/vector_splat.loom-test"
     "test/source_low/vector_structural.loom-test"
   RUNNER
-    ::loom-check
+    loom::tooling::target::amd::xdna::loom-check
   TEST_NAME_PREFIX_TO_STRIP
     "test/source_low/"
 )
@@ -882,32 +829,6 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
-    leaf_compile
-  HDRS
-    "emit/leaf_compile.h"
-  SRCS
-    "emit/leaf_compile.c"
-  DEPS
-    ::bundle_plan
-    ::leaf_object
-    ::low_registry
-    iree::base
-    iree::base::internal::arena
-    loom::analysis::symbol_facts
-    loom::codegen::low::allocation::target_constraints
-    loom::codegen::low::descriptors
-    loom::codegen::low::frame
-    loom::ir
-    loom::target::reporting::low
-    loom::target::reporting::report
-    loom::util::fact_table
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_XDNA)
-loom_cc_library(
-  NAME
     tile_link
   HDRS
     "emit/tile_link.h"
@@ -957,51 +878,6 @@ loom_cc_library(
     iree::schemas::xdna_executable
     loom::target::arch::amd::xdna::device_profile
     loom::target::emit::native::elf
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_XDNA)
-loom_cc_library(
-  NAME
-    artifact
-  HDRS
-    "emit/artifact.h"
-  SRCS
-    "emit/array_report.c"
-    "emit/array_report.h"
-    "emit/artifact.c"
-  DEPS
-    ::array_binding_records
-    ::array_plan
-    ::array_program
-    ::array_resident
-    ::leaf_compile
-    ::target_facts
-    ::tile_link
-    ::xdna_product
-    ::xdna_product_prepare
-    iree::base
-    iree::base::internal::arena
-    iree::io::stream
-    loom::analysis::symbol_facts
-    loom::codegen::low::descriptors
-    loom::codegen::low::diagnostics
-    loom::codegen::low::function_requirements
-    loom::codegen::low::target_binding
-    loom::error::diagnostic
-    loom::ir
-    loom::ir::facts
-    loom::ops::encoding
-    loom::ops::low
-    loom::ops::op_defs
-    loom::target::arch::amd::xdna::device_profile
-    loom::target::arch::amd::xdna::error_defs
-    loom::target::function_version
-    loom::target::provider
-    loom::target::reporting::low
-    loom::target::reporting::report
-    loom::util::fact_table
   PUBLIC
 )
 endif()

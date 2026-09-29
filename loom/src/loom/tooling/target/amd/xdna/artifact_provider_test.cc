@@ -28,7 +28,7 @@ constexpr char kResidentNeighborSource[] = R"(
 aie2p.target<array> @array_target
 aie2p.target<core> @core_target
 
-low.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @resident_neighbor() asm {
+low.func.def retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @resident_neighbor() asm {
   %channel_capacity = constant.u32 1 : reg<aie2p.array.scalar : index>
   %records_per_activation = constant.u32 1 : reg<aie2p.array.scalar : index>
   %first_lane = constant.u32 0 : reg<aie2p.array.scalar : index>
@@ -113,7 +113,8 @@ class XdnaArtifactProviderTest : public ::testing::Test {
   iree_hal_amd_xdna_image_t* image_ = nullptr;
 };
 
-TEST_F(XdnaArtifactProviderTest, EmitsLoaderReadyControlFreeResidentProduct) {
+TEST_F(XdnaArtifactProviderTest,
+       EmitsLoaderReadyControlFreePrivateRetainedProduct) {
   ModulePtr module;
   IREE_ASSERT_OK(ParseModule(&module));
 

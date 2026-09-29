@@ -31,7 +31,10 @@ loom_generated_cc_library(
     generated_hdrs = ["error_catalog.h"],
     generator = "//loom/py/loom/gen/error:c_errors",
     source = "error_catalog.c",
-    visibility = ["//loom/src/loom/target/arch/amd/xdna:__subpackages__"],
+    visibility = [
+        "//loom/src/loom/target/arch/amd/xdna:__subpackages__",
+        "//loom/src/loom/tooling/target/amd/xdna:__pkg__",
+    ],
     deps = ["//loom/src/loom/error:error_defs"],
 )
 

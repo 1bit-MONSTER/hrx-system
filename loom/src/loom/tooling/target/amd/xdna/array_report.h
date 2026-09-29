@@ -6,8 +6,8 @@
 
 // AIE2P physical array-plan compile reporting.
 
-#ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_ARRAY_REPORT_H_
-#define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_ARRAY_REPORT_H_
+#ifndef LOOM_TOOLING_TARGET_AMD_XDNA_ARRAY_REPORT_H_
+#define LOOM_TOOLING_TARGET_AMD_XDNA_ARRAY_REPORT_H_
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
@@ -31,4 +31,4 @@ iree_status_t loom_aie2p_array_report_record(
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_ARRAY_REPORT_H_
+#endif  // LOOM_TOOLING_TARGET_AMD_XDNA_ARRAY_REPORT_H_

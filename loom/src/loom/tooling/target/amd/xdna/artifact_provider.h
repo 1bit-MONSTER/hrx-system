@@ -21,6 +21,9 @@ extern "C" {
 // Native AIE2P implementation of the canonical XDNA artifact format.
 extern const loom_artifact_provider_t loom_xdna_artifact_provider;
 
+// Target-emitter adapter over the same XDNA compiler lifecycle.
+extern const loom_target_provider_t loom_xdna_artifact_emitter_provider;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

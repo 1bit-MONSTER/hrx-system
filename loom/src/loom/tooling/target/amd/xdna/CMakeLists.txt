@@ -55,6 +55,140 @@ iree_native_test(
 )
 endif()
 
+loom_cc_library(
+  NAME
+    leaf_compile
+  HDRS
+    "leaf_compile.h"
+  SRCS
+    "leaf_compile.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::symbol_facts
+    loom::codegen::low::allocation::target_constraints
+    loom::codegen::low::descriptors
+    loom::codegen::low::frame
+    loom::ir
+    loom::target::arch::amd::xdna::aie2p::bundle_plan
+    loom::target::arch::amd::xdna::aie2p::leaf_object
+    loom::target::arch::amd::xdna::aie2p::low_registry
+    loom::target::reporting::low
+    loom::target::reporting::report
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    array_report
+  HDRS
+    "array_report.h"
+  SRCS
+    "array_report.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::diagnostics
+    loom::ir
+    loom::ir::facts
+    loom::ops::encoding
+    loom::target::arch::amd::xdna::aie2p::array_plan
+    loom::target::arch::amd::xdna::aie2p::xdna_product_prepare
+    loom::target::reporting::report
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    product_prepare
+  HDRS
+    "product_prepare.h"
+  SRCS
+    "product_prepare.c"
+  DEPS
+    ::array_report
+    ::leaf_compile
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::symbol_facts
+    loom::codegen::low::descriptors
+    loom::codegen::low::diagnostics
+    loom::codegen::low::function_requirements
+    loom::codegen::low::target_binding
+    loom::error::diagnostic
+    loom::ir
+    loom::ir::facts
+    loom::ops::low
+    loom::ops::op_defs
+    loom::target::arch::amd::xdna::aie2p::array_binding_records
+    loom::target::arch::amd::xdna::aie2p::array_plan
+    loom::target::arch::amd::xdna::aie2p::array_program
+    loom::target::arch::amd::xdna::aie2p::array_resident
+    loom::target::arch::amd::xdna::aie2p::target_facts
+    loom::target::arch::amd::xdna::aie2p::tile_link
+    loom::target::arch::amd::xdna::aie2p::xdna_product
+    loom::target::arch::amd::xdna::aie2p::xdna_product_prepare
+    loom::target::arch::amd::xdna::device_profile
+    loom::target::arch::amd::xdna::error_defs
+    loom::target::entry_selection
+    loom::target::function_version
+    loom::target::reporting::low
+    loom::target::reporting::report
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    check_provider
+  HDRS
+    "check/array_plan.h"
+    "check/leaf.h"
+    "check/provider.h"
+  SRCS
+    "check/array_plan.c"
+    "check/leaf.c"
+    "check/provider.c"
+  DEPS
+    ::leaf_compile
+    iree::base
+    loom::analysis::symbol_facts
+    loom::codegen::low::diagnostics
+    loom::codegen::low::function_requirements
+    loom::codegen::low::storage_layout
+    loom::codegen::low::target_binding
+    loom::codegen::low::text_asm
+    loom::error::error_defs
+    loom::format::text::printer
+    loom::ir
+    loom::ops::low
+    loom::ops::op_defs
+    loom::target::arch::amd::xdna::aie2p::array_plan
+    loom::target::arch::amd::xdna::aie2p::array_program
+    loom::target::arch::amd::xdna::aie2p::array_resident
+    loom::target::arch::amd::xdna::aie2p::machine
+    loom::target::arch::amd::xdna::aie2p::provider
+    loom::target::reporting::report
+    loom::tools::loom-check::execute
+    loom::tools::loom-check::provider
+  PUBLIC
+)
+
+loom_cc_binary(
+  NAME
+    loom-check
+  SRCS
+    "check/loom-check.c"
+  DEPS
+    ::check_provider
+    iree::base
+    loom::tools::loom-check::provider
+    loom::tools::loom-check::test_provider
+  TESTONLY
+)
+
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
 loom_cc_library(
   NAME
@@ -64,12 +198,16 @@ loom_cc_library(
   SRCS
     "artifact_provider.c"
   DEPS
+    ::product_prepare
     iree::base
     iree::base::internal::arena
-    loom::target::arch::amd::xdna::aie2p::artifact
+    iree::io::stream
+    loom::ops::low
     loom::target::arch::amd::xdna::aie2p::low_registry
+    loom::target::arch::amd::xdna::aie2p::target_facts
     loom::target::arch::amd::xdna::aie2p::target_profile
     loom::target::arch::amd::xdna::aie2p::target_records
+    loom::target::arch::amd::xdna::aie2p::xdna_product
     loom::target::entry_selection
     loom::tooling::compile::artifact
   PUBLIC

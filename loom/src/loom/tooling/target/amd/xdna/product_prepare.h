@@ -4,26 +4,30 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Complete AIE2P XDNA artifact emission.
+// Compiler-owned preparation of complete AIE2P XDNA products.
 
-#ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_ARTIFACT_H_
-#define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_ARTIFACT_H_
+#ifndef LOOM_TOOLING_TARGET_AMD_XDNA_PRODUCT_PREPARE_H_
+#define LOOM_TOOLING_TARGET_AMD_XDNA_PRODUCT_PREPARE_H_
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product.h"
 #include "loom/target/arch/amd/xdna/device/profile.h"
+#include "loom/target/entry_selection.h"
 #include "loom/target/function_version.h"
-#include "loom/target/provider.h"
 #include "loom/target/reporting/report.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct loom_aie2p_xdna_artifact_request_t {
+typedef struct loom_xdna_product_prepare_request_t {
   // Immutable module containing prepared AIE2P target-low IR.
   const loom_module_t* module;
+
+  // Artifact roots selected through the shared compiler entry policy.
+  loom_target_entry_list_t entries;
 
   // Concrete compiler function versions participating in emission.
   const loom_function_version_list_t* function_versions;
@@ -44,23 +48,19 @@ typedef struct loom_aie2p_xdna_artifact_request_t {
   // Invocation-local scratch arena.
   iree_arena_allocator_t* scratch_arena;
 
-  // Host allocator owning the returned byte sequence.
+  // Host allocator owning resident compiler state.
   iree_allocator_t allocator;
-} loom_aie2p_xdna_artifact_request_t;
+} loom_xdna_product_prepare_request_t;
 
-// Emits one complete Loom-owned XDNA ELF byte sequence. Structured rejection
-// returns OK with |out_emitted| false and no contents.
-iree_status_t loom_aie2p_xdna_artifact_emit(
-    const loom_aie2p_xdna_artifact_request_t* request, bool* out_emitted,
-    iree_byte_sequence_t** out_contents);
-
-// Canonical XDNA emission for in-process target environments. Device identity
-// comes from the prepared array function versions; no emission-time target
-// override or intermediate tile artifacts are required.
-extern const loom_target_provider_t loom_aie2p_xdna_artifact_provider;
+// Prepares one complete target-native XDNA product plan. Structured rejection
+// returns OK with |out_prepared| false and an emitted diagnostic. The returned
+// plan borrows storage from |request->scratch_arena|.
+iree_status_t loom_xdna_product_prepare(
+    const loom_xdna_product_prepare_request_t* request, bool* out_prepared,
+    loom_aie2p_xdna_product_plan_t* out_plan);
 
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_EMIT_ARTIFACT_H_
+#endif  // LOOM_TOOLING_TARGET_AMD_XDNA_PRODUCT_PREPARE_H_

@@ -66,7 +66,7 @@
 #include "loom/target/arch/x86/check/provider.h"
 #endif  // LOOM_CHECK_HAVE_TARGET_X86
 #if LOOM_CHECK_HAVE_TARGET_XDNA
-#include "loom/target/arch/amd/xdna/aie2p/check/provider.h"
+#include "loom/tooling/target/amd/xdna/check/provider.h"
 #endif  // LOOM_CHECK_HAVE_TARGET_XDNA
 
 static const loom_check_provider_t* const kLoomCheckProviders[] = {

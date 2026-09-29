@@ -8,7 +8,7 @@
 
 #include <stddef.h>
 
-#include "loom/target/arch/amd/xdna/aie2p/check/provider.h"
+#include "loom/tooling/target/amd/xdna/check/provider.h"
 #include "loom/tools/loom-check/provider.h"
 #include "loom/tools/loom-check/test_provider.h"
 

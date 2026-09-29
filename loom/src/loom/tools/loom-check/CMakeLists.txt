@@ -479,7 +479,7 @@ if(LOOM_TARGET_ARCH_X86)
   list(APPEND _loom_check_platform_deps loom::target::arch::x86::check::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_XDNA)
-  list(APPEND _loom_check_platform_deps loom::target::arch::amd::xdna::aie2p::check_provider)
+  list(APPEND _loom_check_platform_deps loom::tooling::target::amd::xdna::check_provider)
 endif()
 loom_cc_binary(
   NAME
@@ -544,7 +544,7 @@ if(LOOM_TARGET_ARCH_X86)
   list(APPEND _loom_check_test_platform_deps loom::target::arch::x86::check::check_provider)
 endif()
 if(LOOM_TARGET_ARCH_XDNA)
-  list(APPEND _loom_check_test_platform_deps loom::target::arch::amd::xdna::aie2p::check_provider)
+  list(APPEND _loom_check_test_platform_deps loom::tooling::target::amd::xdna::check_provider)
 endif()
 loom_cc_binary(
   NAME

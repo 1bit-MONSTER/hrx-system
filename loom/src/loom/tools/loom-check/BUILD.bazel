@@ -114,7 +114,7 @@ _TARGET_XDNA_CHECK_COPTS = iree_select({
 
 _TARGET_XDNA_CHECK_DEPS = iree_select({
     "//loom/config/target/arch:xdna": [
-        "//loom/src/loom/target/arch/amd/xdna/aie2p:check_provider",
+        "//loom/src/loom/tooling/target/amd/xdna:check_provider",
     ],
     "//conditions:default": [],
 })

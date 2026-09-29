@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/target/arch/amd/xdna/aie2p/emit/array_report.h"
+#include "loom/tooling/target/amd/xdna/array_report.h"
 
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/ir/facts.h"

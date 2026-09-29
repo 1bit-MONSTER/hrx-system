@@ -7,7 +7,6 @@
 load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
-    "loom_cc_binary",
     "loom_cc_library",
     "loom_cc_test",
     "loom_generated_file_family",
@@ -262,6 +261,7 @@ loom_cc_library(
         "array/channel_resources.h",
         "array/plan.h",
     ],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":array_abi_layout",
         ":array_descriptors",
@@ -315,6 +315,7 @@ loom_cc_library(
     name = "array_program",
     srcs = ["array/program.c"],
     hdrs = ["array/program.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":array_plan",
         ":array_program_types",
@@ -329,6 +330,7 @@ loom_cc_library(
     name = "array_resident",
     srcs = ["array/resident.c"],
     hdrs = ["array/resident.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":array_plan",
         ":core_descriptors",
@@ -467,56 +469,6 @@ loom_cc_library(
         "//loom/src/loom/pass:types",
         "//loom/src/loom/pass:value_facts",
         "//loom/src/loom/target:function_version",
-        "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_library(
-    name = "check_provider",
-    srcs = [
-        "check/array_plan.c",
-        "check/leaf.c",
-        "check/provider.c",
-    ],
-    hdrs = [
-        "check/array_plan.h",
-        "check/leaf.h",
-        "check/provider.h",
-    ],
-    visibility = ["//loom/src/loom/tools/loom-check:__pkg__"],
-    deps = [
-        ":array_plan",
-        ":array_program",
-        ":array_resident",
-        ":leaf_compile",
-        ":machine",
-        ":provider",
-        "//loom/src/loom/analysis:symbol_facts",
-        "//loom/src/loom/codegen/low:diagnostics",
-        "//loom/src/loom/codegen/low:function_requirements",
-        "//loom/src/loom/codegen/low:storage_layout",
-        "//loom/src/loom/codegen/low:target_binding",
-        "//loom/src/loom/codegen/low:text_asm",
-        "//loom/src/loom/error:error_defs",
-        "//loom/src/loom/format/text:printer",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/target/reporting:report",
-        "//loom/src/loom/tools/loom-check:execute",
-        "//loom/src/loom/tools/loom-check:provider",
-        "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_binary(
-    name = "loom-check",
-    testonly = True,
-    srcs = ["check/loom-check.c"],
-    deps = [
-        ":check_provider",
-        "//loom/src/loom/tools/loom-check:provider",
-        "//loom/src/loom/tools/loom-check:test_provider",
         "//runtime/src/iree/base",
     ],
 )
@@ -690,7 +642,7 @@ loom_check_test_suite(
         "test/source_low/vector_splat.loom-test",
         "test/source_low/vector_structural.loom-test",
     ],
-    runner = ":loom-check",
+    runner = "//loom/src/loom/tooling/target/amd/xdna:loom-check",
     test_name_prefix_to_strip = "test/source_low/",
 )
 
@@ -710,6 +662,7 @@ loom_cc_library(
     name = "bundle_plan",
     srcs = ["emit/bundle_plan.c"],
     hdrs = ["emit/bundle_plan.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":core_descriptors",
         ":core_structure",
@@ -748,6 +701,7 @@ loom_cc_library(
     name = "leaf_object",
     srcs = ["emit/leaf_object.c"],
     hdrs = ["emit/leaf_object.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":encoding",
         ":leaf_program",
@@ -761,30 +715,10 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "leaf_compile",
-    srcs = ["emit/leaf_compile.c"],
-    hdrs = ["emit/leaf_compile.h"],
-    deps = [
-        ":bundle_plan",
-        ":leaf_object",
-        ":low_registry",
-        "//loom/src/loom/analysis:symbol_facts",
-        "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/codegen/low:frame",
-        "//loom/src/loom/codegen/low/allocation:target_constraints",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/target/reporting:low",
-        "//loom/src/loom/target/reporting:report",
-        "//loom/src/loom/util:fact_table",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_library(
     name = "tile_link",
     srcs = ["emit/tile_link.c"],
     hdrs = ["emit/tile_link.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":leaf_object",
         ":relocation",
@@ -798,6 +732,7 @@ loom_cc_library(
     name = "xdna_product",
     srcs = ["emit/xdna_product.c"],
     hdrs = ["emit/xdna_product.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         "//loom/src/loom/target/emit/native:elf",
         "//runtime/src/iree/base",
@@ -822,6 +757,7 @@ loom_cc_library(
     name = "xdna_product_prepare",
     srcs = ["emit/xdna_product_prepare.c"],
     hdrs = ["emit/xdna_product_prepare.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
     deps = [
         ":array_program_types",
         ":xdna_product",
@@ -843,52 +779,6 @@ iree_assert_dependency_boundary(
     ],
     message = "XDNA product construction must consume retained target-native facts instead of compiler, IR, or tooling state",
     target = ":xdna_product_prepare",
-)
-
-loom_cc_library(
-    name = "artifact",
-    srcs = [
-        "emit/array_report.c",
-        "emit/array_report.h",
-        "emit/artifact.c",
-    ],
-    hdrs = ["emit/artifact.h"],
-    visibility = [
-        "//loom/binding/c/target/amd/xdna:__pkg__",
-        "//loom/src/loom/tooling/target/amd/xdna:__pkg__",
-    ],
-    deps = [
-        ":array_binding_records",
-        ":array_plan",
-        ":array_program",
-        ":array_resident",
-        ":leaf_compile",
-        ":target_facts",
-        ":tile_link",
-        ":xdna_product",
-        ":xdna_product_prepare",
-        "//loom/src/loom/analysis:symbol_facts",
-        "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/codegen/low:diagnostics",
-        "//loom/src/loom/codegen/low:function_requirements",
-        "//loom/src/loom/codegen/low:target_binding",
-        "//loom/src/loom/error:diagnostic",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ir:facts",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops/encoding",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/target:function_version",
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/amd/xdna:device_profile",
-        "//loom/src/loom/target/arch/amd/xdna:error_defs",
-        "//loom/src/loom/target/reporting:low",
-        "//loom/src/loom/target/reporting:report",
-        "//loom/src/loom/util:fact_table",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/io:stream",
-    ],
 )
 
 loom_cc_test(

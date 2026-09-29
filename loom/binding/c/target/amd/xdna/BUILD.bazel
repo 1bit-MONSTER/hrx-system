@@ -30,9 +30,9 @@ loom_cc_library(
     ]),
     deps = [
         "//loom/binding/c:loomc",
-        "//loom/src/loom/target/arch/amd/xdna/aie2p:artifact",
         "//loom/src/loom/target/arch/amd/xdna/aie2p:provider",
         "//loom/src/loom/target/arch/amd/xdna/aie2p:target_profile",
+        "//loom/src/loom/tooling/target/amd/xdna:artifact_provider",
     ],
     alwayslink = True,
 )

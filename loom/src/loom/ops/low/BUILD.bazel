@@ -30,6 +30,7 @@ _LOW_OPS_VISIBILITY = [
     "//loom/src/loom/target/emit:__subpackages__",
     "//loom/src/loom/target/reporting:__pkg__",
     "//loom/src/loom/tooling/compile:__pkg__",
+    "//loom/src/loom/tooling/target/amd/xdna:__pkg__",
     "//loom/src/loom/tooling/target/vm:__pkg__",
     "//loom/src/loom/tooling/target/wasm:__pkg__",
     "//loom/src/loom/tools/loom-check:__pkg__",
