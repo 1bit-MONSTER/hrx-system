@@ -35,6 +35,39 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+iree_c_embed_data(
+  NAME
+    evaluator_script
+  SRCS
+    "evaluator.mjs"
+  C_FILE_OUTPUT
+    "evaluator_script.c"
+  H_FILE_OUTPUT
+    "evaluator_script.h"
+  IDENTIFIER
+    "loom_wasm_evaluator_script"
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
+    evaluator
+  HDRS
+    "evaluator.h"
+  SRCS
+    "evaluator.c"
+  DEPS
+    ::evaluator_script
+    ::prepare
+    iree::base
+    loom::target::tool::process
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME

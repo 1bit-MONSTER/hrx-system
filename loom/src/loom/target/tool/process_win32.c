@@ -21,6 +21,21 @@ typedef struct loom_tool_capture_file_t {
   HANDLE handle;
 } loom_tool_capture_file_t;
 
+struct loom_tool_process_session_t {
+  // Spawned child process awaiting collection.
+  HANDLE process_handle;
+  // Parent handle writing the child stdin pipe.
+  HANDLE input_handle;
+  // Parent handle reading the child stdout pipe.
+  HANDLE output_handle;
+  // File capturing child stderr without risking a pipe deadlock.
+  loom_tool_capture_file_t stderr_file;
+  // Allocator owning this session and captured terminal output.
+  iree_allocator_t allocator;
+  // Whether |process_handle| has been waited and released.
+  bool waited;
+};
+
 static iree_status_t loom_tool_win32_status(DWORD error, const char* message) {
   return iree_make_status(iree_status_code_from_win32_error(error),
                           "%s (GetLastError=%lu)", message,
@@ -346,32 +361,13 @@ static void loom_tool_spawn_options_deinitialize(
     DeleteProcThreadAttributeList(options->attribute_list);
   }
   iree_allocator_free(allocator, options->attribute_list);
-  HANDLE stdin_handle =
-      options->inherited_handles[LOOM_TOOL_STDIN_HANDLE_INDEX];
-  if (stdin_handle != NULL && stdin_handle != INVALID_HANDLE_VALUE) {
-    CloseHandle(stdin_handle);
-  }
   memset(options, 0, sizeof(*options));
 }
 
 static iree_status_t loom_tool_spawn_options_initialize(
-    HANDLE stdout_handle, HANDLE stderr_handle, iree_allocator_t allocator,
-    loom_tool_spawn_options_t* out_options) {
+    HANDLE stdin_handle, HANDLE stdout_handle, HANDLE stderr_handle,
+    iree_allocator_t allocator, loom_tool_spawn_options_t* out_options) {
   memset(out_options, 0, sizeof(*out_options));
-  out_options->inherited_handles[LOOM_TOOL_STDIN_HANDLE_INDEX] =
-      INVALID_HANDLE_VALUE;
-
-  SECURITY_ATTRIBUTES security_attributes;
-  memset(&security_attributes, 0, sizeof(security_attributes));
-  security_attributes.nLength = sizeof(security_attributes);
-  security_attributes.bInheritHandle = TRUE;
-  HANDLE stdin_handle = CreateFileW(
-      L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-      &security_attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-  if (stdin_handle == INVALID_HANDLE_VALUE) {
-    return loom_tool_win32_status(GetLastError(),
-                                  "failed to disconnect child stdin");
-  }
   out_options->inherited_handles[LOOM_TOOL_STDIN_HANDLE_INDEX] = stdin_handle;
   out_options->inherited_handles[LOOM_TOOL_STDOUT_HANDLE_INDEX] = stdout_handle;
   out_options->inherited_handles[LOOM_TOOL_STDERR_HANDLE_INDEX] = stderr_handle;
@@ -415,6 +411,23 @@ static iree_status_t loom_tool_spawn_options_initialize(
   return iree_ok_status();
 }
 
+static iree_status_t loom_tool_win32_open_null_input(HANDLE* out_handle) {
+  *out_handle = INVALID_HANDLE_VALUE;
+  SECURITY_ATTRIBUTES security_attributes;
+  memset(&security_attributes, 0, sizeof(security_attributes));
+  security_attributes.nLength = sizeof(security_attributes);
+  security_attributes.bInheritHandle = TRUE;
+  HANDLE handle = CreateFileW(
+      L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+      &security_attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (handle == INVALID_HANDLE_VALUE) {
+    return loom_tool_win32_status(GetLastError(),
+                                  "failed to disconnect child stdin");
+  }
+  *out_handle = handle;
+  return iree_ok_status();
+}
+
 iree_status_t loom_tool_process_run_platform(
     char** argv, bool search_path, iree_allocator_t allocator,
     loom_tool_process_result_t* out_result) {
@@ -427,6 +440,7 @@ iree_status_t loom_tool_process_run_platform(
 
   wchar_t* application_name = NULL;
   wchar_t* command_line = NULL;
+  HANDLE stdin_handle = INVALID_HANDLE_VALUE;
   PROCESS_INFORMATION process_info;
   memset(&process_info, 0, sizeof(process_info));
   loom_tool_spawn_options_t spawn_options;
@@ -439,8 +453,12 @@ iree_status_t loom_tool_process_run_platform(
                                           allocator, &application_name);
   }
   if (iree_status_is_ok(status)) {
+    status = loom_tool_win32_open_null_input(&stdin_handle);
+  }
+  if (iree_status_is_ok(status)) {
     status = loom_tool_spawn_options_initialize(
-        stdout_file.handle, stderr_file.handle, allocator, &spawn_options);
+        stdin_handle, stdout_file.handle, stderr_file.handle, allocator,
+        &spawn_options);
   }
   if (iree_status_is_ok(status)) {
     if (!CreateProcessW(application_name, command_line, NULL, NULL, TRUE,
@@ -452,6 +470,9 @@ iree_status_t loom_tool_process_run_platform(
     }
   }
   loom_tool_spawn_options_deinitialize(&spawn_options, allocator);
+  if (stdin_handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(stdin_handle);
+  }
   if (iree_status_is_ok(status)) {
     DWORD wait_result = WaitForSingleObject(process_info.hProcess, INFINITE);
     if (wait_result == WAIT_FAILED) {
@@ -494,6 +515,253 @@ iree_status_t loom_tool_process_run_platform(
   loom_tool_capture_file_deinitialize(&stderr_file);
   loom_tool_capture_file_deinitialize(&stdout_file);
   return status;
+}
+
+static iree_status_t loom_tool_win32_create_pipe(HANDLE* out_read_handle,
+                                                 HANDLE* out_write_handle) {
+  *out_read_handle = INVALID_HANDLE_VALUE;
+  *out_write_handle = INVALID_HANDLE_VALUE;
+  SECURITY_ATTRIBUTES security_attributes;
+  memset(&security_attributes, 0, sizeof(security_attributes));
+  security_attributes.nLength = sizeof(security_attributes);
+  security_attributes.bInheritHandle = TRUE;
+  if (!CreatePipe(out_read_handle, out_write_handle, &security_attributes, 0)) {
+    return loom_tool_win32_status(GetLastError(),
+                                  "failed to create process stream pipe");
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_tool_win32_make_handle_private(HANDLE handle) {
+  if (!SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0)) {
+    return loom_tool_win32_status(
+        GetLastError(), "failed to restrict parent process stream handle");
+  }
+  return iree_ok_status();
+}
+
+static void loom_tool_win32_close_handle(HANDLE* handle) {
+  if (*handle != NULL && *handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(*handle);
+  }
+  *handle = INVALID_HANDLE_VALUE;
+}
+
+iree_status_t loom_tool_process_session_create_platform(
+    char** argv, bool search_path, iree_allocator_t allocator,
+    loom_tool_process_session_t** out_session) {
+  *out_session = NULL;
+  loom_tool_process_session_t* session = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(allocator, sizeof(*session), (void**)&session));
+  *session = (loom_tool_process_session_t){
+      .process_handle = INVALID_HANDLE_VALUE,
+      .input_handle = INVALID_HANDLE_VALUE,
+      .output_handle = INVALID_HANDLE_VALUE,
+      .allocator = allocator,
+  };
+
+  HANDLE child_input_handle = INVALID_HANDLE_VALUE;
+  HANDLE parent_input_handle = INVALID_HANDLE_VALUE;
+  HANDLE parent_output_handle = INVALID_HANDLE_VALUE;
+  HANDLE child_output_handle = INVALID_HANDLE_VALUE;
+  iree_status_t status =
+      loom_tool_win32_create_pipe(&child_input_handle, &parent_input_handle);
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_win32_make_handle_private(parent_input_handle);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_win32_create_pipe(&parent_output_handle,
+                                         &child_output_handle);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_win32_make_handle_private(parent_output_handle);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_capture_file_open(L"session_err", &session->stderr_file);
+  }
+
+  wchar_t* application_name = NULL;
+  wchar_t* command_line = NULL;
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_win32_make_command_line(argv, allocator, &command_line);
+  }
+  if (iree_status_is_ok(status) && !search_path) {
+    status = loom_tool_win32_utf8_to_wide(iree_make_cstring_view(argv[0]),
+                                          allocator, &application_name);
+  }
+  loom_tool_spawn_options_t spawn_options;
+  memset(&spawn_options, 0, sizeof(spawn_options));
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_spawn_options_initialize(
+        child_input_handle, child_output_handle, session->stderr_file.handle,
+        allocator, &spawn_options);
+  }
+  PROCESS_INFORMATION process_info;
+  memset(&process_info, 0, sizeof(process_info));
+  if (iree_status_is_ok(status) &&
+      !CreateProcessW(application_name, command_line, NULL, NULL, TRUE,
+                      EXTENDED_STARTUPINFO_PRESENT, NULL, NULL,
+                      &spawn_options.startup_info.StartupInfo, &process_info)) {
+    status = loom_tool_win32_status(GetLastError(),
+                                    "failed to spawn persistent tool process");
+  }
+  loom_tool_spawn_options_deinitialize(&spawn_options, allocator);
+  iree_allocator_free(allocator, application_name);
+  iree_allocator_free(allocator, command_line);
+  loom_tool_win32_close_handle(&child_input_handle);
+  loom_tool_win32_close_handle(&child_output_handle);
+
+  if (iree_status_is_ok(status)) {
+    CloseHandle(process_info.hThread);
+    session->process_handle = process_info.hProcess;
+    session->input_handle = parent_input_handle;
+    parent_input_handle = INVALID_HANDLE_VALUE;
+    session->output_handle = parent_output_handle;
+    parent_output_handle = INVALID_HANDLE_VALUE;
+    *out_session = session;
+  } else {
+    loom_tool_win32_close_handle(&parent_input_handle);
+    loom_tool_win32_close_handle(&parent_output_handle);
+    loom_tool_capture_file_deinitialize(&session->stderr_file);
+    iree_allocator_free(allocator, session);
+  }
+  return status;
+}
+
+iree_status_t loom_tool_process_session_write_all_platform(
+    loom_tool_process_session_t* session, iree_const_byte_span_t data) {
+  if (session->input_handle == INVALID_HANDLE_VALUE || session->waited) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "process session input is closed");
+  }
+  iree_host_size_t offset = 0;
+  while (offset < data.data_length) {
+    const iree_host_size_t remaining = data.data_length - offset;
+    const DWORD write_length =
+        remaining > MAXDWORD ? MAXDWORD : (DWORD)remaining;
+    DWORD bytes_written = 0;
+    if (!WriteFile(session->input_handle, data.data + offset, write_length,
+                   &bytes_written, NULL)) {
+      return loom_tool_win32_status(GetLastError(),
+                                    "failed to write process session input");
+    }
+    if (bytes_written == 0) {
+      return iree_make_status(
+          IREE_STATUS_DATA_LOSS,
+          "process session stdin accepted no bytes after %zu of %zu", offset,
+          data.data_length);
+    }
+    offset += bytes_written;
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_tool_process_session_read_all_platform(
+    loom_tool_process_session_t* session, iree_byte_span_t data) {
+  if (session->waited) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "process session has already exited");
+  }
+  iree_host_size_t offset = 0;
+  while (offset < data.data_length) {
+    const iree_host_size_t remaining = data.data_length - offset;
+    const DWORD read_length =
+        remaining > MAXDWORD ? MAXDWORD : (DWORD)remaining;
+    DWORD bytes_read = 0;
+    if (!ReadFile(session->output_handle, data.data + offset, read_length,
+                  &bytes_read, NULL)) {
+      DWORD error = GetLastError();
+      if (error == ERROR_BROKEN_PIPE) {
+        return iree_make_status(
+            IREE_STATUS_DATA_LOSS,
+            "process session stdout ended after %zu of %zu requested bytes",
+            offset, data.data_length);
+      }
+      return loom_tool_win32_status(error,
+                                    "failed to read process session output");
+    }
+    if (bytes_read == 0) {
+      return iree_make_status(
+          IREE_STATUS_DATA_LOSS,
+          "process session stdout ended after %zu of %zu requested bytes",
+          offset, data.data_length);
+    }
+    offset += bytes_read;
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_tool_process_session_close_input_platform(
+    loom_tool_process_session_t* session) {
+  if (session->input_handle == INVALID_HANDLE_VALUE) {
+    return iree_ok_status();
+  }
+  HANDLE input_handle = session->input_handle;
+  session->input_handle = INVALID_HANDLE_VALUE;
+  if (!CloseHandle(input_handle)) {
+    return loom_tool_win32_status(GetLastError(),
+                                  "failed to close process session input");
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_tool_process_session_wait_platform(
+    loom_tool_process_session_t* session,
+    loom_tool_process_result_t* out_result) {
+  if (session->waited) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "process session has already been waited");
+  }
+  *out_result = (loom_tool_process_result_t){0};
+  iree_status_t status =
+      loom_tool_process_session_close_input_platform(session);
+  loom_tool_win32_close_handle(&session->output_handle);
+  DWORD wait_result = WaitForSingleObject(session->process_handle, INFINITE);
+  iree_status_t wait_status = iree_ok_status();
+  if (wait_result == WAIT_FAILED) {
+    wait_status = loom_tool_win32_status(
+        GetLastError(), "failed to wait for persistent tool process");
+  } else if (wait_result != WAIT_OBJECT_0) {
+    wait_status = iree_make_status(IREE_STATUS_INTERNAL,
+                                   "unexpected tool process wait result %lu",
+                                   (unsigned long)wait_result);
+  }
+  if (iree_status_is_ok(wait_status)) {
+    DWORD exit_code = 1;
+    if (!GetExitCodeProcess(session->process_handle, &exit_code)) {
+      wait_status = loom_tool_win32_status(
+          GetLastError(), "failed to query persistent tool process exit code");
+    } else {
+      out_result->exit_code = (int)exit_code;
+    }
+  }
+  const bool wait_succeeded = iree_status_is_ok(wait_status);
+  status = iree_status_join(status, wait_status);
+  session->waited = true;
+  loom_tool_win32_close_handle(&session->process_handle);
+  if (wait_succeeded) {
+    status = iree_status_join(
+        status,
+        loom_tool_capture_file_read(&session->stderr_file, session->allocator,
+                                    &out_result->stderr_bytes));
+  }
+  if (!iree_status_is_ok(status)) {
+    loom_tool_process_result_deinitialize(out_result, session->allocator);
+  }
+  return status;
+}
+
+void loom_tool_process_session_destroy_platform(
+    loom_tool_process_session_t* session) {
+  IREE_ASSERT(session->waited);
+  IREE_ASSERT(session->process_handle == INVALID_HANDLE_VALUE);
+  loom_tool_win32_close_handle(&session->input_handle);
+  loom_tool_win32_close_handle(&session->output_handle);
+  loom_tool_capture_file_deinitialize(&session->stderr_file);
+  iree_allocator_t allocator = session->allocator;
+  memset(session, 0, sizeof(*session));
+  iree_allocator_free(allocator, session);
 }
 
 iree_status_t loom_tool_temp_file_initialize_platform(

@@ -11,9 +11,11 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <spawn.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -26,6 +28,21 @@ typedef struct loom_tool_capture_file_t {
   // Open file descriptor passed to the child process.
   int fd;
 } loom_tool_capture_file_t;
+
+struct loom_tool_process_session_t {
+  // Spawned child process awaiting collection.
+  pid_t pid;
+  // Parent endpoint of the full-duplex stdin/stdout socket.
+  int stream_fd;
+  // File capturing child stderr without risking a pipe deadlock.
+  loom_tool_capture_file_t stderr_file;
+  // Allocator owning this session and captured terminal output.
+  iree_allocator_t allocator;
+  // Whether the stdin direction of |stream_fd| has been shut down.
+  bool input_closed;
+  // Whether |pid| has been reaped.
+  bool waited;
+};
 
 static const char* loom_tool_temp_directory(void) {
   const char* temp_directory = getenv("TMPDIR");
@@ -186,7 +203,8 @@ static void loom_tool_spawn_options_deinitialize(
 }
 
 static iree_status_t loom_tool_spawn_options_initialize(
-    int stdout_fd, int stderr_fd, loom_tool_spawn_options_t* out_options) {
+    int stdin_fd, int stdout_fd, int stderr_fd,
+    loom_tool_spawn_options_t* out_options) {
   memset(out_options, 0, sizeof(*out_options));
   int spawn_result = posix_spawn_file_actions_init(&out_options->file_actions);
   if (spawn_result != 0) {
@@ -195,8 +213,13 @@ static iree_status_t loom_tool_spawn_options_initialize(
   }
   out_options->file_actions_initialized = true;
 
-  spawn_result = posix_spawn_file_actions_addopen(
-      &out_options->file_actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+  if (stdin_fd >= 0) {
+    spawn_result = posix_spawn_file_actions_adddup2(&out_options->file_actions,
+                                                    stdin_fd, STDIN_FILENO);
+  } else {
+    spawn_result = posix_spawn_file_actions_addopen(
+        &out_options->file_actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+  }
   if (spawn_result != 0) {
     return loom_tool_posix_status(spawn_result,
                                   "failed to disconnect child stdin");
@@ -227,8 +250,8 @@ iree_status_t loom_tool_process_run_platform(
 
   loom_tool_spawn_options_t spawn_options;
   if (iree_status_is_ok(status)) {
-    status = loom_tool_spawn_options_initialize(stdout_file.fd, stderr_file.fd,
-                                                &spawn_options);
+    status = loom_tool_spawn_options_initialize(
+        /*stdin_fd=*/-1, stdout_file.fd, stderr_file.fd, &spawn_options);
   } else {
     memset(&spawn_options, 0, sizeof(spawn_options));
   }
@@ -269,6 +292,207 @@ iree_status_t loom_tool_process_run_platform(
   loom_tool_capture_file_deinitialize(&stderr_file);
   loom_tool_capture_file_deinitialize(&stdout_file);
   return status;
+}
+
+iree_status_t loom_tool_process_session_create_platform(
+    char** argv, bool search_path, iree_allocator_t allocator,
+    loom_tool_process_session_t** out_session) {
+  *out_session = NULL;
+  loom_tool_process_session_t* session = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(allocator, sizeof(*session), (void**)&session));
+  *session = (loom_tool_process_session_t){
+      .stream_fd = -1,
+      .stderr_file = {.fd = -1},
+      .allocator = allocator,
+  };
+
+  iree_status_t status =
+      loom_tool_capture_file_open("session_stderr", &session->stderr_file);
+  int stream_fds[2] = {-1, -1};
+  if (iree_status_is_ok(status) &&
+      socketpair(AF_UNIX, SOCK_STREAM, 0, stream_fds) < 0) {
+    status =
+        loom_tool_posix_status(errno, "failed to create process stream socket");
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_posix_set_close_on_exec(stream_fds[0]);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_posix_set_close_on_exec(stream_fds[1]);
+  }
+#if defined(SO_NOSIGPIPE)
+  if (iree_status_is_ok(status)) {
+    int enabled = 1;
+    if (setsockopt(stream_fds[0], SOL_SOCKET, SO_NOSIGPIPE, &enabled,
+                   sizeof(enabled)) < 0) {
+      status = loom_tool_posix_status(
+          errno, "failed to suppress process stream SIGPIPE");
+    }
+  }
+#endif  // SO_NOSIGPIPE
+
+  loom_tool_spawn_options_t spawn_options;
+  memset(&spawn_options, 0, sizeof(spawn_options));
+  if (iree_status_is_ok(status)) {
+    status = loom_tool_spawn_options_initialize(
+        stream_fds[1], stream_fds[1], session->stderr_file.fd, &spawn_options);
+  }
+  pid_t pid = 0;
+  if (iree_status_is_ok(status)) {
+    const posix_spawnattr_t* attributes =
+        spawn_options.policy.attributes_initialized
+            ? &spawn_options.policy.attributes
+            : NULL;
+    int spawn_result =
+        search_path ? posix_spawnp(&pid, argv[0], &spawn_options.file_actions,
+                                   attributes, argv, environ)
+                    : posix_spawn(&pid, argv[0], &spawn_options.file_actions,
+                                  attributes, argv, environ);
+    if (spawn_result != 0) {
+      status = loom_tool_posix_status(
+          spawn_result, "failed to spawn persistent tool process");
+    }
+  }
+  loom_tool_spawn_options_deinitialize(&spawn_options);
+  if (stream_fds[1] >= 0) {
+    close(stream_fds[1]);
+  }
+  if (iree_status_is_ok(status)) {
+    session->pid = pid;
+    session->stream_fd = stream_fds[0];
+    stream_fds[0] = -1;
+    *out_session = session;
+  } else {
+    if (stream_fds[0] >= 0) {
+      close(stream_fds[0]);
+    }
+    loom_tool_capture_file_deinitialize(&session->stderr_file);
+    iree_allocator_free(allocator, session);
+  }
+  return status;
+}
+
+iree_status_t loom_tool_process_session_write_all_platform(
+    loom_tool_process_session_t* session, iree_const_byte_span_t data) {
+  if (session->input_closed || session->waited) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "process session input is closed");
+  }
+  iree_host_size_t offset = 0;
+  while (offset < data.data_length) {
+    const iree_host_size_t remaining = data.data_length - offset;
+    const size_t send_length = remaining > (iree_host_size_t)SSIZE_MAX
+                                   ? (size_t)SSIZE_MAX
+                                   : (size_t)remaining;
+#if defined(MSG_NOSIGNAL)
+    const int send_flags = MSG_NOSIGNAL;
+#else
+    const int send_flags = 0;
+#endif  // MSG_NOSIGNAL
+    ssize_t write_result =
+        send(session->stream_fd, data.data + offset, send_length, send_flags);
+    if (write_result > 0) {
+      offset += (iree_host_size_t)write_result;
+    } else if (write_result == 0) {
+      return iree_make_status(
+          IREE_STATUS_DATA_LOSS,
+          "process session stdin accepted no bytes after %zu of %zu", offset,
+          data.data_length);
+    } else if (write_result < 0 && errno != EINTR) {
+      return loom_tool_posix_status(errno,
+                                    "failed to write process session input");
+    }
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_tool_process_session_read_all_platform(
+    loom_tool_process_session_t* session, iree_byte_span_t data) {
+  if (session->waited) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "process session has already exited");
+  }
+  iree_host_size_t offset = 0;
+  while (offset < data.data_length) {
+    const iree_host_size_t remaining = data.data_length - offset;
+    const size_t receive_length = remaining > (iree_host_size_t)SSIZE_MAX
+                                      ? (size_t)SSIZE_MAX
+                                      : (size_t)remaining;
+    ssize_t read_result =
+        recv(session->stream_fd, data.data + offset, receive_length, 0);
+    if (read_result > 0) {
+      offset += (iree_host_size_t)read_result;
+    } else if (read_result == 0) {
+      return iree_make_status(
+          IREE_STATUS_DATA_LOSS,
+          "process session stdout ended after %zu of %zu requested bytes",
+          offset, data.data_length);
+    } else if (errno != EINTR) {
+      return loom_tool_posix_status(errno,
+                                    "failed to read process session output");
+    }
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_tool_process_session_close_input_platform(
+    loom_tool_process_session_t* session) {
+  if (session->input_closed) {
+    return iree_ok_status();
+  }
+  session->input_closed = true;
+  if (shutdown(session->stream_fd, SHUT_WR) < 0 && errno != ENOTCONN) {
+    return loom_tool_posix_status(errno,
+                                  "failed to close process session input");
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_tool_process_session_wait_platform(
+    loom_tool_process_session_t* session,
+    loom_tool_process_result_t* out_result) {
+  if (session->waited) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "process session has already been waited");
+  }
+  *out_result = (loom_tool_process_result_t){0};
+  iree_status_t status =
+      loom_tool_process_session_close_input_platform(session);
+  if (session->stream_fd >= 0) {
+    close(session->stream_fd);
+    session->stream_fd = -1;
+  }
+  int exit_code = 1;
+  iree_status_t wait_status = loom_tool_process_wait(session->pid, &exit_code);
+  const bool wait_succeeded = iree_status_is_ok(wait_status);
+  status = iree_status_join(status, wait_status);
+  session->waited = true;
+  session->pid = 0;
+  if (wait_succeeded) {
+    out_result->exit_code = exit_code;
+    status = iree_status_join(
+        status,
+        loom_tool_capture_file_read(&session->stderr_file, session->allocator,
+                                    &out_result->stderr_bytes));
+  }
+  if (!iree_status_is_ok(status)) {
+    loom_tool_process_result_deinitialize(out_result, session->allocator);
+  }
+  return status;
+}
+
+void loom_tool_process_session_destroy_platform(
+    loom_tool_process_session_t* session) {
+  IREE_ASSERT(session->waited);
+  IREE_ASSERT(session->pid == 0);
+  if (session->stream_fd >= 0) {
+    close(session->stream_fd);
+  }
+  loom_tool_capture_file_deinitialize(&session->stderr_file);
+  iree_allocator_t allocator = session->allocator;
+  memset(session, 0, sizeof(*session));
+  iree_allocator_free(allocator, session);
 }
 
 iree_status_t loom_tool_temp_file_initialize_platform(

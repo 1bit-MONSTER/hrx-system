@@ -40,6 +40,9 @@ typedef struct loom_tool_temp_file_t {
   char path[4096];
 } loom_tool_temp_file_t;
 
+// Opaque running child process with synchronous stdin/stdout transport.
+typedef struct loom_tool_process_session_t loom_tool_process_session_t;
+
 // Releases output bytes allocated by loom_tool_process_run.
 void loom_tool_output_deinitialize(loom_tool_output_t* output,
                                    iree_allocator_t allocator);
@@ -75,6 +78,42 @@ iree_status_t loom_tool_process_run(iree_string_view_t executable_path,
                                     iree_host_size_t argument_count,
                                     iree_allocator_t allocator,
                                     loom_tool_process_result_t* out_result);
+
+// Starts a persistent child process with private stdin/stdout streams and
+// captured stderr. The child inherits no descriptors or handles other than its
+// three standard streams. The returned session owns the child until wait and
+// must be destroyed after it has been reaped.
+iree_status_t loom_tool_process_session_create(
+    iree_string_view_t executable_path, bool search_path,
+    const iree_string_view_t* arguments, iree_host_size_t argument_count,
+    iree_allocator_t allocator, loom_tool_process_session_t** out_session);
+
+// Writes exactly |data.data_length| bytes to the child stdin stream.
+iree_status_t loom_tool_process_session_write_all(
+    loom_tool_process_session_t* session, iree_const_byte_span_t data);
+
+// Reads exactly |data.data_length| bytes from the child stdout stream. An
+// orderly child exit before the requested bytes arrive returns DATA_LOSS.
+iree_status_t loom_tool_process_session_read_all(
+    loom_tool_process_session_t* session, iree_byte_span_t data);
+
+// Closes the child stdin stream while retaining stdout for final responses.
+// Safe to call repeatedly.
+iree_status_t loom_tool_process_session_close_input(
+    loom_tool_process_session_t* session);
+
+// Closes both streams, waits indefinitely for child completion, and captures
+// stderr. Streamed stdout is not repeated in |out_result|. A nonzero exit code
+// is a successful wait represented in the result, matching
+// loom_tool_process_run. This consumes process ownership on every return;
+// destroy the session after the call even when it returns a failure.
+iree_status_t loom_tool_process_session_wait(
+    loom_tool_process_session_t* session,
+    loom_tool_process_result_t* out_result);
+
+// Releases a session after loom_tool_process_session_wait has consumed its
+// child process ownership.
+void loom_tool_process_session_destroy(loom_tool_process_session_t* session);
 
 // Initializes a temporary filesystem path and creates an empty file there. The
 // caller may rewrite the file before passing the path to a tool.

@@ -169,6 +169,56 @@ iree_status_t loom_tool_process_run(iree_string_view_t executable_path,
   return status;
 }
 
+iree_status_t loom_tool_process_session_create(
+    iree_string_view_t executable_path, bool search_path,
+    const iree_string_view_t* arguments, iree_host_size_t argument_count,
+    iree_allocator_t allocator, loom_tool_process_session_t** out_session) {
+  IREE_ASSERT_ARGUMENT(out_session);
+  *out_session = NULL;
+
+  char** argv = NULL;
+  IREE_RETURN_IF_ERROR(loom_tool_argv_allocate(
+      executable_path, arguments, argument_count, allocator, &argv));
+  iree_status_t status = loom_tool_process_session_create_platform(
+      argv, search_path, allocator, out_session);
+  loom_tool_argv_deinitialize(argv, allocator);
+  return status;
+}
+
+iree_status_t loom_tool_process_session_write_all(
+    loom_tool_process_session_t* session, iree_const_byte_span_t data) {
+  IREE_ASSERT_ARGUMENT(session);
+  return loom_tool_process_session_write_all_platform(session, data);
+}
+
+iree_status_t loom_tool_process_session_read_all(
+    loom_tool_process_session_t* session, iree_byte_span_t data) {
+  IREE_ASSERT_ARGUMENT(session);
+  return loom_tool_process_session_read_all_platform(session, data);
+}
+
+iree_status_t loom_tool_process_session_close_input(
+    loom_tool_process_session_t* session) {
+  IREE_ASSERT_ARGUMENT(session);
+  return loom_tool_process_session_close_input_platform(session);
+}
+
+iree_status_t loom_tool_process_session_wait(
+    loom_tool_process_session_t* session,
+    loom_tool_process_result_t* out_result) {
+  IREE_ASSERT_ARGUMENT(session);
+  IREE_ASSERT_ARGUMENT(out_result);
+  *out_result = (loom_tool_process_result_t){0};
+  return loom_tool_process_session_wait_platform(session, out_result);
+}
+
+void loom_tool_process_session_destroy(loom_tool_process_session_t* session) {
+  if (session == NULL) {
+    return;
+  }
+  loom_tool_process_session_destroy_platform(session);
+}
+
 //===----------------------------------------------------------------------===//
 // Temporary files
 //===----------------------------------------------------------------------===//

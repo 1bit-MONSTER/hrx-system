@@ -4,9 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
+    "loom_config_compatible_with",
 )
 
 package(
@@ -35,6 +37,29 @@ loom_cc_library(
         "//loom/src/loom/target/emit/wasm:program",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+iree_c_embed_data(
+    name = "evaluator_script",
+    srcs = ["evaluator.mjs"],
+    c_file_output = "evaluator_script.c",
+    h_file_output = "evaluator_script.h",
+    identifier = "loom_wasm_evaluator_script",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target:wasm_artifacts",
+    ]),
+)
+
+loom_cc_library(
+    name = "evaluator",
+    srcs = ["evaluator.c"],
+    hdrs = ["evaluator.h"],
+    deps = [
+        ":evaluator_script",
+        ":prepare",
+        "//loom/src/loom/target/tool:process",
+        "//runtime/src/iree/base",
     ],
 )
 

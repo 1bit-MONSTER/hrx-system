@@ -8,6 +8,7 @@
 
 #include <climits>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
@@ -19,6 +20,8 @@
 #include "iree/testing/status_matchers.h"
 
 #if defined(IREE_PLATFORM_WINDOWS)
+#include <fcntl.h>
+#include <io.h>
 #if !defined(WIN32_LEAN_AND_MEAN)
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -32,10 +35,89 @@
 namespace {
 
 static constexpr char kArgvProbeArgument[] = "--loom-process-argv-probe";
+static constexpr char kSessionProbeArgument[] = "--loom-process-session-probe";
+static constexpr char kSessionProbeStderr[] = "session-probe complete\n";
 static constexpr char kArgvProbeArguments[][32] = {
     "",           "space value",        "tab\tvalue",     "quote\"value",
     "trailing\\", R"(before\\\"quote)", "space \xCF\x80",
 };
+
+enum class ProbeReadResult {
+  kSuccess = 0,
+  kEndOfFile,
+  kError,
+};
+
+static ProbeReadResult ProbeReadExact(std::FILE* file, void* data,
+                                      size_t data_length,
+                                      bool permit_initial_eof) {
+  size_t offset = 0;
+  while (offset < data_length) {
+    size_t read_length = std::fread(static_cast<uint8_t*>(data) + offset, 1,
+                                    data_length - offset, file);
+    if (read_length != 0) {
+      offset += read_length;
+      continue;
+    }
+    if (std::feof(file) && permit_initial_eof && offset == 0) {
+      return ProbeReadResult::kEndOfFile;
+    }
+    return ProbeReadResult::kError;
+  }
+  return ProbeReadResult::kSuccess;
+}
+
+static bool ProbeWriteExact(std::FILE* file, const void* data,
+                            size_t data_length) {
+  size_t offset = 0;
+  while (offset < data_length) {
+    size_t write_length =
+        std::fwrite(static_cast<const uint8_t*>(data) + offset, 1,
+                    data_length - offset, file);
+    if (write_length == 0) {
+      return false;
+    }
+    offset += write_length;
+  }
+  return true;
+}
+
+static int RunSessionProbe() {
+#if defined(IREE_PLATFORM_WINDOWS)
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
+      _setmode(_fileno(stdout), _O_BINARY) == -1) {
+    return 1;
+  }
+#endif  // IREE_PLATFORM_WINDOWS
+  while (true) {
+    uint32_t length = 0;
+    ProbeReadResult read_result = ProbeReadExact(stdin, &length, sizeof(length),
+                                                 /*permit_initial_eof=*/true);
+    if (read_result == ProbeReadResult::kEndOfFile) {
+      break;
+    }
+    if (read_result != ProbeReadResult::kSuccess) {
+      return 1;
+    }
+    std::vector<uint8_t> payload(length);
+    if (ProbeReadExact(stdin, payload.data(), payload.size(),
+                       /*permit_initial_eof=*/false) !=
+        ProbeReadResult::kSuccess) {
+      return 1;
+    }
+    if (!ProbeWriteExact(stdout, &length, sizeof(length)) ||
+        !ProbeWriteExact(stdout, payload.data(), payload.size()) ||
+        std::fflush(stdout) != 0) {
+      return 1;
+    }
+  }
+  if (!ProbeWriteExact(stderr, kSessionProbeStderr,
+                       sizeof(kSessionProbeStderr) - 1) ||
+      std::fflush(stderr) != 0) {
+    return 1;
+  }
+  return 0;
+}
 
 TEST(ToolOutputTest, NormalizesCrLfNewlines) {
   char text[] = "first\r\nsecond\r\r\nthird\nfourth\rfifth\r\rtext";
@@ -363,6 +445,59 @@ TEST(ToolProcessTest, PreservesCompleteArgumentVector) {
   loom_tool_process_result_deinitialize(&result, iree_allocator_system());
 }
 
+TEST(ToolProcessTest, StreamsMultipleMessagesThroughOneChild) {
+#if defined(IREE_PLATFORM_WINDOWS)
+  std::string executable_path = Win32ExecutablePathUtf8();
+#else
+  const std::string& executable_path = g_executable_path;
+#endif  // IREE_PLATFORM_WINDOWS
+  ASSERT_FALSE(executable_path.empty());
+
+  const iree_string_view_t arguments[] = {
+      iree_make_cstring_view(kSessionProbeArgument),
+  };
+  loom_tool_process_session_t* session = nullptr;
+  IREE_ASSERT_OK(loom_tool_process_session_create(
+      iree_make_string_view(executable_path.data(), executable_path.size()),
+      /*search_path=*/false, arguments, IREE_ARRAYSIZE(arguments),
+      iree_allocator_system(), &session));
+
+  const size_t payload_lengths[] = {17, 256 * 1024 + 3};
+  for (size_t payload_length : payload_lengths) {
+    std::vector<uint8_t> payload(payload_length);
+    for (size_t i = 0; i < payload.size(); ++i) {
+      payload[i] = static_cast<uint8_t>((i * 131 + payload_length) & 0xFF);
+    }
+    const uint32_t request_length = static_cast<uint32_t>(payload.size());
+    IREE_ASSERT_OK(loom_tool_process_session_write_all(
+        session,
+        iree_make_const_byte_span(&request_length, sizeof(request_length))));
+    IREE_ASSERT_OK(loom_tool_process_session_write_all(
+        session, iree_make_const_byte_span(payload.data(), payload.size())));
+
+    uint32_t response_length = 0;
+    IREE_ASSERT_OK(loom_tool_process_session_read_all(
+        session,
+        iree_make_byte_span(&response_length, sizeof(response_length))));
+    ASSERT_EQ(response_length, request_length);
+    std::vector<uint8_t> response(response_length);
+    IREE_ASSERT_OK(loom_tool_process_session_read_all(
+        session, iree_make_byte_span(response.data(), response.size())));
+    EXPECT_EQ(response, payload);
+  }
+
+  IREE_ASSERT_OK(loom_tool_process_session_close_input(session));
+  loom_tool_process_result_t result = {0};
+  IREE_ASSERT_OK(loom_tool_process_session_wait(session, &result));
+  EXPECT_TRUE(loom_tool_process_result_succeeded(&result));
+  EXPECT_EQ(result.stdout_bytes.length, 0u);
+  EXPECT_EQ(
+      std::string_view(result.stderr_bytes.data, result.stderr_bytes.length),
+      kSessionProbeStderr);
+  loom_tool_process_session_destroy(session);
+  loom_tool_process_result_deinitialize(&result, iree_allocator_system());
+}
+
 #endif  // supported process platforms
 
 }  // namespace
@@ -409,6 +544,9 @@ int wmain(int argc, wchar_t** argv) {
     (void)SetEvent(handle);
     return 0;
   }
+  if (argc == 2 && std::wcscmp(argv[1], L"--loom-process-session-probe") == 0) {
+    return RunSessionProbe();
+  }
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
@@ -438,6 +576,9 @@ int main(int argc, char** argv) {
     ssize_t write_result = write(static_cast<int>(fd), &marker, sizeof(marker));
     (void)write_result;
     return 0;
+  }
+  if (argc == 2 && std::strcmp(argv[1], kSessionProbeArgument) == 0) {
+    return RunSessionProbe();
   }
   g_executable_path = argv[0];
 #endif  // POSIX platforms
