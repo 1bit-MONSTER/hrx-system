@@ -12,31 +12,16 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
-    program
-  HDRS
-    "program.h"
-  SRCS
-    "program.c"
-  DEPS
-    iree::base
-    iree::vm::bytecode::wire
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
     module_binary
   HDRS
     "module_binary.h"
   SRCS
     "module_binary.c"
   DEPS
-    ::program
     iree::base
     iree::io::stream
     iree::vm::bytecode::wire
+    loom::target::arch::vm::program
   PUBLIC
 )
 endif()
@@ -49,10 +34,10 @@ loom_cc_test(
     "module_binary_test.cc"
   DEPS
     ::module_binary
-    ::program
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::target::arch::vm::program
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )

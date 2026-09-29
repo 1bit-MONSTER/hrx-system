@@ -11,7 +11,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/byte_sequence.h"
-#include "loom/target/emit/vm/program.h"
+#include "loom/target/arch/vm/program.h"
 
 #ifdef __cplusplus
 extern "C" {

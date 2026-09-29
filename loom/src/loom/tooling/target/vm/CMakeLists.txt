@@ -28,8 +28,8 @@ loom_cc_library(
     loom::ops::global
     loom::ops::low
     loom::target::arch::vm::function_plan
+    loom::target::arch::vm::program
     loom::target::arch::vm::reference_plan
-    loom::target::emit::vm::program
     loom::target::function_version
   PUBLIC
 )

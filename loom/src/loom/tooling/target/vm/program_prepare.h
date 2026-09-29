@@ -10,7 +10,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/error/emitter.h"
-#include "loom/target/emit/vm/program.h"
+#include "loom/target/arch/vm/program.h"
 #include "loom/target/function_version.h"
 
 #ifdef __cplusplus

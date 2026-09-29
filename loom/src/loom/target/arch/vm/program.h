@@ -6,8 +6,8 @@
 
 // Prepared physical VM program consumed by module binary emission.
 
-#ifndef LOOM_TARGET_EMIT_VM_PROGRAM_H_
-#define LOOM_TARGET_EMIT_VM_PROGRAM_H_
+#ifndef LOOM_TARGET_ARCH_VM_PROGRAM_H_
+#define LOOM_TARGET_ARCH_VM_PROGRAM_H_
 
 #include "iree/base/api.h"
 #include "iree/base/byte_sequence.h"
@@ -97,4 +97,4 @@ void loom_vm_program_plan_deinitialize(loom_vm_program_plan_t* plan);
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TARGET_EMIT_VM_PROGRAM_H_
+#endif  // LOOM_TARGET_ARCH_VM_PROGRAM_H_

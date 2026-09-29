@@ -38,6 +38,27 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "program",
+    srcs = ["program.c"],
+    hdrs = ["program.h"],
+    visibility = [
+        "//loom/src/loom/target/emit/vm:__pkg__",
+        "//loom/src/loom/tooling/target/vm:__pkg__",
+    ],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "program_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "The prepared VM program is a target-owned physical contract and must not depend on tooling",
+    target = ":program",
+)
+
+loom_cc_library(
     name = "reference_plan",
     srcs = ["reference_plan.c"],
     hdrs = ["reference_plan.h"],
