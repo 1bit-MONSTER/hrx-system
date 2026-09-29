@@ -39,9 +39,9 @@ function(amdf_cts_gpu_kernel_set)
   if(NOT IREE_BUILD_TESTS)
     return()
   endif()
-  cmake_parse_arguments(_RULE "" "NAME;SOURCE;ENTRY_POINT;NAMESPACE"
-    "TARGETS" ${ARGN})
-  if(_RULE_UNPARSED_ARGUMENTS OR NOT _RULE_NAME OR NOT _RULE_SOURCE OR
+  cmake_parse_arguments(_RULE "" "NAME;ENTRY_POINT;NAMESPACE"
+    "SRCS;TARGETS" ${ARGN})
+  if(_RULE_UNPARSED_ARGUMENTS OR NOT _RULE_NAME OR NOT _RULE_SRCS OR
      NOT _RULE_ENTRY_POINT OR NOT _RULE_NAMESPACE OR NOT _RULE_TARGETS)
     message(FATAL_ERROR "Incomplete GPU CTS kernel set declaration")
   endif()
@@ -52,7 +52,7 @@ function(amdf_cts_gpu_kernel_set)
       NAME "${_PRODUCT}"
       TARGET "::${_SELECTOR}"
       OUTPUT "${_PRODUCT}.hsaco"
-      SRCS "${_RULE_SOURCE}"
+      SRCS ${_RULE_SRCS}
       ROOTS "@${_RULE_ENTRY_POINT}"
       TESTONLY
     )
@@ -121,38 +121,4 @@ function(amdf_cts_embed_gpu_kernel_set)
   endforeach()
   iree_register_generated_output_producer("${_TARGET}"
     OUTPUTS "${_HEADER}" "${_IMPLEMENTATION}")
-endfunction()
-
-# Extracts a self-contained native image from the ordinary Loom kernel product.
-# The generated header keeps descriptor and argument metadata paired with code.
-function(amdf_cts_embed_gpu_kernel)
-  if(NOT IREE_BUILD_TESTS)
-    return()
-  endif()
-  cmake_parse_arguments(_RULE "" "NAME;INPUT;OUTPUT;ENTRY_POINT;NAMESPACE" "" ${ARGN})
-  if(_RULE_UNPARSED_ARGUMENTS OR NOT _RULE_NAME OR NOT _RULE_INPUT OR
-     NOT _RULE_OUTPUT OR NOT _RULE_ENTRY_POINT OR NOT _RULE_NAMESPACE)
-    message(FATAL_ERROR
-      "amdf_cts_embed_gpu_kernel requires NAME, INPUT, OUTPUT, ENTRY_POINT, and NAMESPACE")
-  endif()
-  if(NOT Python3_EXECUTABLE)
-    message(FATAL_ERROR "GPU CTS image extraction requires a host Python interpreter")
-  endif()
-
-  set(_SCRIPT "${PROJECT_SOURCE_DIR}/libamdf/cts/gpu/kernels/embed.py")
-  set(_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_RULE_OUTPUT}")
-  add_custom_command(
-    OUTPUT "${_OUTPUT}"
-    COMMAND "${Python3_EXECUTABLE}" "${_SCRIPT}"
-      --input "${_RULE_INPUT}" --output "${_OUTPUT}"
-      --symbol "${_RULE_ENTRY_POINT}" --namespace "${_RULE_NAMESPACE}"
-    DEPENDS "${_SCRIPT}" "${_RULE_INPUT}"
-    COMMENT "Extracting native GPU fixture ${_RULE_NAME}"
-    VERBATIM
-  )
-  iree_package_name(_PACKAGE_NAME)
-  set(_TARGET "${_PACKAGE_NAME}_${_RULE_NAME}")
-  add_custom_target("${_TARGET}" DEPENDS "${_OUTPUT}")
-  iree_generated_output_add_consumer("${_RULE_INPUT}" "${_TARGET}")
-  iree_register_generated_output_producer("${_TARGET}" OUTPUTS "${_OUTPUT}")
 endfunction()

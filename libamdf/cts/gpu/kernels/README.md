@@ -163,13 +163,23 @@ independent NPU worker and carries a single causal value through A1, B's
 exchanges, then A2; its runtime arguments also support the mirrored order.
 
 Both programs use one wave32 workitem, explicit 64-byte argument layouts and
-no private or group memory. Exact gfx1150 and gfx1151 products supply their
+no private or group memory. The [NPU-initiated program](resident_npu_initiated.loom)
+uses the same startup and terminal protocol while reversing the first producer.
+Its eight arguments contain 52 semantic bytes in a padded 56-byte segment.
+Each program builds for every RDNA target used by the PM4 path and supplies its
 own resource fields to the [resident recipe caller](../../interop/gpu/xdna/recipes/resident_test.cc).
 The programs wait for a separate startup decision and release their final
 acknowledgements only after response reads and transcript writes finish.
 Prestart ABORT acknowledges without accessing the request, response or
 transcript allocations. The recipe checks full payloads, immutable storage,
 guards and final drain; raw device-clock observations accompany each exchange.
+
+The shared [clock module](completed_tick.loom) uses ordinary Loom templates to
+select the completion counters for the target ISA. It drains the resident
+program's vector loads and stores before sampling the low 32 bits of the
+reference clock, then waits for the message result. These are raw ticks,
+independent of the caller's release/acquire visibility operations. The complete
+program is linked from authored source; runtime selection never patches code.
 
 ## Fixed private storage
 

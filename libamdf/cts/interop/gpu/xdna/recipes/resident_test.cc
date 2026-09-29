@@ -14,12 +14,12 @@
 #include <string_view>
 #include <vector>
 
-#include "libamdf/cts/gpu/kernels/resident_channels_gfx1150.h"
-#include "libamdf/cts/gpu/kernels/resident_channels_gfx1151.h"
-#include "libamdf/cts/gpu/kernels/resident_exchange_gfx1150.h"
-#include "libamdf/cts/gpu/kernels/resident_exchange_gfx1151.h"
-#include "libamdf/cts/gpu/kernels/resident_npu_initiated_gfx1150.h"
-#include "libamdf/cts/gpu/kernels/resident_npu_initiated_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/resident_channels.h"
+#include "libamdf/cts/gpu/kernels/resident_channels_kernels.h"
+#include "libamdf/cts/gpu/kernels/resident_exchange.h"
+#include "libamdf/cts/gpu/kernels/resident_exchange_kernels.h"
+#include "libamdf/cts/gpu/kernels/resident_npu_initiated.h"
+#include "libamdf/cts/gpu/kernels/resident_npu_initiated_kernels.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/device_fixture.h"
 #include "libamdf/cts/interop/gpu/xdna/recipes/pm4_queue.h"
@@ -32,310 +32,9 @@
 
 namespace {
 
-namespace shader = kernels::gfx1151_resident_exchange;
-namespace shader1150 = kernels::gfx1150_resident_exchange;
-namespace channel_shader = kernels::gfx1151_resident_channels;
-namespace channel_shader1150 = kernels::gfx1150_resident_channels;
-namespace npu_initiated_shader = kernels::gfx1151_resident_npu_initiated;
-namespace npu_initiated_shader1150 = kernels::gfx1150_resident_npu_initiated;
-
-struct Arguments {
-  // GPU address of the request slots, starting with slot zero's generation.
-  uint64_t request;
-  // GPU address of the response slots, starting with slot zero's generation.
-  uint64_t response;
-  // GPU address of the separately maintained startup decision.
-  uint64_t startup;
-  // GPU address of the guarded final-acknowledgement allocation.
-  uint64_t control;
-  // GPU address of the per-generation transcript.
-  uint64_t records;
-  // Number of causally dependent request/response generations.
-  uint32_t round_count;
-  // First request's causal input; subsequent inputs come from NPU responses.
-  uint32_t seed;
-  // Number of 32-bit words in each complete request and response.
-  uint32_t payload_word_count;
-  // Word offset from either slot base to its first payload word.
-  uint32_t payload_word_offset;
-  // Maximum outstanding requests and number of paired storage slots, 1 or 2.
-  uint32_t credit_count;
-  // Distance in bytes between consecutive slot bases, aligned to 64 bytes.
-  uint32_t slot_byte_stride;
-};
-
-static_assert(shader::kArgumentByteOffsets ==
-              std::array<uint32_t, 11>{
-                  offsetof(Arguments, request), offsetof(Arguments, response),
-                  offsetof(Arguments, startup), offsetof(Arguments, control),
-                  offsetof(Arguments, records),
-                  offsetof(Arguments, round_count), offsetof(Arguments, seed),
-                  offsetof(Arguments, payload_word_count),
-                  offsetof(Arguments, payload_word_offset),
-                  offsetof(Arguments, credit_count),
-                  offsetof(Arguments, slot_byte_stride)});
-static_assert(shader::kArgumentByteLengths ==
-              std::array<uint32_t, 11>{8, 8, 8, 8, 8, 4, 4, 4, 4, 4, 4});
-static_assert(shader::kArgumentValueKinds ==
-              std::array<std::string_view, 11>{
-                  "global_buffer", "global_buffer", "global_buffer",
-                  "global_buffer", "global_buffer", "by_value", "by_value",
-                  "by_value", "by_value", "by_value", "by_value"});
-static_assert(sizeof(Arguments) == 64 && shader::kKernargByteLength == 64);
-static_assert(shader::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{1, 1, 1});
-static_assert(shader::kWavefrontSize == 32 &&
-              shader::kPrivateSegmentByteLength == 0 &&
-              shader::kGroupSegmentByteLength == 0);
-static_assert(shader::kKernelCodeProperties == 0x408 &&
-              shader::kKernargPreload == 0 &&
-              (shader::kComputePgmRsrc2 & 0x1fffu) == 4u);
-static_assert(shader1150::kArgumentByteOffsets == shader::kArgumentByteOffsets);
-static_assert(shader1150::kArgumentByteLengths == shader::kArgumentByteLengths);
-static_assert(shader1150::kArgumentValueKinds == shader::kArgumentValueKinds);
-static_assert(shader1150::kKernargByteLength == shader::kKernargByteLength &&
-              shader1150::kKernargAlignment == shader::kKernargAlignment);
-static_assert(shader1150::kRequiredWorkgroupSize ==
-              shader::kRequiredWorkgroupSize);
-static_assert(shader1150::kWavefrontSize == 32 &&
-              shader1150::kPrivateSegmentByteLength == 0 &&
-              shader1150::kGroupSegmentByteLength == 0 &&
-              shader1150::kKernelCodeProperties == 0x408 &&
-              shader1150::kKernargPreload == 0 &&
-              (shader1150::kComputePgmRsrc2 & 0x1fffu) == 4u);
-
-struct ChannelArguments {
-  // GPU address of the request slots, starting with slot zero's generation.
-  uint64_t request;
-  // GPU address of the response slots, starting with slot zero's generation.
-  uint64_t response;
-  // GPU address of the separately maintained startup decision.
-  uint64_t startup;
-  // GPU address of the guarded final-acknowledgement allocation.
-  uint64_t control;
-  // GPU address of the per-generation transcript.
-  uint64_t records;
-  // Number of peer-channel exchanges between the held channel's two requests.
-  uint32_t peer_round_count;
-  // First request's causal input; subsequent inputs come from NPU responses.
-  uint32_t seed;
-  // Number of 32-bit words in each complete request and response.
-  uint32_t payload_word_count;
-  // Word offset from either slot base to its first payload word.
-  uint32_t payload_word_offset;
-  // Logical channel held during the peer sequence: zero or one.
-  uint32_t held_channel;
-  // Distance in bytes between the two channel bases, aligned to 64 bytes.
-  uint32_t channel_byte_stride;
-};
-
-static_assert(channel_shader::kArgumentByteOffsets ==
-              std::array<uint32_t, 11>{
-                  offsetof(ChannelArguments, request),
-                  offsetof(ChannelArguments, response),
-                  offsetof(ChannelArguments, startup),
-                  offsetof(ChannelArguments, control),
-                  offsetof(ChannelArguments, records),
-                  offsetof(ChannelArguments, peer_round_count),
-                  offsetof(ChannelArguments, seed),
-                  offsetof(ChannelArguments, payload_word_count),
-                  offsetof(ChannelArguments, payload_word_offset),
-                  offsetof(ChannelArguments, held_channel),
-                  offsetof(ChannelArguments, channel_byte_stride)});
-static_assert(channel_shader::kArgumentByteLengths ==
-              std::array<uint32_t, 11>{8, 8, 8, 8, 8, 4, 4, 4, 4, 4, 4});
-static_assert(channel_shader::kArgumentValueKinds ==
-              std::array<std::string_view, 11>{
-                  "global_buffer", "global_buffer", "global_buffer",
-                  "global_buffer", "global_buffer", "by_value", "by_value",
-                  "by_value", "by_value", "by_value", "by_value"});
-static_assert(sizeof(ChannelArguments) == 64 &&
-              channel_shader::kKernargByteLength == 64);
-static_assert(channel_shader::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{1, 1, 1});
-static_assert(channel_shader::kWavefrontSize == 32 &&
-              channel_shader::kPrivateSegmentByteLength == 0 &&
-              channel_shader::kGroupSegmentByteLength == 0);
-static_assert(channel_shader::kKernelCodeProperties == 0x408 &&
-              channel_shader::kKernargPreload == 0 &&
-              (channel_shader::kComputePgmRsrc2 & 0x1fffu) == 4u);
-static_assert(channel_shader1150::kArgumentByteOffsets ==
-              channel_shader::kArgumentByteOffsets);
-static_assert(channel_shader1150::kArgumentByteLengths ==
-              channel_shader::kArgumentByteLengths);
-static_assert(channel_shader1150::kArgumentValueKinds ==
-              channel_shader::kArgumentValueKinds);
-static_assert(channel_shader1150::kKernargByteLength ==
-                  channel_shader::kKernargByteLength &&
-              channel_shader1150::kKernargAlignment ==
-                  channel_shader::kKernargAlignment);
-static_assert(channel_shader1150::kRequiredWorkgroupSize ==
-              channel_shader::kRequiredWorkgroupSize);
-static_assert(channel_shader1150::kWavefrontSize == 32 &&
-              channel_shader1150::kPrivateSegmentByteLength == 0 &&
-              channel_shader1150::kGroupSegmentByteLength == 0 &&
-              channel_shader1150::kKernelCodeProperties == 0x408 &&
-              channel_shader1150::kKernargPreload == 0 &&
-              (channel_shader1150::kComputePgmRsrc2 & 0x1fffu) == 4u);
-
-struct NpuInitiatedArguments {
-  // GPU address of the GPU-produced return slot R, including its generation.
-  uint64_t request;
-  // GPU address of the NPU-produced slot Q, including its generation.
-  uint64_t response;
-  // GPU address of the separately maintained startup decision.
-  uint64_t startup;
-  // GPU address of the guarded final-acknowledgement allocation.
-  uint64_t control;
-  // GPU address of the complete Q1 through Q(N+1) transcript.
-  uint64_t records;
-  // Number of GPU returns; positive counts require one closing NPU payload.
-  uint32_t round_count;
-  // Number of 32-bit words in each complete payload.
-  uint32_t payload_word_count;
-  // Word offset from either slot base to its first payload word.
-  uint32_t payload_word_offset;
-};
-
-constexpr size_t kNpuInitiatedArgumentByteLength =
-    offsetof(NpuInitiatedArguments, payload_word_offset) + sizeof(uint32_t);
-static_assert(kNpuInitiatedArgumentByteLength == 52);
-static_assert(npu_initiated_shader::kArgumentByteOffsets ==
-              std::array<uint32_t, 8>{
-                  offsetof(NpuInitiatedArguments, request),
-                  offsetof(NpuInitiatedArguments, response),
-                  offsetof(NpuInitiatedArguments, startup),
-                  offsetof(NpuInitiatedArguments, control),
-                  offsetof(NpuInitiatedArguments, records),
-                  offsetof(NpuInitiatedArguments, round_count),
-                  offsetof(NpuInitiatedArguments, payload_word_count),
-                  offsetof(NpuInitiatedArguments, payload_word_offset)});
-static_assert(npu_initiated_shader::kArgumentByteLengths ==
-              std::array<uint32_t, 8>{8, 8, 8, 8, 8, 4, 4, 4});
-static_assert(npu_initiated_shader::kArgumentValueKinds ==
-              std::array<std::string_view, 8>{"global_buffer", "global_buffer",
-                                              "global_buffer", "global_buffer",
-                                              "global_buffer", "by_value",
-                                              "by_value", "by_value"});
-static_assert(npu_initiated_shader::kKernargByteLength >=
-              kNpuInitiatedArgumentByteLength);
-static_assert(npu_initiated_shader::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{1, 1, 1});
-static_assert(npu_initiated_shader::kWavefrontSize == 32 &&
-              npu_initiated_shader::kPrivateSegmentByteLength == 0 &&
-              npu_initiated_shader::kGroupSegmentByteLength == 0 &&
-              npu_initiated_shader::kKernelCodeProperties == 0x408 &&
-              npu_initiated_shader::kKernargPreload == 0 &&
-              (npu_initiated_shader::kComputePgmRsrc2 & 0x1fffu) == 4u);
-static_assert(npu_initiated_shader1150::kArgumentByteOffsets ==
-              npu_initiated_shader::kArgumentByteOffsets);
-static_assert(npu_initiated_shader1150::kArgumentByteLengths ==
-              npu_initiated_shader::kArgumentByteLengths);
-static_assert(npu_initiated_shader1150::kArgumentValueKinds ==
-              npu_initiated_shader::kArgumentValueKinds);
-static_assert(npu_initiated_shader1150::kKernargByteLength ==
-                  npu_initiated_shader::kKernargByteLength &&
-              npu_initiated_shader1150::kKernargAlignment ==
-                  npu_initiated_shader::kKernargAlignment);
-static_assert(npu_initiated_shader1150::kRequiredWorkgroupSize ==
-              npu_initiated_shader::kRequiredWorkgroupSize);
-static_assert(npu_initiated_shader1150::kWavefrontSize == 32 &&
-              npu_initiated_shader1150::kPrivateSegmentByteLength == 0 &&
-              npu_initiated_shader1150::kGroupSegmentByteLength == 0 &&
-              npu_initiated_shader1150::kKernelCodeProperties == 0x408 &&
-              npu_initiated_shader1150::kKernargPreload == 0 &&
-              (npu_initiated_shader1150::kComputePgmRsrc2 & 0x1fffu) == 4u);
-
-// One compiled product's image, argument extent and native launch resources.
-struct GpuProgram {
-  // Borrowed immutable image bytes and their complete extent.
-  kernels::Image image;
-  // Entry position relative to the uploaded image base, in bytes.
-  uint32_t entry_byte_offset;
-  // Native launch resources; preparation assigns the allocated entry address.
-  Pm4ComputeProgram program;
-  // Complete argument extent declared by the compiler, including ABI padding.
-  uint32_t argument_byte_length;
-  // Alignment of the kernarg pointer supplied in user SGPRs.
-  uint32_t argument_alignment;
-  // Identity of the compiler container from which the image was extracted.
-  const char* hsaco_sha256;
-};
-
-constexpr std::array<GpuProgram, 2> kExchangePrograms = {{
-    {shader1150::kExecutable,
-     shader1150::kEntryByteOffset,
-     {0,
-      shader1150::kComputePgmRsrc1,
-      shader1150::kComputePgmRsrc2,
-      shader1150::kComputePgmRsrc3,
-      0,
-      {1, 1, 1}},
-     shader1150::kKernargByteLength,
-     shader1150::kKernargAlignment,
-     shader1150::kHsacoSha256},
-    {shader::kExecutable,
-     shader::kEntryByteOffset,
-     {0,
-      shader::kComputePgmRsrc1,
-      shader::kComputePgmRsrc2,
-      shader::kComputePgmRsrc3,
-      0,
-      {1, 1, 1}},
-     shader::kKernargByteLength,
-     shader::kKernargAlignment,
-     shader::kHsacoSha256},
-}};
-
-constexpr std::array<GpuProgram, 2> kChannelPrograms = {{
-    {channel_shader1150::kExecutable,
-     channel_shader1150::kEntryByteOffset,
-     {0,
-      channel_shader1150::kComputePgmRsrc1,
-      channel_shader1150::kComputePgmRsrc2,
-      channel_shader1150::kComputePgmRsrc3,
-      0,
-      {1, 1, 1}},
-     channel_shader1150::kKernargByteLength,
-     channel_shader1150::kKernargAlignment,
-     channel_shader1150::kHsacoSha256},
-    {channel_shader::kExecutable,
-     channel_shader::kEntryByteOffset,
-     {0,
-      channel_shader::kComputePgmRsrc1,
-      channel_shader::kComputePgmRsrc2,
-      channel_shader::kComputePgmRsrc3,
-      0,
-      {1, 1, 1}},
-     channel_shader::kKernargByteLength,
-     channel_shader::kKernargAlignment,
-     channel_shader::kHsacoSha256},
-}};
-
-constexpr std::array<GpuProgram, 2> kNpuInitiatedPrograms = {{
-    {npu_initiated_shader1150::kExecutable,
-     npu_initiated_shader1150::kEntryByteOffset,
-     {0,
-      npu_initiated_shader1150::kComputePgmRsrc1,
-      npu_initiated_shader1150::kComputePgmRsrc2,
-      npu_initiated_shader1150::kComputePgmRsrc3,
-      0,
-      {1, 1, 1}},
-     npu_initiated_shader1150::kKernargByteLength,
-     npu_initiated_shader1150::kKernargAlignment,
-     npu_initiated_shader1150::kHsacoSha256},
-    {npu_initiated_shader::kExecutable,
-     npu_initiated_shader::kEntryByteOffset,
-     {0,
-      npu_initiated_shader::kComputePgmRsrc1,
-      npu_initiated_shader::kComputePgmRsrc2,
-      npu_initiated_shader::kComputePgmRsrc3,
-      0,
-      {1, 1, 1}},
-     npu_initiated_shader::kKernargByteLength,
-     npu_initiated_shader::kKernargAlignment,
-     npu_initiated_shader::kHsacoSha256},
-}};
+using Arguments = kernels::resident_exchange::Arguments;
+using ChannelArguments = kernels::resident_channels::Arguments;
+using NpuInitiatedArguments = kernels::resident_npu_initiated::Arguments;
 
 constexpr size_t kPayloadByteOffset = 64;
 constexpr uint32_t kRun = 1;
@@ -451,12 +150,6 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
   ResidentGpuXdnaTest()
       : GpuXdnaDeviceFixture(AMDF_QUEUE_ROLE_COMPUTE |
                              AMDF_QUEUE_ROLE_CACHE_CONTROL) {}
-
-  bool SupportsGpuTarget(
-      const amdf_gpu_endpoint_info_t& target) const override {
-    return target.gfx_ip.major == 11 && target.gfx_ip.minor == 5 &&
-           target.gfx_ip.stepping <= 1;
-  }
 
   void TearDown() override {
     // A failed publication or join does not establish cancellation. Preserve
@@ -681,12 +374,23 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
   void PrepareGpu(const ExchangePlan& plan) {
     const auto shape = plan.shape;
     const bool independent = plan.service_count() == 2;
-    const auto& products = plan.npu_initiated() ? kNpuInitiatedPrograms
-                           : independent        ? kChannelPrograms
-                                                : kExchangePrograms;
-    const auto& product = products[gpu_endpoint_info_.gfx_ip.stepping];
-    const auto& image = product.image;
-    auto program = product.program;
+    const auto& products = plan.npu_initiated()
+                               ? kernels::resident_npu_initiated::kKernels
+                           : independent ? kernels::resident_channels::kKernels
+                                         : kernels::resident_exchange::kKernels;
+    const auto* selected = products.Find(gpu_endpoint_info_);
+    ASSERT_NE(selected, nullptr)
+        << "missing compiled resident kernel for endpoint";
+    const auto& product = *selected;
+    const auto& image = product.executable;
+    Pm4ComputeProgram program = {
+        0,
+        product.program.resource1,
+        product.program.resource2,
+        product.program.resource3,
+        product.group_segment_byte_length,
+        {product.required_workgroup_size[0], product.required_workgroup_size[1],
+         product.required_workgroup_size[2]}};
     const uint64_t entry_offset = product.entry_byte_offset;
     const uint64_t image_extent =
         ((uint64_t{image.byte_length} + 63) & ~UINT64_C(63)) + 192;
@@ -718,9 +422,9 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     ASSERT_EQ(HostTransition(records_, release), AMDF_STATUS_OK);
     uint64_t argument_address = 0;
     ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
-        AMDF_MEMORY_ACCESS_READ, product.argument_byte_length, arguments_,
+        AMDF_MEMORY_ACCESS_READ, product.arguments.byte_length, arguments_,
         argument_address, release));
-    ASSERT_EQ(argument_address % product.argument_alignment, 0u);
+    ASSERT_EQ(argument_address % product.arguments.alignment, 0u);
     original_arguments_.assign(arguments_.bytes().size(), 0);
     if (plan.npu_initiated()) {
       const NpuInitiatedArguments arguments = {
@@ -735,7 +439,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
       // The natural C++ layout can have tail padding beyond the wire fields.
       // Keep all compiler/native fetch padding initialized by the owner above.
       std::memcpy(original_arguments_.data(), &arguments,
-                  kNpuInitiatedArgumentByteLength);
+                  kernels::resident_npu_initiated::kArgumentByteLength);
     } else if (independent) {
       const ChannelArguments arguments = {buffers_[kRequest].gpu_address,
                                           buffers_[kResponse].gpu_address,
@@ -786,6 +490,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     writer.DispatchWave32(1, 1, 1);
     writer.SystemBarrier();
     gpu_command_word_count_ = writer.word_count();
+    RecordProperty("resident_gpu_target", product.target);
     RecordProperty("resident_gpu_hsaco_sha256", product.hsaco_sha256);
     RecordProperty("resident_gpu_image_sha256", image.sha256);
   }

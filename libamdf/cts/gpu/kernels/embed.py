@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Embeds one self-contained AMDHSA V6 kernel without a native loader.
+"""Embeds physical variants of a self-contained AMDHSA V6 kernel.
 
 The input descriptor and AMDGPU metadata own all resource and argument facts.
 The generated image preserves descriptor/text addresses relative to an aligned
@@ -512,42 +512,18 @@ def extract_image(data, symbol):
     )
 
 
-def render_header(kernel, namespace, *, implementation=False):
-    require(
-        re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*", namespace),
-        "invalid C++ namespace",
-    )
-    guard = "AMDF_CTS_GPU_KERNELS_" + namespace.replace("::", "_").upper() + "_H_"
+def render_variant(kernel, namespace):
+    """Stores one image and its metadata in a private implementation namespace."""
     metadata = kernel.metadata
     required = metadata.get(".reqd_workgroup_size", [0, 0, 0])
     arguments = metadata[".args"]
     lines = [
-        "// Copyright 2026 The IREE Authors",
-        "//",
-        "// Licensed under the Apache License v2.0 with LLVM Exceptions.",
-        "// See https://llvm.org/LICENSE.txt for license information.",
-        "// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception",
-        "",
-        "// Generated from the native HSACO by embed.py.",
-        "// Descriptor, text and ABI facts retain their compiler-owned identity.",
-        "",
-        f"#ifndef {guard}",
-        f"#define {guard}",
-        "",
-        "#include <array>",
-        "#include <cstdint>",
-        "#include <string_view>",
-        "",
-        '#include "libamdf/cts/gpu/kernels/image.h"',
-        "",
         f"namespace {namespace} {{",
         "",
         f'inline constexpr char kHsacoSha256[] = "{kernel.hsaco_sha256}";',
         f'inline constexpr char kImageSha256[] = "{hashlib.sha256(kernel.image).hexdigest()}";',
-        f"inline constexpr char kTarget[] = {json.dumps(kernel.target)};",
     ]
     constants = {
-        "kElfFlags": kernel.elf_flags,
         "kDescriptorByteOffset": kernel.descriptor_offset,
         "kEntryByteOffset": kernel.entry_offset,
         "kEntryByteLength": kernel.entry_size,
@@ -556,7 +532,6 @@ def render_header(kernel, namespace, *, implementation=False):
         "kKernargAlignment": metadata[".kernarg_segment_align"],
         "kGroupSegmentByteLength": metadata[".group_segment_fixed_size"],
         "kPrivateSegmentByteLength": metadata[".private_segment_fixed_size"],
-        "kWorkgroupSize": math.prod(required),
         "kMaxFlatWorkgroupSize": metadata[".max_flat_workgroup_size"],
         "kWavefrontSize": metadata[".wavefront_size"],
         "kSgprCount": metadata[".sgpr_count"],
@@ -568,10 +543,6 @@ def render_header(kernel, namespace, *, implementation=False):
         "kKernargPreload": struct.unpack_from("<H", kernel.descriptor, 58)[0],
     }
     for name, value in constants.items():
-        if name == "kWorkgroupSize":
-            lines.append(
-                "// Zero means the compiler did not require a fixed workgroup size."
-            )
         lines.append(f"inline constexpr uint32_t {name} = {value}u;")
 
     def array(name, ctype, values):
@@ -598,11 +569,6 @@ def render_header(kernel, namespace, *, implementation=False):
             "std::string_view",
             [json.dumps(argument.get(key, "")) for argument in arguments],
         )
-    array(
-        "kDescriptorBytes",
-        "uint8_t",
-        [f"0x{value:02x}u" for value in kernel.descriptor],
-    )
     words = struct.unpack(f"<{len(kernel.image) // 4}I", kernel.image)
     lines.extend(
         [
@@ -629,16 +595,8 @@ def render_header(kernel, namespace, *, implementation=False):
             "",
             f"}}  // namespace {namespace}",
             "",
-            f"#endif  // {guard}",
-            "",
         ]
     )
-    if implementation:
-        # The set implementation owns constants in private variant namespaces.
-        # Only the small KernelSet declaration is included by test sources.
-        first = lines.index(f"namespace {namespace} {{")
-        last = lines.index(f"}}  // namespace {namespace}")
-        lines = lines[first : last + 1]
     return "\n".join(lines)
 
 
@@ -671,7 +629,16 @@ def render_set(variants, namespace, header_name):
         f"#endif  // {guard}",
         "",
     ]
-    source = preamble + [f'#include "{header_name}"', "", "namespace {", ""]
+    source = preamble + [
+        f'#include "{header_name}"',
+        "",
+        "#include <array>",
+        "#include <cstdint>",
+        "#include <string_view>",
+        "",
+        "namespace {",
+        "",
+    ]
     for selector, kernel in variants:
         require(
             re.fullmatch(r"gfx[0-9a-f]+(?:-a0)?", selector), "invalid target selector"
@@ -684,7 +651,7 @@ def render_set(variants, namespace, header_name):
             f"compiler target {kernel.target!r} does not match {selector!r}",
         )
         source += [
-            render_header(kernel, selector.replace("-", "_"), implementation=True),
+            render_variant(kernel, selector.replace("-", "_")),
             "",
         ]
     source += [f"constexpr ::kernels::Kernel kVariants[{len(variants)}] = {{"]
@@ -752,35 +719,25 @@ def render_set(variants, namespace, header_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    inputs = parser.add_mutually_exclusive_group(required=True)
-    inputs.add_argument("--input", type=Path)
-    inputs.add_argument("--variant", action="append", metavar="TARGET=PATH")
+    parser.add_argument(
+        "--variant", action="append", required=True, metavar="TARGET=PATH"
+    )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--implementation", type=Path)
+    parser.add_argument("--implementation", type=Path, required=True)
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--namespace", required=True)
     args = parser.parse_args()
     try:
-        if args.variant:
-            require(
-                args.implementation is not None, "kernel set requires --implementation"
+        variants = []
+        for item in args.variant:
+            selector, separator, path = item.partition("=")
+            require(separator and path, "variant must be TARGET=PATH")
+            require(selector not in dict(variants), "duplicate target selector")
+            variants.append(
+                (selector, extract_image(Path(path).read_bytes(), args.symbol))
             )
-            variants = []
-            for item in args.variant:
-                selector, separator, path = item.partition("=")
-                require(separator and path, "variant must be TARGET=PATH")
-                require(selector not in dict(variants), "duplicate target selector")
-                variants.append(
-                    (selector, extract_image(Path(path).read_bytes(), args.symbol))
-                )
-            header, source = render_set(variants, args.namespace, args.output.name)
-            args.implementation.write_text(source, encoding="utf-8")
-        else:
-            require(
-                args.implementation is None, "single image has no implementation output"
-            )
-            kernel = extract_image(args.input.read_bytes(), args.symbol)
-            header = render_header(kernel, args.namespace)
+        header, source = render_set(variants, args.namespace, args.output.name)
+        args.implementation.write_text(source, encoding="utf-8")
         args.output.write_text(header, encoding="utf-8")
     except (ImageError, OSError) as error:
         parser.exit(1, f"embed.py: {error}\n")

@@ -34,13 +34,7 @@
 // 3 * request[i] + local_generation modulo 2^32. Raw 32-bit clock subtraction
 // does not represent an unbounded duration.
 
-low.func.def target<amdgpu.rdna3_5.core> @completed_tick() -> (reg<amdgpu.sgpr>) asm {
-  s_waitcnt {vmcnt = 0}
-  s_waitcnt_vscnt {vscnt = 0}
-  %tick = s_sendmsg_rtn_b32 {message = 131}
-  s_waitcnt {lgkmcnt = 0}
-  return %tick
-}
+template.decl @completed_tick() -> (i32)
 
 kernel.def export("resident_channels") @resident_channels() {
   %unit = index.constant 1 : index
@@ -120,7 +114,7 @@ kernel.def export("resident_channels") @resident_channels() {
       %value = scalar.addi %request_base, %element_term : i32
       view.store %value, %request_words[%element] : i32, view<[%element_limit]xi32>
     }
-    %start_tick = low.invoke @completed_tick() : () -> (i32)
+    %start_tick = template.apply<@completed_tick>() : () -> (i32)
     view.atomic.store %generation, %request_ready[0] {ordering = release, scope = system} : i32, view<1xi32>
     %response_generation = scf.while(%seen = %c0 : i32) -> (i32) {
       %pending = scalar.cmpi ne, %seen, %generation : i32
@@ -145,7 +139,7 @@ kernel.def export("resident_channels") @resident_channels() {
     view.store %generation, %record[1] : i32, view<[%record_word_count]xi32>
     view.store %cause, %record[2] : i32, view<[%record_word_count]xi32>
     view.store %start_tick, %record[3] : i32, view<[%record_word_count]xi32>
-    %end_tick = low.invoke @completed_tick() : () -> (i32)
+    %end_tick = template.apply<@completed_tick>() : () -> (i32)
     view.store %end_tick, %record[4] : i32, view<[%record_word_count]xi32>
     %next_row = scalar.addi %row, %c1 : i32
     scf.yield %next_row, %causal_result : i32, i32

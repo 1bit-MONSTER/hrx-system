@@ -219,12 +219,11 @@ class EmbedTest(unittest.TestCase):
         metadata, kernel = self.metadata()
         del metadata["amdhsa.kernels"][0][".reqd_workgroup_size"]
         _, parsed = embed.kernel_metadata(metadata, self.symbol, kernel.descriptor)
-        header = embed.render_header(
+        source = embed.render_variant(
             replace(kernel, metadata=parsed), "kernels::geometry"
         )
-        self.assertIn("kWorkgroupSize = 0u;", header)
-        self.assertIn("kMaxFlatWorkgroupSize = 64u;", header)
-        self.assertIn("    0u, 0u, 0u,", header)
+        self.assertIn("kMaxFlatWorkgroupSize = 64u;", source)
+        self.assertIn("    0u, 0u, 0u,", source)
 
     def test_rounded_kernarg_extent_is_not_the_last_argument_end(self):
         metadata, kernel = self.metadata()
@@ -232,11 +231,11 @@ class EmbedTest(unittest.TestCase):
         descriptor = bytearray(kernel.descriptor)
         struct.pack_into("<I", descriptor, 8, 32)
         _, parsed = embed.kernel_metadata(metadata, self.symbol, bytes(descriptor))
-        header = embed.render_header(
+        source = embed.render_variant(
             replace(kernel, descriptor=bytes(descriptor), metadata=parsed),
             "kernels::rounded_arguments",
         )
-        self.assertIn("kKernargByteLength = 32u;", header)
+        self.assertIn("kKernargByteLength = 32u;", source)
         self.assertEqual(
             parsed[".args"][-1][".offset"] + parsed[".args"][-1][".size"], 24
         )

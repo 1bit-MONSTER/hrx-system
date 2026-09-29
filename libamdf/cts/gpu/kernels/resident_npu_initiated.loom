@@ -32,13 +32,7 @@
 // has one cold row, N - 1 steady rows, and one closing row without R production.
 // Ticks are raw 32-bit values; modular subtraction is not an unbounded duration.
 
-low.func.def target<amdgpu.rdna3_5.core> @completed_tick() -> (reg<amdgpu.sgpr>) asm {
-  s_waitcnt {vmcnt = 0}
-  s_waitcnt_vscnt {vscnt = 0}
-  %tick = s_sendmsg_rtn_b32 {message = 131}
-  s_waitcnt {lgkmcnt = 0}
-  return %tick
-}
+template.decl @completed_tick() -> (i32)
 
 kernel.def export("resident_npu_initiated") @resident_npu_initiated() {
   %unit = index.constant 1 : index
@@ -91,7 +85,7 @@ kernel.def export("resident_npu_initiated") @resident_npu_initiated() {
   %positive_row_count = scalar.addi %return_count_word, %c1 : i32
   %row_count = scf.select %has_rows, %positive_row_count, %c0 : i32
   %cold_tick = scf.if %has_rows -> (i32) {
-    %tick = low.invoke @completed_tick() : () -> (i32)
+    %tick = template.apply<@completed_tick>() : () -> (i32)
     scf.yield %tick : i32
   } else {
     scf.yield %c0 : i32
@@ -129,7 +123,7 @@ kernel.def export("resident_npu_initiated") @resident_npu_initiated() {
     view.store %generation, %record[0] : i32, view<[%record_word_count]xi32>
     view.store %return_generation, %record[1] : i32, view<[%record_word_count]xi32>
     view.store %start_tick, %record[2] : i32, view<[%record_word_count]xi32>
-    %end_tick = low.invoke @completed_tick() : () -> (i32)
+    %end_tick = template.apply<@completed_tick>() : () -> (i32)
     view.store %end_tick, %record[3] : i32, view<[%record_word_count]xi32>
     scf.if %produces_return {
       view.atomic.store %generation, %request_ready[0] {ordering = release, scope = system} : i32, view<1xi32>

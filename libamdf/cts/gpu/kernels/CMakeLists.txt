@@ -248,7 +248,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "byte_copy_unaligned_kernels"
-  SOURCE
+  SRCS
     "byte_copy_unaligned.loom"
   TARGETS
     "gfx1100"
@@ -295,7 +295,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "pattern_fill_unaligned_kernels"
-  SOURCE
+  SRCS
     "pattern_fill_unaligned.loom"
   TARGETS
     "gfx1100"
@@ -329,7 +329,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "transform_kernels"
-  SOURCE
+  SRCS
     "transform.loom"
   TARGETS
     "gfx1100"
@@ -363,7 +363,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "transform_alternate_kernels"
-  SOURCE
+  SRCS
     "transform_alternate.loom"
   TARGETS
     "gfx1100"
@@ -394,284 +394,95 @@ amdf_cts_gpu_kernel_set(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
+amdf_cts_gpu_kernel_set(
   NAME
-    "resident_exchange_gfx1150_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:resident_exchange_gfx1150_hsaco"
-  TARGET
-    "::gfx1150"
-  OUTPUT
-    "resident_exchange_gfx1150.hsaco"
+    "resident_exchange_kernels"
   SRCS
+    "completed_tick.loom"
     "resident_exchange.loom"
-  ROOTS
-    "@resident_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "resident_exchange_gfx1150_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/resident_exchange_gfx1150.hsaco"
-  OUTPUT
-    "resident_exchange_gfx1150.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
   ENTRY_POINT
     "resident_exchange"
   NAMESPACE
-    "kernels::gfx1150_resident_exchange"
+    "kernels::resident_exchange"
 )
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
+amdf_cts_gpu_kernel_set(
   NAME
-    resident_exchange_gfx1150
-  HDRS
-    "resident_exchange_gfx1150.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "resident_exchange_gfx1151_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:resident_exchange_gfx1151_hsaco"
-  TARGET
-    "::gfx1151"
-  OUTPUT
-    "resident_exchange_gfx1151.hsaco"
+    "resident_channels_kernels"
   SRCS
-    "resident_exchange.loom"
-  ROOTS
-    "@resident_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "resident_exchange_gfx1151_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/resident_exchange_gfx1151.hsaco"
-  OUTPUT
-    "resident_exchange_gfx1151.h"
-  ENTRY_POINT
-    "resident_exchange"
-  NAMESPACE
-    "kernels::gfx1151_resident_exchange"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    resident_exchange_gfx1151
-  HDRS
-    "resident_exchange_gfx1151.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "resident_channels_gfx1150_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:resident_channels_gfx1150_hsaco"
-  TARGET
-    "::gfx1150"
-  OUTPUT
-    "resident_channels_gfx1150.hsaco"
-  SRCS
+    "completed_tick.loom"
     "resident_channels.loom"
-  ROOTS
-    "@resident_channels"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "resident_channels_gfx1150_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/resident_channels_gfx1150.hsaco"
-  OUTPUT
-    "resident_channels_gfx1150.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
   ENTRY_POINT
     "resident_channels"
   NAMESPACE
-    "kernels::gfx1150_resident_channels"
+    "kernels::resident_channels"
 )
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
+amdf_cts_gpu_kernel_set(
   NAME
-    resident_channels_gfx1150
-  HDRS
-    "resident_channels_gfx1150.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "resident_channels_gfx1151_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:resident_channels_gfx1151_hsaco"
-  TARGET
-    "::gfx1151"
-  OUTPUT
-    "resident_channels_gfx1151.hsaco"
+    "resident_npu_initiated_kernels"
   SRCS
-    "resident_channels.loom"
-  ROOTS
-    "@resident_channels"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "resident_channels_gfx1151_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/resident_channels_gfx1151.hsaco"
-  OUTPUT
-    "resident_channels_gfx1151.h"
-  ENTRY_POINT
-    "resident_channels"
-  NAMESPACE
-    "kernels::gfx1151_resident_channels"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    resident_channels_gfx1151
-  HDRS
-    "resident_channels_gfx1151.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "resident_npu_initiated_gfx1150_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:resident_npu_initiated_gfx1150_hsaco"
-  TARGET
-    "::gfx1150"
-  OUTPUT
-    "resident_npu_initiated_gfx1150.hsaco"
-  SRCS
+    "completed_tick.loom"
     "resident_npu_initiated.loom"
-  ROOTS
-    "@resident_npu_initiated"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "resident_npu_initiated_gfx1150_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/resident_npu_initiated_gfx1150.hsaco"
-  OUTPUT
-    "resident_npu_initiated_gfx1150.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
   ENTRY_POINT
     "resident_npu_initiated"
   NAMESPACE
-    "kernels::gfx1150_resident_npu_initiated"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    resident_npu_initiated_gfx1150
-  HDRS
-    "resident_npu_initiated_gfx1150.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "resident_npu_initiated_gfx1151_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:resident_npu_initiated_gfx1151_hsaco"
-  TARGET
-    "::gfx1151"
-  OUTPUT
-    "resident_npu_initiated_gfx1151.hsaco"
-  SRCS
-    "resident_npu_initiated.loom"
-  ROOTS
-    "@resident_npu_initiated"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "resident_npu_initiated_gfx1151_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/resident_npu_initiated_gfx1151.hsaco"
-  OUTPUT
-    "resident_npu_initiated_gfx1151.h"
-  ENTRY_POINT
-    "resident_npu_initiated"
-  NAMESPACE
-    "kernels::gfx1151_resident_npu_initiated"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    resident_npu_initiated_gfx1151
-  HDRS
-    "resident_npu_initiated_gfx1151.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
+    "kernels::resident_npu_initiated"
 )
 endif()
 
@@ -679,7 +490,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "geometry_ids_kernels"
-  SOURCE
+  SRCS
     "geometry_ids.loom"
   TARGETS
     "gfx1100"
@@ -726,7 +537,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "lds_exchange_kernels"
-  SOURCE
+  SRCS
     "lds_exchange.loom"
   TARGETS
     "gfx1100"
@@ -774,6 +585,12 @@ iree_cc_test(
     ::pattern_fill_unaligned_kernels
     ::private_roundtrip
     ::private_roundtrip_kernels
+    ::resident_channels
+    ::resident_channels_kernels
+    ::resident_exchange
+    ::resident_exchange_kernels
+    ::resident_npu_initiated
+    ::resident_npu_initiated_kernels
     ::transform
     ::transform_alternate_kernels
     ::transform_kernels
@@ -805,7 +622,7 @@ if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AM
 amdf_cts_gpu_kernel_set(
   NAME
     "private_roundtrip_kernels"
-  SOURCE
+  SRCS
     "private_roundtrip.loom"
   TARGETS
     "gfx1100"
@@ -904,6 +721,45 @@ iree_cc_library(
     geometry_ids
   HDRS
     "geometry_ids.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    resident_exchange
+  HDRS
+    "resident_exchange.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    resident_channels
+  HDRS
+    "resident_channels.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    resident_npu_initiated
+  HDRS
+    "resident_npu_initiated.h"
   DEPS
     amdf::headers
   TESTONLY
