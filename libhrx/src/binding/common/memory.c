@@ -16,6 +16,7 @@
 #include "iree/base/internal/atomics.h"
 #include "iree/base/threading/call_once.h"
 #include "iree/base/threading/notification.h"
+#include "libhrx/src/libhrx/buffer.h"
 
 //===----------------------------------------------------------------------===//
 // Memory management

@@ -54,6 +54,8 @@
 #include "common/tls.h"
 #include "hrx_runtime.h"
 #include "iree/base/threading/call_once.h"
+#include "libhrx/src/libhrx/device.h"
+#include "libhrx/src/libhrx/runtime.h"
 
 static_assert(hipStreamWaitValueGte == IREE_HIP_STREAM_WAIT_VALUE_GTE,
               "stream wait GTE flag mismatch");

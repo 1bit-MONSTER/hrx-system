@@ -471,6 +471,7 @@ iree_cc_library(
     iree::base::threading
     iree::hal
     libhrx::src::binding::common
+    libhrx::src::libhrx::hrx_static
     libhrx_defs
   SHARED
   LINKOPTS
@@ -530,6 +531,7 @@ iree_cc_library(
     iree::base::threading
     iree::hal
     libhrx::src::binding::common
+    libhrx::src::libhrx::hrx_static
     libhrx_defs
   TESTONLY
   SHARED

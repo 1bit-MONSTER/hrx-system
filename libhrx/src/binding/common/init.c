@@ -8,6 +8,9 @@
 
 #include "common/amdgpu_architecture.h"
 #include "common/internal.h"
+#include "libhrx/src/libhrx/device.h"
+#include "libhrx/src/libhrx/runtime.h"
+
 //===----------------------------------------------------------------------===//
 // Global state
 //===----------------------------------------------------------------------===//

@@ -14,6 +14,7 @@
 #include "common/internal.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "libhrx/src/libhrx/device.h"
 
 #if defined(IREE_PLATFORM_LINUX)
 static std::atomic<bool> g_fail_next_memory_barrier = false;

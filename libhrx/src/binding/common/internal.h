@@ -7,6 +7,7 @@
 #ifndef IREE_EXPERIMENTAL_STREAMING_INTERNAL_H_
 #define IREE_EXPERIMENTAL_STREAMING_INTERNAL_H_
 
+#include "buffer_table.h"
 #include "common/allocation_preparation.h"
 #include "common/capture_admission.h"
 #include "common/context.h"
@@ -26,6 +27,7 @@
 #include "iree/base/threading/mutex.h"
 #include "iree/base/threading/notification.h"
 #include "iree/hal/api.h"
+#include "iree_hal_compat.h"
 
 #ifdef __cplusplus
 extern "C" {

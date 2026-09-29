@@ -14,6 +14,7 @@
 #include "common/internal.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "libhrx/src/libhrx/device.h"
 
 namespace {
 

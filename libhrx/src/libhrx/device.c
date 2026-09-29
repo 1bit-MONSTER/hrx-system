@@ -3,10 +3,16 @@
 //
 // Device operations. Generic across accelerator types once you have a handle.
 
+#include "device.h"
+
 #include <stdint.h>
 #include <string.h>
 
 #include "hrx_internal.h"
+
+iree_hal_device_t* hrx_device_hal(hrx_device_t device) {
+  return device ? device->hal_device : NULL;
+}
 
 hrx_status_t hrx_device_query_total_memory_from_spec(
     hrx_device_t device, bool* out_known, iree_device_size_t* out_total) {
