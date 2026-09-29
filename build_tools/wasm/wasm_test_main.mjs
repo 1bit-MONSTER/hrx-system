@@ -6,8 +6,8 @@
 
 // Generic WASI entry point for bundled wasm tests.
 
-import {readFileSync, statSync} from 'node:fs';
-import {dirname, isAbsolute, resolve} from 'node:path';
+import {readFileSync, realpathSync, statSync} from 'node:fs';
+import {basename, dirname, isAbsolute, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {WASI} from 'node:wasi';
 
@@ -22,35 +22,65 @@ if (process.env.XML_OUTPUT_FILE) {
   const xmlDirectory = dirname(process.env.XML_OUTPUT_FILE);
   preopens[xmlDirectory] = xmlDirectory;
 }
-// Grant the guest access only to directories containing existing path
-// arguments. Relative paths share the process working directory; absolute
-// paths retain their spelling so the guest can consume argv unchanged.
-for (const argument of process.argv.slice(2)) {
+const guestArguments = process.argv.slice(2);
+const inputDirectories = new Map();
+
+function resolveInputPath(candidate) {
+  const candidates = [resolve(candidate)];
+  if (!isAbsolute(candidate)) {
+    const testSourceDirectory = process.env.TEST_SRCDIR;
+    const testWorkspace = process.env.TEST_WORKSPACE;
+    if (testSourceDirectory && testWorkspace) {
+      candidates.push(resolve(testSourceDirectory, testWorkspace, candidate));
+    }
+  }
+  for (const path of candidates) {
+    try {
+      const realPath = realpathSync(path);
+      return {path: realPath, info: statSync(realPath)};
+    } catch {
+      // An argument may be an ordinary value instead of a file path.
+    }
+  }
+  return null;
+}
+
+// Resolve path arguments before crossing the WASI boundary. Bazel's native
+// launcher passes runfiles as workspace-relative paths, while WASI has no host
+// working-directory capability unless it is explicitly preopened. Mount each
+// containing directory at a short guest path instead of exposing the entire
+// runfiles workspace or leaking sandbox paths into the guest command line.
+for (let i = 0; i < guestArguments.length; ++i) {
+  const argument = guestArguments[i];
   const separator = argument.indexOf('=');
   let candidate = separator >= 0 ? argument.slice(separator + 1) : argument;
-  if (candidate.startsWith('@')) candidate = candidate.slice(1);
+  const responseFile = candidate.startsWith('@');
+  if (responseFile) candidate = candidate.slice(1);
   if (!candidate || candidate === '-') continue;
 
-  const hostPath = resolve(candidate);
-  let pathInfo;
-  try {
-    pathInfo = statSync(hostPath);
-  } catch {
-    continue;
+  const resolved = resolveInputPath(candidate);
+  if (resolved === null) continue;
+  const hostDirectory = resolved.info.isDirectory() ?
+      resolved.path : dirname(resolved.path);
+  let guestDirectory = inputDirectories.get(hostDirectory);
+  if (guestDirectory === undefined) {
+    guestDirectory = `/iree-input-${inputDirectories.size}`;
+    inputDirectories.set(hostDirectory, guestDirectory);
+    preopens[guestDirectory] = hostDirectory;
   }
-  if (isAbsolute(candidate)) {
-    const hostDirectory = pathInfo.isDirectory() ? hostPath : dirname(hostPath);
-    preopens[hostDirectory] = hostDirectory;
-  } else {
-    preopens['.'] = process.cwd();
-  }
+  const mountedPath = resolved.info.isDirectory() ?
+      guestDirectory : `${guestDirectory}/${basename(resolved.path)}`;
+  const guestPath = (responseFile ? '@' : '') + mountedPath;
+  guestArguments[i] = separator >= 0 ?
+      argument.slice(0, separator + 1) + guestPath : guestPath;
 }
 
 const wasi = new WASI({
   version: 'preview1',
-  args: [__IREE_WASM_BINARY, ...process.argv.slice(2)],
+  args: [__IREE_WASM_BINARY, ...guestArguments],
   env: process.env,
   preopens,
+  returnOnExit: true,
 });
 
 const imports = wasi.getImportObject();
@@ -71,10 +101,8 @@ const {instance} = await WebAssembly.instantiate(wasmBytes, imports);
 context.memory = instance.exports.memory;
 
 try {
-  wasi.start(instance);
+  process.exitCode = wasi.start(instance);
 } catch (error) {
-  if (!process.exitCode) {
-    console.error(error);
-    process.exitCode = 1;
-  }
+  console.error(error);
+  process.exitCode = 1;
 }
