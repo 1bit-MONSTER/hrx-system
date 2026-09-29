@@ -62,7 +62,7 @@ static iree_status_t loom_xdna_artifact_provider_emit_artifact(
 
   iree_byte_sequence_t* contents = NULL;
   bool artifact_emitted = false;
-  iree_status_t status = loom_aie2p_xdna_artifact_emit(
+  iree_status_t status = loom_aie2p_xdna_compile_artifact(
       &(loom_aie2p_xdna_artifact_request_t){
           .module = module,
           .function_versions = options->function_versions,

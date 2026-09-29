@@ -1084,7 +1084,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
   return status;
 }
 
-iree_status_t loom_amdgpu_emit_hal_kernel_library(
+iree_status_t loom_amdgpu_compile_hal_kernel_library(
     loom_module_t* module,
     const loom_amdgpu_hal_kernel_library_options_t* options,
     iree_allocator_t allocator, bool* out_emitted,

@@ -461,7 +461,7 @@ static iree_status_t loom_aie2p_xdna_allocate_resident_storage(
   return status;
 }
 
-iree_status_t loom_aie2p_xdna_artifact_emit(
+iree_status_t loom_aie2p_xdna_compile_artifact(
     const loom_aie2p_xdna_artifact_request_t* request, bool* out_emitted,
     iree_byte_sequence_t** out_contents) {
   IREE_ASSERT_ARGUMENT(request);
@@ -625,7 +625,7 @@ static iree_status_t loom_aie2p_xdna_emit_target_artifact(
       .scratch_arena = request->scratch_arena,
       .allocator = request->allocator,
   };
-  IREE_RETURN_IF_ERROR(loom_aie2p_xdna_artifact_emit(
+  IREE_RETURN_IF_ERROR(loom_aie2p_xdna_compile_artifact(
       &artifact_request, out_emitted, &out_artifact->contents));
   if (!*out_emitted) {
     return iree_ok_status();

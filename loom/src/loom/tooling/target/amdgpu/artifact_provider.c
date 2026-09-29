@@ -48,7 +48,7 @@ static iree_status_t loom_amdgpu_artifact_provider_emit_artifact(
           },
   };
   bool library_emitted = false;
-  iree_status_t status = loom_amdgpu_emit_hal_kernel_library(
+  iree_status_t status = loom_amdgpu_compile_hal_kernel_library(
       module, &library_options, allocator, &library_emitted,
       &storage->kernel_library);
   if (iree_status_is_ok(status) && library_emitted) {
