@@ -81,23 +81,55 @@ uint64_t LoadLeU64(const std::string& bytes, size_t offset) {
   return value;
 }
 
+TEST(NativeElfTest, TranslatesNativeStorageAndPermissions) {
+  const loom_native_section_t reservation = {
+      /*.name=*/IREE_SV(".scratch"),
+      /*.storage=*/LOOM_NATIVE_SECTION_STORAGE_RESERVATION,
+      /*.access=*/LOOM_NATIVE_SECTION_ACCESS_READ |
+          LOOM_NATIVE_SECTION_ACCESS_WRITE,
+      /*.address=*/0x70000,
+      /*.alignment=*/64,
+      /*.contents=*/{},
+      /*.reservation_length=*/320,
+  };
+  const auto section = loom_native_elf_section_from_native(&reservation);
+  EXPECT_EQ(section.type, LOOM_NATIVE_ELF_SECTION_TYPE_NOBITS);
+  EXPECT_EQ(section.flags, LOOM_NATIVE_ELF_SECTION_FLAG_ALLOC |
+                               LOOM_NATIVE_ELF_SECTION_FLAG_WRITE);
+  EXPECT_EQ(section.address, 0x70000u);
+  EXPECT_EQ(section.alignment, 64u);
+  EXPECT_EQ(section.zero_fill_length, 320u);
+  EXPECT_EQ(section.contents.data_length, 0u);
+  EXPECT_EQ(section.entry_size, 0u);
+  EXPECT_EQ(section.link, 0u);
+  EXPECT_EQ(section.info, 0u);
+
+  // Nonresident bytes do not request runtime allocation or access.
+  loom_native_section_t nonresident = {};
+  nonresident.name = IREE_SV(".debug");
+  nonresident.alignment = 1;
+  const auto debug = loom_native_elf_section_from_native(&nonresident);
+  EXPECT_EQ(debug.type, LOOM_NATIVE_ELF_SECTION_TYPE_PROGBITS);
+  EXPECT_EQ(debug.flags, 0u);
+}
+
 TEST(NativeElfTest, WritesAieElf32ExecutableEnvelope) {
   const uint8_t text[16] = {
       0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
       0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
   };
-  const loom_native_elf_section_t sections[] = {{
+  const loom_native_section_t native_section = {
       /*.name=*/IREE_SV(".text"),
-      /*.type=*/LOOM_NATIVE_ELF_SECTION_TYPE_PROGBITS,
-      /*.flags=*/LOOM_NATIVE_ELF_SECTION_FLAG_ALLOC |
-          LOOM_NATIVE_ELF_SECTION_FLAG_EXECINSTR,
+      /*.storage=*/LOOM_NATIVE_SECTION_STORAGE_CONTENTS,
+      /*.access=*/LOOM_NATIVE_SECTION_ACCESS_READ |
+          LOOM_NATIVE_SECTION_ACCESS_EXECUTE,
       /*.address=*/0,
       /*.alignment=*/16,
-      /*.entry_size=*/0,
-      /*.link=*/0,
-      /*.info=*/0,
       /*.contents=*/iree_make_const_byte_span(text, sizeof(text)),
-  }};
+  };
+  const loom_native_elf_section_t sections[] = {
+      loom_native_elf_section_from_native(&native_section),
+  };
   const loom_native_elf_segment_t segments[] = {{
       /*.type=*/LOOM_NATIVE_ELF_PROGRAM_TYPE_LOAD,
       /*.flags=*/LOOM_NATIVE_ELF_PROGRAM_FLAG_READ |

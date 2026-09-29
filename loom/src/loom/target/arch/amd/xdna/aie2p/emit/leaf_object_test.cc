@@ -114,7 +114,7 @@ TEST(Aie2pLeafObjectTest, EmitsPreparedProgramRepeatedlyWithoutMutation) {
   ASSERT_EQ(first.object.sections[0].contents.data_length, 2u);
   EXPECT_EQ(first.object.sections[0].contents.data[0], 0u);
   EXPECT_EQ(first.object.sections[0].contents.data[1], 0u);
-  EXPECT_EQ(first.object.sections[1].zero_fill_length, 64u);
+  EXPECT_EQ(first.object.sections[1].reservation_length, 64u);
   EXPECT_EQ(first.object.sections[1].contribution_alignment, 16u);
 
   EXPECT_EQ(first.realization.storage_domain_count, 1u);
