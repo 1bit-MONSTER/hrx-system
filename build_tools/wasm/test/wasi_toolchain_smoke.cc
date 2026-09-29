@@ -8,6 +8,9 @@ extern "C" const char* wasi_toolchain_smoke_message(void);
 
 int main(int argc, char** argv) {
   std::puts(wasi_toolchain_smoke_message());
+  if (argc == 2 && std::strcmp(argv[1], "--fail") == 0) {
+    return 17;
+  }
   if (argc != 2) {
     return 1;
   }

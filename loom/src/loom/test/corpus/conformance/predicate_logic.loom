@@ -77,9 +77,15 @@ func.def @predicate_bitwise(%trial: index, %output: buffer) {
 
 check.scenario @predicate_bitwise_values {
   check.trial[256](%trial: index, %entropy: check.entropy) {
-    %output = check.generate.fill value(-123) : tensor<4xi32>
+    %storage = check.generate.fill value(-123) : tensor<12xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<12xi32> -> tensor<4xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<12xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(32) : tensor<12xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
     check.compare<@predicate_bitwise>(%trial, %output) : (index, tensor<4xi32>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<4xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
     }
   }
   check.return
@@ -113,9 +119,15 @@ func.def @predicate_select(%trial: index, %output: buffer) {
 
 check.scenario @predicate_select_values {
   check.trial[4096](%trial: index, %entropy: check.entropy) {
-    %output = check.generate.fill value(-123) : tensor<2xi32>
+    %storage = check.generate.fill value(-123) : tensor<10xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<10xi32> -> tensor<2xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<10xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(24) : tensor<10xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
     check.compare<@predicate_select>(%trial, %output) : (index, tensor<2xi32>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
     }
   }
   check.return

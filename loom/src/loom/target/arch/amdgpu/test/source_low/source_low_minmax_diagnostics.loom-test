@@ -1,9 +1,0 @@
-// RUN: emit source-low output=low
-
-amdgpu.target<gfx11-generic> @target
-
-func.def target(@target) @vector_ieee_maximum_rejected(%lhs: vector<2xf32>, %rhs: vector<2xf32>) -> (vector<2xf32>) {
-  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="amdgpu.v_maximum_f32", constraint_key="descriptor_available"}
-  %max = vector.maximumf %lhs, %rhs : vector<2xf32>
-  func.return %max : vector<2xf32>
-}

@@ -1,0 +1,136 @@
+// One runtime ordinal covers one bit position and one truth-table row. The
+// complete scenario reaches every bit of all four lanes without generated
+// arrays.
+func.def @vector_i32_bitwise(%trial: index, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 127)] : index
+  %c4 = index.constant 4 : index
+  %bit_index = index.div %ordinal, %c4 : index
+  %truth_index = index.rem %ordinal, %c4 : index
+  %bit = index.cast %bit_index : index to i32
+  %truth = index.cast %truth_index : index to i32
+
+  %unit = scalar.constant 1 : i32
+  %all_bits = scalar.constant -1 : i32
+  %mask = scalar.shli %unit, %bit : i32
+  %inverse_mask = scalar.xori %mask, %all_bits : i32
+
+  %lhs_base = scalar.constant -1393753996 : i32
+  %lhs_cleared = scalar.andi %lhs_base, %inverse_mask : i32
+  %lhs_truth = scalar.andi %truth, %unit : i32
+  %lhs_bit = scalar.shli %lhs_truth, %bit : i32
+  %lhs_value = scalar.ori %lhs_cleared, %lhs_bit : i32
+  %lhs_inverse = scalar.xori %lhs_value, %all_bits : i32
+  %lhs = vector.from_elements %lhs_value, %lhs_inverse, %lhs_base, %inverse_mask : vector<4xi32>
+
+  %rhs_base = scalar.constant 970750639 : i32
+  %rhs_cleared = scalar.andi %rhs_base, %inverse_mask : i32
+  %rhs_shifted_truth = scalar.shrui %truth, %unit : i32
+  %rhs_truth = scalar.andi %rhs_shifted_truth, %unit : i32
+  %rhs_bit = scalar.shli %rhs_truth, %bit : i32
+  %rhs_value = scalar.ori %rhs_cleared, %rhs_bit : i32
+  %rhs_inverse = scalar.xori %rhs_value, %all_bits : i32
+  %rhs = vector.from_elements %rhs_value, %rhs_inverse, %mask, %rhs_base : vector<4xi32>
+
+  %and_result = vector.andi %lhs, %rhs : vector<4xi32>
+  %or_result = vector.ori %lhs, %rhs : vector<4xi32>
+  %xor_result = vector.xori %lhs, %rhs : vector<4xi32>
+
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi32>
+  vector.store %and_result, %output_view[0] : vector<4xi32>, view<16xi32>
+  vector.store %or_result, %output_view[4] : vector<4xi32>, view<16xi32>
+  vector.store %xor_result, %output_view[8] : vector<4xi32>, view<16xi32>
+  %first = vector.extract %xor_result[0] : vector<4xi32> -> i32
+  %last = vector.extract %or_result[3] : vector<4xi32> -> i32
+  view.store %first, %output_view[12] : i32, view<16xi32>
+  view.store %last, %output_view[13] : i32, view<16xi32>
+  func.return
+}
+
+check.scenario @vector_i32_bitwise_values {
+  check.trial[128](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-123) : tensor<24xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<24xi32> -> tensor<16xi32>
+    %prefix = check.tensor.view %storage offset(0) : tensor<24xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %storage offset(80) : tensor<24xi32> -> tensor<4xi32>
+    %guard = check.generate.fill value(-123) : tensor<4xi32>
+    check.compare<@vector_i32_bitwise>(%trial, %output) : (index, tensor<16xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi32>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}
+
+// The 64-bit variant reaches every bit of both lanes.
+func.def @vector_i64_bitwise(%trial: index, %output: buffer) {
+  %ordinal = index.assume %trial [range(%trial, 0, 255)] : index
+  %c4 = index.constant 4 : index
+  %bit_index = index.div %ordinal, %c4 : index
+  %truth_index = index.rem %ordinal, %c4 : index
+  %bit = index.cast %bit_index : index to i64
+  %truth = index.cast %truth_index : index to i64
+
+  %unit = scalar.constant 1 : i64
+  %all_bits = scalar.constant -1 : i64
+  %mask = scalar.shli %unit, %bit : i64
+  %inverse_mask = scalar.xori %mask, %all_bits : i64
+
+  %lhs_base = scalar.constant -6521746883317985356 : i64
+  %lhs_cleared = scalar.andi %lhs_base, %inverse_mask : i64
+  %lhs_truth = scalar.andi %truth, %unit : i64
+  %lhs_bit = scalar.shli %lhs_truth, %bit : i64
+  %lhs_value = scalar.ori %lhs_cleared, %lhs_bit : i64
+  %lhs_inverse = scalar.xori %lhs_value, %all_bits : i64
+  %lhs = vector.from_elements %lhs_value, %lhs_inverse : vector<2xi64>
+
+  %rhs_base = scalar.constant 4163261975864267055 : i64
+  %rhs_cleared = scalar.andi %rhs_base, %inverse_mask : i64
+  %rhs_shifted_truth = scalar.shrui %truth, %unit : i64
+  %rhs_truth = scalar.andi %rhs_shifted_truth, %unit : i64
+  %rhs_bit = scalar.shli %rhs_truth, %bit : i64
+  %rhs_value = scalar.ori %rhs_cleared, %rhs_bit : i64
+  %rhs_inverse = scalar.xori %rhs_value, %all_bits : i64
+  %rhs = vector.from_elements %rhs_value, %rhs_inverse : vector<2xi64>
+
+  %and_result = vector.andi %lhs, %rhs : vector<2xi64>
+  %or_result = vector.ori %lhs, %rhs : vector<2xi64>
+  %xor_result = vector.xori %lhs, %rhs : vector<2xi64>
+  %low_mask = vector.constant 4294967295 : vector<2xi64>
+  %sign_tag = vector.constant -9223372036854775807 : vector<2xi64>
+  %upper_toggle = vector.constant -4294967296 : vector<2xi64>
+  %masked = vector.andi %lhs, %low_mask : vector<2xi64>
+  %tagged = vector.ori %sign_tag, %rhs : vector<2xi64>
+  %toggled = vector.xori %lhs, %upper_toggle : vector<2xi64>
+
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi64>
+  vector.store %and_result, %output_view[0] : vector<2xi64>, view<16xi64>
+  vector.store %or_result, %output_view[2] : vector<2xi64>, view<16xi64>
+  vector.store %xor_result, %output_view[4] : vector<2xi64>, view<16xi64>
+  vector.store %masked, %output_view[6] : vector<2xi64>, view<16xi64>
+  vector.store %tagged, %output_view[8] : vector<2xi64>, view<16xi64>
+  vector.store %toggled, %output_view[10] : vector<2xi64>, view<16xi64>
+  %first = vector.extract %xor_result[0] : vector<2xi64> -> i64
+  %last = vector.extract %or_result[1] : vector<2xi64> -> i64
+  view.store %first, %output_view[12] : i64, view<16xi64>
+  view.store %last, %output_view[13] : i64, view<16xi64>
+  func.return
+}
+
+check.scenario @vector_i64_bitwise_values {
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-123) : tensor<24xi64>
+    %output = check.tensor.view %storage offset(32) : tensor<24xi64> -> tensor<16xi64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<24xi64> -> tensor<4xi64>
+    %suffix = check.tensor.view %storage offset(160) : tensor<24xi64> -> tensor<4xi64>
+    %guard = check.generate.fill value(-123) : tensor<4xi64>
+    check.compare<@vector_i64_bitwise>(%trial, %output) : (index, tensor<16xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<16xi64>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi64>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi64>
+    }
+  }
+  check.return
+}

@@ -8,6 +8,7 @@
 # bazel-to-cmake: skip
 
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(
     "//build_tools/bazel:executable.bzl",
     "iree_executable_test",
@@ -59,4 +60,15 @@ iree_executable_test(
     src = ":hosted_wasi_toolchain_smoke",
     args = ["$(rootpath :wasi_toolchain_smoke.txt)"],
     data = [":wasi_toolchain_smoke.txt"],
+)
+
+sh_test(
+    name = "hosted_wasi_failure_test",
+    srcs = ["hosted_wasi_failure_test.sh"],
+    args = ["$(rootpath :hosted_wasi_toolchain_smoke)"],
+    data = [":hosted_wasi_toolchain_smoke"],
+    env_inherit = [
+        "IREE_WASM_NODE",
+        "PATH",
+    ],
 )
