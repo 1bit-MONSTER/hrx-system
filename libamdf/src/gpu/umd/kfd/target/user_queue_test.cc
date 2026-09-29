@@ -43,10 +43,15 @@ TEST(KfdTargetUserQueueTest, KeepsSupportedPlansDense) {
             AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
 
   EXPECT_EQ(plans.values[2].family.format_features,
-            AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE);
-  EXPECT_EQ(plans.values[2].family.roles, AMDF_QUEUE_ROLE_TRANSFER);
-  EXPECT_EQ(plans.values[2].family.cache_operations, 0u);
-  EXPECT_EQ(plans.values[2].family.cache_transition_kinds, 0u);
+            AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+                AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR);
+  EXPECT_EQ(plans.values[2].family.roles,
+            AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL);
+  EXPECT_EQ(plans.values[2].family.cache_operations,
+            AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM);
+  EXPECT_EQ(plans.values[2].family.cache_transition_kinds,
+            AMDF_CACHE_TRANSITION_KINDS_GLOBAL);
 
   topology.compute_queue_count = 0;
   amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
@@ -154,7 +159,8 @@ TEST(KfdTargetUserQueueTest, SdmaFormatsFollowExactIndependentEngineIp) {
     amdf_queue_format_features_t features;
   };
   constexpr amdf_queue_format_features_t kClassic =
-      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE;
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+      AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR;
   constexpr amdf_queue_format_features_t kSystem =
       AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM;
   constexpr Case kCases[] = {
@@ -171,8 +177,8 @@ TEST(KfdTargetUserQueueTest, SdmaFormatsFollowExactIndependentEngineIp) {
       {{6, 1, 3, true}, kClassic},
       {{6, 1, 4, true}, kClassic},
       {{6, 4, 0, true}, kClassic},
-      {{7, 0, 0, true}, kSystem},
-      {{7, 0, 1, true}, kSystem},
+      {{7, 0, 0, true}, kSystem | AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR},
+      {{7, 0, 1, true}, kSystem | AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR},
       {{7, 1, 0, true}, kSystem | AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE},
   };
   for (const auto& test : kCases) {
@@ -190,9 +196,17 @@ TEST(KfdTargetUserQueueTest, SdmaFormatsFollowExactIndependentEngineIp) {
     const auto& plan = plans.values[0];
     EXPECT_EQ(plan.family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
     EXPECT_EQ(plan.family.format_features, test.features);
-    EXPECT_EQ(plan.family.roles, AMDF_QUEUE_ROLE_TRANSFER);
-    EXPECT_EQ(plan.family.cache_operations, 0u);
-    EXPECT_EQ(plan.family.cache_transition_kinds, 0u);
+    const bool user_gcr =
+        (test.features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+    EXPECT_EQ(plan.family.roles,
+              AMDF_QUEUE_ROLE_TRANSFER |
+                  (user_gcr ? AMDF_QUEUE_ROLE_CACHE_CONTROL : 0));
+    EXPECT_EQ(plan.family.cache_operations,
+              user_gcr ? AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                             AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM
+                       : 0);
+    EXPECT_EQ(plan.family.cache_transition_kinds,
+              user_gcr ? AMDF_CACHE_TRANSITION_KINDS_GLOBAL : 0);
     EXPECT_EQ(plan.control.index_bit_count, 64u);
     EXPECT_EQ(plan.control.read_index_mask, UINT64_MAX);
     EXPECT_EQ(plan.compute.context_storage.byte_length, 0u);

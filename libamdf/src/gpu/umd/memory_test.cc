@@ -24,12 +24,17 @@ TEST(GpuMemoryPairTest, DescribesExactLocalQueueSites) {
   };
   const amdf_memory_site_query_t query = {
       .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = AMDF_MEMORY_FLAG_HOST_COHERENT,
       .queue_family_info = &family,
   };
   for (const auto command_type :
-       {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL}) {
+       {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL,
+        AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA}) {
     SCOPED_TRACE(command_type);
     family.command_type = command_type;
+    family.format_features = command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA
+                                 ? AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR
+                                 : 0;
     amdf_memory_site_description_t description = {};
     ASSERT_EQ(amdf_gpu_umd_memory_describe_site(&query, &description),
               AMDF_STATUS_OK);
@@ -48,6 +53,7 @@ TEST(GpuMemoryPairTest, DescribesExactLocalQueueSites) {
   }
 
   amdf_memory_site_description_t description = {};
+  family.format_features = 0;
   for (const auto command_type :
        {AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA, AMDF_QUEUE_COMMAND_TYPE_UNKNOWN}) {
     SCOPED_TRACE(command_type);
@@ -58,6 +64,91 @@ TEST(GpuMemoryPairTest, DescribesExactLocalQueueSites) {
                   amdf_gpu_umd_memory_describe_site(&query, &description)),
               AMDF_STATUS_CODE_UNSUPPORTED);
     EXPECT_EQ(std::memcmp(&description, &original, sizeof(description)), 0);
+  }
+}
+
+TEST(GpuMemoryPairTest, ScopedSdmaUsesPerCommandSystemVisibility) {
+  const amdf_queue_family_info_t family = {
+      .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+      .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
+      .format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE,
+      .roles = AMDF_QUEUE_ROLE_TRANSFER,
+  };
+  constexpr amdf_memory_access_t kAccesses[] = {
+      0, AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_WRITE,
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE};
+  for (const amdf_memory_access_t access : kAccesses) {
+    SCOPED_TRACE(access);
+    const amdf_memory_site_query_t query = {
+        .access = access,
+        .flags = AMDF_MEMORY_FLAG_HOST_COHERENT,
+        .queue_family_info = &family,
+    };
+    amdf_memory_site_description_t description = {};
+    ASSERT_EQ(amdf_gpu_umd_memory_describe_site(&query, &description),
+              AMDF_STATUS_OK);
+    amdf_memory_site_capabilities_t expected_capabilities =
+        AMDF_MEMORY_SITE_CAPABILITY_RELEASE_COST_KNOWN |
+        AMDF_MEMORY_SITE_CAPABILITY_ACQUIRE_COST_KNOWN;
+    if ((access & AMDF_MEMORY_ACCESS_READ) != 0) {
+      expected_capabilities |= AMDF_MEMORY_SITE_CAPABILITY_READ;
+    }
+    if ((access & AMDF_MEMORY_ACCESS_WRITE) != 0) {
+      expected_capabilities |= AMDF_MEMORY_SITE_CAPABILITY_WRITE;
+    }
+    EXPECT_EQ(description.capabilities, expected_capabilities);
+    for (const auto* transition :
+         {&description.release, &description.acquire}) {
+      EXPECT_EQ(transition->kind, AMDF_CACHE_TRANSITION_KIND_NONE);
+      EXPECT_EQ(transition->executor, AMDF_CACHE_TRANSITION_EXECUTOR_NONE);
+      EXPECT_EQ(transition->operation, AMDF_CACHE_OPERATION_NONE);
+      EXPECT_EQ(transition->host_operation, AMDF_HOST_CACHE_OPERATION_NONE);
+      EXPECT_EQ(transition->host_instruction, AMDF_HOST_CACHE_INSTRUCTION_NONE);
+      EXPECT_EQ(transition->host_fence_before, AMDF_HOST_CACHE_FENCE_NONE);
+      EXPECT_EQ(transition->host_fence_after, AMDF_HOST_CACHE_FENCE_NONE);
+      EXPECT_EQ(transition->range_granularity, 0u);
+    }
+    EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+    EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  }
+}
+
+TEST(GpuMemoryPairTest, SdmaPayloadPoliciesExcludeHostVisibleLocalApertures) {
+  amdf_queue_family_info_t family = {
+      .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+      .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
+      .roles = AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL,
+      .cache_operations = AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                          AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
+      .cache_transition_kinds = AMDF_CACHE_TRANSITION_KINDS_GLOBAL,
+  };
+  amdf_memory_site_query_t query = {
+      .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = AMDF_MEMORY_FLAG_DEVICE_LOCAL,
+      .queue_family_info = &family,
+  };
+  for (const amdf_queue_format_features_t feature :
+       {AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR,
+        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE}) {
+    SCOPED_TRACE(feature);
+    family.format_features = feature;
+    query.flags = AMDF_MEMORY_FLAG_DEVICE_LOCAL;
+    amdf_memory_site_description_t description = {};
+    ASSERT_EQ(amdf_gpu_umd_memory_describe_site(&query, &description),
+              AMDF_STATUS_OK);
+    for (const auto flags :
+         {AMDF_MEMORY_FLAG_DEVICE_LOCAL | AMDF_MEMORY_FLAG_HOST_VISIBLE,
+          AMDF_MEMORY_FLAG_DEVICE_LOCAL | AMDF_MEMORY_FLAG_HOST_VISIBLE |
+              AMDF_MEMORY_FLAG_HOST_COHERENT}) {
+      SCOPED_TRACE(flags);
+      query.flags = flags;
+      std::memset(&description, 0xA5, sizeof(description));
+      const amdf_memory_site_description_t original = description;
+      EXPECT_EQ(amdf_status_code(
+                    amdf_gpu_umd_memory_describe_site(&query, &description)),
+                AMDF_STATUS_CODE_UNSUPPORTED);
+      EXPECT_EQ(std::memcmp(&description, &original, sizeof(description)), 0);
+    }
   }
 }
 

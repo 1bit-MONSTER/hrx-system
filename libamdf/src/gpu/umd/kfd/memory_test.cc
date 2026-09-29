@@ -683,7 +683,7 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupUsesEachConsumersSelectedPolicy) {
   EXPECT_EQ(description.acquire.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
 }
 
-TEST(LinuxGpuMemoryProfileTest, SelectedGfx11FamiliesSeparateTransferAndCache) {
+TEST(LinuxGpuMemoryProfileTest, SdmaSitesPreserveBackingSpecificCachePolicy) {
   auto gfx1100 = MakeGfx1151Device();
   gfx1100.topology.properties.gfx_ip = {11, 0, 0};
   gfx1100.topology.sdma.ip = {6, 0, 0, true};
@@ -718,7 +718,7 @@ TEST(LinuxGpuMemoryProfileTest, SelectedGfx11FamiliesSeparateTransferAndCache) {
                   AMDF_STATUS_OK);
         ExpectNoCacheTransitions(description);
       } else {
-        ExpectSiteUnsupported(profile, endpoint.queue_families[2]);
+        ExpectGlobalQueueTransitions(profile, endpoint.queue_families[2]);
       }
     }
   }
@@ -731,9 +731,12 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemPreservesPermissionsAndAtomicGap) {
   ASSERT_EQ(endpoint.queue_family_count, 3u);
   const auto& family = endpoint.queue_families[2];
   ASSERT_EQ(family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
-  EXPECT_EQ(family.roles, AMDF_QUEUE_ROLE_TRANSFER);
-  EXPECT_EQ(family.cache_operations, 0u);
-  EXPECT_EQ(family.cache_transition_kinds, 0u);
+  EXPECT_EQ(family.roles,
+            AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL);
+  EXPECT_EQ(family.cache_operations,
+            AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM);
+  EXPECT_EQ(family.cache_transition_kinds, AMDF_CACHE_TRANSITION_KINDS_GLOBAL);
   for (amdf_native_lifetime_t lifetime :
        {AMDF_NATIVE_LIFETIME_PROCESS, AMDF_NATIVE_LIFETIME_INSTANCE}) {
     SCOPED_TRACE(lifetime);

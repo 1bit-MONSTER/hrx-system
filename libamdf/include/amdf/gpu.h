@@ -201,6 +201,13 @@ enum amdf_gpu_pm4_format_feature_bits_e {
 
 /// Native SDMA encoding features reported in `format_features`.
 enum amdf_gpu_sdma_format_feature_bits_e {
+  /// Five-dword USER_GCR, opcode 17 and suboperation 1. Whole-cache data
+  /// acquire uses control 0xc3c0 and release uses 0x8040 in dword 2 bits
+  /// 31:16, with every other operand zero. Dependency waits precede acquire;
+  /// release follows the data commands and precedes completion. These are
+  /// queue GLOBAL ACQUIRE_FROM_SYSTEM/RELEASE_TO_SYSTEM operations. This
+  /// contract admits neither address ranges nor explicit VMID selection.
+  AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR = UINT64_C(1) << 0,
   /// FENCE uses a two-bit memory type at header bit 16 and an explicit system
   /// bit at bit 20. A fence to system memory sets that bit. This feature and
   /// FENCE_MEMORY_TYPE are mutually exclusive. When neither is reported,
@@ -212,6 +219,9 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   /// NPD (no prior dependency) occupies COPY_LINEAR header bit 28 and
   /// CONSTANT_FILL header bit 29. Field availability does not establish
   /// dependencies or completion. Without this feature scope and NPD are zero.
+  /// Data commands using system scope realize the site's payload visibility
+  /// without a separate stream cache operation. Execution dependencies and
+  /// completion remain explicit; this establishes no system atomic reach.
   AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE = UINT64_C(1) << 2,
   /// FENCE uses the classic three-bit memory type at header bits 18:16.
   /// Memory type 3 denotes uncached access; callers leave the system bit at
