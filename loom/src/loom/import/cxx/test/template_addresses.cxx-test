@@ -1,0 +1,198 @@
+// RUN: roundtrip
+// Equal-valued objects select different bodies when their identity matters.
+constexpr unsigned left = 5, right = 5;
+template <const unsigned& object>
+unsigned choose(unsigned input) {
+  if constexpr (&object == &left) {
+    return input + 3;
+  } else {
+    return input + 7;
+  }
+}
+unsigned entry(unsigned input) {
+  return choose<left>(input) + choose<right>(input);
+}
+
+// ----
+func.def public @entry(%input: i32) -> (i32) {
+  %2 = func.call @choose__const_(%input) : (i32) -> (i32)
+  %3 = func.call @choose__const__1(%input) : (i32) -> (i32)
+  %4 = scalar.addi %2, %3 : i32
+  func.return %4 : i32
+}
+
+func.def @choose__const_(%input: i32) -> (i32) {
+  %7 = scalar.constant 3 : i32
+  %8 = scalar.addi %input, %7 : i32
+  func.return %8 : i32
+}
+
+func.def @choose__const__1(%input: i32) -> (i32) {
+  %11 = scalar.constant 7 : i32
+  %12 = scalar.addi %input, %11 : i32
+  func.return %12 : i32
+}
+
+// ====
+// Repeated references and aliases reuse a specialization; distinct objects do
+// not, regardless of equal scalar contents.
+constexpr unsigned left = 5, right = 5;
+constexpr const unsigned& alias = left;
+template <const unsigned& object>
+struct Ref {};
+static_assert(__is_same(Ref<left>, Ref<left>));
+static_assert(__is_same(Ref<left>, Ref<alias>));
+static_assert(!__is_same(Ref<left>, Ref<right>));
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Pointer arguments compare their represented addresses, not evaluator
+// allocations. Element offsets distinguish equal-valued array entries.
+constexpr unsigned table[2] = {5, 5};
+template <const unsigned* object>
+struct Pointer {};
+static_assert(__is_same(Pointer<&table[0]>, Pointer<&table[0]>));
+static_assert(!__is_same(Pointer<&table[0]>, Pointer<&table[1]>));
+static_assert(__is_same(Pointer<nullptr>,
+                        Pointer<static_cast<const unsigned*>(nullptr)>));
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Binding a static object requires its address, not a constant readable value.
+extern unsigned object;
+template <const unsigned& value = object>
+constexpr const unsigned* address() {
+  return &value;
+}
+static_assert(address<>() == &object);
+static_assert(address<object>() == &object);
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Explicit packs retain reference expressions through argument deduction.
+extern unsigned left, right;
+template <const unsigned&... values>
+struct References {};
+static_assert(__is_same(References<left, right>, References<left, right>));
+static_assert(!__is_same(References<left, right>, References<right, left>));
+template <const unsigned&... values>
+constexpr unsigned count() {
+  return sizeof...(values);
+}
+static_assert(count<left, right>() == 2);
+unsigned entry() {
+  constexpr unsigned result = count<left, right>();
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 2 : i32
+  func.return %result : i32
+}
+
+// ====
+// A placeholder reference retains the object's type and qualifications.
+extern unsigned object;
+template <auto& value>
+constexpr auto address() {
+  return &value;
+}
+static_assert(__is_same(decltype(address<object>()), unsigned*));
+static_assert(address<object>() == &object);
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Array reference binding preserves the whole-array type.
+extern unsigned table[2];
+template <unsigned (&value)[2]>
+constexpr unsigned (*address())[2] {
+  return &value;
+}
+static_assert(address<table>() == &table);
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Function references retain the canonical function identity.
+constexpr unsigned source() { return 5; }
+template <unsigned (&function)()>
+constexpr unsigned (*address())() {
+  return &function;
+}
+static_assert(address<source>() == &source);
+unsigned entry() { return 7; }
+
+// ----
+func.def public @source() -> (i32) {
+  %1 = scalar.constant 5 : i32
+  func.return %1 : i32
+}
+
+func.def public @entry() -> (i32) {
+  %3 = scalar.constant 7 : i32
+  func.return %3 : i32
+}
+
+// ====
+// Aliases and redeclarations name the same static object.
+extern unsigned object;
+template <const unsigned& value>
+struct Ref {};
+using First = Ref<object>;
+extern unsigned object;
+static_assert(__is_same(First, Ref<object>));
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}
+
+// ====
+// Reference array elements retain their element positions.
+constexpr unsigned table[2] = {5, 5};
+template <const unsigned& value>
+constexpr const unsigned* address() {
+  return &value;
+}
+static_assert(address<table[0]>() == &table[0]);
+static_assert(address<table[1]>() == &table[1]);
+static_assert(address<table[0]>() != address<table[1]>());
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}

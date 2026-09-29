@@ -1,0 +1,84 @@
+// RUN: verify
+// Constexpr contents do not give an automatic object static storage duration.
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  constexpr unsigned local = 5;
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<local>();
+}
+
+// ====
+// Pointer arguments use the same referent-lifetime validation.
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  constexpr unsigned local = 5;
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<&local>();
+}
+
+// ====
+// A parameter's address is not a static template argument.
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry(unsigned input) {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<input>();
+}
+
+// ====
+// A reference argument cannot bind a temporary value.
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<5u>();
+}
+
+// ====
+// Reference conversion cannot discard the referent's const qualification.
+constexpr unsigned object = 5;
+template <unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object>();
+}
+
+// ====
+// Converting the object value would create a temporary of the requested type.
+constexpr int object = 5;
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object>();
+}
+
+// ====
+// String literals are excluded even though their storage is static.
+template <const char* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<"text">();
+}
+
+// ====
+// Thread storage is not a permitted static template referent.
+extern thread_local unsigned object;
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<object>();
+}

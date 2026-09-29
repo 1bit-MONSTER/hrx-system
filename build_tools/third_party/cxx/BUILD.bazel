@@ -36,6 +36,7 @@ exports_files([
     "packed_records.patch",
     "qualified_template_calls.patch",
     "record_layout_owner.patch",
+    "reference_template_arguments.patch",
     "template_lookahead.patch",
     "unsigned_complement.patch",
     "using_directive_attributes.patch",

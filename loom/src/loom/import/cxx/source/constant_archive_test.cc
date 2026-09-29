@@ -13,6 +13,7 @@
 #include <cxx/views/symbols.h>
 
 #include <array>
+#include <vector>
 
 #include "iree/testing/gtest.h"
 #include "loom/import/cxx/source/source.h"
@@ -119,6 +120,74 @@ TEST(ConstantArchiveTest, PreservesTypedBitsAfterSourceDestruction) {
       EXPECT_EQ(first.bits(), 0x8000u);
       EXPECT_EQ(second.bits(), 0x7c01u);
     }
+  }
+}
+
+TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(IREE_SV("constexpr unsigned left = 5, right = 5;"
+                          "template<const unsigned& N> struct Ref {};"
+                          "using Left = Ref<left>; using Right = Ref<right>;"
+                          "constexpr const unsigned* left_address = &left;"
+                          "constexpr const unsigned* right_address = &right;"
+                          "static_assert(!__is_same(Left, Right));"),
+                  IREE_SV("references.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::ArchiveReader reader;
+  ASSERT_TRUE(reader(bytes)) << reader.error();
+  cxx::SemanticArchiveRoots restored;
+  cxx::SemanticDecoder decoder(&destination.unit());
+  ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+
+  auto primary_symbols = restored.globalScope->find("Ref");
+  ASSERT_FALSE(primary_symbols.begin() == primary_symbols.end());
+  auto* primary = cxx::symbol_cast<cxx::ClassSymbol>(*primary_symbols.begin());
+  ASSERT_NE(primary, nullptr);
+  ASSERT_EQ(primary->specializations().size(), 2u);
+
+  const std::array<const char*, 2> object_names = {"left", "right"};
+  const std::array<const char*, 2> address_names = {"left_address",
+                                                    "right_address"};
+  for (size_t index = 0; index < object_names.size(); ++index) {
+    SCOPED_TRACE(object_names[index]);
+    auto objects = restored.globalScope->find(object_names[index]);
+    ASSERT_FALSE(objects.begin() == objects.end());
+    auto addresses = restored.globalScope->find(address_names[index]);
+    ASSERT_FALSE(addresses.begin() == addresses.end());
+    auto* variable = cxx::symbol_cast<cxx::VariableSymbol>(*addresses.begin());
+    ASSERT_NE(variable, nullptr);
+    ASSERT_TRUE(variable->constValue());
+    auto address =
+        std::get<std::shared_ptr<cxx::ConstAddress>>(*variable->constValue());
+    ASSERT_NE(address, nullptr);
+    EXPECT_EQ(address->symbol(), *objects.begin());
+
+    // The independent address constant must find the restored specialization,
+    // even though it has a different ConstAddress allocation from its key.
+    const auto& specialization = primary->specializations()[index];
+    const std::vector<cxx::TemplateArgument> arguments = {
+        *variable->constValue()};
+    EXPECT_EQ(primary->findSpecialization(&destination.unit(), arguments),
+              specialization.symbol);
+    EXPECT_TRUE(cxx::compare_single_arg(&destination.unit(),
+                                        specialization.arguments.front(),
+                                        arguments.front()));
+    EXPECT_FALSE(cxx::compare_single_arg(
+        &destination.unit(),
+        primary->specializations()[1 - index].arguments.front(),
+        arguments.front()));
   }
 }
 

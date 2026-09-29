@@ -1,0 +1,478 @@
+diff --git a/src/parser/cxx/const_value.cc b/src/parser/cxx/const_value.cc
+--- a/src/parser/cxx/const_value.cc
++++ b/src/parser/cxx/const_value.cc
+@@ -84,6 +84,9 @@
+   return nullptr;
+ }
+
++ConstAddress::ConstAddress(Symbol* symbol, std::intmax_t offset)
++    : symbol_(symbol ? symbol->canonical() : nullptr), offset_(offset) {}
++
+ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
+   return symbol_ == other.symbol_ && owner_ == other.owner_ &&
+          string_ == other.string_ && typeInfoFor_ == other.typeInfoFor_;
+diff --git a/src/parser/cxx/const_value.h b/src/parser/cxx/const_value.h
+--- a/src/parser/cxx/const_value.h
++++ b/src/parser/cxx/const_value.h
+@@ -141,8 +141,8 @@
+  public:
+   ConstAddress() = default;
+
+-  explicit ConstAddress(Symbol* symbol, std::intmax_t offset = 0)
+-      : symbol_(symbol), offset_(offset) {}
++  // Symbol addresses use the canonical declaration as their identity.
++  explicit ConstAddress(Symbol* symbol, std::intmax_t offset = 0);
+
+   explicit ConstAddress(const StringLiteral* string, std::intmax_t offset = 0)
+       : string_(string), offset_(offset) {}
+diff --git a/src/parser/cxx/substitution.cc b/src/parser/cxx/substitution.cc
+--- a/src/parser/cxx/substitution.cc
++++ b/src/parser/cxx/substitution.cc
+@@ -289,11 +289,6 @@
+ struct Substitution::CollectRawTemplateArgument {
+   Substitution& subst;
+
+-  [[nodiscard]] auto isInTemplateScope(Symbol* symbol) -> bool {
+-    return isEnclosedInDependentTemplate(subst.unit_, symbol->parent(),
+-                                         /*stopAtConcreteSpecialization=*/true);
+-  }
+-
+   auto operator()(ExpressionTemplateArgumentAST* ast) -> std::optional<Symbol*>;
+
+   auto operator()(TypeTemplateArgumentAST* ast) -> std::optional<Symbol*>;
+@@ -383,22 +378,8 @@
+     }
+   }
+
+-  auto interp = ASTInterpreter{subst.unit_};
+-  auto value = interp.evaluate(expression);
+-
+-  if (!value.has_value()) {
+-    if (isDependent(subst.unit_, expression)) return std::nullopt;
+-
+-    subst.maybeReportInvalidConstantExpression(
+-        parameter->firstSourceLocation());
+-
+-    return std::nullopt;
+-  }
+-
+   auto argument = control()->newVariableSymbol(nullptr, {});
+   argument->setInitializer(expression);
+-  argument->setConstexpr(true);
+-  argument->setConstValue(value.value());
+
+   const Type* argumentType = declaredType;
+   if (!argumentType && expression) argumentType = expression->type;
+@@ -487,61 +468,31 @@
+   auto unit = subst.unit_;
+   auto control = unit->control();
+
+-  auto interp = ASTInterpreter{unit};
+-
+-  const auto isDependent = isDependentTemplateArgument(subst.unit_, ast);
+-
+-  auto value = isDependent ? std::nullopt : interp.evaluate(expression);
+-
+-  if (!value.has_value()) {
+-    if (isDependent) {
+-      auto expandedPattern = expression;
+-      if (auto packExpansion =
+-              ast_cast<PackExpansionExpressionAST>(expandedPattern)) {
+-        expandedPattern = packExpansion->expression;
++  if (isDependentTemplateArgument(unit, ast)) {
++    auto expandedPattern = expression;
++    if (auto packExpansion =
++            ast_cast<PackExpansionExpressionAST>(expandedPattern)) {
++      expandedPattern = packExpansion->expression;
++    }
++    if (auto idExpr = ast_cast<IdExpressionAST>(expandedPattern)) {
++      if (auto parameter =
++              symbol_cast<NonTypeParameterSymbol>(idExpr->symbol)) {
++        return parameter;
+       }
+-
+-      if (auto idExpr = ast_cast<IdExpressionAST>(expandedPattern)) {
+-        if (auto nttp = symbol_cast<NonTypeParameterSymbol>(idExpr->symbol)) {
+-          return nttp;
+-        }
+-        if (auto var = symbol_cast<VariableSymbol>(idExpr->symbol);
+-            var && !var->parent()) {
+-          return var;
+-        }
++      if (auto variable = symbol_cast<VariableSymbol>(idExpr->symbol);
++          variable && !variable->parent()) {
++        return variable;
+       }
+-      auto templateArgument = control->newVariableSymbol(nullptr, {});
+-      templateArgument->setInitializer(expression);
+-      if (expression->type) {
+-        templateArgument->setType(expression->type);
+-      }
+-      return templateArgument;
+-    }
+-
+-    subst.maybeReportInvalidConstantExpression(loc);
+-
+-    return std::nullopt;
+-  }
+-
+-  auto templateArgument = control->newVariableSymbol(nullptr, {});
+-  templateArgument->setInitializer(expression);
+-
+-  auto argumentType = expression->type;
+-
+-  if (!argumentType) {
+-    templateArgument->setConstexpr(true);
+-    templateArgument->setConstValue(value);
+-    return templateArgument;
+-  }
+-
+-  if (!subst.unit_->typeTraits().is_scalar(argumentType)) {
+-    argumentType = subst.unit_->typeTraits().add_pointer(expression->type);
+-  }
+-
+-  templateArgument->setType(argumentType);
+-  templateArgument->setConstexpr(true);
+-  templateArgument->setConstValue(value);
+-  return templateArgument;
++    }
++  }
++
++  // The parameter type determines whether this expression supplies a value or
++  // an object identity. Retain it until normalizeNonTypeArgument knows that
++  // type.
++  auto argument = control->newVariableSymbol(nullptr, {});
++  argument->setInitializer(expression);
++  argument->setType(expression->type);
++  return argument;
+ }
+
+ auto Substitution::CollectRawTemplateArgument::operator()(
+@@ -758,10 +709,6 @@
+   }
+ }
+
+-void Substitution::maybeReportInvalidConstantExpression(SourceLocation loc) {
+-  error(loc, "template argument is not a constant expression");
+-}
+-
+ void Substitution::maybeReportMalformedTemplateArgument(SourceLocation loc) {
+   error(loc, "malformed template argument");
+ }
+@@ -873,12 +820,55 @@
+   return normalizedArgument;
+ }
+
++namespace {
++
++auto isPermittedTemplateAddress(const ConstValue& value, bool isReference)
++    -> bool {
++  if (auto integer = std::get_if<std::intmax_t>(&value)) {
++    return !isReference && *integer == 0;
++  }
++  auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value);
++  if (!address || !*address) {
++    return false;
++  }
++  if ((*address)->stringLiteral() || (*address)->typeInfoFor() ||
++      (*address)->owner()) {
++    return false;
++  }
++  auto symbol = (*address)->symbol();
++  if (!symbol) {
++    return !isReference && (*address)->offset() == 0;
++  }
++  if (symbol_cast<FunctionSymbol>(symbol)) {
++    return true;
++  }
++  if (auto field = symbol_cast<FieldSymbol>(symbol)) {
++    return field->isStatic() && !field->isThreadLocal();
++  }
++  auto variable = symbol_cast<VariableSymbol>(symbol);
++  if (!variable || variable->isThreadLocal()) {
++    return false;
++  }
++  if (variable->isStatic() || variable->isExtern()) {
++    return true;
++  }
++  return variable->parent() && variable->parent()->isNamespace();
++}
++
++}  // namespace
++
+ auto Substitution::convertNonTypeArgument(VariableSymbol* argument,
+                                           const Type* targetType) -> bool {
+   auto traits = unit_->typeTraits();
+   auto expression = argument->initializer();
+-  if (type_cast<AutoType>(targetType) && expression) {
+-    targetType = traits.remove_cv(expression->type);
++  if (expression && type_cast<AutoType>(traits.remove_cvref(targetType))) {
++    auto deducedType = traits.remove_reference(expression->type);
++    if (auto reference = type_cast<LvalueReferenceType>(targetType)) {
++      targetType = unit_->control()->getLvalueReferenceType(
++          traits.add_cv(deducedType, cv_qualifiers(reference->elementType())));
++    } else {
++      targetType = traits.remove_cv(deducedType);
++    }
+   }
+   argument->setType(targetType);
+   if (!targetType || !expression || !expression->type) {
+@@ -888,11 +878,6 @@
+     return true;
+   }
+
+-  if (traits.is_same(traits.remove_cv(expression->type),
+-                     traits.remove_cv(targetType)))
+-    return true;
+-
+-  StandardConversion conversions{unit_};
+   auto invalidConstant = [&] {
+     error(expression->firstSourceLocation(),
+           std::format("template argument is not a converted constant "
+@@ -900,35 +885,55 @@
+                       to_string(targetType)));
+     return false;
+   };
+-  if (traits.is_scalar(targetType)) {
++
++  StandardConversion conversions{unit_};
++  ASTInterpreter interpreter{unit_};
++  auto converted = expression;
++  std::optional<ConstValue> value;
++  const bool isReference = traits.is_reference(targetType);
++  if (isReference) {
++    auto sequence =
++        conversions.computeConversionSequence(expression, targetType);
++    if (!sequence || sequence.form != ConversionSequenceForm::kStandard ||
++        !sequence.binding.bindsToGlvalue()) {
++      return invalidConstant();
++    }
++    conversions.applyConversionSequence(sequence, converted);
++    value = interpreter.evaluateAddress(converted);
++  } else if (traits.is_same(traits.remove_cv(expression->type),
++                            traits.remove_cv(targetType))) {
++    value = interpreter.evaluate(expression);
++  } else if (traits.is_scalar(targetType)) {
+     auto constant =
+         conversions.convertConstantExpression(expression, targetType);
+     if (!constant) {
+       return invalidConstant();
+     }
+-    argument->setInitializer(constant);
+-    argument->setConstexpr(true);
+-    argument->setConstValue(*constant->constValue);
+-    return true;
+-  }
+-
+-  if (!traits.is_class(targetType)) {
+-    return true;
+-  }
+-  auto converted = expression;
+-  if (!conversions.convertImplicitly(converted, targetType)) {
++    converted = constant;
++    value = *constant->constValue;
++  } else if (traits.is_class(targetType)) {
++    if (!conversions.convertImplicitly(converted, targetType)) {
++      return invalidConstant();
++    }
++    value = interpreter.evaluate(converted);
++  } else {
+     return invalidConstant();
+   }
+
+-  auto interp = ASTInterpreter{unit_};
+-  auto value = interp.evaluate(converted);
+-  if (!value.has_value()) {
++  if (!value) {
+     return invalidConstant();
++  }
++  if ((isReference || traits.is_pointer(targetType)) &&
++      !isPermittedTemplateAddress(*value, isReference)) {
++    error(expression->firstSourceLocation(),
++          "template argument does not refer to a permitted static object or "
++          "function");
++    return false;
+   }
+
+   argument->setInitializer(converted);
+   argument->setConstexpr(true);
+-  argument->setConstValue(value);
++  argument->setConstValue(std::move(*value));
+   return true;
+ }
+
+diff --git a/src/parser/cxx/substitution.h b/src/parser/cxx/substitution.h
+--- a/src/parser/cxx/substitution.h
++++ b/src/parser/cxx/substitution.h
+@@ -128,7 +128,6 @@
+   [[nodiscard]] auto getDefaultTemplateArgument(TemplateParameterAST* parameter)
+       -> std::optional<TemplateArgument>;
+
+-  void maybeReportInvalidConstantExpression(SourceLocation loc);
+   void maybeReportMalformedTemplateArgument(SourceLocation loc);
+   void maybeReportMissingTemplateArgument(SourceLocation loc);
+
+diff --git a/src/parser/cxx/symbols.cc b/src/parser/cxx/symbols.cc
+--- a/src/parser/cxx/symbols.cc
++++ b/src/parser/cxx/symbols.cc
+@@ -96,6 +96,23 @@
+                                   parameter->isParameterPack()};
+ }
+
++auto compare_constant_values(const ConstValue& lhs, const ConstValue& rhs)
++    -> bool {
++  auto leftAddress = std::get_if<std::shared_ptr<ConstAddress>>(&lhs);
++  if (!leftAddress) {
++    return lhs == rhs;
++  }
++  auto rightAddress = std::get_if<std::shared_ptr<ConstAddress>>(&rhs);
++  if (!rightAddress) {
++    return false;
++  }
++  if (!*leftAddress || !*rightAddress) {
++    return *leftAddress == *rightAddress;
++  }
++  return (*leftAddress)->sameTarget(**rightAddress) &&
++         (*leftAddress)->offset() == (*rightAddress)->offset();
++}
++
+ auto compare_symbols(TranslationUnit* unit, Symbol* lhs, Symbol* rhs) -> bool {
+   if (lhs == rhs) return true;
+   if (!lhs || !rhs) return false;
+@@ -131,8 +148,10 @@
+       return false;
+
+     if (lhsVar->constValue().has_value()) {
+-      if (lhsVar->constValue().value() != rhsVar->constValue().value())
++      if (!compare_constant_values(*lhsVar->constValue(),
++                                   *rhsVar->constValue())) {
+         return false;
++      }
+     } else if (!TemplateEquivalence{unit}.same(lhsVar->initializer(),
+                                                rhsVar->initializer())) {
+       return false;
+@@ -152,7 +171,7 @@
+   auto variable = symbol_cast<VariableSymbol>(symbol);
+   if (!variable) return false;
+   if (!variable->constValue().has_value()) return false;
+-  return variable->constValue().value() == value;
++  return compare_constant_values(*variable->constValue(), value);
+ }
+
+ }  // namespace
+@@ -184,7 +203,7 @@
+
+   if (auto lhsValue = std::get_if<ConstValue>(&lhs)) {
+     if (auto rhsValue = std::get_if<ConstValue>(&rhs)) {
+-      return *lhsValue == *rhsValue;
++      return compare_constant_values(*lhsValue, *rhsValue);
+     }
+     if (auto rhsSymbol = std::get_if<Symbol*>(&rhs)) {
+       return compare_symbol_and_const(*rhsSymbol, *lhsValue);
+diff --git a/src/parser/cxx/template_argument_deduction.cc b/src/parser/cxx/template_argument_deduction.cc
+--- a/src/parser/cxx/template_argument_deduction.cc
++++ b/src/parser/cxx/template_argument_deduction.cc
+@@ -982,13 +982,11 @@
+   auto exprArg = ast_cast<ExpressionTemplateArgumentAST>(explicitArg);
+   if (!exprArg || !exprArg->expression) return nullptr;
+
+-  auto value = ASTInterpreter{unit_}.evaluate(exprArg->expression);
+-  if (!value.has_value()) return nullptr;
+-
+   auto elementType = nonTypeParameterType(parameterIndex);
+   if (!elementType) return nullptr;
+
+-  auto element = makeValuePackElement(*value, elementType);
++  auto element = control_->newVariableSymbol(nullptr, {});
++  element->setType(elementType);
+   element->setInitializer(exprArg->expression);
+   return element;
+ }
+diff --git a/tests/unit_tests/sema/reference_template_arguments_01.cc b/tests/unit_tests/sema/reference_template_arguments_01.cc
+new file mode 100644
+--- /dev/null
++++ b/tests/unit_tests/sema/reference_template_arguments_01.cc
+@@ -0,0 +1,83 @@
++// RUN: %cxx -verify -fsyntax-only %s
++
++constexpr unsigned left = 5, right = 5;
++constexpr const unsigned& alias = left;
++template <const unsigned& value>
++struct Ref {};
++static_assert(__is_same(Ref<left>, Ref<left>));
++static_assert(__is_same(Ref<left>, Ref<alias>));
++static_assert(!__is_same(Ref<left>, Ref<right>));
++
++template <const unsigned& value>
++constexpr const unsigned* address() {
++  return &value;
++}
++static_assert(address<left>() == &left);
++static_assert(address<right>() == &right);
++static_assert(address<left>() != address<right>());
++
++template <const unsigned* value>
++struct Pointer {};
++static_assert(__is_same(Pointer<&left>, Pointer<&left>));
++static_assert(!__is_same(Pointer<&left>, Pointer<&right>));
++static_assert(__is_same(Pointer<nullptr>,
++                        Pointer<static_cast<const unsigned*>(nullptr)>));
++constexpr unsigned table[2] = {5, 5};
++static_assert(!__is_same(Pointer<&table[0]>, Pointer<&table[1]>));
++static_assert(__is_same(Pointer<&table[1]>, Pointer<&table[1]>));
++static_assert(address<table[0]>() != address<table[1]>());
++
++extern unsigned object;
++template <const unsigned& value = object>
++constexpr const unsigned* defaultAddress() {
++  return &value;
++}
++static_assert(defaultAddress<>() == &object);
++static_assert(defaultAddress<object>() == &object);
++
++template <const unsigned&... values>
++constexpr unsigned count() {
++  return sizeof...(values);
++}
++static_assert(count<left, right, object>() == 3);
++template <const unsigned&... values>
++struct References {};
++static_assert(__is_same(References<left, right>, References<left, right>));
++static_assert(!__is_same(References<left, right>, References<right, left>));
++
++template <auto& value>
++constexpr auto deducedAddress() {
++  return &value;
++}
++static_assert(__is_same(decltype(deducedAddress<object>()), unsigned*));
++static_assert(deducedAddress<object>() == &object);
++static_assert(__is_same(decltype(deducedAddress<left>()), const unsigned*));
++
++extern unsigned array[2];
++template <unsigned (&value)[2]>
++constexpr unsigned (*arrayAddress())[2] {
++  return &value;
++}
++static_assert(arrayAddress<array>() == &array);
++
++constexpr unsigned function() { return 5; }
++template <unsigned (&value)()>
++constexpr auto functionAddress() {
++  return &value;
++}
++static_assert(functionAddress<function>() == &function);
++
++using BeforeRedeclaration = Ref<object>;
++extern unsigned object;
++static_assert(__is_same(BeforeRedeclaration, Ref<object>));
++
++void automatic() {
++  constexpr unsigned local = 5;
++  // expected-error@+1 {{no matching function for call to 'address'}}
++  address<local>();
++}
++
++void incompatible() {
++  // expected-error@+1 {{no matching function for call to 'address'}}
++  address<5u>();
++}
