@@ -90,7 +90,8 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .format_features =
                   barrier_value ? AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE : 0,
               .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER,
-              .roles = AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_CACHE_CONTROL,
+              .roles = AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_TRANSFER |
+                       AMDF_QUEUE_ROLE_CACHE_CONTROL,
               .cache_operations = AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
                                   AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
               .cache_transition_kinds = AMDF_CACHE_TRANSITION_KINDS_GLOBAL,

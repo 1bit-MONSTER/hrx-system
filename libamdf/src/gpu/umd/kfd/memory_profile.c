@@ -38,49 +38,6 @@ static amdf_status_t amdf_gpu_kfd_sdma_describe_site(
   return AMDF_STATUS_OK;
 }
 
-// Selected gfx942 placements retain full SYSTEM shader acquire/release
-// scopes across the native VRAM and GTT cache policies.
-static amdf_status_t amdf_gpu_kfd_gfx942_describe_site(
-    const amdf_memory_site_query_t* query,
-    amdf_memory_site_description_t* out_description) {
-  const amdf_queue_family_info_t* family = query->queue_family_info;
-  const bool aql =
-      family->command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_AQL &&
-      family->format_version == AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 &&
-      (family->roles &
-       (AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_CACHE_CONTROL)) ==
-          (AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_CACHE_CONTROL) &&
-      (family->cache_operations &
-       (AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
-        AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM)) ==
-          (AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
-           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) &&
-      (family->cache_transition_kinds & AMDF_CACHE_TRANSITION_KINDS_GLOBAL) !=
-          0;
-  if (!aql) {
-    return amdf_gpu_kfd_sdma_describe_site(query, out_description);
-  }
-  amdf_memory_site_description_t description = {0};
-  if ((query->access & AMDF_MEMORY_ACCESS_READ) != 0) {
-    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_READ;
-  }
-  if ((query->access & AMDF_MEMORY_ACCESS_WRITE) != 0) {
-    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_WRITE;
-  }
-  description.release = (amdf_cache_transition_t){
-      .kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL,
-      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE,
-      .operation = AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
-  };
-  description.acquire = (amdf_cache_transition_t){
-      .kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL,
-      .executor = AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE,
-      .operation = AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
-  };
-  *out_description = description;
-  return AMDF_STATUS_OK;
-}
-
 // Discrete gfx942 GTT has UC, CPU-snooped PTEs in the native GMC v9 policy.
 static amdf_status_t amdf_gpu_kfd_gfx942_system_describe_site(
     const amdf_memory_site_query_t* query,
@@ -90,11 +47,11 @@ static amdf_status_t amdf_gpu_kfd_gfx942_system_describe_site(
   if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
     return amdf_gpu_umd_memory_describe_site(query, out_description);
   }
-  return amdf_gpu_kfd_gfx942_describe_site(query, out_description);
+  return amdf_gpu_kfd_sdma_describe_site(query, out_description);
 }
 
-// Owned same-GPU VRAM transfers use full SYSTEM shader fences. CPU aperture
-// access needs a separate HDP visibility contract and is excluded here.
+// Owned same-GPU VRAM needs no SDMA payload cache action. A host-visible
+// aperture needs a separate HDP contract and excludes that SDMA policy.
 static amdf_status_t amdf_gpu_kfd_gfx942_local_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {
@@ -103,11 +60,11 @@ static amdf_status_t amdf_gpu_kfd_gfx942_local_describe_site(
       AMDF_MEMORY_FLAG_DEVICE_LOCAL) {
     return amdf_gpu_umd_memory_describe_site(query, out_description);
   }
-  return amdf_gpu_kfd_gfx942_describe_site(query, out_description);
+  return amdf_gpu_kfd_sdma_describe_site(query, out_description);
 }
 
 // Owned coherent GTT on GMC11 uses GPU-UC, SYSTEM+SNOOPED mappings. SDMA
-// needs no payload cache operation; PM4 retains its SYSTEM shader actions.
+// needs no payload cache operation; compute queues retain SYSTEM actions.
 static amdf_status_t amdf_gpu_kfd_gfx1151_system_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {

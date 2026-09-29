@@ -26,23 +26,30 @@ TEST(GpuMemoryPairTest, DescribesExactLocalQueueSites) {
       .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
       .queue_family_info = &family,
   };
-  amdf_memory_site_description_t description = {};
-  ASSERT_EQ(amdf_gpu_umd_memory_describe_site(&query, &description),
-            AMDF_STATUS_OK);
-  EXPECT_EQ(description.capabilities, AMDF_MEMORY_SITE_CAPABILITY_READ |
-                                          AMDF_MEMORY_SITE_CAPABILITY_WRITE);
-  EXPECT_EQ(description.release.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
-  EXPECT_EQ(description.release.executor, AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE);
-  EXPECT_EQ(description.release.operation,
-            AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM);
-  EXPECT_EQ(description.acquire.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
-  EXPECT_EQ(description.acquire.operation,
-            AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM);
-  EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
-  EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  for (const auto command_type :
+       {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL}) {
+    SCOPED_TRACE(command_type);
+    family.command_type = command_type;
+    amdf_memory_site_description_t description = {};
+    ASSERT_EQ(amdf_gpu_umd_memory_describe_site(&query, &description),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(description.capabilities, AMDF_MEMORY_SITE_CAPABILITY_READ |
+                                            AMDF_MEMORY_SITE_CAPABILITY_WRITE);
+    EXPECT_EQ(description.release.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+    EXPECT_EQ(description.release.executor,
+              AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE);
+    EXPECT_EQ(description.release.operation,
+              AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM);
+    EXPECT_EQ(description.acquire.kind, AMDF_CACHE_TRANSITION_KIND_GLOBAL);
+    EXPECT_EQ(description.acquire.operation,
+              AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM);
+    EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+    EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  }
 
-  for (amdf_queue_command_type_t command_type :
-       {AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL}) {
+  amdf_memory_site_description_t description = {};
+  for (const auto command_type :
+       {AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA, AMDF_QUEUE_COMMAND_TYPE_UNKNOWN}) {
     SCOPED_TRACE(command_type);
     family.command_type = command_type;
     std::memset(&description, 0xA5, sizeof(description));

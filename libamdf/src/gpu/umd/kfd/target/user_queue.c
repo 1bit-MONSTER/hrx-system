@@ -37,12 +37,6 @@ void amdf_gpu_kfd_target_user_queue_plans_initialize(
   }
   if ((cdna || rdna) && amdf_gpu_kfd_aql_queue_plan(topology, page_size,
                                                     cache_line_size, &plan)) {
-    // Confirmed TC/L2 transfers use the format-1 virtual-XCC0 recipe.
-    if (topology->properties.gfx_ip.major == 9 &&
-        topology->properties.gfx_ip.minor == 4 &&
-        topology->properties.gfx_ip.stepping == 2) {
-      plan.family.roles |= AMDF_QUEUE_ROLE_TRANSFER;
-    }
     plans.values[plans.count++] = plan;
   }
   // SDMA is a separate engine: its ring ABI does not depend on compute IP or

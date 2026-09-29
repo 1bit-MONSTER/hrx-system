@@ -330,6 +330,26 @@ static void ExpectGlobalQueueTransitions(
             AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM);
 }
 
+static void ExpectGlobalQueueTransitions(
+    const amdf_memory_native_profile_t& profile,
+    const amdf_memory_site_query_t& query) {
+  amdf_memory_site_description_t description = {};
+  ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+            AMDF_STATUS_OK);
+  ExpectGlobalQueueTransitions(description);
+}
+
+static void ExpectGlobalQueueTransitions(
+    const amdf_memory_native_profile_t& profile,
+    const amdf_queue_family_info_t& family) {
+  const amdf_memory_site_query_t query = {
+      .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = profile.guaranteed_flags,
+      .queue_family_info = &family,
+  };
+  ExpectGlobalQueueTransitions(profile, query);
+}
+
 static void ExpectNoCacheTransitions(
     const amdf_memory_site_description_t& description) {
   for (const auto& transition : {description.release, description.acquire}) {
@@ -421,9 +441,9 @@ INSTANTIATE_TEST_SUITE_P(Access, LinuxGpuGfx942SiteTest,
                                            AMDF_MEMORY_ACCESS_READ |
                                                AMDF_MEMORY_ACCESS_WRITE));
 
-TEST(LinuxGpuMemoryProfileTest, BoundsStagedSitesToQualifiedNativeIdentity) {
+TEST(LinuxGpuMemoryProfileTest, BoundsSdmaNoCacheSitesToNativePolicy) {
   struct Case {
-    // Qualification premise removed from the otherwise supported device.
+    // Native no-cache transfer premise changed on the source device.
     const char* name;
     // Changes only native metadata; no device operation is performed.
     void (*mutate)(amdf_gpu_umd_device_t* device);
@@ -478,7 +498,7 @@ TEST(LinuxGpuMemoryProfileTest, BoundsStagedSitesToQualifiedNativeIdentity) {
       SCOPED_TRACE(ordinal);
       const auto profile = QueryProfile(&device, ordinal);
       ExpectSiteUnsupported(profile, kTransferFamily);
-      ExpectSiteUnsupported(profile, kComputeFamily);
+      ExpectGlobalQueueTransitions(profile, kComputeFamily);
     }
   }
 }
@@ -497,13 +517,9 @@ TEST(LinuxGpuMemoryProfileTest, RequiresExactQueueRolesAndCacheOperations) {
       family.roles = 0;
       ExpectSiteUnsupported(profile, family);
     }
-    for (amdf_queue_roles_t roles :
-         {AMDF_QUEUE_ROLE_COMPUTE, AMDF_QUEUE_ROLE_CACHE_CONTROL}) {
-      SCOPED_TRACE(roles);
-      auto family = kComputeFamily;
-      family.roles = roles;
-      ExpectSiteUnsupported(profile, family);
-    }
+    auto compute_without_cache = kComputeFamily;
+    compute_without_cache.roles = AMDF_QUEUE_ROLE_COMPUTE;
+    ExpectSiteUnsupported(profile, compute_without_cache);
     for (amdf_cache_operations_t operations :
          {AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM,
           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM}) {
@@ -527,11 +543,11 @@ TEST(LinuxGpuMemoryProfileTest, RegisteredMemoryKeepsGenericSitePolicy) {
   EXPECT_NE(registered.roles & AMDF_MEMORY_PROFILE_ROLE_REGISTER, 0u);
   EXPECT_NE(registered.guaranteed_flags & AMDF_MEMORY_FLAG_HOST_COHERENT, 0u);
   ExpectSiteUnsupported(registered, kTransferFamily);
-  ExpectSiteUnsupported(registered, kComputeFamily);
+  ExpectGlobalQueueTransitions(registered, kComputeFamily);
 }
 
 TEST(LinuxGpuMemoryProfileTest,
-     LocalSiteRequiresNonHostVisibleDeviceLocalBacking) {
+     SdmaLocalSiteRequiresNonHostVisibleDeviceLocalBacking) {
   auto device = MakeDiscreteGfx942Device();
   device.topology.memory_features |=
       AMDF_GPU_DEVICE_FEATURE_HOST_VISIBLE_LOCAL_MEMORY;
@@ -550,13 +566,18 @@ TEST(LinuxGpuMemoryProfileTest,
     ASSERT_EQ(local.visibility.describe_site(&query, &description),
               AMDF_STATUS_OK);
 
-    // A profile supporting host visibility does not establish an aperture
-    // unless construction requests it. Achieved HOST_VISIBLE excludes this
-    // policy even when no host view is currently live.
-    query.flags = local.guaranteed_flags | AMDF_MEMORY_FLAG_HOST_VISIBLE;
-    ExpectSiteUnsupported(local, query);
-    query.flags = local.guaranteed_flags & ~AMDF_MEMORY_FLAG_DEVICE_LOCAL;
-    ExpectSiteUnsupported(local, query);
+    // Host visibility excludes the SDMA no-cache policy even when no host
+    // view is live. AQL retains its global payload fence actions.
+    for (amdf_memory_flags_t flags :
+         {local.guaranteed_flags | AMDF_MEMORY_FLAG_HOST_VISIBLE,
+          local.guaranteed_flags & ~AMDF_MEMORY_FLAG_DEVICE_LOCAL}) {
+      query.flags = flags;
+      if (family.command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
+        ExpectSiteUnsupported(local, query);
+      } else {
+        ExpectGlobalQueueTransitions(local, query);
+      }
+    }
   }
 }
 
@@ -602,7 +623,8 @@ TEST(LinuxGpuMemoryProfileTest, SameGpuLocalGroupKeepsConsumerFacts) {
   }
 }
 
-TEST(LinuxGpuMemoryProfileTest, RemoteLocalGroupCannotAcquireSystemVisibility) {
+TEST(LinuxGpuMemoryProfileTest,
+     RemoteLocalGroupKeepsShaderFencesWithoutSdmaGuarantees) {
   for (bool same_hive : {false, true}) {
     SCOPED_TRACE(same_hive ? "hive" : "directed_peer");
     auto source = MakeDiscreteGfx942Device();
@@ -629,7 +651,7 @@ TEST(LinuxGpuMemoryProfileTest, RemoteLocalGroupCannotAcquireSystemVisibility) {
     EXPECT_NE(candidate.guaranteed_flags & AMDF_MEMORY_FLAG_DEVICE_LOCAL, 0u);
     EXPECT_EQ(candidate.guaranteed_flags & AMDF_MEMORY_FLAG_HOST_COHERENT, 0u);
     ExpectSiteUnsupported(candidate, kTransferFamily);
-    ExpectSiteUnsupported(candidate, kComputeFamily);
+    ExpectGlobalQueueTransitions(candidate, kComputeFamily);
   }
 }
 
@@ -644,7 +666,7 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupUsesEachConsumersSelectedPolicy) {
   ASSERT_TRUE(qualified_profile.construction.query_access(
       &qualified_profile, &unqualified_profile, &projected));
   ExpectSiteUnsupported(projected, kTransferFamily);
-  ExpectSiteUnsupported(projected, kComputeFamily);
+  ExpectGlobalQueueTransitions(projected, kComputeFamily);
 
   ASSERT_TRUE(unqualified_profile.construction.query_access(
       &unqualified_profile, &qualified_profile, &projected));
@@ -825,7 +847,7 @@ TEST(LinuxGpuMemoryProfileTest,
   family = kTransferFamily;
   family.roles = 0;
   ExpectSiteUnsupported(profile, query);
-  ExpectSiteUnsupported(profile, kComputeFamily);
+  ExpectGlobalQueueTransitions(profile, kComputeFamily);
 
   const auto registered = QueryProfile(&device, 1);
   EXPECT_NE(registered.roles & AMDF_MEMORY_PROFILE_ROLE_REGISTER, 0u);
