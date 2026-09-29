@@ -342,6 +342,48 @@ class FloatPacketSourceFormat:
 
 
 @dataclass(frozen=True, slots=True)
+class IntegerShiftRuleShape:
+    """Logical lane interval realized by one physical i32 shift packet."""
+
+    # Native lane count shifted by the physical instruction sequence.
+    native_lane_count: int
+    # First logical lane count realized by this rule.
+    minimum_lane_count: int
+    # Last logical lane count realized by this rule.
+    maximum_lane_count: int
+
+    def __post_init__(self) -> None:
+        if not (
+            self.native_lane_count == 16
+            and 1
+            <= self.minimum_lane_count
+            <= self.maximum_lane_count
+            <= self.native_lane_count
+        ):
+            raise ValueError("integer shift logical lane interval is invalid")
+
+    @property
+    def vector_type(self) -> Vector:
+        """Source-visible packet type interval."""
+
+        if self.minimum_lane_count == self.maximum_lane_count:
+            return Vector("i32", lanes=self.minimum_lane_count)
+        return Vector(
+            "i32",
+            minimum_lanes=self.minimum_lane_count,
+            maximum_lanes=self.maximum_lane_count,
+        )
+
+    @property
+    def report_lane_range(self) -> str:
+        """Stable logical lane spelling used by compile reports."""
+
+        if self.minimum_lane_count == self.maximum_lane_count:
+            return str(self.minimum_lane_count)
+        return f"{self.minimum_lane_count}-{self.maximum_lane_count}"
+
+
+@dataclass(frozen=True, slots=True)
 class IntegerPackInstruction:
     """One exact physical shape supported by a native VPACK form."""
 
@@ -633,6 +675,13 @@ INTEGER_PACK_RULE_SHAPES = (
     IntegerPackRuleShape(_I32_TO_I16_X_PACK, 17, 31),
     IntegerPackRuleShape(_I16_TO_I8_W_PACK, 1, 31),
     IntegerPackRuleShape(_I16_TO_I8_X_PACK, 33, 63),
+)
+
+# Uniform i32 shifts widen through one physical sixteen-lane accumulator
+# packet. Lanes beyond a partial logical vector remain unobservable.
+INTEGER_SHIFT_RULE_SHAPES = (
+    IntegerShiftRuleShape(16, 16, 16),
+    IntegerShiftRuleShape(16, 1, 15),
 )
 
 
@@ -1060,10 +1109,12 @@ def _integer_widen_rule(
     )
 
 
-def _integer_shift_rule(source_op: Op) -> DescriptorRule:
-    """Shifts uniform i32 packets through exact accumulator widening."""
+def _integer_shift_rule(
+    source_op: Op, rule_shape: IntegerShiftRuleShape
+) -> DescriptorRule:
+    """Shifts uniform i32 packets through one accumulator widening."""
 
-    packet = _exact_vector("i32", 16)
+    packet = rule_shape.vector_type
     signedness = "signed" if source_op is vector.vector_shrsi else "unsigned"
     widen = _descriptor(f"amd.xdna.aie2p.widen.2x.x-to-c.{signedness}.configured")
     narrow = _descriptor(f"amd.xdna.aie2p.narrow.2x.c-to-x.{signedness}.configured")
@@ -1128,7 +1179,7 @@ def _integer_shift_rule(source_op: Op) -> DescriptorRule:
         ),
         report_key="native_"
         + source_op.name.removeprefix("vector.")
-        + "_i32x16_uniform",
+        + f"_i32x{rule_shape.report_lane_range}_uniform",
     )
 
 
@@ -2171,8 +2222,9 @@ AIE2P_PACKET_CONVERSION_RULES = (
         for value_fields in product(("lhs", "rhs"), repeat=2)
     ),
     *(
-        _integer_shift_rule(source_op)
+        _integer_shift_rule(source_op, rule_shape)
         for source_op in (vector.vector_shli, vector.vector_shrui, vector.vector_shrsi)
+        for rule_shape in INTEGER_SHIFT_RULE_SHAPES
     ),
     *(
         _integer_bitunpack_rule(source_op, source_kind, source_lane_count)
