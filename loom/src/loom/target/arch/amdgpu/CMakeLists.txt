@@ -392,7 +392,6 @@ loom_cc_library(
     loom::transforms::vector::table_legalization
     loom::transforms::vector::to_scalar
     loom::transforms::view::atomic
-    loom::transforms::view::target_legalization
   PUBLIC
 )
 endif()

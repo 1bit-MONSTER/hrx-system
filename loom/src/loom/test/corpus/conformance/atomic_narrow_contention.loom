@@ -1,0 +1,163 @@
+// Two adjacent byte counters share one physical CAS word. Their independent
+// ticket streams cross byte wraparound under divergent, cross-wave contention.
+func.def inline @claim_byte_ticket(%cells: view<2xi8>, %cell: index) -> (i32) {
+  %increment = scalar.constant 1 : i8
+  %initial = scalar.constant -32 : i8
+  %old = view.atomic.rmw<addi> %increment, %cells[%cell] {ordering = relaxed, scope = device} : i8, view<2xi8> -> i8
+  %distance = scalar.subi %old, %initial : i8
+  %ticket = scalar.extui %distance : i8 to i32
+  func.return %ticket : i32
+}
+
+kernel.def @contended_byte_counters() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%global_storage: buffer, %generic_storage: buffer, %output: buffer, %local_output: buffer, %summary: buffer) {
+  %origin = index.constant 0 : offset
+  %interior = index.constant 1 : offset
+  %bytes = index.constant 4 : offset
+  %lane = kernel.workitem.id<x> : index
+  %group = kernel.workgroup.id<x> : index
+  %global = buffer.assume.memory_space<global> %global_storage : buffer
+  %generic = buffer.assume.memory_space<generic> %generic_storage : buffer
+  %scratch = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %global_cells = buffer.view %global[%interior] : buffer -> view<2xi8>
+  %generic_cells = buffer.view %generic[%interior] : buffer -> view<2xi8>
+  %local_cells = buffer.view %scratch[%interior] : buffer -> view<2xi8>
+  %local_storage = buffer.view %scratch[%origin] : buffer -> view<4xi8>
+  %tickets = buffer.view %output[%origin] : buffer -> view<2x2x66xi32>
+  %local_tickets = buffer.view %local_output[%origin] : buffer -> view<2x2x33xi32>
+  %summaries = buffer.view %summary[%origin] : buffer -> view<2x4xi8>
+  %first_lane = index.constant 0 : index
+  %leader = index.cmp eq, %lane, %first_lane : index
+  %initial = scalar.constant -32 : i8
+  %guard = scalar.constant 77 : i8
+  scf.if %leader {
+    view.store %guard, %local_storage[0] : i8, view<4xi8>
+    view.store %initial, %local_cells[0] : i8, view<2xi8>
+    view.store %initial, %local_cells[1] : i8, view<2xi8>
+    view.store %guard, %local_storage[3] : i8, view<4xi8>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %active_count = index.constant 65 : index
+  %active = index.cmp ult, %lane, %active_count : index
+  scf.if %active {
+    %pair_size = index.constant 2 : index
+    %cell = index.rem %lane, %pair_size : index
+    %global_ticket = func.call @claim_byte_ticket(%global_cells, %cell) : (view<2xi8>, index) -> (i32)
+    %generic_ticket = func.call @claim_byte_ticket(%generic_cells, %cell) : (view<2xi8>, index) -> (i32)
+    %local_ticket = func.call @claim_byte_ticket(%local_cells, %cell) : (view<2xi8>, index) -> (i32)
+    // Each stream assigns at most 66 global or 33 workgroup-local tickets.
+    %global_bounded = scalar.assume %global_ticket [range(%global_ticket, 0, 65)] : i32
+    %generic_bounded = scalar.assume %generic_ticket [range(%generic_ticket, 0, 65)] : i32
+    %local_bounded = scalar.assume %local_ticket [range(%local_ticket, 0, 32)] : i32
+    %global_slot = index.cast %global_bounded : i32 to index
+    %generic_slot = index.cast %generic_bounded : i32 to index
+    %local_slot = index.cast %local_bounded : i32 to index
+    view.store %global_ticket, %tickets[0, %cell, %global_slot] : i32, view<2x2x66xi32>
+    view.store %generic_ticket, %tickets[1, %cell, %generic_slot] : i32, view<2x2x66xi32>
+    view.store %local_ticket, %local_tickets[%group, %cell, %local_slot] : i32, view<2x2x33xi32>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  scf.if %leader {
+    %prefix = view.load %local_storage[0] : view<4xi8> -> i8
+    %first = view.load %local_cells[0] : view<2xi8> -> i8
+    %second = view.load %local_cells[1] : view<2xi8> -> i8
+    %suffix = view.load %local_storage[3] : view<4xi8> -> i8
+    view.store %prefix, %summaries[%group, 0] : i8, view<2x4xi8>
+    view.store %first, %summaries[%group, 1] : i8, view<2x4xi8>
+    view.store %second, %summaries[%group, 2] : i8, view<2x4xi8>
+    view.store %suffix, %summaries[%group, 3] : i8, view<2x4xi8>
+  }
+  kernel.return
+}
+
+check.case public @contended_byte_tickets {
+  %global = check.generate.fill value(-32) : tensor<4xi8>
+  %generic = check.generate.fill value(-32) : tensor<4xi8>
+  %output = check.generate.fill value(-1) : tensor<2x2x66xi32>
+  %local_output = check.generate.fill value(-1) : tensor<2x2x33xi32>
+  %summary = check.generate.fill value(-1) : tensor<2x4xi8>
+  kernel.launch @contended_byte_counters(%global, %generic, %output, %local_output, %summary) : (tensor<4xi8>, tensor<4xi8>, tensor<2x2x66xi32>, tensor<2x2x33xi32>, tensor<2x4xi8>)
+  %expected_first = check.generate.iota offset(0) step(1) : tensor<66xi32>
+  %expected_second = check.generate.iota offset(0) step(1) : tensor<64xi32>
+  %expected_unused = check.generate.fill value(-1) : tensor<2xi32>
+  %global_first = check.tensor.view %output offset(0) : tensor<2x2x66xi32> -> tensor<66xi32>
+  check.expect.bitwise actual(%global_first) expected(%expected_first) : tensor<66xi32>
+  %global_second = check.tensor.view %output offset(264) : tensor<2x2x66xi32> -> tensor<64xi32>
+  check.expect.bitwise actual(%global_second) expected(%expected_second) : tensor<64xi32>
+  %global_unused = check.tensor.view %output offset(520) : tensor<2x2x66xi32> -> tensor<2xi32>
+  check.expect.bitwise actual(%global_unused) expected(%expected_unused) : tensor<2xi32>
+  %global_cell_prefix = check.tensor.view %global offset(0) : tensor<4xi8> -> tensor<1xi8>
+  %global_expected_prefix = check.generate.fill value(-32) : tensor<1xi8>
+  check.expect.bitwise actual(%global_cell_prefix) expected(%global_expected_prefix) : tensor<1xi8>
+  %global_cell_first = check.tensor.view %global offset(1) : tensor<4xi8> -> tensor<1xi8>
+  %global_expected_first = check.generate.fill value(34) : tensor<1xi8>
+  check.expect.bitwise actual(%global_cell_first) expected(%global_expected_first) : tensor<1xi8>
+  %global_cell_second = check.tensor.view %global offset(2) : tensor<4xi8> -> tensor<1xi8>
+  %global_expected_second = check.generate.fill value(32) : tensor<1xi8>
+  check.expect.bitwise actual(%global_cell_second) expected(%global_expected_second) : tensor<1xi8>
+  %global_cell_suffix = check.tensor.view %global offset(3) : tensor<4xi8> -> tensor<1xi8>
+  %global_expected_suffix = check.generate.fill value(-32) : tensor<1xi8>
+  check.expect.bitwise actual(%global_cell_suffix) expected(%global_expected_suffix) : tensor<1xi8>
+  %generic_first = check.tensor.view %output offset(528) : tensor<2x2x66xi32> -> tensor<66xi32>
+  check.expect.bitwise actual(%generic_first) expected(%expected_first) : tensor<66xi32>
+  %generic_second = check.tensor.view %output offset(792) : tensor<2x2x66xi32> -> tensor<64xi32>
+  check.expect.bitwise actual(%generic_second) expected(%expected_second) : tensor<64xi32>
+  %generic_unused = check.tensor.view %output offset(1048) : tensor<2x2x66xi32> -> tensor<2xi32>
+  check.expect.bitwise actual(%generic_unused) expected(%expected_unused) : tensor<2xi32>
+  %generic_cell_prefix = check.tensor.view %generic offset(0) : tensor<4xi8> -> tensor<1xi8>
+  %generic_expected_prefix = check.generate.fill value(-32) : tensor<1xi8>
+  check.expect.bitwise actual(%generic_cell_prefix) expected(%generic_expected_prefix) : tensor<1xi8>
+  %generic_cell_first = check.tensor.view %generic offset(1) : tensor<4xi8> -> tensor<1xi8>
+  %generic_expected_first = check.generate.fill value(34) : tensor<1xi8>
+  check.expect.bitwise actual(%generic_cell_first) expected(%generic_expected_first) : tensor<1xi8>
+  %generic_cell_second = check.tensor.view %generic offset(2) : tensor<4xi8> -> tensor<1xi8>
+  %generic_expected_second = check.generate.fill value(32) : tensor<1xi8>
+  check.expect.bitwise actual(%generic_cell_second) expected(%generic_expected_second) : tensor<1xi8>
+  %generic_cell_suffix = check.tensor.view %generic offset(3) : tensor<4xi8> -> tensor<1xi8>
+  %generic_expected_suffix = check.generate.fill value(-32) : tensor<1xi8>
+  check.expect.bitwise actual(%generic_cell_suffix) expected(%generic_expected_suffix) : tensor<1xi8>
+  %expected_local_first = check.generate.iota offset(0) step(1) : tensor<33xi32>
+  %expected_local_second = check.generate.iota offset(0) step(1) : tensor<32xi32>
+  %expected_local_unused = check.generate.fill value(-1) : tensor<1xi32>
+  %front_first = check.tensor.view %local_output offset(0) : tensor<2x2x33xi32> -> tensor<33xi32>
+  check.expect.bitwise actual(%front_first) expected(%expected_local_first) : tensor<33xi32>
+  %front_second = check.tensor.view %local_output offset(132) : tensor<2x2x33xi32> -> tensor<32xi32>
+  check.expect.bitwise actual(%front_second) expected(%expected_local_second) : tensor<32xi32>
+  %front_unused = check.tensor.view %local_output offset(260) : tensor<2x2x33xi32> -> tensor<1xi32>
+  check.expect.bitwise actual(%front_unused) expected(%expected_local_unused) : tensor<1xi32>
+  %front_summary_prefix = check.tensor.view %summary offset(0) : tensor<2x4xi8> -> tensor<1xi8>
+  %front_expected_prefix = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%front_summary_prefix) expected(%front_expected_prefix) : tensor<1xi8>
+  %front_summary_first = check.tensor.view %summary offset(1) : tensor<2x4xi8> -> tensor<1xi8>
+  %front_expected_first = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%front_summary_first) expected(%front_expected_first) : tensor<1xi8>
+  %front_summary_second = check.tensor.view %summary offset(2) : tensor<2x4xi8> -> tensor<1xi8>
+  %front_expected_second = check.generate.fill value(0) : tensor<1xi8>
+  check.expect.bitwise actual(%front_summary_second) expected(%front_expected_second) : tensor<1xi8>
+  %front_summary_suffix = check.tensor.view %summary offset(3) : tensor<2x4xi8> -> tensor<1xi8>
+  %front_expected_suffix = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%front_summary_suffix) expected(%front_expected_suffix) : tensor<1xi8>
+  %back_first = check.tensor.view %local_output offset(264) : tensor<2x2x33xi32> -> tensor<33xi32>
+  check.expect.bitwise actual(%back_first) expected(%expected_local_first) : tensor<33xi32>
+  %back_second = check.tensor.view %local_output offset(396) : tensor<2x2x33xi32> -> tensor<32xi32>
+  check.expect.bitwise actual(%back_second) expected(%expected_local_second) : tensor<32xi32>
+  %back_unused = check.tensor.view %local_output offset(524) : tensor<2x2x33xi32> -> tensor<1xi32>
+  check.expect.bitwise actual(%back_unused) expected(%expected_local_unused) : tensor<1xi32>
+  %back_summary_prefix = check.tensor.view %summary offset(4) : tensor<2x4xi8> -> tensor<1xi8>
+  %back_expected_prefix = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%back_summary_prefix) expected(%back_expected_prefix) : tensor<1xi8>
+  %back_summary_first = check.tensor.view %summary offset(5) : tensor<2x4xi8> -> tensor<1xi8>
+  %back_expected_first = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%back_summary_first) expected(%back_expected_first) : tensor<1xi8>
+  %back_summary_second = check.tensor.view %summary offset(6) : tensor<2x4xi8> -> tensor<1xi8>
+  %back_expected_second = check.generate.fill value(0) : tensor<1xi8>
+  check.expect.bitwise actual(%back_summary_second) expected(%back_expected_second) : tensor<1xi8>
+  %back_summary_suffix = check.tensor.view %summary offset(7) : tensor<2x4xi8> -> tensor<1xi8>
+  %back_expected_suffix = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%back_summary_suffix) expected(%back_expected_suffix) : tensor<1xi8>
+  check.return
+}

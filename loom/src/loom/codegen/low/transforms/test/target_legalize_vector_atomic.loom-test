@@ -16,10 +16,10 @@ func.def target(@target) @atomic_attributes(%buffer: buffer, %value: vector<2xi6
 
 // ----
 CHECK-NOT: *vector.atomic.*
-CHECK: *view.atomic.reduce<addi>*%view[1, 2]*{cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system}*
-CHECK: *view.atomic.reduce<addi>*%view[1, 4]*{cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system}*
-CHECK: *view.atomic.rmw<xchgi>*%view[1, 2]*{cache_scope = device, cache_temporal = regular, ordering = seq_cst, scope = device}*
-CHECK: *view.atomic.rmw<xchgi>*%view[1, 4]*{cache_scope = device, cache_temporal = regular, ordering = seq_cst, scope = device}*
+CHECK: *view.atomic.cmpxchg*%view[1, 2]*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
+CHECK: *view.atomic.cmpxchg*%view[1, 4]*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
+CHECK: *view.atomic.cmpxchg*%view[1, 2]*{cache_scope = device, cache_temporal = regular, failure_ordering = seq_cst, scope = device, success_ordering = seq_cst}*
+CHECK: *view.atomic.cmpxchg*%view[1, 4]*{cache_scope = device, cache_temporal = regular, failure_ordering = seq_cst, scope = device, success_ordering = seq_cst}*
 CHECK: *%old = vector.insert*
 CHECK: *view.atomic.cmpxchg*%view[1, 2]*{cache_scope = device, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel}*
 CHECK: *view.atomic.cmpxchg*%view[1, 4]*{cache_scope = device, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel}*
@@ -40,20 +40,20 @@ func.def target(@target) @masked_atomic_attributes(%view: view<8xi32>, %value: v
 CHECK-NOT: *vector.atomic.*
 CHECK: *scf.if*
 CHECK: *vector.extract %offsets[0]*
-CHECK: *view.atomic.reduce<addi>*{cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system}*
+CHECK: *view.atomic.cmpxchg*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
 CHECK: *} else {
 CHECK: *scf.if*
 CHECK: *vector.extract %offsets[1]*
-CHECK: *view.atomic.reduce<addi>*{cache_scope = system, cache_temporal = non_temporal, ordering = release, scope = system}*
+CHECK: *view.atomic.cmpxchg*{cache_scope = system, cache_temporal = non_temporal, failure_ordering = relaxed, scope = system, success_ordering = release}*
 CHECK: *} else {
 CHECK: *scf.if*-> (i32)*
 CHECK: *vector.extract %offsets[0]*
-CHECK: *view.atomic.rmw<xchgi>*{cache_scope = device, cache_temporal = regular, ordering = acq_rel, scope = device}*
+CHECK: *view.atomic.cmpxchg*{cache_scope = device, cache_temporal = regular, failure_ordering = acquire, scope = device, success_ordering = acq_rel}*
 CHECK: *} else {
 CHECK: *vector.extract %passthrough[0]*
 CHECK: *scf.if*-> (i32)*
 CHECK: *vector.extract %offsets[1]*
-CHECK: *view.atomic.rmw<xchgi>*{cache_scope = device, cache_temporal = regular, ordering = acq_rel, scope = device}*
+CHECK: *view.atomic.cmpxchg*{cache_scope = device, cache_temporal = regular, failure_ordering = acquire, scope = device, success_ordering = acq_rel}*
 CHECK: *} else {
 CHECK: *vector.extract %passthrough[1]*
 CHECK: *%old = vector.insert*

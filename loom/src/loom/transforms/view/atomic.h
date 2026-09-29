@@ -32,6 +32,15 @@ iree_status_t loom_view_atomic_build_combine(
 iree_status_t loom_view_atomic_rewrite_private(loom_rewriter_t* rewriter,
                                                loom_op_t* op);
 
+// Rewrites a scalar atomic RMW/reduction to a bitwise compare-exchange loop.
+// The caller supplies an integer or floating-point payload occupying whole
+// bytes and establishes compare-exchange support for its width and memory
+// space. Arithmetic inherits the target's scalar mode; noftz callers establish
+// that it preserves subnormals. The returned old payload retains its exact
+// bits, including NaNs.
+iree_status_t loom_view_atomic_rewrite_cmpxchg(loom_rewriter_t* rewriter,
+                                               loom_op_t* op);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

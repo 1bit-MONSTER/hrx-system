@@ -37,5 +37,5 @@ func.def target(@target) @packed_reference_policy(%input: buffer, %value: vector
 
 // ----
 CHECK-NOT: *vector.atomic.*
-CHECK: *view.atomic.rmw<addf>*%view[0]*: f16, view<2xf16> -> f16
-CHECK: *view.atomic.rmw<addf>*%view[1]*: f16, view<2xf16> -> f16
+CHECK: *view.atomic.cmpxchg*%view[0]*: f16, view<2xf16> -> f16
+CHECK: *view.atomic.cmpxchg*%view[1]*: f16, view<2xf16> -> f16

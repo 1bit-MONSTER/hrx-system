@@ -181,3 +181,146 @@ iree_status_t loom_view_atomic_rewrite_private(loom_rewriter_t* rewriter,
   }
   return iree_ok_status();
 }
+
+// Compare-exchange failure cannot carry release semantics. This table maps a
+// verified atomic RMW ordering to the strongest valid failure ordering that
+// preserves its acquire semantics.
+static const loom_atomic_ordering_t kAtomicRmwFailureOrderings[] = {
+    [LOOM_ATOMIC_ORDERING_RELAXED] = LOOM_ATOMIC_ORDERING_RELAXED,
+    [LOOM_ATOMIC_ORDERING_ACQUIRE] = LOOM_ATOMIC_ORDERING_ACQUIRE,
+    [LOOM_ATOMIC_ORDERING_RELEASE] = LOOM_ATOMIC_ORDERING_RELAXED,
+    [LOOM_ATOMIC_ORDERING_ACQ_REL] = LOOM_ATOMIC_ORDERING_ACQUIRE,
+    [LOOM_ATOMIC_ORDERING_SEQ_CST] = LOOM_ATOMIC_ORDERING_SEQ_CST,
+};
+static_assert(IREE_ARRAYSIZE(kAtomicRmwFailureOrderings) ==
+                  LOOM_ATOMIC_ORDERING_COUNT_,
+              "all atomic RMW orderings must map to a failure ordering");
+
+static loom_view_atomic_cmpxchg_build_flags_t
+loom_view_atomic_cmpxchg_cache_policy(loom_cache_policy_t policy,
+                                      uint8_t* out_cache_scope,
+                                      uint8_t* out_cache_temporal) {
+  loom_view_atomic_cmpxchg_build_flags_t build_flags = 0;
+  const loom_attribute_t cache_scope = loom_cache_policy_scope(policy);
+  if (!loom_attr_is_absent(cache_scope)) {
+    build_flags |= LOOM_VIEW_ATOMIC_CMPXCHG_BUILD_FLAG_HAS_CACHE_SCOPE;
+    *out_cache_scope = loom_attr_as_enum(cache_scope);
+  }
+  const loom_attribute_t cache_temporal = loom_cache_policy_temporal(policy);
+  if (!loom_attr_is_absent(cache_temporal)) {
+    build_flags |= LOOM_VIEW_ATOMIC_CMPXCHG_BUILD_FLAG_HAS_CACHE_TEMPORAL;
+    *out_cache_temporal = loom_attr_as_enum(cache_temporal);
+  }
+  return build_flags;
+}
+
+static iree_status_t loom_view_atomic_build_cmpxchg_before_region(
+    loom_builder_t* builder, loom_op_t* loop, loom_memory_access_t access,
+    loom_type_t value_type, loom_atomic_kind_t kind,
+    loom_location_id_t location) {
+  const loom_value_id_t expected =
+      loom_region_entry_arg_id(loom_scf_while_before(loop), 0);
+  loom_value_id_t combined = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_view_atomic_build_combine(
+      builder, kind, expected, loom_memory_access_value(access), value_type,
+      location, &combined));
+
+  uint8_t cache_scope = 0;
+  uint8_t cache_temporal = 0;
+  const loom_view_atomic_cmpxchg_build_flags_t build_flags =
+      loom_view_atomic_cmpxchg_cache_policy(
+          loom_cache_policy_cast(builder->module, access.op), &cache_scope,
+          &cache_temporal);
+  const loom_value_slice_t indices = loom_memory_access_dynamic_indices(access);
+  const loom_attribute_t static_indices =
+      loom_memory_access_static_indices(access);
+  const loom_atomic_ordering_t success_ordering =
+      (loom_atomic_ordering_t)loom_attr_as_enum(
+          loom_memory_access_atomic_ordering(access));
+  loom_op_t* cmpxchg_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_view_atomic_cmpxchg_build(
+      builder, build_flags, expected, combined, loom_memory_access_view(access),
+      indices.values, indices.count, static_indices.i64_array,
+      static_indices.count, success_ordering,
+      kAtomicRmwFailureOrderings[success_ordering],
+      (loom_atomic_scope_t)loom_attr_as_enum(
+          loom_memory_access_atomic_scope(access)),
+      cache_scope, cache_temporal, value_type, location, &cmpxchg_op));
+  const loom_value_id_t observed = loom_view_atomic_cmpxchg_old(cmpxchg_op);
+
+  loom_value_id_t expected_bits = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_view_atomic_payload_bits(
+      builder, expected, value_type, location, &expected_bits));
+  loom_value_id_t observed_bits = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_view_atomic_payload_bits(
+      builder, observed, value_type, location, &observed_bits));
+  loom_op_t* retry_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_cmpi_build(
+      builder, LOOM_SCALAR_CMPI_PREDICATE_NE, observed_bits, expected_bits,
+      location, &retry_op));
+
+  loom_op_t* condition_op = NULL;
+  return loom_scf_condition_build(builder, loom_scalar_cmpi_result(retry_op),
+                                  &observed, 1, location, &condition_op);
+}
+
+static iree_status_t loom_view_atomic_build_cmpxchg_after_region(
+    loom_builder_t* builder, loom_op_t* loop, loom_location_id_t location) {
+  const loom_value_id_t observed =
+      loom_region_entry_arg_id(loom_scf_while_after(loop), 0);
+  loom_op_t* yield_op = NULL;
+  return loom_scf_yield_build(builder, &observed, 1, location, &yield_op);
+}
+
+iree_status_t loom_view_atomic_rewrite_cmpxchg(loom_rewriter_t* rewriter,
+                                               loom_op_t* op) {
+  const loom_memory_access_t access =
+      loom_memory_access_cast(rewriter->module, op);
+  const loom_atomic_kind_t kind = (loom_atomic_kind_t)loom_attr_as_enum(
+      loom_memory_access_atomic_kind(access));
+  const loom_type_t value_type = loom_module_value_type(
+      rewriter->module, loom_memory_access_value(access));
+  const loom_attribute_t zero =
+      loom_scalar_type_is_float(loom_type_element_type(value_type))
+          ? loom_attr_f64(0.0)
+          : loom_attr_i64(0);
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_op_t* zero_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_constant_build(
+      &rewriter->builder, zero, value_type, op->location, &zero_op));
+  const loom_value_id_t initial_expected = loom_scalar_constant_result(zero_op);
+  loom_op_t* loop = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_scf_while_build(&rewriter->builder, &initial_expected, 1,
+                           /*iter_args_types=*/NULL,
+                           /*result_types=*/NULL, /*result_count=*/1,
+                           /*tied_results=*/NULL,
+                           /*tied_result_count=*/0, op->location, &loop));
+
+  loom_builder_ip_t saved_ip = loom_builder_enter_region(
+      &rewriter->builder, loop, loom_scf_while_before(loop));
+  iree_status_t status = loom_view_atomic_build_cmpxchg_before_region(
+      &rewriter->builder, loop, access, value_type, kind, op->location);
+  loom_builder_restore(&rewriter->builder, saved_ip);
+  IREE_RETURN_IF_ERROR(status);
+
+  saved_ip = loom_builder_enter_region(&rewriter->builder, loop,
+                                       loom_scf_while_after(loop));
+  status = loom_view_atomic_build_cmpxchg_after_region(&rewriter->builder, loop,
+                                                       op->location);
+  loom_builder_restore(&rewriter->builder, saved_ip);
+  IREE_RETURN_IF_ERROR(status);
+
+  if (loom_view_atomic_rmw_isa(op)) {
+    const loom_value_id_t old_value = loom_scf_while_results(loop).values[0];
+    IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+        rewriter, op, &old_value, 1, value_checkpoint));
+    IREE_RETURN_IF_ERROR(
+        loom_rewriter_replace_all_uses_and_erase(rewriter, op, &old_value, 1));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, op));
+  }
+  return iree_ok_status();
+}

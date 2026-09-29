@@ -186,11 +186,7 @@ loom_cc_library(
     ::atomic
     iree::base
     loom::ir
-    loom::ops::atomic
-    loom::ops::cache
     loom::ops::op_defs
-    loom::ops::scalar
-    loom::ops::scf
     loom::ops::view
     loom::rewrite::rewriter
     loom::target::legalization
