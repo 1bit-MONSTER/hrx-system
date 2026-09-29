@@ -30,12 +30,11 @@ endif()
 iree_cc_test(
   NAME
     progress_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::progress_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::testing::gtest
     ${_progress_tests_platform_deps}
 )
@@ -44,12 +43,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     lifecycle_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::lifecycle_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::main
     iree::testing::gtest
 )
@@ -59,12 +57,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     nop_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::nop_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::main
     iree::testing::gtest
 )
@@ -74,12 +71,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     timer_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::timer_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::main
     iree::testing::gtest
 )
@@ -89,12 +85,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     resource_exhaustion_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::resource_exhaustion_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::main
     iree::testing::gtest
 )
@@ -104,12 +99,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     inline_lifecycle_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::lifecycle_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::inline_main
     iree::testing::gtest
 )
@@ -119,12 +113,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     inline_nop_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::nop_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::inline_main
     iree::testing::gtest
 )
@@ -134,12 +127,11 @@ if(IREE_ARCH STREQUAL "wasm_32")
 iree_cc_test(
   NAME
     inline_progress_tests
-  SRCS
-    "${PROJECT_SOURCE_DIR}/runtime/src/iree/async/cts/util/test_main.cc"
   DEPS
     ::backends
     iree::async::cts::core::progress_test
     iree::async::cts::util::registry
+    iree::async::cts::util::test_main
     iree::async::platform::js::inline_main
     iree::testing::gtest
 )

@@ -18,11 +18,23 @@ package(
     licenses = ["notice"],
 )
 
-# Main entry point for CTS test binaries and testdata generation template.
+# Testdata generation template.
 exports_files([
-    "test_main.cc",
     "testdata_target.cc.tpl",
 ])
+
+# Shared main entry point for composed CTS test binaries.
+iree_runtime_cc_library(
+    name = "test_main",
+    testonly = True,
+    srcs = ["test_main.cc"],
+    deps = [
+        ":registry",
+        ":test_base",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
 
 # CTS registry for link-time test composition.
 # Test suites and backends register at static init time; main() calls

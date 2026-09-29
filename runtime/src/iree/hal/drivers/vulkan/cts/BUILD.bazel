@@ -95,68 +95,66 @@ iree_c_embed_data(
 
 iree_runtime_cc_test(
     name = "core_driver_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/core:driver_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "core_semaphore_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/core:semaphore_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "core_semaphore_thread_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/core:semaphore_thread_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "buffer_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/buffer:all_tests",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "allocator_guardrail_tests",
-    srcs = [
-        "allocator_guardrail_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["allocator_guardrail_test.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/hal/memory:passthrough_pool",
         "//runtime/src/iree/testing:gtest",
     ],
@@ -164,10 +162,7 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "allocator_virtual_memory_tests",
-    srcs = [
-        "allocator_virtual_memory_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["allocator_virtual_memory_test.cc"],
     deps = [
         ":backends",
         ":bda_spirv_test_spv",
@@ -175,16 +170,14 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "profiling_tests",
-    srcs = [
-        "profiling_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["profiling_test.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
@@ -192,6 +185,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/util:profile_test_util",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/hal/memory:passthrough_pool",
         "//runtime/src/iree/testing:gtest",
     ],
@@ -199,20 +193,19 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "command_buffer_basic_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/command_buffer:basic_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "command_buffer_atomic_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         ":replay_cache_backends",
@@ -220,81 +213,79 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/command_buffer:atomic_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "command_buffer_fill_buffer_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/command_buffer:fill_buffer_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "command_buffer_update_buffer_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/command_buffer:update_buffer_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "command_buffer_copy_buffer_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/command_buffer:copy_buffer_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "command_buffer_transient_buffer_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/command_buffer:transient_buffer_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "command_buffer_stress_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/command_buffer:stress_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "bda_dispatch_validation_tests",
-    srcs = [
-        "bda_dispatch_validation_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["bda_dispatch_validation_test.cc"],
     tags = [
         "vulkan_uses_vk_khr_buffer_device_address",
     ],
@@ -305,16 +296,14 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "bda_spirv_tests",
-    srcs = [
-        "bda_spirv_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["bda_spirv_test.cc"],
     tags = [
         "vulkan_uses_vk_khr_buffer_device_address",
     ],
@@ -327,6 +316,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/util:profile_test_util",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/hal/drivers/vulkan",
         "//runtime/src/iree/hal/drivers/vulkan:headers",
         "//runtime/src/iree/testing:gtest",
@@ -335,7 +325,6 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "file_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         ":vulkan_file_test",
@@ -343,42 +332,40 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/file:file_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/queue:queue_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_alloca_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/queue:queue_alloca_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_atomic_tests",
-    srcs = [
-        "atomic_submission_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["atomic_submission_test.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
@@ -386,26 +373,26 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/util:atomic_test_util",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_host_call_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/queue:queue_host_call_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_transfer_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
@@ -413,35 +400,34 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/util:profile_test_util",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "queue_descriptor_cache_tests",
-    srcs = [
-        "queue_descriptor_cache_test.cc",
-        "//runtime/src/iree/hal/cts/util:test_main.cc",
-    ],
+    srcs = ["queue_descriptor_cache_test.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "semaphore_submission_tests",
-    srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal/cts/queue:semaphore_submission_test",
         "//runtime/src/iree/hal/cts/util:registry",
         "//runtime/src/iree/hal/cts/util:test_base",
+        "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )

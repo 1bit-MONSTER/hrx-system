@@ -17,12 +17,10 @@
 // Example binary composition (BUILD.bazel):
 //   iree_runtime_cc_test(
 //       name = "core_tests",
-//       srcs = ["//runtime/src/iree/hal/cts/util:test_main.cc"],
 //       deps = [
 //           ":backends",
 //           "//runtime/src/iree/hal/cts/core:all_tests",
-//           "//runtime/src/iree/hal/cts/util:registry",
-//           "//runtime/src/iree/testing:gtest",
+//           "//runtime/src/iree/hal/cts/util:test_main",
 //       ],
 //   )
 
