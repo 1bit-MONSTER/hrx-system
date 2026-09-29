@@ -4,16 +4,21 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Tests for AMDGPU arithmetic contract source tables."""
+"""Tests for AMDGPU contract source tables."""
 
 from __future__ import annotations
 
+from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
 from loom.target.arch.amdgpu.contracts.arithmetic import (
     AMDGPU_ARITHMETIC_CONTRACT_DIALECT_OPS,
     AMDGPU_ARITHMETIC_CONTRACT_FRAGMENT,
+)
+from loom.target.arch.amdgpu.contracts.integer import (
+    AMDGPU_INTEGER_CONTRACT_DIALECT_OPS,
+    AMDGPU_INTEGER_CONTRACT_FRAGMENT,
 )
 from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
@@ -30,6 +35,13 @@ def _compiled_arithmetic_rules() -> CompiledLowerRuleSet:
     return compile_lower_rule_set(
         AMDGPU_ARITHMETIC_CONTRACT_FRAGMENT,
         dialect_ops=AMDGPU_ARITHMETIC_CONTRACT_DIALECT_OPS,
+    )
+
+
+def _compiled_integer_rules() -> CompiledLowerRuleSet:
+    return compile_lower_rule_set(
+        AMDGPU_INTEGER_CONTRACT_FRAGMENT,
+        dialect_ops=AMDGPU_INTEGER_CONTRACT_DIALECT_OPS,
     )
 
 
@@ -80,6 +92,25 @@ def _descriptor_sequence_positions(
         if descriptor_keys:
             positions.setdefault(descriptor_keys, ordinal)
     return positions
+
+
+def test_index_madd_rules_accept_wrapping_carrier_results() -> None:
+    for compiled in (_compiled_arithmetic_rules(), _compiled_integer_rules()):
+        for rule in _rules_for_source_op(compiled, index.index_madd):
+            guards = compiled.guards[
+                rule.guard_start : rule.guard_start + rule.guard_count
+            ]
+            for guard in guards:
+                if guard.kind not in (
+                    GuardKind.VALUE_SIGNED_BIT_COUNT,
+                    GuardKind.VALUE_UNSIGNED_BIT_COUNT,
+                ):
+                    continue
+                value_ref = compiled.value_refs[guard.value_ref_index]
+                assert not (
+                    value_ref.kind == SourceValueKind.RESULT
+                    and value_ref.name == "result"
+                )
 
 
 def test_unsigned_bitfield_extract_rules_try_native_bfe_before_shift_mask() -> None:

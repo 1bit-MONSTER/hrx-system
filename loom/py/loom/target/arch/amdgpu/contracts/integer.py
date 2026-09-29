@@ -1495,11 +1495,6 @@ def _index_madd_sgpr_rule() -> DescriptorRule:
             Guard.value_type("b", _INDEX),
             Guard.value_type("c", _INDEX),
             Guard.value_type("result", _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class("a", "amdgpu.sgpr"),
             Guard.low_value_register_class("b", "amdgpu.sgpr"),
             Guard.low_value_register_class("c", "amdgpu.sgpr"),
