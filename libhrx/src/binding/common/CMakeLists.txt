@@ -116,6 +116,7 @@ iree_cc_library(
     "module.h"
     "occupancy.h"
     "peer.h"
+    "registry.h"
     "stream.h"
     "stream_value.h"
     "tls.h"
