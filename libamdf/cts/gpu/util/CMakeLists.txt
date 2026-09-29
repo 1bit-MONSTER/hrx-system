@@ -44,12 +44,32 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    command_queue
+  HDRS
+    "command_queue.h"
+  SRCS
+    "command_queue.cc"
+  DEPS
+    ::user_queue
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::gpu_device_fixture
+    libamdf::cts::util::mapped_memory
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     command_fixture
   HDRS
     "command_fixture.h"
   SRCS
     "command_fixture.cc"
   DEPS
+    ::command_queue
     ::memory
     ::user_queue
     amdf::headers

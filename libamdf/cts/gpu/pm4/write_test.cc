@@ -14,18 +14,18 @@
 namespace {
 
 class Pm4WriteTest : public Pm4CommandTest,
-                     public ::testing::WithParamInterface<size_t> {};
+                     public ::testing::WithParamInterface<size_t> {
+ protected:
+  Pm4WriteTest()
+      : Pm4CommandTest(0, AMDF_QUEUE_PUBLICATION_MODE_USER |
+                              AMDF_QUEUE_PUBLICATION_MODE_KERNEL) {}
+};
 
 TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
   constexpr size_t kWordCount = 4096 / sizeof(uint32_t);
   constexpr size_t kFirstWord = 15;
   const size_t value_count = GetParam();
   std::array<uint32_t, 65> values;
-  for (size_t i = 0; i < values.size(); ++i) {
-    values[i] = i == 0   ? 0
-                : i == 1 ? UINT32_MAX
-                         : 0x13579bdfu + static_cast<uint32_t>(i) * 0x10203041u;
-  }
   GpuMemory* target = nullptr;
   GpuMemory* completion = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
@@ -34,34 +34,49 @@ TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
   auto* output = static_cast<uint32_t*>(target->host.pointer);
   *static_cast<uint32_t*>(completion->host.pointer) = 0;
-  for (size_t i = 0; i < kWordCount; ++i) {
-    output[i] = 0xa5a50000u ^ static_cast<uint32_t>(i);
-  }
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 512u);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
-  commands.SystemBarrier();
-  commands.WriteData(target->device_address + kFirstWord * sizeof(uint32_t),
-                     values.data(), value_count);
-  commands.SystemBarrier();
-  commands.WriteData32(completion->device_address, 1);
-  commands.PadToEightWords();
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
-  // Capture every observation before diagnostics or consumption can intervene.
-  std::array<uint32_t, kWordCount> observed_output;
-  std::memcpy(observed_output.data(), output, sizeof(observed_output));
-  for (size_t i = 0; i < kWordCount; ++i) {
-    const uint32_t expected = i >= kFirstWord && i < kFirstWord + value_count
-                                  ? values[i - kFirstWord]
-                                  : 0xa5a50000u ^ static_cast<uint32_t>(i);
-    EXPECT_EQ(observed_output[i], expected) << i;
+  ASSERT_GE(queue->words().size_bytes(), 512u);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
+  for (uint32_t epoch = 0; epoch < 2; ++epoch) {
+    for (size_t i = 0; i < values.size(); ++i) {
+      const uint32_t value =
+          i == 0   ? 0
+          : i == 1 ? UINT32_MAX
+                   : 0x13579bdfu + static_cast<uint32_t>(i) * 0x10203041u;
+      values[i] = value ^ (epoch * 0x7139b25du);
+    }
+    for (size_t i = 0; i < kWordCount; ++i) {
+      output[i] = 0xa5a50000u ^ static_cast<uint32_t>(i) ^ epoch;
+    }
+    commands.SystemBarrier();
+    commands.WriteData(target->device_address + kFirstWord * sizeof(uint32_t),
+                       values.data(), value_count);
+    commands.SystemBarrier();
+    commands.WriteData32(completion->device_address, epoch + 1);
+    commands.PadToEightWords();
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
+    GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
+    // Capture every observation before diagnostics or retirement intervene.
+    std::array<uint32_t, kWordCount> observed_output;
+    std::memcpy(observed_output.data(), output, sizeof(observed_output));
+    for (size_t i = 0; i < kWordCount; ++i) {
+      const uint32_t expected =
+          i >= kFirstWord && i < kFirstWord + value_count
+              ? values[i - kFirstWord]
+              : 0xa5a50000u ^ static_cast<uint32_t>(i) ^ epoch;
+      EXPECT_EQ(observed_output[i], expected)
+          << "epoch=" << epoch << " word=" << i;
+    }
+    // Retire the accepted command range even after a payload mismatch. The
+    // next publication appends commands rather than replaying the first range.
+    ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
+    if (HasFailure()) {
+      return;
+    }
   }
-  // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
 INSTANTIATE_TEST_SUITE_P(PayloadWords, Pm4WriteTest,

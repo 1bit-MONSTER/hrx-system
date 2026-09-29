@@ -30,11 +30,25 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "command_queue",
+    testonly = True,
+    srcs = ["command_queue.cc"],
+    hdrs = ["command_queue.h"],
+    deps = [
+        ":user_queue",
+        "//libamdf/cts/gpu:gpu_device_fixture",
+        "//libamdf/cts/util:mapped_memory",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
     name = "command_fixture",
     testonly = True,
     srcs = ["command_fixture.cc"],
     hdrs = ["command_fixture.h"],
     deps = [
+        ":command_queue",
         ":memory",
         ":user_queue",
         "//libamdf/cts/gpu:gpu_device_fixture",

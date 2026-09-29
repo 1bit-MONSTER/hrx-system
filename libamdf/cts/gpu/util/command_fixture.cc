@@ -40,12 +40,7 @@ amdf_status_t GpuCommandTest::FindQueueFamily(
             requirements.cache_operations &&
         (family.cache_transition_kinds & requirements.cache_transition_kinds) ==
             requirements.cache_transition_kinds &&
-        (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_USER) != 0 &&
-        (family.user_queue_capabilities &
-         AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER) != 0 &&
-        (family.producer_modes & AMDF_QUEUE_PRODUCER_MODE_BIT_SINGLE) != 0 &&
-        (family.priority_capabilities &
-         AMDF_QUEUE_PRIORITY_CAPABILITY_NORMAL) != 0) {
+        SelectGpuHostPublication(family, requirements.publication_modes) != 0) {
       *out_family = family;
       matches = true;
       break;
@@ -104,11 +99,29 @@ void GpuCommandTest::CreateQueue(const amdf_queue_family_info_t& family,
   *out_queue = &queue;
 }
 
+void GpuCommandTest::CreateQueue(GpuCommandQueue** out_queue) {
+  CreateQueue(family_, out_queue);
+}
+
+void GpuCommandTest::CreateQueue(const amdf_queue_family_info_t& family,
+                                 GpuCommandQueue** out_queue) {
+  const auto publication =
+      SelectGpuHostPublication(family, requirements_.publication_modes);
+  ASSERT_NE(publication, 0u);
+  auto& queue = command_queues_.emplace_back();
+  ASSERT_NO_FATAL_FAILURE(queue.Initialize(api_, gpu_api_, device_,
+                                           system_scope_, family, publication));
+  *out_queue = &queue;
+}
+
 void GpuCommandTest::TearDown() {
   // Stop after any failure: a consumed queue handle alone does not authorize
   // releasing its backing or unloading the provider. The outer cache retains
   // native parents when their children cannot be removed.
   for (auto& queue : queues_) {
+    ASSERT_TRUE(queue.Release(api_));
+  }
+  for (auto& queue : command_queues_) {
     ASSERT_TRUE(queue.Release(api_));
   }
   for (auto& memory : memories_) {
