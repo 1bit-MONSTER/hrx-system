@@ -392,15 +392,13 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
         {product.required_workgroup_size[0], product.required_workgroup_size[1],
          product.required_workgroup_size[2]}};
     const uint64_t entry_offset = product.entry_byte_offset;
-    const uint64_t image_extent =
-        ((uint64_t{image.byte_length} + 63) & ~UINT64_C(63)) + 192;
-    const uint64_t prefetch_extent =
-        uint64_t{entry_offset} + ((program.resource3 >> 4) & 63u) * 128u;
     uint64_t code_address = 0;
     amdf_cache_transition_t release = {};
     ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
-        std::max(image_extent, prefetch_extent), code_, code_address, release));
+        pm4_profile_->CodeByteLength(
+            image.byte_length, product.entry_byte_offset, program.resource3),
+        code_, code_address, release));
     ASSERT_EQ(code_address % 256, 0u);
     ASSERT_LE(code_address, (UINT64_C(1) << 48) - code_.info.byte_length);
     program.entry_address = code_address + entry_offset;
@@ -484,7 +482,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
         api_, gpu_api_, device_, system_scope_, gpu_family_, publication_mode_,
         reinterpret_cast<uintptr_t>(completion_.host.pointer),
         completion_address));
-    Pm4CommandWriter writer(gpu_commands_.data());
+    Pm4CommandWriter writer(gpu_commands_.data(), *pm4_profile_);
     writer.SystemBarrier();
     writer.BindCompute(program, argument_address);
     writer.DispatchWave32(1, 1, 1);

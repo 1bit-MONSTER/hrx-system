@@ -86,7 +86,7 @@ TEST_P(Pm4WaitTest, AlreadySatisfiedOperandAllowsFollowingWork) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->host.ring_byte_length, 256u);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   commands.SystemBarrier();
   EmitWait(commands, control->device_address);
   commands.CopyData64(control->device_address, control->device_address + 64);
@@ -129,7 +129,7 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
   ASSERT_GE(producer->host.ring_byte_length, 256u);
   ASSERT_GT(consumer->host.ring_byte_length, 256u);
   Pm4CommandWriter produce(
-      reinterpret_cast<uint32_t*>(producer->host.ring_address));
+      reinterpret_cast<uint32_t*>(producer->host.ring_address), *pm4_profile_);
   produce.SystemBarrier();
   produce.CopyData64(source->device_address + 64, intermediate->device_address);
   produce.SystemBarrier();
@@ -143,7 +143,7 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
   produce.PadToEightWords();
 
   Pm4CommandWriter consume(
-      reinterpret_cast<uint32_t*>(consumer->host.ring_address));
+      reinterpret_cast<uint32_t*>(consumer->host.ring_address), *pm4_profile_);
   consume.SystemBarrier();
   consume.WriteData32(control->device_address + 64, 1);
   EmitWait(consume, control->device_address);

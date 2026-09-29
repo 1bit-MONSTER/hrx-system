@@ -79,7 +79,7 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   std::memcpy(expected_code.data(), kernel.executable.words,
               kernel.executable.byte_length);
   std::array<uint32_t, kPageWordCount> expected_indirect = {};
-  Pm4CommandWriter indirect(expected_indirect.data());
+  Pm4CommandWriter indirect(expected_indirect.data(), *pm4_profile_);
   indirect.BindCompute(program, arguments->device_address);
   indirect.DispatchWave32(kGridSize, 1, 1);
   // The complete nine-DWORD NOP pads the 31 active words to 40. Retain the
@@ -109,7 +109,7 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   std::vector<uint32_t> observed_ring(ring_word_count);
   std::array<uint64_t, kCounts.size()> frontiers;
   std::array<size_t, kCounts.size()> call_word_offsets;
-  Pm4CommandWriter commands(expected_ring.data());
+  Pm4CommandWriter commands(expected_ring.data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     commands.SystemBarrier();
     call_word_offsets[epoch] = commands.word_count();
@@ -352,7 +352,7 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
     // are initialized independently and remain unchanged across both uses.
     std::memcpy(expected_arguments.data() + epoch * kArgumentByteStride,
                 &payload, kernel.arguments.byte_length);
-    Pm4CommandWriter indirect(indirect_images[epoch].data());
+    Pm4CommandWriter indirect(indirect_images[epoch].data(), *pm4_profile_);
     indirect.BindCompute(
         program, arguments->device_address + epoch * kArgumentByteStride);
     indirect.DispatchWave32(kGridSizes[epoch], 1, 1);
@@ -389,7 +389,7 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
   std::vector<uint32_t> observed_ring(ring_word_count);
   std::array<uint64_t, kGridSizes.size()> frontiers;
   std::array<size_t, kGridSizes.size()> call_word_offsets;
-  Pm4CommandWriter commands(expected_ring.data());
+  Pm4CommandWriter commands(expected_ring.data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kGridSizes.size(); ++epoch) {
     commands.SystemBarrier();
     call_word_offsets[epoch] = commands.word_count();

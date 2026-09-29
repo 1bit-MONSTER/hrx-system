@@ -23,6 +23,7 @@ amdf_cc_library(
     deps = [
         "//libamdf/cts/gpu:gpu_device_fixture",
         "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/gpu/pm4/encoding:profile",
         "//libamdf/cts/util:mapped_memory",
         "//libamdf/cts/xdna/util:execution",
         "//third_party:google_test",
@@ -45,7 +46,7 @@ amdf_cc_library(
     target_compatible_with = ["@platforms//cpu:x86_64"],
     deps = [
         "//libamdf/cts/gpu:gpu_device_fixture",
-        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/gpu/pm4/encoding:memory_commands",
         "//libamdf/cts/gpu/util:user_queue",
         "//libamdf/cts/util:mapped_memory",
         "//third_party:google_test",

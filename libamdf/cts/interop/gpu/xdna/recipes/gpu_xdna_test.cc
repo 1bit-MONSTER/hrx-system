@@ -131,19 +131,14 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
         source.group_segment_byte_length,
         {source.required_workgroup_size[0], source.required_workgroup_size[1],
          source.required_workgroup_size[2]}};
-    // Preserve the full image and PAL's three additional 64-byte fetch lines.
-    const uint64_t image_extent =
-        ((uint64_t{source.executable.byte_length} + 63u) & ~UINT64_C(63)) +
-        192u;
-    const uint64_t prefetch_extent =
-        uint64_t{source.entry_byte_offset} +
-        ((source.program.resource3 >> 4) & 63u) * 128u;
     uint64_t code_address = 0;
     amdf_cache_transition_t code_release = {};
-    ASSERT_NO_FATAL_FAILURE(
-        CreateShaderMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
-                           std::max(image_extent, prefetch_extent),
-                           shader_.code, code_address, code_release));
+    ASSERT_NO_FATAL_FAILURE(CreateShaderMemory(
+        AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
+        pm4_profile_->CodeByteLength(source.executable.byte_length,
+                                     source.entry_byte_offset,
+                                     source.program.resource3),
+        shader_.code, code_address, code_release));
     ASSERT_EQ(code_address % 256, 0u);
     ASSERT_LE(code_address,
               (UINT64_C(1) << 48) - shader_.code.info.byte_length);
@@ -306,7 +301,7 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
     }
 
     std::array<uint32_t, 308> ingress_words = {};
-    Pm4CommandWriter ingress(ingress_words.data());
+    Pm4CommandWriter ingress(ingress_words.data(), *pm4_profile_);
     ingress.SystemBarrier();
     for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
       if (gpu_operation_ == GpuOperation::kShader && ordinal < 2) {
@@ -326,7 +321,7 @@ class GpuXdnaRecipeTest : public GpuXdnaDeviceFixture {
     ASSERT_EQ(ingress.word_count(),
               gpu_operation_ == GpuOperation::kShader ? 178u : 308u);
     std::array<uint32_t, 925> egress_words = {};
-    Pm4CommandWriter egress(egress_words.data());
+    Pm4CommandWriter egress(egress_words.data(), *pm4_profile_);
     egress.SystemBarrier();
     if (gpu_operation_ == GpuOperation::kShader) {
       egress.BindCompute(shader_.program,

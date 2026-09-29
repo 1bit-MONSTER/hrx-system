@@ -10,9 +10,10 @@
 namespace {
 
 EncodedUserQueueStream EncodeCopyStream(
+    const amdf_gpu_endpoint_info_t& target,
     amdf_queue_format_features_t /*features*/, uint32_t* words,
     uint64_t source_address, uint64_t target_address) {
-  Pm4CommandWriter commands(words);
+  Pm4CommandWriter commands(words, *Pm4CommandProfile::Find(target));
   commands.SystemBarrier();
   for (size_t i = 0; i < kUserQueueMemoryElementCount; ++i) {
     commands.CopyData32(source_address + i * sizeof(uint32_t),
@@ -49,7 +50,7 @@ class Pm4DeviceLifetimeTest : public UserQueueMemoryTest {
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    if (!Pm4CommandWriter::SupportsTarget(info)) {
+    if (!Pm4CommandProfile::Find(info)) {
       *out_matches = false;
       return AMDF_STATUS_OK;
     }

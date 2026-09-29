@@ -123,7 +123,8 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
       }
       Pm4CommandWriter produce(
           reinterpret_cast<uint32_t*>(producer->host.ring_address) +
-          producer_index);
+              producer_index,
+          *pm4_profile_);
       produce.SystemBarrier();  // ingress.acquire.
       for (size_t i = 0; i < kWordCount; ++i) {
         produce.CopyData32(source->device_address + i * sizeof(uint32_t),
@@ -136,7 +137,8 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
 
       Pm4CommandWriter consume(
           reinterpret_cast<uint32_t*>(consumer->host.ring_address) +
-          consumer_index);
+              consumer_index,
+          *pm4_profile_);
       consume.WaitMemory32(control->device_address, epoch);
       consume.SystemBarrier();  // handoff.acquire, after the ordering edge.
       for (size_t i = 0; i < kWordCount; ++i) {

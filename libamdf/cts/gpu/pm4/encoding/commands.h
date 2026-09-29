@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "amdf/gpu.h"
+#include "libamdf/cts/gpu/pm4/encoding/profile.h"
 
 // Ordinary memory comparisons used by the CTS. These are the MEC
 // WAIT_REG_MEM/WAIT_REG_MEM64 function values, not host comparison opcodes.
@@ -21,15 +21,14 @@ enum class Pm4MemoryComparison : uint32_t {
   kGreaterOrEqual = 5,
 };
 
-// Audited gfx1150/gfx1151 wave32 program with no scratch or hidden runtime
-// inputs. The caller supplies only a kernarg pointer; hardware supplies
-// group/local IDs.
+// Compiled RDNA wave32 program with no scratch or hidden runtime inputs. The
+// caller supplies only a kernarg pointer; hardware supplies group/local IDs.
 struct Pm4ComputeProgram {
   // GPU entry address, aligned to 256 bytes and below the 48-bit program limit.
   uint64_t entry_address;
   // Compiler COMPUTE_PGM_RSRC1, without runtime instrumentation overrides.
   uint32_t resource1;
-  // Immutable compiler COMPUTE_PGM_RSRC2, enabling two user SGPRs and group X.
+  // Immutable compiler COMPUTE_PGM_RSRC2 with its user SGPR and ID enables.
   // Binding replaces its descriptor-zero LDS field with the allocation below.
   uint32_t resource2;
   // Compiler COMPUTE_PGM_RSRC3, including its backed instruction-prefetch
@@ -41,18 +40,15 @@ struct Pm4ComputeProgram {
   uint32_t workgroup_size[3];
 };
 
-// Encodes the CTS GFX11.0/GFX11.5 memory recipe using PM4 format version 1.
+// Encodes the selected RDNA compute recipe using PM4 format version 1.
 // Native callers admit the target and corresponding packet, transfer and
 // cache-control requirements before constructing a stream. Callers supply
 // sufficient storage and addresses aligned to four bytes for 32-bit operations
 // and eight bytes for 64-bit operations.
 class Pm4CommandWriter {
  public:
-  // Selects the source-supported target families for this fixed CTS recipe.
-  // Queue capabilities and native behavioral qualification remain separate.
-  static bool SupportsTarget(const amdf_gpu_endpoint_info_t& info);
-
-  explicit Pm4CommandWriter(uint32_t* words) : words_(words) {}
+  Pm4CommandWriter(uint32_t* words, const Pm4CommandProfile& profile)
+      : words_(words), profile_(profile) {}
 
   void SystemBarrier();
   // Releases preceding ordinary compute-buffer stores to coherent SYSTEM
@@ -95,13 +91,13 @@ class Pm4CommandWriter {
   // a subsequent barrier and completion establish visibility and retirement.
   void AtomicStore32(uint64_t target_address, uint32_t value);
   void AtomicStore64(uint64_t target_address, uint64_t value);
-  // GFX11.5.1 MEC incrementing L2 copy with RAW_WAIT and write confirmation.
+  // MEC incrementing L2 copy with RAW_WAIT and write confirmation.
   // The caller supplies a nonzero byte count within the native 26-bit field
   // and the selected transfer policy, then joins final use with WaitDma and
   // explicit cache/marker work. The CTS currently selects 1024 bytes.
   void DmaCopyL2(uint64_t source_address, uint64_t target_address,
                  uint32_t byte_length);
-  // RADV's GFX11 MEC zero-byte DMA drain, with all reserved fields clear.
+  // MEC zero-byte DMA drain, with all reserved fields clear.
   // This does not perform cache maintenance or publish a host marker.
   void WaitDma();
   // Confirmed, incrementing TC/L2 writes. The payload has 1..16381 DWORDs.
@@ -133,6 +129,8 @@ class Pm4CommandWriter {
 
   // Caller-owned command storage, large enough for the known test sequence.
   uint32_t* words_;
+  // Borrowed immutable encoding facts selected before stream construction.
+  const Pm4CommandProfile& profile_;
   // Number of complete command words emitted into words_.
   size_t word_count_ = 0;
 };

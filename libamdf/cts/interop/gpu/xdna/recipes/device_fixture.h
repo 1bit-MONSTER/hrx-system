@@ -14,6 +14,7 @@
 
 #include "amdf/xdna.h"
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
+#include "libamdf/cts/gpu/pm4/encoding/profile.h"
 #include "util/mapped_memory.h"
 
 enum class GpuXdnaSite { kHost, kGpu, kXdna };
@@ -53,9 +54,6 @@ inline constexpr std::array<GpuXdnaEdge, 2> kGpuXdnaStagingEdges = {{
 class GpuXdnaDeviceFixture : public GpuDeviceFixture {
  protected:
   explicit GpuXdnaDeviceFixture(amdf_queue_roles_t required_gpu_roles);
-
-  // Filters the native GPU target before activating its cached device.
-  virtual bool SupportsGpuTarget(const amdf_gpu_endpoint_info_t& target) const;
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
@@ -98,6 +96,8 @@ class GpuXdnaDeviceFixture : public GpuDeviceFixture {
   amdf_gpu_endpoint_info_t gpu_endpoint_info_ = {};
   // Native PM4 family chosen before cached GPU activation.
   amdf_queue_family_info_t gpu_family_ = {};
+  // Static compute encoding selected before native GPU activation.
+  const Pm4CommandProfile* pm4_profile_ = nullptr;
   // One admitted transport, never switched after a native failure.
   amdf_queue_publication_modes_t publication_mode_ = 0;
   // XDNA API table borrowed from the same provider instance.

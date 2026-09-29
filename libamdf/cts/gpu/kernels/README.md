@@ -141,11 +141,22 @@ metadata, memory publication and completion ownership.
 
 ## PM4 publication and observation
 
-The gfx1151 cases copy each complete image into a page-rounded coherent
+The PM4 cases copy the selected target's image into a page-rounded coherent
 SYSTEM allocation with READ|EXECUTE access. The allocation covers both the
 entry-prefetch extent and fetch padding after the complete compiler image.
-Explicit CS_PARTIAL_FLUSH and whole-cache GCR operations publish
-code/arguments/data and release completed shader writes.
+The [command profile](../pm4/encoding/profile.h) owns the native register and
+cache fields used by the writer and the code allocation:
+
+| Compiler target family | Compute/cache representation |
+| --- | --- |
+| GFX11.0, GFX11.5, GFX11.7 | Metadata/shared-L1 invalidation and six-bit instruction prefetch. |
+| GFX12.0 | Reserved metadata/shared-L1 actions remain clear; eight-bit prefetch. |
+| GFX12.5 | GC12.1 register placement, explicit GL2 scope and forward vector-to-GL2 writeback. |
+
+Explicit CS_PARTIAL_FLUSH and the selected whole-cache GCR operations publish
+code/arguments/data and release completed shader writes. The hardware
+[cache field reference](../../../../docs/reference/amd/gpu/pm4/cache.md)
+details the generation differences.
 A separate confirmed completion marker precedes the independent full-buffer
 oracle; ring consumption is observed afterward, before reusing data or arguments.
 Every queue is destroyed before referenced allocations. Two completed epochs

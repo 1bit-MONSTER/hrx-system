@@ -19,11 +19,6 @@ uint32_t MakeHeader(uint32_t opcode, size_t word_count) {
 
 }  // namespace
 
-bool Pm4CommandWriter::SupportsTarget(const amdf_gpu_endpoint_info_t& info) {
-  return info.gfx_ip.major == 11 &&
-         (info.gfx_ip.minor == 0 || info.gfx_ip.minor == 5);
-}
-
 void Pm4CommandWriter::SetComputeRegisters(uint32_t first_register,
                                            const uint32_t* values,
                                            size_t value_count) {
@@ -49,7 +44,7 @@ void Pm4CommandWriter::BindCompute(const Pm4ComputeProgram& program,
       (program.resource2 & ~UINT32_C(0x00ff8000)) | (lds_units << 15),
   };
   SetComputeRegisters(0x2e12, resources, 2);
-  SetComputeRegisters(0x2e28, &program.resource3, 1);
+  SetComputeRegisters(profile_.resource3_register, &program.resource3, 1);
   // PAL and Mesa's ordinary wave32 policy selects SIMD_DEST_CNTL when the
   // complete workgroup contains a multiple of four waves.
   const uint32_t workitem_count = program.workgroup_size[0] *
@@ -94,9 +89,9 @@ void Pm4CommandWriter::CallIndirectBuffer(uint64_t buffer_address,
   words_[word_count_++] = MakeHeader(0x3f, 4) | (1u << 1);
   words_[word_count_++] = static_cast<uint32_t>(buffer_address);
   words_[word_count_++] = static_cast<uint32_t>(buffer_address >> 32);
-  // KFD's USER convention: VALID, VMID 0 and numeric cache policy 2.
-  // PAL calls policy 2 NOA; KFD's older enum calls it BYPASS.
-  words_[word_count_++] = word_count | (1u << 23) | (2u << 28);
+  // PAL's ordinary MEC call sets VALID, with VMID and cache policy zero.
+  // Policy zero is LRU on GFX11 and the regular temporal hint on GFX12+.
+  words_[word_count_++] = word_count | (1u << 23);
 }
 
 void Pm4CommandWriter::SystemBarrier() {
@@ -104,11 +99,6 @@ void Pm4CommandWriter::SystemBarrier() {
     kEventWriteOpcode = 0x46,
     kAcquireMemoryOpcode = 0x58,
     kComputeShaderPartialFlush = 7 | (4 << 8),
-    // GLI_ALL is 1; 3 is the separately defined FIRST_LAST operation. This
-    // GFX11 recipe follows PAL's omission of GLM writeback. Scalar GLK
-    // writeback is not requested.
-    kConservativeGcrControl = (1 << 0) | (1 << 5) | (1 << 7) | (1 << 8) |
-                              (1 << 9) | (1 << 14) | (1 << 15),
   };
   words_[word_count_++] = MakeHeader(kEventWriteOpcode, 2);
   words_[word_count_++] = kComputeShaderPartialFlush;
@@ -119,18 +109,15 @@ void Pm4CommandWriter::SystemBarrier() {
   words_[word_count_++] = 0;
   words_[word_count_++] = 0;
   words_[word_count_++] = 0x0a;
-  words_[word_count_++] = kConservativeGcrControl;
+  words_[word_count_++] = profile_.system_acquire_gcr;
 }
 
 void Pm4CommandWriter::ReleaseSystem32(uint64_t target_address,
                                        uint32_t value) {
-  // PAL's compute postamble combines BOTTOM_OF_PIPE_TS with GLM_INV,
-  // GLV_INV, GL1_INV, GL2_INV and GL2_WB. RELEASE_MEM has its own GCR layout;
-  // this is not the ACQUIRE_MEM control used by SystemBarrier.
-  constexpr uint32_t kReleaseGcrControl =
-      (1 << 1) | (1 << 2) | (1 << 3) | (1 << 8) | (1 << 9);
+  // RELEASE_MEM has its own GCR layout, distinct from ACQUIRE_MEM. The
+  // selected profile supplies the cache actions before the completion write.
   words_[word_count_++] = MakeHeader(0x49, 8);
-  words_[word_count_++] = 0x28 | (5 << 8) | (kReleaseGcrControl << 12);
+  words_[word_count_++] = 0x28 | (5 << 8) | (profile_.system_release_gcr << 12);
   // Immediate DWORD, write confirmation without interrupt, TC/L2 destination.
   words_[word_count_++] = (1 << 29) | (3 << 24) | (1 << 16);
   words_[word_count_++] = static_cast<uint32_t>(target_address);
@@ -178,8 +165,8 @@ void Pm4CommandWriter::WaitEndOfPipeAndWriteback(uint64_t fence_address,
   words_[word_count_++] = UINT32_MAX;
   words_[word_count_++] = UINT32_C(0x8000000a);
   // ACE ACQUIRE does immediate cache work, not shader-idle waiting. Whole-cache
-  // GL2_WB is bit 15 in this GCR layout. The high size preserves only defined
-  // MEC bits, unlike PAL's wider shared GFX11 ME representation.
+  // GL2_WB is bit 15; the selected profile also supplies its scope. The high
+  // size preserves only defined MEC bits rather than the wider ME layout.
   words_[word_count_++] = MakeHeader(0x58, 8);
   words_[word_count_++] = 0;
   words_[word_count_++] = UINT32_MAX;
@@ -187,7 +174,7 @@ void Pm4CommandWriter::WaitEndOfPipeAndWriteback(uint64_t fence_address,
   words_[word_count_++] = 0;
   words_[word_count_++] = 0;
   words_[word_count_++] = 0x0a;
-  words_[word_count_++] = 1 << 15;
+  words_[word_count_++] = profile_.gl2_writeback_gcr;
 }
 
 void Pm4CommandWriter::CopyData32(uint64_t source_address,

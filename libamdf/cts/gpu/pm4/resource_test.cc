@@ -136,7 +136,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
       queue->host.ring_byte_length / sizeof(uint32_t);
   ASSERT_GT(ring_capacity, kCounts.size() * kCommandWordsPerEpoch);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   RecordProperty("pm4_mixed_program_sequence", "transform,lds,transform");
   RecordProperty(
       "pm4_mixed_bound_rsrc2_sequence",

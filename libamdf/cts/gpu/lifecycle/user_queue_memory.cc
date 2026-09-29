@@ -37,12 +37,14 @@ class UserQueueMemoryScenario {
   UserQueueMemoryScenario(const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
                           const amdf_queue_family_info_t& family,
                           const UserQueueMemoryCommands& commands,
+                          const amdf_gpu_endpoint_info_t& target,
                           amdf_device_t* device,
                           amdf_memory_scope_t* system_scope)
       : api_(api),
         gpu_api_(gpu_api),
         family_(family),
         commands_(commands),
+        target_(target),
         device_(device),
         system_scope_(system_scope) {}
 
@@ -211,6 +213,8 @@ class UserQueueMemoryScenario {
   const amdf_queue_family_info_t& family_;
   // Caller encoding borrowed through completion and cleanup.
   const UserQueueMemoryCommands& commands_;
+  // Exact endpoint whose target profile controls command encoding.
+  const amdf_gpu_endpoint_info_t& target_;
   // Execution owner borrowed through the release of all children below.
   amdf_device_t* device_;
   // Shared system placement scope borrowed through memory destruction.
@@ -399,7 +403,7 @@ void UserQueueMemoryScenario::RunCopiesBetweenExactAccessAttachments(
   auto* ring = reinterpret_cast<uint32_t*>(
       static_cast<uintptr_t>(mapping_info.ring_address));
   const EncodedUserQueueStream stream = commands_.encode(
-      family_.format_features, ring, source_address, target_address);
+      target_, family_.format_features, ring, source_address, target_address);
   // Keep spare ring storage, including PM4's required unoccupied DWORD.
   ASSERT_LT(stream.byte_length, mapping_info.ring_byte_length);
   ::testing::Test::RecordProperty("lifecycle_command_byte_length",
@@ -442,10 +446,11 @@ bool RunUserQueueMemoryCopies(const amdf_api_t* api,
                               const amdf_gpu_api_t* gpu_api,
                               const amdf_queue_family_info_t& family,
                               const UserQueueMemoryCommands& commands,
+                              const amdf_gpu_endpoint_info_t& target,
                               amdf_device_t* device,
                               amdf_memory_scope_t* system_scope) {
-  UserQueueMemoryScenario scenario(api, gpu_api, family, commands, device,
-                                   system_scope);
+  UserQueueMemoryScenario scenario(api, gpu_api, family, commands, target,
+                                   device, system_scope);
   scenario.RunCopiesBetweenExactAccessAttachments();
   return scenario.Release();
 }
@@ -499,7 +504,8 @@ amdf_status_t UserQueueMemoryTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
 void UserQueueMemoryTest::RunCopiesBetweenExactAccessAttachments() {
   RecordProperty("lifecycle_peer_device_count", 0);
   ASSERT_TRUE(RunUserQueueMemoryCopies(api_, gpu_api_, family_, commands_,
-                                       device_, system_scope_));
+                                       gpu_endpoint_info_, device_,
+                                       system_scope_));
 }
 
 void UserQueueMemoryTest::RunConcurrentDeviceCreationAndRecreation() {
@@ -511,8 +517,8 @@ void UserQueueMemoryTest::RunConcurrentDeviceCreationAndRecreation() {
   create_info.structure_size = sizeof(create_info);
   // This lifecycle case deliberately creates peers; all ordinary queue and
   // memory tests continue borrowing the one cached device.
-  UserQueueMemoryScenario survivor(api_, gpu_api_, family_, commands_, device_,
-                                   system_scope_);
+  UserQueueMemoryScenario survivor(api_, gpu_api_, family_, commands_,
+                                   gpu_endpoint_info_, device_, system_scope_);
   survivor.RunCopiesBetweenExactAccessAttachments([&]() {
     for (size_t generation = 0; generation < 2; ++generation) {
       std::array<amdf_device_t*, 2> peers = {};
@@ -533,7 +539,8 @@ void UserQueueMemoryTest::RunConcurrentDeviceCreationAndRecreation() {
           continue;
         }
         const bool released = RunUserQueueMemoryCopies(
-            api_, gpu_api_, family_, commands_, peers[i], system_scope_);
+            api_, gpu_api_, family_, commands_, gpu_endpoint_info_, peers[i],
+            system_scope_);
         // An unretired queue retains its entire device chain on failure.
         if (released) {
           EXPECT_EQ(api_->device_destroy(peers[i]), AMDF_STATUS_OK);

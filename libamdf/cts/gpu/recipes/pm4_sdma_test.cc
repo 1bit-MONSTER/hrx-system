@@ -367,7 +367,8 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     ASSERT_GE(sdma_queue->host.ring_byte_length,
               kEpochCount * kSdmaWordsPerEpoch * sizeof(uint32_t));
     Pm4CommandWriter pm4(
-        reinterpret_cast<uint32_t*>(pm4_queue->host.ring_address));
+        reinterpret_cast<uint32_t*>(pm4_queue->host.ring_address),
+        *pm4_profile_);
     SdmaCommandWriter sdma(
         reinterpret_cast<uint32_t*>(sdma_queue->host.ring_address),
         sdma_family_.format_features);
@@ -519,7 +520,7 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
                    std::to_string(sdma.word_count()));
   }
 
-  // Transfer family selected passively on the same exact gfx1151 endpoint.
+  // Transfer family selected passively on the same endpoint as compute.
   amdf_queue_family_info_t sdma_family_ = {};
 };
 

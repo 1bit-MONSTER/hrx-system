@@ -9,10 +9,10 @@
 
 namespace {
 
-EncodedUserQueueStream EncodeCopyStream(amdf_queue_format_features_t features,
-                                        uint32_t* words,
-                                        uint64_t source_address,
-                                        uint64_t target_address) {
+EncodedUserQueueStream EncodeCopyStream(
+    const amdf_gpu_endpoint_info_t& /*target*/,
+    amdf_queue_format_features_t features, uint32_t* words,
+    uint64_t source_address, uint64_t target_address) {
   SdmaCommandWriter commands(words, features);
   commands.CopyLinear(source_address, target_address,
                       kUserQueueMemoryElementCount * sizeof(uint32_t));

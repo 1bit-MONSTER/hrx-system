@@ -41,8 +41,10 @@ struct UserQueueMemoryCommands {
   // Cache domains addressed by the encoder, if any.
   amdf_cache_transition_kinds_t required_cache_transition_kinds;
   // Writes the shared payload copy and completion marker into at least 512
-  // bytes of ring storage, using the selected family's encoding features.
-  EncodedUserQueueStream (*encode)(amdf_queue_format_features_t features,
+  // bytes of ring storage, using the selected target and family encoding
+  // features.
+  EncodedUserQueueStream (*encode)(const amdf_gpu_endpoint_info_t& target,
+                                   amdf_queue_format_features_t features,
                                    uint32_t* words, uint64_t source_address,
                                    uint64_t target_address);
 };

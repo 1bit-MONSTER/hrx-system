@@ -103,7 +103,7 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
   // distinct resident ranges; no command crosses ring wrap.
   ASSERT_GE(ring_capacity, kCommandWordCountPerEpoch * kSeeds.size());
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   RecordProperty(
       "pm4_lds_capacity_per_compute_unit",
       std::to_string(endpoint_info.compute.local_data_share_byte_length));

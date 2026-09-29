@@ -22,6 +22,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
     libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::pm4::encoding::profile
     libamdf::cts::util::mapped_memory
     libamdf::cts::xdna::util::execution
   TESTONLY
@@ -57,7 +58,7 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::gpu_device_fixture
-    libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::pm4::encoding::memory_commands
     libamdf::cts::gpu::util::user_queue
     libamdf::cts::util::mapped_memory
   TESTONLY

@@ -62,7 +62,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   // resident in distinct ring positions; this case does not wrap the ring.
   ASSERT_GE(queue->host.ring_byte_length, 128 * sizeof(uint32_t));
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     std::array<uint32_t, kWordCount> upload;
     std::array<uint32_t, kWordCount> expected;
@@ -187,7 +187,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
   ASSERT_GE(queue->host.ring_byte_length / sizeof(uint32_t),
             kCommandWordCountPerEpoch * kCounts.size());
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     SCOPED_TRACE(epoch);
     std::array<uint32_t, kWordCount> upload;
@@ -360,7 +360,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
   ASSERT_GE(queue->host.ring_byte_length / sizeof(uint32_t),
             kCommandWordCountPerEpoch * kCounts.size());
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   RecordProperty("pm4_release_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_release_command_word_count_per_epoch",
                  kCommandWordCountPerEpoch);
@@ -509,7 +509,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
   ASSERT_GT(queue->host.ring_byte_length / sizeof(uint32_t),
             kCommandWordCountPerEpoch * kCounts.size());
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   RecordProperty("pm4_shader_timestamp_command_word_count_per_epoch",
                  kCommandWordCountPerEpoch);
   uint64_t previous_end_ticks = 0;

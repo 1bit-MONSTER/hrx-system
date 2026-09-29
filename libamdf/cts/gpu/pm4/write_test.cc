@@ -41,7 +41,7 @@ TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->host.ring_byte_length, 512u);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   commands.SystemBarrier();
   commands.WriteData(target->device_address + kFirstWord * sizeof(uint32_t),
                      values.data(), value_count);

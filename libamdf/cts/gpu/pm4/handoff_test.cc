@@ -147,9 +147,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
   std::memset(reinterpret_cast<void*>(consumer->host.ring_address), 0,
               consumer->host.ring_byte_length);
   Pm4CommandWriter produce(
-      reinterpret_cast<uint32_t*>(producer->host.ring_address));
+      reinterpret_cast<uint32_t*>(producer->host.ring_address), *pm4_profile_);
   Pm4CommandWriter consume(
-      reinterpret_cast<uint32_t*>(consumer->host.ring_address));
+      reinterpret_cast<uint32_t*>(consumer->host.ring_address), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     produce.SystemBarrier();
     produce.BindCompute(program, arguments->device_address);

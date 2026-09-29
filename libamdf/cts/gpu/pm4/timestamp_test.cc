@@ -45,7 +45,7 @@ TEST_F(Pm4TimestampTest, CommandProcessorSamplesBracketConfirmedCopies) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->host.ring_byte_length, 1024u);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   commands.SystemBarrier();
   commands.CopyGpuClock64(observations->device_address + 8);
   for (size_t i = 0; i < kValueCount; ++i) {

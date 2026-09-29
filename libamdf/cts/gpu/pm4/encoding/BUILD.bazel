@@ -21,19 +21,33 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "profile",
+    testonly = True,
+    srcs = ["profile.cc"],
+    hdrs = ["profile.h"],
+)
+
+amdf_cc_library(
     name = "commands",
     testonly = True,
     srcs = ["commands.cc"],
     hdrs = ["commands.h"],
-    deps = [":memory_commands"],
+    deps = [
+        ":memory_commands",
+        ":profile",
+    ],
 )
 
 amdf_cc_test(
     name = "commands_test",
-    srcs = ["commands_test.cc"],
+    srcs = [
+        "commands_test.cc",
+        "profile_test.cc",
+    ],
     deps = [
         ":commands",
         ":memory_commands",
+        ":profile",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],

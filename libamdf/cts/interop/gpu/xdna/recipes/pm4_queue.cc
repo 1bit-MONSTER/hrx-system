@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
-#include "libamdf/cts/gpu/pm4/encoding/commands.h"
+#include "libamdf/cts/gpu/pm4/encoding/memory_commands.h"
 
 namespace {
 
@@ -125,8 +125,8 @@ void Pm4RecipeQueue::Initialize(
            << completion_value;
   }
   std::array<uint32_t, 5> marker;
-  Pm4CommandWriter marker_writer(marker.data());
-  marker_writer.WriteData32(completion_device_address_, completion_value);
+  pm4::WriteData(marker.data(), completion_device_address_, &completion_value,
+                 1);
   std::vector<uint32_t> stream(words.begin(), words.end());
   stream.insert(stream.end(), marker.begin(), marker.end());
   const uint64_t capacity =

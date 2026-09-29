@@ -301,7 +301,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
     mapped.structure_size = sizeof(mapped);
     ASSERT_EQ(api_->host_mapping_query_info(command_mapping_, &mapped),
               AMDF_STATUS_OK);
-    Pm4CommandWriter commands(static_cast<uint32_t*>(mapped.pointer));
+    Pm4CommandWriter commands(static_cast<uint32_t*>(mapped.pointer),
+                              *pm4_profile_);
     commands.SystemBarrier();
     for (uint32_t i = 0; i < kWordCount; ++i) {
       commands.CopyData32(address_ + kSourceOffset + i * sizeof(uint32_t),
@@ -482,6 +483,8 @@ class D3D12MemoryInteropTest : public GpuDeviceFixture {
   uint32_t release_count_ = 0;
   // Factory used to locate the matching foreign API adapter.
   ComPtr<IDXGIFactory4> factory_;
+  // Static command recipe selected by the PM4-consuming subclass.
+  const Pm4CommandProfile* pm4_profile_ = nullptr;
   // Foreign adapter independently admitted against the libamdf device.
   ComPtr<IDXGIAdapter1> adapter_;
   // Foreign device owning the resource and verification queues.
@@ -517,7 +520,8 @@ class D3D12Pm4MemoryInteropTest : public D3D12MemoryInteropTest {
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    if (!Pm4CommandWriter::SupportsTarget(gpu_info)) {
+    pm4_profile_ = Pm4CommandProfile::Find(gpu_info);
+    if (!pm4_profile_) {
       *out_matches = false;
       return AMDF_STATUS_OK;
     }

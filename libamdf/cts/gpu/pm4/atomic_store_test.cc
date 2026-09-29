@@ -38,25 +38,6 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
  protected:
   Pm4AtomicStoreTest() : Pm4CommandTest(AMDF_QUEUE_ROLE_ATOMIC) {}
 
-  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
-                                 bool* out_matches) override {
-    amdf_gpu_endpoint_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
-    info.structure_size = sizeof(info);
-    const amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    // This is the exposed compiler target. Backing policy and deployment
-    // identity separately establish the native APU and physical-function route.
-    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
-        info.gfx_ip.stepping != 1) {
-      *out_matches = false;
-      return AMDF_STATUS_OK;
-    }
-    return Pm4CommandTest::MatchGpuEndpoint(endpoint, out_matches);
-  }
-
   template <typename T>
   void RunStores() {
     static_assert(std::atomic_ref<T>::is_always_lock_free);
@@ -253,7 +234,7 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
     ASSERT_GT(ring_word_count, kCommandWordCount);
     std::vector<uint32_t> expected_ring(ring_word_count, 0);
     std::vector<uint32_t> observed_ring(ring_word_count);
-    Pm4CommandWriter commands(expected_ring.data());
+    Pm4CommandWriter commands(expected_ring.data(), *pm4_profile_);
     for (uint32_t epoch = 0; epoch < kEpochCount; ++epoch) {
       commands.SystemBarrier();
       for (size_t cell = 0; cell < kCellCount; ++cell) {

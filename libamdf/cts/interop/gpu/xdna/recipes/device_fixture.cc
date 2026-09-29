@@ -31,11 +31,6 @@ GpuXdnaDeviceFixture::GpuXdnaDeviceFixture(
     amdf_queue_roles_t required_gpu_roles)
     : required_gpu_roles_(required_gpu_roles) {}
 
-bool GpuXdnaDeviceFixture::SupportsGpuTarget(
-    const amdf_gpu_endpoint_info_t&) const {
-  return true;
-}
-
 amdf_status_t GpuXdnaDeviceFixture::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                                      bool* out_matches) {
   *out_matches = false;
@@ -43,9 +38,12 @@ amdf_status_t GpuXdnaDeviceFixture::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
   target.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
   target.structure_size = sizeof(target);
   auto status = gpu_api_->endpoint_query_info(endpoint, &target);
-  if (!amdf_status_is_ok(status) || !Pm4CommandWriter::SupportsTarget(target) ||
-      !SupportsGpuTarget(target)) {
+  if (!amdf_status_is_ok(status)) {
     return status;
+  }
+  const auto* profile = Pm4CommandProfile::Find(target);
+  if (!profile) {
+    return AMDF_STATUS_OK;
   }
   amdf_endpoint_info_t info = {};
   info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
@@ -86,6 +84,7 @@ amdf_status_t GpuXdnaDeviceFixture::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
         (family.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_KERNEL) != 0;
     if (user || (kernel && !*out_matches)) {
       gpu_endpoint_info_ = target;
+      pm4_profile_ = profile;
       gpu_family_ = family;
       publication_mode_ = user ? AMDF_QUEUE_PUBLICATION_MODE_USER
                                : AMDF_QUEUE_PUBLICATION_MODE_KERNEL;

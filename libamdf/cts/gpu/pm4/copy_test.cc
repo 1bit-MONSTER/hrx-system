@@ -41,7 +41,7 @@ TEST_F(Pm4CopyTest, CopiesBetweenExactAccessAttachments) {
                                       &target->access_info.device_id));
   ASSERT_GT(queue->host.ring_byte_length, 512u);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   commands.SystemBarrier();
   for (size_t i = 0; i < kWordCount; ++i) {
     commands.CopyData32(source->device_address + i * sizeof(uint32_t),
@@ -98,7 +98,7 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->host.ring_byte_length, 256u);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   commands.SystemBarrier();
   for (size_t position : positions) {
     const uint64_t offset = position * sizeof(uint32_t);
@@ -164,7 +164,7 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->host.ring_byte_length, 1024u);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   commands.SystemBarrier();
   for (size_t i = 0; i < kValueCount; ++i) {
     const uint64_t offset = i * sizeof(uint64_t);
@@ -199,27 +199,7 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
   ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
 }
 
-class Pm4DmaTest : public Pm4CommandTest {
- protected:
-  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
-                                 bool* out_matches) override {
-    amdf_gpu_endpoint_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
-    info.structure_size = sizeof(info);
-    const amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    // This tuple selects the compiler target exposed by the endpoint API.
-    // Native GC and firmware identity are separate deployment requirements.
-    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
-        info.gfx_ip.stepping != 1) {
-      *out_matches = false;
-      return AMDF_STATUS_OK;
-    }
-    return Pm4CommandTest::MatchGpuEndpoint(endpoint, out_matches);
-  }
-};
+class Pm4DmaTest : public Pm4CommandTest {};
 
 TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
   constexpr uint32_t kPageByteLength = 4096;
@@ -271,7 +251,7 @@ TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
       queue->host.ring_byte_length / sizeof(uint32_t);
   ASSERT_GT(ring_capacity, kCommandWordCount);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   // Both batches are complete before the first publication. Each remains
   // immutable through its completion and consumed frontier.
   for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {

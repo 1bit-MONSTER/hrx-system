@@ -27,32 +27,72 @@ void ExpectWords(const uint32_t* words,
   }
 }
 
-TEST(Pm4EncodingTest, FixedMemoryRecipeAdmitsOnlySourceCoveredTargetFamilies) {
+const Pm4CommandProfile& Profile(uint32_t major, uint32_t minor) {
+  amdf_gpu_endpoint_info_t info = {};
+  info.gfx_ip = {major, minor, 0};
+  return *Pm4CommandProfile::Find(info);
+}
+
+TEST(Pm4EncodingTest, TargetProfilesEncodeCacheAndRegisterDifferences) {
   const struct {
-    // Compiler target major, minor and stepping, distinct from native GC IP.
-    std::array<uint32_t, 3> target;
-    // Whether the fixed PAL GFX11 recipe covers this target family.
-    bool supported;
+    // Compiler target family selecting the native compute representation.
+    std::array<uint32_t, 2> target;
+    // SET_SH_REG-relative RSRC3 address from the register definition.
+    uint32_t resource3_offset;
+    // Full acquire control including instruction invalidation.
+    uint32_t acquire;
+    // Release event plus generation-specific GCR in its native word.
+    uint32_t release;
+    // Isolated GL2 writeback with the target's scope.
+    uint32_t writeback;
   } cases[] = {
-      {{11, 0, 0}, true},  {{11, 0, 3}, true},  {{11, 5, 1}, true},
-      {{11, 5, 4}, true},  {{9, 4, 2}, false},  {{10, 3, 0}, false},
-      {{11, 1, 0}, false}, {{11, 7, 0}, false}, {{12, 0, 1}, false},
-      {{12, 5, 0}, false}, {{0, 0, 0}, false},
+      {{11, 0}, 0x228, 0xc3a1, 0x0030e528, 0x8000},
+      {{11, 5}, 0x228, 0xc3a1, 0x0030e528, 0x8000},
+      {{11, 7}, 0x228, 0xc3a1, 0x0030e528, 0x8000},
+      {{12, 0}, 0x228, 0xc181, 0x00304528, 0x8000},
+      {{12, 5}, 0x223, 0x1c1e1, 0x01706528, 0x8020},
   };
   for (const auto& test : cases) {
     SCOPED_TRACE(::testing::Message()
-                 << "gfx target " << test.target[0] << '.' << test.target[1]
-                 << '.' << test.target[2]);
-    amdf_gpu_endpoint_info_t info = {};
-    info.gfx_ip = {test.target[0], test.target[1], test.target[2]};
-    EXPECT_EQ(Pm4CommandWriter::SupportsTarget(info), test.supported);
+                 << test.target[0] << '.' << test.target[1]);
+    std::array<uint32_t, 69> words;
+    words.fill(0x24681357);
+    const Pm4ComputeProgram program = {
+        UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
+    };
+    Pm4CommandWriter commands(words.data() + 1,
+                              Profile(test.target[0], test.target[1]));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+    commands.SystemBarrier();
+    commands.ReleaseSystem32(UINT64_C(0x0000456789abcd00), 17);
+    commands.WaitEndOfPipeAndWriteback(UINT64_C(0x0000456789abcd40), 19);
+    ASSERT_EQ(commands.word_count(), 67u);
+    // The binding preserves common register intervals and changes RSRC3 only.
+    EXPECT_EQ(words[10], test.resource3_offset);
+    EXPECT_EQ(words[11], 0x30u);
+    EXPECT_EQ(words[8], 0x8084u);
+    const std::array<uint32_t, 10> acquire = {
+        0xc0004600, 0x407, 0xc0065800, 0,   UINT32_MAX,
+        0xff,       0,     0,          0xa, test.acquire,
+    };
+    ExpectWords(words.data() + 27, acquire);
+    const std::array<uint32_t, 8> release = {
+        0xc0064900, test.release, 0x23010000, 0x89abcd00, 0x4567, 17, 0, 0,
+    };
+    ExpectWords(words.data() + 37, release);
+    const std::array<uint32_t, 8> writeback = {
+        0xc0065800, 0, UINT32_MAX, 0xff, 0, 0, 0xa, test.writeback,
+    };
+    ExpectWords(words.data() + 60, writeback);
+    EXPECT_EQ(words.front(), 0x24681357u);
+    EXPECT_EQ(words.back(), 0x24681357u);
   }
 }
 
 TEST(Pm4EncodingTest, AtomicStoresPreserveWidthsAndClearUnusedFields) {
   std::array<uint32_t, 20> words;
   words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.AtomicStore32(UINT64_C(0x000012345678903c), 0xfedcba98);
   commands.AtomicStore64(UINT64_C(0x00003456789abff0),
                          UINT64_C(0x13579bdf2468ace0));
@@ -72,7 +112,7 @@ TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {
   const Pm4ComputeProgram program = {
       UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x20, 0, {64, 1, 1},
   };
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.BindCompute(program, UINT64_C(0x00003456789abc00));
   // PAL's ordinary compute SET_SH_REG intervals contain only PGM_LO/HI,
   // RSRC1/2/3, RESOURCE_LIMITS, START/NUM_THREAD and two user-data words.
@@ -95,7 +135,7 @@ TEST(Pm4EncodingTest, ComputeBindingRealizesStaticLdsAndFourWavePolicy) {
   const Pm4ComputeProgram program = {
       UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
   };
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.BindCompute(program, UINT64_C(0x00003456789abc00));
   // The compiler descriptor retains LDS_SIZE=0. PAL's HSA path derives one
   // 512-byte unit; the four-wave policy separately sets SIMD_DEST_CNTL bit 22.
@@ -119,7 +159,7 @@ TEST(Pm4EncodingTest, ComputeBindingReplacesDynamicLdsRequirement) {
   Pm4ComputeProgram program = {
       UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
   };
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   for (uint32_t group_byte_length : {1024u, 2048u, 1024u}) {
     program.group_segment_byte_length = group_byte_length;
     commands.BindCompute(program, UINT64_C(0x00003456789abc00));
@@ -162,7 +202,7 @@ TEST(Pm4EncodingTest, ComputeBindingSwitchesImmutableProgramsAndRestoresState) {
   const Pm4ComputeProgram lds = {
       UINT64_C(0x000023456789a000), 0xe0af0000, 0x84, 0x30, 512, {128, 1, 1},
   };
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.BindCompute(transform, UINT64_C(0x00003456789abc00));
   commands.BindCompute(lds, UINT64_C(0x00003456789abc40));
   commands.BindCompute(transform, UINT64_C(0x00003456789abc80));
@@ -198,7 +238,7 @@ TEST(Pm4EncodingTest, ComputeBindingSwitchesImmutableProgramsAndRestoresState) {
 TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
   std::array<uint32_t, 6> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.DispatchWave32(1024, 1, 1);
   const std::array<uint32_t, 5> expected = {
       0xc0031502, 1024, 1, 1, 0x8025,
@@ -211,7 +251,7 @@ TEST(Pm4EncodingTest, DirectWave32DispatchUsesCompleteThreadDimensions) {
 TEST(Pm4EncodingTest, IndirectWave32DispatchUsesAbsoluteByteAddressAndGroups) {
   std::array<uint32_t, 6> words;
   words.fill(0x24681357u);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.DispatchIndirectWave32(UINT64_C(0x00000012abcd0100));
   const std::array<uint32_t, 4> expected = {
       0xc0021602,
@@ -225,16 +265,16 @@ TEST(Pm4EncodingTest, IndirectWave32DispatchUsesAbsoluteByteAddressAndGroups) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
-TEST(Pm4EncodingTest, IndirectBufferCallUsesUserMecAddressAndDwordCount) {
+TEST(Pm4EncodingTest, IndirectBufferCallUsesMecAddressAndDwordCount) {
   std::array<uint32_t, 10> words;
   words.fill(0x24681357u);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.CallIndirectBuffer(UINT64_C(0x0000123456789000), 40);
   // The upper count bit is a host encoding case, not a native launch size.
   commands.CallIndirectBuffer(UINT64_C(0x0000abcd87654324), 0x00081234);
   const std::array<uint32_t, 8> expected = {
-      0xc0023f02, 0x56789000, 0x00001234, 0x20800028,
-      0xc0023f02, 0x87654324, 0x0000abcd, 0x20881234,
+      0xc0023f02, 0x56789000, 0x00001234, 0x00800028,
+      0xc0023f02, 0x87654324, 0x0000abcd, 0x00881234,
   };
   ASSERT_EQ(commands.word_count(), expected.size());
   ExpectWords(words.data() + 1, expected);
@@ -245,7 +285,7 @@ TEST(Pm4EncodingTest, IndirectBufferCallUsesUserMecAddressAndDwordCount) {
 TEST(Pm4EncodingTest, SystemReleaseUsesConfirmedEndOfPipeAndReleaseGcr) {
   std::array<uint32_t, 10> words;
   words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.ReleaseSystem32(UINT64_C(0x1234567887654324), 0xfedcba98);
   // PAL's compute postamble uses BOTTOM_OF_PIPE_TS/index5 and release GCR
   // 0x30e. Immediate32/int_sel3/dst_sel1 requests confirmation without an
@@ -263,7 +303,7 @@ TEST(Pm4EncodingTest, SystemReleaseUsesConfirmedEndOfPipeAndReleaseGcr) {
 TEST(Pm4EncodingTest, EndOfPipeClockUsesCachelessConfirmedWideWrite) {
   std::array<uint32_t, 10> words;
   words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.ReleaseGpuClock64(UINT64_C(0x0000123487654328));
   const std::array<uint32_t, 8> expected = {
       0xc0064900, 0x00000528, 0x63010000, 0x87654328, 0x00001234, 0, 0, 0,
@@ -277,7 +317,7 @@ TEST(Pm4EncodingTest, EndOfPipeClockUsesCachelessConfirmedWideWrite) {
 TEST(Pm4EncodingTest, EndOfPipeMarkerHasNoCacheActions) {
   std::array<uint32_t, 10> words;
   words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.Release32(UINT64_C(0x0000123487654324), 0x89abcdef);
   const std::array<uint32_t, 8> expected = {
       0xc0064900, 0x00000528, 0x23010000, 0x87654324,
@@ -292,7 +332,7 @@ TEST(Pm4EncodingTest, EndOfPipeMarkerHasNoCacheActions) {
 TEST(Pm4EncodingTest, EndOfPipeWritebackJoinsPrivateFenceBeforeCacheWork) {
   std::array<uint32_t, 25> words;
   words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.WaitEndOfPipeAndWriteback(UINT64_C(0x0000123487654324), 0x89abcdef);
   // PAL compute uses a cacheless release and an offloaded equality wait. The
   // standalone ACQUIRE has GL2_WB only and all reserved MEC size bits zero.
@@ -311,7 +351,7 @@ TEST(Pm4EncodingTest, EndOfPipeWritebackJoinsPrivateFenceBeforeCacheWork) {
 TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
   std::array<uint32_t, 13> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.CopyData32(UINT64_C(0x0000123487654324),
                       UINT64_C(0x00005678fedcba94));
   commands.CopyData64(UINT64_C(0x0000123487654328),
@@ -327,7 +367,7 @@ TEST(Pm4EncodingTest, ConfirmedCopiesPreserveAddressesAndSelectWidth) {
 TEST(Pm4EncodingTest, MecDmaCopyAndDrainKeepReservedControlsClear) {
   std::array<uint32_t, 16> words;
   words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1);
+  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   commands.DmaCopyL2(UINT64_C(0x1234567887654040), UINT64_C(0x2345678998765100),
                      1024);
   commands.WaitDma();
@@ -392,7 +432,7 @@ TEST(Pm4EncodingTest, IncrementingWriteIncludesEveryPayloadWordInCount) {
   std::array<uint32_t, 13> words = {};
   words.back() = 0x24681357;
   const std::array<uint32_t, 3> values = {0, UINT32_MAX, 0x13579bdf};
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.WriteData32(UINT64_C(0x0000123487654324), 0x2468ace0);
   commands.WriteData(UINT64_C(0x00005678fedcba94), values.data(),
                      values.size());
@@ -410,7 +450,7 @@ TEST(Pm4EncodingTest, MaximumWritePayloadUsesAllFourteenCountBits) {
   // workload.
   std::vector<uint32_t> values(16381, 0x13579bdf);
   std::vector<uint32_t> words(16386, 0x24681357);
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.WriteData(UINT64_C(0x0000123487654324), values.data(),
                      values.size());
   ASSERT_EQ(commands.word_count(), 16385u);
@@ -426,7 +466,7 @@ TEST(Pm4EncodingTest, MaximumWritePayloadUsesAllFourteenCountBits) {
 TEST(Pm4EncodingTest, MemoryWaitUsesFullAddressAndDwordPacketCount) {
   std::array<uint32_t, 16> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.WaitMemory32(UINT64_C(0x1234567887654320), 17);
   // WAIT_REG_MEM's type-3 count excludes two DWORDs; memory/equal control
   // and the full address are separate fields in the MEC wire format.
@@ -448,7 +488,7 @@ TEST(Pm4EncodingTest, MemoryWaitUsesFullAddressAndDwordPacketCount) {
 TEST(Pm4EncodingTest, MaskedMemoryWaitsKeepOrdinaryMecExecution) {
   std::array<uint32_t, 22> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.WaitMemory32(UINT64_C(0x0000123487654324), 0x80000000,
                         Pm4MemoryComparison::kEqual, 0xff000000);
   commands.WaitMemory32(UINT64_C(0x00005678fedcba94), 0,
@@ -467,7 +507,7 @@ TEST(Pm4EncodingTest, MaskedMemoryWaitsKeepOrdinaryMecExecution) {
 TEST(Pm4EncodingTest, LessThanWaitsPreserveBothOperandWidths) {
   std::array<uint32_t, 17> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.WaitMemory32(UINT64_C(0x0000123487654324), 0x40000000,
                         Pm4MemoryComparison::kLess);
   commands.WaitMemory64(
@@ -487,7 +527,7 @@ TEST(Pm4EncodingTest, LessThanWaitsPreserveBothOperandWidths) {
 TEST(Pm4EncodingTest, WideWaitSeparatesReferenceAndMaskHalves) {
   std::array<uint32_t, 10> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.WaitMemory64(
       UINT64_C(0x0000123487654328), UINT64_C(0x8765000012340000),
       Pm4MemoryComparison::kGreaterOrEqual, UINT64_C(0xffff0000ffff0000));
@@ -502,7 +542,7 @@ TEST(Pm4EncodingTest, WideWaitSeparatesReferenceAndMaskHalves) {
 TEST(Pm4EncodingTest, GpuClockCopyUsesConfirmedWideTimestampSource) {
   std::array<uint32_t, 7> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.CopyGpuClock64(UINT64_C(0x0000123487654328));
   const std::array<uint32_t, 6> expected = {0xc0044000, 0x00110509, 0,
                                             0,          0x87654328, 0x00001234};
@@ -530,7 +570,7 @@ TEST(Pm4EncodingTest, Gfx9ClockCopyUsesConfirmedStreamingPolicies) {
 TEST(Pm4EncodingTest, SystemBarrierKeepsMecSizeAndGcrFieldsSeparate) {
   std::array<uint32_t, 11> words = {};
   words.back() = 0x24681357;
-  Pm4CommandWriter commands(words.data());
+  Pm4CommandWriter commands(words.data(), Profile(11, 0));
   commands.SystemBarrier();
   // The MEC size-high field is eight bits. The remaining high bits stay
   // reserved even though some graphics-engine forms have a wider field.
@@ -552,7 +592,7 @@ TEST(Pm4EncodingTest, PaddingUsesWholePacketsAtEveryResidue) {
     SCOPED_TRACE(value_count);
     std::array<uint32_t, 25> words;
     words.fill(0x24681357);
-    Pm4CommandWriter commands(words.data());
+    Pm4CommandWriter commands(words.data(), Profile(11, 0));
     commands.WriteData(UINT64_C(0x0000123487654324), values.data(),
                        value_count);
     const size_t prefix_count = commands.word_count();

@@ -105,7 +105,7 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
       queue->host.ring_byte_length / sizeof(uint32_t);
   ASSERT_GT(ring_capacity, kWorkgroupCounts.size() * kCommandWordsPerEpoch);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   RecordProperty("pm4_indirect_packet_header", "0xc0021602");
   RecordProperty("pm4_indirect_dispatch_initiator", "0x8005");
   RecordProperty("pm4_indirect_count_units", "workgroups");
@@ -316,7 +316,7 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
       queue->host.ring_byte_length / sizeof(uint32_t);
   ASSERT_GT(ring_capacity, kWorkgroupCounts.size() * kCommandWordsPerEpoch);
   Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address));
+      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
   RecordProperty("pm4_produced_indirect_packet_header", "0xc0021602");
   RecordProperty("pm4_produced_indirect_dispatch_initiator", "0x8005");
   RecordProperty("pm4_produced_indirect_count_units", "workgroups");

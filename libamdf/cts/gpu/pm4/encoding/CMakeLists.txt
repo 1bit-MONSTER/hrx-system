@@ -27,6 +27,21 @@ endif()
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    profile
+  HDRS
+    "profile.h"
+  SRCS
+    "profile.cc"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     commands
   HDRS
     "commands.h"
@@ -34,6 +49,7 @@ iree_cc_library(
     "commands.cc"
   DEPS
     ::memory_commands
+    ::profile
     amdf::headers
   TESTONLY
   PUBLIC
@@ -46,9 +62,11 @@ iree_cc_test(
     commands_test
   SRCS
     "commands_test.cc"
+    "profile_test.cc"
   DEPS
     ::commands
     ::memory_commands
+    ::profile
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
