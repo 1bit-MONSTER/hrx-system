@@ -53,13 +53,13 @@ static iree_status_t loom_cmd_program_kernel_request_publish(
 }
 
 iree_status_t loom_cmd_program_plan_publish_kernel_requests(
-    loom_cmd_program_plan_t* plan, const loom_module_t* preparation_module,
+    loom_cmd_program_plan_t* plan, const loom_module_t* plan_module,
     const loom_value_fact_table_t* source_facts,
     const loom_cmd_program_kernel_source_t* kernel_source,
     loom_cmd_program_kernel_site_root_t* roots, iree_host_size_t root_count,
     iree_arena_allocator_t* scratch_arena) {
   IREE_ASSERT_ARGUMENT(plan);
-  IREE_ASSERT_ARGUMENT(preparation_module);
+  IREE_ASSERT_ARGUMENT(plan_module);
   IREE_ASSERT_ARGUMENT(source_facts);
   IREE_ASSERT_ARGUMENT(kernel_source);
   IREE_ASSERT_ARGUMENT(kernel_source->producer);
@@ -71,7 +71,7 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
   IREE_ASSERT_ARGUMENT(scratch_arena);
 
   const iree_host_size_t symbol_count = kernel_source->source_definitions.count;
-  IREE_ASSERT_EQ(symbol_count, preparation_module->symbols.count);
+  IREE_ASSERT_EQ(symbol_count, plan_module->symbols.count);
   iree_host_size_t* site_counts = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       scratch_arena, symbol_count, sizeof(*site_counts), (void**)&site_counts));
@@ -167,7 +167,7 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
     IREE_ASSERT_NE(source_symbol_ordinal,
                    LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL);
     const loom_op_t* declaration_op =
-        preparation_module->symbols.entries[symbol_id].defining_op;
+        plan_module->symbols.entries[symbol_id].defining_op;
     IREE_ASSERT(loom_kernel_entry_decl_isa(declaration_op));
 
     uint32_t* requirement_by_class = NULL;

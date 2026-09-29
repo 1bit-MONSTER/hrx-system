@@ -245,7 +245,7 @@ command.program.def public @root() launch() {
   materialization.module = source_module.release();
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, &root_ref, /*program_count=*/1,
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(), &provider_set,
       /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
@@ -285,7 +285,7 @@ command.program.def public @increment_twice() launch(%source: buffer, %scratch: 
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -425,7 +425,7 @@ command.program.def public @selected_schedule() launch(%storage: buffer) {
       /*.user_data=*/nullptr,
       /*.allocator=*/iree_allocator_system(),
   };
-  iree_status_t status = loom_cmd_program_plan_prepare_index(
+  iree_status_t status = loom_cmd_program_plan_build_from_index(
       index, &root_symbol_ordinal, 1, /*options=*/nullptr,
       loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -538,7 +538,7 @@ command.program.def public @root() launch() {
   iree_arena_initialize(&block_pool_, &body_blind_arena);
   loom_cmd_program_plan_t body_blind_plan = {};
   bool body_blind_valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_index(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_index(
       index, &root->ordinal, /*program_count=*/1, /*options=*/nullptr,
       loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -563,7 +563,7 @@ command.program.def public @root() launch() {
   iree_arena_initialize(&block_pool_, &request_arena);
   loom_cmd_program_plan_t request_plan = {};
   bool request_valid = false;
-  IREE_EXPECT_NOT_OK(loom_cmd_program_plan_prepare_index(
+  IREE_EXPECT_NOT_OK(loom_cmd_program_plan_build_from_index(
       index, &root->ordinal, /*program_count=*/1, &request_options,
       loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -679,7 +679,7 @@ command.program.def public @root_b() launch(%storage: buffer) {
   loom_cmd_program_plan_t plan = {};
   DiagnosticEmissionCapture diagnostic_capture;
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_index(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_index(
       index, root_symbol_ordinals, IREE_ARRAYSIZE(root_symbol_ordinals),
       &plan_options, loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -698,7 +698,7 @@ command.program.def public @root_b() launch(%storage: buffer) {
   bool rejected_valid = false;
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_ABORTED,
-      loom_cmd_program_plan_prepare_index(
+      loom_cmd_program_plan_build_from_index(
           index, root_symbol_ordinals, IREE_ARRAYSIZE(root_symbol_ordinals),
           &plan_options, loom_pass_builtin_registry(),
           loom_cleanup_configured_pattern_provider_set(),
@@ -783,7 +783,7 @@ command.program.def public @parameterized() launch(%parameters: buffer, %target:
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -853,7 +853,7 @@ command.program.def public @bodyless() launch(%output: buffer) {
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),
@@ -972,7 +972,7 @@ command.program.def public @dynamic_root() launch() {
 
   loom_cmd_program_plan_t plan = {};
   bool valid = false;
-  IREE_ASSERT_OK(loom_cmd_program_plan_prepare_materialization(
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
       &materialization, program_refs, IREE_ARRAYSIZE(program_refs),
       /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
       loom_cleanup_configured_pattern_provider_set(),

@@ -18,7 +18,7 @@ iree_status_t loom_cmd_program_artifact_set_build_from_index(
   *out_artifact_set = (loom_cmd_program_artifact_set_t){0};
 
   loom_cmd_program_plan_t plan = {0};
-  iree_status_t status = loom_cmd_program_plan_prepare_index(
+  iree_status_t status = loom_cmd_program_plan_build_from_index(
       index, root_symbol_ordinals, root_symbol_count, options->plan_options,
       options->pass_registry, options->cleanup_pattern_provider_set,
       options->diagnostic_emitter, options->materialization_environment,

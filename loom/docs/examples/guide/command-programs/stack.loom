@@ -1,4 +1,4 @@
-// Layer count is a model-level specialization: command preparation resolves it
+// Layer count is a model-level specialization: command planning resolves it
 // before expanding the loop into a concrete schedule.
 config.decl @model.layer_count : %value: index where [range(%value, 1, 256)]
 

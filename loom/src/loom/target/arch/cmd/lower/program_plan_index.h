@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Selective command-program preparation from an indexed source universe.
+// Selective command-program plan construction from an indexed source universe.
 
 #ifndef LOOM_TARGET_ARCH_CMD_LOWER_PROGRAM_PLAN_INDEX_H_
 #define LOOM_TARGET_ARCH_CMD_LOWER_PROGRAM_PLAN_INDEX_H_
@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-// Optional indexed command-plan preparation behavior.
+// Optional indexed command-plan construction behavior.
 typedef struct loom_cmd_program_plan_index_options_t {
   // Sink enabling source-backed kernel request publication. A NULL callback
   // leaves command planning body-blind and publishes only binding requirements.
@@ -31,7 +31,7 @@ typedef struct loom_cmd_program_plan_index_options_t {
   loom_kernel_class_collection_options_t kernel_class_collection;
 } loom_cmd_program_plan_index_options_t;
 
-// Initializes command-plan index options to body-blind preparation defaults.
+// Initializes command-plan index options to body-blind planning defaults.
 static inline void loom_cmd_program_plan_index_options_initialize(
     loom_cmd_program_plan_index_options_t* options) {
   *options = (loom_cmd_program_plan_index_options_t){
@@ -41,7 +41,7 @@ static inline void loom_cmd_program_plan_index_options_initialize(
   };
 }
 
-// Selectively materializes and prepares command-program roots from |index|.
+// Builds a command-program plan from selectively materialized |index| roots.
 //
 // |program_symbol_ordinals| contains identity-resolved index-wide symbol
 // ordinals in caller order. Each symbol must expose a command implementation
@@ -60,13 +60,13 @@ static inline void loom_cmd_program_plan_index_options_initialize(
 //
 // |materialization_environment| is shared by command/configuration projection
 // and optional kernel request production. Bytecode providers therefore use the
-// same Low descriptor codec, diagnostics, and caller preparation policy at
+// same Low descriptor codec, diagnostics, and caller planning policy at
 // both product boundaries.
 //
 // Unsupported portable mappings and infrastructure failures return a non-OK
 // status. Source contract violations emit diagnostics, set |out_valid| to
 // false, and return OK.
-iree_status_t loom_cmd_program_plan_prepare_index(
+iree_status_t loom_cmd_program_plan_build_from_index(
     const loom_link_module_index_t* index,
     const iree_host_size_t* program_symbol_ordinals,
     iree_host_size_t program_count,

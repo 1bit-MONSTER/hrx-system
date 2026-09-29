@@ -51,13 +51,13 @@ typedef struct loom_link_plan_materialization_t {
   // ID at the end of linking. A target assembled from a declaration and
   // definition names the definition selected by the plan. Declarations
   // without an indexed provider and synthetic symbols contain
-  // LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL. Caller-owned preparation may
-  // append symbols while preserving this stable linked prefix. Storage belongs
-  // to the caller's arena.
+  // LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL. Downstream transforms may append
+  // symbols while preserving this stable linked prefix. Storage belongs to the
+  // caller's arena.
   struct {
     // Arena-owned target-to-source definition projection.
     iree_host_size_t* values;
-    // Number of target module symbol slots present before caller preparation.
+    // Number of target module symbol slots present immediately after linking.
     iree_host_size_t count;
   } target_source_definitions;
   // Dense target refs indexed by template-family ordinal. Each demanded family
@@ -71,14 +71,14 @@ typedef struct loom_link_plan_materialization_t {
   } target_template_families;
   // Dense configuration-function refs indexed by target module symbol ID at
   // the end of linking. Only partially projected logical kernels contain valid
-  // refs. Caller-owned preparation may append symbols while preserving this
+  // refs. Downstream transforms may append symbols while preserving this
   // stable linked prefix. This direct target-domain projection lets downstream
   // consumers resolve a linked kernel callee without rebuilding an inverse
   // source-symbol map. Storage belongs to the caller's arena.
   struct {
     // Arena-owned target-kernel-to-configuration-function projection.
     loom_symbol_ref_t* values;
-    // Number of target module symbol slots present before caller preparation.
+    // Number of target module symbol slots present immediately after linking.
     iree_host_size_t count;
   } target_kernel_configurations;
 } loom_link_plan_materialization_t;

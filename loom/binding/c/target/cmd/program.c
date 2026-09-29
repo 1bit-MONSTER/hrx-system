@@ -82,7 +82,7 @@ typedef struct loomc_cmd_program_product_invocation_t {
     loomc_allocator_t allocator;
   } request;
 
-  // Operation result receiving command preparation diagnostics.
+  // Operation result receiving command planning diagnostics.
   loomc_result_t* result;
 
   // Optional embedding sink accepting source-backed kernel requests.
@@ -525,7 +525,7 @@ static loomc_status_t loomc_cmd_program_product_build_indexed(
     if (loomc_result_diagnostic_count(result) == diagnostic_count_before) {
       status = loomc_make_status(
           LOOMC_STATUS_INTERNAL,
-          "command program preparation failed without a diagnostic");
+          "command program planning failed without a diagnostic");
     } else {
       status = loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
     }

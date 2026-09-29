@@ -345,7 +345,7 @@ iree_status_t loom_compile_command_backend_emit(
       diagnostic_emitter.error_count == 0) {
     status = iree_make_status(
         IREE_STATUS_INTERNAL,
-        "command program preparation failed without a diagnostic");
+        "command program planning failed without a diagnostic");
   }
 
   if (iree_status_is_ok(status) && plan_valid) {
