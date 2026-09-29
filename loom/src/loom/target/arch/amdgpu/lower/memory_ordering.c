@@ -67,9 +67,9 @@ iree_string_view_t loom_amdgpu_atomic_memory_rejection_key(
   if (source->minimum_alignment < source->element_byte_count) {
     return IREE_SV("atomic.alignment");
   }
-  if (is_workgroup ? source->atomic.scope != LOOM_ATOMIC_SCOPE_WORKGROUP
-                   : !loom_amdgpu_memory_ordering_scope_supported(
-                         source->atomic.scope)) {
+  if (source->atomic.scope != LOOM_ATOMIC_SCOPE_WORKGROUP &&
+      (is_workgroup ||
+       !loom_amdgpu_memory_ordering_scope_supported(source->atomic.scope))) {
     return IREE_SV("atomic.scope");
   }
   if (!loom_amdgpu_memory_ordering_available(descriptor_set)) {
@@ -122,7 +122,9 @@ static iree_status_t loom_amdgpu_emit_memory_release(
   return loom_amdgpu_system_memory_build_release_ordering_scoped(
       loom_low_lower_context_builder(context),
       loom_low_lower_context_descriptor_set(context),
-      loom_amdgpu_memory_coherence_scope(scope), source_op->location);
+      loom_amdgpu_memory_coherence_scope(
+          loom_low_lower_context_descriptor_set(context), scope),
+      source_op->location);
 }
 
 iree_status_t loom_amdgpu_emit_memory_ordering_prefix(
@@ -144,9 +146,10 @@ iree_status_t loom_amdgpu_emit_memory_ordering_prefix(
 }
 
 static iree_status_t loom_amdgpu_emit_workgroup_memory_acquire(
-    loom_low_lower_context_t* context, const loom_op_t* source_op) {
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_wait(
-      context, source_op, LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS));
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    uint32_t counter_mask) {
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_emit_memory_wait(context, source_op, counter_mask));
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_lower_context_descriptor_set(context);
   const loom_amdgpu_memory_coherence_rule_t* rule =
@@ -159,7 +162,8 @@ static iree_status_t loom_amdgpu_emit_workgroup_memory_acquire(
   loom_amdgpu_memory_coherence_attr_t
       attrs[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY];
   const uint8_t count = loom_amdgpu_memory_coherence_select_attrs(
-      rule->cache_attrs[0], LOOM_CACHE_SCOPE_SE, attrs);
+      rule->cache_attrs[rule->workgroup.cache_scope],
+      (loom_cache_scope_t)rule->workgroup.cache_scope, attrs);
   loom_amdgpu_explicit_packet_immediate_template_t
       immediates[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY];
   for (uint8_t i = 0; i < count; ++i) {
@@ -184,8 +188,12 @@ iree_status_t loom_amdgpu_emit_memory_ordering_suffix(
       source->atomic.ordering == LOOM_ATOMIC_ORDERING_RELAXED) {
     return iree_ok_status();
   }
-  if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
-    return loom_amdgpu_emit_workgroup_memory_acquire(context, source_op);
+  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP) {
+    return loom_amdgpu_emit_workgroup_memory_acquire(
+        context, source_op,
+        source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
+            ? LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS
+            : LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD);
   }
   if (loom_low_lower_context_read_visibility_scope(context) !=
       LOOM_ATOMIC_SCOPE_THREAD) {
@@ -196,7 +204,8 @@ iree_status_t loom_amdgpu_emit_memory_ordering_suffix(
   return loom_amdgpu_system_memory_build_acquire_ordering_scoped(
       loom_low_lower_context_builder(context),
       loom_low_lower_context_descriptor_set(context),
-      loom_amdgpu_memory_coherence_scope(source->atomic.scope),
+      loom_amdgpu_memory_coherence_scope(
+          loom_low_lower_context_descriptor_set(context), source->atomic.scope),
       source_op->location);
 }
 
@@ -250,7 +259,9 @@ iree_status_t loom_amdgpu_lower_memory_fence(
   return loom_amdgpu_system_memory_build_acquire_ordering_scoped(
       loom_low_lower_context_builder(context),
       loom_low_lower_context_descriptor_set(context),
-      loom_amdgpu_memory_coherence_scope(plan->scope), source_op->location);
+      loom_amdgpu_memory_coherence_scope(
+          loom_low_lower_context_descriptor_set(context), plan->scope),
+      source_op->location);
 }
 
 iree_status_t loom_amdgpu_low_legality_verify_memory_fence(

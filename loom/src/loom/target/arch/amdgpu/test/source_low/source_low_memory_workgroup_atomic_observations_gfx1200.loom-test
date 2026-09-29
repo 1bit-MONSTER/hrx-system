@@ -189,7 +189,7 @@ low.kernel.def target<amdgpu.rdna4.core> abi_layout({constant_count = 0, direct_
   %15 = v_mov_b32 0
   %observed = ds_read_b32<volatile> %15
   s_wait_dscnt {dscnt = 0}
-  %value = global_load_b32_saddr %15, %data {scope = 2}
+  %value = global_load_b32_saddr %15, %data {scope = 1}
   global_store_b32_saddr %15, %value, %results
   return
 }
