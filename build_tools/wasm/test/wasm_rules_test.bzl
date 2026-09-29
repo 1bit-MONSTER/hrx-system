@@ -214,18 +214,32 @@ def _test_wasi_executable_alias_cross_compiles_source(name, **kwargs):
         tags = ["manual"],
     )
     analysis_test(
-        name = name,
+        name = name + "_wrapper",
         attr_values = {
             "timeout": "short",
         },
-        impl = _test_wasi_executable_alias_cross_compiles_source_impl,
+        impl = _test_wasi_executable_wrapper_cross_compiles_source_impl,
+        target = name + "_subject_wrapper",
+        **kwargs
+    )
+    analysis_test(
+        name = name + "_host",
+        attr_values = {
+            "timeout": "short",
+        },
+        impl = _test_wasi_executable_alias_is_host_launchable_impl,
         target = name + "_subject",
         **kwargs
     )
+    native.test_suite(
+        name = name,
+        tests = [
+            name + "_wrapper",
+            name + "_host",
+        ],
+    )
 
-def _test_wasi_executable_alias_cross_compiles_source_impl(env, target):
-    info = target[IreeExecutableInfo]
-    env.expect.that_str(info.output.basename).equals(target.label.name)
+def _test_wasi_executable_wrapper_cross_compiles_source_impl(env, target):
     bundle_action = _find_action_with_mnemonic(
         env,
         target[TestingAspectInfo].actions,
@@ -234,12 +248,22 @@ def _test_wasi_executable_alias_cross_compiles_source_impl(env, target):
     _expect_basename(
         env,
         bundle_action.inputs.to_list(),
-        info.src.name + ".wasm",
+        target.label.name[:-len("_subject_wrapper")] + "_wasm.wasm",
     )
+
+def _test_wasi_executable_alias_is_host_launchable_impl(env, target):
+    executable = target[DefaultInfo].files_to_run.executable
+    env.expect.that_str(executable.basename).equals(target.label.name)
+    env.expect.that_collection(
+        target[RunEnvironmentInfo].inherited_environment,
+    ).contains_exactly([
+        "IREE_WASM_NODE",
+        "PATH",
+    ])
     _expect_basename(
         env,
         target[DefaultInfo].default_runfiles.files.to_list(),
-        target.label.name + ".wasm",
+        target.label.name + "_wrapper.wasm",
     )
 
 def wasm_rules_test_suite(name):

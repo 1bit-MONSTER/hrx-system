@@ -6,6 +6,7 @@
 
 """Rules for exposing existing executables as binaries or tests."""
 
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load(
     "//build_tools/wasm:build_defs.bzl",
     "collect_and_bundle_wasm",
@@ -295,7 +296,7 @@ def _iree_executable_alias_impl(ctx):
         launch_environment,
     )
 
-def _iree_wasi_executable_alias_impl(ctx):
+def _iree_wasi_executable_wrapper_impl(ctx):
     wasm_output = _wasm_executable_output(ctx, allow_default_test_main = False)
     return _executable_alias_providers(
         ctx,
@@ -438,10 +439,10 @@ _iree_executable_alias = rule(
     executable = True,
 )
 
-_iree_wasi_executable_alias = rule(
-    implementation = _iree_wasi_executable_alias_impl,
+_iree_wasi_executable_wrapper = rule(
+    implementation = _iree_wasi_executable_wrapper_impl,
     attrs = _WASI_ALIAS_ATTRS,
-    doc = "Cross-compiles an executable to WASI and exposes a host-launchable alias.",
+    doc = "Cross-compiles an executable to WASI and writes its host wrapper.",
     executable = True,
 )
 
@@ -473,17 +474,52 @@ iree_executable_alias = macro(
     doc = "Exposes an executable target or file as another executable target.",
 )
 
-def _wasi_executable_alias_macro_impl(name, visibility, **kwargs):
-    _iree_wasi_executable_alias(
+def _wasi_executable_alias_macro_impl(
+        name,
+        visibility,
+        data,
+        src,
+        tags,
+        target_platform,
+        wasm_main,
+        **kwargs):
+    wrapper_name = name + "_wrapper"
+    tags = tags or []
+    _iree_wasi_executable_wrapper(
+        name = wrapper_name,
+        data = data,
+        src = src,
+        tags = tags + ["manual"],
+        target_platform = target_platform,
+        visibility = ["//%s:__pkg__" % native.package_name()],
+        wasm_main = wasm_main,
+        **kwargs
+    )
+
+    # Let rules_shell provide the destination platform's launcher instead of
+    # exposing the generated POSIX script as a native executable on Windows.
+    # The inherited environment remains attached when another test rule wraps
+    # this alias, so Node installed by the host stays visible in its sandbox.
+    sh_binary(
         name = name,
+        data = [":" + wrapper_name],
+        env_inherit = [
+            "IREE_WASM_NODE",
+            "PATH",
+        ],
+        srcs = [":" + wrapper_name],
+        tags = tags,
         visibility = visibility,
         **kwargs
     )
 
 iree_wasi_executable_alias = macro(
-    inherit_attrs = _iree_wasi_executable_alias,
+    inherit_attrs = _iree_wasi_executable_wrapper,
     implementation = _wasi_executable_alias_macro_impl,
-    attrs = {"windows_launcher": None},
+    attrs = {
+        "out": None,
+        "windows_launcher": None,
+    },
     doc = "Cross-compiles an executable to WASI and exposes a host-launchable alias.",
 )
 
