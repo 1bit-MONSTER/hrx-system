@@ -205,7 +205,7 @@ spirv.target<vulkan1_3> @target
 
 func.def target(@target) @exact_vector_maxnum(%input: f32) -> (f32) {
   %values = vector.splat %input : vector<4xf32>
-  // ERROR@+1: TARGET/003 {op_name="vector.maxnumf", subject_role="flags", subject_name="fastmath", constraint_key="has_all.nsz"}
+  // ERROR@+1: TARGET/003 {op_name="scalar.maxnumf", subject_role="flags", subject_name="fastmath", constraint_key="has_all.nsz"}
   %maxima = vector.maxnumf %values, %values : vector<4xf32>
   %result = vector.extract %maxima[0] : vector<4xf32> -> f32
   func.return %result : f32

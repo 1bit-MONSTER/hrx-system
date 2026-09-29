@@ -562,3 +562,152 @@ check.case public @private_float8_positive_matches {
   check.expect.bitwise actual(%selected_e5) expected(%expected_selection_e5) : tensor<256xi8>
   check.return
 }
+
+// Narrow extrema preserve old NaN payloads and gradual underflow. Each
+// minimum-subnormal input must survive a minimum with the immediate 1.0.
+kernel.def @private_bf16_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xbf16>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi16>
+  %bits = view.load %source[0] : view<1xi16> -> i16
+  %initial = scalar.bitcast %bits : i16 to bf16
+  %update = scalar.constant 1.0 : bf16
+  view.store %initial, %cell[0] : bf16, view<1xbf16>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : bf16, view<1xbf16> -> bf16
+  %final = view.load %cell[0] : view<1xbf16> -> bf16
+  %old_bits = scalar.bitcast %old : bf16 to i16
+  %final_bits = scalar.bitcast %final : bf16 to i16
+  view.store %old_bits, %results[0] : i16, view<2xi16>
+  view.store %final_bits, %results[1] : i16, view<2xi16>
+  kernel.return
+}
+
+check.case public @private_bf16_number_snan {
+  %input = check.generate.fill value(32641) : tensor<1xi16>
+  %output = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @private_bf16_number(%input, %output) : (tensor<1xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi16> -> tensor<1xi16>
+  %expected_old = check.generate.fill value(32641) : tensor<1xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi16>
+  %final = check.tensor.view %output offset(2) : tensor<2xi16> -> tensor<1xi16>
+  %expected_final = check.generate.fill value(16256) : tensor<1xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
+  check.return
+}
+
+check.case public @private_bf16_number_subnormal {
+  %input = check.generate.fill value(1) : tensor<1xi16>
+  %output = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @private_bf16_number(%input, %output) : (tensor<1xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi16> -> tensor<1xi16>
+  %expected_old = check.generate.fill value(1) : tensor<1xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi16>
+  %final = check.tensor.view %output offset(2) : tensor<2xi16> -> tensor<1xi16>
+  %expected_final = check.generate.fill value(1) : tensor<1xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
+  check.return
+}
+
+kernel.def @private_f8e4m3_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 1 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf8E4M3>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi8>
+  %bits = view.load %source[0] : view<1xi8> -> i8
+  %initial = scalar.bitcast %bits : i8 to f8E4M3
+  %update = scalar.constant 1.0 : f8E4M3
+  view.store %initial, %cell[0] : f8E4M3, view<1xf8E4M3>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : f8E4M3, view<1xf8E4M3> -> f8E4M3
+  %final = view.load %cell[0] : view<1xf8E4M3> -> f8E4M3
+  %old_bits = scalar.bitcast %old : f8E4M3 to i8
+  %final_bits = scalar.bitcast %final : f8E4M3 to i8
+  view.store %old_bits, %results[0] : i8, view<2xi8>
+  view.store %final_bits, %results[1] : i8, view<2xi8>
+  kernel.return
+}
+
+check.case public @private_f8e4m3_number_nan {
+  %input = check.generate.fill value(127) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e4m3_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(127) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(56) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
+
+check.case public @private_f8e4m3_number_subnormal {
+  %input = check.generate.fill value(1) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e4m3_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
+
+kernel.def @private_f8e5m2_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 1 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf8E5M2>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi8>
+  %bits = view.load %source[0] : view<1xi8> -> i8
+  %initial = scalar.bitcast %bits : i8 to f8E5M2
+  %update = scalar.constant 1.0 : f8E5M2
+  view.store %initial, %cell[0] : f8E5M2, view<1xf8E5M2>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : f8E5M2, view<1xf8E5M2> -> f8E5M2
+  %final = view.load %cell[0] : view<1xf8E5M2> -> f8E5M2
+  %old_bits = scalar.bitcast %old : f8E5M2 to i8
+  %final_bits = scalar.bitcast %final : f8E5M2 to i8
+  view.store %old_bits, %results[0] : i8, view<2xi8>
+  view.store %final_bits, %results[1] : i8, view<2xi8>
+  kernel.return
+}
+
+check.case public @private_f8e5m2_number_snan {
+  %input = check.generate.fill value(125) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e5m2_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(125) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(60) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
+
+check.case public @private_f8e5m2_number_subnormal {
+  %input = check.generate.fill value(1) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e5m2_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
