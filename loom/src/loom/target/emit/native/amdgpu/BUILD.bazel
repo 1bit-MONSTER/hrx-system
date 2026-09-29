@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load(
@@ -499,6 +500,29 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
+)
+
+iree_assert_dependency_boundary(
+    name = "hsaco_writer_boundary",
+    allowed_dependencies = [
+        "//loom/src/loom/target/emit/native/amdgpu:hsaco",
+        "//loom/src/loom/target/emit/native:elf",
+    ],
+    forbidden_subtrees = ["//loom/src/loom/..."],
+    message = "AMDGPU HSACO serialization consumes only a trusted target-owned plan and the native ELF writer",
+    target = ":hsaco",
+)
+
+iree_assert_dependency_boundary(
+    name = "hsaco_prepare_compiler_boundary",
+    forbidden_subtrees = [
+        "//loom/src/loom/codegen/...",
+        "//loom/src/loom/ir/...",
+        "//loom/src/loom/tooling/...",
+        "//loom/src/loom/tools/...",
+    ],
+    message = "AMDGPU HSACO preparation must not recover compiler, IR, or tooling state",
+    target = ":hsaco_prepare",
 )
 
 loom_cc_library(
