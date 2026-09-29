@@ -18,6 +18,7 @@
 #include "loom/tooling/compile/preparation.h"
 #include "loom/tooling/compile/request.h"
 #include "loom/tooling/config/config.h"
+#include "loom/tooling/target/wasm/artifact_emitter.h"
 #include "loom/tooling/target/wasm/host.h"
 #include "loom/tooling/target/wasm/prepare.h"
 
@@ -272,6 +273,9 @@ static iree_status_t loom_wasm_testbench_compile_product(
   }
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);
+  pipeline_options.target_pipeline_options =
+      loom_wasm_artifact_emitter_provider.canonical_module_emitter
+          ->default_pipeline_options;
   pipeline_options.target_environment = testbench->target_environment;
   pipeline_options.low_descriptor_registry = &low_registry;
   pipeline_options.cleanup_pattern_provider_set =

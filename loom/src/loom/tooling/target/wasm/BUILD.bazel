@@ -65,6 +65,7 @@ loom_cc_library(
     hdrs = ["testbench.h"],
     visibility = ["//loom/src/loom/tools/iree-test-loom:__pkg__"],
     deps = [
+        ":artifact_emitter",
         ":host",
         ":prepare",
         "//loom/src/loom/error:source",

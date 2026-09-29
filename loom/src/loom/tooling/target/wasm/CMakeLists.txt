@@ -70,6 +70,7 @@ loom_cc_library(
   SRCS
     "testbench.c"
   DEPS
+    ::artifact_emitter
     ::host
     ::prepare
     iree::base

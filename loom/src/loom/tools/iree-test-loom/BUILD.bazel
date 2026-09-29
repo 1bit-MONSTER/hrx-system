@@ -66,12 +66,31 @@ _VM_TARGET_DEPS = iree_select({
     "//conditions:default": [],
 })
 
+_WASM_TARGET_COPTS = iree_select({
+    "//loom/config/target/arch:wasm": ["-DIREE_TEST_LOOM_HAVE_WASM=1"],
+    "//conditions:default": [],
+})
+
+_WASM_TARGET_DEPS = iree_select({
+    "//loom/config/target/arch:wasm": [
+        "//loom/src/loom/target/arch/wasm:provider",
+        "//loom/src/loom/tooling/target/wasm:testbench",
+    ],
+    "//conditions:default": [],
+})
+
 _IREE_TEST_LOOM_TARGET_COPTS = (
-    _AMDGPU_TARGET_COPTS + _SPIRV_VULKAN_TARGET_COPTS + _VM_TARGET_COPTS
+    _AMDGPU_TARGET_COPTS +
+    _SPIRV_VULKAN_TARGET_COPTS +
+    _VM_TARGET_COPTS +
+    _WASM_TARGET_COPTS
 )
 
 _IREE_TEST_LOOM_TARGET_DEPS = (
-    _AMDGPU_TARGET_DEPS + _SPIRV_VULKAN_TARGET_DEPS + _VM_TARGET_DEPS
+    _AMDGPU_TARGET_DEPS +
+    _SPIRV_VULKAN_TARGET_DEPS +
+    _VM_TARGET_DEPS +
+    _WASM_TARGET_DEPS
 )
 
 loom_cc_library(
