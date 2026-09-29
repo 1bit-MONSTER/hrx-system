@@ -138,7 +138,15 @@ typedef IREE_DEVICE_SIZE_T iree_device_size_t;
 // owned by IREE from multiple threads concurrently or across threads without
 // proper barriers in place. Unless your target system is in a similar class to
 // an Arduino this is definitely not what you want.
+#if defined(IREE_PLATFORM_WASM) && !defined(__wasm_atomics__)
+// WebAssembly requires the atomics target feature for shared memory and
+// multithreading. Without it an instance is necessarily single-threaded and
+// the atomic wait/notify instructions used by the synchronized path are not
+// available.
+#define IREE_SYNCHRONIZATION_DISABLE_UNSAFE 1
+#else
 #define IREE_SYNCHRONIZATION_DISABLE_UNSAFE 0
+#endif  // IREE_PLATFORM_WASM && !__wasm_atomics__
 #endif  // !IREE_SYNCHRONIZATION_DISABLE_UNSAFE
 
 //===----------------------------------------------------------------------===//
