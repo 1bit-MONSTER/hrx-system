@@ -121,8 +121,7 @@ class CopyDispatchRecipeTest : public AqlDispatchTest {
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    if (!matches || (sdma_family.format_features &
-                     AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0) {
+    if (!matches) {
       *out_matches = false;
       return AMDF_STATUS_OK;
     }
@@ -335,10 +334,6 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   const auto& kernel = *kernel_product;
   RecordProperty("transform_kernel_target", kernel.target);
 
-  if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
-    GTEST_SKIP() << "queried dataflow requires the discrete coherent SYSTEM "
-                    "memory policy";
-  }
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kMaximumByteLength = 12288;
   constexpr uint32_t kMaximumWordCount = kMaximumByteLength / sizeof(uint32_t);

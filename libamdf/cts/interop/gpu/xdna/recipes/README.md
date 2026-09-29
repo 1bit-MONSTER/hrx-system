@@ -60,15 +60,17 @@ prefetch padding, argument slots and allocation padding are checked after GPU
 readback is captured. The source build checks compiled argument offsets, types,
 resource inputs, wave width and workgroup geometry against the PM4 caller.
 
-The recipe admits the GFX11.0/GFX11.5 PM4 encoding supported by the shared
-packet writer and the NPU4 Strix/Krackan or NPU5 Halo finite program. A capable
+The recipe selects its RDNA PM4 encoding from the shared
+[command profile](../../../../gpu/pm4/encoding/profile.h) and the NPU4
+Strix/Krackan or NPU5 Halo finite program. A capable
 USER queue publishes complete packets without splitting them across the ring
 boundary; a coherent marker establishes completion before payload observation,
 and the read frontier separately retires command storage. An advertised KERNEL
 queue instead uses private command storage and checked native completion.
 Transport selection precedes queue creation and never changes after a native
-failure. Shader cases additionally require the COMPUTE role and the exact
-gfx1150 or gfx1151 target of their compiled image. Selection uses the GPU's
+failure. Shader cases additionally require the COMPUTE role and select the
+exact physical target from the [compiled kernel set](../../../../gpu/kernels/README.md).
+The same Loom source supplies each target variant. Selection uses the GPU's
 reported IP, independently of the host OS and queue transport.
 
 Queue destruction precedes release of reachable backing. XDNA instruction

@@ -77,10 +77,20 @@ retains the three binding modes.
 Native corpora require x86-64 and Linux or Windows at compile time, inherit
 the `libamdf.resource.amd_gpu` execution requirement and share the AMD GPU
 resource group. Encoder target predicates and family capabilities select the
-actual native queue service. Linux RDNA runs PM4 and SDMA through USER queues;
-Windows RDNA runs them through KERNEL queues. AQL uses USER publication on
-Linux. Tests specifically exercising mapped USER state require that service
-independently of ordinary command behavior.
+actual native queue service:
+
+| Platform | PM4 | AQL | SDMA |
+| --- | --- | --- | --- |
+| Linux CDNA | Outside this corpus's compute matrix. | USER | USER |
+| Linux RDNA | USER | USER | USER |
+| Windows RDNA | KERNEL | Unavailable. | KERNEL |
+
+Tests specifically exercising mapped USER state require that service
+independently of ordinary command behavior. Ordinary Linux RDNA AQL dispatch
+does not imply support for the optional vendor barrier-value packet. A case
+using that packet requires its separate family capability before activation.
+SYSTEM-memory cases require their actual backing and visibility contract;
+only LOCAL-memory cases require a device-local heap.
 
 Each `encoding/` package has one plain host-test binary. Package policy removes
 the GPU execution requirement for these exact packages, so byte-layout checks
