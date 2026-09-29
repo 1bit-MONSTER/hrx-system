@@ -913,6 +913,17 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_test(
+  NAME
+    guarded_motion_test
+  SRCS
+    "guarded_motion_test.cc"
+  DEPS
+    ::guarded_motion
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
 loom_cc_library(
   NAME
     frame
@@ -955,6 +966,7 @@ loom_cc_test(
     "frame_test.cc"
   DEPS
     ::frame
+    ::guarded_motion
     ::packet
     ::text_asm
     iree::base::internal::arena

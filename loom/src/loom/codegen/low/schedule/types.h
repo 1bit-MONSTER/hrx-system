@@ -163,6 +163,9 @@ enum loom_low_schedule_flag_bits_e {
   LOOM_LOW_SCHEDULE_FLAG_RETAIN_DEPENDENCY_INDEX = 1u << 2,
   // Retains block pressure contributions for subsequent scoped rescheduling.
   LOOM_LOW_SCHEDULE_FLAG_RETAIN_BLOCK_PRESSURE = 1u << 3,
+  // Retains final-issue lower bounds for source suffixes consumed by guarded
+  // motion profitability planning.
+  LOOM_LOW_SCHEDULE_FLAG_RETAIN_SOURCE_SUFFIX_BOUNDS = 1u << 4,
 };
 typedef uint32_t loom_low_schedule_flags_t;
 
@@ -790,6 +793,10 @@ typedef struct loom_low_schedule_table_t {
   const loom_low_schedule_node_t* nodes;
   // Number of schedule nodes.
   iree_host_size_t node_count;
+  // Conservative lower bound on the final block issue cycle after discarding
+  // every earlier source node in the containing block, indexed by the first
+  // retained node. Present only with RETAIN_SOURCE_SUFFIX_BOUNDS.
+  const uint32_t* source_suffix_issue_cycle_lower_bounds;
   // Source-ordered low.func.call node indices retained for ABI frame planning.
   const uint32_t* call_node_indices;
   // Number of entries in |call_node_indices|. Leaves have no call-table

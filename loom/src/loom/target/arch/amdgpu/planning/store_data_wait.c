@@ -59,7 +59,7 @@ struct loom_amdgpu_store_data_wait_state_t {
   const loom_low_schedule_table_t* schedule;
   // Final allocation supplying physical payloads and writes.
   const loom_low_allocation_table_t* allocation;
-  // Arena owning transient summaries and merge scratch.
+  // Arena owning transient summaries and propagation worklists.
   iree_arena_allocator_t* arena;
   // Block summaries in region order.
   loom_amdgpu_store_data_block_t* blocks;
@@ -378,7 +378,7 @@ static void loom_amdgpu_store_data_propagate(
 
 iree_status_t loom_amdgpu_store_data_wait_resolve(
     loom_amdgpu_store_data_wait_state_t* state,
-    loom_amdgpu_wait_state_t* states, iree_host_size_t* state_count) {
+    loom_amdgpu_store_data_wait_emit_fn_t emit, void* emit_user_data) {
   if (state->schedule->cfg_graph.edge_count == 0) {
     return iree_ok_status();
   }
@@ -387,15 +387,15 @@ iree_status_t loom_amdgpu_store_data_wait_resolve(
       iree_arena_allocate_array(state->arena, state->schedule->block_count,
                                 sizeof(*worklist), (void**)&worklist));
   loom_amdgpu_store_data_propagate(state, worklist);
-  loom_amdgpu_wait_state_t* added = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(state->arena, state->schedule->block_count * 2,
-                                sizeof(*added), (void**)&added));
-  iree_host_size_t added_count = 0;
+  loom_amdgpu_wait_state_t pending = {0};
+  bool has_pending = false;
+  iree_status_t status = iree_ok_status();
   // Reuse packet-write scratch for one incoming frontier. Resolved predecessor
   // outputs replace static bounds as we proceed; backedges retain safe bounds.
   uint64_t* incoming = state->writes;
-  for (uint16_t index = 0; index < state->schedule->block_count; ++index) {
+  for (uint16_t index = 0;
+       index < state->schedule->block_count && iree_status_is_ok(status);
+       ++index) {
     const loom_cfg_block_index_span_t predecessors =
         loom_cfg_graph_predecessors(&state->schedule->cfg_graph, index);
     for (unsigned plane = 0; plane < 2; ++plane) {
@@ -408,7 +408,8 @@ iree_status_t loom_amdgpu_store_data_wait_resolve(
     const loom_amdgpu_store_data_block_t* block = &state->blocks[index];
     uint8_t inserted[2] = {0};
     unsigned delay = 0;
-    for (unsigned position = 0; position + delay < 2; ++position) {
+    for (unsigned position = 0;
+         position + delay < 2 && iree_status_is_ok(status); ++position) {
       unsigned residual = 0;
       unsigned required = 0;
       for (unsigned kind = 0; kind < 2; ++kind) {
@@ -432,12 +433,17 @@ iree_status_t loom_amdgpu_store_data_wait_resolve(
       const loom_amdgpu_store_data_prefix_t* prefix = &block->prefix[position];
       const loom_low_packet_view_t packet =
           loom_low_packet_at(state->schedule, prefix->packet_index);
-      if (added_count != 0 &&
-          added[added_count - 1].node_index == packet.node_index) {
-        added[added_count - 1].cycle_count += (uint16_t)residual;
-        added[added_count - 1].required_cycle_count += (uint16_t)residual;
+      if (has_pending && pending.node_index == packet.node_index) {
+        pending.cycle_count += (uint16_t)residual;
+        pending.required_cycle_count += (uint16_t)residual;
       } else {
-        added[added_count++] = (loom_amdgpu_wait_state_t){
+        if (has_pending) {
+          status = emit(emit_user_data, &pending);
+        }
+        if (!iree_status_is_ok(status)) {
+          break;
+        }
+        pending = (loom_amdgpu_wait_state_t){
             .reason = LOOM_AMDGPU_WAIT_STATE_REASON_STORE_DATA_REUSE,
             .action = LOOM_AMDGPU_WAIT_STATE_ACTION_S_NOP,
             .block_index = index,
@@ -449,9 +455,13 @@ iree_status_t loom_amdgpu_store_data_wait_resolve(
             .observed_cycle_count = (uint16_t)(position + delay),
             .cycle_count = (uint16_t)residual,
         };
+        has_pending = true;
       }
       inserted[prefix->packet_position] += (uint8_t)residual;
       delay += residual;
+    }
+    if (!iree_status_is_ok(status)) {
+      break;
     }
     // Incoming windows see all issue progress. Locally opened windows only
     // see inserted waits after their own source instruction.
@@ -479,22 +489,8 @@ iree_status_t loom_amdgpu_store_data_wait_resolve(
       }
     }
   }
-  // Both sequences are in scheduled order. Merge backwards into caller-owned
-  // spare capacity so the existing wait rows need no second arena allocation.
-  iree_host_size_t original = *state_count;
-  iree_host_size_t extra = added_count;
-  iree_host_size_t destination = original + extra;
-  *state_count = destination;
-  while (extra != 0) {
-    const loom_amdgpu_wait_state_t* next = &added[extra - 1];
-    if (original != 0 &&
-        (states[original - 1].block_index > next->block_index ||
-         (states[original - 1].block_index == next->block_index &&
-          states[original - 1].scheduled_ordinal > next->scheduled_ordinal))) {
-      states[--destination] = states[--original];
-    } else {
-      states[--destination] = added[--extra];
-    }
+  if (iree_status_is_ok(status) && has_pending) {
+    status = emit(emit_user_data, &pending);
   }
-  return iree_ok_status();
+  return status;
 }

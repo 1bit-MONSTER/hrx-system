@@ -380,6 +380,26 @@ low.func.def target<amdgpu.cdna3.core>(@gfx942_target) @gfx942_vmem_store_b128_p
 
 // ====
 
+// RUN: emit amdgpu-wait-state-plan @gfx942_cross_block_store_data_reuse strategy=source fixed=%payload:physical_register:0:4 fixed=%replacement:physical_register:4:1 fixed=%value:physical_register:0:1
+
+amdgpu.target<gfx942> @gfx942_target
+
+low.func.def target<amdgpu.cdna3.core>(@gfx942_target) @gfx942_cross_block_store_data_reuse(%resource: reg<amdgpu.sgpr x4>, %vaddr: reg<amdgpu.vgpr>, %soffset: reg<amdgpu.sgpr>, %payload: reg<amdgpu.vgpr x4>, %replacement: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
+  buffer_store_dwordx4 %payload, %resource, %vaddr, %soffset
+  low.br ^reuse
+^reuse:
+  %value = v_mov_b32_copy %replacement
+  %lane = v_readfirstlane_b32 %value
+  return %lane
+}
+
+// ----
+amdgpu.wait_state_plan states=2 progress=4 hazards=2
+state[0] reason=store_data_reuse action=amdgpu.s_nop at=b1:n2/o0 producer=n4294967295 consumer=n2 required=1 observed=0 residual=1
+state[1] reason=readfirstlane_vgpr_read action=amdgpu.s_nop at=b1:n3/o1 producer=n2 consumer=n3 required=1 observed=0 residual=1
+
+// ====
+
 // RUN: emit amdgpu-wait-state-plan @gfx11_packed_dot_dependency_delay_alu strategy=source
 
 amdgpu.target<gfx1100> @gfx11_target

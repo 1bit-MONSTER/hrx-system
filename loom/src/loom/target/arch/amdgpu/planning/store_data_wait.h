@@ -31,6 +31,10 @@ typedef struct loom_amdgpu_store_data_wait_match_t {
   uint16_t cycles;
 } loom_amdgpu_store_data_wait_match_t;
 
+// Emits one ordered cross-block store-data wait state.
+typedef iree_status_t (*loom_amdgpu_store_data_wait_emit_fn_t)(
+    void* user_data, const loom_amdgpu_wait_state_t* wait_state);
+
 // Allocates transient state, returning NULL on targets without this hazard.
 iree_status_t loom_amdgpu_store_data_wait_create(
     const loom_low_schedule_table_t* schedule,
@@ -64,11 +68,10 @@ void loom_amdgpu_store_data_wait_commit(
 void loom_amdgpu_store_data_wait_end_block(
     loom_amdgpu_store_data_wait_state_t* state);
 
-// Resolves the CFG and merges cross-block delays into the ordered wait rows.
-// The caller reserves two additional rows per block in |states|.
+// Resolves the CFG and emits cross-block delays in scheduled packet order.
 iree_status_t loom_amdgpu_store_data_wait_resolve(
     loom_amdgpu_store_data_wait_state_t* state,
-    loom_amdgpu_wait_state_t* states, iree_host_size_t* state_count);
+    loom_amdgpu_store_data_wait_emit_fn_t emit, void* emit_user_data);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -21,6 +21,7 @@
 #include "loom/codegen/low/schedule/ready_frontier.h"
 #include "loom/codegen/low/schedule/ready_policy.h"
 #include "loom/codegen/low/schedule/scopes.h"
+#include "loom/codegen/low/schedule/source_suffix.h"
 #include "loom/codegen/low/schedule/storage_lifetime.h"
 #include "loom/codegen/low/storage_relation.h"
 #include "loom/ops/low/ops.h"
@@ -1826,10 +1827,19 @@ static iree_status_t loom_low_schedule_build(
         .resource_summaries = state.resource_summaries,
         .resource_summary_count = state.resource_summary_count,
     };
-    loom_low_schedule_dependency_graph_move(&state.dependencies,
-                                            &out_table->dependencies);
-    status = loom_low_schedule_diagnostics_emit(
-        out_table, options->diagnostic_flags, options->emitter);
+    if (state.error_count == 0 &&
+        iree_any_bit_set(options->flags,
+                         LOOM_LOW_SCHEDULE_FLAG_RETAIN_SOURCE_SUFFIX_BOUNDS)) {
+      status = loom_low_schedule_source_suffix_bounds_build(
+          out_table, &state.dependency_index, scratch_arena, arena,
+          &out_table->source_suffix_issue_cycle_lower_bounds);
+    }
+    if (iree_status_is_ok(status)) {
+      loom_low_schedule_dependency_graph_move(&state.dependencies,
+                                              &out_table->dependencies);
+      status = loom_low_schedule_diagnostics_emit(
+          out_table, options->diagnostic_flags, options->emitter);
+    }
   }
   return status;
 }
