@@ -173,7 +173,7 @@ def _wasm_executable_output(ctx, allow_default_test_main):
     ).format(
         workspace = ctx.workspace_name,
         runner = ctx.file._wasm_runner.short_path,
-        bundle = output_mjs.short_path,
+        bundle = _runfile_path(ctx, output_mjs),
     )
     ctx.actions.write(
         content = wrapper_content,
