@@ -17,28 +17,18 @@ _VM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 loom_cc_library(
     name = "program_prepare",
-    srcs = [
-        "function_plan.c",
-        "program_prepare.c",
-    ],
-    hdrs = [
-        "function_plan.h",
-        "program_prepare.h",
-    ],
+    srcs = ["program_prepare.c"],
+    hdrs = ["program_prepare.h"],
     visibility = ["//visibility:private"],
     deps = [
         "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/codegen/low:frame",
-        "//loom/src/loom/codegen/low:storage_layout",
-        "//loom/src/loom/codegen/low/allocation:move_sequence",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/global",
         "//loom/src/loom/ops/low",
         "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target/arch/vm:function_plan",
         "//loom/src/loom/target/arch/vm:reference_plan",
-        "//loom/src/loom/target/arch/vm/descriptors",
         "//loom/src/loom/target/emit/vm:program",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

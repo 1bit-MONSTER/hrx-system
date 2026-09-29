@@ -60,6 +60,34 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    function_plan
+  HDRS
+    "function_plan.h"
+  SRCS
+    "function_plan.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    iree::io::stream
+    iree::vm::bytecode::wire
+    loom::codegen::low::allocation::move_sequence
+    loom::codegen::low::descriptors
+    loom::codegen::low::frame
+    loom::codegen::low::storage_layout
+    loom::error::emitter
+    loom::ir
+    loom::ops::global
+    loom::ops::low
+    loom::ops::op_defs
+    loom::target::arch::vm::descriptors
+    loom::target::function_version
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     reference_plan_test

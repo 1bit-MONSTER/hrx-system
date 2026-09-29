@@ -14,26 +14,20 @@ loom_cc_library(
   NAME
     program_prepare
   HDRS
-    "function_plan.h"
     "program_prepare.h"
   SRCS
-    "function_plan.c"
     "program_prepare.c"
   DEPS
     iree::base
     iree::base::internal::arena
     iree::io::stream
     iree::vm::bytecode::wire
-    loom::codegen::low::allocation::move_sequence
     loom::codegen::low::descriptors
-    loom::codegen::low::frame
-    loom::codegen::low::storage_layout
     loom::error::emitter
     loom::ir
     loom::ops::global
     loom::ops::low
-    loom::ops::op_defs
-    loom::target::arch::vm::descriptors
+    loom::target::arch::vm::function_plan
     loom::target::arch::vm::reference_plan
     loom::target::emit::vm::program
     loom::target::function_version

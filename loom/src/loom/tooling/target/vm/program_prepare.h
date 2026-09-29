@@ -10,75 +10,12 @@
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/error/emitter.h"
-#include "loom/ops/op_defs.h"
 #include "loom/target/emit/vm/program.h"
 #include "loom/target/function_version.h"
-#include "loom/tooling/target/vm/function_plan.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Compiler-owned callable binding retained while preparing a VM program.
-typedef struct loom_vm_program_callable_t {
-  // Borrowed function definition or import declaration and signature values.
-  loom_func_like_t function;
-  // Concrete compiler products retained by the shared compilation pipeline.
-  const loom_target_function_version_t* function_version;
-  // Source-ordered entry argument IDs in the module.
-  const loom_value_id_t* arguments;
-  // Source-ordered signature result IDs in the module.
-  loom_value_slice_t results;
-  // Public name, or empty for an internal function.
-  iree_string_view_t export_name;
-  // Runtime import identity; empty for a local function.
-  struct {
-    // Module namespace owning the imported callable.
-    iree_string_view_t module_name;
-    // Export name within that module, independent of the local symbol name.
-    iree_string_view_t symbol_name;
-  } import;
-  // Local-function or flat-import ordinal in the emitted image.
-  uint16_t ordinal;
-  // Source-ordered logical argument count.
-  uint16_t argument_count;
-  // Canonical callable ordinal assigned by signature sorting.
-  uint16_t callable_ordinal;
-  // Wire control.call target kind, shared by local and imported calls.
-  uint8_t target_kind;
-  // Exact logical fields and their physical argument/result bank counts.
-  loom_vm_function_signature_t signature;
-} loom_vm_program_callable_t;
-
-// Compiler-owned state shared across function preparation. This representation
-// never crosses into the target binary writer.
-struct loom_vm_program_build_t {
-  // Arena-owned local and imported callable records in source symbol order.
-  loom_vm_program_callable_t* values;
-  // Direct symbol-indexed bindings for calls within the VM target contract.
-  // Open declarations without an executable binding remain NULL until the
-  // selected caller's schedule is validated for artifact preparation.
-  loom_vm_program_callable_t** bindings_by_symbol;
-  // Number of records in |values|, bounded by the module symbol ID space.
-  uint32_t count;
-  // Number of local definitions, retaining their collected ordinal space.
-  uint32_t definition_count;
-  // Read-only payloads retained for the program's data section.
-  struct {
-    // Symbol-indexed data ordinals; UINT16_MAX marks an unreferenced payload.
-    uint16_t* ordinals_by_symbol;
-    // Module symbol IDs in declaration order for numeric Low operands.
-    const loom_symbol_id_t* symbols;
-    // Number of entries in |symbols|.
-    uint32_t symbol_count;
-    // Borrowed definitions in first-use order, with symbol_count capacity.
-    const loom_op_t** values;
-    // Number of definitions in |values|.
-    uint32_t count;
-    // Maximum block alignment, at least the image's eight-byte alignment.
-    uint32_t alignment;
-  } rodata;
-};
 
 // Prepares one immutable physical VM program from a compiler-owned module.
 //

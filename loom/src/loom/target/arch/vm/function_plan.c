@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/tooling/target/vm/function_plan.h"
+#include "loom/target/arch/vm/function_plan.h"
 
 #include <string.h>
 
@@ -16,7 +16,6 @@
 #include "loom/ops/global/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/vm/descriptors/descriptors.h"
-#include "loom/tooling/target/vm/program_prepare.h"
 
 // Branch displacement fields are patched after the single emission walk. Dense
 // target indices come directly from the shared CFG, in scheduled block order.

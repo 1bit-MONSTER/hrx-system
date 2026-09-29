@@ -52,6 +52,37 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "function_plan",
+    srcs = ["function_plan.c"],
+    hdrs = ["function_plan.h"],
+    visibility = ["//loom/src/loom/tooling/target/vm:__pkg__"],
+    deps = [
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:frame",
+        "//loom/src/loom/codegen/low:storage_layout",
+        "//loom/src/loom/codegen/low/allocation:move_sequence",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/global",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target/arch/vm/descriptors",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "function_plan_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM function planning is target-owned compiler code and must not depend on tooling",
+    target = ":function_plan",
+)
+
 loom_cc_test(
     name = "reference_plan_test",
     srcs = ["reference_plan_test.cc"],

@@ -14,6 +14,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/global/ops.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/vm/function_plan.h"
 #include "loom/target/arch/vm/reference_plan.h"
 
 // A signature is ordered by argument count/types then result count/types,
