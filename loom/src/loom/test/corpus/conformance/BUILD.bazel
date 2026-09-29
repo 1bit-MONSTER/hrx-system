@@ -29,7 +29,7 @@ _SCENARIO_CASES = [
     "subgroup_shuffle_participation.loom",
     "subgroup_transport.loom",
     "subgroup_transport_carrier.loom",
-    "vector_i64_bitwise.loom",
+    "vector_integer_bitwise.loom",
 ]
 
 _CASES = glob(
@@ -105,15 +105,21 @@ loom_test(
 )
 
 loom_test(
-    name = "vector_i64_bitwise_test",
-    srcs = ["vector_i64_bitwise.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    name = "vector_integer_bitwise_test",
+    srcs = ["vector_integer_bitwise.loom"],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        WASM_HOSTED_PROFILE,
+    ],
 )
 
 loom_test(
     name = "predicate_logic_test",
     srcs = ["predicate_logic.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        WASM_HOSTED_PROFILE,
+    ],
 )
 
 loom_test(
