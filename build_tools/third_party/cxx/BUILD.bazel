@@ -18,6 +18,7 @@ exports_files([
     "condition_declarations.patch",
     "constant_arithmetic.patch",
     "constant_archive.patch",
+    "constant_template_conversions.patch",
     "constexpr_bitcast.patch",
     "constexpr_branches.patch",
     "cxx.BUILD.bazel",
