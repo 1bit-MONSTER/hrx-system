@@ -11,7 +11,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
-#include "loom/target/arch/amdgpu/facts.h"
+#include "loom/target/arch/amdgpu/target_identity.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,9 +60,11 @@ iree_status_t loom_amdgpu_amdhsa_target_id_format(
     const loom_amdgpu_target_identity_t* identity,
     iree_arena_allocator_t* arena, iree_string_view_t* out_target_id);
 
-// Resolves the AMDGPU ELF e_flags implied by |target_id|.
-iree_status_t loom_amdgpu_amdhsa_target_id_elf_flags(
-    const loom_amdgpu_amdhsa_target_id_t* target_id, uint32_t* out_elf_flags);
+// Returns the AMDGPU ELF e_flags projected from |identity|.
+//
+// The identity must select a compiler target supporting native HSACO emission.
+uint32_t loom_amdgpu_amdhsa_elf_flags(
+    const loom_amdgpu_target_identity_t* identity);
 
 #ifdef __cplusplus
 }  // extern "C"

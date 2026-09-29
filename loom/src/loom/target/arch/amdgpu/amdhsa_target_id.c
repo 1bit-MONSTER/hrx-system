@@ -230,28 +230,24 @@ static void loom_amdgpu_amdhsa_target_id_apply_feature(
       state == LOOM_AMDGPU_TARGET_FEATURE_ON ? on_value : off_value;
 }
 
-iree_status_t loom_amdgpu_amdhsa_target_id_elf_flags(
-    const loom_amdgpu_amdhsa_target_id_t* target_id, uint32_t* out_elf_flags) {
-  IREE_ASSERT_ARGUMENT(out_elf_flags);
-  *out_elf_flags = 0;
-  const loom_amdgpu_processor_info_t* processor = target_id->processor;
-  if (processor->properties.elf.machine_flags == 0) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "AMDGPU processor '%.*s' has no ELF e_flags mapping",
-        (int)processor->name.size, processor->name.data);
-  }
+uint32_t loom_amdgpu_amdhsa_elf_flags(
+    const loom_amdgpu_target_identity_t* identity) {
+  const loom_amdgpu_processor_info_t* processor =
+      loom_amdgpu_target_info_target_processor(identity->target);
+  IREE_ASSERT(processor != NULL);
+  IREE_ASSERT(
+      loom_amdgpu_processor_properties_support_hsaco(&processor->properties));
   uint32_t feature_flags = processor->properties.elf.feature_flags;
   loom_amdgpu_amdhsa_target_id_apply_feature(
-      target_id->features.sramecc, LOOM_AMDGPU_ELF_FEATURE_SRAMECC_MASK_V4,
+      identity->amdhsa_features.sramecc,
+      LOOM_AMDGPU_ELF_FEATURE_SRAMECC_MASK_V4,
       LOOM_AMDGPU_ELF_FEATURE_SRAMECC_OFF_V4,
       LOOM_AMDGPU_ELF_FEATURE_SRAMECC_ON_V4, &feature_flags);
   loom_amdgpu_amdhsa_target_id_apply_feature(
-      target_id->features.xnack, LOOM_AMDGPU_ELF_FEATURE_XNACK_MASK_V4,
+      identity->amdhsa_features.xnack, LOOM_AMDGPU_ELF_FEATURE_XNACK_MASK_V4,
       LOOM_AMDGPU_ELF_FEATURE_XNACK_OFF_V4, LOOM_AMDGPU_ELF_FEATURE_XNACK_ON_V4,
       &feature_flags);
-  *out_elf_flags = processor->properties.elf.machine_flags | feature_flags |
-                   (processor->properties.elf.generic_version
-                    << LOOM_AMDGPU_ELF_GENERIC_VERSION_OFFSET_V6);
-  return iree_ok_status();
+  return processor->properties.elf.machine_flags | feature_flags |
+         (processor->properties.elf.generic_version
+          << LOOM_AMDGPU_ELF_GENERIC_VERSION_OFFSET_V6);
 }

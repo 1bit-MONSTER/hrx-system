@@ -86,10 +86,12 @@ void loom_amdgpu_hal_kernel_library_deinitialize(
 // repeating module verification. Other targets may have functions in the same
 // module; only selected AMDGPU entries participate in native emission. Target
 // records are resolved through the linked descriptor registry without
-// materializing companion target records in the IR. |out_emitted| is false when
-// target preflight or diagnostics rejected the module; status remains reserved
-// for infrastructure failures. The caller owns |out_library| when |out_emitted|
-// is true and must release it with loom_amdgpu_hal_kernel_library_deinitialize.
+// materializing companion target records in the IR. All selected entries must
+// resolve to one exact AMDGPU target identity because one HSACO carries one
+// code-object target. |out_emitted| is false when target preparation or
+// diagnostics rejected the module; status remains reserved for infrastructure
+// failures. The caller owns |out_library| when |out_emitted| is true and must
+// release it with loom_amdgpu_hal_kernel_library_deinitialize.
 iree_status_t loom_amdgpu_emit_hal_kernel_library(
     loom_module_t* module,
     const loom_amdgpu_hal_kernel_library_options_t* options,

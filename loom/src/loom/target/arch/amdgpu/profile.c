@@ -7,6 +7,7 @@
 #include "loom/target/arch/amdgpu/profile.h"
 
 #include "loom/target/arch/amdgpu/artifact_key.h"
+#include "loom/target/arch/amdgpu/facts.h"
 #include "loom/target/arch/amdgpu/records/target_records.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 

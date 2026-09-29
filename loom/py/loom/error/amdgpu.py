@@ -1082,6 +1082,29 @@ ERR_AMDGPU_050 = ErrorDef(
     fix_hint="Omit the optional features field when no assertions are required",
 )
 
+# ERR_AMDGPU_051: AMDGPU code object mixes target identities.
+ERR_AMDGPU_051 = ErrorDef(
+    domain=ErrorDomain.AMDGPU,
+    code=51,
+    severity=Severity.ERROR,
+    summary="AMDGPU code object mixes target identities.",
+    message=(
+        "AMDGPU HAL kernel '@{function_name}' targets '{target_key}', but "
+        "code object target '{code_object_target_key}' was selected by "
+        "'@{first_function_name}'"
+    ),
+    params=(
+        ErrorParam("function_name", ParamKind.STRING),
+        ErrorParam("target_key", ParamKind.STRING),
+        ErrorParam("first_function_name", ParamKind.STRING),
+        ErrorParam("code_object_target_key", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Partition AMDGPU HAL kernels by exact target identity and emit one "
+        "code object per target"
+    ),
+)
+
 ALL_AMDGPU_ERRORS = (
     ERR_AMDGPU_001,
     ERR_AMDGPU_006,
@@ -1128,4 +1151,5 @@ ALL_AMDGPU_ERRORS = (
     ERR_AMDGPU_048,
     ERR_AMDGPU_049,
     ERR_AMDGPU_050,
+    ERR_AMDGPU_051,
 )

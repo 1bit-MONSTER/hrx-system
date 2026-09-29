@@ -18,39 +18,28 @@
 #include "iree/base/string_builder.h"
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/schedule/types.h"
-#include "loom/target/arch/amdgpu/hal/kernel_abi.h"
+#include "loom/target/emit/native/amdgpu/kernel_record.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct loom_amdgpu_native_preflight_t loom_amdgpu_native_preflight_t;
+struct loom_amdgpu_instruction_layout_t;
+struct loom_amdgpu_packet_plan_t;
 
-typedef struct loom_amdgpu_kernel_assembly_options_t {
-  // Optional ABI layout captured before target resource materialization.
-  const loom_amdgpu_hal_kernel_abi_layout_t* abi_layout;
-  // Verified ABI facts captured before allocation.
-  const loom_amdgpu_hal_kernel_abi_verify_result_t* abi_verify;
-  // Optional preflight result captured before assembly emission.
-  const loom_amdgpu_native_preflight_t* preflight;
-  // Optional target-owned packet plan applied during assembly emission. When
-  // present, |instruction_layout| must come from encoding this same plan.
-  const struct loom_amdgpu_packet_plan_t* packet_plan;
-  // Exact native placement decisions shared with binary encoding.
-  const struct loom_amdgpu_instruction_layout_t* instruction_layout;
-} loom_amdgpu_kernel_assembly_options_t;
-
-// Emits complete AMDGPU assembly with target-owned ABI facts and optional
-// emission tables.
+// Emits complete AMDGPU assembly from a prepared kernel record and the exact
+// packet and instruction layouts used for machine-code emission.
 //
 // The output is assembler input containing a text function body and an AMDHSA
 // kernel descriptor. It deliberately remains text: assembling, disassembling,
 // loading, and launching are tool/runtime adapter responsibilities.
-// |scratch_arena| receives transient ABI layout and metadata adapter storage.
+// |scratch_arena| receives transient formatting storage.
 iree_status_t loom_amdgpu_emit_kernel_assembly(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
-    const loom_amdgpu_kernel_assembly_options_t* options,
+    const loom_amdgpu_kernel_record_t* record,
+    const struct loom_amdgpu_packet_plan_t* packet_plan,
+    const struct loom_amdgpu_instruction_layout_t* instruction_layout,
     iree_string_builder_t* builder, iree_arena_allocator_t* scratch_arena);
 
 #ifdef __cplusplus

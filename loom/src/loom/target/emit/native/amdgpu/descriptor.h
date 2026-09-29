@@ -9,7 +9,7 @@
 // The kernel descriptor is the loader-visible resource contract for one kernel.
 // Loom keeps it as structured facts until final object layout gives us the
 // descriptor-to-entry offset, then writes the fixed 64-byte AMDHSA descriptor
-// directly into a native contribution.
+// directly into final code-object storage.
 
 #ifndef LOOM_TARGET_EMIT_NATIVE_AMDGPU_DESCRIPTOR_H_
 #define LOOM_TARGET_EMIT_NATIVE_AMDGPU_DESCRIPTOR_H_
@@ -68,54 +68,28 @@ typedef enum loom_amdgpu_kernel_descriptor_bits_e {
 // Bitset of loom_amdgpu_kernel_descriptor_bits_t values.
 typedef uint32_t loom_amdgpu_kernel_descriptor_flags_t;
 
-typedef struct loom_amdgpu_kernel_descriptor_t {
-  // Exact or generic processor name such as `gfx1151` or `gfx11-generic`.
-  iree_string_view_t processor;
-  // Fixed LDS/group segment size in bytes.
-  uint32_t group_segment_fixed_size;
-  // Fixed scratch/private segment size in bytes.
-  uint32_t private_segment_fixed_size;
-  // Kernel kernarg segment size in bytes.
-  uint32_t kernarg_size;
-  // Byte offset from the descriptor symbol to the kernel entry instruction.
-  int64_t kernel_code_entry_byte_offset;
-  // Physical SGPR high-water count for the kernel body.
-  uint32_t next_free_sgpr;
-  // Physical VGPR high-water count for the kernel body.
-  uint32_t next_free_vgpr;
-  // Total user SGPR count encoded in COMPUTE_PGM_RSRC2.
-  uint32_t user_sgpr_count;
-  // Descriptor flags controlling AMDHSA setup and code properties.
+// Descriptor controls not represented by the kernel metadata record.
+typedef struct loom_amdgpu_kernel_descriptor_options_t {
+  // Additional AMDHSA setup and code-property flags.
   loom_amdgpu_kernel_descriptor_flags_t flags;
-} loom_amdgpu_kernel_descriptor_t;
-
-// Initializes descriptor facts from the metadata kernel record used for the
-// same kernel.
-//
-// Metadata-derived descriptor flags are initialized from |metadata_kernel|.
-// Callers that require additional user SGPRs, system SGPRs, private-segment
-// state, workitem IDs, or code properties must OR the corresponding flags
-// before calling loom_amdgpu_kernel_descriptor_write.
-iree_status_t loom_amdgpu_kernel_descriptor_initialize_from_metadata(
-    iree_string_view_t processor,
-    const loom_amdgpu_metadata_kernel_t* metadata_kernel,
-    int64_t kernel_code_entry_byte_offset,
-    loom_amdgpu_kernel_descriptor_t* out_descriptor);
-
-// Verifies that descriptor facts still agree with the metadata kernel record
-// for fields that both payloads expose.
-iree_status_t loom_amdgpu_kernel_descriptor_validate_metadata(
-    const loom_amdgpu_kernel_descriptor_t* descriptor,
-    const loom_amdgpu_metadata_kernel_t* metadata_kernel);
+  // Minimum user SGPR count required by the kernel ABI.
+  uint32_t minimum_user_sgpr_count;
+} loom_amdgpu_kernel_descriptor_options_t;
 
 // Resolves descriptor workitem-id flags to the COMPUTE_PGM_RSRC2 field value.
 iree_status_t loom_amdgpu_kernel_descriptor_workitem_id_mode_from_flags(
     loom_amdgpu_kernel_descriptor_flags_t flags, uint32_t* out_mode);
 
-// Writes one AMDHSA kernel descriptor into |target_bytes|.
-iree_status_t loom_amdgpu_kernel_descriptor_write(
-    const loom_amdgpu_kernel_descriptor_t* descriptor,
-    iree_byte_span_t target_bytes);
+// Encodes one AMDHSA kernel descriptor into |target_bytes|.
+//
+// Metadata owns all fields shared with the AMDGPU metadata note. |options|
+// supplies only descriptor-specific ABI controls, preventing the two payloads
+// from representing different facts for the same kernel.
+iree_status_t loom_amdgpu_kernel_descriptor_encode(
+    const loom_amdgpu_processor_info_t* processor,
+    const loom_amdgpu_metadata_kernel_t* metadata_kernel,
+    loom_amdgpu_kernel_descriptor_options_t options,
+    int64_t kernel_code_entry_byte_offset, iree_byte_span_t target_bytes);
 
 #ifdef __cplusplus
 }  // extern "C"
