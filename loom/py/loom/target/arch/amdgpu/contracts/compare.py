@@ -19,6 +19,7 @@ from loom.target.arch.amdgpu.contracts.materializers import (
     ADDRESS_VGPR_MATERIALIZER,
     F32_VGPR_MATERIALIZER,
     I32_VGPR_MATERIALIZER,
+    REGISTERS_VGPR_MATERIALIZER,
 )
 from loom.target.arch.amdgpu.descriptors import (
     AMDGPU_SOURCE_INLINE_F32_VALUES,
@@ -95,6 +96,7 @@ _FLOAT_COMPARE_MASK_DESCRIPTOR_KEYS = tuple(
     for predicate in _CMP_FLOAT_SCALAR_PREDICATES
     for descriptor_key in (
         f"amdgpu.v_cmp_{predicate}_f32",
+        f"amdgpu.v_cmp_{predicate}_f64",
         f"amdgpu.v_cmp_{predicate}_f32.src0_inline",
         f"amdgpu.v_cmp_{predicate}_f32.src1_inline",
     )
@@ -117,6 +119,7 @@ _I64 = Scalar("i64")
 _I32 = Scalar("i32")
 _F16 = Scalar("f16")
 _F32 = Scalar("f32")
+_F64 = Scalar("f64")
 _INDEX = Scalar("index")
 _OFFSET = Scalar("offset")
 _I1 = Scalar("i1")
@@ -481,7 +484,19 @@ def _float_mask_rules() -> tuple[DescriptorRule, ...]:
         )
         for predicate in _CMP_FLOAT_SCALAR_PREDICATES
     )
-    return inline_rules + register_rules
+    wide_register_rules = tuple(
+        _mask_rule(
+            scalar.scalar_cmpf,
+            _F64,
+            ValueRef.operand("lhs", materializer=REGISTERS_VGPR_MATERIALIZER.name),
+            ValueRef.operand("rhs", materializer=REGISTERS_VGPR_MATERIALIZER.name),
+            REGISTERS_VGPR_MATERIALIZER.name,
+            predicate,
+            _descriptor(f"amdgpu.v_cmp_{predicate}_f64"),
+        )
+        for predicate in _CMP_FLOAT_SCALAR_PREDICATES
+    )
+    return inline_rules + register_rules + wide_register_rules
 
 
 def _mask_inline_rule(
@@ -681,6 +696,7 @@ AMDGPU_COMPARE_CONTRACT_FRAGMENT = ContractFragment(
     public_header="loom/target/arch/amdgpu/contracts/compare.h",
     materializers=(
         I32_VGPR_MATERIALIZER,
+        REGISTERS_VGPR_MATERIALIZER,
         F32_VGPR_MATERIALIZER,
         ADDRESS_VGPR_MATERIALIZER,
     ),

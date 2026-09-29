@@ -408,6 +408,7 @@ def _cdna_core_overlays(
         *_integer_bitwise_shift_overlays(include_vop3_literal_forms=False),
         *_integer_bitwise_permute_overlays(include_vop3_literal_forms=False),
         *_v_binary_f32_overlays(),
+        *_v_binary_f64_overlays(),
         *_v_binary_f16_overlays(),
         _v_med3_num_f32_overlay(),
         *_v_binary_f32_dpp_legacy_overlays(),
@@ -1068,6 +1069,7 @@ def _gfx11_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         *_integer_bitwise_permute_overlays(),
         _v_permlanex16_b32_src12_inline_overlay(),
         *_v_binary_f32_overlays(),
+        *_v_binary_f64_overlays(),
         *_v_binary_f16_overlays(),
         _v_med3_num_f32_overlay(),
         *_v_binary_f32_dpp16_overlays(),
@@ -1829,12 +1831,13 @@ def _rdna4_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
     return (
         *(
             _v_commutative_binary_vop3_float_overlay(
-                descriptor_key=f"amdgpu.v_{operation}_f32",
-                instruction_name=f"V_{operation.upper()}_F32",
-                mnemonic=f"v_{operation}_f32",
-                semantic_tag=f"float.{operation}.f32",
-                element_bit_width=32,
+                descriptor_key=f"amdgpu.v_{operation}_f{bit_width}",
+                instruction_name=f"V_{operation.upper()}_F{bit_width}",
+                mnemonic=f"v_{operation}_f{bit_width}",
+                semantic_tag=f"float.{operation}.f{bit_width}",
+                element_bit_width=bit_width,
             )
+            for bit_width in (32, 64)
             for operation in ("minimum", "maximum")
         ),
         _s_add_u32_overlay(),
@@ -1907,6 +1910,7 @@ def _rdna4_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         *_integer_bitwise_permute_overlays(),
         _v_permlanex16_b32_src12_inline_overlay(),
         *_v_binary_f32_overlays(),
+        *_v_binary_f64_overlays(minmax_instruction_suffix="_NUM"),
         *_v_binary_f16_overlays(),
         _v_med3_num_f32_overlay(
             instruction_name="V_MED3_NUM_F32",

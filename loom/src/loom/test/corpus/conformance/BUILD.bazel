@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
 load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
@@ -27,6 +28,7 @@ _SCENARIO_CASES = [
     "predicate_truncation.loom",
     "scalar_integer_address.loom",
     "scalar_float_conversion.loom",
+    "scalar_float64.loom",
     "subgroup_shuffle_participation.loom",
     "subgroup_transport.loom",
     "subgroup_transport_carrier.loom",
@@ -75,6 +77,16 @@ loom_test(
     name = "scalar_float_conversion_test",
     srcs = ["scalar_float_conversion.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "scalar_float64_test",
+    srcs = ["scalar_float64.loom"],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
 )
 
 loom_test(

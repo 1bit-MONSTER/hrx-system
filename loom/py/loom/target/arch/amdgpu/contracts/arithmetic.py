@@ -91,6 +91,7 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.s_cvt_hi_f32_f16",
     "amdgpu.s_cvt_pk_rtz_f16_f32",
     "amdgpu.v_mov_b32_copy",
+    "amdgpu.v_add_f64",
     "amdgpu.v_add_f32",
     "amdgpu.v_add_f32.lit",
     "amdgpu.v_add_f32.src0_inline",
@@ -3413,31 +3414,39 @@ def _f32_vector_sub_literal_rules() -> tuple[DescriptorRule, ...]:
     )
 
 
-def _f32_number_extrema_rules() -> tuple[DescriptorRule, ...]:
+def _number_extrema_rules(
+    type_suffix: str, scalar_type: TypePattern, vector_type: TypePattern
+) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
     for scalar_op, vector_op, operation in (
         (scalar_arithmetic.scalar_minnumf, vector.vector_minnumf, "min"),
         (scalar_arithmetic.scalar_maxnumf, vector.vector_maxnumf, "max"),
     ):
         for source_op, type_pattern in (
-            (scalar_op, _F32),
-            (vector_op, _VEC_F32_STATIC),
+            (scalar_op, scalar_type),
+            (vector_op, vector_type),
         ):
-            descriptor_key = f"amdgpu.v_{operation}_f32"
+            descriptor_key = f"amdgpu.v_{operation}_{type_suffix}"
             native_rules = (
-                *(
-                    (
-                        _scalar_float_binary_rule(
-                            source_op, _F32, f"amdgpu.s_{operation}_f32"
-                        ),
-                    )
-                    if type_pattern == _F32
-                    else ()
-                ),
-                *_commutative_f32_literal_rules(
-                    source_op, type_pattern, descriptor_key + ".lit"
-                ),
-                *_commutative_f32_binary_rules(source_op, type_pattern, descriptor_key),
+                (
+                    *(
+                        (
+                            _scalar_float_binary_rule(
+                                source_op, _F32, f"amdgpu.s_{operation}_f32"
+                            ),
+                        )
+                        if type_pattern == _F32
+                        else ()
+                    ),
+                    *_commutative_f32_literal_rules(
+                        source_op, type_pattern, descriptor_key + ".lit"
+                    ),
+                    *_commutative_f32_binary_rules(
+                        source_op, type_pattern, descriptor_key
+                    ),
+                )
+                if type_suffix == "f32"
+                else (_binary_rule(source_op, type_pattern, descriptor_key),)
             )
             for native_rule in native_rules:
                 # Legacy min/max propagates signaling NaNs in IEEE mode. The
@@ -3447,13 +3456,17 @@ def _f32_number_extrema_rules() -> tuple[DescriptorRule, ...]:
                     replace(native_rule, guards=(*native_rule.guards, semantic_guard))
                     for semantic_guard in (
                         Guard.instance_flags_has_all("fastmath", "nnan"),
-                        Guard.descriptor_available(_descriptor("amdgpu.v_minimum_f32")),
+                        Guard.descriptor_available(
+                            _descriptor(f"amdgpu.v_minimum_{type_suffix}")
+                        ),
                     )
                 )
 
             for register_file in ("s", "v") if type_pattern == _F32 else ("v",):
-                descriptor = _descriptor(f"amdgpu.{register_file}_{operation}_f32")
-                canonicalize = _descriptor(f"amdgpu.{register_file}_max_f32")
+                descriptor = _descriptor(
+                    f"amdgpu.{register_file}_{operation}_{type_suffix}"
+                )
+                canonicalize = _descriptor(f"amdgpu.{register_file}_max_{type_suffix}")
                 register_class = f"amdgpu.{register_file}gpr"
                 guards = (_register_class("result", register_class),)
                 if register_file == "s":
@@ -3477,10 +3490,10 @@ def _f32_number_extrema_rules() -> tuple[DescriptorRule, ...]:
                                     descriptor=canonicalize,
                                     operands={
                                         "lhs": _f32_vgpr_operand(field)
-                                        if register_file == "v"
+                                        if register_file == "v" and type_suffix == "f32"
                                         else ValueRef.operand(field),
                                         "rhs": _f32_vgpr_operand(field)
-                                        if register_file == "v"
+                                        if register_file == "v" and type_suffix == "f32"
                                         else ValueRef.operand(field),
                                     },
                                     results={
@@ -3508,34 +3521,17 @@ def _f32_number_extrema_rules() -> tuple[DescriptorRule, ...]:
 
 def _minmax_family_rules() -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
-    for source_op, descriptor_operation in (
-        (scalar_arithmetic.scalar_minnumf, "min"),
-        (scalar_arithmetic.scalar_maxnumf, "max"),
+    for source_op, type_pattern, descriptor_operation in (
+        (scalar_arithmetic.scalar_minnumf, _F16, "min"),
+        (scalar_arithmetic.scalar_maxnumf, _F16, "max"),
+        (vector.vector_minnumf, _VEC_F16_PACKED_STORAGE, "min"),
+        (vector.vector_maxnumf, _VEC_F16_PACKED_STORAGE, "max"),
     ):
-        for type_pattern, type_suffix in ((_F16, "f16"), (_F64, "f64")):
-            rules.append(
-                _binary_rule(
-                    source_op,
-                    type_pattern,
-                    f"amdgpu.v_{descriptor_operation}_{type_suffix}",
-                )
+        rules.append(
+            _binary_rule(
+                source_op, type_pattern, f"amdgpu.v_{descriptor_operation}_f16"
             )
-    for source_op, descriptor_operation in (
-        (vector.vector_minnumf, "min"),
-        (vector.vector_maxnumf, "max"),
-    ):
-        for type_pattern, type_suffix in (
-            (_VEC_F16_PACKED_STORAGE, "f16"),
-            (_VEC_F64_STATIC, "f64"),
-        ):
-            rules.append(
-                _binary_rule(
-                    source_op,
-                    type_pattern,
-                    f"amdgpu.v_{descriptor_operation}_{type_suffix}",
-                )
-            )
-
+        )
     for source_op, descriptor_operation in (
         (scalar_arithmetic.scalar_minimumf, "minimum"),
         (scalar_arithmetic.scalar_maximumf, "maximum"),
@@ -3785,7 +3781,9 @@ def _rules() -> tuple[ContractCase, ...]:
         )
     )
     rules.extend(_minmax_family_rules())
-    rules.extend(_f32_number_extrema_rules())
+    rules.extend(_number_extrema_rules("f32", _F32, _VEC_F32_STATIC))
+    rules.extend(_number_extrema_rules("f64", _F64, _VEC_F64_STATIC))
+    rules.append(_binary_rule(scalar_arithmetic.scalar_addf, _F64, "amdgpu.v_add_f64"))
     for source_op, descriptor_key in (
         (vector.vector_addf, "amdgpu.v_add_f32.lit"),
         (vector.vector_mulf, "amdgpu.v_mul_f32.lit"),
