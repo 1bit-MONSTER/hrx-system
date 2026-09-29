@@ -23,6 +23,7 @@ enum {
 
 enum {
   LOOM_WASM_EXPORT_KIND_FUNCTION = 0,
+  LOOM_WASM_EXPORT_KIND_MEMORY = 2,
 };
 
 enum {
@@ -47,7 +48,7 @@ typedef struct loom_wasm_module_layout_t {
   // Number of prepared function signatures.
   iree_host_size_t type_count;
   // Number of prepared function exports.
-  iree_host_size_t export_count;
+  iree_host_size_t function_export_count;
   // Allocator-owned encoded function bodies.
   loom_wasm_function_body_t* bodies;
   // Structural facts represented in the emitted module binary.
@@ -103,7 +104,7 @@ static iree_status_t loom_wasm_module_layout_initialize(
       .function_count = plan->function_count,
       .types = plan->types,
       .type_count = plan->type_count,
-      .export_count = plan->export_count,
+      .function_export_count = plan->export_count,
   };
 
   iree_host_size_t body_storage_size = 0;
@@ -236,12 +237,16 @@ static iree_status_t loom_wasm_module_write_memory_section(
 static iree_status_t loom_wasm_module_write_export_section_payload(
     const loom_wasm_module_layout_t* layout,
     loom_wasm_binary_writer_t* payload_writer) {
-  if (layout->export_count > UINT32_MAX) {
+  const bool exports_memory = iree_any_bit_set(
+      layout->flags, LOOM_WASM_MODULE_BINARY_FLAG_DEFINES_MEMORY);
+  const uint64_t export_count =
+      (uint64_t)layout->function_export_count + (exports_memory ? 1u : 0u);
+  if (export_count > UINT32_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "Wasm export count exceeds u32");
   }
-  IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u32_leb(
-      payload_writer, (uint32_t)layout->export_count));
+  IREE_RETURN_IF_ERROR(
+      loom_wasm_binary_write_u32_leb(payload_writer, (uint32_t)export_count));
   for (iree_host_size_t i = 0; i < layout->function_count; ++i) {
     const loom_wasm_function_plan_t* function = &layout->functions[i];
     if (iree_string_view_is_empty(function->export_name)) {
@@ -254,13 +259,22 @@ static iree_status_t loom_wasm_module_write_export_section_payload(
     IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u32_leb(
         payload_writer, function->function_index));
   }
+  if (exports_memory) {
+    IREE_RETURN_IF_ERROR(
+        loom_wasm_module_write_name(payload_writer, IREE_SV("memory")));
+    IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u8(
+        payload_writer, LOOM_WASM_EXPORT_KIND_MEMORY));
+    IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u32_leb(payload_writer, 0));
+  }
   return iree_ok_status();
 }
 
 static iree_status_t loom_wasm_module_write_export_section(
     const loom_wasm_module_layout_t* layout,
     loom_wasm_binary_writer_t* module_writer, iree_allocator_t allocator) {
-  if (layout->export_count == 0) {
+  if (layout->function_export_count == 0 &&
+      !iree_any_bit_set(layout->flags,
+                        LOOM_WASM_MODULE_BINARY_FLAG_DEFINES_MEMORY)) {
     return iree_ok_status();
   }
   loom_wasm_binary_writer_t payload_writer;
