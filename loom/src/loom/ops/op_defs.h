@@ -518,8 +518,9 @@ typedef struct loom_operand_descriptor_t {
   loom_operand_role_t role;
 } loom_operand_descriptor_t;
 
-static_assert(sizeof(loom_operand_descriptor_t) == 16,
-              "loom_operand_descriptor_t must be 16 bytes");
+static_assert(sizeof(loom_operand_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 12),
+              "loom_operand_descriptor_t must remain compact");
 
 // Per-result metadata in the op vtable.
 typedef struct loom_result_descriptor_t {
@@ -535,8 +536,9 @@ typedef struct loom_result_descriptor_t {
   uint8_t ownership_source_operand_index;
 } loom_result_descriptor_t;
 
-static_assert(sizeof(loom_result_descriptor_t) == 16,
-              "loom_result_descriptor_t must be 16 bytes");
+static_assert(sizeof(loom_result_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 12),
+              "loom_result_descriptor_t must remain compact");
 
 typedef uint16_t loom_symbol_definition_flags_t;
 
@@ -583,8 +585,9 @@ typedef struct loom_symbol_definition_descriptor_t {
   const loom_symbol_fact_domain_t* fact_domain;
 } loom_symbol_definition_descriptor_t;
 
-static_assert(sizeof(loom_symbol_definition_descriptor_t) == 32,
-              "loom_symbol_definition_descriptor_t must be 32 bytes");
+static_assert(sizeof(loom_symbol_definition_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 32 : 24),
+              "loom_symbol_definition_descriptor_t must remain compact");
 
 static inline iree_string_view_t loom_symbol_definition_descriptor_name(
     const loom_symbol_definition_descriptor_t* descriptor) {

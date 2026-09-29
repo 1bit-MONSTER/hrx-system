@@ -92,8 +92,8 @@ struct loom_encoding_t {
 
 typedef struct loom_encoding_t loom_encoding_t;
 
-static_assert(sizeof(loom_encoding_t) == 24,
-              "loom_encoding_t must remain 24 bytes");
+static_assert(sizeof(loom_encoding_t) == (IREE_PTR_SIZE == 8 ? 24 : 20),
+              "loom_encoding_t must remain compact");
 
 // Sentinel returned for an encoding parameter that is not bound to a family
 // descriptor. Unbound parameters are retained until an input boundary emits

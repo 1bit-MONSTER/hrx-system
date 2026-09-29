@@ -706,7 +706,7 @@ typedef struct loom_type_value_remap_t {
   const struct loom_type_value_remap_t* next;
 } loom_type_value_remap_t;
 
-static_assert(sizeof(loom_type_value_remap_t) == 32,
+static_assert(sizeof(loom_type_value_remap_t) == (IREE_PTR_SIZE == 8 ? 32 : 16),
               "value remap spans must remain compact");
 
 // Resolves one SSA value through |remap|. Values absent from the map preserve

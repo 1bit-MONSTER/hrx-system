@@ -9,7 +9,7 @@
 #include "loom/error/error_catalog.h"
 #include "loom/error/error_defs_tables.inl"
 
-static_assert(sizeof(loom_error_def_t) == 32,
+static_assert(sizeof(loom_error_def_t) == (IREE_PTR_SIZE == 8 ? 32 : 28),
               "generated error definitions must remain compact");
 static_assert(sizeof(loom_error_param_def_t) == 4,
               "generated error parameter definitions must remain packed");
