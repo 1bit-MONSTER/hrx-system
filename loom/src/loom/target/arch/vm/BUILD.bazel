@@ -103,7 +103,7 @@ loom_cc_library(
     name = "program_build",
     srcs = ["program_build.c"],
     hdrs = ["program_build.h"],
-    visibility = ["//loom/src/loom/tooling/target/vm:__pkg__"],
+    visibility = ["//loom/src/loom/target/emit/vm:__pkg__"],
     deps = [
         ":function_plan",
         ":program",

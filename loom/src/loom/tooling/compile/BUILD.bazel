@@ -60,7 +60,7 @@ _CONFIGURED_COMPILE_DEPS = (
     }) +
     iree_select({
         "//loom/config/target/arch:vm": [
-            "//loom/src/loom/tooling/target/vm:artifact_emitter",
+            "//loom/src/loom/tooling/target/vm:module_provider",
         ],
         "//conditions:default": [],
     }) +

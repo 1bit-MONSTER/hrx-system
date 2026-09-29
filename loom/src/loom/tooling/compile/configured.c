@@ -42,7 +42,7 @@
 #include "loom/tooling/target/amd/xdna/artifact_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#include "loom/tooling/target/vm/artifact_emitter.h"
+#include "loom/tooling/target/vm/module_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 #include "loom/tooling/target/wasm/module_provider.h"
@@ -119,7 +119,7 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
 #if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
   configured_compile_storage
       .target_providers[configured_compile_storage.target_provider_count++] =
-      &loom_vm_artifact_emitter_provider;
+      &loom_vm_module_provider;
 #endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
   configured_compile_storage

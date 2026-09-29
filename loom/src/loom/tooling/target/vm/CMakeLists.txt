@@ -12,17 +12,15 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
-    artifact_emitter
+    module_provider
   HDRS
-    "artifact_emitter.h"
+    "module_provider.h"
   SRCS
-    "artifact_emitter.c"
+    "module_provider.c"
   DEPS
     iree::base
-    iree::base::internal::arena
     loom::target::arch::vm::ops
-    loom::target::arch::vm::program_build
-    loom::target::emit::vm::module_binary
+    loom::target::emit::vm::module_compiler
     loom::target::provider
   PUBLIC
 )
@@ -37,10 +35,10 @@ loom_cc_library(
   SRCS
     "check.c"
   DEPS
-    ::artifact_emitter
     iree::base
     iree::vm::bytecode::disassembler
     loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::tools::loom-check::execute
     loom::tools::loom-check::provider
   PUBLIC
@@ -56,7 +54,6 @@ loom_cc_library(
   SRCS
     "testbench.c"
   DEPS
-    ::artifact_emitter
     iree::base
     iree::hal
     iree::vm
@@ -67,6 +64,7 @@ loom_cc_library(
     loom::ops::func
     loom::ops::op_defs
     loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::target::entry_selection
     loom::target::provider
     loom::tooling::compile::pipeline
@@ -120,7 +118,6 @@ loom_cc_test(
   SRCS
     "imports_test.cc"
   DEPS
-    ::artifact_emitter
     ::imports_bytecode
     iree::base
     iree::base::internal::arena
@@ -140,6 +137,7 @@ loom_cc_test(
     loom::ops::op_defs
     loom::ops::op_registry
     loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::target::provider
     loom::tooling::compile::pipeline
     loom::tooling::input
@@ -207,7 +205,6 @@ loom_cc_test(
   SRCS
     "emission_test.cc"
   DEPS
-    ::artifact_emitter
     ::emission_test_data
     ::native_references_bytecode
     iree::base
@@ -217,9 +214,8 @@ loom_cc_test(
     loom::ir
     loom::ops::func
     loom::ops::op_registry
-    loom::target::arch::vm::program_build
     loom::target::arch::vm::provider
-    loom::target::emit::vm::module_binary
+    loom::target::emit::vm::module_compiler
     loom::target::provider
     loom::tooling::compile::pipeline
     loom::tooling::input

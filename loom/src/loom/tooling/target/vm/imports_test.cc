@@ -26,9 +26,9 @@
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
 #include "loom/target/arch/vm/provider.h"
+#include "loom/target/emit/vm/module_compiler.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
-#include "loom/tooling/target/vm/artifact_emitter.h"
 #include "loom/tooling/target/vm/imports_bytecode.h"
 #include "loom/transforms/cleanup/configured.h"
 
@@ -462,8 +462,7 @@ class VMSourceCaptureTest : public VMImportsTest {
     loom_target_emit_artifact_t artifact;
     bool artifact_emitted = false;
     IREE_ASSERT_OK(
-        loom_vm_artifact_emitter_provider.canonical_module_emitter->emit(
-            &emission, &artifact_emitted, &artifact));
+        loom_vm_module_emitter.emit(&emission, &artifact_emitted, &artifact));
     ASSERT_TRUE(artifact_emitted);
     iree_byte_span_t image;
     IREE_ASSERT_OK(iree_byte_sequence_clone(artifact.contents,

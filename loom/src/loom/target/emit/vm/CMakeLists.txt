@@ -27,6 +27,24 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    module_compiler
+  HDRS
+    "module_compiler.h"
+  SRCS
+    "module_compiler.c"
+  DEPS
+    ::module_binary
+    iree::base
+    iree::base::internal::arena
+    loom::target::arch::vm::program_build
+    loom::target::provider
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     module_binary_test

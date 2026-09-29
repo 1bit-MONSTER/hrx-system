@@ -16,17 +16,15 @@ package(
 _VM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 loom_cc_library(
-    name = "artifact_emitter",
-    srcs = ["artifact_emitter.c"],
-    hdrs = ["artifact_emitter.h"],
+    name = "module_provider",
+    srcs = ["module_provider.c"],
+    hdrs = ["module_provider.h"],
     visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
     deps = [
         "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/vm:program_build",
         "//loom/src/loom/target/arch/vm/ops",
-        "//loom/src/loom/target/emit/vm:module_binary",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
     ],
 )
 
@@ -36,8 +34,8 @@ loom_cc_library(
     hdrs = ["check.h"],
     visibility = _VM_CHECK_VISIBILITY,
     deps = [
-        ":artifact_emitter",
         "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tools/loom-check:execute",
         "//loom/src/loom/tools/loom-check:provider",
         "//runtime/src/iree/base",
@@ -50,7 +48,6 @@ loom_cc_library(
     srcs = ["testbench.c"],
     hdrs = ["testbench.h"],
     deps = [
-        ":artifact_emitter",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/error:source",
         "//loom/src/loom/link:linker",
@@ -59,6 +56,7 @@ loom_cc_library(
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/config",
         "//loom/src/loom/tooling/testbench:invocation",
@@ -99,7 +97,6 @@ loom_cc_test(
     srcs = ["imports_test.cc"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
     deps = [
-        ":artifact_emitter",
         ":imports_bytecode",
         "//loom/src/loom/format:location",
         "//loom/src/loom/format/bytecode:reader",
@@ -113,6 +110,7 @@ loom_cc_test(
         "//loom/src/loom/ops/func:location_capture_test_data",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/input",
         "//loom/src/loom/transforms/cleanup:configured",
@@ -164,16 +162,14 @@ loom_cc_test(
     srcs = ["emission_test.cc"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
     deps = [
-        ":artifact_emitter",
         ":emission_test_data",
         ":native_references_bytecode",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/func",
         "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/vm:program_build",
         "//loom/src/loom/target/arch/vm:provider",
-        "//loom/src/loom/target/emit/vm:module_binary",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/input",
         "//loom/src/loom/transforms/cleanup:configured",

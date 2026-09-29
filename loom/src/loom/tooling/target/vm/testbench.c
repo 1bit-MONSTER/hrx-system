@@ -16,10 +16,10 @@
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/target/arch/vm/provider.h"
+#include "loom/target/emit/vm/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/config/config.h"
-#include "loom/tooling/target/vm/artifact_emitter.h"
 
 void loom_vm_testbench_initialize(
     const loom_target_environment_t* target_environment,
@@ -259,8 +259,8 @@ static iree_status_t loom_vm_testbench_compile(
         .scratch_arena = &arena,
         .allocator = testbench->host_allocator,
     };
-    status = loom_vm_artifact_emitter_provider.canonical_module_emitter->emit(
-        &request, &artifact_emitted, &artifact);
+    status =
+        loom_vm_module_emitter.emit(&request, &artifact_emitted, &artifact);
   }
   if (iree_status_is_ok(status) && !testbench->compile_rejected &&
       !artifact_emitted) {
