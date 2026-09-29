@@ -1,0 +1,31 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_narrow_reduce.loom
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+// Scalar additions are introduced by reduction legalization. Each step rounds
+// to the element type before the next lane is accumulated.
+func.def public inline @bf16_reduce_add(%values: vector<2xbf16>, %initial: bf16) -> (bf16) {
+  %sum = vector.reduce<addf> %values, %initial : vector<2xbf16>, bf16
+  func.return %sum : bf16
+}
+
+// ----
+low.func.def public inline target<amdgpu.rdna3_5.core> abi(hal_kernel) @bf16_reduce_add(%values: reg<amdgpu.vgpr>, %initial: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %19 = v_lshlrev_b32_src0_16_low16 %initial
+  %20 = v_lshlrev_b32_src0_16_low16 %values
+  %21 = v_add_f32 %19, %20
+  %22 = v_lshrrev_b32_src0_inline %21, 16
+  %23 = v_and_b32_lit %22, 1
+  %24 = v_add_u32_lit %23, 32767
+  %25 = v_add_u32 %21, %24
+  %26 = v_lshrrev_b32_src0_inline %25, 16
+  %27 = v_lshrrev_b32_src0_inline %values, 16
+  %28 = v_lshlrev_b32_src0_16_low16 %26
+  %29 = v_lshlrev_b32_src0_16_low16 %27
+  %30 = v_add_f32 %28, %29
+  %31 = v_lshrrev_b32_src0_inline %30, 16
+  %32 = v_and_b32_lit %31, 1
+  %33 = v_add_u32_lit %32, 32767
+  %34 = v_add_u32 %30, %33
+  %sum = v_lshrrev_b32_src0_inline %34, 16
+  return %sum
+}
