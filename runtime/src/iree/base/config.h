@@ -157,11 +157,12 @@ typedef IREE_DEVICE_SIZE_T iree_device_size_t;
 // On platforms without file systems or in applications where no file I/O
 // utilities are used, all file I/O operations can be stripped out. Functions
 // relying on file I/O will still be defined, but they will return errors.
-#if defined(IREE_PLATFORM_WASM)
+// WASI exposes capability-scoped files through its libc and keeps support on.
+#if defined(IREE_PLATFORM_WASM) && !defined(IREE_PLATFORM_WASI)
 #define IREE_FILE_IO_ENABLE 0
 #else
 #define IREE_FILE_IO_ENABLE 1
-#endif  // IREE_PLATFORM_WASM
+#endif  // IREE_PLATFORM_WASM && !IREE_PLATFORM_WASI
 #endif  // !IREE_FILE_IO_ENABLE
 
 //===----------------------------------------------------------------------===//
