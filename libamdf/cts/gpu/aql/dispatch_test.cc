@@ -10,29 +10,18 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_transform;
-
-static_assert(kernel::kArgumentByteOffsets ==
-              kernels::transform::kArgumentByteOffsets);
-static_assert(kernel::kArgumentByteLengths ==
-              kernels::transform::kArgumentByteLengths);
-static_assert(kernel::kArgumentValueKinds ==
-              kernels::transform::kArgumentValueKinds);
-static_assert(kernel::kKernargByteLength == 24);
-static_assert(alignof(kernels::transform::Arguments) %
-                  kernel::kKernargAlignment ==
-              0);
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{64, 1, 1});
-static_assert(kernel::kWavefrontSize == 64 &&
-              kernel::kPrivateSegmentByteLength == 0 &&
-              kernel::kGroupSegmentByteLength == 0);
-
 TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -52,7 +41,7 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
       CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
   signal.kind = 1;
@@ -61,8 +50,8 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(
-      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable, "aql_kernel",
+                                        &index, &descriptor_address));
 
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     std::array<uint32_t, kWordCount> upload;
@@ -93,13 +82,16 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
         kAddends[epoch],
     };
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
-    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    std::memcpy(arguments->host.pointer, &payload,
+                kernel.arguments.byte_length);
     signal.value = 1;
     const auto packet =
         aql::Dispatch(aql::HeaderBarrier::kDisabled,
-                      {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-                      kernel::kPrivateSegmentByteLength,
-                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      {1,
+                       {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+                       {kGridSize, 1, 1}},
+                      kernel.private_segment_byte_length,
+                      kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address, completion->device_address);
     GpuStoreRelease(queue->host.write_index_address, index + 1);
     Publish(*queue, index++, packet);
@@ -124,6 +116,13 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
 
 TEST_F(AqlDispatchTest,
        HeaderBarrierOrdersProducerConsumerBeforeTrailingCompletion) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -139,12 +138,12 @@ TEST_F(AqlDispatchTest,
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kProducerAddends = {7, 0x80000023u};
   constexpr std::array<uint32_t, 2> kConsumerAddends = {0x101u, 0x2468ace1u};
-  constexpr aql::DispatchGeometry kGeometry = {
-      1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}};
+  const aql::DispatchGeometry kGeometry = {
+      1,
+      {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+      {kGridSize, 1, 1}};
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
-  static_assert(kernel::kKernargByteLength <= kArgumentStride);
-  static_assert(kArgumentStride % kernel::kKernargAlignment == 0);
 
   GpuMemory* input = nullptr;
   GpuMemory* intermediate = nullptr;
@@ -164,7 +163,7 @@ TEST_F(AqlDispatchTest,
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kCompletionByteLength, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
   signal.kind = 1;
@@ -181,8 +180,8 @@ TEST_F(AqlDispatchTest,
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(
-      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable, "aql_kernel",
+                                        &index, &descriptor_address));
   const uint64_t first_work_packet_index = index;
   // Keep both epochs in distinct resident slots after the completed cold
   // publication. The operational frontier comes from that helper.
@@ -241,19 +240,19 @@ TEST_F(AqlDispatchTest,
     // terminal completion and consumption. The compiler consumes 24 bytes.
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
     std::memcpy(arguments->host.pointer, &producer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(
         static_cast<uint8_t*>(arguments->host.pointer) + kArgumentStride,
-        &consumer_payload, kernel::kKernargByteLength);
+        &consumer_payload, kernel.arguments.byte_length);
     signal.value = 1;
     const auto produce = aql::Dispatch(
         aql::HeaderBarrier::kDisabled, kGeometry,
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         descriptor_address, arguments->device_address, 0, kScopes);
     const auto consume =
         aql::Dispatch(aql::HeaderBarrier::kEnabled, kGeometry,
-                      kernel::kPrivateSegmentByteLength,
-                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      kernel.private_segment_byte_length,
+                      kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address + kArgumentStride, 0, kScopes);
     const auto complete =
         aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kEnabled,

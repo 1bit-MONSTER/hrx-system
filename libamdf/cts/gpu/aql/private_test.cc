@@ -11,26 +11,20 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip.h"
-#include "libamdf/cts/gpu/kernels/private_roundtrip_gfx942.h"
+#include "libamdf/cts/gpu/kernels/private_roundtrip_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_private_roundtrip;
-
 using Arguments = kernels::private_roundtrip::Arguments;
-static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
-static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
-static_assert(kernel::kArgumentByteOffsets ==
-              kernels::private_roundtrip::kArgumentByteOffsets);
-static_assert(kernel::kArgumentByteLengths ==
-              kernels::private_roundtrip::kArgumentByteLengths);
-static_assert(kernel::kArgumentValueKinds ==
-              kernels::private_roundtrip::kArgumentValueKinds);
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{64, 1, 1});
-static_assert(kernel::kWavefrontSize == 64);
 
 TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::private_roundtrip::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled private_roundtrip kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("private_roundtrip_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 512;
   constexpr uint32_t kPrivateWordCount = 9;
   constexpr uint32_t kOutputWordCount = kGridSize * kPrivateWordCount;
@@ -40,12 +34,9 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
   constexpr uint32_t kSuffixGuard = 0xe270c84bu;
   constexpr std::array<uint32_t, 2> kSeeds = {0x13579bdfu, 0xa5c31f27u};
   constexpr std::array<uint32_t, 2> kRotations = {1, 7};
-  static_assert(kernel::kPrivateSegmentByteLength > 0);
-  static_assert(kernel::kWorkgroupSize == 64);
-  static_assert(kGridSize % kernel::kWorkgroupSize == 0);
 
   RecordProperty("aql_private_segment_byte_length",
-                 kernel::kPrivateSegmentByteLength);
+                 kernel.private_segment_byte_length);
   RecordProperty("aql_private_output_words_per_epoch", kOutputWordCount);
 
   GpuMemory* output = nullptr;
@@ -58,18 +49,18 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
       CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
   signal.kind = 1;
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(
-      CreateFixedScratchQueue(kernel::kPrivateSegmentByteLength, &queue));
+      CreateFixedScratchQueue(kernel.private_segment_byte_length, &queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(
-      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable, "aql_kernel",
+                                        &index, &descriptor_address));
 
   std::array<uint32_t, kWordCount> expected;
   std::array<uint32_t, kWordCount> observed;
@@ -104,9 +95,11 @@ TEST_F(AqlDispatchTest, CallerOwnedFixedScratchChangesAcrossEpochs) {
     signal.value = 1;
     const auto packet =
         aql::Dispatch(aql::HeaderBarrier::kDisabled,
-                      {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-                      kernel::kPrivateSegmentByteLength,
-                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      {1,
+                       {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+                       {kGridSize, 1, 1}},
+                      kernel.private_segment_byte_length,
+                      kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address, completion->device_address,
                       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, index + 1);

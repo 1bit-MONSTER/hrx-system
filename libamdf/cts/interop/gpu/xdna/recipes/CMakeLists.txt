@@ -86,8 +86,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::resident_npu_initiated_gfx1150
     libamdf::cts::gpu::kernels::resident_npu_initiated_gfx1151
     libamdf::cts::gpu::kernels::transform
-    libamdf::cts::gpu::kernels::transform_gfx1150
-    libamdf::cts::gpu::kernels::transform_gfx1151
+    libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::commands
     libamdf::cts::util::device_cache
     libamdf::cts::util::mapped_memory

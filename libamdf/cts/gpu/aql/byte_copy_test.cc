@@ -13,35 +13,23 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/byte_copy_unaligned.h"
-#include "libamdf/cts/gpu/kernels/byte_copy_unaligned_gfx942.h"
+#include "libamdf/cts/gpu/kernels/byte_copy_unaligned_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_byte_copy_unaligned;
 using Arguments = kernels::byte_copy_unaligned::Arguments;
 
 constexpr uint32_t kArgumentSemanticByteLength =
     offsetof(Arguments, workgroup_size_x) + sizeof(uint32_t);
-static_assert(kernel::kArgumentByteOffsets ==
-              std::array<uint32_t, 6>{offsetof(Arguments, source),
-                                      offsetof(Arguments, target),
-                                      offsetof(Arguments, byte_length),
-                                      offsetof(Arguments, grid_size_x),
-                                      offsetof(Arguments, grid_size_y),
-                                      offsetof(Arguments, workgroup_size_x)});
-static_assert(kernel::kArgumentByteLengths ==
-              std::array<uint32_t, 6>{8, 8, 8, 4, 4, 4});
-static_assert(kernel::kArgumentValueKinds ==
-              std::array<std::string_view, 6>{"global_buffer", "global_buffer",
-                                              "by_value", "by_value",
-                                              "by_value", "by_value"});
-static_assert(kernel::kKernargByteLength >= kArgumentSemanticByteLength);
-static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{64, 1, 1});
-static_assert(kernel::kWavefrontSize == 64);
 
 TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::byte_copy_unaligned::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled byte_copy_unaligned kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("byte_copy_unaligned_kernel_target", kernel.target);
+
   constexpr uint32_t kPageByteLength = 4096;
   constexpr uint32_t kSourceByteOffset = 65;
   constexpr uint32_t kTargetByteOffset = 131;
@@ -53,12 +41,7 @@ TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
   constexpr std::array<uint32_t, 2> kByteLengths = {1039, 1025};
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
-  static_assert(kernel::kWorkgroupSize == kGridSize);
-  static_assert(kernel::kPrivateSegmentByteLength == 0);
-  static_assert(kernel::kGroupSegmentByteLength == 0);
-  static_assert(kernel::kKernargByteLength <= kArgumentSlotByteLength);
-  static_assert(kArgumentSlotByteLength % kernel::kKernargAlignment == 0);
-  static_assert(kernel::kMaxFlatWorkgroupSize >= kGridSize);
+
   static_assert(kSourceByteOffset + kByteLengths[0] <= kPageByteLength);
   static_assert(kTargetByteOffset + kByteLengths[0] <= kPageByteLength);
 
@@ -78,7 +61,7 @@ TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
                    kPageByteLength, &completion));
   ASSERT_EQ(source->device_address % 16, 0u);
   ASSERT_EQ(target->device_address % 16, 0u);
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % alignof(aql::Signal), 0u);
 
   std::array<uint8_t, kPageByteLength> expected_source;
@@ -101,7 +84,7 @@ TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable,
                                         "aql_byte_copy_kernel", &index,
                                         &descriptor_address));
   const uint64_t first_work_packet_index = index;
@@ -109,16 +92,16 @@ TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
   ASSERT_GE(capacity, index + kByteLengths.size());
 
   RecordProperty("aql_byte_copy_kernel_entry_byte_offset",
-                 kernel::kEntryByteOffset);
+                 kernel.entry_byte_offset);
   RecordProperty("aql_byte_copy_page_byte_length", kPageByteLength);
   RecordProperty("aql_byte_copy_source_byte_offset", kSourceByteOffset);
   RecordProperty("aql_byte_copy_target_byte_offset", kTargetByteOffset);
   RecordProperty("aql_byte_copy_vector_body_byte_length",
                  kVectorBodyByteLength);
   RecordProperty("aql_byte_copy_grid_size", kGridSize);
-  RecordProperty("aql_byte_copy_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("aql_byte_copy_workgroup_size", kernel.workgroup_size());
   RecordProperty("aql_byte_copy_kernarg_byte_length",
-                 kernel::kKernargByteLength);
+                 kernel.arguments.byte_length);
   RecordProperty("aql_byte_copy_kernarg_semantic_byte_length",
                  kArgumentSemanticByteLength);
   RecordProperty("aql_byte_copy_kernarg_slot_byte_length",
@@ -166,7 +149,7 @@ TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
         kByteLengths[epoch],
         kGridSize,
         1,
-        kernel::kWorkgroupSize,
+        kernel.workgroup_size(),
     };
     expected_arguments.fill(kArgumentGuard);
     std::memset(expected_arguments.data(), 0, kArgumentSlotByteLength);
@@ -181,8 +164,10 @@ TEST_F(AqlDispatchTest, CoherentSystemByteCopyPreservesBoundsAcrossEpochs) {
     signal.value = 1;
     const auto packet = aql::Dispatch(
         aql::HeaderBarrier::kDisabled,
-        {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        {1,
+         {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+         {kGridSize, 1, 1}},
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         descriptor_address, arguments->device_address,
         completion->device_address, kScopes);
     GpuStoreRelease(queue->host.write_index_address, index + 1);

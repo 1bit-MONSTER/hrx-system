@@ -10,13 +10,18 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_transform;
-
 TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -27,8 +32,10 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kProducerAddends = {7, 0x80000023u};
   constexpr std::array<uint32_t, 2> kConsumerAddends = {0x101u, 0x2468ace1u};
-  constexpr aql::DispatchGeometry kGeometry = {
-      1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}};
+  const aql::DispatchGeometry kGeometry = {
+      1,
+      {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+      {kGridSize, 1, 1}};
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
 
@@ -52,8 +59,10 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
       CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &consumer_arguments));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &control));
-  ASSERT_EQ(producer_arguments->device_address % kernel::kKernargAlignment, 0u);
-  ASSERT_EQ(consumer_arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(producer_arguments->device_address % kernel.arguments.alignment,
+            0u);
+  ASSERT_EQ(consumer_arguments->device_address % kernel.arguments.alignment,
+            0u);
   std::memset(control->host.pointer, 0, control->info.byte_length);
   auto* signals = static_cast<aql::Signal*>(control->host.pointer);
   auto& epoch_signal = signals[0];
@@ -75,10 +84,10 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
   uint64_t consumer_index = 0;
   uint64_t producer_descriptor = 0;
   uint64_t consumer_descriptor = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel.executable,
                                         "aql_kernel", &producer_index,
                                         &producer_descriptor));
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel.executable,
                                         "aql_kernel", &consumer_index,
                                         &consumer_descriptor));
   RecordProperty("aql_epoch_initial_value", std::to_string(kInitialEpoch));
@@ -135,11 +144,11 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
     std::memset(producer_arguments->host.pointer, 0,
                 producer_arguments->info.byte_length);
     std::memcpy(producer_arguments->host.pointer, &producer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memset(consumer_arguments->host.pointer, 0,
                 consumer_arguments->info.byte_length);
     std::memcpy(consumer_arguments->host.pointer, &consumer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     completion_signal.value = 1;
     const int64_t reference = kInitialEpoch - static_cast<int64_t>(epoch);
     const int64_t completed_epoch = reference - 1;
@@ -147,12 +156,12 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
         aql::BarrierValueLessThan(epoch_address, reference, INT64_MAX);
     const auto consume = aql::Dispatch(
         aql::HeaderBarrier::kEnabled, kGeometry,
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         consumer_descriptor, consumer_arguments->device_address,
         completion_address, kScopes);
     const auto produce = aql::Dispatch(
         aql::HeaderBarrier::kDisabled, kGeometry,
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         producer_descriptor, producer_arguments->device_address, epoch_address,
         kScopes);
 

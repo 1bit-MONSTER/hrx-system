@@ -153,6 +153,7 @@ class GpuDeviceFixture : public ::testing::Test {
           << "domain=" << amdf_status_domain(status)
           << " code=" << amdf_status_code(status);
       if (matches) {
+        gpu_endpoint_info_ = gpu_info;
         amdf_endpoint_info_t endpoint_info = {};
         endpoint_info.type = AMDF_STRUCTURE_TYPE_ENDPOINT_INFO;
         endpoint_info.structure_size = sizeof(endpoint_info);
@@ -263,6 +264,8 @@ class GpuDeviceFixture : public ::testing::Test {
   amdf_instance_t* instance_ = nullptr;
   // Shared query endpoint borrowed from the CTS cache.
   amdf_endpoint_t* endpoint_ = nullptr;
+  // Physical identity and topology of the selected endpoint, queried once.
+  amdf_gpu_endpoint_info_t gpu_endpoint_info_ = {};
   // Shared native device; each case releases only its workload children.
   amdf_device_t* device_ = nullptr;
   // Borrowed system scope discovered before device activation.

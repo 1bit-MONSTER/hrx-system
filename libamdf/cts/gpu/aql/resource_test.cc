@@ -14,20 +14,18 @@
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip.h"
-#include "libamdf/cts/gpu/kernels/private_roundtrip_gfx942.h"
+#include "libamdf/cts/gpu/kernels/private_roundtrip_kernels.h"
 
 namespace {
 
-namespace private_kernel = kernels::gfx942_private_roundtrip;
-
-static_assert(private_kernel::kArgumentByteOffsets ==
-              kernels::private_roundtrip::kArgumentByteOffsets);
-static_assert(private_kernel::kArgumentByteLengths ==
-              kernels::private_roundtrip::kArgumentByteLengths);
-static_assert(private_kernel::kArgumentValueKinds ==
-              kernels::private_roundtrip::kArgumentValueKinds);
-
 TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
+  const auto* private_kernel_product =
+      kernels::private_roundtrip::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(private_kernel_product, nullptr)
+      << "missing compiled private_roundtrip kernel for endpoint";
+  const auto& private_kernel = *private_kernel_product;
+  RecordProperty("private_roundtrip_kernel_target", private_kernel.target);
+
   constexpr uint32_t kGridSize = 512;
   constexpr uint32_t kPrivateOutputWordCount = kGridSize * 9;
   constexpr uint32_t kLdsOutputWordCount = kGridSize * 2;
@@ -46,15 +44,6 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   constexpr std::array<uint32_t, 2> kRotations = {1, 7};
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
-  static_assert(private_kernel::kWorkgroupSize == 64);
-  static_assert(private_kernel::kPrivateSegmentByteLength > 0);
-  static_assert(private_kernel::kGroupSegmentByteLength == 0);
-
-  static_assert(sizeof(kernels::private_roundtrip::Arguments) ==
-                private_kernel::kKernargByteLength);
-  static_assert(alignof(kernels::private_roundtrip::Arguments) %
-                    private_kernel::kKernargAlignment ==
-                0);
 
   static_assert(sizeof(kernels::lds_exchange::Arguments) <=
                 kArgumentSlotByteLength);
@@ -83,7 +72,7 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
-  ASSERT_EQ(arguments->device_address % private_kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % private_kernel.arguments.alignment, 0u);
   ASSERT_EQ(arguments->device_address % lds_kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % alignof(aql::Signal), 0u);
   std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
@@ -99,11 +88,11 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateFixedScratchQueue(
-      private_kernel::kPrivateSegmentByteLength, &queue));
+      private_kernel.private_segment_byte_length, &queue));
   uint64_t index = 0;
   uint64_t private_descriptor_address = 0;
   uint64_t lds_descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, private_kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, private_kernel.executable,
                                         "aql_transition_private", &index,
                                         &private_descriptor_address));
   ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, lds_kernel.executable,
@@ -114,15 +103,15 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   ASSERT_GE(capacity, index + kSeeds.size());
 
   RecordProperty("aql_transition_private_entry_byte_offset",
-                 private_kernel::kEntryByteOffset);
+                 private_kernel.entry_byte_offset);
   RecordProperty("aql_transition_private_private_segment_byte_length",
-                 private_kernel::kPrivateSegmentByteLength);
+                 private_kernel.private_segment_byte_length);
   RecordProperty("aql_transition_private_fixed_group_byte_length",
-                 private_kernel::kGroupSegmentByteLength);
+                 private_kernel.group_segment_byte_length);
   RecordProperty("aql_transition_private_workgroup_size",
-                 private_kernel::kWorkgroupSize);
+                 private_kernel.workgroup_size());
   RecordProperty("aql_transition_private_kernarg_byte_length",
-                 private_kernel::kKernargByteLength);
+                 private_kernel.arguments.byte_length);
   RecordProperty("aql_transition_lds_entry_byte_offset",
                  lds_kernel.entry_byte_offset);
   RecordProperty("aql_transition_lds_private_segment_byte_length",
@@ -158,13 +147,13 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
     const uint32_t active_word_count =
         uses_private ? kPrivateOutputWordCount : kLdsOutputWordCount;
     const uint32_t private_byte_length =
-        uses_private ? private_kernel::kPrivateSegmentByteLength
+        uses_private ? private_kernel.private_segment_byte_length
                      : lds_kernel.private_segment_byte_length;
     const uint32_t group_byte_length =
-        uses_private ? private_kernel::kGroupSegmentByteLength
+        uses_private ? private_kernel.group_segment_byte_length
                      : lds_kernel.group_segment_byte_length;
     const uint16_t workgroup_size = uses_private
-                                        ? private_kernel::kWorkgroupSize
+                                        ? private_kernel.workgroup_size()
                                         : lds_kernel.workgroup_size();
     expected_output.fill(kSuffixGuard);
     for (uint32_t word = 0; word < kGuardWordCount; ++word) {
@@ -189,7 +178,7 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
           kRotations[image_epoch],
       };
       std::memcpy(expected_arguments.data(), &payload,
-                  private_kernel::kKernargByteLength);
+                  private_kernel.arguments.byte_length);
     } else {
       for (uint32_t workitem = 0; workitem < kGridSize; ++workitem) {
         const auto record =

@@ -7,7 +7,7 @@ extraction require no LLVM libraries or tools.
 ## Source-built images
 
 [transform.loom](transform.loom) computes `output[i] = input[i] * 3 + addend`
-for `i < count`, with arithmetic modulo 2^32. Its gfx942 image is consumed by
+for `i < count`, with arithmetic modulo 2^32. It is consumed by
 [`AqlDispatchTest.CoherentSystemPayloadChangesAcrossEpochs`](../aql/dispatch_test.cc)
 and the [SDMA/AQL composition](../recipes/copy_dispatch_test.cc). They share
 the cold publication fixture and exercise caller-owned executable memory,
@@ -16,26 +16,26 @@ public AQL queue ABI.
 
 [transform_alternate.loom](transform_alternate.loom) changes the multiplier to
 five while preserving the transform's argument and memory-access contract. Its
-gfx942 [executable replacement case](../aql/executable_test.cc) checks identical
+[executable replacement case](../aql/executable_test.cc) checks identical
 descriptors, entry offsets and complete image extents for the two compiled
 programs. It uploads A → B → A to one retained code allocation after each
 prior use has completed, with fixed inputs and arguments distinguishing the
 programs. Both programs have valid bounded accesses if instruction fetch
 observes the preceding image.
 
-The separately compiled gfx1151 transform uses the same source and
+The [PM4 dispatch case](../pm4/dispatch_test.cc) uses the same source and
 [typed argument layout](transform.h) through ordinary PM4 dispatch. Its
-[case](../pm4/dispatch_test.cc) binds the emitted resource words and actual
+caller binds the emitted resource words and actual
 allocation addresses directly. The caller checks the required wave32,
 kernarg-pointer, group-X and local-X initial-register contract, with no
 private or group storage. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
 
-The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) builds
-separate gfx1150 and gfx1151 transforms. It selects the exact product from the
-reported GPU IP and uses its resources unchanged through USER or KERNEL PM4
+The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) selects
+the same transform set by physical endpoint identity and uses the selected
+resources unchanged through USER or KERNEL PM4
 publication. Two GPU transforms produce NPU inputs; a third consumes the NPU
 output. All three use the same typed argument contract, independently checked
-against both compiled products.
+against every compiled variant.
 
 Both sources take a host workload `%groups_x` and require a `64,1,1` local
 shape. The workload keeps group X dynamic without becoming a device argument;
@@ -43,25 +43,31 @@ shape. The workload keeps group X dynamic without becoming a device argument;
 The shared typed ABI contains input/output addresses at byte offsets 0/8 and
 32-bit count/addend at offsets 16/20. Its 24 semantic bytes occupy a
 16-aligned, 32-byte host object; caller initialization owns the padding.
-Callers compare the generated argument offsets, lengths and kinds with that
-layout and check compiler alignment and launch requirements.
+The [host product tests](kernel_test.cc) compare every variant's generated
+argument offsets, lengths and kinds with that layout and check compiler
+alignment and launch requirements.
 
 The [build declarations](BUILD.bazel) and [CMake equivalent](CMakeLists.txt)
-produce each target-specific image from its authored source. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
+produce each ordinary kernel for every exact physical target and encoding
+overlay in Loom's target catalog. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
 uses ordinary `loom_kernel_binary` compilation followed by [embed.py](embed.py)
-on the actual HSACO. These headers are build outputs, with no checked-in
-header/JSON pairs or manual regeneration step for the Loom programs. This path
+on the actual HSACO. A small generated header declares each behavior's
+immutable [kernel set](kernel.h); one generated implementation stores all
+variants' code and metadata. These are build outputs, with no checked-in
+binary products or manual regeneration step for the Loom programs. This path
 has no LLVM tool dependency; Loom and embedding are CTS build dependencies only.
 
 The embedder admits one self-contained AMDHSA V6 kernel, validates its ELF,
 descriptor and AMDGPU MessagePack metadata, and rejects relocations,
 undefined dependencies and kernel data beyond the descriptor and text. The
 image preserves their relative addresses, alignment and complete text padding.
-Generated `constexpr` metadata carries argument, geometry and resource facts
+Generated immutable metadata carries argument, geometry and resource facts
 and HSACO/image hashes. Text extents, entry placement and resource words come
-from the compiled product. Callers retain semantic ABI and
-initial-register checks without fixing old compiler instruction sizes or
-register counts. There is no runtime ELF parser or descriptor patching.
+from the compiled product. Behavioral tests select the exact physical product
+once, retain its metadata through launch, and compare results with independent
+CPU oracles. The host product tests retain semantic ABI and initial-register
+checks without fixing compiler instruction sizes or register counts. There is
+no runtime ELF parser or descriptor patching.
 
 ### Private memory, geometry and transfers
 

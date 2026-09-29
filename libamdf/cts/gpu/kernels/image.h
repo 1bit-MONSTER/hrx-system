@@ -12,7 +12,7 @@
 namespace kernels {
 
 // One fixed compiler artifact, uploaded unchanged at a 256-byte-aligned base.
-// Kernel arguments and launch resource requirements belong to its typed caller.
+// Kernel pairs these bytes with the compiler's argument and launch metadata.
 struct Image {
   // Borrowed little-endian words containing the paired descriptor and code.
   const uint32_t* words;

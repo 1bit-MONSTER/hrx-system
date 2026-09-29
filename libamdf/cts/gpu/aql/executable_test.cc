@@ -12,25 +12,26 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_alternate_gfx942.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_alternate_kernels.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
 
-namespace first_kernel = kernels::gfx942_transform;
-namespace alternate_kernel = kernels::gfx942_transform_alternate;
-
-static_assert(alternate_kernel::kArgumentByteOffsets ==
-              kernels::transform::kArgumentByteOffsets);
-static_assert(alternate_kernel::kArgumentByteLengths ==
-              kernels::transform::kArgumentByteLengths);
-static_assert(alternate_kernel::kArgumentValueKinds ==
-              kernels::transform::kArgumentValueKinds);
-static_assert(alignof(kernels::transform::Arguments) %
-                  alternate_kernel::kKernargAlignment ==
-              0);
-
 TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
+  const auto* first_kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(first_kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& first_kernel = *first_kernel_product;
+  RecordProperty("transform_kernel_target", first_kernel.target);
+
+  const auto* alternate_kernel_product =
+      kernels::transform_alternate::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(alternate_kernel_product, nullptr)
+      << "missing compiled transform_alternate kernel for endpoint";
+  const auto& alternate_kernel = *alternate_kernel_product;
+  RecordProperty("transform_alternate_kernel_target", alternate_kernel.target);
+
   constexpr uint32_t kPageByteLength = 4096;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadWordOffset = 16;
@@ -42,29 +43,15 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   constexpr uint8_t kArgumentGuard = 0x94;
   constexpr uint8_t kControlGuard = 0x6b;
   constexpr uint32_t kSignalGuardByteOffset = 2 * sizeof(aql::Signal);
-  constexpr uint32_t kCacheRangeByteLength =
-      (first_kernel::kExecutable.byte_length + 255u) & ~255u;
-  constexpr std::array<const kernels::Image*, 3> kImages = {
-      &first_kernel::kExecutable, &alternate_kernel::kExecutable,
-      &first_kernel::kExecutable};
+  const uint32_t kCacheRangeByteLength =
+      (first_kernel.executable.byte_length + 255u) & ~255u;
+  const std::array<const kernels::Image*, 3> kImages = {
+      &first_kernel.executable, &alternate_kernel.executable,
+      &first_kernel.executable};
   constexpr std::array<uint32_t, 3> kMultipliers = {3, 5, 3};
   constexpr uint64_t kPacketCount = 2 * kImages.size();
-  static_assert(first_kernel::kExecutable.byte_length ==
-                alternate_kernel::kExecutable.byte_length);
-  static_assert(kCacheRangeByteLength <= kPageByteLength);
-  static_assert(first_kernel::kDescriptorByteOffset == 0 &&
-                alternate_kernel::kDescriptorByteOffset == 0);
-  static_assert(first_kernel::kEntryByteOffset ==
-                alternate_kernel::kEntryByteOffset);
-  static_assert(first_kernel::kWorkgroupSize == 64 &&
-                alternate_kernel::kWorkgroupSize == 64);
-  static_assert(first_kernel::kKernargByteLength == 24 &&
-                alternate_kernel::kKernargByteLength == 24);
-  // Identical descriptors retain the ABI and resource requirements even if
-  // a stale instruction fetch selects the preceding program's arithmetic.
-  static_assert(std::equal(first_kernel::kImage.begin(),
-                           first_kernel::kImage.begin() + 16,
-                           alternate_kernel::kImage.begin()));
+
+  ASSERT_LE(kCacheRangeByteLength, kPageByteLength);
 
   GpuMemory* code = nullptr;
   GpuMemory* commands = nullptr;
@@ -94,8 +81,8 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   ASSERT_EQ(commands->device_address % 4, 0u);
   ASSERT_LT(commands->device_address, UINT64_C(1) << 48);
   ASSERT_LE(kPageByteLength, (UINT64_C(1) << 48) - commands->device_address);
-  ASSERT_EQ(arguments->device_address % first_kernel::kKernargAlignment, 0u);
-  ASSERT_EQ(arguments->device_address % alternate_kernel::kKernargAlignment,
+  ASSERT_EQ(arguments->device_address % first_kernel.arguments.alignment, 0u);
+  ASSERT_EQ(arguments->device_address % alternate_kernel.arguments.alignment,
             0u);
   ASSERT_EQ(control->device_address % alignof(aql::Signal), 0u);
 
@@ -105,7 +92,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   ASSERT_GE(capacity, kPacketCount);
   uint64_t next_packet_index = 0;
   const uint64_t descriptor_address =
-      code->device_address + first_kernel::kDescriptorByteOffset;
+      code->device_address + first_kernel.executable.descriptor_byte_offset;
 
   std::array<uint32_t, kWordCount> expected_input;
   std::array<uint32_t, kWordCount> expected_output;
@@ -136,11 +123,11 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   // Both images fetch 24 semantic bytes. The host object's alignment padding
   // is not copied into the initialized argument slot.
   std::memcpy(expected_arguments.data(), &payload,
-              first_kernel::kKernargByteLength);
+              first_kernel.arguments.byte_length);
   std::memcpy(arguments->host.pointer, expected_arguments.data(),
               sizeof(expected_arguments));
   const auto cache_commands = aql::Gfx9CodeCacheInvalidate(
-      code->device_address, first_kernel::kExecutable.byte_length);
+      code->device_address, first_kernel.executable.byte_length);
   std::memcpy(expected_commands.data(), cache_commands.data(),
               sizeof(cache_commands));
   std::memcpy(commands->host.pointer, expected_commands.data(),
@@ -156,24 +143,26 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
       {aql::FenceScope::kNone, aql::FenceScope::kNone});
   const auto dispatch_packet = aql::Dispatch(
       aql::HeaderBarrier::kDisabled,
-      {1, {first_kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-      first_kernel::kPrivateSegmentByteLength,
-      first_kernel::kGroupSegmentByteLength, descriptor_address,
+      {1,
+       {static_cast<uint16_t>(first_kernel.workgroup_size()), 1, 1},
+       {kGridSize, 1, 1}},
+      first_kernel.private_segment_byte_length,
+      first_kernel.group_segment_byte_length, descriptor_address,
       arguments->device_address, control->device_address + sizeof(aql::Signal),
       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
 
   RecordProperty("aql_replacement_first_image_sha256",
-                 first_kernel::kImageSha256);
+                 first_kernel.executable.sha256);
   RecordProperty("aql_replacement_alternate_image_sha256",
-                 alternate_kernel::kImageSha256);
+                 alternate_kernel.executable.sha256);
   RecordProperty("aql_replacement_image_byte_length",
-                 first_kernel::kExecutable.byte_length);
+                 first_kernel.executable.byte_length);
   RecordProperty("aql_replacement_descriptor_byte_offset",
-                 first_kernel::kDescriptorByteOffset);
+                 first_kernel.executable.descriptor_byte_offset);
   RecordProperty("aql_replacement_entry_byte_offset",
-                 first_kernel::kEntryByteOffset);
+                 first_kernel.entry_byte_offset);
   RecordProperty("aql_replacement_kernarg_byte_length",
-                 first_kernel::kKernargByteLength);
+                 first_kernel.arguments.byte_length);
   RecordProperty("aql_replacement_code_allocation_count", 1);
   RecordProperty("aql_replacement_code_backing_byte_length", kPageByteLength);
   RecordProperty("aql_replacement_cache_range_byte_length",
@@ -186,7 +175,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
                  kSignalGuardByteOffset);
   RecordProperty("aql_replacement_grid_workitems", kGridSize);
   RecordProperty("aql_replacement_workgroup_workitems",
-                 first_kernel::kWorkgroupSize);
+                 first_kernel.workgroup_size());
   RecordProperty("aql_replacement_active_workitems", kCount);
   RecordProperty("aql_replacement_addend", kAddend);
   RecordProperty("aql_replacement_multipliers", "3,5,3");

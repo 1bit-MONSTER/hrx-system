@@ -82,12 +82,12 @@ amdf_cc_library(
     hdrs = ["byte_copy_unaligned.h"],
 )
 
-amdf_cts_gpu_kernel(
-    name = "byte_copy_unaligned_gfx942",
+amdf_cts_gpu_kernel_set(
+    name = "byte_copy_unaligned_kernels",
     src = "byte_copy_unaligned.loom",
     entry_point = "byte_copy_unaligned",
-    namespace = "kernels::gfx942_byte_copy_unaligned",
-    target = ":gfx942",
+    namespace = "kernels::byte_copy_unaligned",
+    targets = _KERNEL_TARGETS,
 )
 
 amdf_cc_library(
@@ -96,44 +96,28 @@ amdf_cc_library(
     hdrs = ["pattern_fill_unaligned.h"],
 )
 
-amdf_cts_gpu_kernel(
-    name = "pattern_fill_unaligned_gfx942",
+amdf_cts_gpu_kernel_set(
+    name = "pattern_fill_unaligned_kernels",
     src = "pattern_fill_unaligned.loom",
     entry_point = "pattern_fill_unaligned",
-    namespace = "kernels::gfx942_pattern_fill_unaligned",
-    target = ":gfx942",
+    namespace = "kernels::pattern_fill_unaligned",
+    targets = _KERNEL_TARGETS,
 )
 
-amdf_cts_gpu_kernel(
-    name = "transform_gfx942",
+amdf_cts_gpu_kernel_set(
+    name = "transform_kernels",
     src = "transform.loom",
     entry_point = "aql_transform",
-    namespace = "kernels::gfx942_transform",
-    target = ":gfx942",
+    namespace = "kernels::transform",
+    targets = _KERNEL_TARGETS,
 )
 
-amdf_cts_gpu_kernel(
-    name = "transform_alternate_gfx942",
+amdf_cts_gpu_kernel_set(
+    name = "transform_alternate_kernels",
     src = "transform_alternate.loom",
     entry_point = "aql_transform",
-    namespace = "kernels::gfx942_transform_alternate",
-    target = ":gfx942",
-)
-
-amdf_cts_gpu_kernel(
-    name = "transform_gfx1150",
-    src = "transform.loom",
-    entry_point = "aql_transform",
-    namespace = "kernels::gfx1150_transform",
-    target = ":gfx1150",
-)
-
-amdf_cts_gpu_kernel(
-    name = "transform_gfx1151",
-    src = "transform.loom",
-    entry_point = "aql_transform",
-    namespace = "kernels::gfx1151_transform",
-    target = ":gfx1151",
+    namespace = "kernels::transform_alternate",
+    targets = _KERNEL_TARGETS,
 )
 
 amdf_cts_gpu_kernel(
@@ -184,12 +168,12 @@ amdf_cts_gpu_kernel(
     target = ":gfx1151",
 )
 
-amdf_cts_gpu_kernel(
-    name = "geometry_ids_gfx942",
+amdf_cts_gpu_kernel_set(
+    name = "geometry_ids_kernels",
     src = "geometry_ids.loom",
     entry_point = "geometry_ids",
-    namespace = "kernels::gfx942_geometry_ids",
-    target = ":gfx942",
+    namespace = "kernels::geometry_ids",
+    targets = _KERNEL_TARGETS,
 )
 
 amdf_cc_library(
@@ -210,9 +194,20 @@ amdf_cc_test(
     name = "kernel_test",
     srcs = ["kernel_test.cc"],
     deps = [
+        ":byte_copy_unaligned",
+        ":byte_copy_unaligned_kernels",
+        ":geometry_ids",
+        ":geometry_ids_kernels",
         ":kernel",
         ":lds_exchange",
         ":lds_exchange_kernels",
+        ":pattern_fill_unaligned",
+        ":pattern_fill_unaligned_kernels",
+        ":private_roundtrip",
+        ":private_roundtrip_kernels",
+        ":transform",
+        ":transform_alternate_kernels",
+        ":transform_kernels",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],
@@ -224,12 +219,12 @@ amdf_cc_library(
     hdrs = ["private_roundtrip.h"],
 )
 
-amdf_cts_gpu_kernel(
-    name = "private_roundtrip_gfx942",
+amdf_cts_gpu_kernel_set(
+    name = "private_roundtrip_kernels",
     src = "private_roundtrip.loom",
     entry_point = "private_roundtrip",
-    namespace = "kernels::gfx942_private_roundtrip",
-    target = ":gfx942",
+    namespace = "kernels::private_roundtrip",
+    targets = _KERNEL_TARGETS,
 )
 
 _KERNEL_POLICY = apply_amdf_target_policy({})
@@ -242,14 +237,20 @@ py_test(
         "embed_test.py",
     ],
     args = [
-        "--gfx942=$(rootpath :transform_gfx942_hsaco)",
-        "--gfx1151=$(rootpath :transform_gfx1151_hsaco)",
+        "--variant=%s=$(rootpath :transform_kernels_%s)" % (target, target)
+        for target in _KERNEL_TARGETS
     ],
     data = [
-        ":transform_gfx1151_hsaco",
-        ":transform_gfx942_hsaco",
+        ":transform_kernels_" + target
+        for target in _KERNEL_TARGETS
     ],
     main = "embed_test.py",
     tags = _KERNEL_POLICY["tags"],
     target_compatible_with = _KERNEL_POLICY["target_compatible_with"],
+)
+
+amdf_cc_library(
+    name = "geometry_ids",
+    testonly = True,
+    hdrs = ["geometry_ids.h"],
 )

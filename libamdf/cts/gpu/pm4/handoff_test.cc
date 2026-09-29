@@ -10,12 +10,10 @@
 #include <string>
 
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 namespace {
-
-namespace kernel = kernels::gfx1151_transform;
 
 void CheckSystemTransition(const amdf_cache_transition_t& transition,
                            amdf_cache_operation_t operation) {
@@ -51,6 +49,13 @@ void CheckSystemPair(const amdf_api_t* api, const amdf_memory_site_t& producer,
 }
 
 TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kPayloadWordCount = 2048;
   constexpr uint32_t kPageWordCount = 1024;
@@ -68,8 +73,6 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kProducerAddends = {7, 0x80000023u};
   constexpr std::array<uint32_t, 2> kConsumerAddends = {11, 0x10203045u};
-  static_assert(kernel::kKernargByteLength == 24);
-  static_assert(kArgumentStride % kernel::kKernargAlignment == 0);
 
   GpuMemory* input = nullptr;
   GpuMemory* intermediate = nullptr;
@@ -89,16 +92,16 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
       CreateMemory(kReadWrite, kPageWordCount * sizeof(uint32_t), &control));
   Pm4ComputeProgram program = {
       0,
-      kernel::kComputePgmRsrc1,
-      kernel::kComputePgmRsrc2,
-      kernel::kComputePgmRsrc3,
-      kernel::kGroupSegmentByteLength,
-      {kernel::kWorkgroupSize, 1, 1},
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
   };
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel::kExecutable,
-                                         kernel::kEntryByteOffset, &program,
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel.executable,
+                                         kernel.entry_byte_offset, &program,
                                          "pm4_handoff", &code));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(control->device_address % 64, 0u);
   const std::array<GpuMemory*, 6> backings = {input,     intermediate, output,
                                               arguments, control,      code};
@@ -126,8 +129,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
               sizeof(expected_control));
   auto* control_words = static_cast<uint32_t*>(control->host.pointer);
   std::array<uint32_t, kPageWordCount> expected_code = {};
-  std::memcpy(expected_code.data(), kernel::kExecutable.words,
-              kernel::kExecutable.byte_length);
+  std::memcpy(expected_code.data(), kernel.executable.words,
+              kernel.executable.byte_length);
 
   GpuUserQueue* producer = nullptr;
   GpuUserQueue* consumer = nullptr;
@@ -228,9 +231,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     std::array<uint8_t, kPageWordCount * sizeof(uint32_t)> expected_arguments =
         {};
     std::memcpy(expected_arguments.data(), &producer_arguments,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(expected_arguments.data() + kArgumentStride,
-                &consumer_arguments, kernel::kKernargByteLength);
+                &consumer_arguments, kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     std::array<uint8_t, sizeof(expected_arguments)> observed_arguments;

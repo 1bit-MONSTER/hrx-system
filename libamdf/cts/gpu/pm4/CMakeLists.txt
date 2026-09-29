@@ -64,7 +64,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_kernels
     libamdf::cts::gpu::kernels::transform
-    libamdf::cts::gpu::kernels::transform_gfx1151
+    libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::commands
     libamdf::cts::gpu::util::command_fixture
   TESTONLY

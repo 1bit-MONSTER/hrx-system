@@ -11,15 +11,13 @@
 #include <string>
 
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 #include "libamdf/cts/gpu/util/command_fixture.h"
 
 namespace {
-
-namespace kernel = kernels::gfx1151_transform;
 
 enum class PairQuery { kConcrete, kProfile };
 enum class Site { kHost, kPm4, kSdma };
@@ -224,6 +222,13 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
   }
 
   void RunCoherentHandoff(PairQuery query_kind) {
+    const auto* kernel_product =
+        kernels::transform::kKernels.Find(gpu_endpoint_info_);
+    ASSERT_NE(kernel_product, nullptr)
+        << "missing compiled transform kernel for endpoint";
+    const auto& kernel = *kernel_product;
+    RecordProperty("transform_kernel_target", kernel.target);
+
     constexpr amdf_memory_access_t kReadWrite =
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
     constexpr uint32_t kGridSize = 1024;
@@ -238,7 +243,7 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
                                                  0x93b57fd1u, 0x4cd218a7u};
     constexpr std::array<uint32_t, kEpochCount> kCounts = {1003, 997};
     constexpr std::array<uint32_t, kEpochCount> kAddends = {7, 0x80000023u};
-    static_assert(kernel::kKernargByteLength == 24);
+
     static_assert(sizeof(kernels::transform::Arguments) == 32);
     std::array<Backing, kBackingCount> backings = {{
         {"source", 8192, AMDF_MEMORY_ACCESS_READ},
@@ -264,16 +269,16 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     }
     Pm4ComputeProgram program = {
         0,
-        kernel::kComputePgmRsrc1,
-        kernel::kComputePgmRsrc2,
-        kernel::kComputePgmRsrc3,
-        kernel::kGroupSegmentByteLength,
-        {kernel::kWorkgroupSize, 1, 1},
+        kernel.program.resource1,
+        kernel.program.resource2,
+        kernel.program.resource3,
+        kernel.group_segment_byte_length,
+        {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
     };
     // This unchanged helper chooses the same cold READ|EXECUTE creation inputs.
     // Check its retained descriptor against the prospective selection below.
     ASSERT_NO_FATAL_FAILURE(
-        PrepareProgram(kernel::kExecutable, kernel::kEntryByteOffset, &program,
+        PrepareProgram(kernel.executable, kernel.entry_byte_offset, &program,
                        "pm4_sdma", &backings[kCode].memory));
     for (const Backing& backing : backings) {
       const auto& memory = *backing.memory;
@@ -328,7 +333,7 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     auto& arguments = *backings[kArguments].memory;
     auto& control = *backings[kControl].memory;
     auto& code = *backings[kCode].memory;
-    ASSERT_EQ(arguments.device_address % kernel::kKernargAlignment, 0u);
+    ASSERT_EQ(arguments.device_address % kernel.arguments.alignment, 0u);
     ASSERT_EQ(control.device_address % 64, 0u);
     // Progress words use the selected coherent mapping and the ordinary
     // memory-wait, uncached SDMA FENCE32 and confirmed PM4 EOP protocols. The U
@@ -344,8 +349,8 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     std::memcpy(control.host.pointer, expected_control.data(),
                 sizeof(expected_control));
     std::array<uint32_t, kPageWordCount> expected_code = {};
-    std::memcpy(expected_code.data(), kernel::kExecutable.words,
-                kernel::kExecutable.byte_length);
+    std::memcpy(expected_code.data(), kernel.executable.words,
+                kernel.executable.byte_length);
 
     GpuUserQueue* pm4_queue = nullptr;
     GpuUserQueue* sdma_queue = nullptr;
@@ -396,8 +401,9 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     RecordProperty("pm4_sdma_payload_byte_offset", 64);
     RecordProperty("pm4_sdma_copy_byte_length", kGridSize * sizeof(uint32_t));
     RecordProperty("pm4_sdma_grid_size", kGridSize);
-    RecordProperty("pm4_sdma_workgroup_size", kernel::kWorkgroupSize);
-    RecordProperty("pm4_sdma_kernarg_byte_length", kernel::kKernargByteLength);
+    RecordProperty("pm4_sdma_workgroup_size", kernel.workgroup_size());
+    RecordProperty("pm4_sdma_kernarg_byte_length",
+                   kernel.arguments.byte_length);
     RecordProperty("pm4_sdma_host_cacheability",
                    AMDF_HOST_CACHEABILITY_WRITE_BACK);
     RecordProperty("pm4_sdma_control_offsets", "0,64,128");
@@ -447,7 +453,7 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
           kAddends[epoch]};
       expected_arguments.fill(0);
       std::memcpy(expected_arguments.data(), &payload,
-                  kernel::kKernargByteLength);
+                  kernel.arguments.byte_length);
       std::memcpy(arguments.host.pointer, expected_arguments.data(),
                   sizeof(expected_arguments));
       const uint64_t pm4_frontier = (epoch + 1) * kPm4WordsPerEpoch;

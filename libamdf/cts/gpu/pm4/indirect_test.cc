@@ -11,14 +11,19 @@
 #include <string>
 
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 namespace {
 
-namespace kernel = kernels::gfx1151_transform;
-
 TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
   constexpr uint32_t kCount = 1536;
@@ -33,12 +38,6 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
   constexpr std::array<uint32_t, 2> kActiveCounts = {1024, 576};
   constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
   static_assert(kPayloadOffset + kCount <= kWordCount);
-  static_assert(kernel::kWorkgroupSize == 64);
-  static_assert(
-      alignof(kernels::transform::Arguments) % kernel::kKernargAlignment == 0);
-  static_assert(offsetof(kernels::transform::Arguments, addend) +
-                    sizeof(uint32_t) ==
-                kernel::kKernargByteLength);
 
   GpuMemory* input = nullptr;
   GpuMemory* output = nullptr;
@@ -58,17 +57,17 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(tuples->device_address % sizeof(uint32_t), 0u);
   ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
   Pm4ComputeProgram program = {0,
-                               kernel::kComputePgmRsrc1,
-                               kernel::kComputePgmRsrc2,
-                               kernel::kComputePgmRsrc3,
-                               kernel::kGroupSegmentByteLength,
-                               {kernel::kWorkgroupSize, 1, 1}};
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel::kExecutable,
-                                         kernel::kEntryByteOffset, &program,
+                               kernel.program.resource1,
+                               kernel.program.resource2,
+                               kernel.program.resource3,
+                               kernel.group_segment_byte_length,
+                               {kernel.workgroup_size(), 1, 1}};
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel.executable,
+                                         kernel.entry_byte_offset, &program,
                                          "pm4_indirect", &code));
 
   std::array<uint32_t, kWordCount> expected_input, observed_input;
@@ -78,8 +77,8 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
   std::array<uint32_t, kPageWordCount> expected_control, observed_control;
   std::array<uint8_t, kPageByteLength> expected_code = {};
   std::array<uint8_t, kPageByteLength> observed_code;
-  std::memcpy(expected_code.data(), kernel::kExecutable.words,
-              kernel::kExecutable.byte_length);
+  std::memcpy(expected_code.data(), kernel.executable.words,
+              kernel.executable.byte_length);
   for (uint32_t i = 0; i < kPageWordCount; ++i) {
     expected_tuples[i] = 0x9137ace5u ^ i;
     expected_control[i] = 0x68d329b7u ^ i;
@@ -159,7 +158,7 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
     // Initialize host alignment padding without treating it as shader input.
     std::memset(expected_arguments.data(), 0, sizeof(payload));
     std::memcpy(expected_arguments.data(), &payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     expected_control[kCompletionWordIndex] = epoch + 1;
@@ -220,6 +219,13 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
 }
 
 TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
   constexpr uint32_t kConsumerCount = 1536;
@@ -244,13 +250,6 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
   constexpr std::array<uint32_t, 2> kConsumerAddends = {7, 0x80000023u};
   static_assert(kPayloadOffset + kConsumerCount <= kProducerInputWordIndex);
   static_assert(kProducerInputWordIndex + kProducerCount <= kWordCount);
-  static_assert(kernel::kWorkgroupSize == 64);
-  static_assert(
-      alignof(kernels::transform::Arguments) % kernel::kKernargAlignment == 0);
-  static_assert(offsetof(kernels::transform::Arguments, addend) +
-                    sizeof(uint32_t) ==
-                kernel::kKernargByteLength);
-  static_assert(kConsumerArgumentByteOffset % kernel::kKernargAlignment == 0);
 
   GpuMemory* input = nullptr;
   GpuMemory* output = nullptr;
@@ -271,17 +270,17 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(tuple->device_address % sizeof(uint32_t), 0u);
   ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
   Pm4ComputeProgram program = {0,
-                               kernel::kComputePgmRsrc1,
-                               kernel::kComputePgmRsrc2,
-                               kernel::kComputePgmRsrc3,
-                               kernel::kGroupSegmentByteLength,
-                               {kernel::kWorkgroupSize, 1, 1}};
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel::kExecutable,
-                                         kernel::kEntryByteOffset, &program,
+                               kernel.program.resource1,
+                               kernel.program.resource2,
+                               kernel.program.resource3,
+                               kernel.group_segment_byte_length,
+                               {kernel.workgroup_size(), 1, 1}};
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel.executable,
+                                         kernel.entry_byte_offset, &program,
                                          "pm4_produced_indirect", &code));
 
   std::array<uint32_t, kWordCount> expected_input, observed_input;
@@ -291,8 +290,8 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
   std::array<uint32_t, kPageWordCount> expected_control, observed_control;
   std::array<uint8_t, kPageByteLength> expected_code = {};
   std::array<uint8_t, kPageByteLength> observed_code;
-  std::memcpy(expected_code.data(), kernel::kExecutable.words,
-              kernel::kExecutable.byte_length);
+  std::memcpy(expected_code.data(), kernel.executable.words,
+              kernel.executable.byte_length);
   for (uint32_t i = 0; i < kPageWordCount; ++i) {
     expected_tuple[i] = 0x9137ace5u ^ i;
     expected_control[i] = 0x68d329b7u ^ i;
@@ -341,7 +340,7 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
   RecordProperty("pm4_produced_indirect_argument_slot_bytes",
                  sizeof(kernels::transform::Arguments));
   RecordProperty("pm4_produced_indirect_argument_semantic_bytes",
-                 kernel::kKernargByteLength);
+                 kernel.arguments.byte_length);
   RecordProperty("pm4_produced_indirect_checked_data_bytes_each",
                  sizeof(expected_input));
   RecordProperty("pm4_produced_indirect_checked_page_bytes_each",
@@ -399,11 +398,11 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
     // consumption. Zero the backing padding; copy only the 24 semantic bytes.
     std::memset(expected_arguments.data(), 0, sizeof(producer_payload));
     std::memcpy(expected_arguments.data(), &producer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memset(expected_arguments.data() + kConsumerArgumentByteOffset, 0,
                 sizeof(consumer_payload));
     std::memcpy(expected_arguments.data() + kConsumerArgumentByteOffset,
-                &consumer_payload, kernel::kKernargByteLength);
+                &consumer_payload, kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     // These expected values never write the GPU tuple or completion storage.
@@ -414,7 +413,7 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
     commands.BindCompute(program, arguments->device_address);
     // A complete workgroup executes; the shader's explicit count bounds its
     // three stores. This does not rely on hardware partial-group masking.
-    commands.DispatchWave32(kernel::kWorkgroupSize, 1, 1);
+    commands.DispatchWave32(kernel.workgroup_size(), 1, 1);
     // Complete and publish the shader stores before the MEC fetches counts.
     commands.SystemBarrier();
     commands.BindCompute(

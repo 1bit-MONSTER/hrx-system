@@ -12,50 +12,12 @@
 #include <string_view>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
-#include "libamdf/cts/gpu/kernels/geometry_ids_gfx942.h"
+#include "libamdf/cts/gpu/kernels/geometry_ids.h"
+#include "libamdf/cts/gpu/kernels/geometry_ids_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_geometry_ids;
-
-struct alignas(16) Arguments {
-  // Global GPU address of the first seven-word record, after the prefix guard.
-  uint64_t output;
-  // Packet-matching XYZ sizes used to form global coordinates from raw IDs.
-  std::array<uint32_t, 3> workgroup_size;
-  // Rounded X/Y extents used as output row pitch and plane height.
-  std::array<uint32_t, 2> output_pitches;
-  // Changing token stored as the seventh word of every active record.
-  uint32_t epoch;
-};
-static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
-static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
-static_assert(sizeof(Arguments) == 32);
-static_assert(offsetof(Arguments, output) == 0);
-static_assert(offsetof(Arguments, workgroup_size) == 8);
-static_assert(sizeof(Arguments::workgroup_size) == 12);
-static_assert(offsetof(Arguments, output_pitches) == 20);
-static_assert(sizeof(Arguments::output_pitches) == 8);
-static_assert(offsetof(Arguments, epoch) == 28);
-static_assert(kernel::kArgumentByteOffsets ==
-              std::array<uint32_t, 7>{
-                  offsetof(Arguments, output),
-                  offsetof(Arguments, workgroup_size),
-                  offsetof(Arguments, workgroup_size) + sizeof(uint32_t),
-                  offsetof(Arguments, workgroup_size) + 2 * sizeof(uint32_t),
-                  offsetof(Arguments, output_pitches),
-                  offsetof(Arguments, output_pitches) + sizeof(uint32_t),
-                  offsetof(Arguments, epoch)});
-static_assert(kernel::kArgumentByteLengths ==
-              std::array<uint32_t, 7>{8, 4, 4, 4, 4, 4, 4});
-static_assert(kernel::kArgumentValueKinds ==
-              std::array<std::string_view, 7>{
-                  "global_buffer", "by_value", "by_value", "by_value",
-                  "by_value", "by_value", "by_value"});
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{0, 0, 0});
-static_assert(kernel::kWorkgroupSize == 0);
-static_assert(kernel::kWavefrontSize == 64);
+using Arguments = kernels::geometry_ids::Arguments;
 
 class AqlGeometryTest : public AqlDispatchTest {
  protected:
@@ -64,6 +26,13 @@ class AqlGeometryTest : public AqlDispatchTest {
 
 void AqlGeometryTest::RunGeometry(
     std::array<aql::DispatchGeometry, 2> geometries) {
+  const auto* kernel_product =
+      kernels::geometry_ids::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled geometry_ids kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("geometry_ids_kernel_target", kernel.target);
+
   constexpr uint32_t kRecordCapacity = 4096;
   constexpr uint32_t kFlatWorkgroupSize = 64;
   constexpr uint32_t kRecordWordCount = 7;
@@ -75,16 +44,13 @@ void AqlGeometryTest::RunGeometry(
   constexpr uint32_t kInactiveWord = 0xb73a51c9u;
   constexpr std::array<uint32_t, 2> kEpochTokens = {0x13579bdfu, 0xa5c31f27u};
   constexpr std::array<const char*, 3> kAxes = {"x", "y", "z"};
-  static_assert(kFlatWorkgroupSize <= kernel::kMaxFlatWorkgroupSize);
-  static_assert(kernel::kGroupSegmentByteLength == 0);
-  static_assert(kernel::kPrivateSegmentByteLength == 0);
 
   amdf_gpu_endpoint_info_t endpoint_info = {};
   endpoint_info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
-  ASSERT_EQ(endpoint_info.compute.wavefront_size, 64u);
+  ASSERT_EQ(endpoint_info.compute.wavefront_size, kernel.wavefront_size);
   std::array<std::array<uint32_t, 3>, 2> storage_sizes;
   std::array<uint32_t, 2> active_record_counts;
   std::array<uint32_t, 2> inactive_record_counts;
@@ -127,7 +93,7 @@ void AqlGeometryTest::RunGeometry(
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
   ASSERT_GE(arguments->info.byte_length, sizeof(Arguments));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
@@ -138,8 +104,8 @@ void AqlGeometryTest::RunGeometry(
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(
-      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable, "aql_kernel",
+                                        &index, &descriptor_address));
   ASSERT_LE(index + geometries.size(),
             queue->host.ring_byte_length / sizeof(aql::Packet));
 
@@ -193,8 +159,8 @@ void AqlGeometryTest::RunGeometry(
     signal.value = 1;
     const auto packet =
         aql::Dispatch(aql::HeaderBarrier::kDisabled, geometry,
-                      kernel::kPrivateSegmentByteLength,
-                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      kernel.private_segment_byte_length,
+                      kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address, completion->device_address,
                       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, index + 1);

@@ -51,23 +51,30 @@ def sections(data):
 class EmbedTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.products = {
-            "gfx942": cls.gfx942.read_bytes(),
-            "gfx1151": cls.gfx1151.read_bytes(),
+        cls.products = {target: path.read_bytes() for target, path in cls.variants}
+        # Descriptor mutation cases exercise both wave encodings independently
+        # of the physical processors supplying the build's fixture products.
+        by_wave = {
+            embed.extract_image(data, cls.symbol).metadata[".wavefront_size"]: data
+            for data in cls.products.values()
         }
+        cls.wave32_data = by_wave[32]
+        cls.wave64_data = by_wave[64]
 
     def test_real_products_keep_transform_abi_and_compiler_resources(self):
         for target, data in self.products.items():
             with self.subTest(target=target):
                 kernel = embed.extract_image(data, self.symbol)
-                self.assertEqual(kernel.target, f"amdgcn-amd-amdhsa--{target}")
+                processor = target.removesuffix("-a0")
+                self.assertEqual(kernel.target, f"amdgcn-amd-amdhsa--{processor}")
                 self.assertEqual(kernel.metadata[".kernarg_segment_size"], 24)
                 self.assertEqual(kernel.metadata[".reqd_workgroup_size"], [64, 1, 1])
                 self.assertEqual(kernel.metadata[".max_flat_workgroup_size"], 64)
                 self.assertEqual(kernel.metadata[".group_segment_fixed_size"], 0)
                 self.assertEqual(kernel.metadata[".private_segment_fixed_size"], 0)
                 self.assertEqual(
-                    kernel.metadata[".wavefront_size"], 64 if target == "gfx942" else 32
+                    kernel.metadata[".wavefront_size"],
+                    64 if processor.startswith("gfx9") else 32,
                 )
                 self.assertEqual(
                     [
@@ -81,12 +88,18 @@ class EmbedTest(unittest.TestCase):
                         (20, 4, "by_value"),
                     ],
                 )
-                header = embed.render_header(kernel, f"kernels::{target}_transform")
+                header, implementation = embed.render_set(
+                    [(target, kernel)], "kernels::transform", "transform_kernels.h"
+                )
                 for index, offset in ((1, 48), (2, 52), (3, 44)):
                     actual = struct.unpack_from("<I", kernel.descriptor, offset)[0]
-                    self.assertIn(f"kComputePgmRsrc{index} = {actual}u;", header)
+                    self.assertIn(
+                        f"kComputePgmRsrc{index} = {actual}u;", implementation
+                    )
                 self.assertEqual(kernel.hsaco_sha256, hashlib.sha256(data).hexdigest())
-                self.assertIn(hashlib.sha256(kernel.image).hexdigest(), header)
+                self.assertIn(hashlib.sha256(kernel.image).hexdigest(), implementation)
+                self.assertIn(f'"{target}"', implementation)
+                self.assertIn("extern const ::kernels::KernelSet kKernels;", header)
 
     def test_complete_text_and_descriptor_preserve_linked_layout(self):
         for target, data in self.products.items():
@@ -112,7 +125,7 @@ class EmbedTest(unittest.TestCase):
                 self.assertEqual(len(kernel.image), entry + text[5])
 
     def test_nonzero_descriptor_phase_is_retained(self):
-        data = bytearray(self.products["gfx1151"])
+        data = bytearray(self.wave32_data)
         table = sections(data)
         section_position, rodata = table[".rodata"]
         descriptor = bytes(data[rodata[4] : rodata[4] + 64])
@@ -146,7 +159,7 @@ class EmbedTest(unittest.TestCase):
         )
 
     def test_rejects_truncated_or_wrong_format_products(self):
-        original = self.products["gfx942"]
+        original = self.wave64_data
         for data in (original[:32], original[:-64]):
             with self.subTest(size=len(data)), self.assertRaises(embed.ImageError):
                 embed.extract_image(data, self.symbol)
@@ -157,7 +170,7 @@ class EmbedTest(unittest.TestCase):
                 embed.extract_image(bytes(data), self.symbol)
 
     def test_rejects_relocations_extra_backing_and_external_dependencies(self):
-        original = self.products["gfx1151"]
+        original = self.wave32_data
         table = sections(original)
         mutations = [
             (table[".symtab"][0] + 4, "<I", 4, "relocation"),
@@ -176,7 +189,7 @@ class EmbedTest(unittest.TestCase):
                 embed.extract_image(bytes(data), self.symbol)
 
     def test_rejects_descriptor_disagreement(self):
-        original = self.products["gfx1151"]
+        original = self.wave32_data
         descriptor = sections(original)[".rodata"][1][4]
         mutations = [
             (0, "<I", 512, "group_segment"),
@@ -197,7 +210,7 @@ class EmbedTest(unittest.TestCase):
                 embed.extract_image(bytes(data), self.symbol)
 
     def metadata(self):
-        data = self.products["gfx942"]
+        data = self.wave64_data
         return embed.read_metadata(embed.Elf(data)), embed.extract_image(
             data, self.symbol
         )
@@ -272,11 +285,14 @@ class EmbedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gfx942", type=Path, required=True)
-    parser.add_argument("--gfx1151", type=Path, required=True)
+    parser.add_argument(
+        "--variant", action="append", required=True, metavar="TARGET=PATH"
+    )
     parser.add_argument("--symbol", default="aql_transform")
     args, unittest_args = parser.parse_known_args()
-    EmbedTest.gfx942 = args.gfx942
-    EmbedTest.gfx1151 = args.gfx1151
+    EmbedTest.variants = [
+        (target, Path(path))
+        for target, path in (variant.split("=", 1) for variant in args.variant)
+    ]
     EmbedTest.symbol = args.symbol
     unittest.main(argv=[sys.argv[0], *unittest_args])

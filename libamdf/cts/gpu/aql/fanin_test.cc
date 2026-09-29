@@ -12,13 +12,18 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_transform;
-
 TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kProducerCount = 2;
   constexpr uint32_t kProducerWordCount = 512;
   constexpr uint32_t kConsumerWordCount = kProducerCount * kProducerWordCount;
@@ -39,19 +44,18 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
       kProducerAddends = {{{7, 0x10203045u}, {0x80000023u, 0x31415927u}}};
   constexpr std::array<uint32_t, 2> kConsumerAddends = {0x101u, 0x2468ace1u};
   constexpr uint32_t kEpochCount = kProducerAddends.size();
-  constexpr aql::DispatchGeometry kProducerGeometry = {
-      1, {kernel::kWorkgroupSize, 1, 1}, {kProducerWordCount, 1, 1}};
-  constexpr aql::DispatchGeometry kConsumerGeometry = {
-      1, {kernel::kWorkgroupSize, 1, 1}, {kConsumerWordCount, 1, 1}};
+  const aql::DispatchGeometry kProducerGeometry = {
+      1,
+      {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+      {kProducerWordCount, 1, 1}};
+  const aql::DispatchGeometry kConsumerGeometry = {
+      1,
+      {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+      {kConsumerWordCount, 1, 1}};
   constexpr aql::FenceScopes kDispatchScopes = {aql::FenceScope::kSystem,
                                                 aql::FenceScope::kSystem};
   constexpr aql::FenceScopes kBarrierScopes = {aql::FenceScope::kNone,
                                                aql::FenceScope::kNone};
-  static_assert(offsetof(kernels::transform::Arguments, addend) +
-                    sizeof(uint32_t) ==
-                kernel::kKernargByteLength);
-  static_assert(
-      alignof(kernels::transform::Arguments) % kernel::kKernargAlignment == 0);
 
   std::array<GpuMemory*, kProducerCount> inputs = {};
   GpuMemory* intermediate = nullptr;
@@ -71,7 +75,7 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
   for (auto& argument : arguments) {
     ASSERT_NO_FATAL_FAILURE(
         CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &argument));
-    ASSERT_EQ(argument->device_address % kernel::kKernargAlignment, 0u);
+    ASSERT_EQ(argument->device_address % kernel.arguments.alignment, 0u);
   }
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
@@ -101,10 +105,10 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
   uint64_t consumer_index = 0;
   uint64_t producer_descriptor = 0;
   uint64_t consumer_descriptor = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel.executable,
                                         "aql_fanin_producer_kernel",
                                         &producer_index, &producer_descriptor));
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel.executable,
                                         "aql_fanin_consumer_kernel",
                                         &consumer_index, &consumer_descriptor));
   const uint64_t first_producer_packet_index = producer_index;
@@ -123,7 +127,7 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
   RecordProperty("aql_fanin_dispatch_scopes", "system,system");
   RecordProperty("aql_fanin_producer_grid_size", kProducerWordCount);
   RecordProperty("aql_fanin_consumer_grid_size", kConsumerWordCount);
-  RecordProperty("aql_fanin_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("aql_fanin_workgroup_size", kernel.workgroup_size());
   RecordProperty("aql_fanin_checked_words_per_payload", kWordCount);
   RecordProperty("aql_fanin_checked_bytes_per_kernarg", kPageByteLength);
   RecordProperty("aql_fanin_control_guard_byte_offset",
@@ -187,7 +191,7 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
       };
       expected_arguments[p].fill(0);
       std::memcpy(expected_arguments[p].data(), &payload,
-                  kernel::kKernargByteLength);
+                  kernel.arguments.byte_length);
     }
     std::memcpy(intermediate->host.pointer, observed_intermediate.data(),
                 sizeof(observed_intermediate));
@@ -201,7 +205,7 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
     };
     expected_arguments[kProducerCount].fill(0);
     std::memcpy(expected_arguments[kProducerCount].data(), &consumer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     for (uint32_t i = 0; i < arguments.size(); ++i) {
       // Full-page initialization preserves the aligned backing without
       // copying the typed object's indeterminate tail padding.
@@ -214,7 +218,7 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
     for (uint32_t p = 0; p < kProducerCount; ++p) {
       produce[p] = aql::Dispatch(
           aql::HeaderBarrier::kDisabled, kProducerGeometry,
-          kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+          kernel.private_segment_byte_length, kernel.group_segment_byte_length,
           producer_descriptor, arguments[p]->device_address,
           signal_addresses[p], kDispatchScopes);
     }
@@ -223,7 +227,7 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
         {signal_addresses[0], signal_addresses[1], 0, 0, 0}, kBarrierScopes);
     const auto consume = aql::Dispatch(
         aql::HeaderBarrier::kDisabled, kConsumerGeometry,
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         consumer_descriptor, arguments[kProducerCount]->device_address,
         signal_addresses[kProducerCount], kDispatchScopes);
     const uint32_t first_producer = epoch;

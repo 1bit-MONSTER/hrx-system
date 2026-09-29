@@ -136,41 +136,26 @@ class AmdfBuildFileFunctions(
     def amdf_cts_gpu_kernel_set(
         self, name, src, targets, entry_point, namespace, visibility=None
     ):
-        policy = self._apply_amdf_cmake_policy({})
-        inputs = []
+        del visibility
         for target in targets:
-            product_name = name + "_" + target
-            self.loom_kernel_binary(
-                name=product_name,
-                testonly=True,
-                srcs=[src],
-                out=product_name + ".hsaco",
-                roots=["@" + entry_point],
-                target=":" + target,
-                **policy,
+            product = f"{name}_{target}"
+            path = f"${{CMAKE_CURRENT_BINARY_DIR}}/{product}.hsaco"
+            self._target_file_paths[self._current_target_label(product)] = path
+            self._target_file_paths[self._current_target_label(product + ".hsaco")] = (
+                path
             )
-            inputs.append(f"${{CMAKE_CURRENT_BINARY_DIR}}/{product_name}.hsaco")
+        policy = self._apply_amdf_cmake_policy({})
         self._emit_platform_guard_begin(policy["target_compatible_with"])
         self._converter.body += (
-            "amdf_cts_embed_gpu_kernel_set(\n"
-            + self._convert_string_arg_block("NAME", name + "_embed")
-            + self._convert_string_list_block("INPUTS", inputs)
-            + self._convert_string_list_block("SELECTORS", targets)
-            + self._convert_string_arg_block("HEADER", name + ".h")
-            + self._convert_string_arg_block("IMPLEMENTATION", name + ".cc")
+            "amdf_cts_gpu_kernel_set(\n"
+            + self._convert_string_arg_block("NAME", name)
+            + self._convert_string_arg_block("SOURCE", src)
+            + self._convert_string_list_block("TARGETS", targets)
             + self._convert_string_arg_block("ENTRY_POINT", entry_point)
             + self._convert_string_arg_block("NAMESPACE", namespace)
             + ")\n\n"
         )
         self._emit_platform_guard_end(policy["target_compatible_with"])
-        self.amdf_cc_library(
-            name=name,
-            testonly=True,
-            srcs=[name + ".cc"],
-            hdrs=[name + ".h"],
-            deps=["//libamdf/cts/gpu/kernels:kernel"],
-            visibility=visibility,
-        )
 
     def amdf_windows_sidecar_library(self, **kwargs):
         kwargs = dict(kwargs)

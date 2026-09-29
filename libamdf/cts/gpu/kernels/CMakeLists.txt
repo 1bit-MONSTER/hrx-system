@@ -245,49 +245,36 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
+amdf_cts_gpu_kernel_set(
   NAME
-    "byte_copy_unaligned_gfx942_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:byte_copy_unaligned_gfx942_hsaco"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "byte_copy_unaligned_gfx942.hsaco"
-  SRCS
+    "byte_copy_unaligned_kernels"
+  SOURCE
     "byte_copy_unaligned.loom"
-  ROOTS
-    "@byte_copy_unaligned"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "byte_copy_unaligned_gfx942_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/byte_copy_unaligned_gfx942.hsaco"
-  OUTPUT
-    "byte_copy_unaligned_gfx942.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
   ENTRY_POINT
     "byte_copy_unaligned"
   NAMESPACE
-    "kernels::gfx942_byte_copy_unaligned"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    byte_copy_unaligned_gfx942
-  HDRS
-    "byte_copy_unaligned_gfx942.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
+    "kernels::byte_copy_unaligned"
 )
 endif()
 
@@ -305,237 +292,104 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
+amdf_cts_gpu_kernel_set(
   NAME
-    "pattern_fill_unaligned_gfx942_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:pattern_fill_unaligned_gfx942_hsaco"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "pattern_fill_unaligned_gfx942.hsaco"
-  SRCS
+    "pattern_fill_unaligned_kernels"
+  SOURCE
     "pattern_fill_unaligned.loom"
-  ROOTS
-    "@pattern_fill_unaligned"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "pattern_fill_unaligned_gfx942_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/pattern_fill_unaligned_gfx942.hsaco"
-  OUTPUT
-    "pattern_fill_unaligned_gfx942.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
   ENTRY_POINT
     "pattern_fill_unaligned"
   NAMESPACE
-    "kernels::gfx942_pattern_fill_unaligned"
+    "kernels::pattern_fill_unaligned"
 )
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
+amdf_cts_gpu_kernel_set(
   NAME
-    pattern_fill_unaligned_gfx942
-  HDRS
-    "pattern_fill_unaligned_gfx942.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "transform_gfx942_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:transform_gfx942_hsaco"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "transform_gfx942.hsaco"
-  SRCS
+    "transform_kernels"
+  SOURCE
     "transform.loom"
-  ROOTS
-    "@aql_transform"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "transform_gfx942_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx942.hsaco"
-  OUTPUT
-    "transform_gfx942.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
   ENTRY_POINT
     "aql_transform"
   NAMESPACE
-    "kernels::gfx942_transform"
+    "kernels::transform"
 )
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
+amdf_cts_gpu_kernel_set(
   NAME
-    transform_gfx942
-  HDRS
-    "transform_gfx942.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "transform_alternate_gfx942_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:transform_alternate_gfx942_hsaco"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "transform_alternate_gfx942.hsaco"
-  SRCS
+    "transform_alternate_kernels"
+  SOURCE
     "transform_alternate.loom"
-  ROOTS
-    "@aql_transform"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "transform_alternate_gfx942_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_alternate_gfx942.hsaco"
-  OUTPUT
-    "transform_alternate_gfx942.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
   ENTRY_POINT
     "aql_transform"
   NAMESPACE
-    "kernels::gfx942_transform_alternate"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    transform_alternate_gfx942
-  HDRS
-    "transform_alternate_gfx942.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "transform_gfx1150_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:transform_gfx1150_hsaco"
-  TARGET
-    "::gfx1150"
-  OUTPUT
-    "transform_gfx1150.hsaco"
-  SRCS
-    "transform.loom"
-  ROOTS
-    "@aql_transform"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "transform_gfx1150_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1150.hsaco"
-  OUTPUT
-    "transform_gfx1150.h"
-  ENTRY_POINT
-    "aql_transform"
-  NAMESPACE
-    "kernels::gfx1150_transform"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    transform_gfx1150
-  HDRS
-    "transform_gfx1150.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "transform_gfx1151_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:transform_gfx1151_hsaco"
-  TARGET
-    "::gfx1151"
-  OUTPUT
-    "transform_gfx1151.hsaco"
-  SRCS
-    "transform.loom"
-  ROOTS
-    "@aql_transform"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "transform_gfx1151_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1151.hsaco"
-  OUTPUT
-    "transform_gfx1151.h"
-  ENTRY_POINT
-    "aql_transform"
-  NAMESPACE
-    "kernels::gfx1151_transform"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    transform_gfx1151
-  HDRS
-    "transform_gfx1151.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
+    "kernels::transform_alternate"
 )
 endif()
 
@@ -822,451 +676,12 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
+amdf_cts_gpu_kernel_set(
   NAME
-    "geometry_ids_gfx942_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:geometry_ids_gfx942_hsaco"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "geometry_ids_gfx942.hsaco"
-  SRCS
+    "geometry_ids_kernels"
+  SOURCE
     "geometry_ids.loom"
-  ROOTS
-    "@geometry_ids"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "geometry_ids_gfx942_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/geometry_ids_gfx942.hsaco"
-  OUTPUT
-    "geometry_ids_gfx942.h"
-  ENTRY_POINT
-    "geometry_ids"
-  NAMESPACE
-    "kernels::gfx942_geometry_ids"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    geometry_ids_gfx942
-  HDRS
-    "geometry_ids_gfx942.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    lds_exchange
-  HDRS
-    "lds_exchange.h"
-  DEPS
-    amdf::headers
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1100"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1100"
-  TARGET
-    "::gfx1100"
-  OUTPUT
-    "lds_exchange_kernels_gfx1100.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1101"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1101"
-  TARGET
-    "::gfx1101"
-  OUTPUT
-    "lds_exchange_kernels_gfx1101.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1102"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1102"
-  TARGET
-    "::gfx1102"
-  OUTPUT
-    "lds_exchange_kernels_gfx1102.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1103"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1103"
-  TARGET
-    "::gfx1103"
-  OUTPUT
-    "lds_exchange_kernels_gfx1103.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1150"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1150"
-  TARGET
-    "::gfx1150"
-  OUTPUT
-    "lds_exchange_kernels_gfx1150.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1151"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1151"
-  TARGET
-    "::gfx1151"
-  OUTPUT
-    "lds_exchange_kernels_gfx1151.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1152"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1152"
-  TARGET
-    "::gfx1152"
-  OUTPUT
-    "lds_exchange_kernels_gfx1152.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1153"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1153"
-  TARGET
-    "::gfx1153"
-  OUTPUT
-    "lds_exchange_kernels_gfx1153.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1170"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1170"
-  TARGET
-    "::gfx1170"
-  OUTPUT
-    "lds_exchange_kernels_gfx1170.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1171"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1171"
-  TARGET
-    "::gfx1171"
-  OUTPUT
-    "lds_exchange_kernels_gfx1171.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1172"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1172"
-  TARGET
-    "::gfx1172"
-  OUTPUT
-    "lds_exchange_kernels_gfx1172.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1200"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1200"
-  TARGET
-    "::gfx1200"
-  OUTPUT
-    "lds_exchange_kernels_gfx1200.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1201"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1201"
-  TARGET
-    "::gfx1201"
-  OUTPUT
-    "lds_exchange_kernels_gfx1201.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1250"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1250"
-  TARGET
-    "::gfx1250"
-  OUTPUT
-    "lds_exchange_kernels_gfx1250.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1250-a0"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1250-a0"
-  TARGET
-    "::gfx1250-a0"
-  OUTPUT
-    "lds_exchange_kernels_gfx1250-a0.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx1251"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx1251"
-  TARGET
-    "::gfx1251"
-  OUTPUT
-    "lds_exchange_kernels_gfx1251.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx940"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx940"
-  TARGET
-    "::gfx940"
-  OUTPUT
-    "lds_exchange_kernels_gfx940.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx941"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx941"
-  TARGET
-    "::gfx941"
-  OUTPUT
-    "lds_exchange_kernels_gfx941.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx942"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx942"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "lds_exchange_kernels_gfx942.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
-  NAME
-    "lds_exchange_kernels_gfx950"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:lds_exchange_kernels_gfx950"
-  TARGET
-    "::gfx950"
-  OUTPUT
-    "lds_exchange_kernels_gfx950.hsaco"
-  SRCS
-    "lds_exchange.loom"
-  ROOTS
-    "@lds_exchange"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel_set(
-  NAME
-    "lds_exchange_kernels_embed"
-  INPUTS
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1100.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1101.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1102.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1103.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1150.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1151.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1152.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1153.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1170.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1171.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1172.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1200.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1201.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1250.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1250-a0.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx1251.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx940.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx941.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx942.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/lds_exchange_kernels_gfx950.hsaco"
-  SELECTORS
+  TARGETS
     "gfx1100"
     "gfx1101"
     "gfx1102"
@@ -1287,30 +702,57 @@ amdf_cts_embed_gpu_kernel_set(
     "gfx941"
     "gfx942"
     "gfx950"
-  HEADER
-    "lds_exchange_kernels.h"
-  IMPLEMENTATION
-    "lds_exchange_kernels.cc"
   ENTRY_POINT
-    "lds_exchange"
+    "geometry_ids"
   NAMESPACE
-    "kernels::lds_exchange"
+    "kernels::geometry_ids"
 )
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
-    lds_exchange_kernels
+    lds_exchange
   HDRS
-    "lds_exchange_kernels.h"
-  SRCS
-    "lds_exchange_kernels.cc"
+    "lds_exchange.h"
   DEPS
     amdf::headers
-    libamdf::cts::gpu::kernels::kernel
   TESTONLY
   PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+amdf_cts_gpu_kernel_set(
+  NAME
+    "lds_exchange_kernels"
+  SOURCE
+    "lds_exchange.loom"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
+  ENTRY_POINT
+    "lds_exchange"
+  NAMESPACE
+    "kernels::lds_exchange"
 )
 endif()
 
@@ -1321,9 +763,20 @@ iree_cc_test(
   SRCS
     "kernel_test.cc"
   DEPS
+    ::byte_copy_unaligned
+    ::byte_copy_unaligned_kernels
+    ::geometry_ids
+    ::geometry_ids_kernels
     ::kernel
     ::lds_exchange
     ::lds_exchange_kernels
+    ::pattern_fill_unaligned
+    ::pattern_fill_unaligned_kernels
+    ::private_roundtrip
+    ::private_roundtrip_kernels
+    ::transform
+    ::transform_alternate_kernels
+    ::transform_kernels
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
@@ -1349,49 +802,36 @@ iree_cc_library(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-loom_kernel_binary(
+amdf_cts_gpu_kernel_set(
   NAME
-    "private_roundtrip_gfx942_hsaco"
-  COMPONENT
-    "//libamdf/cts/gpu/kernels:private_roundtrip_gfx942_hsaco"
-  TARGET
-    "::gfx942"
-  OUTPUT
-    "private_roundtrip_gfx942.hsaco"
-  SRCS
+    "private_roundtrip_kernels"
+  SOURCE
     "private_roundtrip.loom"
-  ROOTS
-    "@private_roundtrip"
-  TESTONLY
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-amdf_cts_embed_gpu_kernel(
-  NAME
-    "private_roundtrip_gfx942_embed"
-  INPUT
-    "${CMAKE_CURRENT_BINARY_DIR}/private_roundtrip_gfx942.hsaco"
-  OUTPUT
-    "private_roundtrip_gfx942.h"
+  TARGETS
+    "gfx1100"
+    "gfx1101"
+    "gfx1102"
+    "gfx1103"
+    "gfx1150"
+    "gfx1151"
+    "gfx1152"
+    "gfx1153"
+    "gfx1170"
+    "gfx1171"
+    "gfx1172"
+    "gfx1200"
+    "gfx1201"
+    "gfx1250"
+    "gfx1250-a0"
+    "gfx1251"
+    "gfx940"
+    "gfx941"
+    "gfx942"
+    "gfx950"
   ENTRY_POINT
     "private_roundtrip"
   NAMESPACE
-    "kernels::gfx942_private_roundtrip"
-)
-endif()
-
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
-iree_cc_library(
-  NAME
-    private_roundtrip_gfx942
-  HDRS
-    "private_roundtrip_gfx942.h"
-  DEPS
-    amdf::headers
-    libamdf::cts::gpu::kernels::image
-  TESTONLY
-  PUBLIC
+    "kernels::private_roundtrip"
 )
 endif()
 
@@ -1405,11 +845,47 @@ iree_py_test(
     "embed.py"
     "embed_test.py"
   ARGS
-    "--gfx942={{${CMAKE_CURRENT_BINARY_DIR}/transform_gfx942.hsaco}}"
-    "--gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1151.hsaco}}"
+    "--variant=gfx1100={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco}}"
+    "--variant=gfx1101={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco}}"
+    "--variant=gfx1102={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco}}"
+    "--variant=gfx1103={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco}}"
+    "--variant=gfx1150={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco}}"
+    "--variant=gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco}}"
+    "--variant=gfx1152={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco}}"
+    "--variant=gfx1153={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco}}"
+    "--variant=gfx1170={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco}}"
+    "--variant=gfx1171={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco}}"
+    "--variant=gfx1172={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco}}"
+    "--variant=gfx1200={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco}}"
+    "--variant=gfx1201={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco}}"
+    "--variant=gfx1250={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco}}"
+    "--variant=gfx1250-a0={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco}}"
+    "--variant=gfx1251={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco}}"
+    "--variant=gfx940={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco}}"
+    "--variant=gfx941={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco}}"
+    "--variant=gfx942={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco}}"
+    "--variant=gfx950={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco}}"
   DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx1151.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_gfx942.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco"
+    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco"
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
@@ -1419,6 +895,19 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}"
   TIMEOUT
     60
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    geometry_ids
+  HDRS
+    "geometry_ids.h"
+  DEPS
+    amdf::headers
+  TESTONLY
+  PUBLIC
 )
 endif()
 

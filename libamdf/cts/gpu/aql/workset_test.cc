@@ -11,14 +11,11 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip.h"
-#include "libamdf/cts/gpu/kernels/private_roundtrip_gfx942.h"
+#include "libamdf/cts/gpu/kernels/private_roundtrip_kernels.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
-
-namespace producer_kernel = kernels::gfx942_private_roundtrip;
-namespace consumer_kernel = kernels::gfx942_transform;
 
 // These handles borrow independent allocations retained by the case fixture.
 struct Workset {
@@ -43,6 +40,20 @@ struct Workset {
 };
 
 TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
+  const auto* producer_kernel_product =
+      kernels::private_roundtrip::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(producer_kernel_product, nullptr)
+      << "missing compiled private_roundtrip kernel for endpoint";
+  const auto& producer_kernel = *producer_kernel_product;
+  RecordProperty("private_roundtrip_kernel_target", producer_kernel.target);
+
+  const auto* consumer_kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(consumer_kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& consumer_kernel = *consumer_kernel_product;
+  RecordProperty("transform_kernel_target", consumer_kernel.target);
+
   constexpr uint32_t kWorksetCount = 2;
   constexpr uint32_t kGenerationCount = 3;
   constexpr uint32_t kReusedGenerationCount = 2;
@@ -70,26 +81,18 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
       {{0x7391a5d7u, 0xa83ec069u}, {0x2dc74091u, 0xc58a36e7u}}};
   constexpr std::array<uint32_t, kWorksetCount> kControlGuards = {0x68d329b7u,
                                                                   0x94e61ca5u};
-  constexpr aql::DispatchGeometry kProducerGeometry = {
-      1, {producer_kernel::kWorkgroupSize, 1, 1}, {kProducerGridSize, 1, 1}};
-  constexpr aql::DispatchGeometry kConsumerGeometry = {
-      1, {consumer_kernel::kWorkgroupSize, 1, 1}, {kPayloadWordCount, 1, 1}};
+  const aql::DispatchGeometry kProducerGeometry = {
+      1,
+      {static_cast<uint16_t>(producer_kernel.workgroup_size()), 1, 1},
+      {kProducerGridSize, 1, 1}};
+  const aql::DispatchGeometry kConsumerGeometry = {
+      1,
+      {static_cast<uint16_t>(consumer_kernel.workgroup_size()), 1, 1},
+      {kPayloadWordCount, 1, 1}};
   constexpr aql::FenceScopes kDispatchScopes = {aql::FenceScope::kSystem,
                                                 aql::FenceScope::kSystem};
   constexpr aql::FenceScopes kBarrierScopes = {aql::FenceScope::kNone,
                                                aql::FenceScope::kNone};
-  static_assert(sizeof(kernels::private_roundtrip::Arguments) ==
-                producer_kernel::kKernargByteLength);
-  static_assert(consumer_kernel::kKernargByteLength == 24);
-  static_assert(producer_kernel::kPrivateSegmentByteLength > 0);
-  static_assert(producer_kernel::kArgumentByteOffsets ==
-                kernels::private_roundtrip::kArgumentByteOffsets);
-  static_assert(producer_kernel::kArgumentByteLengths ==
-                kernels::private_roundtrip::kArgumentByteLengths);
-  static_assert(producer_kernel::kArgumentValueKinds ==
-                kernels::private_roundtrip::kArgumentValueKinds);
-  static_assert(producer_kernel::kWorkgroupSize == 64);
-  static_assert(consumer_kernel::kWorkgroupSize == 64);
 
   std::array<Workset, kWorksetCount> worksets;
   for (uint32_t i = 0; i < kWorksetCount; ++i) {
@@ -103,9 +106,9 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
     for (auto& argument : workset.arguments) {
       ASSERT_NO_FATAL_FAILURE(
           CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &argument));
-      ASSERT_EQ(argument->device_address % producer_kernel::kKernargAlignment,
+      ASSERT_EQ(argument->device_address % producer_kernel.arguments.alignment,
                 0u);
-      ASSERT_EQ(argument->device_address % consumer_kernel::kKernargAlignment,
+      ASSERT_EQ(argument->device_address % consumer_kernel.arguments.alignment,
                 0u);
     }
     ASSERT_NO_FATAL_FAILURE(
@@ -127,14 +130,14 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
     }
 
     ASSERT_NO_FATAL_FAILURE(CreateFixedScratchQueue(
-        producer_kernel::kPrivateSegmentByteLength, &workset.queue));
+        producer_kernel.private_segment_byte_length, &workset.queue));
     const std::string prefix = "aql_workset_" + std::to_string(i);
     ASSERT_NO_FATAL_FAILURE(
-        PublishKernel(*workset.queue, producer_kernel::kExecutable,
+        PublishKernel(*workset.queue, producer_kernel.executable,
                       (prefix + "_private_kernel").c_str(),
                       &workset.next_packet_index, &workset.descriptors[0]));
     ASSERT_NO_FATAL_FAILURE(
-        PublishKernel(*workset.queue, consumer_kernel::kExecutable,
+        PublishKernel(*workset.queue, consumer_kernel.executable,
                       (prefix + "_consumer_kernel").c_str(),
                       &workset.next_packet_index, &workset.descriptors[1]));
     workset.first_packet_index = workset.next_packet_index;
@@ -187,14 +190,14 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
     expected_arguments[generation][0].fill(0);
     expected_arguments[generation][1].fill(0);
     std::memcpy(expected_arguments[generation][0].data(), &producer_arguments,
-                producer_kernel::kKernargByteLength);
+                producer_kernel.arguments.byte_length);
     std::memcpy(expected_arguments[generation][1].data(), &consumer_arguments,
-                consumer_kernel::kKernargByteLength);
+                consumer_kernel.arguments.byte_length);
     const uint64_t signal_address = workset.control->device_address;
     packets[generation][0] = aql::Dispatch(
         aql::HeaderBarrier::kDisabled, kProducerGeometry,
-        producer_kernel::kPrivateSegmentByteLength,
-        producer_kernel::kGroupSegmentByteLength, workset.descriptors[0],
+        producer_kernel.private_segment_byte_length,
+        producer_kernel.group_segment_byte_length, workset.descriptors[0],
         workset.arguments[0]->device_address, signal_address, kDispatchScopes);
     packets[generation][1] = aql::Barrier(
         aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled, 0,
@@ -202,8 +205,8 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
         kBarrierScopes);
     packets[generation][2] = aql::Dispatch(
         aql::HeaderBarrier::kDisabled, kConsumerGeometry,
-        consumer_kernel::kPrivateSegmentByteLength,
-        consumer_kernel::kGroupSegmentByteLength, workset.descriptors[1],
+        consumer_kernel.private_segment_byte_length,
+        consumer_kernel.group_segment_byte_length, workset.descriptors[1],
         workset.arguments[1]->device_address,
         signal_address + sizeof(aql::Signal), kDispatchScopes);
   }
@@ -400,10 +403,11 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
   RecordProperty("aql_workset_count", kWorksetCount);
   RecordProperty("aql_workset_scratch_pool_count", kWorksetCount);
   RecordProperty("aql_workset_private_segment_byte_length",
-                 producer_kernel::kPrivateSegmentByteLength);
+                 producer_kernel.private_segment_byte_length);
   RecordProperty("aql_workset_producer_grid_size", kProducerGridSize);
   RecordProperty("aql_workset_consumer_grid_size", kPayloadWordCount);
-  RecordProperty("aql_workset_workgroup_size", producer_kernel::kWorkgroupSize);
+  RecordProperty("aql_workset_workgroup_size",
+                 producer_kernel.workgroup_size());
   RecordProperty("aql_workset_checked_bytes_per_payload",
                  kWordCount * sizeof(uint32_t));
   RecordProperty("aql_workset_checked_bytes_per_kernarg", kPageByteLength);

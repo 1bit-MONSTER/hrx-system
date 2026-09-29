@@ -51,17 +51,18 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::kernels::byte_copy_unaligned
-    libamdf::cts::gpu::kernels::byte_copy_unaligned_gfx942
-    libamdf::cts::gpu::kernels::geometry_ids_gfx942
+    libamdf::cts::gpu::kernels::byte_copy_unaligned_kernels
+    libamdf::cts::gpu::kernels::geometry_ids
+    libamdf::cts::gpu::kernels::geometry_ids_kernels
     libamdf::cts::gpu::kernels::lds_exchange
     libamdf::cts::gpu::kernels::lds_exchange_kernels
     libamdf::cts::gpu::kernels::pattern_fill_unaligned
-    libamdf::cts::gpu::kernels::pattern_fill_unaligned_gfx942
+    libamdf::cts::gpu::kernels::pattern_fill_unaligned_kernels
     libamdf::cts::gpu::kernels::private_roundtrip
-    libamdf::cts::gpu::kernels::private_roundtrip_gfx942
+    libamdf::cts::gpu::kernels::private_roundtrip_kernels
     libamdf::cts::gpu::kernels::transform
-    libamdf::cts::gpu::kernels::transform_alternate_gfx942
-    libamdf::cts::gpu::kernels::transform_gfx942
+    libamdf::cts::gpu::kernels::transform_alternate_kernels
+    libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::memory_commands
   TESTONLY
   ALWAYSLINK

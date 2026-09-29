@@ -10,44 +10,20 @@
 #include <string>
 
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 namespace {
 
-namespace kernel = kernels::gfx1151_transform;
-
-static_assert(kernel::kArgumentByteOffsets ==
-              kernels::transform::kArgumentByteOffsets);
-static_assert(kernel::kArgumentByteLengths ==
-              kernels::transform::kArgumentByteLengths);
-static_assert(kernel::kArgumentValueKinds ==
-              kernels::transform::kArgumentValueKinds);
-static_assert(kernel::kKernargByteLength == 24);
-static_assert(alignof(kernels::transform::Arguments) %
-                  kernel::kKernargAlignment ==
-              0);
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{64, 1, 1});
-static_assert(kernel::kWavefrontSize == 32 &&
-              kernel::kPrivateSegmentByteLength == 0 &&
-              kernel::kGroupSegmentByteLength == 0);
-// BindCompute supplies only the kernarg pointer, group X and local X inputs.
-static_assert(kernel::kKernelCodeProperties == 0x408 &&
-              kernel::kKernargPreload == 0);
-static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
-
-constexpr Pm4ComputeProgram kTransformProgram = {
-    0,
-    kernel::kComputePgmRsrc1,
-    kernel::kComputePgmRsrc2,
-    kernel::kComputePgmRsrc3,
-    kernel::kGroupSegmentByteLength,
-    {kernel::kWorkgroupSize, 1, 1},
-};
-
 TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -67,11 +43,18 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
       CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
-  Pm4ComputeProgram program = kTransformProgram;
+  Pm4ComputeProgram program = {
+      0,
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
+  };
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
+      kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -108,7 +91,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
         kAddends[epoch],
     };
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
-    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    std::memcpy(arguments->host.pointer, &payload,
+                kernel.arguments.byte_length);
 
     commands.SystemBarrier();
     commands.BindCompute(program, arguments->device_address);
@@ -140,6 +124,13 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
 }
 
 TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -153,8 +144,6 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kProducerAddends = {7, 0x80000023u};
   constexpr std::array<uint32_t, 2> kConsumerAddends = {11, 0x10203045u};
-  static_assert(kernel::kKernargByteLength <= kArgumentStride);
-  static_assert(kArgumentStride % kernel::kKernargAlignment == 0);
 
   GpuMemory* input = nullptr;
   GpuMemory* intermediate = nullptr;
@@ -174,15 +163,22 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kControlWordCount * sizeof(uint32_t), &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   std::array<uint32_t, kControlWordCount> control_words;
   control_words.fill(kControlGuard);
   control_words[0] = 0;
   std::memcpy(completion->host.pointer, control_words.data(),
               sizeof(control_words));
-  Pm4ComputeProgram program = kTransformProgram;
+  Pm4ComputeProgram program = {
+      0,
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
+  };
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
+      kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -244,10 +240,10 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
     // completion and consumption. The compiler consumes only 24 bytes each.
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
     std::memcpy(arguments->host.pointer, &producer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(
         static_cast<uint8_t*>(arguments->host.pointer) + kArgumentStride,
-        &consumer_payload, kernel::kKernargByteLength);
+        &consumer_payload, kernel.arguments.byte_length);
 
     commands.SystemBarrier();
     commands.BindCompute(program, arguments->device_address);
@@ -300,6 +296,13 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
 }
 
 TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -328,7 +331,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kControlWordCount * sizeof(uint32_t), &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
   std::array<uint32_t, kControlWordCount> control_words;
   control_words.fill(kControlGuard);
@@ -339,9 +342,16 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
               sizeof(control_words));
   auto* completion_word =
       static_cast<uint32_t*>(completion->host.pointer) + kCompletionWordIndex;
-  Pm4ComputeProgram program = kTransformProgram;
+  Pm4ComputeProgram program = {
+      0,
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
+  };
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
+      kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -385,7 +395,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
         kAddends[epoch],
     };
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
-    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    std::memcpy(arguments->host.pointer, &payload,
+                kernel.arguments.byte_length);
 
     commands.SystemBarrier();
     commands.BindCompute(program, arguments->device_address);
@@ -429,6 +440,13 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
 }
 
 TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -459,7 +477,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kControlWordCount * sizeof(uint32_t), &control));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(control->device_address % sizeof(uint64_t), 0u);
   std::array<uint32_t, kControlWordCount> control_words;
   control_words.fill(kControlGuard);
@@ -473,9 +491,16 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
   auto* control_bytes = static_cast<uint8_t*>(control->host.pointer);
   const uintptr_t marker_host_address =
       reinterpret_cast<uintptr_t>(control_bytes + kMarkerByteOffset);
-  Pm4ComputeProgram program = kTransformProgram;
+  Pm4ComputeProgram program = {
+      0,
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
+  };
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4"));
+      kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
@@ -519,7 +544,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
         kAddends[epoch],
     };
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
-    std::memcpy(arguments->host.pointer, &payload, kernel::kKernargByteLength);
+    std::memcpy(arguments->host.pointer, &payload,
+                kernel.arguments.byte_length);
     // Re-poison only the two retired timestamp slots. Fence/event/marker words
     // retain their GPU-written values; no prior value satisfies a later wait.
     for (size_t i = 0; i < kTimestampByteOffsets.size(); ++i) {

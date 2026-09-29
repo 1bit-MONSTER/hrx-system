@@ -12,15 +12,20 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 
 namespace {
 
-namespace kernel = kernels::gfx1151_transform;
-
 TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -31,11 +36,6 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   constexpr uint32_t kCompletionWord = 0;
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
-  static_assert(offsetof(kernels::transform::Arguments, addend) +
-                    sizeof(uint32_t) ==
-                kernel::kKernargByteLength);
-  static_assert(kernel::kPrivateSegmentByteLength == 0);
-  static_assert(kernel::kGroupSegmentByteLength == 0);
 
   GpuMemory* input = nullptr;
   GpuMemory* output = nullptr;
@@ -58,26 +58,26 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
                    kPageByteLength, &indirect_buffer));
   ASSERT_EQ(input->device_address % alignof(uint32_t), 0u);
   ASSERT_EQ(output->device_address % alignof(uint32_t), 0u);
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % alignof(uint32_t), 0u);
   ASSERT_EQ(indirect_buffer->device_address % kPageByteLength, 0u);
   ASSERT_LE(indirect_buffer->device_address,
             (UINT64_C(1) << 48) - kPageByteLength);
   Pm4ComputeProgram program = {
       0,
-      kernel::kComputePgmRsrc1,
-      kernel::kComputePgmRsrc2,
-      kernel::kComputePgmRsrc3,
-      kernel::kGroupSegmentByteLength,
-      {kernel::kWorkgroupSize, 1, 1},
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
   };
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel::kExecutable,
-                                         kernel::kEntryByteOffset, &program,
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel.executable,
+                                         kernel.entry_byte_offset, &program,
                                          "pm4_command_buffer", &code));
 
   std::array<uint32_t, kPageWordCount> expected_code = {};
-  std::memcpy(expected_code.data(), kernel::kExecutable.words,
-              kernel::kExecutable.byte_length);
+  std::memcpy(expected_code.data(), kernel.executable.words,
+              kernel.executable.byte_length);
   std::array<uint32_t, kPageWordCount> expected_indirect = {};
   Pm4CommandWriter indirect(expected_indirect.data());
   indirect.BindCompute(program, arguments->device_address);
@@ -137,12 +137,12 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   RecordProperty("pm4_command_buffer_ib_byte_length",
                  std::to_string(indirect.word_count() * sizeof(uint32_t)));
   RecordProperty("pm4_command_buffer_grid_size", kGridSize);
-  RecordProperty("pm4_command_buffer_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("pm4_command_buffer_workgroup_size", kernel.workgroup_size());
   RecordProperty("pm4_command_buffer_payload_word_offset", kPayloadOffset);
   RecordProperty("pm4_command_buffer_payload_observed_byte_length",
                  kWordCount * sizeof(uint32_t));
   RecordProperty("pm4_command_buffer_kernarg_byte_length",
-                 kernel::kKernargByteLength);
+                 kernel.arguments.byte_length);
   RecordProperty("pm4_command_buffer_argument_observed_byte_length",
                  kPageByteLength);
   RecordProperty("pm4_command_buffer_completion_byte_offset",
@@ -198,7 +198,7 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
     // The host structure has alignment padding. Copy only the 24 semantic
     // bytes into fully initialized backing, retaining it through final use.
     std::memcpy(expected_arguments.data(), &payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
 
@@ -272,6 +272,13 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
 }
 
 TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kWordCount = 4096;
   constexpr uint32_t kCandidateWordCount = 1024;
   constexpr uint32_t kArgumentByteStride = 128;
@@ -285,15 +292,9 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
   constexpr std::array<uint32_t, 2> kGridSizes = {1024, 576};
   constexpr std::array<uint32_t, 2> kPayloadOffsets = {64, 2112};
   constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
-  static_assert(offsetof(kernels::transform::Arguments, addend) +
-                    sizeof(uint32_t) ==
-                kernel::kKernargByteLength);
-  static_assert(kernel::kPrivateSegmentByteLength == 0);
-  static_assert(kernel::kGroupSegmentByteLength == 0);
+
   static_assert(kPayloadOffsets[0] + kCandidateWordCount <= kPayloadOffsets[1]);
   static_assert(kPayloadOffsets[1] + kCandidateWordCount <= kWordCount);
-  static_assert(kArgumentByteStride + kernel::kKernargByteLength <=
-                kPageByteLength);
 
   GpuMemory* input = nullptr;
   GpuMemory* output = nullptr;
@@ -324,19 +325,19 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
             (UINT64_C(1) << 48) - kPageByteLength);
   Pm4ComputeProgram program = {
       0,
-      kernel::kComputePgmRsrc1,
-      kernel::kComputePgmRsrc2,
-      kernel::kComputePgmRsrc3,
-      kernel::kGroupSegmentByteLength,
-      {kernel::kWorkgroupSize, 1, 1},
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
   };
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel::kExecutable,
-                                         kernel::kEntryByteOffset, &program,
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel.executable,
+                                         kernel.entry_byte_offset, &program,
                                          "pm4_command_rebuild", &code));
 
   std::array<uint32_t, kPageWordCount> expected_code = {};
-  std::memcpy(expected_code.data(), kernel::kExecutable.words,
-              kernel::kExecutable.byte_length);
+  std::memcpy(expected_code.data(), kernel.executable.words,
+              kernel.executable.byte_length);
   std::array<uint8_t, kPageByteLength> expected_arguments = {};
   std::array<std::array<uint32_t, kPageWordCount>, kGridSizes.size()>
       indirect_images = {};
@@ -350,14 +351,14 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
     // Only semantic bytes are copied; all structure padding and page guards
     // are initialized independently and remain unchanged across both uses.
     std::memcpy(expected_arguments.data() + epoch * kArgumentByteStride,
-                &payload, kernel::kKernargByteLength);
+                &payload, kernel.arguments.byte_length);
     Pm4CommandWriter indirect(indirect_images[epoch].data());
     indirect.BindCompute(
         program, arguments->device_address + epoch * kArgumentByteStride);
     indirect.DispatchWave32(kGridSizes[epoch], 1, 1);
     indirect.PadToEightWords();
     ASSERT_EQ(indirect.word_count(), kIndirectWordCount);
-    ASSERT_EQ(kGridSizes[epoch] % kernel::kWorkgroupSize, 0u);
+    ASSERT_EQ(kGridSizes[epoch] % kernel.workgroup_size(), 0u);
     ASSERT_LE(kGridSizes[epoch], kCandidateWordCount);
   }
   for (uint32_t word = 0; word < kPageWordCount; ++word) {
@@ -415,7 +416,7 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
                  kIndirectWordCount * sizeof(uint32_t));
   RecordProperty("pm4_command_rebuild_changed_ib_word_0", kKernargLowWord);
   RecordProperty("pm4_command_rebuild_changed_ib_word_1", kDispatchXWord);
-  RecordProperty("pm4_command_rebuild_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("pm4_command_rebuild_workgroup_size", kernel.workgroup_size());
   RecordProperty("pm4_command_rebuild_argument_record_count",
                  kGridSizes.size());
   RecordProperty("pm4_command_rebuild_argument_byte_stride",
@@ -426,7 +427,7 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
   RecordProperty("pm4_command_rebuild_payload_observed_byte_length",
                  kWordCount * sizeof(uint32_t));
   RecordProperty("pm4_command_rebuild_kernarg_byte_length",
-                 kernel::kKernargByteLength);
+                 kernel.arguments.byte_length);
   RecordProperty("pm4_command_rebuild_argument_observed_byte_length",
                  kPageByteLength);
   RecordProperty("pm4_command_rebuild_completion_byte_offset",

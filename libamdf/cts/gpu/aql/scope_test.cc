@@ -11,13 +11,18 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_transform;
-
 TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kWordCount = 2048;
   constexpr uint32_t kPayloadOffset = 16;
@@ -27,16 +32,16 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kProducerAddends = {7, 0x80000023u};
   constexpr std::array<uint32_t, 2> kConsumerAddends = {0x101u, 0x2468ace1u};
-  constexpr aql::DispatchGeometry kGeometry = {
-      1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}};
+  const aql::DispatchGeometry kGeometry = {
+      1,
+      {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+      {kGridSize, 1, 1}};
   constexpr aql::FenceScopes kProducerScopes = {aql::FenceScope::kSystem,
                                                 aql::FenceScope::kAgent};
   constexpr aql::FenceScopes kConsumerScopes = {aql::FenceScope::kAgent,
                                                 aql::FenceScope::kSystem};
   constexpr aql::FenceScopes kCompletionScopes = {aql::FenceScope::kNone,
                                                   aql::FenceScope::kSystem};
-  static_assert(kernel::kKernargByteLength <= kArgumentStride);
-  static_assert(kArgumentStride % kernel::kKernargAlignment == 0);
 
   GpuMemory* input = nullptr;
   GpuMemory* intermediate = nullptr;
@@ -59,7 +64,7 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
   ASSERT_EQ(input->device_address % alignof(uint32_t), 0u);
   ASSERT_EQ(intermediate->device_address % alignof(uint32_t), 0u);
   ASSERT_EQ(output->device_address % alignof(uint32_t), 0u);
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % alignof(aql::Signal), 0u);
   // Initialize the complete native block once. Reserved fields remain
   // native-owned; subsequent guard writes start outside the 64-byte ABI.
@@ -71,7 +76,7 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable,
                                         "aql_agent_scope_kernel", &index,
                                         &descriptor_address));
   const uint64_t first_work_packet_index = index;
@@ -82,11 +87,11 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
   // through SYSTEM; only the shader-to-shader dependency uses AGENT scopes.
   const auto produce = aql::Dispatch(
       aql::HeaderBarrier::kEnabled, kGeometry,
-      kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+      kernel.private_segment_byte_length, kernel.group_segment_byte_length,
       descriptor_address, arguments->device_address, 0, kProducerScopes);
   const auto consume = aql::Dispatch(
       aql::HeaderBarrier::kEnabled, kGeometry,
-      kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+      kernel.private_segment_byte_length, kernel.group_segment_byte_length,
       descriptor_address, arguments->device_address + kArgumentStride, 0,
       kConsumerScopes);
   const auto complete =
@@ -94,7 +99,7 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
                    completion->device_address, {}, kCompletionScopes);
 
   RecordProperty("aql_agent_scope_kernel_entry_byte_offset",
-                 kernel::kEntryByteOffset);
+                 kernel.entry_byte_offset);
   RecordProperty("aql_agent_scope_producer_acquire_scope",
                  static_cast<uint32_t>(kProducerScopes.acquire));
   RecordProperty("aql_agent_scope_producer_release_scope",
@@ -111,12 +116,12 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
   RecordProperty("aql_agent_scope_consumer_header_setup", consume[0]);
   RecordProperty("aql_agent_scope_completion_header_setup", complete[0]);
   RecordProperty("aql_agent_scope_grid_size", kGridSize);
-  RecordProperty("aql_agent_scope_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("aql_agent_scope_workgroup_size", kernel.workgroup_size());
   RecordProperty("aql_agent_scope_payload_word_offset", kPayloadOffset);
   RecordProperty("aql_agent_scope_payload_observed_byte_length",
                  kWordCount * sizeof(uint32_t));
   RecordProperty("aql_agent_scope_kernarg_byte_length",
-                 kernel::kKernargByteLength);
+                 kernel.arguments.byte_length);
   RecordProperty("aql_agent_scope_argument_byte_stride", kArgumentStride);
   RecordProperty("aql_agent_scope_argument_observed_byte_length",
                  kPageByteLength);
@@ -192,9 +197,9 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
     // Copy only the semantic bytes, preserving initialized padding in both
     // disjoint slots and the full page through terminal completion.
     std::memcpy(expected_arguments.data(), &producer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(expected_arguments.data() + kArgumentStride, &consumer_payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     std::memset(

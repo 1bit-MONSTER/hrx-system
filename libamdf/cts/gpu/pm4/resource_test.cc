@@ -14,27 +14,21 @@
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 namespace {
 
-namespace transform = kernels::gfx1151_transform;
-
-static_assert(alignof(kernels::transform::Arguments) %
-                  transform::kKernargAlignment ==
-              0);
-static_assert(offsetof(kernels::transform::Arguments, addend) +
-                  sizeof(uint32_t) ==
-              transform::kKernargByteLength);
-
-static_assert(transform::kWorkgroupSize == 64);
-static_assert(transform::kGroupSegmentByteLength == 0);
-static_assert(transform::kPrivateSegmentByteLength == 0);
-static_assert(sizeof(kernels::transform::Arguments) == 32);
 static_assert(sizeof(kernels::lds_exchange::Arguments) <= 32);
 
 TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
+  const auto* transform_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(transform_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& transform = *transform_product;
+  RecordProperty("transform_kernel_target", transform.target);
+
   constexpr uint32_t kTransformGridSize = 1024;
   constexpr uint32_t kLdsGridSize = 512;
   constexpr uint32_t kWordCount = 2048;
@@ -89,15 +83,15 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
-  ASSERT_EQ(arguments->device_address % transform::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % transform.arguments.alignment, 0u);
   ASSERT_EQ(arguments->device_address % lds.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
   Pm4ComputeProgram transform_program = {0,
-                                         transform::kComputePgmRsrc1,
-                                         transform::kComputePgmRsrc2,
-                                         transform::kComputePgmRsrc3,
-                                         transform::kGroupSegmentByteLength,
-                                         {transform::kWorkgroupSize, 1, 1}};
+                                         transform.program.resource1,
+                                         transform.program.resource2,
+                                         transform.program.resource3,
+                                         transform.group_segment_byte_length,
+                                         {transform.workgroup_size(), 1, 1}};
   Pm4ComputeProgram lds_program = {0,
                                    lds.program.resource1,
                                    lds.program.resource2,
@@ -105,7 +99,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
                                    lds.group_segment_byte_length,
                                    {lds.workgroup_size(), 1, 1}};
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      transform::kExecutable, transform::kEntryByteOffset, &transform_program,
+      transform.executable, transform.entry_byte_offset, &transform_program,
       "pm4_mixed_transform", &transform_code));
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(lds.executable, lds.entry_byte_offset,
                                          &lds_program, "pm4_mixed_lds",
@@ -123,8 +117,8 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   std::vector<uint8_t> observed_transform_code(
       transform_code->info.byte_length);
   std::vector<uint8_t> observed_lds_code(lds_code->info.byte_length);
-  std::memcpy(expected_transform_code.data(), transform::kExecutable.words,
-              transform::kExecutable.byte_length);
+  std::memcpy(expected_transform_code.data(), transform.executable.words,
+              transform.executable.byte_length);
   std::memcpy(expected_lds_code.data(), lds.executable.words,
               lds.executable.byte_length);
   expected_control.fill(0x68d329b7u);
@@ -146,14 +140,14 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   RecordProperty("pm4_mixed_program_sequence", "transform,lds,transform");
   RecordProperty(
       "pm4_mixed_bound_rsrc2_sequence",
-      std::to_string(transform::kComputePgmRsrc2) + "," +
+      std::to_string(transform.program.resource2) + "," +
           std::to_string(lds.program.resource2 |
                          ((lds.group_segment_byte_length / 512u) << 15)) +
-          "," + std::to_string(transform::kComputePgmRsrc2));
+          "," + std::to_string(transform.program.resource2));
   RecordProperty("pm4_mixed_bound_rsrc3_sequence",
-                 std::to_string(transform::kComputePgmRsrc3) + "," +
+                 std::to_string(transform.program.resource3) + "," +
                      std::to_string(lds.program.resource3) + "," +
-                     std::to_string(transform::kComputePgmRsrc3));
+                     std::to_string(transform.program.resource3));
   RecordProperty("pm4_mixed_resource_limits_sequence", "0,0x00400000,0");
   RecordProperty("pm4_mixed_workgroup_sequence", "64x1x1,128x1x1,64x1x1");
   RecordProperty("pm4_mixed_grid_sequence", "1024x1x1,512x1x1,1024x1x1");
@@ -161,9 +155,9 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   RecordProperty("pm4_mixed_argument_offsets", "0,64,128");
   RecordProperty(
       "pm4_mixed_kernarg_semantic_byte_lengths",
-      std::to_string(transform::kKernargByteLength) + "," +
+      std::to_string(transform.arguments.byte_length) + "," +
           std::to_string(kernels::lds_exchange::kArgumentByteLength) + "," +
-          std::to_string(transform::kKernargByteLength));
+          std::to_string(transform.arguments.byte_length));
   RecordProperty("pm4_mixed_kernarg_slot_byte_length", 32);
   RecordProperty(
       "pm4_mixed_lds_capacity_per_compute_unit",
@@ -252,11 +246,11 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     // copied. The three records remain immutable through final retirement.
     expected_arguments.fill(0);
     std::memcpy(expected_arguments.data(), &first_arguments,
-                transform::kKernargByteLength);
+                transform.arguments.byte_length);
     std::memcpy(expected_arguments.data() + kArgumentStride, &lds_arguments,
                 kernels::lds_exchange::kArgumentByteLength);
     std::memcpy(expected_arguments.data() + kArgumentStride * 2,
-                &last_arguments, transform::kKernargByteLength);
+                &last_arguments, transform.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     expected_control[kCompletionWordIndex] = epoch + 1;

@@ -12,12 +12,10 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
-#include "libamdf/cts/gpu/kernels/transform_gfx942.h"
+#include "libamdf/cts/gpu/kernels/transform_kernels.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 
 namespace {
-
-namespace kernel = kernels::gfx942_transform;
 
 enum class PairQuery { kConcrete, kProfile };
 
@@ -330,6 +328,13 @@ constexpr uint32_t kControlGuardByteOffset =
     offsetof(CompletionState, download) + sizeof(uint32_t);
 
 void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
     GTEST_SKIP() << "queried dataflow requires the discrete coherent SYSTEM "
                     "memory policy";
@@ -437,7 +442,7 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &arguments));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, kPageByteLength, &control));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(control->device_address % alignof(CompletionState), 0u);
   std::memset(control->host.pointer, 0, control->info.byte_length);
   auto& completion = *static_cast<CompletionState*>(control->host.pointer);
@@ -479,7 +484,7 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   uint64_t aql_index = 0;
   uint64_t sdma_index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel.executable,
                                         "aql_kernel", &aql_index,
                                         &descriptor_address));
 
@@ -551,7 +556,7 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
     // the queried dispatch acquire provide their coherent native contract.
     expected_arguments.fill(0);
     std::memcpy(expected_arguments.data(), &payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 expected_arguments.size());
     // Previous final download and both consumed frontiers precede rearming.
@@ -565,8 +570,10 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
                      {aql::FenceScope::kNone, aql::FenceScope::kNone});
     const auto dispatch = aql::Dispatch(
         aql::HeaderBarrier::kDisabled,
-        {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        {1,
+         {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+         {kGridSize, 1, 1}},
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         descriptor_address, arguments->device_address, compute_signal_address,
         buffers.dispatch_scopes);
     std::array<uint32_t, kChainWordCount> stream = {};
@@ -671,6 +678,13 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
 }
 
 void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
+  const auto* kernel_product =
+      kernels::transform::kKernels.Find(gpu_endpoint_info_);
+  ASSERT_NE(kernel_product, nullptr)
+      << "missing compiled transform kernel for endpoint";
+  const auto& kernel = *kernel_product;
+  RecordProperty("transform_kernel_target", kernel.target);
+
   if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
     GTEST_SKIP() << "staged dataflow requires owned LOCAL memory";
   }
@@ -856,7 +870,7 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ, kPageByteLength, &arguments));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, kPageByteLength, &control));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(control->device_address % alignof(CompletionState), 0u);
   std::memset(control->host.pointer, 0, control->info.byte_length);
   auto& completion = *static_cast<CompletionState*>(control->host.pointer);
@@ -898,7 +912,7 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   uint64_t aql_index = 0;
   uint64_t sdma_index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*aql_queue, kernel.executable,
                                         "aql_kernel", &aql_index,
                                         &descriptor_address));
 
@@ -964,7 +978,7 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
     };
     expected_arguments.fill(0);
     std::memcpy(expected_arguments.data(), &payload,
-                kernel::kKernargByteLength);
+                kernel.arguments.byte_length);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 expected_arguments.size());
     // Rearming follows the previous epoch's download and both consumed
@@ -976,8 +990,10 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
                      {aql::FenceScope::kNone, aql::FenceScope::kNone});
     const auto dispatch = aql::Dispatch(
         aql::HeaderBarrier::kDisabled,
-        {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-        kernel::kPrivateSegmentByteLength, kernel::kGroupSegmentByteLength,
+        {1,
+         {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+         {kGridSize, 1, 1}},
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         descriptor_address, arguments->device_address, compute_signal_address,
         buffers.dispatch_scopes);
     std::array<uint32_t, kChainWordCount> stream = {};
