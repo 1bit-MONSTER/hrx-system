@@ -682,6 +682,45 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    kernel_barrier_lifetime
+  HDRS
+    "kernel_barrier_lifetime.h"
+  SRCS
+    "kernel_barrier_lifetime.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::error::emitter
+    loom::error::error_defs
+    loom::ir
+    loom::ops::kernel
+    loom::ops::op_defs
+    loom::util::cfg_graph
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    kernel_barrier_lifetime_test
+  SRCS
+    "kernel_barrier_lifetime_test.cc"
+  DEPS
+    ::kernel_barrier_lifetime
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::format::text::parser
+    loom::ir
+    loom::ops::op_defs
+    loom::ops::type_registry
+    loom::testing::context
+    loom::testing::module_ptr
+    loom::util::fact_table
+)
+
+loom_cc_library(
+  NAME
     kernel_launch_config
   HDRS
     "kernel_launch_config.h"

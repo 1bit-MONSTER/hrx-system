@@ -569,3 +569,21 @@ class KernelBuilder(DialectBuilder):
         body: Region | None = ...,
         location_id: int | None = ...,
     ) -> None: ...
+    def barrier_arrive(
+        self,
+        *,
+        memory_space: str,
+        scope: str,
+        ordering: str,
+        results: list[Type | TiedResultSpec],
+        name: str | None = ...,
+        names: Sequence[str] | None = ...,
+        result_names: Sequence[str] | None = ...,
+        location_id: int | None = ...,
+    ) -> ValueRef: ...
+    def barrier_wait(
+        self,
+        *,
+        phase: ValueRef,
+        location_id: int | None = ...,
+    ) -> None: ...

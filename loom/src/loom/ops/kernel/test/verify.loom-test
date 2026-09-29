@@ -493,6 +493,67 @@ func.def @global_barrier_rejects_sequentially_consistent_ordering() {
 
 // ====
 
+func.def @split_barrier_requires_wait() {
+  // ERROR@+1: DOMINANCE/009 "phase" "0" "exactly one kernel.barrier.wait use"
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_rejects_non_wait_use() {
+  // ERROR@+1: DOMINANCE/010 "phase" "test.use" "kernel.barrier.wait phase operand"
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  test.use %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_wait_requires_arrival(%phase: kernel.barrier.phase) {
+  // ERROR@+1: DOMINANCE/010 "phase" "<null>" "kernel.barrier.arrive result"
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_wait_requires_phase_type(%value: i32) {
+  // ERROR@+1: TYPE/003 "phase" "i32" "kernel.barrier.phase"
+  kernel.barrier.wait %value : i32
+  func.return
+}
+
+// ====
+
+func.def @split_barrier_rejects_acquire_ordering() {
+  // ERROR@+1: STRUCTURE/014 "ordering" "1" "acq_rel ordering for workgroup memory"
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acquire) -> kernel.barrier.phase
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return
+}
+
+// ====
+
+kernel.def @split_barrier_wait_rejects_lane_predicated_branch() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch() {
+  %limit = index.constant 32 : index
+  %lane = kernel.workitem.id<x> : index
+  %active = index.cmp ult, %lane, %limit : index
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  scf.if %active {
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier.wait", required_uniform_scope="workgroup", control_kind="region_selector", control_value="active", control_op_name="scf.if", control_distribution="lane_predicate"}
+    kernel.barrier.wait %phase : kernel.barrier.phase
+    scf.yield
+  }
+  kernel.return
+}
+
+// ====
+
 kernel.def @workgroup_barrier_accepts_uniform_branch() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index

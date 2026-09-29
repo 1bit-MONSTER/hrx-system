@@ -121,6 +121,13 @@ kernel_async_group_type = TypeDef(
     contracts=[ContractFamily.KERNEL_ASYNC],
 )
 
+kernel_barrier_phase_type = TypeDef(
+    name="kernel.barrier.phase",
+    doc=("Opaque identity for one arrived split-barrier lifetime. The value is consumed exactly once by kernel.barrier.wait and has no runtime representation."),
+    semantic=TypeSemantic.CONTROL_TOKEN,
+    contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
+)
+
 kernel_tensor_lds_descriptor_type = TypeDef(
     name="kernel.tensor.lds.descriptor",
     semantic=TypeSemantic.TARGET_CONTRACT_VALUE,
@@ -1340,6 +1347,90 @@ kernel_barrier = Op(
 )
 
 # ============================================================================
+# kernel.barrier.arrive/wait — split scoped execution barrier
+# ============================================================================
+
+kernel_barrier_arrive = Op(
+    name="kernel.barrier.arrive",
+    group=kernel_ops,
+    builder_name="barrier_arrive",
+    contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
+    doc=(
+        "Arrive at a split execution barrier and begin its memory-ordering "
+        "lifetime. Release ordering is applied at arrival; acquire ordering "
+        "is completed by the unique kernel.barrier.wait consuming the returned "
+        "phase. Every participant in the execution scope must execute matching "
+        "dynamic arrive and wait instances. The interval may contain ordinary "
+        "per-invocation work and pure calls. Other convergent operations, "
+        "barriers, and impure calls must remain outside the interval."
+    ),
+    results=[
+        Result(
+            "phase",
+            ANY,
+            doc="Opaque identity consumed by the matching barrier wait.",
+        ),
+    ],
+    attrs=[
+        AttrDef(
+            "memory_space",
+            ATTR_TYPE_ENUM,
+            enum_def=KernelMemorySpace,
+            doc="Memory space ordered by the split barrier.",
+        ),
+        AttrDef(
+            "ordering",
+            ATTR_TYPE_ENUM,
+            enum_def=KernelOrdering,
+            doc="Whole-pair memory ordering split across arrival and wait.",
+        ),
+        AttrDef(
+            "scope",
+            ATTR_TYPE_ENUM,
+            enum_def=KernelScope,
+            doc="Execution scope participating in the split barrier.",
+        ),
+    ],
+    traits=[MEMORY_FENCE, CONVERGENT],
+    verify="loom_kernel_barrier_arrive_verify",
+    format=[
+        TemplateParam("memory_space"),
+        Clause("scope", Attr("scope")),
+        Clause("ordering", Attr("ordering")),
+        ARROW,
+        ResultType("phase"),
+    ],
+    examples=[
+        "%phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase",
+    ],
+)
+
+kernel_barrier_wait = Op(
+    name="kernel.barrier.wait",
+    group=kernel_ops,
+    builder_name="barrier_wait",
+    contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
+    doc=(
+        "Wait for every participant in a split-barrier phase to arrive and "
+        "complete the acquire portion of that phase's memory ordering. The "
+        "operand must be the unique use of a kernel.barrier.arrive result."
+    ),
+    operands=[
+        Operand(
+            "phase",
+            ANY,
+            doc="Phase identity defined by the matching barrier arrival.",
+        ),
+    ],
+    traits=[MEMORY_FENCE, CONVERGENT],
+    verify="loom_kernel_barrier_wait_verify",
+    format=[Ref("phase"), COLON, TypeOf("phase")],
+    examples=[
+        "kernel.barrier.wait %phase : kernel.barrier.phase",
+    ],
+)
+
+# ============================================================================
 # kernel.async.copy — initiate a view-to-view asynchronous copy
 # ============================================================================
 
@@ -1803,6 +1894,7 @@ kernel_async_group = Op(
 kernel_async_wait = Op(
     name="kernel.async.wait",
     group=kernel_ops,
+    builder_name="wait",
     contracts=[ContractFamily.KERNEL_ASYNC],
     doc=(
         "Wait until a committed async-copy group has completed. This completes "
@@ -2117,6 +2209,7 @@ ALL_KERNEL_TYPES: tuple[TypeDef, ...] = (
     kernel_async_group_type,
     kernel_async_token_type,
     kernel_tensor_lds_descriptor_type,
+    kernel_barrier_phase_type,
 )
 
 ALL_KERNEL_OPS: tuple[Op, ...] = (
@@ -2174,4 +2267,6 @@ ALL_KERNEL_OPS: tuple[Op, ...] = (
     kernel_launch_yield,
     kernel_launch_serial,
     kernel_launch_concurrent,
+    kernel_barrier_arrive,
+    kernel_barrier_wait,
 )

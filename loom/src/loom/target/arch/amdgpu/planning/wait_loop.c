@@ -368,7 +368,7 @@ static bool loom_amdgpu_wait_loop_analyze_cyclic_frontier(
   uint32_t last_producer_ordinal = 0;
   uint32_t outstanding_count = 0;
   uint32_t outstanding_write_count = 0;
-  uint32_t outstanding_workgroup_write_count = 0;
+  uint32_t outstanding_workgroup_access_count = 0;
   for (uint32_t i = 0; i < block->scheduled_node_count; ++i) {
     if (i < pending_start_ordinal) {
       continue;
@@ -385,8 +385,8 @@ static bool loom_amdgpu_wait_loop_analyze_cyclic_frontier(
     if ((node->write_counter_mask & counter_mask) != 0) {
       ++outstanding_write_count;
     }
-    if ((node->workgroup_write_counter_mask & counter_mask) != 0) {
-      ++outstanding_workgroup_write_count;
+    if ((node->workgroup_access_counter_mask & counter_mask) != 0) {
+      ++outstanding_workgroup_access_count;
     }
   }
   const bool reset_establishes_epoch =
@@ -430,7 +430,7 @@ static bool loom_amdgpu_wait_loop_analyze_cyclic_frontier(
       .producer_start_ordinal = first_producer_ordinal,
       .outstanding_count = outstanding_count,
       .outstanding_write_count = outstanding_write_count,
-      .outstanding_workgroup_write_count = outstanding_workgroup_write_count,
+      .outstanding_workgroup_access_count = outstanding_workgroup_access_count,
   };
   return true;
 }

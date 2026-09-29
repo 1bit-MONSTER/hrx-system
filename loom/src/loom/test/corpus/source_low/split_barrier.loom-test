@@ -1,0 +1,6 @@
+func.def @split_workgroup_barrier(%value: i32) -> (i32) {
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  %doubled = scalar.addi %value, %value : i32
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  func.return %doubled : i32
+}

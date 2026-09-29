@@ -38,8 +38,8 @@ typedef struct loom_amdgpu_wait_loop_cyclic_frontier_t {
   uint32_t outstanding_count;
   // Upper bound on outstanding writes entering the next block execution.
   uint32_t outstanding_write_count;
-  // Upper bound on outstanding workgroup writes entering the next execution.
-  uint32_t outstanding_workgroup_write_count;
+  // Upper bound on outstanding workgroup accesses entering the next execution.
+  uint32_t outstanding_workgroup_access_count;
 } loom_amdgpu_wait_loop_cyclic_frontier_t;
 
 // Transient AMDGPU eligibility and ancestor index over the schedule's preserved

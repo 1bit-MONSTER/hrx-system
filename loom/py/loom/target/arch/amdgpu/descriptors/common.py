@@ -2498,6 +2498,11 @@ _WORKGROUP_BARRIER_EFFECT = Effect(
     flags=(EffectFlag.ORDERED, EffectFlag.DEPENDENCY),
 )
 
+_EXECUTION_BARRIER_EFFECT = Effect(
+    EffectKind.BARRIER,
+    flags=(EffectFlag.ORDERED,),
+)
+
 _CACHE_CONTROL_EFFECT = Effect(
     EffectKind.BARRIER,
     memory_space=MemorySpace.GENERIC,
@@ -3645,6 +3650,7 @@ __all__ = (
     "_X_WAIT_EFFECT",
     "_X_WAIT_HAZARDS",
     "_WORKGROUP_BARRIER_EFFECT",
+    "_EXECUTION_BARRIER_EFFECT",
     "_amdgpu_camel_case",
     "_amdgpu_core_descriptor_set",
     "_amdgpu_core_descriptor_set_intersection",

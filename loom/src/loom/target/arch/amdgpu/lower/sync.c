@@ -223,6 +223,11 @@ iree_status_t loom_amdgpu_lower_workgroup_barrier_plan(
     case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_NONE:
       IREE_ASSERT_UNREACHABLE("unselected AMDGPU kernel barrier plan");
       IREE_BUILTIN_UNREACHABLE();
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_ARRIVE:
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_WAIT:
+      IREE_ASSERT_UNREACHABLE(
+          "split phase passed to complete barrier lowering");
+      IREE_BUILTIN_UNREACHABLE();
   }
   IREE_ASSERT_UNREACHABLE("unknown AMDGPU kernel barrier lowering kind");
   IREE_BUILTIN_UNREACHABLE();
@@ -257,6 +262,94 @@ iree_status_t loom_amdgpu_lower_kernel_barrier(
               builder, descriptor_set, LOOM_CACHE_SCOPE_DEVICE,
               source_op->location));
     }
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_amdgpu_select_kernel_split_barrier_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_plan_t* out_plan) {
+  *out_plan = loom_low_lower_plan_empty();
+  loom_amdgpu_kernel_barrier_plan_t local_plan = {0};
+  bool present = false;
+  if (loom_kernel_barrier_arrive_isa(source_op)) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_resolve_explicit_packet_plan(
+        context, LOOM_AMDGPU_DESCRIPTOR_REF_S_BARRIER_SIGNAL_ALL,
+        /*immediates=*/NULL, /*immediate_count=*/0, &local_plan.split_signal,
+        &present));
+    local_plan.kind = LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_ARRIVE;
+  } else if (loom_kernel_barrier_wait_isa(source_op)) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_resolve_explicit_packet_plan(
+        context, LOOM_AMDGPU_DESCRIPTOR_REF_S_BARRIER_WAIT_ALL,
+        /*immediates=*/NULL, /*immediate_count=*/0, &local_plan.split_wait,
+        &present));
+    local_plan.kind = LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_WAIT;
+  } else {
+    return iree_ok_status();
+  }
+  if (!present) {
+    return iree_ok_status();
+  }
+
+  loom_amdgpu_kernel_barrier_plan_t* plan = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_allocate_plan_data(context, sizeof(*plan), (void**)&plan));
+  *plan = local_plan;
+  *out_plan = loom_low_lower_plan_make(source_op->kind, plan);
+  return iree_ok_status();
+}
+
+iree_status_t loom_amdgpu_lower_kernel_split_barrier(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_kernel_barrier_plan_t* plan) {
+  switch (plan->kind) {
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_ARRIVE: {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_explicit_packet_plan(
+          context, source_op, &plan->split_signal));
+      return loom_low_lower_elide_value(
+          context, loom_kernel_barrier_arrive_phase(source_op));
+    }
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_WAIT:
+      return loom_amdgpu_emit_explicit_packet_plan(context, source_op,
+                                                   &plan->split_wait);
+    default:
+      IREE_ASSERT_UNREACHABLE("invalid AMDGPU split-barrier plan");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
+iree_status_t loom_amdgpu_low_legality_verify_kernel_split_barrier(
+    const loom_target_low_legality_provider_t* provider,
+    loom_target_low_legality_context_t* context, const loom_op_t* op,
+    bool* out_handled) {
+  (void)provider;
+  const loom_target_bundle_t* bundle = loom_target_low_legality_bundle(context);
+  if (!loom_amdgpu_low_legality_bundle_is_amdgpu(bundle)) {
+    return iree_ok_status();
+  }
+  *out_handled = true;
+  const loom_low_descriptor_set_t* descriptor_set =
+      loom_target_low_legality_descriptor_set(context);
+  if (loom_kernel_barrier_arrive_isa(op)) {
+    if (loom_kernel_barrier_arrive_memory_space(op) !=
+            LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP ||
+        loom_kernel_barrier_arrive_scope(op) != LOOM_ATOMIC_SCOPE_WORKGROUP ||
+        loom_kernel_barrier_arrive_ordering(op) !=
+            LOOM_ATOMIC_ORDERING_ACQ_REL) {
+      return loom_amdgpu_low_legality_reject(
+          context, op, IREE_SV("split_barrier.workgroup_acq_rel"));
+    }
+    if (!loom_amdgpu_descriptor_set_has_ref(
+            descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_S_BARRIER_SIGNAL_ALL)) {
+      return loom_amdgpu_low_legality_reject(
+          context, op, IREE_SV("descriptor.s_barrier_signal_all"));
+    }
+    return iree_ok_status();
+  }
+  if (!loom_amdgpu_descriptor_set_has_ref(
+          descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_S_BARRIER_WAIT_ALL)) {
+    return loom_amdgpu_low_legality_reject(
+        context, op, IREE_SV("descriptor.s_barrier_wait_all"));
   }
   return iree_ok_status();
 }

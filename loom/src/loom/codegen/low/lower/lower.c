@@ -9,6 +9,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/contract_vector.h"
 #include "loom/analysis/kernel_async_legality.h"
+#include "loom/analysis/kernel_barrier_lifetime.h"
 #include "loom/analysis/vector_memory_footprint.h"
 #include "loom/codegen/low/lower/context.h"
 #include "loom/codegen/low/lower/contract_query.h"
@@ -1306,6 +1307,27 @@ iree_status_t loom_low_lower_function(loom_module_t* module,
   }
   if (iree_status_is_ok(status)) {
     out_result->error_count += async_legality_result.error_count;
+  }
+  if (iree_status_is_ok(status) && out_result->error_count != 0) {
+    loom_low_lowering_frame_deinitialize(&context);
+    iree_arena_deinitialize(&context.function_arena);
+    return iree_ok_status();
+  }
+
+  loom_kernel_barrier_lifetime_result_t barrier_lifetime_result = {0};
+  if (iree_status_is_ok(status)) {
+    const loom_kernel_barrier_lifetime_options_t barrier_lifetime_options = {
+        .value_domain = &context.lowering.value_domain,
+        .fact_table = context.lowering.fact_table,
+        .emitter = options->emitter,
+        .phase_name = IREE_SV("source-low"),
+    };
+    status = loom_kernel_barrier_lifetime_verify_function(
+        module, source_function, &barrier_lifetime_options,
+        &barrier_lifetime_result);
+  }
+  if (iree_status_is_ok(status)) {
+    out_result->error_count += barrier_lifetime_result.error_count;
   }
   if (iree_status_is_ok(status) && out_result->error_count != 0) {
     loom_low_lowering_frame_deinitialize(&context);

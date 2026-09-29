@@ -635,6 +635,56 @@ low.func.def target<amdgpu.rdna3.core>(@target) @cross_block_workgroup_store_bar
   s_endpgm
 
 // ====
+// RUN: emit amdgpu-assembly @workgroup_load_split_barrier strategy=source
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @workgroup_load_split_barrier(%addr: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = ds_read_b32 %addr
+  s_barrier_signal_all
+  %independent = v_add3_u32 %value, %value, %value
+  s_barrier_wait_all
+  %result = v_add3_u32 %loaded, %independent, %value
+  return %result
+}
+
+// LDS result delivery must complete before the wave releases its barrier
+// phase. Independent VALU work remains free to overlap between signal and wait.
+// ----
+  ds_read_b32 v0, v0 offset:0
+  s_wait_dscnt dscnt(0)
+  s_barrier_signal -1
+  v_add3_u32 v2, v1, v1, v1
+  s_barrier_wait -1
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add3_u32 v0, v0, v2, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cross_block_workgroup_load_barrier strategy=source
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @cross_block_workgroup_load_barrier(%addr: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = ds_read_b32 %addr
+  low.br ^barrier
+^barrier:
+  s_barrier
+  %result = v_add_f32 %loaded, %value
+  return %result
+}
+
+// A workgroup barrier must consume an incoming LDS read frontier even when the
+// barrier block has no local memory producer.
+// ----
+  ds_read_b32 v0, v0 offset:0
+.Lbb1:
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_barrier
+  v_add_f32 v0, v0, v1
+  s_endpgm
+
+// ====
 // RUN: emit amdgpu-assembly @cross_block_global_store_program_exit strategy=source
 
 amdgpu.target<gfx1100> @target
