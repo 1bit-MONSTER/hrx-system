@@ -13,7 +13,6 @@
 #include "loom/ir/structural_hash.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/view/ops.h"
-#include "loom/util/dominance.h"
 #include "loom/util/fact_cfg.h"
 
 static_assert(LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_CAPACITY <= 16,
@@ -39,13 +38,28 @@ typedef struct loom_low_lower_memory_component_entry_t {
   loom_low_lower_memory_component_candidate_t* candidate;
   // Next structural-key collision in the bucket.
   struct loom_low_lower_memory_component_entry_t* next;
+  // Next publication retired with the same dominance scope.
+  struct loom_low_lower_memory_component_entry_t* scope_next;
 } loom_low_lower_memory_component_entry_t;
+
+typedef struct loom_low_lower_memory_component_scope_t {
+  // Block whose operations and dominated descendants share this scope.
+  const loom_block_t* block;
+  // Publications owned by this scope, excluding inherited candidates.
+  loom_low_lower_memory_component_entry_t* first;
+  // Enclosing structured or CFG dominance scope.
+  struct loom_low_lower_memory_component_scope_t* parent;
+} loom_low_lower_memory_component_scope_t;
 
 struct loom_low_lower_source_memory_builder_t {
   // Last function-owned record appended by the shared source walk.
   loom_low_lower_source_memory_record_t* last;
-  // Borrowed dominance snapshots and structured-scope query state.
-  loom_dominance_info_t dominance;
+  // Scratch lifetime shared with the existing source preparation walk.
+  iree_arena_allocator_t* arena;
+  // Borrowed indexed dominance for the function's flat CFG, if present.
+  const loom_value_fact_cfg_region_t* cfg;
+  // Active scopes maintained by block entry and structured region exit.
+  loom_low_lower_memory_component_scope_t* scope;
   // Interned canonical term sets, allocated in planning scratch.
   loom_low_lower_memory_component_entry_t** buckets;
   // Power-of-two bucket count, or zero before the first realization.
@@ -53,6 +67,46 @@ struct loom_low_lower_source_memory_builder_t {
   // Number of distinct canonical term sets in buckets.
   iree_host_size_t entry_count;
 };
+
+static void loom_low_lower_memory_component_leave_scope(
+    loom_low_lower_source_memory_builder_t* builder) {
+  loom_low_lower_memory_component_scope_t* scope = builder->scope;
+  for (loom_low_lower_memory_component_entry_t* entry = scope->first; entry;
+       entry = entry->scope_next) {
+    entry->candidate = NULL;
+  }
+  builder->scope = scope->parent;
+}
+
+iree_status_t loom_low_lower_source_memory_enter_block(
+    loom_low_lower_source_memory_builder_t* builder,
+    const loom_block_t* block) {
+  // The flat CFG is visited in dominator preorder. Retire completed subtrees
+  // once as that order advances; nested structured regions remain bracketed
+  // by the source visitor. No memory access needs to rediscover its ancestry.
+  while (builder->scope &&
+         builder->scope->block->parent_region == block->parent_region &&
+         !loom_cfg_dominance_block_dominates(
+             &builder->cfg->dominance, builder->scope->block->region_index,
+             block->region_index)) {
+    loom_low_lower_memory_component_leave_scope(builder);
+  }
+  loom_low_lower_memory_component_scope_t* scope = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(builder->arena, sizeof(*scope), (void**)&scope));
+  *scope = (loom_low_lower_memory_component_scope_t){.block = block,
+                                                     .parent = builder->scope};
+  builder->scope = scope;
+  return iree_ok_status();
+}
+
+void loom_low_lower_source_memory_leave_region(
+    loom_low_lower_source_memory_builder_t* builder,
+    const loom_region_t* region) {
+  while (builder->scope && builder->scope->block->parent_region == region) {
+    loom_low_lower_memory_component_leave_scope(builder);
+  }
+}
 
 static uint16_t loom_low_lower_memory_term_range(uint8_t first, uint8_t count) {
   return (uint16_t)(((1u << count) - 1u) << first);
@@ -155,9 +209,8 @@ static iree_status_t loom_low_lower_memory_components_grow(
   const iree_host_size_t bucket_count =
       builder->bucket_count ? builder->bucket_count * 2 : 32;
   loom_low_lower_memory_component_entry_t** buckets = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(builder->dominance.arena,
-                                                 bucket_count, sizeof(*buckets),
-                                                 (void**)&buckets));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      builder->arena, bucket_count, sizeof(*buckets), (void**)&buckets));
   memset(buckets, 0, bucket_count * sizeof(*buckets));
   for (iree_host_size_t i = 0; i < builder->bucket_count; ++i) {
     loom_low_lower_memory_component_entry_t* entry = builder->buckets[i];
@@ -174,20 +227,6 @@ static iree_status_t loom_low_lower_memory_components_grow(
   return iree_ok_status();
 }
 
-static void loom_low_lower_memory_component_enter_scope(
-    loom_low_lower_source_memory_builder_t* builder,
-    loom_low_lower_memory_component_entry_t* entry,
-    const loom_op_t* source_op) {
-  // The shared walk visits dominator subtrees in preorder. An enclosing
-  // candidate is never replaced by a nested one. Once its publishing access
-  // no longer dominates the walk, that candidate's scope cannot be revisited.
-  if (entry->candidate != NULL &&
-      !loom_dominates_op(&builder->dominance,
-                         entry->candidate->record->source_op, source_op)) {
-    entry->candidate = NULL;
-  }
-}
-
 static void loom_low_lower_memory_component_select(
     loom_low_lower_source_memory_builder_t* builder,
     loom_low_lower_source_memory_record_t* record, uint16_t mask) {
@@ -201,8 +240,6 @@ static void loom_low_lower_memory_component_select(
   if (entry == NULL) {
     return;
   }
-  loom_low_lower_memory_component_enter_scope(builder, entry,
-                                              record->source_op);
   if (entry->candidate != NULL) {
     record->access.retained_component =
         (loom_low_source_memory_dynamic_component_t){
@@ -283,8 +320,8 @@ static iree_status_t loom_low_lower_memory_components_publish(
       if (builder->entry_count >= builder->bucket_count * 3 / 4) {
         IREE_RETURN_IF_ERROR(loom_low_lower_memory_components_grow(builder));
       }
-      IREE_RETURN_IF_ERROR(iree_arena_allocate(builder->dominance.arena,
-                                               sizeof(*entry), (void**)&entry));
+      IREE_RETURN_IF_ERROR(
+          iree_arena_allocate(builder->arena, sizeof(*entry), (void**)&entry));
       const iree_host_size_t bucket = hash & (builder->bucket_count - 1);
       *entry = (loom_low_lower_memory_component_entry_t){
           .key_access = &record->access,
@@ -295,22 +332,22 @@ static iree_status_t loom_low_lower_memory_components_publish(
       builder->buckets[bucket] = entry;
       ++builder->entry_count;
     }
-    loom_low_lower_memory_component_enter_scope(builder, entry,
-                                                record->source_op);
     // An enclosing realization already serves this scope and its descendants.
     // Keeping it avoids extending a redundant local expression's live range.
     if (entry->candidate != NULL) {
       continue;
     }
     loom_low_lower_memory_component_candidate_t* candidate = NULL;
-    IREE_RETURN_IF_ERROR(iree_arena_allocate(
-        builder->dominance.arena, sizeof(*candidate), (void**)&candidate));
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(builder->arena, sizeof(*candidate),
+                                             (void**)&candidate));
     *candidate = (loom_low_lower_memory_component_candidate_t){
         .record = record,
         .term = &realization->term,
         .term_mask = mask,
     };
     entry->candidate = candidate;
+    entry->scope_next = builder->scope->first;
+    builder->scope->first = entry;
   }
   return iree_ok_status();
 }
@@ -322,14 +359,9 @@ iree_status_t loom_low_lower_source_memory_builder_create(
   IREE_RETURN_IF_ERROR(iree_arena_allocate(&context->planning_arena,
                                            sizeof(*builder), (void**)&builder));
   *builder = (loom_low_lower_source_memory_builder_t){
-      .dominance = {.module = context->module,
-                    .arena = &context->planning_arena},
+      .arena = &context->planning_arena,
+      .cfg = loom_low_lower_context_cfg(context),
   };
-  const loom_value_fact_cfg_region_t* cfg = loom_low_lower_context_cfg(context);
-  if (cfg != NULL) {
-    IREE_RETURN_IF_ERROR(loom_dominance_info_add_cfg_graph(
-        &builder->dominance, &cfg->graph, &cfg->dominance));
-  }
   *out_builder = builder;
   return iree_ok_status();
 }

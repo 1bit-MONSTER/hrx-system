@@ -44,6 +44,17 @@ iree_status_t loom_low_lower_source_memory_builder_create(
     loom_low_lower_context_t* context,
     loom_low_lower_source_memory_builder_t** out_builder);
 
+// Enters a dominance scope during the existing source walk. Blocks arrive once
+// in dominator preorder within the flat CFG or as single-block structured
+// regions. Per-access lookup never walks the source ancestry.
+iree_status_t loom_low_lower_source_memory_enter_block(
+    loom_low_lower_source_memory_builder_t* builder, const loom_block_t* block);
+
+// Retires a region's publications while preserving enclosing candidates.
+void loom_low_lower_source_memory_leave_region(
+    loom_low_lower_source_memory_builder_t* builder,
+    const loom_region_t* region);
+
 // Retains memory accesses and publishes the current record before target
 // observation. Fragment accesses describe logical origins, not payload spans.
 iree_status_t loom_low_lower_source_memory_observe(

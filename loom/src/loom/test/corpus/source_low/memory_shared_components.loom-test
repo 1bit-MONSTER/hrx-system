@@ -63,3 +63,31 @@ func.def @sibling_origins(%input: buffer, %row: index, %column: index, %conditio
   }
   func.return %result : i32
 }
+
+// ====
+
+// An enclosing address component remains available through nested scopes and
+// after both loops exit. Volatile accesses keep every observation in the IR.
+func.def @nested_scoped_origin(%input: buffer, %row: index, %column: index) -> (i32) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %bounded_column = index.assume %column [range(%column, 0, 7)] : index
+  %stride = index.constant 16 : index
+  %origin = index.madd %bounded_row, %stride, %bounded_column : index
+  %distance = index.constant 8 : index
+  %later = index.add %origin, %distance : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<128xi32>
+  %first = view.load<volatile> %data[%origin] : view<128xi32> -> i32
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %outer = [%begin to %end step %step] {
+    scf.for %inner = [%begin to %end step %step] {
+      %value = view.load<volatile> %data[%later] : view<128xi32> -> i32
+      view.store<volatile> %value, %data[%later] : i32, view<128xi32>
+    }
+  }
+  %last = view.load<volatile> %data[%later] : view<128xi32> -> i32
+  %result = scalar.addi %first, %last : i32
+  func.return %result : i32
+}

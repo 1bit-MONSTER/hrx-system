@@ -684,6 +684,8 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
        ++position) {
     const uint16_t block_index = block_order ? block_order[position] : position;
     loom_block_t* block = loom_region_block(source_region, block_index);
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_source_memory_enter_block(memory_builder, block));
     loom_op_t* op = NULL;
     loom_block_for_each_op(block, op) {
       const loom_trait_flags_t traits =
@@ -723,6 +725,7 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
       }
     }
   }
+  loom_low_lower_source_memory_leave_region(memory_builder, source_region);
   return iree_ok_status();
 }
 
