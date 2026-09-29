@@ -21,7 +21,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.memory import (
     _register_address_emits,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
-    BF16_F32_PACKET_LANE_COUNTS,
+    FLOAT_PACKET_LANE_COUNTS,
     I4_UNPACK_SOURCE_LANE_COUNTS,
     INTEGER_PACK_CASES,
     INTEGER_WIDEN_INSTRUCTIONS,
@@ -568,7 +568,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 volatile=volatile,
             )
             for root_kind, memory_spaces in _MEMORY_ROOTS
-            for lane_count in BF16_F32_PACKET_LANE_COUNTS
+            for lane_count in FLOAT_PACKET_LANE_COUNTS
             for address_form in _MemoryAddressForm
         ),
         *(
@@ -598,7 +598,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 volatile=volatile,
             )
             for root_kind, memory_spaces in _MEMORY_ROOTS
-            for lane_count in BF16_F32_PACKET_LANE_COUNTS
+            for lane_count in FLOAT_PACKET_LANE_COUNTS
             for address_form in _MemoryAddressForm
         ),
         *(
