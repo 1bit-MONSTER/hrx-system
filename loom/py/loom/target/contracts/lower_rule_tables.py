@@ -12,7 +12,7 @@ from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum, unique
 
-from loom.dsl import Op
+from loom.dsl import EncodingOperandSummaryDef, Op
 from loom.errors import ErrorDef
 from loom.target.contracts.diagnostics import (
     DiagnosticParamKind,
@@ -201,6 +201,7 @@ class LowerGuard:
     attr_kind: str | None = None
     u64: int = 0
     u64_c_expression: str | None = None
+    storage_operand_schema: EncodingOperandSummaryDef | None = None
     memory_spaces: tuple[str, ...] = ()
     descriptor: Descriptor | None = None
     register_class_id: int = 0

@@ -21,11 +21,11 @@ from loom.target.arch.amd.xdna.aie2p.contracts.memory import (
     _register_address_emits,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
-    BF16_F32_PACKET_LANE_COUNTS,
+    FLOAT_PACKET_LANE_COUNTS,
     I4_UNPACK_SOURCE_LANE_COUNTS,
-    INTEGER_PACK_CASES,
+    INTEGER_PACK_INSTRUCTIONS,
     INTEGER_WIDEN_INSTRUCTIONS,
-    IntegerPackCase,
+    IntegerPackInstruction,
     IntegerWidenInstruction,
     integer_pack_state_emits,
     integer_unpack_state_emits,
@@ -462,16 +462,22 @@ def _fused_integer_pack_store_rule(
     *,
     root_kind: SourceMemoryRootKind,
     memory_spaces: tuple[str, ...],
-    pack_case: IntegerPackCase,
+    pack_instruction: IntegerPackInstruction,
     volatile: bool,
 ) -> DescriptorRule:
-    source_type = Vector(pack_case.input_element, lanes=pack_case.input_lanes)
-    result_type = Vector("i8", lanes=pack_case.result_lanes)
+    source_type = Vector(
+        pack_instruction.input_element,
+        lanes=pack_instruction.native_lane_count,
+    )
+    result_type = Vector(
+        pack_instruction.result_element,
+        lanes=pack_instruction.result_lanes,
+    )
     address_family = (
         "immediate" if address_form is _MemoryAddressForm.IMMEDIATE else "register"
     )
     descriptor_key = (
-        f"amd.xdna.aie2p.store.pack.{pack_case.physical_width}.trunc."
+        f"amd.xdna.aie2p.store.pack.{pack_instruction.physical_width}.trunc."
         f"configured.indexed.{address_family}"
     )
     if volatile:
@@ -482,9 +488,9 @@ def _fused_integer_pack_store_rule(
         address_form,
         root_kind=root_kind,
         memory_spaces=memory_spaces,
-        element_byte_count=1,
-        vector_lane_count=pack_case.result_lanes,
-        memory_width_bits=pack_case.memory_width_bits,
+        element_byte_count=int(pack_instruction.result_element[1:]) // 8,
+        vector_lane_count=pack_instruction.result_lanes,
+        memory_width_bits=pack_instruction.memory_width_bits,
     )
     return DescriptorRule(
         source_op=vector.vector_store,
@@ -492,22 +498,22 @@ def _fused_integer_pack_store_rule(
         source_nodes=(
             SourceNode.adjacent_definition(
                 "convert",
-                source_op=pack_case.source_op,
+                source_op=pack_instruction.source_op,
                 parent_operand=ValueRef.operand("value"),
                 node_result=ValueRef.result("result"),
                 guards=(
-                    Guard.value_type(pack_case.source_field, source_type),
+                    Guard.value_type(pack_instruction.source_field, source_type),
                     Guard.value_type("result", result_type),
                     *(
                         (
                             Guard.attr_kind("width", "i64"),
                             Guard.i64_range(
                                 "width",
-                                pack_case.bit_width,
-                                pack_case.bit_width,
+                                pack_instruction.bit_width,
+                                pack_instruction.bit_width,
                             ),
                         )
-                        if pack_case.bit_width is not None
+                        if pack_instruction.bit_width is not None
                         else ()
                     ),
                 ),
@@ -527,15 +533,15 @@ def _fused_integer_pack_store_rule(
             source_memory,
             {
                 "src": ValueRef.operand(
-                    pack_case.source_field,
+                    pack_instruction.source_field,
                     source_node="convert",
                 ),
                 "ptr": ValueRef.operand("view"),
             },
-            access_preamble=integer_pack_state_emits(pack_case.pack_size),
+            access_preamble=integer_pack_state_emits(pack_instruction.pack_size),
         ),
         priority=1,
-        report_key=f"native_memory_store_{pack_case.report_key}",
+        report_key=f"native_memory_store_{pack_instruction.report_key}",
     )
 
 
@@ -568,7 +574,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 volatile=volatile,
             )
             for root_kind, memory_spaces in _MEMORY_ROOTS
-            for lane_count in BF16_F32_PACKET_LANE_COUNTS
+            for lane_count in FLOAT_PACKET_LANE_COUNTS
             for address_form in _MemoryAddressForm
         ),
         *(
@@ -598,7 +604,7 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 volatile=volatile,
             )
             for root_kind, memory_spaces in _MEMORY_ROOTS
-            for lane_count in BF16_F32_PACKET_LANE_COUNTS
+            for lane_count in FLOAT_PACKET_LANE_COUNTS
             for address_form in _MemoryAddressForm
         ),
         *(
@@ -606,11 +612,11 @@ def _fused_memory_rules(*, volatile: bool) -> tuple[DescriptorRule, ...]:
                 address_form,
                 root_kind=root_kind,
                 memory_spaces=memory_spaces,
-                pack_case=pack_case,
+                pack_instruction=pack_instruction,
                 volatile=volatile,
             )
             for root_kind, memory_spaces in _MEMORY_ROOTS
-            for pack_case in INTEGER_PACK_CASES
+            for pack_instruction in INTEGER_PACK_INSTRUCTIONS
             for address_form in _MemoryAddressForm
         ),
     )

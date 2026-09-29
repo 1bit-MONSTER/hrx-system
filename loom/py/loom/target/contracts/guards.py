@@ -19,6 +19,7 @@ from loom.dsl import (
     ATTR_TYPE_FLAGS,
     ATTR_TYPE_I64,
     ATTR_TYPE_I64_ARRAY,
+    EncodingOperandSummaryDef,
     EnumCase,
     Op,
 )
@@ -70,6 +71,7 @@ class GuardKind(Enum):
     VALUE_I64_RANGE_GE = "value_i64_range_ge"
     VALUE_FLOAT_EQUALS = "value_float_equals"
     VALUE_STORAGE_ELEMENT_FORMAT = "value_storage_element_format"
+    VALUE_STORAGE_OPERAND_SCHEMA = "value_storage_operand_schema"
     VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES = "value_packed_integer_payload_from_lanes"
     VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD = "value_packed_integer_lanes_from_payload"
     VALUE_NO_USES = "value_no_uses"
@@ -139,6 +141,7 @@ class Guard:
     addend: int = 0
     f64_value: float | None = None
     numeric_format_c_expression: str | None = None
+    storage_operand_schema: EncodingOperandSummaryDef | None = None
     descriptor: Descriptor | None = None
     register_class: str | None = None
     materializer: str | None = None
@@ -516,6 +519,23 @@ class Guard:
         )
 
     @classmethod
+    def value_storage_operand_schema(
+        cls,
+        field: str,
+        schema: EncodingOperandSummaryDef,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        """Requires a value's complete encoded-operand schema to match."""
+
+        return cls(
+            kind=GuardKind.VALUE_STORAGE_OPERAND_SCHEMA,
+            field=field,
+            storage_operand_schema=schema,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def value_memory_space(
         cls,
         field: str,
@@ -725,6 +745,13 @@ class Guard:
             raise ValueError(
                 f"{self.kind.value} guard needs a numeric format C expression"
             )
+        if self.kind == GuardKind.VALUE_STORAGE_OPERAND_SCHEMA:
+            if self.storage_operand_schema is None:
+                raise ValueError(f"{self.kind.value} guard needs an operand schema")
+            if self.storage_operand_schema == EncodingOperandSummaryDef():
+                raise ValueError(
+                    f"{self.kind.value} guard cannot match an unknown operand schema"
+                )
 
     def validate(self, source_op: Op) -> None:
         subject = f"guard {self.kind.value}"
@@ -811,6 +838,7 @@ class Guard:
             GuardKind.VALUE_I64_RANGE_GE,
             GuardKind.VALUE_FLOAT_EQUALS,
             GuardKind.VALUE_STORAGE_ELEMENT_FORMAT,
+            GuardKind.VALUE_STORAGE_OPERAND_SCHEMA,
             GuardKind.VALUE_MEMORY_SPACE,
             GuardKind.VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES,
             GuardKind.VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD,

@@ -38,6 +38,7 @@ iree_py_library(
   DEPS
     loom::py::loom::core
     loom::py::loom::dialect::buffer::buffer
+    loom::py::loom::dialect::encoding::encoding
     loom::py::loom::dialect::index::index
     loom::py::loom::dialect::scalar::scalar
     loom::py::loom::dialect::scf::scf

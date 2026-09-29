@@ -9,7 +9,7 @@
 from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     I4_UNPACK_SOURCE_LANE_COUNTS,
-    INTEGER_PACK_CASES,
+    INTEGER_PACK_INSTRUCTIONS,
     INTEGER_WIDEN_INSTRUCTIONS,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_memory import (
@@ -161,19 +161,19 @@ def test_fused_packet_memory_rules_cover_the_native_shape_matrix() -> None:
         *(
             (
                 vector.vector_store,
-                pack_case.source_op,
+                pack_instruction.source_op,
                 SourceNodeRelation.ADJACENT_DEFINITION,
                 SourceMemoryOperation.STORE,
-                f"native_memory_store_{pack_case.report_key}",
+                f"native_memory_store_{pack_instruction.report_key}",
                 (
-                    f"amd.xdna.aie2p.store.pack.{pack_case.physical_width}."
+                    f"amd.xdna.aie2p.store.pack.{pack_instruction.physical_width}."
                     "trunc.configured"
                 ),
-                1,
-                pack_case.result_lanes,
-                pack_case.memory_width_bits,
+                int(pack_instruction.result_element[1:]) // 8,
+                pack_instruction.result_lanes,
+                pack_instruction.memory_width_bits,
             )
-            for pack_case in INTEGER_PACK_CASES
+            for pack_instruction in INTEGER_PACK_INSTRUCTIONS
         ),
     ]
     expected_identities = set()

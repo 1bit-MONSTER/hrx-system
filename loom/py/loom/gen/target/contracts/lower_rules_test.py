@@ -13,6 +13,7 @@ from loom.dialect.scalar import ALL_SCALAR_OPS
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
+from loom.dsl import EncodingOperandSummaryDef
 from loom.error.target import ERR_TARGET_003
 from loom.gen.target.contracts.lower_rule_rows import (
     attr_copy_row,
@@ -1099,6 +1100,64 @@ def test_generate_lower_rule_set_emits_storage_element_format_guard() -> None:
     guard_text = generated.source[guard_start:guard_end]
     assert ".value_ref_index = 0," in guard_text
     assert ".payload = {.u64 = LOOM_VALUE_FACT_NUMERIC_FORMAT_U8" in guard_text
+
+
+def test_generate_lower_rule_set_emits_exact_storage_operand_schema_guard() -> None:
+    schema = EncodingOperandSummaryDef(
+        element_format=0x20,
+        scale_format=0x40,
+        secondary_scale_format=0x80,
+        payload_packing=0x2,
+        scale_topology=0x4,
+        affine_policy=0x8,
+        rounding_policy=0x10,
+        codebook_policy=0x20,
+        sparsity_policy=0x40,
+        zero_scale_fallback=True,
+        sparsity_group_nonzero_element_count=2,
+        sparsity_group_element_count=4,
+        payload_register_count=2,
+        payload_element_count=8,
+        scale_group_shape=(8,),
+        scale_operand_count=1,
+    )
+    table = ContractFragment(
+        name="test.low.exact_storage_schema",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        public_header=_TEST_PUBLIC_HEADER,
+        cases=[
+            DescriptorRule(
+                source_op=vector.vector_fragment_load,
+                descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+                guards=(
+                    Guard.value_storage_operand_schema("view", schema),
+                    Guard.value_type("result", Vector("f32", lanes=4)),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.result("result"),
+                            "rhs": ValueRef.result("result"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            )
+        ],
+    )
+
+    generated = generate_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+
+    assert "static const loom_encoding_operand_summary_t" in generated.source
+    assert ".element_format = UINT64_C(32)" in generated.source
+    assert ".secondary_scale_format = UINT64_C(128)" in generated.source
+    assert ".flags = LOOM_VALUE_FACT_ENCODED_OPERAND_FLAG_ZERO_SCALE_FALLBACK" in generated.source
+    assert ".scale_group = {.element_count = 8, .shape = {8}}" in generated.source
+    assert "LOOM_LOW_LOWER_GUARD_VALUE_STORAGE_OPERAND_SCHEMA" in generated.source
+    assert ".index = {.element_index = 0}" in generated.source
+    assert ".storage_operand_schemas = " in generated.source
+    assert ".storage_operand_schema_count = IREE_ARRAYSIZE(" in generated.source
 
 
 def test_generate_lower_rule_set_emits_packed_integer_storage_guard() -> None:

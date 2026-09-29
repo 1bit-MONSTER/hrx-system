@@ -9,6 +9,9 @@
 # AIE2P crRnd encoding for IEEE round-to-nearest, ties-to-even conversion.
 BF16_CONVERSION_ROUNDING = 12
 
+# T8_2x64_lo interleaves the low thirty-two byte lanes of two X carriers.
+I8_INTERLEAVE_CONTROL = 20
+
 
 def vector_data_path_control(
     *,

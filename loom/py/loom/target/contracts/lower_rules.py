@@ -90,6 +90,7 @@ from loom.target.contracts.lower_rule_diagnostics import (
     _static_dim0_multiple_diagnostic,
     _static_element_count_relation_diagnostic,
     _storage_element_format_diagnostic,
+    _storage_operand_schema_diagnostic,
     _u32_divisor_magic_is_add_diagnostic,
     _value_no_uses_after_diagnostic,
     _value_no_uses_diagnostic,
@@ -901,6 +902,7 @@ class _LowerRuleSetCompiler:
             GuardKind.VALUE_I64_RANGE_GE,
             GuardKind.VALUE_FLOAT_EQUALS,
             GuardKind.VALUE_STORAGE_ELEMENT_FORMAT,
+            GuardKind.VALUE_STORAGE_OPERAND_SCHEMA,
             GuardKind.VALUE_MEMORY_SPACE,
             GuardKind.VALUE_PACKED_INTEGER_PAYLOAD_FROM_LANES,
             GuardKind.VALUE_PACKED_INTEGER_LANES_FROM_PAYLOAD,
@@ -1327,6 +1329,26 @@ class _LowerRuleSetCompiler:
                         ),
                     ),
                     u64_c_expression=guard.numeric_format_c_expression,
+                )
+            )
+            return
+        if guard.kind == GuardKind.VALUE_STORAGE_OPERAND_SCHEMA:
+            if guard.storage_operand_schema is None:
+                raise ValueError(
+                    f"{source_op.name}: storage operand-schema guard needs a schema"
+                )
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    value_ref_index=value_ref_index,
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _storage_operand_schema_diagnostic(guard.field),
+                        ),
+                    ),
+                    storage_operand_schema=guard.storage_operand_schema,
                 )
             )
             return

@@ -8,8 +8,10 @@
 
 This runner is intentionally tiny. It supports the pytest surface used by Loom's
 unit tests: module-level test functions, class-based test methods,
-pytest.raises, pytest.mark.parametrize, tmp_path, and capsys. Unsupported
-fixtures or parameters fail during discovery instead of silently skipping tests.
+pytest.raises, pytest.mark.parametrize, pytest.mark.exhaustive, tmp_path, and
+capsys. Exhaustive qualification tests run only with --include-exhaustive.
+Unsupported fixtures or parameters fail during discovery instead of silently
+skipping tests.
 """
 
 from __future__ import annotations
@@ -50,6 +52,13 @@ class TestCase:
     test_name: str
     function: Callable[..., object]
     parameters: dict[str, object]
+    exhaustive: bool
+
+
+@dataclass(frozen=True)
+class RunnerOptions:
+    module_names: tuple[str, ...]
+    include_exhaustive: bool
 
 
 @dataclass
@@ -137,6 +146,10 @@ class _Mark:
 
         return decorator
 
+    def exhaustive(self, function):
+        function._loom_exhaustive = True
+        return function
+
 
 class _CaptureFixtureType:
     def __class_getitem__(cls, item):
@@ -171,24 +184,27 @@ _install_pytest_compat()
 
 def main(argv: Sequence[str] | None = None) -> int:
     try:
-        module_names = _parse_runner_args(tuple(sys.argv[1:] if argv is None else argv))
+        options = _parse_runner_args(tuple(sys.argv[1:] if argv is None else argv))
     except TestRunnerError as exc:
         sys.stderr.write(f"error: {exc}\n")
         return 2
-    if not module_names:
+    if not options.module_names:
         sys.stderr.write("error: at least one test module is required\n")
         return 2
 
     failures = 0
     skips = 0
     test_count = 0
-    for module_name in module_names:
+    for module_name in options.module_names:
         try:
             module = importlib.import_module(module_name)
             for test_case in _iter_test_cases(module):
                 test_count += 1
                 try:
-                    _run_test_case(test_case)
+                    _run_test_case(
+                        test_case,
+                        include_exhaustive=options.include_exhaustive,
+                    )
                 except unittest.SkipTest as exc:
                     skips += 1
                     sys.stdout.write(
@@ -253,6 +269,9 @@ def _bind_test_method(
     bound_method._loom_parametrize_specs = tuple(  # type: ignore[attr-defined]
         getattr(method, "_loom_parametrize_specs", ())
     )
+    bound_method._loom_exhaustive = bool(  # type: ignore[attr-defined]
+        getattr(method, "_loom_exhaustive", False)
+    )
     return bound_method
 
 
@@ -287,6 +306,7 @@ def _expand_test_callable(
             test_name=f"{test_name}{suffix}",
             function=function,
             parameters=parameters,
+            exhaustive=bool(getattr(function, "_loom_exhaustive", False)),
         )
 
 
@@ -360,8 +380,10 @@ def _short_value(value: object) -> str:
     return text
 
 
-def _run_test_case(test_case: TestCase) -> None:
+def _run_test_case(test_case: TestCase, *, include_exhaustive: bool) -> None:
     sys.stdout.write(f"RUN {test_case.module_name}.{test_case.test_name}\n")
+    if test_case.exhaustive and not include_exhaustive:
+        raise unittest.SkipTest("requires --include-exhaustive")
     kwargs = dict(test_case.parameters)
     temporary_directory: str | None = None
     capsys: _CapsysFixture | None = None
@@ -385,15 +407,22 @@ def _run_test_case(test_case: TestCase) -> None:
             shutil.rmtree(temporary_directory)
 
 
-def _parse_runner_args(args: Sequence[str]) -> tuple[str, ...]:
+def _parse_runner_args(args: Sequence[str]) -> RunnerOptions:
     module_names: list[str] = []
+    include_exhaustive = False
     for arg in args:
         if arg == "--update":
+            continue
+        if arg == "--include-exhaustive":
+            include_exhaustive = True
             continue
         if arg.startswith("--"):
             raise TestRunnerError(f"unsupported runner flag {arg!r}")
         module_names.append(arg)
-    return tuple(module_names)
+    return RunnerOptions(
+        module_names=tuple(module_names),
+        include_exhaustive=include_exhaustive,
+    )
 
 
 if __name__ == "__main__":

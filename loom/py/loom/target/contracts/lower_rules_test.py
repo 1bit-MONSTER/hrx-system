@@ -19,7 +19,7 @@ from loom.dialect.scalar import comparison as scalar_comparison
 from loom.dialect.scalar import conversion as scalar_conversion
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
-from loom.dsl import Op
+from loom.dsl import EncodingOperandSummaryDef, Op
 from loom.target.contracts import (
     LOWER_EMIT_FLAG_BIND_RESULTS_TO_REFS,
     LOWER_EMIT_FLAG_RESULT_DESCRIPTOR_TYPE,
@@ -2767,6 +2767,54 @@ def test_compile_lower_rule_set_compiles_storage_element_format_guard() -> None:
     assert compiled.guards[0].kind == GuardKind.VALUE_STORAGE_ELEMENT_FORMAT
     assert compiled.guards[0].value_ref_index == 0
     assert compiled.guards[0].u64_c_expression == "LOOM_VALUE_FACT_NUMERIC_FORMAT_U8"
+
+
+def test_compile_lower_rule_set_compiles_exact_storage_operand_schema_guard() -> None:
+    schema = EncodingOperandSummaryDef(
+        element_format=0x20,
+        scale_format=0x40,
+        payload_packing=0x2,
+        scale_topology=0x4,
+        affine_policy=0x8,
+        payload_element_count=8,
+        scale_group_shape=(8,),
+        scale_operand_count=1,
+    )
+    table = ContractFragment(
+        name="test.exact-storage-schema",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            DescriptorRule(
+                source_op=vector.vector_fragment_load,
+                descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                guards=(
+                    Guard.value_storage_operand_schema("view", schema),
+                    Guard.value_type("result", Vector("i32", lanes=4)),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.result("result"),
+                            "rhs": ValueRef.result("result"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+
+    assert compiled.guards[0].kind == GuardKind.VALUE_STORAGE_OPERAND_SCHEMA
+    assert compiled.guards[0].value_ref_index == 0
+    assert compiled.guards[0].storage_operand_schema == schema
+
+
+def test_exact_storage_operand_schema_guard_rejects_unknown_schema() -> None:
+    with pytest.raises(ValueError, match="cannot match an unknown operand schema"):
+        Guard.value_storage_operand_schema("schema", EncodingOperandSummaryDef())
 
 
 def test_compile_lower_rule_set_compiles_value_memory_space_guard() -> None:

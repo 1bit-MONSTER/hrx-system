@@ -451,12 +451,29 @@ def _generate_source(
     )
 
     unique_guards, guard_refs = _intern_rows(table.guards)
+    storage_operand_schemas, _ = _intern_rows(tuple(row.storage_operand_schema for row in unique_guards if row.storage_operand_schema is not None))
+    storage_operand_schema_ordinals = {schema: ordinal for ordinal, schema in enumerate(storage_operand_schemas)}
+    storage_operand_schemas_name = f"k{c_table_prefix}StorageOperandSchemas"
+    lines.extend(
+        lower_rule_rows.emit_optional_array(
+            storage_operand_schemas_name,
+            "loom_encoding_operand_summary_t",
+            [lower_rule_rows.storage_operand_schema_row(schema) for schema in storage_operand_schemas],
+        )
+    )
     guards_name = f"k{c_table_prefix}Guards"
     lines.extend(
         lower_rule_rows.emit_optional_array(
             guards_name,
             "loom_low_lower_guard_t",
-            [lower_rule_rows.guard_row(descriptor_refs, row) for row in unique_guards],
+            [
+                lower_rule_rows.guard_row(
+                    descriptor_refs,
+                    row,
+                    storage_operand_schema_ordinals=storage_operand_schema_ordinals,
+                )
+                for row in unique_guards
+            ],
         )
     )
 
@@ -570,6 +587,8 @@ def _generate_source(
             diagnostic_param_refs_name=diagnostic_param_refs_name,
             guard_rows=unique_guards,
             guards_name=guards_name,
+            storage_operand_schemas=storage_operand_schemas,
+            storage_operand_schemas_name=storage_operand_schemas_name,
             guard_refs=guard_refs,
             guard_refs_name=guard_refs_name,
             attr_copies_name=attr_copies_name,
