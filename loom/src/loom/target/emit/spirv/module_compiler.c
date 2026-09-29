@@ -50,12 +50,6 @@ typedef struct loom_spirv_program_build_t {
   bool has_contract;
 } loom_spirv_program_build_t;
 
-void loom_spirv_compile_options_initialize(
-    loom_spirv_compile_options_t* out_options) {
-  IREE_ASSERT_ARGUMENT(out_options);
-  *out_options = (loom_spirv_compile_options_t){0};
-}
-
 static iree_status_t loom_spirv_compile_options_validate(
     const loom_spirv_compile_options_t* options) {
   if (options == NULL || options->entry_count == 0) {

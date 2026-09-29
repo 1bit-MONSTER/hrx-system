@@ -41,9 +41,6 @@ typedef struct loom_spirv_compile_options_t {
   iree_host_size_t entry_count;
 } loom_spirv_compile_options_t;
 
-void loom_spirv_compile_options_initialize(
-    loom_spirv_compile_options_t* out_options);
-
 // Prepares and emits one SPIR-V module through the production boundary.
 // Structured semantic rejection returns OK with |out_emitted| false and no
 // binary.

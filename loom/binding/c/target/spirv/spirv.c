@@ -16,7 +16,6 @@ static iree_status_t loomc_spirv_emit_module_artifact(
   *out_artifact = (loom_target_emit_artifact_t){0};
 
   loom_spirv_compile_options_t options = {0};
-  loom_spirv_compile_options_initialize(&options);
   options.function_versions = request->function_versions;
   loom_spirv_module_binary_t binary = {0};
   bool module_emitted = false;

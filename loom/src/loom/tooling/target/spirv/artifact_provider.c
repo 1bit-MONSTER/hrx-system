@@ -72,7 +72,6 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
     };
   }
   loom_spirv_compile_options_t compile_options = {0};
-  loom_spirv_compile_options_initialize(&compile_options);
   compile_options.function_versions = target_options->function_versions;
   compile_options.entries = compile_entries;
   compile_options.entry_count = entries.count;
