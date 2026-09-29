@@ -118,8 +118,8 @@ typedef struct loom_amdgpu_hsaco_payloads_t {
   uint64_t writable_data_alignment;
 } loom_amdgpu_hsaco_payloads_t;
 
-static_assert(LOOM_AMDGPU_HSACO_SECTION_COUNT <=
-                  LOOM_AMDGPU_HSACO_PLAN_SECTION_CAPACITY,
+static_assert((iree_host_size_t)LOOM_AMDGPU_HSACO_SECTION_COUNT <=
+                  (iree_host_size_t)LOOM_AMDGPU_HSACO_PLAN_SECTION_CAPACITY,
               "HSACO plan section capacity must cover every logical section");
 
 static uint16_t loom_amdgpu_hsaco_elf_section_index(iree_host_size_t index) {
