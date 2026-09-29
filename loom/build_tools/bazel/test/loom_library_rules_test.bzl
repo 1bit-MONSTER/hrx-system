@@ -36,7 +36,7 @@ SERIALIZED_REFERENCE_PROFILE = loom_execution_profile(
 EXPLICIT_RUNNER_PROFILE = loom_execution_profile(
     name = "explicit_runner",
     executor = "hosted",
-    runner = "//loom/src/loom/tools/loom-format",
+    runner = "//loom/src/loom/tools/iree-test-loom",
     runner_args = ["--max-samples-per-case=1"],
     target_class = "cpu",
     target_family = "test",
@@ -401,7 +401,7 @@ def _test_explicit_runner_owns_profile_execution(name, **kwargs):
 def _test_explicit_runner_owns_profile_execution_impl(env, target):
     info = target[LoomExecutionTestInfo]
     env.expect.that_str(info.profile_name).equals("explicit_runner")
-    env.expect.that_str(info.test_runner.basename).contains("loom-format")
+    env.expect.that_str(info.test_runner.basename).contains("iree-test-loom")
     if info.benchmark_runner != None:
         env.fail("explicit profile runner unexpectedly retained %r" % info.benchmark_runner)
     if info.benchmark_runner_args:
