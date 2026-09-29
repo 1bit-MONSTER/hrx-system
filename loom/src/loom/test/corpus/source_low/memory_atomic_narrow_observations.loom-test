@@ -1,0 +1,24 @@
+// Exact-width observations share the memory-ordering contract of wider cells.
+func.def @narrow_atomic_observations(%storage: buffer, %byte: i8, %half: i16, %float: f16, %brain: bf16) -> (i32, i32, f16, bf16) {
+  %base = index.constant 1 : offset
+  %aligned_base = index.constant 2 : offset
+  %bytes = index.constant 4 : offset
+  %global = buffer.assume.memory_space<global> %storage : buffer
+  %generic = buffer.assume.memory_space<generic> %storage : buffer
+  %scratch = buffer.alloca<workgroup> align(2) %bytes : buffer
+  %byte_view = buffer.view %global[%base] : buffer -> view<1xi8>
+  %half_view = buffer.view %scratch[%aligned_base] : buffer -> view<1xi16>
+  %float_view = buffer.view %generic[%aligned_base] : buffer -> view<1xf16>
+  %brain_view = buffer.view %global[%aligned_base] : buffer -> view<1xbf16>
+  view.atomic.store %byte, %byte_view[0] {ordering = release, scope = system} : i8, view<1xi8>
+  %old_byte = view.atomic.load %byte_view[0] {ordering = acquire, scope = system} : view<1xi8> -> i8
+  view.atomic.store %half, %half_view[0] {ordering = relaxed, scope = workgroup} : i16, view<1xi16>
+  %old_half = view.atomic.load %half_view[0] {ordering = relaxed, scope = workgroup} : view<1xi16> -> i16
+  view.atomic.store %float, %float_view[0] {ordering = seq_cst, scope = system} : f16, view<1xf16>
+  %old_float = view.atomic.load %float_view[0] {ordering = seq_cst, scope = system} : view<1xf16> -> f16
+  view.atomic.store %brain, %brain_view[0] {ordering = relaxed, scope = device} : bf16, view<1xbf16>
+  %old_brain = view.atomic.load %brain_view[0] {ordering = relaxed, scope = device} : view<1xbf16> -> bf16
+  %signed_byte = scalar.extsi %old_byte : i8 to i32
+  %unsigned_half = scalar.extui %old_half : i16 to i32
+  func.return %signed_byte, %unsigned_half, %old_float, %old_brain : i32, i32, f16, bf16
+}

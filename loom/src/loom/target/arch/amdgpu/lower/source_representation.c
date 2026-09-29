@@ -620,6 +620,9 @@ static const loom_low_lower_representation_boundary_t
         {LOOM_OP_VIEW_LOAD,
          LOOM_AMDGPU_SOURCE_INTEGER_REPRESENTATION_ACTION_SIGN_EXTENDED_RESULT,
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
+        {LOOM_OP_VIEW_ATOMIC_LOAD,
+         LOOM_AMDGPU_SOURCE_INTEGER_REPRESENTATION_ACTION_SIGN_EXTENDED_RESULT,
+         LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
         {LOOM_OP_VECTOR_EXTRACT,
          LOOM_AMDGPU_SOURCE_INTEGER_REPRESENTATION_ACTION_SIGN_EXTENDED_RESULT,
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
@@ -655,12 +658,12 @@ static const loom_low_lower_representation_boundary_span_t
     kAmdgpuSourceRepresentationBoundarySpans[LOOM_DIALECT_KERNEL -
                                              LOOM_DIALECT_SCALAR + 1] = {
         [LOOM_DIALECT_SCALAR - LOOM_DIALECT_SCALAR] = {0, 9},
-        [LOOM_DIALECT_VIEW - LOOM_DIALECT_SCALAR] = {9, 1},
-        [LOOM_DIALECT_VECTOR - LOOM_DIALECT_SCALAR] = {10, 6},
-        [LOOM_DIALECT_INDEX - LOOM_DIALECT_SCALAR] = {16, 1},
-        [LOOM_DIALECT_KERNEL - LOOM_DIALECT_SCALAR] = {17, 3},
+        [LOOM_DIALECT_VIEW - LOOM_DIALECT_SCALAR] = {9, 2},
+        [LOOM_DIALECT_VECTOR - LOOM_DIALECT_SCALAR] = {11, 6},
+        [LOOM_DIALECT_INDEX - LOOM_DIALECT_SCALAR] = {17, 1},
+        [LOOM_DIALECT_KERNEL - LOOM_DIALECT_SCALAR] = {18, 3},
 };
-static_assert(9 + 1 + 6 + 1 + 3 ==
+static_assert(9 + 2 + 6 + 1 + 3 ==
                   IREE_ARRAYSIZE(kAmdgpuSourceRepresentationBoundaries),
               "AMDGPU representation spans must cover every boundary");
 static_assert((loom_op_kind_t)LOOM_OP_SCALAR_SITOFP <
@@ -682,6 +685,8 @@ static_assert((loom_op_kind_t)LOOM_OP_SCALAR_SITOFP <
                   (loom_op_kind_t)LOOM_OP_SCALAR_CONSTANT <
                       (loom_op_kind_t)LOOM_OP_VIEW_LOAD &&
                   (loom_op_kind_t)LOOM_OP_VIEW_LOAD <
+                      (loom_op_kind_t)LOOM_OP_VIEW_ATOMIC_LOAD &&
+                  (loom_op_kind_t)LOOM_OP_VIEW_ATOMIC_LOAD <
                       (loom_op_kind_t)LOOM_OP_VECTOR_EXTRACT &&
                   (loom_op_kind_t)LOOM_OP_VECTOR_EXTRACT <
                       (loom_op_kind_t)LOOM_OP_VECTOR_FRAGMENT_LOAD &&

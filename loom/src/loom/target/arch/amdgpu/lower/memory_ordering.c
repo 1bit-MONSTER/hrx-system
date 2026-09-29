@@ -57,9 +57,10 @@ iree_string_view_t loom_amdgpu_atomic_memory_rejection_key(
       !is_workgroup) {
     return IREE_SV("atomic.memory_space");
   }
-  // Each observation uses one naturally aligned 32- or 64-bit memory packet.
+  // Each observation uses one naturally aligned, exact-width memory packet.
   if (source->vector_lane_count != 1 ||
-      (source->element_byte_count != 4 && source->element_byte_count != 8)) {
+      (source->element_byte_count != 1 && source->element_byte_count != 2 &&
+       source->element_byte_count != 4 && source->element_byte_count != 8)) {
     return IREE_SV("atomic.value_type");
   }
   if (source->minimum_alignment < source->element_byte_count) {
