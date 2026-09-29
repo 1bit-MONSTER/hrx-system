@@ -15,6 +15,7 @@
 #include "loom/link/linker.h"
 #include "loom/ops/pass/ops.h"
 #include "loom/pass/environment.h"
+#include "loom/pass/interpreter.h"
 #include "loom/pass/tooling.h"
 #include "loom/target/pipeline.h"
 #include "loom/target/predicate.h"
@@ -24,6 +25,7 @@
 #include "option_chain.h"
 #include "result.h"
 #include "target.h"
+#include "workspace.h"
 
 enum {
   LOOMC_PASS_PROGRAM_DEFAULT_BLOCK_SIZE = 32 * 1024,
@@ -68,6 +70,21 @@ typedef struct loomc_pass_program_compile_state_t {
   // Compile options passed to the Loom pass program compiler.
   loom_pass_program_compile_options_t compile_options;
 } loomc_pass_program_compile_state_t;
+
+typedef struct loomc_pass_program_diagnostic_capture_t {
+  // Result receiving converted diagnostics.
+  loomc_result_t* result;
+
+  // Borrowed module owning operation locations during this synchronous call.
+  const loom_module_t* module;
+} loomc_pass_program_diagnostic_capture_t;
+
+static iree_status_t loomc_pass_program_capture_diagnostic_emission(
+    void* user_data, const loom_diagnostic_emission_t* emission) {
+  const loomc_pass_program_diagnostic_capture_t* capture = user_data;
+  return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
+      capture->result, capture->module, LOOM_EMITTER_PASS, emission));
+}
 
 static loomc_status_t loomc_pass_program_validate_string_view(
     loomc_string_view_t value) {
@@ -670,4 +687,75 @@ loomc_context_t* loomc_pass_program_context(
 const loom_pass_program_t* loomc_pass_program_loom_pass_program(
     const loomc_pass_program_t* pass_program) {
   return pass_program ? &pass_program->program : NULL;
+}
+
+loomc_status_t loomc_pass_program_run_internal_module(
+    loomc_workspace_t* workspace, const loomc_pass_program_t* pass_program,
+    loom_module_t* module,
+    loom_function_version_owner_t* function_version_owner,
+    const loom_pass_environment_capability_t* supplemental_capability,
+    loomc_result_t* result) {
+  loomc_pass_program_diagnostic_capture_t capture = {
+      .result = result,
+      .module = module,
+  };
+  loom_codegen_pass_environment_storage_t codegen_environment_storage = {0};
+  loom_pass_environment_t pass_environment =
+      loomc_codegen_pass_environment_storage_initialize(
+          loomc_context_target_pass_environment(pass_program->context),
+          loomc_context_cleanup_pattern_registry(pass_program->context),
+          function_version_owner, &codegen_environment_storage);
+  loom_target_pass_predicate_provider_storage_t predicate_storage = {0};
+  loom_pass_predicate_provider_t predicate_provider = {0};
+  if (loomc_context_target_pass_environment(pass_program->context) != NULL) {
+    loom_target_pass_predicate_provider_storage_initialize(
+        loomc_workspace_block_pool(workspace), &predicate_storage);
+    predicate_provider =
+        loom_target_pass_predicate_provider(&predicate_storage);
+  }
+  const loom_pass_environment_capability_t* extended_capabilities
+      [IREE_ARRAYSIZE(codegen_environment_storage.capabilities) + 1];
+  if (supplemental_capability != NULL) {
+    for (iree_host_size_t i = 0; i < pass_environment.capability_count; ++i) {
+      extended_capabilities[i] = pass_environment.capabilities[i];
+    }
+    extended_capabilities[pass_environment.capability_count] =
+        supplemental_capability;
+    pass_environment = loom_pass_environment_make(
+        extended_capabilities, pass_environment.capability_count + 1);
+  }
+  const loom_pass_interpreter_options_t interpreter_options = {
+      .block_pool = loomc_workspace_block_pool(workspace),
+      .predicate_provider = predicate_provider,
+      .diagnostic_emitter =
+          {
+              .fn = loomc_pass_program_capture_diagnostic_emission,
+              .user_data = &capture,
+          },
+      .environment = pass_environment,
+      .function_versions =
+          function_version_owner != NULL ? &function_version_owner->list : NULL,
+  };
+  loom_pass_run_result_t run_result = {0};
+  loomc_status_t status =
+      loomc_status_from_iree(loom_pass_interpreter_run_program(
+          &pass_program->program, module, &interpreter_options, &run_result));
+  if (!loomc_status_is_ok(status) &&
+      !loomc_status_is_result_diagnostic(status)) {
+    return status;
+  }
+  if (!loomc_status_is_ok(status) && run_result.error_count != 0) {
+    loomc_status_free(status);
+    return loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
+  }
+  if (!loomc_status_is_ok(status)) {
+    return loomc_result_fail_status_diagnostic_consume(
+        result, /*source=*/NULL, LOOMC_DIAGNOSTIC_SEVERITY_ERROR,
+        loomc_make_cstring_view("PASS_PROGRAM/EXECUTION"), status);
+  }
+  LOOMC_RETURN_IF_ERROR(status);
+  if (run_result.error_count != 0) {
+    return loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
+  }
+  return loomc_ok_status();
 }

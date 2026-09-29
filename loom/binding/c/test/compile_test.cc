@@ -359,6 +359,73 @@ TEST(CompileTest, CompileModuleRunsPreparedPassProgram) {
   EXPECT_EQ(loomc_result_artifact_count(result_ptr.get()), 0u);
 }
 
+TEST(CompileTest, CompileModuleRunsNamedFunctionProgramAcrossFunctions) {
+  ContextPtr context = CreateContext();
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  SourcePtr pipeline_source = CreateTextSource("pipelines.loom", R"(
+pass.pipeline<func> @cleanup pipeline {
+  dce
+}
+)");
+  ModulePtr pipeline_module =
+      DeserializeModule(context.get(), workspace.get(), pipeline_source.get());
+  PassProgramPtr pass_program =
+      CreatePassProgramFromModuleSymbol(pipeline_module.get(), "@cleanup");
+  SourcePtr source = CreateTextSource("functions.loom", R"(
+func.def public @first(%x: i32) -> (i32) {
+  %dead = scalar.addi %x, %x : i32
+  func.return %x : i32
+}
+
+func.def public @second(%x: i32) -> (i32) {
+  %dead = scalar.addi %x, %x : i32
+  func.return %x : i32
+}
+)");
+  ModulePtr module =
+      DeserializeModule(context.get(), workspace.get(), source.get());
+
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      nullptr, loomc_allocator_system(), &result));
+  ResultPtr result_ptr(result);
+  ExpectSucceededResult(result_ptr.get());
+
+  const std::string text = SerializeModuleToText(module.get());
+  EXPECT_EQ(text.find("scalar.addi"), std::string::npos) << text;
+}
+
+TEST(CompileTest, CompileModuleReportsPassControlFailureInResult) {
+  ContextPtr context = CreateContext();
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  SourcePtr pipeline_source = CreateTextSource("pipelines.loom", R"(
+pass.pipeline<module> @boom pipeline {
+  fail "compile pass sentinel"
+}
+)");
+  ModulePtr pipeline_module =
+      DeserializeModule(context.get(), workspace.get(), pipeline_source.get());
+  PassProgramPtr pass_program =
+      CreatePassProgramFromModuleSymbol(pipeline_module.get(), "@boom");
+  ModulePtr module = CreateValidModule(context.get(), workspace.get());
+
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      nullptr, loomc_allocator_system(), &result));
+  ResultPtr result_ptr(result);
+  ExpectFailedResultCode(result_ptr.get(), "PASS_PROGRAM/EXECUTION");
+  ASSERT_EQ(loomc_result_diagnostic_count(result_ptr.get()), 1u);
+  const loomc_diagnostic_t* diagnostic =
+      loomc_result_diagnostic_at(result_ptr.get(), 0);
+  ASSERT_NE(diagnostic, nullptr);
+  EXPECT_NE(ToString(diagnostic->message).find("compile pass sentinel"),
+            std::string::npos);
+}
+
 TEST(CompileTest, CompileModuleRunsConfiguredCombineWithoutTarget) {
   ContextPtr context = CreateContext();
   WorkspacePtr workspace = CreateWorkspace();
