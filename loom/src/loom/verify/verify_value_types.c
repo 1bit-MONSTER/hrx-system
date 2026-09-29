@@ -240,9 +240,11 @@ void loom_verify_loop_entry_types(loom_verify_state_t* state,
                                     IREE_ARRAYSIZE(params));
       }
     }
-    loom_verify_loop_entry_scheme(state, op, loom_op_const_results(op),
-                                  body_entry->arg_ids + body_offset,
-                                  op->result_count, body_offset);
+    if (op->result_count > 0) {
+      loom_verify_loop_entry_scheme(state, op, loom_op_const_results(op),
+                                    body_entry->arg_ids + body_offset,
+                                    op->result_count, body_offset);
+    }
   }
 
   if (counted) {
