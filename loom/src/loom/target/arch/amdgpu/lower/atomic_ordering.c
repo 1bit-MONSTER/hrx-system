@@ -121,7 +121,8 @@ bool loom_amdgpu_atomic_orderings_supported(
                                                source->atomic.failure_ordering);
 }
 
-static bool loom_amdgpu_atomic_append_wait_counter_mask(
+// Keep wait selection shared across release and acquire packet sequences.
+IREE_ATTRIBUTE_NOINLINE static bool loom_amdgpu_atomic_append_wait_counter_mask(
     const loom_low_descriptor_set_t* descriptor_set, uint32_t counter_mask,
     loom_amdgpu_atomic_explicit_packet_selection_t* waits,
     iree_host_size_t wait_capacity, iree_host_size_t* inout_wait_count) {

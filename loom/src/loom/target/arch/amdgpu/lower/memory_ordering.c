@@ -78,7 +78,8 @@ iree_string_view_t loom_amdgpu_atomic_memory_rejection_key(
   return iree_string_view_empty();
 }
 
-static iree_status_t loom_amdgpu_emit_memory_wait(
+// Keep wait expansion shared across memory observations and fences.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_amdgpu_emit_memory_wait(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     uint32_t counter_mask) {
   loom_amdgpu_wait_packet_selection_t selection = {0};
