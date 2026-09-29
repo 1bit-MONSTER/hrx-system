@@ -27,6 +27,7 @@
 #include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/arch/amdgpu/artifact_key.h"
 #include "loom/target/arch/amdgpu/descriptors/low_registry.h"
+#include "loom/target/arch/amdgpu/error_catalog.h"
 #include "loom/target/arch/amdgpu/matrix/contract.h"
 #include "loom/target/arch/amdgpu/planning/wait_counters.h"
 #include "loom/target/arch/amdgpu/profile.h"
@@ -508,6 +509,26 @@ class AmdgpuHalKernelLibraryTest : public ::testing::Test {
         "  low.return\n"
         "}\n"
         "low.kernel.def target<amdgpu.rdna3.core>(@gfx_target) "
+        "workgroup_size(64, 1, 1) "
+        "@second_kernel() {\n"
+        "  low.return\n"
+        "}\n";
+    ASSERT_NO_FATAL_FAILURE(
+        ParseSource(iree_make_cstring_view(kSource), out_module));
+  }
+
+  void ParseGfx942FeatureDistinctMultiKernel(loom_module_t** out_module) {
+    static const char kSource[] =
+        "amdgpu.target<gfx942> @first_target "
+        "{features = [-sramecc, -xnack]}\n"
+        "amdgpu.target<gfx942> @second_target "
+        "{features = [sramecc, -xnack]}\n"
+        "low.kernel.def target<amdgpu.cdna3.core>(@first_target) "
+        "workgroup_size(64, 1, 1) "
+        "@first_kernel() {\n"
+        "  low.return\n"
+        "}\n"
+        "low.kernel.def target<amdgpu.cdna3.core>(@second_target) "
         "workgroup_size(64, 1, 1) "
         "@second_kernel() {\n"
         "  low.return\n"
@@ -1354,6 +1375,39 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsAllCompatibleKernels) {
   loom_amdgpu_hal_kernel_library_deinitialize(&library,
                                               iree_allocator_system());
   loom_target_compile_report_deinitialize(&report);
+  loom_module_free(module);
+}
+
+TEST_F(AmdgpuHalKernelLibraryTest,
+       RejectsFeatureDistinctCodeObjectTargetsBeforeEmission) {
+  if (!IsDescriptorSetLinked(IREE_SV("amdgpu.cdna3.core"))) {
+    GTEST_SKIP() << "amdgpu.cdna3.core is not linked in this build";
+  }
+  loom_module_t* module = nullptr;
+  ASSERT_NO_FATAL_FAILURE(ParseGfx942FeatureDistinctMultiKernel(&module));
+
+  DiagnosticCapture capture;
+  loom_amdgpu_hal_kernel_library_t library = {};
+  loom_amdgpu_hal_kernel_library_options_t options = {};
+  options.diagnostic_sink = capture.sink();
+  options.max_errors = 20;
+  bool emitted = true;
+  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+      module, &options, iree_allocator_system(), &emitted, &library));
+
+  EXPECT_FALSE(emitted);
+  EXPECT_EQ(library.hsaco_data, nullptr);
+  ASSERT_EQ(capture.diagnostics.size(), 1u) << DiagnosticSummary(capture);
+  const CapturedDiagnostic* diagnostic =
+      FindDiagnostic(capture, LOOM_ERR_AMDGPU_051);
+  ASSERT_NE(diagnostic, nullptr);
+  EXPECT_EQ(GetStringParam(*diagnostic, 0), "second_kernel");
+  EXPECT_NE(GetStringParam(*diagnostic, 1).find("sramecc+"), std::string::npos);
+  EXPECT_EQ(GetStringParam(*diagnostic, 2), "first_kernel");
+  EXPECT_NE(GetStringParam(*diagnostic, 3).find("sramecc-"), std::string::npos);
+
+  loom_amdgpu_hal_kernel_library_deinitialize(&library,
+                                              iree_allocator_system());
   loom_module_free(module);
 }
 

@@ -36,14 +36,13 @@
 #include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/arch/amdgpu/hal/binding_materialization.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
-#include "loom/target/arch/amdgpu/planning/packet_plan.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/provider.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/amdgpu/hsaco.h"
 #include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
-#include "loom/target/emit/native/amdgpu/kernel_hsaco.h"
+#include "loom/target/emit/native/amdgpu/kernel_emission.h"
 #include "loom/target/function_version.h"
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/specialization.h"
@@ -853,20 +852,22 @@ class LowKernelEmitter {
       return iree_ok_status();
     }
 
-    loom_amdgpu_packet_plan_t packet_plan = {};
-    IREE_RETURN_IF_ERROR(loom_amdgpu_packet_plan_build(
-        &frame.schedule, &frame.allocation, arena, &packet_plan));
-
     StreamPtr stream = CreateStream();
-    const loom_amdgpu_kernel_hsaco_options_t hsaco_options = {
-        /*.abi_layout=*/&materialization.abi_layout,
-        /*.abi_verify=*/&abi_verify_result,
-        /*.preflight=*/{},
-        /*.packet_plan=*/&packet_plan,
+    loom_amdgpu_hsaco_kernel_t kernel = {};
+    IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_emission_build(
+        &frame, &materialization.abi_layout, &abi_verify_result,
+        /*preflight=*/nullptr, /*target_listing=*/nullptr, /*report=*/nullptr,
+        &kernel, arena));
+    const loom_amdgpu_hsaco_input_t hsaco_input = {
+        /*.target_identity=*/target_profile->identity,
+        /*.kernels=*/&kernel,
+        /*.kernel_count=*/1,
     };
+    loom_amdgpu_hsaco_plan_t hsaco_plan = {};
     IREE_RETURN_IF_ERROR(
-        loom_amdgpu_emit_kernel_hsaco(&frame.schedule, &frame.allocation,
-                                      &hsaco_options, stream.get(), arena));
+        loom_amdgpu_hsaco_prepare(&hsaco_input, &hsaco_plan, arena));
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_hsaco_write_plan(&hsaco_plan, stream.get(), arena));
     *out_hsaco = StreamBytes(stream.get());
     *out_emitted = true;
     return iree_ok_status();

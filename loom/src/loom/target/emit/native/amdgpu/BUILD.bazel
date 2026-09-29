@@ -431,7 +431,6 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:allocation",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
-        "//loom/src/loom/target/arch/amdgpu/hal:kernel_abi",
         "//runtime/src/iree/base",
     ],
 )
@@ -448,39 +447,20 @@ loom_cc_test(
 )
 
 loom_cc_library(
-    name = "kernel_hsaco",
-    srcs = ["kernel_hsaco.c"],
-    hdrs = ["kernel_hsaco.h"],
-    deps = [
-        ":encoding",
-        ":hsaco",
-        ":hsaco_prepare",
-        ":kernel_entry",
-        ":kernel_record",
-        "//loom/src/loom/codegen/low:allocation",
-        "//loom/src/loom/codegen/low/schedule",
-        "//loom/src/loom/target:residency",
-        "//loom/src/loom/target/arch/amdgpu:target_identity",
-        "//loom/src/loom/target/arch/amdgpu/hal:kernel_abi",
-        "//loom/src/loom/target/arch/amdgpu/planning:occupancy",
-        "//loom/src/loom/target/arch/amdgpu/planning:packet_plan",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/io:stream",
-    ],
-)
-
-loom_cc_library(
     name = "kernel_emission",
     srcs = ["kernel_emission.c"],
     hdrs = ["kernel_emission.h"],
     deps = [
+        ":encoding",
+        ":hsaco_prepare",
         ":kernel_assembly",
-        ":kernel_hsaco",
+        ":kernel_entry",
+        ":kernel_record",
         ":preflight",
         "//loom/src/loom/codegen/low:frame",
         "//loom/src/loom/ir",
         "//loom/src/loom/target/arch/amdgpu/hal:kernel_abi",
+        "//loom/src/loom/target/arch/amdgpu/planning:occupancy",
         "//loom/src/loom/target/arch/amdgpu/planning:packet_plan",
         "//loom/src/loom/target/arch/amdgpu/planning:wait_counters",
         "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
@@ -551,8 +531,9 @@ loom_cc_library(
     hdrs = ["hal_kernel_library.h"],
     visibility = _AMDGPU_TOOLING_VISIBILITY,
     deps = [
+        ":hsaco",
+        ":hsaco_prepare",
         ":kernel_emission",
-        ":kernel_hsaco",
         ":preflight",
         ":runtime_globals",
         ":spill_lowering",
@@ -570,6 +551,7 @@ loom_cc_library(
         "//loom/src/loom/target:types",
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
         "//loom/src/loom/target/arch/amdgpu:artifact_key",
+        "//loom/src/loom/target/arch/amdgpu:error_defs",
         "//loom/src/loom/target/arch/amdgpu:facts",
         "//loom/src/loom/target/arch/amdgpu:provider",
         "//loom/src/loom/target/arch/amdgpu:target_info",
@@ -611,6 +593,7 @@ loom_cc_test(
         "//loom/src/loom/target:profile",
         "//loom/src/loom/target/arch/amdgpu:amdhsa_target_id",
         "//loom/src/loom/target/arch/amdgpu:artifact_key",
+        "//loom/src/loom/target/arch/amdgpu:error_defs",
         "//loom/src/loom/target/arch/amdgpu:profile",
         "//loom/src/loom/target/arch/amdgpu:provider",
         "//loom/src/loom/target/arch/amdgpu:target_info",
@@ -678,22 +661,6 @@ loom_cc_test(
 )
 
 loom_cc_test(
-    name = "kernel_hsaco_test",
-    srcs = ["kernel_hsaco_test.cc"],
-    deps = [
-        ":kernel_hsaco",
-        "//loom/src/loom/target/arch/amdgpu:target_identity",
-        "//loom/src/loom/target/arch/amdgpu:target_info",
-        "//loom/src/loom/target/emit/native:elf",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/io:stream",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-loom_cc_test(
     name = "hsaco_hsa_test",
     srcs = ["hsaco_hsa_test.cc"],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
@@ -706,7 +673,7 @@ loom_cc_test(
     deps = [
         ":hsaco",
         ":hsaco_prepare",
-        ":kernel_hsaco",
+        ":kernel_emission",
         "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:frame",
         "//loom/src/loom/codegen/low:function",
@@ -726,7 +693,6 @@ loom_cc_test(
         "//loom/src/loom/target/arch/amdgpu:target_info",
         "//loom/src/loom/target/arch/amdgpu/hal:binding_materialization",
         "//loom/src/loom/target/arch/amdgpu/hal:kernel_abi",
-        "//loom/src/loom/target/arch/amdgpu/planning:packet_plan",
         "//loom/src/loom/target/arch/amdgpu/planning:storage_lease",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",

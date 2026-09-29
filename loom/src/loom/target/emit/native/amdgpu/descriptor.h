@@ -9,7 +9,7 @@
 // The kernel descriptor is the loader-visible resource contract for one kernel.
 // Loom keeps it as structured facts until final object layout gives us the
 // descriptor-to-entry offset, then writes the fixed 64-byte AMDHSA descriptor
-// directly into a native contribution.
+// directly into final code-object storage.
 
 #ifndef LOOM_TARGET_EMIT_NATIVE_AMDGPU_DESCRIPTOR_H_
 #define LOOM_TARGET_EMIT_NATIVE_AMDGPU_DESCRIPTOR_H_
