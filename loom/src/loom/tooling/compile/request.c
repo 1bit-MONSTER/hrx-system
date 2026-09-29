@@ -490,6 +490,11 @@ static iree_status_t loom_compile_request_resolve_selection(
   switch (selected_product) {
     case LOOM_COMPILE_PRODUCT_COMMAND:
       if (out_summary->root_count == 0) {
+        if (excluded_roots.count != 0) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "excluded roots empty the default command root set");
+        }
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
             "product 'command' requires a nonempty set of public or retained "
@@ -498,6 +503,11 @@ static iree_status_t loom_compile_request_resolve_selection(
       return iree_ok_status();
     case LOOM_COMPILE_PRODUCT_KERNEL:
       if (out_summary->root_count == 0) {
+        if (excluded_roots.count != 0) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "excluded roots empty the default kernel root set");
+        }
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
             "product 'kernel' requires a nonempty root set of kernel entries, "
@@ -508,8 +518,7 @@ static iree_status_t loom_compile_request_resolve_selection(
       if (out_summary->root_count == 0) {
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
-            "excluded roots empty the default module root set; use a "
-            "whole-file exclusion instead");
+            "excluded roots empty the default module root set");
       }
       return iree_ok_status();
     case LOOM_COMPILE_PRODUCT_INVALID:

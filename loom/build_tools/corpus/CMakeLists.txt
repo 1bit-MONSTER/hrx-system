@@ -58,6 +58,7 @@ iree_execution_test_suite(
     "loom-compile=loom::tools::loom-compile"
     "loom-corpus-compile-xfails=::loom-corpus-compile-xfails"
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/build_tools/corpus/testdata/all_roots_xfail.loom"
     "${PROJECT_SOURCE_DIR}/loom/build_tools/corpus/testdata/diagnostic_xfails.loom"
   LABELS
     "hostonly"

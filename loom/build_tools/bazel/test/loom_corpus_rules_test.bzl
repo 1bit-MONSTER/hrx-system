@@ -135,6 +135,45 @@ def _test_program_exposes_outputs_and_batched_xfails_impl(env, target):
     if len(target[OutputGroupInfo].xfail_results.to_list()) != 2:
         env.fail("expected two xfail-result output-group files")
 
+def _test_program_supports_all_roots_xfail(name, **kwargs):
+    analysis_test(
+        name = name,
+        impl = _test_program_supports_all_roots_xfail_impl,
+        target = _FIXTURE + ":sample_other",
+        **kwargs
+    )
+
+def _test_program_supports_all_roots_xfail_impl(env, target):
+    actions = target[TestingAspectInfo].actions
+    compile_actions = _actions_with_mnemonic(actions, "LoomCorpusCompile")
+    if len(compile_actions) != 1:
+        env.fail("expected only profile A to produce a positive compile: %r" % compile_actions)
+        return
+    _action_with_argument(env, compile_actions, "--target=fake:a")
+
+    xfail_actions = _actions_with_mnemonic(actions, "LoomCorpusXfails")
+    if len(xfail_actions) != 1:
+        env.fail("expected one all-roots xfail action: %r" % xfail_actions)
+        return
+    profile_b = _action_with_argument(env, xfail_actions, "--target=fake:b")
+    for expected_arg in [
+        "--require-all-roots",
+        "--expected-root=@other",
+        "--expected-diagnostic=TARGET/033",
+    ]:
+        if expected_arg not in profile_b.argv:
+            env.fail("expected %r in all-roots xfail arguments %r" % (expected_arg, profile_b.argv))
+
+    default_files = target[DefaultInfo].files.to_list()
+    if len(default_files) != 3:
+        env.fail("expected one artifact, one report, and one xfail result: %r" % default_files)
+    if len(target[OutputGroupInfo].artifacts.to_list()) != 1:
+        env.fail("expected one artifact output-group file")
+    if len(target[OutputGroupInfo].compile_reports.to_list()) != 1:
+        env.fail("expected one compile-report output-group file")
+    if len(target[OutputGroupInfo].xfail_results.to_list()) != 1:
+        env.fail("expected one xfail-result output-group file")
+
 def _test_aggregate_collects_program_outputs(name, **kwargs):
     analysis_test(
         name = name,
@@ -153,16 +192,16 @@ def _test_aggregate_collects_program_outputs_impl(env, target):
         "sample/other.loom",
     ]:
         env.fail("unexpected source identities %r" % corpus.source_identities.to_list())
-    if len(corpus.artifacts.to_list()) != 4:
-        env.fail("expected four corpus artifacts, got %r" % corpus.artifacts.to_list())
-    if len(corpus.compile_reports.to_list()) != 4:
-        env.fail("expected four corpus reports, got %r" % corpus.compile_reports.to_list())
-    if len(corpus.qualification_results.to_list()) != 2:
+    if len(corpus.artifacts.to_list()) != 3:
+        env.fail("expected three corpus artifacts, got %r" % corpus.artifacts.to_list())
+    if len(corpus.compile_reports.to_list()) != 3:
+        env.fail("expected three corpus reports, got %r" % corpus.compile_reports.to_list())
+    if len(corpus.qualification_results.to_list()) != 3:
         env.fail(
-            "expected two corpus qualification results, got %r" %
+            "expected three corpus qualification results, got %r" %
             corpus.qualification_results.to_list(),
         )
-    if len(target[DefaultInfo].files.to_list()) != 10:
+    if len(target[DefaultInfo].files.to_list()) != 9:
         env.fail("aggregate default outputs must request every qualification action")
 
 def _test_program_allows_explicit_full_exclusion(name, **kwargs):
@@ -190,5 +229,6 @@ def loom_corpus_rules_test_suite(name):
             _test_program_allows_explicit_full_exclusion,
             _test_program_exposes_outputs_and_batched_xfails,
             _test_program_fans_out_by_profile,
+            _test_program_supports_all_roots_xfail,
         ],
     )

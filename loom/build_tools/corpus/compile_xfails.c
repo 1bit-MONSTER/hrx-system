@@ -21,6 +21,9 @@ IREE_FLAG_LIST_NAMED(
     string, expected_diagnostic, "expected-diagnostic",
     "Required compiler diagnostic identity as DOMAIN/NNN. Repeat in the same "
     "order as --expected-root.");
+IREE_FLAG_NAMED(
+    bool, require_all_roots, "require-all-roots", false,
+    "Require the expected roots to exhaust the compiler's default root set.");
 IREE_FLAG_NAMED(string, stamp_output, "stamp-output", "",
                 "Output stamp written only after all expected failures.");
 
@@ -41,6 +44,7 @@ static iree_status_t loom_corpus_validate_compiler_arguments(int argument_count,
       IREE_SV("--output"),
       IREE_SV("--compile-report"),
       IREE_SV("--compile-report-output"),
+      IREE_SV("--exclude-root"),
       IREE_SV("--root"),
   };
   for (int i = 0; i < argument_count; ++i) {
@@ -116,6 +120,24 @@ static void loom_corpus_print_compiler_stderr(
   }
 }
 
+static bool loom_corpus_compiler_exhausted_default_roots(
+    const loom_tool_output_t* compiler_stderr) {
+  const iree_string_view_t stderr_text =
+      iree_make_string_view(compiler_stderr->data, compiler_stderr->length);
+  const iree_string_view_t messages[] = {
+      IREE_SV("excluded roots empty the default command root set"),
+      IREE_SV("excluded roots empty the default kernel root set"),
+      IREE_SV("excluded roots empty the default module root set"),
+  };
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(messages); ++i) {
+    if (iree_string_view_find(stderr_text, messages[i], 0) !=
+        IREE_STRING_VIEW_NPOS) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
   const iree_string_view_t compiler_path =
       iree_make_cstring_view(FLAG_compiler);
@@ -150,12 +172,15 @@ static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
   }
 
   const iree_host_size_t compiler_argument_count = (iree_host_size_t)(argc - 1);
-  iree_host_size_t total_argument_count = 0;
+  iree_host_size_t common_argument_count = 0;
+  iree_host_size_t argument_capacity = 0;
   iree_host_size_t argument_storage_size = 0;
   if (iree_status_is_ok(status) &&
-      (!iree_host_size_checked_add(compiler_argument_count, 4,
-                                   &total_argument_count) ||
-       !iree_host_size_checked_mul(total_argument_count,
+      (!iree_host_size_checked_add(compiler_argument_count, 3,
+                                   &common_argument_count) ||
+       !iree_host_size_checked_add(common_argument_count, expected_roots.count,
+                                   &argument_capacity) ||
+       !iree_host_size_checked_mul(argument_capacity,
                                    sizeof(iree_string_view_t),
                                    &argument_storage_size))) {
     status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
@@ -193,15 +218,15 @@ static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
                                                   allocator, &root_argument);
     }
     if (iree_status_is_ok(status)) {
-      compiler_arguments[compiler_argument_count + 3] =
+      compiler_arguments[common_argument_count] =
           iree_make_cstring_view(root_argument);
     }
 
     loom_tool_process_result_t result = {0};
     if (iree_status_is_ok(status)) {
-      status = loom_tool_process_run(compiler_path, /*search_path=*/false,
-                                     compiler_arguments, total_argument_count,
-                                     allocator, &result);
+      status = loom_tool_process_run(
+          compiler_path, /*search_path=*/false, compiler_arguments,
+          common_argument_count + 1, allocator, &result);
     }
     if (iree_status_is_ok(status)) {
       const iree_string_view_t compile_report_json = iree_make_string_view(
@@ -222,6 +247,55 @@ static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
     loom_tool_process_result_deinitialize(&result, allocator);
     iree_allocator_free(allocator, root_argument);
   }
+
+  char** exclusion_arguments = NULL;
+  iree_host_size_t exclusion_storage_size = 0;
+  if (iree_status_is_ok(status) && FLAG_require_all_roots &&
+      (!iree_host_size_checked_mul(expected_roots.count,
+                                   sizeof(*exclusion_arguments),
+                                   &exclusion_storage_size))) {
+    status =
+        iree_make_status(IREE_STATUS_OUT_OF_RANGE, "too many expected roots");
+  }
+  if (iree_status_is_ok(status) && FLAG_require_all_roots) {
+    status = iree_allocator_malloc(allocator, exclusion_storage_size,
+                                   (void**)&exclusion_arguments);
+    if (iree_status_is_ok(status)) {
+      memset(exclusion_arguments, 0, exclusion_storage_size);
+    }
+  }
+  for (iree_host_size_t i = 0;
+       i < expected_roots.count && iree_status_is_ok(status) &&
+       FLAG_require_all_roots;
+       ++i) {
+    status = loom_corpus_make_compiler_argument(
+        IREE_SV("--exclude-root="), expected_roots.values[i], allocator,
+        &exclusion_arguments[i]);
+    if (iree_status_is_ok(status)) {
+      compiler_arguments[common_argument_count + i] =
+          iree_make_cstring_view(exclusion_arguments[i]);
+    }
+  }
+  if (iree_status_is_ok(status) && FLAG_require_all_roots) {
+    loom_tool_process_result_t result = {0};
+    status = loom_tool_process_run(
+        compiler_path, /*search_path=*/false, compiler_arguments,
+        common_argument_count + expected_roots.count, allocator, &result);
+    if (iree_status_is_ok(status) && result.exit_code == 0) {
+      status = iree_make_status(
+          IREE_STATUS_FAILED_PRECONDITION,
+          "declared xfail roots do not exhaust the default root set: compiler "
+          "accepted at least one remaining root");
+    } else if (iree_status_is_ok(status) &&
+               !loom_corpus_compiler_exhausted_default_roots(
+                   &result.stderr_bytes)) {
+      loom_corpus_print_compiler_stderr(&result.stderr_bytes);
+      status = iree_make_status(
+          IREE_STATUS_FAILED_PRECONDITION,
+          "declared xfail roots do not exhaust the default root set");
+    }
+    loom_tool_process_result_deinitialize(&result, allocator);
+  }
   if (iree_status_is_ok(status)) {
     const iree_string_view_t stamp = iree_string_builder_view(&stamp_builder);
     status = iree_io_file_contents_write(
@@ -230,6 +304,12 @@ static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
   }
 
   iree_string_builder_deinitialize(&stamp_builder);
+  for (iree_host_size_t i = 0; i < expected_roots.count; ++i) {
+    if (exclusion_arguments != NULL) {
+      iree_allocator_free(allocator, exclusion_arguments[i]);
+    }
+  }
+  iree_allocator_free(allocator, exclusion_arguments);
   iree_allocator_free(allocator, compiler_arguments);
   iree_allocator_free(allocator, output_argument);
   if (artifact_file_initialized) {

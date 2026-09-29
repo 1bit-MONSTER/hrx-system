@@ -150,7 +150,7 @@ function(_loom_declare_corpus_build ID)
     _RULE
     ""
     "NAME"
-    "MANIFESTS;PROFILES;XFAILS;EXCLUDES"
+    "MANIFESTS;PROFILES;XFAILS;ALL_ROOTS_XFAIL;EXCLUDES"
     ${_ARGUMENTS}
   )
   if(NOT _RULE_NAME)
@@ -268,6 +268,59 @@ function(_loom_declare_corpus_build ID)
   endwhile()
   list(LENGTH _XFAILS _XFAIL_VALUE_COUNT)
 
+  list(LENGTH _RULE_ALL_ROOTS_XFAIL _RULE_ALL_ROOTS_XFAIL_VALUE_COUNT)
+  math(EXPR _ALL_ROOTS_XFAIL_REMAINDER
+    "${_RULE_ALL_ROOTS_XFAIL_VALUE_COUNT} % 2")
+  if(NOT _ALL_ROOTS_XFAIL_REMAINDER EQUAL 0)
+    message(FATAL_ERROR
+      "loom_corpus_build(${_RULE_NAME}) ALL_ROOTS_XFAIL must contain target/source pairs")
+  endif()
+  set(_ALL_ROOTS_XFAILS)
+  set(_ALL_ROOTS_XFAIL_IDENTITIES)
+  set(_INDEX 0)
+  while(_INDEX LESS _RULE_ALL_ROOTS_XFAIL_VALUE_COUNT)
+    list(GET _RULE_ALL_ROOTS_XFAIL ${_INDEX} _TARGET_REF)
+    math(EXPR _INDEX "${_INDEX} + 1")
+    list(GET _RULE_ALL_ROOTS_XFAIL ${_INDEX} _SOURCE_ID)
+    math(EXPR _INDEX "${_INDEX} + 1")
+    iree_package_target_name(_ALL_ROOTS_XFAIL_TARGET "${_TARGET_REF}")
+    if(NOT TARGET "${_ALL_ROOTS_XFAIL_TARGET}")
+      message(FATAL_ERROR
+        "loom_corpus_build(${_RULE_NAME}) names unknown all-roots xfail target ${_TARGET_REF}")
+    endif()
+    get_property(_IS_PROFILE_SET
+      TARGET "${_ALL_ROOTS_XFAIL_TARGET}" PROPERTY LOOM_TARGET_PROFILES SET)
+    if(NOT _IS_PROFILE_SET)
+      message(FATAL_ERROR
+        "loom_corpus_build(${_RULE_NAME}) all-roots xfail key ${_TARGET_REF} is not a Loom profile or set")
+    endif()
+    if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
+      message(FATAL_ERROR
+        "loom_corpus_build(${_RULE_NAME}) all-roots xfail names unknown source ${_SOURCE_ID}")
+    endif()
+    get_target_property(_ALL_ROOTS_XFAIL_PROFILES
+      "${_ALL_ROOTS_XFAIL_TARGET}" LOOM_TARGET_PROFILES)
+    foreach(_PROFILE IN LISTS _ALL_ROOTS_XFAIL_PROFILES)
+      get_target_property(_PROFILE_AVAILABLE
+        "${_PROFILE}" LOOM_PROFILE_AVAILABLE)
+      if(NOT _PROFILE_AVAILABLE)
+        continue()
+      endif()
+      if(NOT _PROFILE IN_LIST _PROFILES)
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) marks all roots xfail for unselected profile ${_PROFILE}")
+      endif()
+      set(_IDENTITY "${_PROFILE}|${_SOURCE_ID}")
+      if(_IDENTITY IN_LIST _ALL_ROOTS_XFAIL_IDENTITIES)
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) repeats all-roots xfail for ${_SOURCE_ID} on ${_PROFILE}")
+      endif()
+      list(APPEND _ALL_ROOTS_XFAIL_IDENTITIES "${_IDENTITY}")
+      list(APPEND _ALL_ROOTS_XFAILS "${_PROFILE}" "${_SOURCE_ID}")
+    endforeach()
+  endwhile()
+  list(LENGTH _ALL_ROOTS_XFAILS _ALL_ROOTS_XFAIL_VALUE_COUNT)
+
   list(LENGTH _RULE_EXCLUDES _RULE_EXCLUDE_VALUE_COUNT)
   math(EXPR _EXCLUDE_REMAINDER "${_RULE_EXCLUDE_VALUE_COUNT} % 3")
   if(NOT _EXCLUDE_REMAINDER EQUAL 0)
@@ -345,6 +398,30 @@ function(_loom_declare_corpus_build ID)
           "${_XFAIL_SOURCE_ID} for ${_XFAIL_PROFILE}")
       endif()
     endwhile()
+  endwhile()
+
+  set(_ALL_ROOTS_XFAIL_INDEX 0)
+  while(_ALL_ROOTS_XFAIL_INDEX LESS _ALL_ROOTS_XFAIL_VALUE_COUNT)
+    list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX} _PROFILE)
+    math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
+    list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX} _SOURCE_ID)
+    math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
+    set(_HAS_XFAIL FALSE)
+    set(_XFAIL_INDEX 0)
+    while(_XFAIL_INDEX LESS _XFAIL_VALUE_COUNT)
+      list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_PROFILE)
+      math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
+      list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_SOURCE_ID)
+      math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 3")
+      if(_PROFILE STREQUAL _XFAIL_PROFILE AND
+         _SOURCE_ID STREQUAL _XFAIL_SOURCE_ID)
+        set(_HAS_XFAIL TRUE)
+      endif()
+    endwhile()
+    if(NOT _HAS_XFAIL)
+      message(FATAL_ERROR
+        "loom_corpus_build(${_RULE_NAME}) marks all roots xfail for ${_SOURCE_ID} on ${_PROFILE} without diagnostic xfails")
+    endif()
   endwhile()
 
   iree_package_name(_PACKAGE_NAME)
@@ -432,33 +509,53 @@ function(_loom_declare_corpus_build ID)
         endif()
       endwhile()
 
-      set(_ARTIFACT "${_OUTPUT_DIR}/${_PROFILE_STEM}.artifact")
-      set(_REPORT "${_OUTPUT_DIR}/${_PROFILE_STEM}.compile.json")
-      set(_EXCLUDE_ARGS)
-      foreach(_ROOT IN LISTS _XFAIL_ROOTS)
-        list(APPEND _EXCLUDE_ARGS "--exclude-root=${_ROOT}")
-      endforeach()
-      add_custom_command(
-        OUTPUT "${_ARTIFACT}" "${_REPORT}"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_OUTPUT_DIR}"
-        COMMAND "$<TARGET_FILE:loom::tools::loom-compile>"
-          "${_SUBJECT_MODULE}"
-          "--target=${_COMPILER_TARGET}"
-          ${_EXCLUDE_ARGS}
-          "--output=${_ARTIFACT}"
-          "--compile-report=details"
-          "--compile-report-output=${_REPORT}"
-        DEPENDS loom::tools::loom-compile "${_SUBJECT_MODULE}"
-        COMMENT "Compiling corpus program ${_SOURCE_ID} for ${_COMPILER_TARGET}"
-        VERBATIM
-      )
-      list(APPEND _PROGRAM_OUTPUTS "${_ARTIFACT}" "${_REPORT}")
-      list(APPEND _PROGRAM_ARTIFACTS "${_ARTIFACT}")
-      list(APPEND _PROGRAM_REPORTS "${_REPORT}")
+      set(_REQUIRE_ALL_ROOTS FALSE)
+      set(_ALL_ROOTS_XFAIL_INDEX 0)
+      while(_ALL_ROOTS_XFAIL_INDEX LESS _ALL_ROOTS_XFAIL_VALUE_COUNT)
+        list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX}
+          _ALL_ROOTS_XFAIL_PROFILE)
+        math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
+        list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX}
+          _ALL_ROOTS_XFAIL_SOURCE_ID)
+        math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
+        if(_PROFILE STREQUAL _ALL_ROOTS_XFAIL_PROFILE AND
+           _SOURCE_ID STREQUAL _ALL_ROOTS_XFAIL_SOURCE_ID)
+          set(_REQUIRE_ALL_ROOTS TRUE)
+        endif()
+      endwhile()
+
+      if(NOT _REQUIRE_ALL_ROOTS)
+        set(_ARTIFACT "${_OUTPUT_DIR}/${_PROFILE_STEM}.artifact")
+        set(_REPORT "${_OUTPUT_DIR}/${_PROFILE_STEM}.compile.json")
+        set(_EXCLUDE_ARGS)
+        foreach(_ROOT IN LISTS _XFAIL_ROOTS)
+          list(APPEND _EXCLUDE_ARGS "--exclude-root=${_ROOT}")
+        endforeach()
+        add_custom_command(
+          OUTPUT "${_ARTIFACT}" "${_REPORT}"
+          COMMAND "${CMAKE_COMMAND}" -E make_directory "${_OUTPUT_DIR}"
+          COMMAND "$<TARGET_FILE:loom::tools::loom-compile>"
+            "${_SUBJECT_MODULE}"
+            "--target=${_COMPILER_TARGET}"
+            ${_EXCLUDE_ARGS}
+            "--output=${_ARTIFACT}"
+            "--compile-report=details"
+            "--compile-report-output=${_REPORT}"
+          DEPENDS loom::tools::loom-compile "${_SUBJECT_MODULE}"
+          COMMENT "Compiling corpus program ${_SOURCE_ID} for ${_COMPILER_TARGET}"
+          VERBATIM
+        )
+        list(APPEND _PROGRAM_OUTPUTS "${_ARTIFACT}" "${_REPORT}")
+        list(APPEND _PROGRAM_ARTIFACTS "${_ARTIFACT}")
+        list(APPEND _PROGRAM_REPORTS "${_REPORT}")
+      endif()
 
       list(LENGTH _XFAIL_ROOTS _PROFILE_XFAIL_COUNT)
       if(_PROFILE_XFAIL_COUNT GREATER 0)
         set(_XFAIL_ARGS)
+        if(_REQUIRE_ALL_ROOTS)
+          list(APPEND _XFAIL_ARGS "--require-all-roots")
+        endif()
         set(_PROFILE_XFAIL_INDEX 0)
         while(_PROFILE_XFAIL_INDEX LESS _PROFILE_XFAIL_COUNT)
           list(GET _XFAIL_ROOTS ${_PROFILE_XFAIL_INDEX} _ROOT)

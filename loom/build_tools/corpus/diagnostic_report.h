@@ -31,10 +31,10 @@ iree_status_t loom_corpus_diagnostic_id_parse(
 // Verifies one compiler result against its expected diagnostic identity.
 //
 // A zero exit code is an XPASS. A nonzero exit code succeeds only when
-// |compile_report_json| is a details-mode Loom compile report whose error
-// diagnostics all have |expected_diagnostic_id|. Missing reports, reports with
-// no error diagnostic, and reports with any other error identity fail
-// distinctly.
+// |compile_report_json| is a details-mode Loom compile report containing
+// |expected_diagnostic_id|. Additional errors may describe other unsupported
+// operations in the same root. Missing reports, reports with no error
+// diagnostic, and reports without the expected identity fail distinctly.
 iree_status_t loom_corpus_compile_report_expect_diagnostic(
     int compiler_exit_code, iree_string_view_t compile_report_json,
     loom_corpus_diagnostic_id_t expected_diagnostic_id);

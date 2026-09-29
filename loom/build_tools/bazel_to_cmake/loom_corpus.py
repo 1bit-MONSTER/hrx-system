@@ -75,6 +75,7 @@ class LoomCorpusBuildFileFunctions:
         catalog,
         profiles,
         xfails=None,
+        all_roots_xfail=None,
         excludes=None,
         tags=None,
         **kwargs,
@@ -110,6 +111,18 @@ class LoomCorpusBuildFileFunctions:
                     ]
                 )
 
+        all_roots_xfail_values = []
+        for target in sorted(all_roots_xfail or {}):
+            converted_targets = self._convert_target(
+                self._loom_target_identity_label(target)
+            )
+            if len(converted_targets) != 1:
+                raise NotImplementedError(
+                    f"loom_corpus_build all-roots xfail target: {target}"
+                )
+            for source in sorted(all_roots_xfail[target]):
+                all_roots_xfail_values.extend([converted_targets[0], source])
+
         exclude_values = []
         for target in sorted(excludes or {}):
             converted_targets = self._convert_target(
@@ -138,6 +151,9 @@ class LoomCorpusBuildFileFunctions:
             )
             + self._convert_string_list_block(
                 "XFAILS", xfail_values or None, sort=False
+            )
+            + self._convert_string_list_block(
+                "ALL_ROOTS_XFAIL", all_roots_xfail_values or None, sort=False
             )
             + self._convert_string_list_block(
                 "EXCLUDES", exclude_values or None, sort=False

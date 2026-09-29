@@ -59,6 +59,18 @@ TEST(DiagnosticReportTest, AcceptsOnlyExpectedErrorDiagnostics) {
                                                               kTarget072));
 }
 
+TEST(DiagnosticReportTest, AcceptsExpectedDiagnosticAlongsideOtherErrors) {
+  IREE_EXPECT_OK(loom_corpus_compile_report_expect_diagnostic(1, IREE_SV(R"({
+        "kind": "loom.compile_report",
+        "mode": "details",
+        "diagnostics": [
+          {"severity": "error", "domain": "TARGET", "code": 72},
+          {"severity": "error", "domain": "TYPE", "code": 1}
+        ]
+      })"),
+                                                              kTarget072));
+}
+
 TEST(DiagnosticReportTest, DetectsXpass) {
   iree_status_t status = loom_corpus_compile_report_expect_diagnostic(
       0, iree_string_view_empty(), kTarget072);

@@ -189,7 +189,8 @@ iree_status_t loom_corpus_compile_report_expect_diagnostic(
   };
   IREE_RETURN_IF_ERROR(iree_json_enumerate_array(
       diagnostics, loom_corpus_compile_report_visit_diagnostic, &match));
-  if (!iree_string_view_is_empty(match.first_unexpected_domain)) {
+  if (match.expected_count == 0 &&
+      !iree_string_view_is_empty(match.first_unexpected_domain)) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "wrong diagnostic: expected %s/%03u, received %.*s/%03u",
