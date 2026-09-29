@@ -121,7 +121,8 @@ CHECK-NOT: * = buffer_load_b128 *
 // ====
 
 // Repeated row biases on two roots pay for one shifted descriptor per root.
-// The clamped loop term is shared; row biases remain scalar/immediate offsets.
+// Interleaved roots share the clamped loop term without merging their costs;
+// row biases remain scalar/immediate offsets.
 kernel.def @reused_buffer_origins() {
   %unit_count = index.constant 1 : index
   %threads = index.constant 32 : index
@@ -147,12 +148,12 @@ kernel.def @reused_buffer_origins() {
     %clamped = index.min %iteration, %last : index
     %column = index.mul %clamped, %width : index
     %left_zero = vector.load %left_view[%lane, %column] : view<1024x16xi32> -> vector<4xi32>
-    %left_one = vector.load %left_view[%row_one, %column] : view<1024x16xi32> -> vector<4xi32>
-    %left_two = vector.load %left_view[%row_two, %column] : view<1024x16xi32> -> vector<4xi32>
-    %left_three = vector.load %left_view[%row_three, %column] : view<1024x16xi32> -> vector<4xi32>
     %right_zero = vector.load %right_view[%lane, %column] : view<1024x16xi32> -> vector<4xi32>
+    %left_one = vector.load %left_view[%row_one, %column] : view<1024x16xi32> -> vector<4xi32>
     %right_one = vector.load %right_view[%row_one, %column] : view<1024x16xi32> -> vector<4xi32>
+    %left_two = vector.load %left_view[%row_two, %column] : view<1024x16xi32> -> vector<4xi32>
     %right_two = vector.load %right_view[%row_two, %column] : view<1024x16xi32> -> vector<4xi32>
+    %left_three = vector.load %left_view[%row_three, %column] : view<1024x16xi32> -> vector<4xi32>
     %right_three = vector.load %right_view[%row_three, %column] : view<1024x16xi32> -> vector<4xi32>
     %left_pair = vector.addi %left_zero, %left_one : vector<4xi32>
     %left_triple = vector.addi %left_pair, %left_two : vector<4xi32>
