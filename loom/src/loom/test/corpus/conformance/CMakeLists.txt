@@ -456,7 +456,7 @@ loom_test_module(
     "scalar_integer_address.loom"
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
     scalar_integer_address_test_execute_amdgpu_hardware_test
