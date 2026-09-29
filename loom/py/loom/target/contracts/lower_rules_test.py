@@ -62,6 +62,7 @@ from loom.target.contracts import (
     TypePattern,
     ValueAliasRule,
     ValueElideRule,
+    ValueMaterializer,
     ValueProject,
     ValueRef,
     ValueTypeProject,
@@ -71,6 +72,7 @@ from loom.target.contracts import (
 )
 from loom.target.low_descriptors import EnumDomain, EnumValue, Immediate, ImmediateKind
 from loom.target.test.descriptors import (
+    TEST_LOW_ACCUMULATE_V8I32_DESCRIPTOR,
     TEST_LOW_ADD_F32_DESCRIPTOR,
     TEST_LOW_ADD_I32_DESCRIPTOR,
     TEST_LOW_AMBIGUOUS_DESCRIPTOR,
@@ -81,6 +83,7 @@ from loom.target.test.descriptors import (
     TEST_LOW_LOAD_V4I32_DESCRIPTOR,
     TEST_LOW_MUL_I32_DESCRIPTOR,
     TEST_LOW_REMATERIALIZE_I32_DESCRIPTOR,
+    TEST_LOW_TIED_ANY_DESCRIPTOR,
 )
 
 
@@ -1065,6 +1068,206 @@ def test_compile_lower_rule_set_compiles_value_no_uses_after_guard() -> None:
     value_ref = compiled.value_refs[compiled.guards[0].value_ref_index]
     assert value_ref.kind == SourceValueKind.OPERAND
     assert value_ref.index == 0
+
+
+def _tied_any_emit(
+    source: ValueRef,
+    result: ValueRef,
+    *,
+    copy_operands: tuple[str, ...] = (),
+) -> EmitDescriptorOp:
+    return EmitDescriptorOp(
+        descriptor=TEST_LOW_TIED_ANY_DESCRIPTOR,
+        operands={"src": source},
+        results={"dst": result},
+        result_types=(
+            {"dst": Scalar("i32")} if result.kind is SourceValueKind.TEMPORARY else None
+        ),
+        copy_operands=copy_operands,
+    )
+
+
+def _compile_scalar_rule_copy_masks(
+    rule: DescriptorRule,
+    *,
+    materializers: tuple[ValueMaterializer, ...] = (),
+) -> tuple[int, ...]:
+    table = ContractFragment(
+        name="test.destructive-ownership",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(rule,),
+        materializers=materializers,
+    )
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+    return tuple(emit.copy_operand_mask for emit in compiled.emits)
+
+
+def test_compile_lower_rule_set_transfers_guarded_destructive_source() -> None:
+    def make_rule(*, guarded: bool, force_copy: bool = False) -> DescriptorRule:
+        return DescriptorRule(
+            source_op=scalar_arithmetic.scalar_subi,
+            descriptor=TEST_LOW_TIED_ANY_DESCRIPTOR,
+            guards=(
+                Guard.value_type("result", Scalar("i32")),
+                *((Guard.value_no_uses_after("lhs"),) if guarded else ()),
+            ),
+            emit=(
+                _tied_any_emit(
+                    ValueRef.operand("lhs"),
+                    ValueRef.result("result"),
+                    copy_operands=("src",) if force_copy else (),
+                ),
+            ),
+        )
+
+    assert _compile_scalar_rule_copy_masks(make_rule(guarded=True)) == (0,)
+    assert _compile_scalar_rule_copy_masks(make_rule(guarded=False)) == (1,)
+    assert _compile_scalar_rule_copy_masks(
+        make_rule(guarded=True, force_copy=True)
+    ) == (1,)
+
+
+def test_compile_lower_rule_set_transfers_only_final_temporary_use() -> None:
+    carrier = ValueRef.temporary("carrier")
+    rule = DescriptorRule(
+        source_op=scalar_arithmetic.scalar_subi,
+        descriptor=TEST_LOW_TIED_ANY_DESCRIPTOR,
+        guards=(Guard.value_type("result", Scalar("i32")),),
+        emit=(
+            EmitRegisterCopy(
+                source=ValueRef.operand("lhs"),
+                result=carrier,
+                result_type=Scalar("i32"),
+            ),
+            _tied_any_emit(carrier, ValueRef.temporary("first_result")),
+            _tied_any_emit(carrier, ValueRef.result("result")),
+        ),
+    )
+
+    assert _compile_scalar_rule_copy_masks(rule) == (0, 1, 0)
+
+
+def test_compile_lower_rule_set_tracks_materialized_source_identity() -> None:
+    materializer = ValueMaterializer(
+        name="test_materializer",
+        can_materialize="test_can_materialize",
+        materialize="test_materialize",
+        header="test/materialize.h",
+    )
+    rule = DescriptorRule(
+        source_op=scalar_arithmetic.scalar_subi,
+        descriptor=TEST_LOW_TIED_ANY_DESCRIPTOR,
+        guards=(
+            Guard.value_type("result", Scalar("i32")),
+            Guard.value_no_uses_after("lhs"),
+        ),
+        emit=(
+            _tied_any_emit(
+                ValueRef.operand("lhs", materializer=materializer.name),
+                ValueRef.temporary("updated"),
+            ),
+            EmitRegisterCopy(
+                source=ValueRef.operand("lhs"),
+                result=ValueRef.result("result"),
+            ),
+        ),
+    )
+
+    assert _compile_scalar_rule_copy_masks(rule, materializers=(materializer,)) == (
+        1,
+        0,
+    )
+
+
+def test_compile_lower_rule_set_preserves_same_emit_alias() -> None:
+    carrier = ValueRef.temporary("carrier")
+    rule = DescriptorRule(
+        source_op=vector.vector_addi,
+        descriptor=TEST_LOW_ACCUMULATE_V8I32_DESCRIPTOR,
+        guards=(Guard.value_type("result", Vector("i32", lanes=8)),),
+        emit=(
+            EmitRegisterCopy(
+                source=ValueRef.operand("lhs"),
+                result=carrier,
+                result_type=Vector("i32", lanes=8),
+            ),
+            EmitDescriptorOp(
+                descriptor=TEST_LOW_ACCUMULATE_V8I32_DESCRIPTOR,
+                operands={
+                    "lhs": carrier,
+                    "rhs": ValueRef.operand("rhs"),
+                    "acc": carrier,
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+    table = ContractFragment(
+        name="test.same-emit-alias",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(rule,),
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+    assert tuple(emit.copy_operand_mask for emit in compiled.emits) == (0, 4)
+
+
+def test_compile_lower_rule_set_tracks_joined_source_value_identity() -> None:
+    source_node = SourceNode.adjacent_unique_user(
+        "consumer",
+        source_op=scalar_arithmetic.scalar_muli,
+        parent_result=ValueRef.result("result"),
+        node_operand=ValueRef.operand("lhs"),
+        guards=(
+            Guard.value_type("result", Scalar("i32")),
+            Guard.value_no_uses_after("lhs"),
+        ),
+    )
+    rule = DescriptorRule(
+        source_op=scalar_arithmetic.scalar_addi,
+        descriptor=TEST_LOW_TIED_ANY_DESCRIPTOR,
+        source_nodes=(source_node,),
+        emit=(
+            _tied_any_emit(
+                ValueRef.result("result"),
+                ValueRef.temporary("early_result"),
+            ),
+            EmitDescriptorOp(
+                descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                operands={
+                    "lhs": ValueRef.operand("lhs", source_node="consumer"),
+                    "rhs": ValueRef.operand("rhs", source_node="consumer"),
+                },
+                results={"dst": ValueRef.temporary("middle_result")},
+                result_types={"dst": Scalar("i32")},
+            ),
+            _tied_any_emit(
+                ValueRef.result("result"),
+                ValueRef.result("result", source_node="consumer"),
+            ),
+        ),
+    )
+
+    assert _compile_scalar_rule_copy_masks(rule) == (1, 0, 0)
+
+
+def test_compile_lower_rule_set_requires_exact_guarded_value_element() -> None:
+    rule = DescriptorRule(
+        source_op=scalar_analysis.scalar_assume,
+        descriptor=TEST_LOW_TIED_ANY_DESCRIPTOR,
+        guards=(
+            Guard.operand_segment_count("values", 2),
+            Guard.value_no_uses_after("values"),
+        ),
+        emit=(
+            _tied_any_emit(
+                ValueRef.operand("values", element=1),
+                ValueRef.temporary("result"),
+            ),
+        ),
+    )
+
+    assert _compile_scalar_rule_copy_masks(rule) == (1,)
 
 
 def test_compile_lower_rule_set_compiles_recipe_cases() -> None:

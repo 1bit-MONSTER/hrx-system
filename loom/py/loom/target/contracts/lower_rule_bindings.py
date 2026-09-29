@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 from loom.dsl import ATTR_TYPE_FLAGS, Op
 from loom.target.contracts.emits import (
@@ -364,6 +364,7 @@ def _descriptor_operand_is_output(role: OperandRole) -> bool:
 def _lower_descriptor_ties(
     descriptor: Descriptor,
     operand_ordinals_by_descriptor_field: Mapping[str, int],
+    transferred_descriptor_fields: Collection[str],
 ) -> tuple[tuple[LowerTiedResult, ...], int]:
     result_ordinals_by_descriptor_index: dict[int, int] = {}
     operand_ordinals_by_descriptor_index: dict[int, int] = {}
@@ -381,6 +382,10 @@ def _lower_descriptor_ties(
 
     tied_results: list[LowerTiedResult] = []
     copy_operand_mask = 0
+    transferred_operand_ordinals = {
+        operand_ordinals_by_descriptor_field[field]
+        for field in transferred_descriptor_fields
+    }
     for constraint in descriptor.constraints:
         if constraint.kind not in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE):
             continue
@@ -407,7 +412,7 @@ def _lower_descriptor_ties(
                     operand_index=operand_index,
                 )
             )
-        else:
+        elif operand_index not in transferred_operand_ordinals:
             copy_operand_mask |= 1 << operand_index
     return tuple(tied_results), copy_operand_mask
 

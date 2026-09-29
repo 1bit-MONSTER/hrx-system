@@ -7,9 +7,8 @@ func.def @predicate_and_reuse_rhs(%lhs: vector<1xi1>, %rhs: vector<1xi1>) -> (ve
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_and_reuse_rhs(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %9 = copy %rhs : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %10 = predicate.and.low32.rhs_tied %lhs, %9
-  %result = predicate.and.high32.rhs_tied %lhs, %10
+  %9 = predicate.and.low32.rhs_tied %lhs, %rhs
+  %result = predicate.and.high32.rhs_tied %lhs, %9
   return %result, %lhs
 }
 
@@ -22,9 +21,8 @@ func.def @predicate_or_reuse_lhs(%lhs: vector<9xi1>, %rhs: vector<9xi1>) -> (vec
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_or_reuse_lhs(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %9 = copy %lhs : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %10 = predicate.or.low32.rhs_tied %rhs, %9
-  %result = predicate.or.high32.rhs_tied %rhs, %10
+  %9 = predicate.or.low32.rhs_tied %rhs, %lhs
+  %result = predicate.or.high32.rhs_tied %rhs, %9
   return %result, %rhs
 }
 
@@ -51,15 +49,12 @@ func.def @predicate_select_reuse_true(%mask: vector<3x3xi1>, %true_value: vector
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_select_reuse_true(%mask: reg<aie2p.elpredicate>, %true_value: reg<aie2p.elpredicate>, %false_value: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %13 = copy %true_value : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %14 = predicate.xor.low32.rhs_tied %false_value, %13
-  %15 = predicate.xor.high32.rhs_tied %false_value, %14
-  %16 = copy %15 : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %17 = predicate.and.low32.rhs_tied %mask, %16
-  %18 = predicate.and.high32.rhs_tied %mask, %17
-  %19 = copy %18 : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %20 = predicate.xor.low32.rhs_tied %false_value, %19
-  %selected = predicate.xor.high32.rhs_tied %false_value, %20
+  %13 = predicate.xor.low32.rhs_tied %false_value, %true_value
+  %14 = predicate.xor.high32.rhs_tied %false_value, %13
+  %15 = predicate.and.low32.rhs_tied %mask, %14
+  %16 = predicate.and.high32.rhs_tied %mask, %15
+  %17 = predicate.xor.low32.rhs_tied %false_value, %16
+  %selected = predicate.xor.high32.rhs_tied %false_value, %17
   return %selected, %mask, %false_value
 }
 
@@ -74,11 +69,9 @@ func.def @predicate_select_preserve_true(%mask: vector<8x8xi1>, %true_value: vec
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @predicate_select_preserve_true(%mask: reg<aie2p.elpredicate>, %true_value: reg<aie2p.elpredicate>, %false_value: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
   %11 = predicate.xor.low32 %false_value, %true_value
   %12 = predicate.xor.high32 %false_value, %true_value, %11
-  %13 = copy %12 : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %14 = predicate.and.low32.rhs_tied %mask, %13
-  %15 = predicate.and.high32.rhs_tied %mask, %14
-  %16 = copy %15 : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
-  %17 = predicate.xor.low32.rhs_tied %false_value, %16
-  %selected = predicate.xor.high32.rhs_tied %false_value, %17
+  %13 = predicate.and.low32.rhs_tied %mask, %12
+  %14 = predicate.and.high32.rhs_tied %mask, %13
+  %15 = predicate.xor.low32.rhs_tied %false_value, %14
+  %selected = predicate.xor.high32.rhs_tied %false_value, %15
   return %selected, %true_value
 }

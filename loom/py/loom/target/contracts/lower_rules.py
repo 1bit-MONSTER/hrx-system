@@ -145,7 +145,122 @@ from loom.target.contracts.source_memory import (
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryConstraint,
 )
-from loom.target.low_descriptors import EffectKind
+from loom.target.low_descriptors import ConstraintKind, EffectKind
+
+
+def _emit_operand_value_refs(emit: ContractEmit) -> tuple[ValueRef, ...]:
+    if isinstance(emit, EmitDescriptorOp):
+        return tuple(emit.operands.values())
+    if isinstance(emit, EmitRegisterConcat):
+        return emit.sources
+    return (emit.source,)
+
+
+def _rule_value_aliases(rule: DescriptorRule) -> dict[ValueRef, ValueRef]:
+    aliases: dict[ValueRef, ValueRef] = {}
+    for source_node in rule.source_nodes:
+        parent_value = replace(
+            source_node.parent_value,
+            source_node=source_node.parent,
+            materializer=None,
+        )
+        node_value = replace(
+            source_node.node_value,
+            source_node=source_node.name,
+            materializer=None,
+        )
+        identity = aliases.get(parent_value, parent_value)
+        aliases[parent_value] = identity
+        aliases[node_value] = identity
+    return aliases
+
+
+def _rule_value_identity(
+    value_ref: ValueRef,
+    aliases: Mapping[ValueRef, ValueRef],
+) -> ValueRef:
+    """Returns the conservative register identity behind a rule value ref.
+
+    A materializer may return its source register instead of creating a fresh
+    value, so its result cannot establish a distinct identity. Source-node
+    joins name the same SSA value from two operations and canonicalize through
+    the alias map.
+    """
+
+    direct_value = replace(value_ref, materializer=None)
+    return aliases.get(direct_value, direct_value)
+
+
+def _last_use_guarded_value_identities(
+    rule: DescriptorRule,
+    aliases: Mapping[ValueRef, ValueRef],
+) -> set[ValueRef]:
+    guarded_values = set[ValueRef]()
+    guard_groups = (
+        ("", rule.source_op, rule.guards),
+        *(
+            (source_node.name, source_node.source_op, source_node.guards)
+            for source_node in rule.source_nodes
+        ),
+    )
+    for source_node, source_op, guards in guard_groups:
+        for guard in guards:
+            if guard.kind is not GuardKind.VALUE_NO_USES_AFTER:
+                continue
+            value_ref = replace(
+                _value_ref_for_source_field(source_op, guard.field),
+                source_node=source_node,
+            )
+            guarded_values.add(_rule_value_identity(value_ref, aliases))
+    return guarded_values
+
+
+def _transferred_descriptor_fields_by_emit(
+    rule: DescriptorRule,
+) -> tuple[frozenset[str], ...]:
+    """Finds destructive operands whose identities die at their emit.
+
+    Reverse liveness proves a temporary's final operand use directly. A source
+    identity additionally needs a value-no-uses-after guard, which extends that
+    proof beyond the replacement program. Multiple same-emit uses remain live
+    through the destructive operation and therefore keep their protective copy.
+    """
+
+    aliases = _rule_value_aliases(rule)
+    guarded_values = _last_use_guarded_value_identities(rule, aliases)
+    later_operand_uses = set[ValueRef]()
+    transferred_fields = [frozenset[str]() for _ in rule.emit]
+    for emit_index in range(len(rule.emit) - 1, -1, -1):
+        emit = rule.emit[emit_index]
+        operand_values = _emit_operand_value_refs(emit)
+        operand_identities = tuple(
+            _rule_value_identity(value_ref, aliases) for value_ref in operand_values
+        )
+        if isinstance(emit, EmitDescriptorOp):
+            destructive_fields = {
+                emit.descriptor.operands[constraint.rhs_operand_index].field_name
+                for constraint in emit.descriptor.constraints
+                if constraint.kind is ConstraintKind.DESTRUCTIVE
+                and constraint.rhs_operand_index is not None
+            }
+            identity_counts: dict[ValueRef, int] = {}
+            for identity in operand_identities:
+                identity_counts[identity] = identity_counts.get(identity, 0) + 1
+            direct_fields = set[str]()
+            for descriptor_field, value_ref in emit.operands.items():
+                if descriptor_field not in destructive_fields:
+                    continue
+                identity = _rule_value_identity(value_ref, aliases)
+                if identity in later_operand_uses or identity_counts[identity] != 1:
+                    continue
+                if value_ref.kind is SourceValueKind.TEMPORARY or (
+                    value_ref.kind in (SourceValueKind.OPERAND, SourceValueKind.RESULT)
+                    and identity in guarded_values
+                ):
+                    direct_fields.add(descriptor_field)
+            transferred_fields[emit_index] = frozenset(direct_fields)
+        later_operand_uses.update(operand_identities)
+    return tuple(transferred_fields)
 
 
 def compile_lower_rule_set(
@@ -338,9 +453,12 @@ class _LowerRuleSetCompiler:
         self._append_guards(rule.source_op, rule.guards, type_patterns_by_field)
 
         emit_start = len(self._emits)
+        transferred_fields_by_emit = _transferred_descriptor_fields_by_emit(rule)
         temporary_ordinals: dict[str, int] = {}
         primary_emit_ordinal = LOWER_RULE_PRIMARY_EMIT_NONE
-        for emit in rule.emit:
+        for emit, transferred_descriptor_fields in zip(
+            rule.emit, transferred_fields_by_emit, strict=True
+        ):
             if (
                 primary_emit_ordinal == LOWER_RULE_PRIMARY_EMIT_NONE
                 and isinstance(emit, EmitDescriptorOp)
@@ -352,6 +470,7 @@ class _LowerRuleSetCompiler:
                 emit,
                 type_patterns_by_source_node,
                 temporary_ordinals,
+                transferred_descriptor_fields,
             )
         self._rules.append(
             LowerRule(
@@ -1297,6 +1416,7 @@ class _LowerRuleSetCompiler:
             dict[tuple[str, int], TypePattern],
         ],
         temporary_ordinals: dict[str, int],
+        transferred_descriptor_fields: frozenset[str],
     ) -> None:
         if isinstance(emit, EmitDescriptorOp):
             self._append_descriptor_emit(
@@ -1304,6 +1424,7 @@ class _LowerRuleSetCompiler:
                 emit,
                 type_patterns_by_source_node,
                 temporary_ordinals,
+                transferred_descriptor_fields,
             )
             return
         if isinstance(emit, EmitRegisterSlice):
@@ -1359,6 +1480,7 @@ class _LowerRuleSetCompiler:
             dict[tuple[str, int], TypePattern],
         ],
         temporary_ordinals: dict[str, int],
+        transferred_descriptor_fields: frozenset[str],
     ) -> None:
         emit_kind = _lower_emit_kind(
             source_op,
@@ -1496,6 +1618,7 @@ class _LowerRuleSetCompiler:
         tied_results, copy_operand_mask = _lower_descriptor_ties(
             emit.descriptor,
             operand_ordinals_by_descriptor_field,
+            transferred_descriptor_fields,
         )
         copy_operand_mask |= _lower_explicit_copy_operand_mask(
             source_op,

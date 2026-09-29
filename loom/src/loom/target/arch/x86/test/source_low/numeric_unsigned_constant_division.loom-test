@@ -49,13 +49,12 @@ func.def @remainder_by_twenty(%input: i32) -> (i32) {
 low.func.def target<x86.avx2.core> abi(object_function) @remainder_by_twenty(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   %6 = movzx.gpr64.gpr32 %input
   %7 = mov.imm64 922337203685477581
-  %8 = copy %6 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %9 = imul.gpr64 %8, %7
-  %10 = mov.imm64 20
-  %11 = copy %9 : reg<x86.gpr64> -> reg<x86.rax>
-  %12 = mul.high.gpr64 %11, %10
-  %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %13
+  %8 = imul.gpr64 %6, %7
+  %9 = mov.imm64 20
+  %10 = copy %8 : reg<x86.gpr64> -> reg<x86.rax>
+  %11 = mul.high.gpr64 %10, %9
+  %12 = copy %11 : reg<x86.rdx> -> reg<x86.gpr64>
+  %remainder = mov.trunc.gpr32.gpr64 %12
   return %remainder
 }
 
@@ -71,13 +70,12 @@ func.def @remainder_by_seven(%input: i32) -> (i32) {
 low.func.def target<x86.avx2.core> abi(object_function) @remainder_by_seven(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
   %6 = movzx.gpr64.gpr32 %input
   %7 = mov.imm64 2635249153387078803
-  %8 = copy %6 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %9 = imul.gpr64 %8, %7
-  %10 = mov.imm64 7
-  %11 = copy %9 : reg<x86.gpr64> -> reg<x86.rax>
-  %12 = mul.high.gpr64 %11, %10
-  %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %13
+  %8 = imul.gpr64 %6, %7
+  %9 = mov.imm64 7
+  %10 = copy %8 : reg<x86.gpr64> -> reg<x86.rax>
+  %11 = mul.high.gpr64 %10, %9
+  %12 = copy %11 : reg<x86.rdx> -> reg<x86.gpr64>
+  %remainder = mov.trunc.gpr32.gpr64 %12
   return %remainder
 }
 
@@ -98,13 +96,13 @@ low.func.def target<x86.avx2.core> abi(object_function) @pair_by_twenty(%input: 
   %12 = mul.high.gpr64 %11, %10
   %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
   %quotient = mov.trunc.gpr32.gpr64 %13
-  %17 = copy %9 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %18 = imul.gpr64 %17, %10
-  %19 = mov.imm64 20
-  %20 = copy %18 : reg<x86.gpr64> -> reg<x86.rax>
-  %21 = mul.high.gpr64 %20, %19
-  %22 = copy %21 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %22
+  %15 = movzx.gpr64.gpr32 %input
+  %17 = imul.gpr64 %15, %10
+  %18 = mov.imm64 20
+  %19 = copy %17 : reg<x86.gpr64> -> reg<x86.rax>
+  %20 = mul.high.gpr64 %19, %18
+  %21 = copy %20 : reg<x86.rdx> -> reg<x86.gpr64>
+  %remainder = mov.trunc.gpr32.gpr64 %21
   return %quotient, %remainder
 }
 
@@ -125,13 +123,13 @@ low.func.def target<x86.avx2.core> abi(object_function) @pair_by_seven(%input: r
   %12 = mul.high.gpr64 %11, %10
   %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
   %quotient = mov.trunc.gpr32.gpr64 %13
-  %17 = copy %9 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %18 = imul.gpr64 %17, %10
-  %19 = mov.imm64 7
-  %20 = copy %18 : reg<x86.gpr64> -> reg<x86.rax>
-  %21 = mul.high.gpr64 %20, %19
-  %22 = copy %21 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %22
+  %15 = movzx.gpr64.gpr32 %input
+  %17 = imul.gpr64 %15, %10
+  %18 = mov.imm64 7
+  %19 = copy %17 : reg<x86.gpr64> -> reg<x86.rax>
+  %20 = mul.high.gpr64 %19, %18
+  %21 = copy %20 : reg<x86.rdx> -> reg<x86.gpr64>
+  %remainder = mov.trunc.gpr32.gpr64 %21
   return %quotient, %remainder
 }
 
@@ -237,13 +235,13 @@ low.func.def target<x86.avx2.core> abi(object_function) @pair_below_high_bit(%in
   %12 = mul.high.gpr64 %11, %10
   %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
   %quotient = mov.trunc.gpr32.gpr64 %13
-  %17 = copy %9 : reg<x86.gpr64> -> reg<x86.gpr64>
-  %18 = imul.gpr64 %17, %10
-  %19 = mov.imm64 2147483647
-  %20 = copy %18 : reg<x86.gpr64> -> reg<x86.rax>
-  %21 = mul.high.gpr64 %20, %19
-  %22 = copy %21 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %22
+  %15 = movzx.gpr64.gpr32 %input
+  %17 = imul.gpr64 %15, %10
+  %18 = mov.imm64 2147483647
+  %19 = copy %17 : reg<x86.gpr64> -> reg<x86.rax>
+  %20 = mul.high.gpr64 %19, %18
+  %21 = copy %20 : reg<x86.rdx> -> reg<x86.gpr64>
+  %remainder = mov.trunc.gpr32.gpr64 %21
   return %quotient, %remainder
 }
 

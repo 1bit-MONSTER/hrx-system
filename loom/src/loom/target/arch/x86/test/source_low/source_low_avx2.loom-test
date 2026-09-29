@@ -52,14 +52,11 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) @i32x4_shuffle_
   %10 = copy %init : reg<x86.gpr32> -> reg<x86.gpr32>
   %11 = add.gpr32 %10, %9
   %12 = vpextrd.xmm %shuffled, 1
-  %13 = copy %11 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %14 = add.gpr32 %13, %12
-  %15 = vpextrd.xmm %shuffled, 2
-  %16 = copy %14 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %17 = add.gpr32 %16, %15
-  %18 = vpextrd.xmm %shuffled, 3
-  %19 = copy %17 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %sum = add.gpr32 %19, %18
+  %13 = add.gpr32 %11, %12
+  %14 = vpextrd.xmm %shuffled, 2
+  %15 = add.gpr32 %13, %14
+  %16 = vpextrd.xmm %shuffled, 3
+  %sum = add.gpr32 %15, %16
   return %sum
 }
 
