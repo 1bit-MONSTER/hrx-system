@@ -8,6 +8,8 @@
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:util.bzl", "TestingAspectInfo")
+load("//build_tools/bazel:executable.bzl", "IreeExecutableInfo")
+load("//build_tools/bazel:runfiles.bzl", "IreeRunfilesArgumentsInfo")
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "LoomBinaryInfo",
@@ -28,6 +30,15 @@ SERIALIZED_REFERENCE_PROFILE = loom_execution_profile(
     name = "serialized_reference",
     executor = "reference",
     resource_group = "loom-profile-analysis-tests",
+    runner_args = ["--max-samples-per-case=1"],
+    target_class = "cpu",
+    target_family = "test",
+)
+
+EXPLICIT_RUNNER_PROFILE = loom_execution_profile(
+    name = "explicit_runner",
+    executor = "hosted",
+    runner = "//loom/src/loom/tools/iree-test-loom",
     runner_args = ["--max-samples-per-case=1"],
     target_class = "cpu",
     target_family = "test",
@@ -378,6 +389,45 @@ def _test_resource_profile_preserves_direct_execution_impl(env, target):
         if expected_tag not in tags:
             env.fail("expected %r in test tags %r" % (expected_tag, tags))
 
+def _test_explicit_runner_owns_profile_execution(name, **kwargs):
+    analysis_test(
+        name = name,
+        attr_values = {
+            "timeout": "short",
+        },
+        impl = _test_explicit_runner_owns_profile_execution_impl,
+        target = ":profiled_test_selected_execute_explicit_runner_test",
+        **kwargs
+    )
+
+def _test_explicit_runner_owns_profile_execution_impl(env, target):
+    info = target[IreeExecutableInfo]
+    env.expect.that_str(str(info.src)).contains("iree-test-loom")
+    arguments = target[IreeRunfilesArgumentsInfo].arguments
+    if not arguments[0].endswith("profiled_module.loombc"):
+        env.fail("unexpected explicit runner module argument %r" % arguments[0])
+    if arguments[1:] != [
+        "--max-samples-per-case=1",
+        "--case=benchmark_case",
+        "--sample=0",
+    ]:
+        env.fail("unexpected explicit runner args %r" % arguments)
+
+    runfiles = target[DefaultInfo].default_runfiles.files.to_list()
+    _expect_basename(env, runfiles, "profiled_module.loombc")
+    for expected_tag in [
+        "loom-execution-profile=explicit_runner",
+        "loom-executor=hosted",
+    ]:
+        if expected_tag not in target[TestingAspectInfo].attrs.tags:
+            env.fail(
+                "expected %r in test tags %r" %
+                (expected_tag, target[TestingAspectInfo].attrs.tags),
+            )
+    for file in runfiles:
+        if file.basename.startswith("iree-benchmark-loom"):
+            env.fail("explicit profile runner retained benchmark runfile %r" % file)
+
 def _test_grouped_execution_root_sources(name, **kwargs):
     analysis_test(
         name = name,
@@ -444,6 +494,7 @@ def loom_library_rules_test_suite(name):
             _test_deps_only_library_propagates_dependencies,
             _test_execution_module_links_root_tests,
             _test_execution_profile_contract,
+            _test_explicit_runner_owns_profile_execution,
             _test_generated_kernel_binary_is_testonly,
             _test_grouped_execution_root_sources,
             _test_library_keeps_dependency_module_separate,

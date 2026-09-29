@@ -12,6 +12,7 @@ load(
     "//build_tools/bazel:executable.bzl",
     "IreeExecutableInfo",
     "iree_executable_alias",
+    "iree_wasi_executable_alias",
 )
 load(
     "//build_tools/wasm:build_defs.bzl",
@@ -205,6 +206,70 @@ def _test_executable_alias_accepts_explicit_wasm_main_impl(env, target):
     )
     _expect_basename(env, bundle_action.inputs.to_list(), "entry_main.mjs")
 
+def _test_wasi_executable_alias_cross_compiles_source(name, **kwargs):
+    _wasm_fixture_targets(name)
+    iree_wasi_executable_alias(
+        name = name + "_subject",
+        src = ":" + name + "_wasm",
+        tags = ["manual"],
+    )
+    analysis_test(
+        name = name + "_wrapper",
+        attr_values = {
+            "timeout": "short",
+        },
+        impl = _test_wasi_executable_wrapper_cross_compiles_source_impl,
+        target = name + "_subject_wrapper",
+        **kwargs
+    )
+    analysis_test(
+        name = name + "_host",
+        attr_values = {
+            "timeout": "short",
+        },
+        impl = _test_wasi_executable_alias_is_host_launchable_impl,
+        target = name + "_subject",
+        **kwargs
+    )
+    native.test_suite(
+        name = name,
+        tests = [
+            name + "_wrapper",
+            name + "_host",
+        ],
+    )
+
+def _test_wasi_executable_wrapper_cross_compiles_source_impl(env, target):
+    bundle_action = _find_action_with_mnemonic(
+        env,
+        target[TestingAspectInfo].actions,
+        "IreeWasmBundle",
+    )
+    _expect_basename(
+        env,
+        bundle_action.inputs.to_list(),
+        target.label.name[:-len("_subject_wrapper")] + "_wasm.wasm",
+    )
+
+def _test_wasi_executable_alias_is_host_launchable_impl(env, target):
+    executable = target[DefaultInfo].files_to_run.executable
+    if executable.basename not in [target.label.name, target.label.name + ".exe"]:
+        env.fail("expected native executable for %r, got %r" % (
+            target.label.name,
+            executable.basename,
+        ))
+    env.expect.that_collection(
+        target[RunEnvironmentInfo].inherited_environment,
+    ).contains_exactly([
+        "IREE_WASM_NODE",
+        "PATH",
+    ])
+    _expect_basename(
+        env,
+        target[DefaultInfo].default_runfiles.files.to_list(),
+        target.label.name + "_wrapper.wasm",
+    )
+
 def wasm_rules_test_suite(name):
     test_suite(
         name = name,
@@ -213,5 +278,6 @@ def wasm_rules_test_suite(name):
             _test_wasm_cc_library_provides_cc_info_and_js_modules,
             _test_wasm_entry_records_main_and_sources,
             _test_executable_alias_bundles_wasm_target,
+            _test_wasi_executable_alias_cross_compiles_source,
         ],
     )

@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
+load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
@@ -97,7 +98,10 @@ loom_test(
         "numeric_vector_f32.loom",
         "//loom/src/loom/test/corpus/source_low:numeric_vector_f32_values.loom",
     ],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        WASM_HOSTED_PROFILE,
+    ],
 )
 
 loom_test(

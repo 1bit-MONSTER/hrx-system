@@ -8,8 +8,13 @@
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//build_tools/bazel:cc_attrs.bzl", "cc_attrs")
+load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load("//build_tools/bazel:requirements.bzl", "apply_test_requirements")
-load("//build_tools/bazel:runfiles.bzl", "RUNFILES_PATH_BEGIN", "RUNFILES_PATH_END")
+load(
+    "//build_tools/bazel:runfiles.bzl",
+    "RUNFILES_PATH_BEGIN",
+    "RUNFILES_PATH_END",
+)
 load(":loom_binary.bzl", "LoomBinaryInfo", "loom_kernel_binary")
 load(":loom_check.bzl", "loom_check_compile_tests")
 load(
@@ -40,7 +45,7 @@ LoomExecutionTestInfo = provider(
     doc = "A test executing one linked Loom test module.",
     fields = {
         "benchmark_runner": "Resolved benchmark runner, or None for correctness-only launchers.",
-        "benchmark_runner_args": "Smoke, profile, and workload arguments passed to the benchmark runner.",
+        "benchmark_runner_args": "Smoke, profile, and workload arguments passed to the benchmark runner, or an empty list.",
         "module": "Linked Loom module containing root-owned cases and benchmarks.",
         "profile_name": "Stable execution profile name.",
         "test_runner": "Resolved correctness runner executable.",
@@ -66,6 +71,7 @@ def loom_execution_profile(
         target_class,
         executor,
         runner_args = [],
+        runner = None,
         build_requirements = [],
         run_requirements = [],
         resource_group = None,
@@ -77,8 +83,13 @@ def loom_execution_profile(
       target_family: Compiler target family, such as amdgpu or spirv.
       target_class: Broad target class, such as gpu or cpu.
       executor: Execution environment, such as hardware or reference.
-      runner_args: Environment arguments passed to each selected numerical runner.
-          Workload configs and case selection belong on loom_test.
+      runner_args: Profile arguments passed to the selected execution runner or
+          runner sequence. Workload configs and case selection belong on
+          loom_test.
+      runner: Optional executable label owning this profile's execution. When
+          present, it receives the linked module and correctness arguments
+          directly instead of using the registered correctness and benchmark
+          tools.
       build_requirements: Build requirements needed by the execution runners.
       run_requirements: Runtime resources needed to execute the test.
       resource_group: Optional local resource group serializing competing tests.
@@ -124,6 +135,7 @@ def loom_execution_profile(
         name = name,
         resource_group = resource_group,
         run_requirements = run_requirements,
+        runner = runner,
         runner_args = runner_args,
         tags = tags,
         target_class = target_class,
@@ -291,23 +303,35 @@ def _write_execution_test_launcher(
         " \\\n  %s" % _shell_quote(arg)
         for arg in benchmark_runner_args
     ])
+    test_command = (
+        "{exec_prefix}{test_environment}\"${{PWD}}/{test_tool}\" " +
+        "\"${{PWD}}/{module}\"{test_args}\n"
+    ).format(
+        exec_prefix = "" if benchmark_tool != None else "exec ",
+        module = module.short_path,
+        test_args = test_args,
+        test_environment = _tool_environment(test_tool),
+        test_tool = test_tool.executable.short_path,
+    )
+    benchmark_command = ""
+    if benchmark_tool != None:
+        benchmark_command = (
+            "exec {benchmark_environment}\"${{PWD}}/{benchmark_tool}\" " +
+            "\"${{PWD}}/{module}\"{benchmark_args}\n"
+        ).format(
+            benchmark_args = benchmark_args,
+            benchmark_environment = _tool_environment(benchmark_tool),
+            benchmark_tool = benchmark_tool.executable.short_path,
+            module = module.short_path,
+        )
     content = (
         "#!/usr/bin/env bash\n" +
         "set -euo pipefail\n" +
         "RUNFILES=\"${{RUNFILES_DIR:-$0.runfiles}}\"\n" +
-        "cd \"${{RUNFILES}}/{workspace}\"\n" +
-        "{test_environment}\"${{PWD}}/{test_tool}\" \"${{PWD}}/{module}\"{test_args}\n" +
-        "exec {benchmark_environment}\"${{PWD}}/{benchmark_tool}\" \"${{PWD}}/{module}\"{benchmark_args}\n"
+        "cd \"${{RUNFILES}}/{workspace}\"\n"
     ).format(
         workspace = ctx.workspace_name,
-        test_tool = test_tool.executable.short_path,
-        test_environment = _tool_environment(test_tool),
-        benchmark_environment = _tool_environment(benchmark_tool),
-        benchmark_tool = benchmark_tool.executable.short_path,
-        module = module.short_path,
-        test_args = test_args,
-        benchmark_args = benchmark_args,
-    )
+    ) + test_command + benchmark_command
     ctx.actions.write(
         content = content,
         is_executable = True,
@@ -315,13 +339,13 @@ def _write_execution_test_launcher(
     )
     return output
 
-def _loom_execution_test_launcher_impl(ctx):
-    test_tool = ctx.toolchains[_LOOM_TEST_TOOLCHAIN_TYPE].tool
-    benchmark_tool = ctx.toolchains[_LOOM_BENCHMARK_TOOLCHAIN_TYPE].tool
+def _execution_test_launcher_providers(ctx, test_tool, benchmark_tool):
     module = ctx.attr.module[_LoomTestModuleInfo].module
     runner_args = ctx.attr.profile_args + ctx.attr.workload_args
     test_runner_args = runner_args + ctx.attr.test_args
-    benchmark_runner_args = _LOOM_BENCHMARK_SMOKE_ARGS + runner_args
+    benchmark_runner_args = (
+        _LOOM_BENCHMARK_SMOKE_ARGS + runner_args if benchmark_tool != None else []
+    )
     output = _write_execution_test_launcher(
         ctx,
         test_tool,
@@ -332,7 +356,8 @@ def _loom_execution_test_launcher_impl(ctx):
     )
     runfiles = _tool_runfiles(ctx, test_tool, [])
     runfiles = runfiles.merge(ctx.attr.module[DefaultInfo].default_runfiles)
-    runfiles = runfiles.merge(_tool_runfiles(ctx, benchmark_tool, []))
+    if benchmark_tool != None:
+        runfiles = runfiles.merge(_tool_runfiles(ctx, benchmark_tool, []))
     return [
         DefaultInfo(
             executable = output,
@@ -340,7 +365,7 @@ def _loom_execution_test_launcher_impl(ctx):
             runfiles = runfiles,
         ),
         LoomExecutionTestInfo(
-            benchmark_runner = benchmark_tool.executable,
+            benchmark_runner = benchmark_tool.executable if benchmark_tool != None else None,
             benchmark_runner_args = benchmark_runner_args,
             module = module,
             profile_name = ctx.attr.profile_name,
@@ -349,31 +374,44 @@ def _loom_execution_test_launcher_impl(ctx):
         ),
     ]
 
-def _execution_test_launcher_attrs():
-    return {
-        "module": attr.label(
-            mandatory = True,
-            providers = [_LoomTestModuleInfo],
-            doc = "Linked Loom module containing root-owned cases and benchmarks.",
-        ),
-        "profile_args": attr.string_list(
-            doc = "Profile arguments appended after the module for each selected runner.",
-        ),
-        "profile_name": attr.string(
-            mandatory = True,
-            doc = "Stable execution profile name.",
-        ),
-        "test_args": attr.string_list(
-            doc = "Arguments appended only to the correctness runner.",
-        ),
-        "workload_args": attr.string_list(
-            doc = "Configuration bindings and case selection shared by selected runners.",
-        ),
-    }
+def _loom_execution_test_launcher_impl(ctx):
+    return _execution_test_launcher_providers(
+        ctx,
+        ctx.toolchains[_LOOM_TEST_TOOLCHAIN_TYPE].tool,
+        ctx.toolchains[_LOOM_BENCHMARK_TOOLCHAIN_TYPE].tool,
+    )
+
+def _loom_correctness_test_launcher_impl(ctx):
+    return _execution_test_launcher_providers(
+        ctx,
+        ctx.toolchains[_LOOM_TEST_TOOLCHAIN_TYPE].tool,
+        None,
+    )
+
+_EXECUTION_TEST_LAUNCHER_ATTRS = {
+    "module": attr.label(
+        mandatory = True,
+        providers = [_LoomTestModuleInfo],
+        doc = "Linked Loom module containing root-owned cases and benchmarks.",
+    ),
+    "profile_args": attr.string_list(
+        doc = "Profile arguments appended after the module for each runner.",
+    ),
+    "profile_name": attr.string(
+        mandatory = True,
+        doc = "Stable execution profile name.",
+    ),
+    "test_args": attr.string_list(
+        doc = "Arguments appended only to the correctness runner.",
+    ),
+    "workload_args": attr.string_list(
+        doc = "Configuration bindings and case selection shared by each runner.",
+    ),
+}
 
 _loom_execution_test_launcher = rule(
     implementation = _loom_execution_test_launcher_impl,
-    attrs = _execution_test_launcher_attrs(),
+    attrs = _EXECUTION_TEST_LAUNCHER_ATTRS,
     doc = "Generates a launcher for one linked Loom test profile.",
     executable = True,
     toolchains = [
@@ -382,32 +420,9 @@ _loom_execution_test_launcher = rule(
     ],
 )
 
-def _loom_correctness_test_launcher_impl(ctx):
-    test_tool = ctx.toolchains[_LOOM_TEST_TOOLCHAIN_TYPE].tool
-    module = ctx.attr.module[_LoomTestModuleInfo].module
-    test_runner_args = ctx.attr.profile_args + ctx.attr.workload_args + ctx.attr.test_args
-    output = _write_test_launcher(ctx, test_tool, module, test_runner_args)
-    runfiles = _tool_runfiles(ctx, test_tool, [])
-    runfiles = runfiles.merge(ctx.attr.module[DefaultInfo].default_runfiles)
-    return [
-        DefaultInfo(
-            executable = output,
-            files = depset([output]),
-            runfiles = runfiles,
-        ),
-        LoomExecutionTestInfo(
-            benchmark_runner = None,
-            benchmark_runner_args = [],
-            module = module,
-            profile_name = ctx.attr.profile_name,
-            test_runner = test_tool.executable,
-            test_runner_args = test_runner_args,
-        ),
-    ]
-
 _loom_correctness_test_launcher = rule(
     implementation = _loom_correctness_test_launcher_impl,
-    attrs = _execution_test_launcher_attrs(),
+    attrs = _EXECUTION_TEST_LAUNCHER_ATTRS,
     doc = "Generates a correctness-only launcher for one Loom execution profile.",
     executable = True,
     toolchains = [_LOOM_TEST_TOOLCHAIN_TYPE],
@@ -606,19 +621,31 @@ def _declare_execution_test(
     )
     if visibility != None:
         test_kwargs["visibility"] = visibility
-    launcher_rule = (
-        _loom_execution_test_launcher if benchmark_smoke else _loom_correctness_test_launcher
-    )
+    runner_args = profile.runner_args + workload_args + test_runner_args
+    if profile.runner != None:
+        iree_executable_test(
+            name = name,
+            args = ["$(rootpath %s)" % module] + runner_args,
+            data = [module],
+            src = profile.runner,
+            **test_kwargs
+        )
+        return
+    launcher_attrs = {
+        "module": module,
+        "profile_args": profile.runner_args,
+        "profile_name": profile.name,
+        "test_args": test_runner_args,
+        "workload_args": workload_args,
+    }
+    if benchmark_smoke:
+        launcher_rule = _loom_execution_test_launcher
+    else:
+        launcher_rule = _loom_correctness_test_launcher
     _declare_launcher_test(
         name = name,
         launcher_rule = launcher_rule,
-        launcher_attrs = {
-            "module": module,
-            "profile_args": profile.runner_args,
-            "profile_name": profile.name,
-            "test_args": test_runner_args,
-            "workload_args": workload_args,
-        },
+        launcher_attrs = launcher_attrs,
         test_kwargs = test_kwargs,
     )
 
@@ -928,9 +955,10 @@ def loom_test(
     module containing every root-owned ``check.case`` and ``check.benchmark``
     plus their reachable dependencies. Test-only symbols from ``deps`` are not
     selected. The linked module is the only Loom input to the runners.
-    ``iree-test-loom`` executes correctness cases once. When benchmark smoke is
-    enabled, ``iree-benchmark-loom`` then executes each benchmark with one
-    measured iteration and no warmup repetitions.
+    Default execution profiles run ``iree-test-loom`` for correctness. When
+    benchmark smoke is enabled, ``iree-benchmark-loom`` then executes each
+    benchmark with one measured iteration and no warmup. A profile with an
+    explicit runner delegates the linked module to that runner once.
 
     Args:
       name: Name of the suite containing all compilation and execution children.
