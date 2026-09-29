@@ -872,6 +872,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:diagnostics",
         "//loom/src/loom/codegen/low:function_requirements",
         "//loom/src/loom/codegen/low:target_binding",
+        "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/ir",
         "//loom/src/loom/ir:facts",
         "//loom/src/loom/ops:op_defs",
@@ -880,6 +881,7 @@ loom_cc_library(
         "//loom/src/loom/target:function_version",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/amd/xdna:device_profile",
+        "//loom/src/loom/target/arch/amd/xdna:error_defs",
         "//loom/src/loom/target/reporting:low",
         "//loom/src/loom/target/reporting:report",
         "//loom/src/loom/util:fact_table",
@@ -1001,6 +1003,20 @@ loom_cc_test(
         ":tile_link",
         "//loom/src/loom/target/emit/native:object",
         "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "xdna_product_prepare_test",
+    srcs = ["emit/xdna_product_prepare_test.cc"],
+    deps = [
+        ":xdna_product",
+        ":xdna_product_prepare",
+        "//loom/src/loom/target/arch/amd/xdna:device_profile",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

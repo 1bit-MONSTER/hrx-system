@@ -629,6 +629,76 @@ ERR_XDNA_033 = ErrorDef(
     ),
 )
 
+# ERR_XDNA_034: XDNA artifact emission has no exact device profile.
+ERR_XDNA_034 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=34,
+    severity=Severity.ERROR,
+    summary="XDNA artifact emission requires an exact device profile.",
+    message=("XDNA array entry '@{entry}' has no exact deployment device profile"),
+    params=(ErrorParam("entry", ParamKind.STRING),),
+    fix_hint="Select an exact XDNA device target for the array entry or artifact.",
+)
+
+# ERR_XDNA_035: XDNA artifact entries select incompatible device profiles.
+ERR_XDNA_035 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=35,
+    severity=Severity.ERROR,
+    summary="XDNA artifact entries select incompatible device profiles.",
+    message=(
+        "XDNA array entry '@{entry}' selects device profile '{actual_profile}', "
+        "but this artifact already requires '{expected_profile}'"
+    ),
+    params=(
+        ErrorParam("entry", ParamKind.STRING),
+        ErrorParam("actual_profile", ParamKind.STRING),
+        ErrorParam("expected_profile", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Compile all entries in one XDNA artifact for the same exact device profile."
+    ),
+)
+
+# ERR_XDNA_036: An XDNA artifact quantity exceeds its image-format limit.
+ERR_XDNA_036 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=36,
+    severity=Severity.ERROR,
+    summary="XDNA artifact exceeds an image-format limit.",
+    message=(
+        "XDNA artifact reaches {actual} {quantity} while admitting entry "
+        "'@{entry}'; the image format supports at most {maximum}"
+    ),
+    params=(
+        ErrorParam("actual", ParamKind.U64),
+        ErrorParam("quantity", ParamKind.STRING),
+        ErrorParam("entry", ParamKind.STRING),
+        ErrorParam("maximum", ParamKind.U64),
+    ),
+    fix_hint=("Split the entries across artifacts or reduce the named image quantity."),
+)
+
+# ERR_XDNA_037: An XDNA array partition is incompatible with its device profile.
+ERR_XDNA_037 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=37,
+    severity=Severity.ERROR,
+    summary="XDNA array partition is incompatible with its device profile.",
+    message=(
+        "XDNA array entry '@{entry}' requires {actual} columns, but device "
+        "profile '{profile}' admits widths from {minimum} through {maximum}"
+    ),
+    params=(
+        ErrorParam("entry", ParamKind.STRING),
+        ErrorParam("actual", ParamKind.U32),
+        ErrorParam("profile", ParamKind.STRING),
+        ErrorParam("minimum", ParamKind.U32),
+        ErrorParam("maximum", ParamKind.U32),
+    ),
+    fix_hint=("Reduce the array width or select a compatible exact device profile."),
+)
+
 ALL_XDNA_ERRORS = (
     ERR_XDNA_001,
     ERR_XDNA_002,
@@ -663,4 +733,8 @@ ALL_XDNA_ERRORS = (
     ERR_XDNA_031,
     ERR_XDNA_032,
     ERR_XDNA_033,
+    ERR_XDNA_034,
+    ERR_XDNA_035,
+    ERR_XDNA_036,
+    ERR_XDNA_037,
 )

@@ -18,6 +18,55 @@
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
+      "name": "diagnoses a missing exact XDNA deployment profile",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--format=xdna",
+          "--pipeline=none",
+          "--output={tmp}/missing-profile.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @array_target\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@array_target) abi(array_program) @missing_profile() asm {\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "XDNA/034",
+          "XDNA array entry '@missing_profile' has no exact deployment device profile"
+        ],
+        "not_contains": ["INVALID_ARGUMENT", "stack:"]
+      },
+      "files": [
+        {"path": "{tmp}/missing-profile.xdna", "exists": false}
+      ]
+    },
+    {
+      "name": "diagnoses incompatible XDNA entry device profiles",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "--format=xdna",
+          "--output={tmp}/incompatible-profiles.xdna"
+        ],
+        "stdin": {
+          "text": "aie2p.target<array> @halo_target {device_profile = \"amd.xdna.strix_halo.17f0_11\"}\n\naie2p.target<array> @strix_target {device_profile = \"amd.xdna.strix.17f0_10\"}\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@halo_target) abi(array_program) @halo_program() asm {\n  return\n}\n\nlow.func.def public retain target<amd.xdna.aie2p.array>(@strix_target) abi(array_program) @strix_program() asm {\n  return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": [
+          "XDNA/035",
+          "XDNA array entry '@strix_program' selects device profile 'amd.xdna.strix.17f0_10', but this artifact already requires 'amd.xdna.strix_halo.17f0_11'"
+        ],
+        "not_contains": ["FAILED_PRECONDITION", "stack:"]
+      },
+      "files": [
+        {"path": "{tmp}/incompatible-profiles.xdna", "exists": false}
+      ]
+    },
+    {
       "name": "renders exact carried types for invalid Low",
       "run": {
         "tool": "loom-compile",

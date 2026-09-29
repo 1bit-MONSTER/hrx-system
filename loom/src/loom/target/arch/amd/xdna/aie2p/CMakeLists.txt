@@ -989,12 +989,14 @@ loom_cc_library(
     loom::codegen::low::diagnostics
     loom::codegen::low::function_requirements
     loom::codegen::low::target_binding
+    loom::error::diagnostic
     loom::ir
     loom::ir::facts
     loom::ops::encoding
     loom::ops::low
     loom::ops::op_defs
     loom::target::arch::amd::xdna::device_profile
+    loom::target::arch::amd::xdna::error_defs
     loom::target::function_version
     loom::target::provider
     loom::target::reporting::low
@@ -1166,6 +1168,25 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::emit::native::object
+  LABELS
+    "iree-build-requirement=loom.target.arch.xdna"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    xdna_product_prepare_test
+  SRCS
+    "emit/xdna_product_prepare_test.cc"
+  DEPS
+    ::xdna_product
+    ::xdna_product_prepare
+    iree::base::internal::arena
+    iree::io::stream
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amd::xdna::device_profile
   LABELS
     "iree-build-requirement=loom.target.arch.xdna"
 )

@@ -52,8 +52,6 @@ typedef struct loom_aie2p_xdna_entry_t {
   const loom_aie2p_array_program_t* array_program;
   // Resident tile programs in worker order.
   const loom_aie2p_xdna_tile_t* tiles;
-  // Number of records in |tiles|.
-  iree_host_size_t tile_count;
 } loom_aie2p_xdna_entry_t;
 
 // Complete inputs to one canonical multi-entry AIE2P XDNA product.
@@ -66,17 +64,66 @@ typedef struct loom_aie2p_xdna_product_t {
   iree_host_size_t entry_count;
 } loom_aie2p_xdna_product_t;
 
-// Resolves |product| into a trusted final XDNA product |out_plan|.
+// One image-format constraint that rejected product preparation.
+typedef enum loom_aie2p_xdna_product_issue_kind_e {
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_NONE = 0,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_ENTRY_COUNT = 1,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_ENTRY_NAME_BYTE_LENGTH = 2,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_BINDING_RECORD_COUNT = 3,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_RELOCATION_RECORD_COUNT = 4,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_METADATA_BYTE_LENGTH = 5,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_PROGRAM_HEADER_COUNT = 6,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_SECTION_HEADER_COUNT = 7,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_NATIVE_COMMAND_BYTE_LENGTH = 8,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_SYMBOL_STRING_BYTE_LENGTH = 9,
+  LOOM_AIE2P_XDNA_PRODUCT_ISSUE_PARTITION_COLUMN_COUNT = 10,
+} loom_aie2p_xdna_product_issue_kind_t;
+
+// Structured product-admission failure returned to the compiler boundary.
+typedef struct loom_aie2p_xdna_product_issue_t {
+  // Violated image-format constraint, or NONE when preparation succeeded.
+  loom_aie2p_xdna_product_issue_kind_t kind;
+  // Entry ordinal owning the violating fact, or UINT32_MAX for the product.
+  uint32_t entry_ordinal;
+  // Observed quantity.
+  uint64_t actual;
+  // Inclusive minimum accepted quantity.
+  uint64_t minimum;
+  // Inclusive maximum accepted quantity.
+  uint64_t maximum;
+} loom_aie2p_xdna_product_issue_t;
+
+// Opaque retained measurement of one admitted XDNA product.
+typedef struct loom_aie2p_xdna_product_preparation_t
+    loom_aie2p_xdna_product_preparation_t;
+
+// Measures and admits all source-known product facts before resident compile.
+//
+// |product| and its entry programs must remain valid through
+// loom_aie2p_xdna_product_preparation_finish. Resident |tiles| may be NULL;
+// their exact cardinality is retained by each array program. Semantic rejection
+// returns OK with |out_admitted| false and a populated |out_issue|. Allocation
+// failure is the only status failure. The retained preparation is allocated
+// from |arena| and remains valid until it is reset.
+iree_status_t loom_aie2p_xdna_product_preparation_begin(
+    const loom_aie2p_xdna_product_t* product, iree_arena_allocator_t* arena,
+    bool* out_admitted, loom_aie2p_xdna_product_preparation_t** out_preparation,
+    loom_aie2p_xdna_product_issue_t* out_issue);
+
+// Resolves linked resident code into a trusted final XDNA product |out_plan|.
 //
 // Native command ranges splice shared linked code and command fragments into
 // final ELF backing. Identical code sections are interned. Entries without
 // per-invocation control records publish a header-only self-looping
-// continuation and no empty load ranges. Metadata, native transactions,
-// symbols, sections, and segments are all finalized here. Every referenced
-// payload is allocated from |arena| and remains valid until it is reset.
-iree_status_t loom_aie2p_xdna_product_prepare(
-    const loom_aie2p_xdna_product_t* product,
-    loom_aie2p_xdna_product_plan_t* out_plan, iree_arena_allocator_t* arena);
+// continuation and no empty load ranges. Only code-derived section interning,
+// symbol strings, and command byte offsets remain after admission. Semantic
+// rejection returns OK with |out_prepared| false and a populated |out_issue|.
+// Allocation failure is the only status failure. Every referenced payload is
+// allocated from the preparation arena and remains valid until it is reset.
+iree_status_t loom_aie2p_xdna_product_preparation_finish(
+    loom_aie2p_xdna_product_preparation_t* preparation, bool* out_prepared,
+    loom_aie2p_xdna_product_plan_t* out_plan,
+    loom_aie2p_xdna_product_issue_t* out_issue);
 
 #ifdef __cplusplus
 }  // extern "C"
