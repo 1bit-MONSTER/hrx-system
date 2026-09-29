@@ -70,15 +70,15 @@ build_tools/bin/iree-bazel-run --//libamdf/config:enabled=true \
 ```
 
 Set `GPU_ENDPOINT_ID` to the selected endpoint's two hexadecimal words, including
-the colon. A qualification invocation names that endpoint, its expected target
-and the required cases explicitly:
+the colon, and `GPU_TARGET` to its reported GFX target. A qualification invocation
+names that endpoint, its expected target and the required cases explicitly:
 
 ```sh
 build_tools/bin/iree-bazel-test --config=asan \
   --//libamdf/config:enabled=true \
   //libamdf/cts/gpu/recipes:recipes_dynamic \
   --test_arg="--amdf_gpu_endpoint_id=${GPU_ENDPOINT_ID}" \
-  --test_arg=--amdf_gpu_target=gfx1151 \
+  --test_arg="--amdf_gpu_target=${GPU_TARGET}" \
   --test_arg=--amdf_require_test=MemoryPairRecipeTest.ConcreteCoherentHostAndTwoQueueHandoff \
   --test_arg=--amdf_require_test=MemoryPairRecipeTest.ProfileCoherentHostAndTwoQueueHandoff
 ```

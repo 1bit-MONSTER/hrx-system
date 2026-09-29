@@ -125,8 +125,8 @@ Focused design documents describe the contracts:
   and caller-owned lifetimes.
 - [Performance contracts](docs/performance.md): method-level preparation,
   allocation, locking, native-call and steady-state cost guarantees.
-- [GPU execution](docs/gpu.md): direct user-queue publication, AQL
-  fixed scratch, native signals and execution lifetimes.
+- [GPU execution](docs/gpu.md): mapped publication, kernel-mediated submission,
+  AQL fixed scratch, native signals and execution lifetimes.
 - [GPU command reference](../docs/reference/amd/gpu/README.md): PM4, SDMA and AQL commands,
   native publication, memory visibility and execution ordering.
 - [GPU timing and counters](../docs/reference/amd/gpu/observability.md): clock domains,
