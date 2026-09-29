@@ -26,6 +26,7 @@ platform(
         "@platforms//cpu:wasm32",
         "@platforms//os:wasi",
     ],
+    visibility = ["//visibility:public"],
 )
 
 py_binary(

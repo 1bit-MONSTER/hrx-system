@@ -185,7 +185,7 @@ sh_test(
                 repo_root=str(repo_root),
             )
 
-    def test_loaded_executable_alias_honors_explicit_conversion_skip(self):
+    def test_loaded_executable_aliases_honor_explicit_conversion_skip(self):
         repo_root = Path(__file__).resolve().parents[2]
         repo_cfg = SimpleNamespace(PROJECTS=[], REPO_MAP={"@hrx": ""})
         build_dir = str(repo_root / "synthetic")
@@ -205,6 +205,22 @@ iree_executable_alias(
             repo_root=str(repo_root),
         )
         self.assertNotIn("bazel_only_alias", cmake)
+
+        cmake = bazel_to_cmake_converter.convert_build_file(
+            """
+load("//build_tools/bazel:executable.bzl", "iree_wasi_executable_alias")
+
+iree_wasi_executable_alias(
+    name = "bazel_only_wasi_alias",
+    src = ":tool",
+    tags = ["skip-bazel_to_cmake"],
+)
+""",
+            repo_cfg,
+            build_dir,
+            repo_root=str(repo_root),
+        )
+        self.assertNotIn("bazel_only_wasi_alias", cmake)
 
     def test_glob_exclusions_have_distinct_cmake_storage(self):
         repo_root = Path(__file__).resolve().parents[2]

@@ -52,7 +52,7 @@ _WASI_CONFIGURATION = {
     "//command_line_option:features": [],
     "//command_line_option:linkopt": [],
     "//command_line_option:per_file_copt": [],
-    "//command_line_option:platforms": [Label("//build_tools/wasm:wasm32_wasi")],
+    "//command_line_option:platforms": [],
 }
 
 def _launcher_transition_impl(_settings, _attr):
@@ -64,8 +64,10 @@ _launcher_transition = transition(
     outputs = _LAUNCHER_CONFIGURATION.keys(),
 )
 
-def _wasi_transition_impl(_settings, _attr):
-    return _WASI_CONFIGURATION
+def _wasi_transition_impl(_settings, attr):
+    configuration = dict(_WASI_CONFIGURATION)
+    configuration["//command_line_option:platforms"] = [attr.target_platform]
+    return configuration
 
 _wasi_transition = transition(
     implementation = _wasi_transition_impl,
@@ -415,6 +417,10 @@ _WASI_ALIAS_ATTRS["src"] = attr.label(
     doc = "Executable target cross-compiled to WASI and exposed through a host wrapper.",
     executable = True,
     mandatory = True,
+)
+_WASI_ALIAS_ATTRS["target_platform"] = attr.label(
+    default = "//build_tools/wasm:wasm32_wasi",
+    doc = "WASI target platform used to configure the source executable.",
 )
 
 _TEST_ATTRS = dict(_SHARED_ATTRS)
