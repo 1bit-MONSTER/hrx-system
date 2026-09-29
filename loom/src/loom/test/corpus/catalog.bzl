@@ -7,8 +7,14 @@
 """Target-neutral source catalog for Loom semantic conformance."""
 
 load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_catalog")
+load("//loom/src/loom/test/corpus/control:manifest.bzl", "CONTROL_CORPUS")
+load("//loom/src/loom/test/corpus/function:manifest.bzl", "FUNCTION_CORPUS")
+load("//loom/src/loom/test/corpus/memory:manifest.bzl", "MEMORY_CORPUS")
 load("//loom/src/loom/test/corpus/numeric:manifest.bzl", "NUMERIC_CORPUS")
 
 LOOM_CORPUS = loom_corpus_catalog([
     NUMERIC_CORPUS,
+    CONTROL_CORPUS,
+    MEMORY_CORPUS,
+    FUNCTION_CORPUS,
 ])

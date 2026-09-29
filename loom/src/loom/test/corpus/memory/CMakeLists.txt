@@ -9,35 +9,27 @@
 
 iree_add_all_subdirs()
 
-loom_test_module(
+loom_corpus_sources(
   NAME
-    word_test_module
+    "all"
+  MANIFEST
+    "memory"
   SRCS
+    "address.loom"
+    "allocation_freshness.loom"
+    "atomics.loom"
+    "buffer_access.loom"
+    "buffers.loom"
+    "masked_memory.loom"
+    "memory_boundaries.loom"
+    "nested_view_selection.loom"
+    "view_access.loom"
+    "view_boundary_transport.loom"
+    "view_offset_recurrence.loom"
+    "view_rotation.loom"
+    "view_selected_crops.loom"
+    "view_selection.loom"
     "word.loom"
 )
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    word_test_execute_amdgpu_hardware_test
-  MODULE
-    "::word_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

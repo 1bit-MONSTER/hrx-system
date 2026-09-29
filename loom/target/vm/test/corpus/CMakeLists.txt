@@ -14,6 +14,9 @@ loom_corpus_build(
     "all"
   MANIFESTS
     "numeric"
+    "control"
+    "memory"
+    "function"
   PROFILES
     loom::target::vm::all
 )
@@ -25,6 +28,9 @@ loom_corpus_test(
     "vm_reference"
   MANIFESTS
     "numeric"
+    "control"
+    "memory"
+    "function"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"
