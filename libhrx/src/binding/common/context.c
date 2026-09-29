@@ -8,8 +8,10 @@
 
 #include <string.h>
 
+#include "common/device.h"
 #include "common/graph.h"
-#include "common/internal.h"
+#include "common/init.h"
+#include "common/memory.h"
 #include "common/stream.h"
 #include "common/stream_value.h"
 

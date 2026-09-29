@@ -4,10 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "common/context.h"
+#include "common/device.h"
+#include "common/event.h"
 #include "common/graph.h"
-#include "common/internal.h"
+#include "common/module.h"
 #include "common/occupancy.h"
 #include "common/stream.h"
+#include "common/stream_value.h"
 #include "iree/base/api.h"
 #include "iree/hal/utils/resource_set.h"
 

@@ -8,12 +8,13 @@
 #define LIBHRX_SRC_LIBHRX_RUNTIME_H_
 
 #include "hrx_runtime.h"
-#include "iree/async/util/proactor_pool.h"
 #include "iree/hal/api.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct iree_async_proactor_pool_t iree_async_proactor_pool_t;
 
 // Initializes GPU devices with one immutable HAL device-creation extension
 // chain. The chain and all transitively referenced provider data must remain

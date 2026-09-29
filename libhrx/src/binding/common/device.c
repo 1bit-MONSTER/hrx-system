@@ -8,7 +8,8 @@
 
 #include <string.h>
 
-#include "common/internal.h"
+#include "common/hrx_bridge.h"
+#include "common/mem_pool.h"
 
 //===----------------------------------------------------------------------===//
 // Device management

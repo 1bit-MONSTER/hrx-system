@@ -6,8 +6,9 @@
 
 #include "common/event.h"
 
+#include "common/context.h"
 #include "common/graph.h"
-#include "common/internal.h"
+#include "common/stream.h"
 #include "iree/base/internal/math.h"
 
 //===----------------------------------------------------------------------===//

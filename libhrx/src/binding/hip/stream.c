@@ -9,7 +9,7 @@
 #include <limits.h>
 
 #include "binding/hip/handle_registry.h"
-#include "common/internal.h"
+#include "common/context.h"
 #include "common/stream.h"
 #include "iree/base/threading/call_once.h"
 

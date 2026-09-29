@@ -15,7 +15,10 @@
 #include <thread>
 #include <utility>
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/graph.h"
+#include "common/hrx_bridge.h"
 #include "common/stream.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"

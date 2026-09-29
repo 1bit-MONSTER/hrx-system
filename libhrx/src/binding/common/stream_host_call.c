@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "common/graph.h"
-#include "common/internal.h"
 #include "common/stream.h"
 
 // Captured HIP callback adapted to the HAL host-call ABI.

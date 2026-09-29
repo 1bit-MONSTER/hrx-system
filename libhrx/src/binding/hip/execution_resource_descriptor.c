@@ -8,7 +8,7 @@
 
 #include "binding/hip/execution_resource.h"
 #include "binding/hip/handle_registry.h"
-#include "common/internal.h"
+#include "common/device.h"
 #include "iree/base/threading/call_once.h"
 
 static iree_once_flag iree_hip_execution_resource_descriptor_registry_once =

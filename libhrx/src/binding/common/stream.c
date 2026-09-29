@@ -11,9 +11,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/context.h"
+#include "common/event.h"
 #include "common/graph.h"
-#include "common/internal.h"
 #include "common/kernel_arguments.h"
+#include "common/memory.h"
 
 // Env-gated timing for launch-path investigation. This intentionally uses plain
 // counters because the current perf probes run single-threaded and we want the

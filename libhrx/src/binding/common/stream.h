@@ -325,6 +325,14 @@ iree_status_t iree_hal_streaming_queue_host_call(
     iree_hal_streaming_stream_t* stream, iree_hal_host_call_t call,
     const uint64_t args[4], iree_hal_host_call_flags_t flags);
 
+// Launches a host function on the stream.
+// The function will be called with user_data when the stream reaches this
+// point. The stream will be flushed before enqueueing the host call to ensure
+// proper ordering with device operations.
+// Synchronization: stream flush (flushes stream before enqueue).
+iree_status_t iree_hal_streaming_launch_host_function(
+    iree_hal_streaming_stream_t* stream, void (*fn)(void*), void* user_data);
+
 // Executes blocking host work in stream order. The caller waits for all prior
 // work, invokes |fn|, and publishes success or failure to a timeline point
 // reserved before the wait. Concurrent later submissions therefore remain

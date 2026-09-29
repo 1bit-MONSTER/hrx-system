@@ -8,7 +8,7 @@
 
 #include <cstring>
 
-#include "common/internal.h"
+#include "common/device.h"
 #include "iree/hal/testing/mock_device.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"

@@ -6,9 +6,10 @@
 
 #include "common/stream_value.h"
 
-#include "common/internal.h"
+#include "common/context.h"
 #include "common/stream.h"
 #include "iree/async/operations/scheduling.h"
+#include "iree/async/util/proactor_pool.h"
 #include "iree/base/internal/math.h"
 #include "libhrx/src/libhrx/runtime.h"
 
