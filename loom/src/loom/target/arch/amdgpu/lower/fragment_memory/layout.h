@@ -40,15 +40,17 @@ bool loom_amdgpu_fragment_memory_select_packetization(
     loom_amdgpu_fragment_memory_packetization_t* out_packetization,
     iree_string_view_t* out_constraint_key);
 
-// Verifies that common indexed-address terms fit the AMDGPU address plan.
+// Verifies that indexed-address terms outside the scalar base fit U32 VADDR.
 bool loom_amdgpu_fragment_memory_source_plan_supports_addressing(
     const loom_low_source_memory_access_plan_t* source,
+    const loom_amdgpu_fragment_memory_scalar_base_t* scalar_base,
     iree_string_view_t* out_constraint_key);
 
-// Verifies that the complete source, participant, and register address range
-// fits the target's unsigned 32-bit vector-address representation.
+// Verifies that source offsets outside the scalar base, participant offsets,
+// and register offsets together fit unsigned 32-bit vector addressing.
 bool loom_amdgpu_fragment_memory_address_range_fits_u32(
     const loom_low_source_memory_access_plan_t* source,
+    const loom_amdgpu_fragment_memory_scalar_base_t* scalar_base,
     const loom_amdgpu_fragment_memory_address_layout_t* address_layout,
     const loom_amdgpu_fragment_memory_runtime_axis_t* runtime_axes,
     uint8_t view_rank, uint16_t wave_size, uint16_t register_count,

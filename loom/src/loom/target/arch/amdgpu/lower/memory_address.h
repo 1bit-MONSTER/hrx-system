@@ -60,6 +60,14 @@ iree_status_t loom_amdgpu_emit_memory_saddr(
     const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
     loom_value_id_t low_binding, loom_value_id_t* out_low_saddr);
 
+// Adds scalar byte-offset terms and static bytes to a full-width binding
+// pointer. Vector terms in the shared sequence contribute only to VADDR.
+iree_status_t loom_amdgpu_emit_sgpr_base_byte_offset_terms(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
+    uint64_t static_byte_offset, loom_value_id_t low_binding,
+    loom_value_id_t* out_low_saddr);
+
 // Emits a u32 SGPR offset from the resolved scalar terms plus a static offset.
 iree_status_t loom_amdgpu_emit_sgpr_byte_offset_terms(
     loom_low_lower_context_t* context, const loom_op_t* source_op,

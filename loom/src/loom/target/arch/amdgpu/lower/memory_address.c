@@ -766,12 +766,22 @@ iree_status_t loom_amdgpu_emit_memory_saddr(
     const loom_amdgpu_memory_access_t* access,
     const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
     loom_value_id_t low_binding, loom_value_id_t* out_low_saddr) {
-  *out_low_saddr = low_binding;
   const uint64_t static_byte_offset =
       access->scalar_offset_placement ==
               LOOM_AMDGPU_MEMORY_SCALAR_OFFSET_PLACEMENT_BASE
           ? access->scalar_base_byte_offset
           : access->scalar_byte_offset;
+  return loom_amdgpu_emit_sgpr_base_byte_offset_terms(
+      context, source_op, sequence, static_byte_offset, low_binding,
+      out_low_saddr);
+}
+
+iree_status_t loom_amdgpu_emit_sgpr_base_byte_offset_terms(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_memory_dynamic_term_sequence_t* sequence,
+    uint64_t static_byte_offset, loom_value_id_t low_binding,
+    loom_value_id_t* out_low_saddr) {
+  *out_low_saddr = low_binding;
   const loom_value_facts_t offset_facts =
       loom_amdgpu_memory_saddr_offset_facts(sequence, static_byte_offset);
   if (loom_value_facts_is_zero(offset_facts)) {

@@ -371,13 +371,18 @@ bool loom_amdgpu_fragment_memory_select_packetization(
 
 bool loom_amdgpu_fragment_memory_source_plan_supports_addressing(
     const loom_low_source_memory_access_plan_t* source,
+    const loom_amdgpu_fragment_memory_scalar_base_t* scalar_base,
     iree_string_view_t* out_constraint_key) {
   if (source->static_byte_offset < 0 ||
-      source->static_byte_offset > UINT32_MAX) {
+      (uint64_t)source->static_byte_offset - scalar_base->byte_offset >
+          UINT32_MAX) {
     return loom_amdgpu_fragment_memory_layout_reject(
         IREE_SV("fragment_memory.base_offset"), out_constraint_key);
   }
   for (uint8_t i = 0; i < source->dynamic_term_count; ++i) {
+    if (iree_any_bit_set(scalar_base->dynamic_term_mask, UINT32_C(1) << i)) {
+      continue;
+    }
     const loom_low_source_memory_dynamic_term_t* term =
         &source->dynamic_terms[i];
     if (term->byte_stride < 0 || term->byte_stride > UINT32_MAX ||
@@ -392,6 +397,7 @@ bool loom_amdgpu_fragment_memory_source_plan_supports_addressing(
 
 bool loom_amdgpu_fragment_memory_address_range_fits_u32(
     const loom_low_source_memory_access_plan_t* source,
+    const loom_amdgpu_fragment_memory_scalar_base_t* scalar_base,
     const loom_amdgpu_fragment_memory_address_layout_t* address_layout,
     const loom_amdgpu_fragment_memory_runtime_axis_t* runtime_axes,
     uint8_t view_rank, uint16_t wave_size, uint16_t register_count,
@@ -421,9 +427,21 @@ bool loom_amdgpu_fragment_memory_address_range_fits_u32(
         IREE_SV("fragment_memory.address_range"), out_constraint_key);
   }
 
-  loom_value_facts_t address_facts =
-      loom_low_source_memory_dynamic_offset_facts(source,
-                                                  source->static_byte_offset);
+  loom_value_facts_t address_facts;
+  if (scalar_base->dynamic_term_mask == 0) {
+    address_facts = loom_low_source_memory_dynamic_offset_facts(
+        source, source->static_byte_offset - (int64_t)scalar_base->byte_offset);
+  } else {
+    address_facts = loom_value_facts_exact_i64(
+        source->static_byte_offset - (int64_t)scalar_base->byte_offset);
+    for (uint8_t i = 0; i < source->dynamic_term_count; ++i) {
+      if (!iree_any_bit_set(scalar_base->dynamic_term_mask, UINT32_C(1) << i)) {
+        loom_value_facts_addi(&address_facts,
+                              &source->dynamic_terms[i].byte_facts,
+                              &address_facts);
+      }
+    }
+  }
   const loom_value_facts_t static_fragment_facts =
       loom_value_facts_exact_i64((int64_t)maximum_static_fragment_byte_offset);
   loom_value_facts_addi(&address_facts, &static_fragment_facts, &address_facts);

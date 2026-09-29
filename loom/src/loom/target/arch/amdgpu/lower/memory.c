@@ -259,6 +259,22 @@ static bool loom_amdgpu_memory_dynamic_term_can_materialize_soffset(
   return true;
 }
 
+uint32_t loom_amdgpu_source_memory_scalar_term_mask(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    const loom_view_region_table_t* view_regions,
+    loom_amdgpu_source_value_analysis_t* analysis,
+    const loom_low_source_memory_access_plan_t* source) {
+  uint32_t mask = 0;
+  for (uint8_t i = 0; i < source->dynamic_term_count; ++i) {
+    if (loom_amdgpu_memory_dynamic_term_can_materialize_soffset(
+            module, fact_table, view_regions, analysis,
+            &source->dynamic_terms[i])) {
+      mask |= UINT32_C(1) << i;
+    }
+  }
+  return mask;
+}
+
 static bool loom_amdgpu_memory_dynamic_term_can_materialize_vaddr(
     const loom_module_t* module,
     const loom_low_source_memory_dynamic_term_t* term) {

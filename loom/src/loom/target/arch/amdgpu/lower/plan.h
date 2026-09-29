@@ -1682,6 +1682,17 @@ typedef struct loom_amdgpu_fragment_memory_narrowed_result_plan_t {
 static_assert(sizeof(loom_amdgpu_fragment_memory_narrowed_result_plan_t) == 16,
               "narrowed-result plans must stay compact");
 
+// Full-width origin contributions folded into a global fragment's scalar base.
+// All remaining source and fragment-coordinate contributions fit U32 VADDR.
+typedef struct loom_amdgpu_fragment_memory_scalar_base_t {
+  // Static source bytes added to the binding pointer instead of VADDR.
+  uint64_t byte_offset;
+  // Source dynamic terms added to the pointer, indexed by canonical term.
+  uint32_t dynamic_term_mask;
+} loom_amdgpu_fragment_memory_scalar_base_t;
+static_assert(LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_CAPACITY <= 32,
+              "fragment scalar-base mask must cover all source terms");
+
 typedef struct loom_amdgpu_fragment_memory_plan_t {
   // Direction of the fragment memory movement.
   loom_low_source_memory_operation_kind_t operation_kind;
@@ -1691,6 +1702,8 @@ typedef struct loom_amdgpu_fragment_memory_plan_t {
   loom_amdgpu_matrix_fragment_layout_kind_t layout_kind;
   // Target-independent source view access plan.
   loom_low_source_memory_access_plan_t source;
+  // Retained full-width origin partition; zero for narrow-only addressing.
+  loom_amdgpu_fragment_memory_scalar_base_t scalar_base;
   // Whether every dynamic source-address term is subgroup-uniform.
   bool dynamic_base_is_subgroup_uniform;
   // Shared carried dynamic/lane address, or NULL for direct address emission.

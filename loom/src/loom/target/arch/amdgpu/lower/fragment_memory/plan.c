@@ -40,6 +40,7 @@
 #include "loom/target/arch/amdgpu/lower/legality.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
 #include "loom/target/arch/amdgpu/lower/source_alloca_layout.h"
+#include "loom/target/arch/amdgpu/lower/source_value_analysis.h"
 #include "loom/target/arch/amdgpu/lower/subgroup.h"
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/matrix/contract.h"
@@ -56,6 +57,10 @@ typedef struct loom_amdgpu_fragment_memory_environment_t {
   const loom_module_t* module;
   // Source facts available for shape, view, and address reasoning.
   const loom_value_fact_table_t* fact_table;
+  // Precomputed source view summaries available for address planning.
+  const loom_view_region_table_t* view_regions;
+  // Cached source register-placement analysis shared with ordinary memory.
+  loom_amdgpu_source_value_analysis_t* value_analysis;
   // Target bundle selected for this source-to-low attempt.
   const loom_target_bundle_t* bundle;
   // Low descriptor set selected by the target bundle.
@@ -1393,9 +1398,44 @@ static bool loom_amdgpu_fragment_memory_prepare(
           diagnostic, IREE_SV("fragment_memory.base_offset"));
     }
   }
+  return true;
+}
+
+static bool loom_amdgpu_fragment_memory_select_addressing(
+    const loom_amdgpu_fragment_memory_environment_t* environment,
+    const loom_low_source_memory_access_plan_t* source,
+    const loom_amdgpu_fragment_memory_address_layout_t* address_layout,
+    const loom_amdgpu_fragment_memory_runtime_axis_t* runtime_axes,
+    uint8_t view_rank, uint16_t wave_size, uint16_t register_count,
+    loom_amdgpu_fragment_memory_scalar_base_t* out_scalar_base,
+    iree_string_view_t* out_constraint_key) {
+  *out_scalar_base = (loom_amdgpu_fragment_memory_scalar_base_t){0};
+  if (loom_amdgpu_fragment_memory_source_plan_supports_addressing(
+          source, out_scalar_base, /*out_constraint_key=*/NULL) &&
+      loom_amdgpu_fragment_memory_address_range_fits_u32(
+          source, out_scalar_base, address_layout, runtime_axes, view_rank,
+          wave_size, register_count, /*out_constraint_key=*/NULL)) {
+    return true;
+  }
+
+  // GLOBAL packets already carry a full-width scalar binding pointer. Move
+  // scalar-materializable origins into that pointer when the complete offset
+  // cannot fit VADDR, retaining the original plan for source memory analysis.
+  if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL ||
+      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT) {
+    out_scalar_base->dynamic_term_mask =
+        loom_amdgpu_source_memory_scalar_term_mask(
+            environment->module, environment->fact_table,
+            environment->view_regions, environment->value_analysis, source);
+    if (source->static_byte_offset >= 0) {
+      out_scalar_base->byte_offset = (uint64_t)source->static_byte_offset;
+    }
+  }
   return loom_amdgpu_fragment_memory_source_plan_supports_addressing(
-      &out_prepared->source_access,
-      diagnostic != NULL ? &diagnostic->constraint_key : NULL);
+             source, out_scalar_base, out_constraint_key) &&
+         loom_amdgpu_fragment_memory_address_range_fits_u32(
+             source, out_scalar_base, address_layout, runtime_axes, view_rank,
+             wave_size, register_count, out_constraint_key);
 }
 
 static bool loom_amdgpu_fragment_memory_evaluate_prepared(
@@ -1491,10 +1531,11 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         diagnostic, IREE_SV("fragment_memory.store_conversion"));
   }
 
-  if (!loom_amdgpu_fragment_memory_address_range_fits_u32(
-          &prepared->source_access, &address_layout, runtime_axes,
+  loom_amdgpu_fragment_memory_scalar_base_t scalar_base;
+  if (!loom_amdgpu_fragment_memory_select_addressing(
+          environment, &prepared->source_access, &address_layout, runtime_axes,
           prepared->access.view_rank, layout->wave_size,
-          role_layout->register_count,
+          role_layout->register_count, &scalar_base,
           diagnostic != NULL ? &diagnostic->constraint_key : NULL)) {
     return false;
   }
@@ -1573,6 +1614,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         .role = prepared->role,
         .layout_kind = layout->kind,
         .source = prepared->source_access,
+        .scalar_base = scalar_base,
         .dynamic_base_is_subgroup_uniform =
             loom_amdgpu_fragment_memory_dynamic_base_is_subgroup_uniform(
                 &prepared->source_access),
@@ -1609,6 +1651,8 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
 static bool loom_amdgpu_analyze_vector_fragment_memory_plan_impl(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_low_source_memory_access_plan_t* source_access,
+    const loom_view_region_table_t* view_regions,
+    loom_amdgpu_source_value_analysis_t* value_analysis,
     const loom_target_bundle_t* bundle,
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_amdgpu_matrix_fragment_contract_candidates_t*
@@ -1624,6 +1668,8 @@ static bool loom_amdgpu_analyze_vector_fragment_memory_plan_impl(
   const loom_amdgpu_fragment_memory_environment_t environment = {
       .module = module,
       .fact_table = fact_table,
+      .view_regions = view_regions,
+      .value_analysis = value_analysis,
       .bundle = bundle,
       .descriptor_set = descriptor_set,
       .contract_candidates = contract_candidates,
@@ -1658,6 +1704,9 @@ iree_status_t loom_amdgpu_query_accumulator_fragment_store_representations(
   const loom_module_t* module = loom_low_lower_context_module(context);
   const loom_value_fact_table_t* fact_table =
       loom_low_lower_context_fact_table(context);
+  const loom_view_region_table_t* view_regions = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_context_view_regions(context, &view_regions));
   loom_low_source_memory_access_diagnostic_t source_diagnostic = {0};
   const loom_low_source_memory_access_plan_t* source_access =
       loom_low_lower_source_memory_access(context, source_op,
@@ -1675,9 +1724,14 @@ iree_status_t loom_amdgpu_query_accumulator_fragment_store_representations(
   const loom_amdgpu_source_alloca_layout_t* alloca_layout = NULL;
   IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_for_lower_context(
       context, &alloca_layout));
+  loom_amdgpu_source_value_analysis_t* value_analysis = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_source_value_analysis_for_context(context, &value_analysis));
   const loom_amdgpu_fragment_memory_environment_t environment = {
       .module = module,
       .fact_table = fact_table,
+      .view_regions = view_regions,
+      .value_analysis = value_analysis,
       .bundle = loom_low_lower_context_bundle(context),
       .descriptor_set = loom_low_lower_context_descriptor_set(context),
       .contract_candidates = contract_candidates,
@@ -1777,9 +1831,12 @@ static iree_status_t loom_amdgpu_fragment_memory_select(
     }
   }
   loom_amdgpu_fragment_memory_diagnostic_t diagnostic = {0};
+  loom_amdgpu_source_value_analysis_t* value_analysis = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_source_value_analysis_for_context(context, &value_analysis));
   *out_selected = loom_amdgpu_analyze_vector_fragment_memory_plan_impl(
       module, loom_low_lower_context_fact_table(context), source_access,
-      loom_low_lower_context_bundle(context),
+      view_regions, value_analysis, loom_low_lower_context_bundle(context),
       loom_low_lower_context_descriptor_set(context), contract_candidates,
       alloca_layout,
       loom_amdgpu_target_facts_cast(
@@ -1859,9 +1916,15 @@ iree_status_t loom_amdgpu_low_legality_verify_fragment_memory(
   const loom_amdgpu_source_alloca_layout_t* alloca_layout = NULL;
   IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_for_low_legality(
       context, &alloca_layout));
+  loom_amdgpu_source_value_analysis_t* value_analysis = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_source_value_analysis_for_target_low_legality(
+          context, &value_analysis));
   const loom_amdgpu_fragment_memory_environment_t environment = {
       .module = module,
       .fact_table = loom_target_low_legality_fact_table(context),
+      .view_regions = view_regions,
+      .value_analysis = value_analysis,
       .bundle = bundle,
       .descriptor_set = loom_target_low_legality_descriptor_set(context),
       .alloca_layout = alloca_layout,
