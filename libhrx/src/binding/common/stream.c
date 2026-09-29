@@ -291,6 +291,24 @@ bool iree_hal_streaming_stream_has_memory_reuse_dependency(
   return has_dependency;
 }
 
+void iree_hal_streaming_stream_set_capture_status(
+    iree_hal_streaming_stream_t* stream,
+    iree_hal_streaming_capture_status_t new_status) {
+  const iree_hal_streaming_capture_status_t old_status = stream->capture_status;
+  if (old_status == new_status) {
+    return;
+  }
+  if (old_status == IREE_HAL_STREAMING_CAPTURE_STATUS_NONE &&
+      new_status != IREE_HAL_STREAMING_CAPTURE_STATUS_NONE) {
+    iree_hal_streaming_context_enter_capture(stream->context);
+  }
+  stream->capture_status = new_status;
+  if (old_status != IREE_HAL_STREAMING_CAPTURE_STATUS_NONE &&
+      new_status == IREE_HAL_STREAMING_CAPTURE_STATUS_NONE) {
+    iree_hal_streaming_context_leave_capture(stream->context);
+  }
+}
+
 iree_status_t iree_hal_streaming_stream_create(
     iree_hal_streaming_context_t* context, iree_hal_queue_t* queue,
     iree_hal_streaming_stream_flags_t flags, int priority,
