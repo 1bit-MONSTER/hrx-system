@@ -855,10 +855,17 @@ static iree_status_t loom_boundary_projection_name_loop_components(
     loom_boundary_projection_plan_t* plan,
     const loom_boundary_projection_slot_t* candidate) {
   const loom_boundary_projection_schema_t* schema = &candidate->schema;
-  if (!schema->component_name_suffixes) {
+  if (!schema->component_name_suffixes ||
+      !iree_any_bit_set(plan->rewriter.name_policy,
+                        LOOM_REWRITER_NAME_POLICY_DERIVE_DEBUG_NAMES)) {
     return iree_ok_status();
   }
   for (uint16_t i = 0; i < schema->component_count; ++i) {
+    // Loop replacement preserves a source name for one-to-one endpoints. A
+    // projected endpoint is a physical component, so replace that copied name
+    // with the component spelling supplied by the projection rule.
+    IREE_RETURN_IF_ERROR(loom_rewriter_clear_value_name(
+        &plan->rewriter, candidate->component_value_ids[i]));
     IREE_RETURN_IF_ERROR(loom_rewriter_try_set_derived_value_name(
         &plan->rewriter, candidate->value_id, candidate->component_value_ids[i],
         schema->component_name_suffixes[i]));

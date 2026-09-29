@@ -91,7 +91,7 @@ loom_cc_library(
         ":projection_core",
         "//loom/src/loom/pass:types",
         "//loom/src/loom/target:pass_environment",
-        "//loom/src/loom/transforms/encoding:cfg_layout_projection",
+        "//loom/src/loom/transforms/encoding:layout_projection",
         "//loom/src/loom/transforms/view:boundary_projection",
         "//runtime/src/iree/base",
     ],

@@ -11,11 +11,11 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
-    cfg_layout_projection
+    layout_projection
   HDRS
-    "cfg_layout_projection.h"
+    "layout_projection.h"
   SRCS
-    "cfg_layout_projection.c"
+    "layout_projection.c"
   DEPS
     iree::base
     iree::base::internal::arena
@@ -34,7 +34,7 @@ loom_cc_library(
     "layout_transport.c"
     "scf_layout_transport.c"
   DEPS
-    ::cfg_layout_projection
+    ::layout_projection
     iree::base
     iree::base::internal::arena
     loom::ir

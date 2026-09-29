@@ -13,9 +13,9 @@ package(
 )
 
 loom_cc_library(
-    name = "cfg_layout_projection",
-    srcs = ["cfg_layout_projection.c"],
-    hdrs = ["cfg_layout_projection.h"],
+    name = "layout_projection",
+    srcs = ["layout_projection.c"],
+    hdrs = ["layout_projection.h"],
     deps = [
         "//loom/src/loom/ops/encoding",
         "//loom/src/loom/ops/index",
@@ -33,7 +33,7 @@ loom_cc_library(
     ],
     hdrs = ["layout_transport.h"],
     deps = [
-        ":cfg_layout_projection",
+        ":layout_projection",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/cfg",
         "//loom/src/loom/ops/encoding",

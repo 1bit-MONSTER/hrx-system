@@ -8,7 +8,7 @@
 
 #include "loom/target/pass_environment.h"
 #include "loom/transforms/boundary/projection_driver.h"
-#include "loom/transforms/encoding/cfg_layout_projection.h"
+#include "loom/transforms/encoding/layout_projection.h"
 
 #define LOOM_CFG_LAYOUT_TRANSPORT_STATISTICS(V, statistics_type)       \
   V(statistics_type, layouts_decomposed, "layouts-decomposed",         \

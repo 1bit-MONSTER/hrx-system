@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/transforms/encoding/cfg_layout_projection.h"
+#include "loom/transforms/encoding/layout_projection.h"
 
 #include <inttypes.h>
 #include <string.h>
@@ -14,7 +14,7 @@
 #include "loom/ops/index/ops.h"
 #include "loom/transforms/boundary/projection_plan.h"
 
-typedef struct loom_cfg_layout_projection_slot_plan_t {
+typedef struct loom_layout_projection_slot_plan_t {
   // Static stride or INT64_MIN for each transported dynamic axis.
   int64_t static_strides[LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK];
   // Layout axis supplied by each physical component.
@@ -23,17 +23,17 @@ typedef struct loom_cfg_layout_projection_slot_plan_t {
   uint8_t rank;
   // Number of scalar stride components.
   uint8_t component_count;
-} loom_cfg_layout_projection_slot_plan_t;
+} loom_layout_projection_slot_plan_t;
 
-typedef enum loom_cfg_layout_projection_component_kind_e {
-  LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_VALUE = 0,
-  LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_CONSTANT = 1,
-  LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_SLOT = 2,
-} loom_cfg_layout_projection_component_kind_t;
+typedef enum loom_layout_projection_component_kind_e {
+  LOOM_LAYOUT_PROJECTION_COMPONENT_VALUE = 0,
+  LOOM_LAYOUT_PROJECTION_COMPONENT_CONSTANT = 1,
+  LOOM_LAYOUT_PROJECTION_COMPONENT_SLOT = 2,
+} loom_layout_projection_component_kind_t;
 
-typedef struct loom_cfg_layout_projection_component_t {
+typedef struct loom_layout_projection_component_t {
   // How the scalar component is obtained at the outgoing boundary.
-  loom_cfg_layout_projection_component_kind_t kind;
+  loom_layout_projection_component_kind_t kind;
   union {
     // Existing index SSA value for VALUE.
     loom_value_id_t value_id;
@@ -46,16 +46,16 @@ typedef struct loom_cfg_layout_projection_component_t {
       uint8_t component;
     } slot;
   } value;
-} loom_cfg_layout_projection_component_t;
+} loom_layout_projection_component_t;
 
-typedef struct loom_cfg_layout_projection_source_plan_t {
+typedef struct loom_layout_projection_source_plan_t {
   // One recipe per destination component.
-  loom_cfg_layout_projection_component_t* components;
+  loom_layout_projection_component_t* components;
   // Number of entries in components.
   uint8_t component_count;
-} loom_cfg_layout_projection_source_plan_t;
+} loom_layout_projection_source_plan_t;
 
-static iree_status_t loom_cfg_layout_projection_plan_slot(
+static iree_status_t loom_layout_projection_plan_slot(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
     loom_boundary_projection_function_t* function,
@@ -64,12 +64,15 @@ static iree_status_t loom_cfg_layout_projection_plan_slot(
     bool* out_claimed) {
   *out_schema = (loom_boundary_projection_schema_t){0};
   *out_claimed = false;
-  if (role != LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT || !block ||
-      !function->facts) {
+  if (!function->facts) {
     return iree_ok_status();
   }
-  loom_region_t* body = loom_func_like_body(function->function);
-  if (!body || block == loom_region_entry_block(body)) {
+  if (role == LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT) {
+    loom_region_t* body = loom_func_like_body(function->function);
+    if (!block || !body || block == loom_region_entry_block(body)) {
+      return iree_ok_status();
+    }
+  } else if (role != LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE) {
     return iree_ok_status();
   }
 
@@ -87,7 +90,7 @@ static iree_status_t loom_cfg_layout_projection_plan_slot(
     return iree_ok_status();
   }
 
-  loom_cfg_layout_projection_slot_plan_t* slot_plan = NULL;
+  loom_layout_projection_slot_plan_t* slot_plan = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate(plan->arena, sizeof(*slot_plan), (void**)&slot_plan));
   memset(slot_plan, 0, sizeof(*slot_plan));
@@ -143,11 +146,11 @@ static iree_status_t loom_cfg_layout_projection_plan_slot(
   return iree_ok_status();
 }
 
-static bool loom_cfg_layout_projection_direct_component(
+static bool loom_layout_projection_direct_component(
     const loom_boundary_projection_function_t* function,
     loom_value_id_t source_value_id,
-    const loom_cfg_layout_projection_slot_plan_t* destination_plan,
-    uint8_t axis, loom_cfg_layout_projection_component_t* out_component) {
+    const loom_layout_projection_slot_plan_t* destination_plan, uint8_t axis,
+    loom_layout_projection_component_t* out_component) {
   loom_value_fact_address_layout_t layout = {0};
   if (!loom_encoding_query_value_address_layout(&function->facts->context,
                                                 source_value_id, &layout) ||
@@ -158,8 +161,8 @@ static bool loom_cfg_layout_projection_direct_component(
   int64_t exact_stride = 0;
   if (loom_value_facts_as_exact_i64(layout.strides[axis], &exact_stride) &&
       exact_stride >= 0) {
-    *out_component = (loom_cfg_layout_projection_component_t){
-        .kind = LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_CONSTANT,
+    *out_component = (loom_layout_projection_component_t){
+        .kind = LOOM_LAYOUT_PROJECTION_COMPONENT_CONSTANT,
         .value.constant = exact_stride,
     };
     return true;
@@ -171,15 +174,15 @@ static bool loom_cfg_layout_projection_direct_component(
       bindings.values[axis] == LOOM_VALUE_ID_INVALID) {
     return false;
   }
-  *out_component = (loom_cfg_layout_projection_component_t){
-      .kind = LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_VALUE,
+  *out_component = (loom_layout_projection_component_t){
+      .kind = LOOM_LAYOUT_PROJECTION_COMPONENT_VALUE,
       .value.value_id = bindings.values[axis],
   };
   return true;
 }
 
-static bool loom_cfg_layout_projection_component_for_axis(
-    const loom_cfg_layout_projection_slot_plan_t* slot_plan, uint8_t axis,
+static bool loom_layout_projection_component_for_axis(
+    const loom_layout_projection_slot_plan_t* slot_plan, uint8_t axis,
     uint8_t* out_component) {
   for (uint8_t component = 0; component < slot_plan->component_count;
        ++component) {
@@ -191,7 +194,7 @@ static bool loom_cfg_layout_projection_component_for_axis(
   return false;
 }
 
-static iree_status_t loom_cfg_layout_projection_plan_source(
+static iree_status_t loom_layout_projection_plan_source(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
     loom_boundary_projection_function_t* function,
@@ -203,12 +206,12 @@ static iree_status_t loom_cfg_layout_projection_plan_source(
   *out_planned = false;
   IREE_ASSERT(destination != NULL);
   IREE_ASSERT(schema->rule == rule);
-  const loom_cfg_layout_projection_slot_plan_t* destination_plan =
-      (const loom_cfg_layout_projection_slot_plan_t*)schema->rule_plan;
+  const loom_layout_projection_slot_plan_t* destination_plan =
+      (const loom_layout_projection_slot_plan_t*)schema->rule_plan;
   IREE_ASSERT(destination_plan != NULL);
   IREE_ASSERT_EQ(destination_plan->component_count, schema->component_count);
 
-  loom_cfg_layout_projection_source_plan_t* source_plan = NULL;
+  loom_layout_projection_source_plan_t* source_plan = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate(plan->arena, sizeof(*source_plan),
                                            (void**)&source_plan));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -222,7 +225,7 @@ static iree_status_t loom_cfg_layout_projection_plan_source(
   for (uint8_t component = 0; component < source_plan->component_count;
        ++component) {
     const uint8_t axis = destination_plan->component_axes[component];
-    if (loom_cfg_layout_projection_direct_component(
+    if (loom_layout_projection_direct_component(
             function, source_value_id, destination_plan, axis,
             &source_plan->components[component])) {
       continue;
@@ -237,16 +240,16 @@ static iree_status_t loom_cfg_layout_projection_plan_source(
     if (!source->selected || source->schema.rule != rule) {
       return iree_ok_status();
     }
-    const loom_cfg_layout_projection_slot_plan_t* source_slot_plan =
-        (const loom_cfg_layout_projection_slot_plan_t*)source->schema.rule_plan;
+    const loom_layout_projection_slot_plan_t* source_slot_plan =
+        (const loom_layout_projection_slot_plan_t*)source->schema.rule_plan;
     uint8_t source_component = 0;
     if (source_slot_plan->rank != destination_plan->rank ||
-        !loom_cfg_layout_projection_component_for_axis(source_slot_plan, axis,
-                                                       &source_component)) {
+        !loom_layout_projection_component_for_axis(source_slot_plan, axis,
+                                                   &source_component)) {
       return iree_ok_status();
     }
-    const loom_cfg_layout_projection_component_t projected_component = {
-        .kind = LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_SLOT,
+    const loom_layout_projection_component_t projected_component = {
+        .kind = LOOM_LAYOUT_PROJECTION_COMPONENT_SLOT,
         .value.slot =
             {
                 .slot = source_index,
@@ -268,7 +271,7 @@ static iree_status_t loom_cfg_layout_projection_plan_source(
   return iree_ok_status();
 }
 
-static iree_status_t loom_cfg_layout_projection_materialize_source(
+static iree_status_t loom_layout_projection_materialize_source(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
     loom_boundary_projection_function_t* function,
@@ -276,18 +279,18 @@ static iree_status_t loom_cfg_layout_projection_materialize_source(
     loom_value_id_t* out_component_values) {
   IREE_ASSERT(source->rule == rule);
   IREE_ASSERT(source->boundary_op != NULL);
-  const loom_cfg_layout_projection_source_plan_t* source_plan =
-      (const loom_cfg_layout_projection_source_plan_t*)source->rule_plan;
+  const loom_layout_projection_source_plan_t* source_plan =
+      (const loom_layout_projection_source_plan_t*)source->rule_plan;
   IREE_ASSERT(source_plan != NULL);
   for (uint8_t component = 0; component < source_plan->component_count;
        ++component) {
-    const loom_cfg_layout_projection_component_t* projection =
+    const loom_layout_projection_component_t* projection =
         &source_plan->components[component];
     switch (projection->kind) {
-      case LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_VALUE:
+      case LOOM_LAYOUT_PROJECTION_COMPONENT_VALUE:
         out_component_values[component] = projection->value.value_id;
         break;
-      case LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_CONSTANT: {
+      case LOOM_LAYOUT_PROJECTION_COMPONENT_CONSTANT: {
         loom_builder_ip_t saved_ip = loom_builder_save(&plan->rewriter.builder);
         loom_builder_set_before(&plan->rewriter.builder, source->boundary_op);
         loom_op_t* constant_op = NULL;
@@ -301,7 +304,7 @@ static iree_status_t loom_cfg_layout_projection_materialize_source(
             loom_index_constant_result(constant_op);
         break;
       }
-      case LOOM_CFG_LAYOUT_PROJECTION_COMPONENT_SLOT: {
+      case LOOM_LAYOUT_PROJECTION_COMPONENT_SLOT: {
         const loom_boundary_projection_slot_t* projected_slot =
             &function->candidates[projection->value.slot.slot];
         out_component_values[component] =
@@ -318,7 +321,7 @@ static iree_status_t loom_cfg_layout_projection_materialize_source(
   return iree_ok_status();
 }
 
-static iree_status_t loom_cfg_layout_projection_reconstruct(
+static iree_status_t loom_layout_projection_reconstruct(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
     loom_boundary_projection_function_t* function,
@@ -326,8 +329,8 @@ static iree_status_t loom_cfg_layout_projection_reconstruct(
     loom_location_id_t location, loom_value_id_t* out_logical_value) {
   (void)function;
   IREE_ASSERT(slot->schema.rule == rule);
-  const loom_cfg_layout_projection_slot_plan_t* slot_plan =
-      (const loom_cfg_layout_projection_slot_plan_t*)slot->schema.rule_plan;
+  const loom_layout_projection_slot_plan_t* slot_plan =
+      (const loom_layout_projection_slot_plan_t*)slot->schema.rule_plan;
   IREE_ASSERT(slot_plan != NULL);
   loom_op_t* layout_op = NULL;
   IREE_RETURN_IF_ERROR(loom_encoding_layout_strided_build(
@@ -345,16 +348,36 @@ static const loom_boundary_projection_rule_t kCfgLayoutProjectionRule = {
         LOOM_BOUNDARY_PROJECTION_TYPE_KIND_BIT(LOOM_TYPE_ENCODING),
     .slot_role_bits = LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
         LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT),
-    .plan_slot = loom_cfg_layout_projection_plan_slot,
+    .plan_slot = loom_layout_projection_plan_slot,
     .transport =
         {
-            .plan_source = loom_cfg_layout_projection_plan_source,
-            .materialize_source = loom_cfg_layout_projection_materialize_source,
-            .reconstruct = loom_cfg_layout_projection_reconstruct,
+            .plan_source = loom_layout_projection_plan_source,
+            .materialize_source = loom_layout_projection_materialize_source,
+            .reconstruct = loom_layout_projection_reconstruct,
+        },
+};
+
+static const loom_boundary_projection_rule_t kLoopLayoutProjectionRule = {
+    .name = IREE_SVL("loop-dynamic-strided-layout"),
+    .type_kind_bits =
+        LOOM_BOUNDARY_PROJECTION_TYPE_KIND_BIT(LOOM_TYPE_ENCODING),
+    .slot_role_bits = LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
+        LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE),
+    .plan_slot = loom_layout_projection_plan_slot,
+    .transport =
+        {
+            .plan_source = loom_layout_projection_plan_source,
+            .materialize_source = loom_layout_projection_materialize_source,
+            .reconstruct = loom_layout_projection_reconstruct,
         },
 };
 
 const loom_boundary_projection_rule_t* loom_cfg_layout_boundary_projection_rule(
     void) {
   return &kCfgLayoutProjectionRule;
+}
+
+const loom_boundary_projection_rule_t*
+loom_loop_layout_boundary_projection_rule(void) {
+  return &kLoopLayoutProjectionRule;
 }
