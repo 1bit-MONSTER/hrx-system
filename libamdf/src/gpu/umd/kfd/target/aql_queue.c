@@ -19,7 +19,8 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
       properties->topology.shader_engine_count_per_xcc;
   if (page_size != 4096 || cache_line_size != 64 || xcc_count == 0 ||
       shader_engine_count == 0 || topology->compute_queue_count == 0 ||
-      properties->compute.wavefront_size != 64 ||
+      (properties->compute.wavefront_size != 32 &&
+       properties->compute.wavefront_size != 64) ||
       properties->compute.compute_unit_count == 0 ||
       properties->compute.compute_unit_count % xcc_count != 0 ||
       properties->compute.maximum_wave_count_per_compute_unit == 0 ||
@@ -29,12 +30,36 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
   }
   const uint32_t compute_units_per_xcc =
       properties->compute.compute_unit_count / xcc_count;
-  const uint64_t scratch_waves_per_xcc =
-      (uint64_t)compute_units_per_xcc *
+  const uint64_t scratch_slots_per_engine =
+      (((uint64_t)compute_units_per_xcc + shader_engine_count - 1) /
+       shader_engine_count) *
       properties->compute.maximum_scratch_wave_count_per_compute_unit;
-  if (scratch_waves_per_xcc > 0xfff ||
-      scratch_waves_per_xcc % shader_engine_count != 0 ||
-      scratch_waves_per_xcc * xcc_count > UINT32_MAX) {
+  const uint64_t scratch_slots_per_xcc =
+      scratch_slots_per_engine * shader_engine_count;
+  if (scratch_slots_per_xcc > UINT32_MAX / xcc_count) {
+    return false;
+  }
+  const bool rdna = properties->gfx_ip.major >= 11;
+  const uint64_t active_scratch_waves =
+      (uint64_t)properties->compute.compute_unit_count *
+      properties->compute.maximum_scratch_wave_count_per_compute_unit /
+      (rdna ? xcc_count : 1);
+  uint64_t temporary_ring_wave_count =
+      rdna ? scratch_slots_per_engine : scratch_slots_per_xcc;
+  if (temporary_ring_wave_count > active_scratch_waves) {
+    temporary_ring_wave_count = active_scratch_waves;
+  }
+  if (temporary_ring_wave_count > 0xfff ||
+      (!rdna && temporary_ring_wave_count % shader_engine_count != 0)) {
+    return false;
+  }
+  // GFX125x is the compiler name for native GC12.1. Its private aperture is
+  // wider than earlier RDNA; exact native discovery selects the base pair.
+  const bool extended_apertures = topology->gc_ip.exact &&
+                                  topology->gc_ip.major == 12 &&
+                                  topology->gc_ip.minor == 1;
+  if (properties->gfx_ip.major == 12 && properties->gfx_ip.minor == 5 &&
+      !extended_apertures) {
     return false;
   }
 
@@ -93,7 +118,28 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
                   properties->compute.compute_unit_count - 1,
               .maximum_wave_id =
                   properties->compute.maximum_wave_count_per_compute_unit - 1,
-              .scratch_wave_count_per_xcc = (uint32_t)scratch_waves_per_xcc,
+              .apertures =
+                  {
+                      .group_base_hi =
+                          extended_apertures ? 0x20000000 : 0x10000,
+                      .private_base_hi =
+                          extended_apertures ? 0x10000000 : 0x20000,
+                  },
+              .scratch =
+                  {
+                      .slot_count_per_xcc = (uint32_t)scratch_slots_per_xcc,
+                      .temporary_ring_wave_count =
+                          (uint32_t)temporary_ring_wave_count,
+                      .wave_size_shift = rdna ? 8 : 10,
+                      .maximum_wave_byte_length =
+                          properties->gfx_ip.major == 12 ? 67106816 : 8387584,
+                      // Unsigned 32-bit swizzled scratch with thread-ID
+                      // addition. RDNA's CP supplies INDEX_STRIDE for the
+                      // dispatched wave size.
+                      .resource_descriptor =
+                          {0, rdna ? (UINT32_C(1) << 30) : (UINT32_C(1) << 31),
+                           0, rdna ? 0x20814fac : 0x00ea4fac},
+                  },
               .inactive_signal_byte_offset = 256,
           },
       .retirement = {.flush_trigger_storage = host_page},

@@ -292,10 +292,13 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// borrows the memory without lifetime tracking. The caller keeps the scratch
 /// backing live until queue destruction succeeds.
 ///
-/// AQL format 1 retains fixed scratch across dispatches. Its wave count equals
-/// compute_unit_count * maximum_scratch_wave_count_per_compute_unit; smaller
-/// pools requiring firmware scratch reclamation are unsupported. The GPU base
-/// is 4096-byte aligned. Each wave receives the requested private byte length
+/// AQL format 1 retains fixed scratch across dispatches. Let C be
+/// compute_unit_count, E be xcc_count * shader_engine_count_per_xcc, and S be
+/// maximum_scratch_wave_count_per_compute_unit. Its physical slot count is
+/// ceil(C / E) * E * S, including padding for asymmetric CU harvesting. Set
+/// maximum_wave_count to this slot count; smaller pools requiring firmware
+/// scratch reclamation are unsupported. The GPU base is 4096-byte aligned.
+/// Each slot receives the requested per-workitem private byte length
 /// times 64, rounded up to 1024 bytes. Backing must cover every wave; excess
 /// backing does not change the configured capacity. Every submitted dispatch
 /// fits the configured per-workitem private limit. Scratch is exclusive to the
@@ -313,7 +316,7 @@ typedef struct amdf_gpu_queue_scratch_t {
   uint64_t byte_length;
   /// Maximum private-segment bytes per workitem accepted by the queue.
   uint32_t maximum_private_segment_byte_length;
-  /// Number of simultaneously scratch-backed waves.
+  /// Physical scratch slot capacity, including shader-engine rounding.
   uint32_t maximum_wave_count;
 } amdf_gpu_queue_scratch_t;
 

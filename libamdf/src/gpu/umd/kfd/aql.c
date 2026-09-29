@@ -30,18 +30,16 @@ amdf_status_t amdf_gpu_kfd_aql_descriptor_initialize(
                                                                         : 0u,
       .features = 1,
       .packet_count = (uint32_t)(plan->ring.primary_byte_length / 64),
-      // KFD GFX9 flat apertures are fixed in kfd_init_apertures_v9.
-      .group_segment_aperture_base_hi = UINT32_C(1) << 16,
-      .private_segment_aperture_base_hi = UINT32_C(2) << 16,
+      .group_segment_aperture_base_hi = plan->aql.apertures.group_base_hi,
+      .private_segment_aperture_base_hi = plan->aql.apertures.private_base_hi,
       .maximum_compute_unit_id = plan->aql.maximum_compute_unit_id,
       .maximum_wave_id = plan->aql.maximum_wave_id,
       .read_dispatch_id_byte_offset =
           offsetof(amdf_gpu_kfd_aql_descriptor_t, read_dispatch_id),
-      // GFX9 swizzled uint32 scratch, 4-byte elements, 64-lane stride, TID add.
-      .scratch_resource_descriptor = {0, UINT32_C(1) << 31, 0,
-                                      4u | (5u << 3) | (6u << 6) | (7u << 9) |
-                                          (4u << 12) | (4u << 15) | (1u << 19) |
-                                          (3u << 21) | (1u << 23)},
+      .scratch_resource_descriptor = {plan->aql.scratch.resource_descriptor[0],
+                                      plan->aql.scratch.resource_descriptor[1],
+                                      plan->aql.scratch.resource_descriptor[2],
+                                      plan->aql.scratch.resource_descriptor[3]},
       .queue_properties = 1u << 1,
   };
   const amdf_gpu_umd_queue_scratch_t* scratch = &create_info->scratch;
@@ -50,15 +48,16 @@ amdf_status_t amdf_gpu_kfd_aql_descriptor_initialize(
         ((uint64_t)scratch->maximum_private_segment_byte_length * 64 + 1023) &
         ~UINT64_C(1023);
     const uint64_t wave_count =
-        (uint64_t)plan->aql.scratch_wave_count_per_xcc * plan->aql.xcc_count;
+        (uint64_t)plan->aql.scratch.slot_count_per_xcc * plan->aql.xcc_count;
     // Retained scratch uses physical slot addressing. A smaller pool requires
     // firmware's one-dispatch reclaim protocol, not just a lower occupancy cap.
     if (scratch->maximum_wave_count != wave_count) {
       return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
     }
     const uint64_t xcc_byte_length =
-        wave_byte_length * plan->aql.scratch_wave_count_per_xcc;
-    if (wave_byte_length == 0 || wave_byte_length / 1024 > 0x1fff ||
+        wave_byte_length * plan->aql.scratch.slot_count_per_xcc;
+    if (wave_byte_length == 0 ||
+        wave_byte_length > plan->aql.scratch.maximum_wave_byte_length ||
         xcc_byte_length > UINT32_MAX ||
         scratch->byte_length < xcc_byte_length * plan->aql.xcc_count ||
         scratch->device_address % 4096 != 0 ||
@@ -67,8 +66,9 @@ amdf_status_t amdf_gpu_kfd_aql_descriptor_initialize(
       return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
     }
     descriptor.compute_temporary_ring_size =
-        plan->aql.scratch_wave_count_per_xcc |
-        ((uint32_t)(wave_byte_length / 1024) << 12);
+        plan->aql.scratch.temporary_ring_wave_count |
+        ((uint32_t)(wave_byte_length >> plan->aql.scratch.wave_size_shift)
+         << 12);
     descriptor.scratch_resource_descriptor[0] =
         (uint32_t)scratch->device_address;
     descriptor.scratch_resource_descriptor[1] |=

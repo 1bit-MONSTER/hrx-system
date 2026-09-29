@@ -672,10 +672,10 @@ TEST(LinuxGpuMemoryProfileTest, SelectedGfx11FamiliesSeparateTransferAndCache) {
     const uint32_t profile_count = system_sdma ? 1 : 2;
     amdf_gpu_endpoint_profile_t endpoint = {};
     ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
-    ASSERT_EQ(endpoint.queue_family_count, 2u);
+    ASSERT_EQ(endpoint.queue_family_count, 3u);
     ASSERT_EQ(endpoint.queue_families[0].command_type,
               AMDF_QUEUE_COMMAND_TYPE_GPU_PM4);
-    ASSERT_EQ(endpoint.queue_families[1].command_type,
+    ASSERT_EQ(endpoint.queue_families[2].command_type,
               AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
     for (uint32_t ordinal = 0; ordinal < profile_count; ++ordinal) {
       SCOPED_TRACE(ordinal);
@@ -691,12 +691,12 @@ TEST(LinuxGpuMemoryProfileTest, SelectedGfx11FamiliesSeparateTransferAndCache) {
                 AMDF_STATUS_OK);
       ExpectGlobalQueueTransitions(description);
       if (system_sdma) {
-        query.queue_family_info = &endpoint.queue_families[1];
+        query.queue_family_info = &endpoint.queue_families[2];
         ASSERT_EQ(profile.visibility.describe_site(&query, &description),
                   AMDF_STATUS_OK);
         ExpectNoCacheTransitions(description);
       } else {
-        ExpectSiteUnsupported(profile, endpoint.queue_families[1]);
+        ExpectSiteUnsupported(profile, endpoint.queue_families[2]);
       }
     }
   }
@@ -706,8 +706,8 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemPreservesPermissionsAndAtomicGap) {
   auto device = MakeGfx1151Device();
   amdf_gpu_endpoint_profile_t endpoint = {};
   ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
-  ASSERT_EQ(endpoint.queue_family_count, 2u);
-  const auto& family = endpoint.queue_families[1];
+  ASSERT_EQ(endpoint.queue_family_count, 3u);
+  const auto& family = endpoint.queue_families[2];
   ASSERT_EQ(family.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
   EXPECT_EQ(family.roles, AMDF_QUEUE_ROLE_TRANSFER);
   EXPECT_EQ(family.cache_operations, 0u);
@@ -878,7 +878,7 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151NativeApuSystemQualifiesOnlyPm4Stores) {
   device.topology.device_flags = AMDGPU_IDS_FLAGS_FUSION;
   amdf_gpu_endpoint_profile_t endpoint = {};
   ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
-  ASSERT_EQ(endpoint.queue_family_count, 2u);
+  ASSERT_EQ(endpoint.queue_family_count, 3u);
   const auto profile = QueryProfile(&device, 0);
   EXPECT_EQ(profile.atomic_operations_32, AMDF_ATOMIC_OPERATION_STORE);
   EXPECT_EQ(profile.atomic_operations_64, AMDF_ATOMIC_OPERATION_STORE);
@@ -918,7 +918,7 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151NativeApuSystemQualifiesOnlyPm4Stores) {
         amdf_memory_compatibility_domain_is_valid(&description.atomic_domain));
   }
   query.access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
-  query.queue_family_info = &endpoint.queue_families[1];
+  query.queue_family_info = &endpoint.queue_families[2];
   ASSERT_EQ(profile.visibility.describe_site(&query, &description),
             AMDF_STATUS_OK);
   ExpectNoCacheTransitions(description);
@@ -933,7 +933,7 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151SystemStoresDoNotRequireSdma) {
   device.topology.sdma = {};
   amdf_gpu_endpoint_profile_t endpoint = {};
   ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
-  ASSERT_EQ(endpoint.queue_family_count, 1u);
+  ASSERT_EQ(endpoint.queue_family_count, 2u);
   const auto profile = QueryProfile(&device, 0);
   EXPECT_EQ(profile.atomic_operations_32, AMDF_ATOMIC_OPERATION_STORE);
   EXPECT_EQ(profile.atomic_operations_64, AMDF_ATOMIC_OPERATION_STORE);

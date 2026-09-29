@@ -14,9 +14,9 @@
 extern "C" {
 #endif
 
-// Resolves the GFX9 multi-XCC AQL ABI from native geometry. Kernels predating
-// topology CWSR sizes use the architectural save layout. No allocation occurs;
-// unavailable geometry leaves output unchanged and suppresses this family.
+// Resolves the CDNA/RDNA descriptor, retained scratch, and native side storage.
+// No allocation occurs. Unavailable geometry or native layout facts leave the
+// output unchanged and suppress this family.
 bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
                                  size_t page_size, uint32_t cache_line_size,
                                  amdf_gpu_kfd_user_queue_plan_t* out_plan);

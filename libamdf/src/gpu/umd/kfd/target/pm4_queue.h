@@ -17,7 +17,7 @@
 extern "C" {
 #endif  // __cplusplus
 
-// Builds the GFX11 KFD PM4 storage plan from native topology. The caller
+// Builds the RDNA KFD PM4 storage plan from native topology. The caller
 // selects the engine IP; unsupported storage facts leave `out_plan` unchanged.
 bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
                                  size_t page_size, uint32_t cache_line_size,
