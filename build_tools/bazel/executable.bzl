@@ -136,6 +136,11 @@ def _merge_launch_environment(
         environment[name] = value
 
 def _wasm_entry(ctx, allow_default_test_main):
+    if ctx.file.wasm_main != None:
+        return struct(
+            main = ctx.file.wasm_main,
+            srcs = [],
+        )
     entry = discover_wasm_entry([ctx.attr.src])
     if entry != None:
         return struct(
@@ -315,6 +320,10 @@ _SHARED_ATTRS = {
         doc = "Executable target or file to expose.",
         executable = True,
         mandatory = True,
+    ),
+    "wasm_main": attr.label(
+        allow_single_file = [".js", ".mjs"],
+        doc = "Explicit JavaScript entry point used when wrapping a wasm executable.",
     ),
     "windows_launcher": attr.label(
         cfg = _launcher_transition,

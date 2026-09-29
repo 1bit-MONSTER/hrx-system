@@ -167,10 +167,44 @@ def _test_executable_alias_bundles_wasm_target_impl(env, target):
         '"${RUNFILES}/_main/%s"' % bundle.short_path,
     )
 
+def _test_executable_alias_accepts_explicit_wasm_main(name, **kwargs):
+    _fake_wasm_executable(
+        name = name + "_wasm",
+        tags = ["manual"],
+    )
+    iree_executable_alias(
+        name = name + "_subject",
+        src = ":" + name + "_wasm",
+        tags = ["manual"],
+        wasm_main = "entry_main.mjs",
+    )
+    analysis_test(
+        name = name,
+        attr_values = {
+            "timeout": "short",
+        },
+        config_settings = {
+            "//command_line_option:platforms": [Label("//build_tools/wasm/test:wasm32_platform")],
+        },
+        impl = _test_executable_alias_accepts_explicit_wasm_main_impl,
+        target = name + "_subject",
+        **kwargs
+    )
+
+def _test_executable_alias_accepts_explicit_wasm_main_impl(env, target):
+    actions = target[TestingAspectInfo].actions
+    bundle_action = _find_action_with_mnemonic(
+        env,
+        actions,
+        "IreeWasmBundle",
+    )
+    _expect_basename(env, bundle_action.inputs.to_list(), "entry_main.mjs")
+
 def wasm_rules_test_suite(name):
     test_suite(
         name = name,
         tests = [
+            _test_executable_alias_accepts_explicit_wasm_main,
             _test_wasm_cc_library_provides_cc_info_and_js_modules,
             _test_wasm_entry_records_main_and_sources,
             _test_executable_alias_bundles_wasm_target,
