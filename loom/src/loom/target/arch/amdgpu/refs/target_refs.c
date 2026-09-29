@@ -105,7 +105,10 @@ uint32_t loom_amdgpu_descriptor_ref_ordinal(
   if (descriptor_ordinals == NULL) {
     return LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
   }
-  return descriptor_ordinals[descriptor_ref];
+  const uint32_t descriptor_ordinal = descriptor_ordinals[descriptor_ref];
+  return descriptor_ordinal < descriptor_set->descriptor_count
+             ? descriptor_ordinal
+             : LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
 }
 
 const loom_low_descriptor_t* loom_amdgpu_descriptor_ref_descriptor(

@@ -32,6 +32,7 @@ from loom.target.arch.amdgpu.target_info import (
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_ARITHMETIC,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_COMPARE,
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_CONVERSION,
+    AMDGPU_DESCRIPTOR_SET_INFOS,
     AMDGPU_MATRIX_COEXECUTION_PROFILE_NONE,
     AMDGPU_MATRIX_COEXECUTION_RULES_BY_PROFILE,
     AMDGPU_MATRIX_COEXECUTION_SOURCE_INFOS,
@@ -1729,6 +1730,70 @@ def _build_amdgpu_core_descriptor_set_from_specs(
     )
 
 
+def _order_descriptor_sets_for_shared_views(
+    descriptor_sets: Mapping[str, DescriptorSet],
+) -> dict[str, DescriptorSet]:
+    """Orders exact descriptors behind their portable view prefixes."""
+
+    infos_by_key = {info.key: info for info in AMDGPU_DESCRIPTOR_SET_INFOS}
+    view_sets_by_exact_target: dict[str, list[DescriptorSet]] = {}
+    for representation_info in AMDGPU_DESCRIPTOR_SET_INFOS:
+        if not representation_info.member_generator_targets:
+            continue
+        representation_set = descriptor_sets.get(representation_info.generator_target)
+        if representation_set is None:
+            continue
+        for contract_key in amdgpu_descriptor_set_supported_target_contract_keys(
+            representation_info
+        ):
+            exact_info = infos_by_key[contract_key]
+            if exact_info.generator_target not in descriptor_sets:
+                continue
+            view_sets_by_exact_target.setdefault(
+                exact_info.generator_target, []
+            ).append(representation_set)
+
+    ordered_sets = dict(descriptor_sets)
+    for exact_target, view_sets in view_sets_by_exact_target.items():
+        view_sets.sort(key=lambda view_set: (len(view_set.descriptors), view_set.key))
+        prefix_view = view_sets[-1]
+        prefix_keys = tuple(descriptor.key for descriptor in prefix_view.descriptors)
+        for view_set in view_sets[:-1]:
+            view_keys = tuple(descriptor.key for descriptor in view_set.descriptors)
+            if view_keys != prefix_keys[: len(view_keys)]:
+                raise ValueError(
+                    f"AMDGPU descriptor views '{view_set.key}' and "
+                    f"'{prefix_view.key}' cannot share a storage prefix for "
+                    f"exact target '{exact_target}'"
+                )
+
+        exact_set = descriptor_sets[exact_target]
+        exact_descriptors_by_key = {
+            descriptor.key: descriptor for descriptor in exact_set.descriptors
+        }
+        missing_keys = tuple(
+            key for key in prefix_keys if key not in exact_descriptors_by_key
+        )
+        if missing_keys:
+            raise ValueError(
+                f"AMDGPU exact descriptor set '{exact_set.key}' is missing "
+                f"portable descriptors: {', '.join(missing_keys)}"
+            )
+        prefix_key_set = frozenset(prefix_keys)
+        ordered_sets[exact_target] = replace(
+            exact_set,
+            descriptors=(
+                *(exact_descriptors_by_key[key] for key in prefix_keys),
+                *(
+                    descriptor
+                    for descriptor in exact_set.descriptors
+                    if descriptor.key not in prefix_key_set
+                ),
+            ),
+        )
+    return ordered_sets
+
+
 def build_amdgpu_core_descriptor_sets_from_specs(
     targets: Sequence[str],
     specs: Mapping[str, AmdgpuIsaFactSource],
@@ -1752,7 +1817,7 @@ def build_amdgpu_core_descriptor_sets_from_specs(
         tuple[str, _AmdgpuOverlayMaterializer],
         tuple[Descriptor, ...],
     ] = {}
-    return {
+    descriptor_sets = {
         target: _build_amdgpu_core_descriptor_set_from_specs(
             target,
             builder,
@@ -1762,6 +1827,7 @@ def build_amdgpu_core_descriptor_sets_from_specs(
         )
         for target, builder, info in builders_and_infos
     }
+    return _order_descriptor_sets_for_shared_views(descriptor_sets)
 
 
 def build_amdgpu_core_descriptor_set_from_specs(

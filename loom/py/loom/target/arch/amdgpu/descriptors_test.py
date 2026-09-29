@@ -139,6 +139,7 @@ from loom.target.arch.amdgpu.descriptors import (
 )
 from loom.target.arch.amdgpu.descriptors.api import (
     _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X,
+    _order_descriptor_sets_for_shared_views,
     _with_instruction_classes,
     _with_storage_lease_rows,
 )
@@ -284,6 +285,50 @@ def test_generic_descriptor_contracts_are_member_intersections() -> None:
         overlay
         for overlay in gfx125x_overlays
         if not (overlay.semantic_tag or "").startswith("matrix.swmmac.")
+    )
+
+
+def test_exact_descriptor_storage_orders_portable_view_as_prefix() -> None:
+    portable_a = Descriptor(
+        key="amdgpu.test.a",
+        mnemonic="portable_a",
+        semantic_tag=None,
+        operands=(),
+        schedule_class="amdgpu.test",
+    )
+    portable_b = replace(
+        portable_a,
+        key="amdgpu.test.b",
+        mnemonic="portable_b",
+    )
+    exact_a = replace(portable_a, mnemonic="exact_a")
+    exact_b = replace(portable_b, mnemonic="exact_b")
+    exact_only = replace(
+        portable_a,
+        key="amdgpu.test.exact_only",
+        mnemonic="exact_only",
+    )
+    portable_set = replace(
+        _AMDGPU_GFX11_GENERIC_CORE_DESCRIPTOR_SET_BASE,
+        descriptors=(portable_b, portable_a),
+    )
+    exact_set = replace(
+        _AMDGPU_RDNA3_5_CORE_DESCRIPTOR_SET_BASE,
+        descriptors=(exact_only, exact_a, exact_b),
+    )
+
+    ordered_sets = _order_descriptor_sets_for_shared_views(
+        {
+            "gfx11_generic": portable_set,
+            "rdna3_5": exact_set,
+        }
+    )
+
+    assert ordered_sets["gfx11_generic"] is portable_set
+    assert ordered_sets["rdna3_5"].descriptors == (
+        exact_b,
+        exact_a,
+        exact_only,
     )
 
 

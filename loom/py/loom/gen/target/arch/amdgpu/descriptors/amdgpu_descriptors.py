@@ -42,6 +42,9 @@ from loom.target.arch.amdgpu.descriptors import (  # noqa: E402
 from loom.target.arch.amdgpu.isa_xml import (  # noqa: E402
     parse_amdgpu_isa_xml_paths_for_instructions,
 )
+from loom.target.arch.amdgpu.names import (  # noqa: E402
+    amdgpu_low_descriptor_storage_view_provider_symbol,
+)
 from loom.target.low_descriptors import DescriptorSet  # noqa: E402
 
 
@@ -111,7 +114,17 @@ def generate_amdgpu_descriptor_table_family(
     """Generates descriptor storage and views from a materialized corpus."""
 
     storage_descriptor_set = descriptor_sets[family.storage_info.generator_target]
-    view_descriptor_sets = tuple(descriptor_sets[info.generator_target] for info in family.view_infos)
+    representation_targets = {info.generator_target for info in family.representation_infos}
+    view_descriptor_sets = tuple(
+        replace(
+            descriptor_sets[info.generator_target],
+            function_name=amdgpu_low_descriptor_storage_view_provider_symbol(info.key, family.storage_info.generator_target),
+            descriptor_set_ordinal=storage_descriptor_set.descriptor_set_ordinal,
+        )
+        if info.generator_target in representation_targets
+        else descriptor_sets[info.generator_target]
+        for info in family.descriptor_view_infos
+    )
     shared_storage_descriptor_set = replace(
         _shared_storage_descriptor_set(
             storage_descriptor_set,
@@ -171,7 +184,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         isa_specs,
     )
     descriptor_set = descriptor_sets[family.storage_info.generator_target]
-    if family.view_infos:
+    if family.descriptor_view_infos:
         generated = generate_amdgpu_descriptor_table_family(
             family,
             descriptor_sets,
@@ -181,7 +194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_text_file(args.source, generated.source)
         for view_info, view_header in zip(
             family.view_infos,
-            generated.view_headers[1:],
+            generated.view_headers[1 : len(family.view_infos) + 1],
             strict=True,
         ):
             view_header_path = view_headers.get(view_info.generator_target)

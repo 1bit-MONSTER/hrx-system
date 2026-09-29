@@ -1370,8 +1370,9 @@ typedef struct loom_low_descriptor_set_t {
   const uint64_t* supported_target_contract_stable_ids;
   // Number of identities in |supported_target_contract_stable_ids|.
   uint16_t supported_target_contract_count;
-  // Target-generated dense descriptor-set ordinal, or NONE when this set is not
-  // part of a target-owned dense descriptor-set table.
+  // Dense ordinal of the target-owned tables backing this view, or NONE when
+  // the view has no target-owned tables. Views over the same generated storage
+  // share this ordinal while retaining distinct stable identities and counts.
   uint16_t descriptor_set_ordinal;
   // String-pool reference for the descriptor-set key.
   loom_string_ref_t key_string_ref;

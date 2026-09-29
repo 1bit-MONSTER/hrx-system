@@ -106,7 +106,10 @@ loom_test(
 loom_test(
     name = "gfx12_split_barrier_reuse_test",
     srcs = ["gfx12/split_barrier_reuse.loom"],
-    compile_targets = ["//loom/target/amdgpu:gfx12-generic"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1201",
+    ],
     execution_profiles = [
         AMDGPU_HARDWARE_PROFILE,
         AMDGPU_ACCESS_PROFILE,

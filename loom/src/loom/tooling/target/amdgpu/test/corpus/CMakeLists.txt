@@ -150,7 +150,8 @@ loom_check_compile_tests(
   SRC
     "::gfx12_split_barrier_reuse_test_module"
   TARGETS
-    loom::target::amdgpu::gfx12-generic
+    loom::target::amdgpu::gfx1200
+    loom::target::amdgpu::gfx1201
 )
 endif()
 

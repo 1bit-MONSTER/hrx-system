@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from unittest import mock
 
 from loom.gen.target.arch.amdgpu.amdgpu_target_table_family import (
     AmdgpuTargetTableFamily,
+    amdgpu_target_table_family,
 )
 from loom.gen.target.arch.amdgpu.descriptors import amdgpu_descriptors
 from loom.target.arch.amdgpu.target_info import (
@@ -73,6 +75,57 @@ def _descriptor_set_info(
         flags=AMDGPU_DESCRIPTOR_SET_INFO_FLAG_DESCRIPTOR_PACKET_ENCODING,
         storage_generator_target=storage_target,
     )
+
+
+def test_exact_storage_families_include_portable_source_views() -> None:
+    rdna3_family = amdgpu_target_table_family("rdna3")
+    rdna3_5_family = amdgpu_target_table_family("rdna3_5")
+    cdna3_family = amdgpu_target_table_family("cdna3")
+    cdna4_family = amdgpu_target_table_family("cdna4")
+
+    assert [info.generator_target for info in rdna3_family.view_infos] == ["gfx11_generic"]
+    assert rdna3_family.representation_infos == ()
+    assert rdna3_5_family.view_infos == ()
+    assert [info.generator_target for info in rdna3_5_family.representation_infos] == ["gfx11_generic"]
+    assert [info.generator_target for info in cdna3_family.view_infos] == ["gfx9_4_generic"]
+    assert cdna3_family.representation_infos == ()
+    assert cdna4_family.view_infos == ()
+    assert [info.generator_target for info in cdna4_family.representation_infos] == ["gfx9_4_generic"]
+
+
+def test_alternate_portable_view_uses_storage_qualified_provider() -> None:
+    storage_info = _descriptor_set_info("test_storage")
+    representation_info = _descriptor_set_info("test_portable")
+    family = AmdgpuTargetTableFamily(
+        storage_info=storage_info,
+        view_infos=(),
+        representation_infos=(representation_info,),
+    )
+    storage_set = replace(_descriptor_set("test_storage", 2), descriptor_set_ordinal=7)
+    representation_set = replace(_descriptor_set("test_portable", 1), descriptor_set_ordinal=2)
+    generated = SimpleNamespace(source="// shared\n", view_headers=("// storage\n",))
+
+    with mock.patch.object(
+        amdgpu_descriptors,
+        "generate_descriptor_set_family",
+        return_value=generated,
+    ) as generate_descriptor_set_family:
+        assert (
+            amdgpu_descriptors.generate_amdgpu_descriptor_table_family(
+                family,
+                {
+                    "test_storage": storage_set,
+                    "test_portable": representation_set,
+                },
+                source_public_header=storage_set.public_header,
+            )
+            is generated
+        )
+
+    generated_views = generate_descriptor_set_family.call_args.args[1]
+    assert generated_views[0] is storage_set
+    assert generated_views[1].function_name == ("loom_amdgpu_test_portable_core_descriptor_set_from_test_storage_storage")
+    assert generated_views[1].descriptor_set_ordinal == 7
 
 
 def test_storage_generation_reuses_parsed_isa_for_declared_views() -> None:
