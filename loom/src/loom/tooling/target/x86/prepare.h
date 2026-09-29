@@ -22,13 +22,18 @@ typedef struct loom_x86_callable_t {
   loom_native_section_contribution_t text;
 } loom_x86_callable_t;
 
-// Prepares one selected x86 object-function entry using its explicit calling
-// convention. The shared compiler owns scheduling, allocation, and transport;
+// Prepares one selected x86 object-function entry. An omitted calling
+// convention selects SysV AMD64; a function's explicit convention overrides
+// that default. The shared compiler owns scheduling, allocation, and transport;
 // this boundary admits the ABI signature and supplies fixed entry locations.
 // Unsupported signatures emit diagnostics and leave |out_prepared| false.
 // The first supported convention is SysV AMD64 with register-passed integer
 // and pointer arguments, at most one result, and a spill-free leaf body.
-// All output storage belongs to |output_arena|; scratch may be reset on return.
+// A Low abi_layout may contain a function-type `signature` describing the
+// logical boundary independently of erased body carriers. Without it, the
+// GPR32/GPR64 signature declares word-sized integer/address parameters
+// directly. All output storage belongs to |output_arena|; scratch may be reset
+// on return.
 iree_status_t loom_x86_prepare_callable(
     loom_module_t* module, const loom_target_entry_t* entry,
     const loom_low_descriptor_registry_t* descriptor_registry,

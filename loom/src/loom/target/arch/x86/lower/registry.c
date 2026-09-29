@@ -325,16 +325,12 @@ static iree_status_t loom_x86_map_avx512_packed_dot_argument(
                                              &out_argument->abi_type);
 }
 
-// A native callable signature is admitted while its semantic types are still
-// available. Body carriers deliberately erase narrow/predicate distinctions;
-// accepting them as a foreign signature after that erasure would silently
-// change the caller's contract. Ordinary internal body lowering is unchanged.
-static bool loom_x86_native_boundary_type_supported(loom_type_t type) {
-  return loom_type_is_buffer(type) || loom_x86_type_is_scalar_i32(type) ||
-         loom_x86_type_is_scalar_i64(type) ||
-         (loom_type_is_scalar(type) &&
-          (loom_type_element_type(type) == LOOM_SCALAR_TYPE_INDEX ||
-           loom_type_element_type(type) == LOOM_SCALAR_TYPE_OFFSET));
+// Word-sized integer and address boundaries have the same SysV classification
+// as their raw GPR carriers. Other payloads need an explicit logical signature
+// in Low: GPR32 alone cannot distinguish i8, i1, f16, or i32 boundaries.
+static bool loom_x86_abi_type_has_default_boundary(loom_type_t type) {
+  return loom_x86_type_is_address_gpr64(type) ||
+         loom_x86_type_is_scalar_i32(type) || loom_x86_type_is_scalar_i64(type);
 }
 
 static iree_status_t loom_x86_map_native_abi_layout(
@@ -349,10 +345,8 @@ static iree_status_t loom_x86_map_native_abi_layout(
   (void)result_types;
   (void)result_count;
   *out_abi_layout = loom_make_named_attr_slice(NULL, 0);
-  const loom_target_facts_t* facts =
-      loom_low_lower_context_target_facts(context);
-  if (iree_string_view_is_empty(
-          facts->storage.export_plan.calling_convention)) {
+  if (loom_low_lower_context_bundle(context)->export_plan->abi_kind !=
+      LOOM_TARGET_ABI_OBJECT_FUNCTION) {
     return iree_ok_status();
   }
   loom_module_t* module = loom_low_lower_context_module(context);
@@ -360,24 +354,49 @@ static iree_status_t loom_x86_map_native_abi_layout(
   uint16_t argument_count = 0;
   const loom_value_id_t* arguments =
       loom_func_like_arg_ids(function, &argument_count);
-  iree_status_t status = iree_ok_status();
-  for (uint16_t i = 0; i < argument_count && iree_status_is_ok(status); ++i) {
-    loom_type_t type = loom_module_value_type(module, arguments[i]);
-    if (!loom_x86_native_boundary_type_supported(type)) {
-      status = loom_low_lower_emit_source_type_unsupported(
-          context, function.op, IREE_SV("native callable argument"), type);
-    }
-  }
   const loom_value_id_t* results = loom_op_const_results(function.op);
-  for (uint16_t i = 0;
-       i < function.op->result_count && iree_status_is_ok(status); ++i) {
-    loom_type_t type = loom_module_value_type(module, results[i]);
-    if (!loom_x86_native_boundary_type_supported(type)) {
-      status = loom_low_lower_emit_source_type_unsupported(
-          context, function.op, IREE_SV("native callable result"), type);
+  const iree_host_size_t type_count =
+      (iree_host_size_t)argument_count + function.op->result_count;
+  bool needs_signature = false;
+  for (iree_host_size_t i = 0; i < type_count && !needs_signature; ++i) {
+    const loom_value_id_t value =
+        i < argument_count ? arguments[i] : results[i - argument_count];
+    needs_signature = !loom_x86_abi_type_has_default_boundary(
+        loom_module_value_type(module, value));
+  }
+  if (!needs_signature) {
+    return iree_ok_status();
+  }
+  loom_type_t* types = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_allocate_emission_array(
+      context, type_count, sizeof(*types), (void**)&types));
+  for (iree_host_size_t i = 0; i < type_count; ++i) {
+    const loom_value_id_t value =
+        i < argument_count ? arguments[i] : results[i - argument_count];
+    types[i] = loom_module_value_type(module, value);
+    // x86 maps each view directly to its data address. Shape dependencies are
+    // separate scalar parameters, not fields of a foreign view descriptor.
+    if (loom_type_is_view(types[i])) {
+      types[i] = loom_type_buffer();
     }
   }
-  return status;
+  loom_type_t signature;
+  IREE_RETURN_IF_ERROR(loom_module_intern_function_type(
+      module, types, argument_count, types + argument_count,
+      function.op->result_count, &signature));
+  loom_type_id_t signature_id = loom_module_lookup_type_id(module, signature);
+  loom_string_id_t signature_key;
+  IREE_RETURN_IF_ERROR(
+      loom_module_intern_string(module, IREE_SV("signature"), &signature_key));
+  const loom_named_attr_t entry = {
+      .name_id = signature_key,
+      .value = loom_attr_type(signature_id),
+  };
+  loom_attribute_t layout;
+  IREE_RETURN_IF_ERROR(loom_module_make_canonical_attr_dict(
+      module, loom_make_named_attr_slice(&entry, 1), &layout));
+  *out_abi_layout = loom_attr_as_dict(layout);
+  return iree_ok_status();
 }
 
 #include "loom/target/arch/x86/contracts/tables.inl"

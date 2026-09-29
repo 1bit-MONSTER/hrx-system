@@ -19,6 +19,7 @@ void loom_test_native_copy_bytes(const void* source, uint64_t source_offset,
                                  uint64_t length);
 void* loom_test_native_select_pointer(uint32_t condition, void* first,
                                       void* second);
+uint32_t loom_test_native_load_view(const uint32_t* input);
 uint32_t loom_test_native_shift_mix(uint32_t value, uint32_t count);
 uint64_t loom_test_native_wide_shifts(uint64_t value, uint64_t left_count,
                                       uint64_t right_count);
@@ -69,6 +70,8 @@ TEST(NativeInteropTest, LoopWritesOnlyTheRequestedRange) {
 }
 
 TEST(NativeInteropTest, PointerAndRegisterBoundaries) {
+  uint32_t element = UINT32_C(0x80000001);
+  EXPECT_EQ(loom_test_native_load_view(&element), element);
   uint64_t first = 13;
   uint64_t second = 29;
   EXPECT_EQ(loom_test_native_select_pointer(0, &first, &second), &second);

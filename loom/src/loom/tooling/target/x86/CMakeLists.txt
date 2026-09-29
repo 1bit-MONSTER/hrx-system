@@ -83,7 +83,7 @@ loom_generated_file(
     "--output="
   ARGS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/x86/test/callables.loom"
-    "--format=x86-elf"
+    "--target=x86:scalar"
   INPUTS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/x86/test/callables.loom"
   TESTONLY

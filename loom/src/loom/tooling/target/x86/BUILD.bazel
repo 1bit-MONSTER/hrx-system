@@ -72,7 +72,7 @@ loom_generated_file(
     testonly = True,
     args = [
         "$(location //loom/src/loom/tooling/target/x86/test:callables.loom)",
-        "--format=x86-elf",
+        "--target=x86:scalar",
     ],
     generator = "//loom/src/loom/tools/loom-compile",
     inputs = ["//loom/src/loom/tooling/target/x86/test:callables.loom"],

@@ -258,9 +258,9 @@ typedef struct loom_target_export_plan_t {
   loom_target_abi_kind_t abi_kind;
   // ABI-required linkage for exported object functions or entry points.
   loom_target_linkage_t linkage;
-  // Function-owned platform calling convention for object functions, or empty
-  // when no native callable boundary was selected. Target preparation resolves
-  // this semantic name independently of ISA features and artifact format.
+  // Function-owned platform calling convention override for object functions.
+  // Empty selects the native function boundary's default convention. Target
+  // preparation resolves it independently of ISA features and artifact format.
   iree_string_view_t calling_convention;
   // HAL kernel ABI facts when abi_kind is LOOM_TARGET_ABI_HAL_KERNEL.
   loom_target_hal_kernel_abi_t hal_kernel;

@@ -1,23 +1,47 @@
-// The instruction-set profile cannot silently select a platform convention.
+// An unsupported explicit convention cannot silently use the SysV default.
 // RUN: emit x86-code
 
 x86.target<scalar> @target
 
-// ERROR@+1: TARGET/032 "native x86 functions require abi(object_function"
-low.func.def public target<x86.scalar.core>(@target) abi(object_function) @unspecified() asm {
+// ERROR@+1: TARGET/032 "native x86 supports the sysv calling convention"
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "win64"}) @other_convention() asm {
   return
 }
 
 // ====
 
-// Reject the original narrow boundary before lowering erases it to GPR32.
+// The default convention preserves narrow ABI semantics across GPR32 lowering.
 // RUN: emit x86-code
 
 x86.target<scalar> @target
 
-// ERROR@+1: TARGET/033 "native callable argument"
-func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @narrow(%value: i8) {
+// ERROR@+1: TARGET/032 "native x86 ABI signature requires scalar i32, i64"
+func.def public target(@target) @narrow(%value: i8) {
   func.return
+}
+
+// ====
+
+// The same contract remains in force after Low serialization and reparsing.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+// ERROR@+1: TARGET/032 "native x86 ABI signature requires scalar i32, i64"
+low.func.def public target<x86.scalar.core>(@target) abi_layout({signature = (i8) -> ()}) @narrow_low(%value: reg<x86.gpr32>) asm {
+  return
+}
+
+// ====
+
+// Supported logical types must still agree with the physical carrier width.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+// ERROR@+1: TARGET/032 "pointers matching the register boundary"
+low.func.def public target<x86.scalar.core>(@target) abi_layout({signature = (i64) -> ()}) @mismatched_width(%value: reg<x86.gpr32>) asm {
+  return
 }
 
 // ====

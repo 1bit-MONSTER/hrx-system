@@ -8,6 +8,15 @@
 //
 // The x86 arch package owns descriptor-level lowering decisions for native
 // code generation.
+//
+// Object-function lowering retains a logical function type in
+// abi_layout({signature = (...) -> (...)}) when the raw register signature
+// does not determine its native ABI. This preserves narrow integer, floating,
+// and vector boundaries independently of body carrier types, including across
+// Low text/bytecode serialization. Word-sized integer/address signatures use
+// the raw GPR32/GPR64 boundary and need no additional layout. Source views
+// contribute their data addresses; dynamic shape dependencies remain separate
+// scalar parameters rather than fields of a foreign view descriptor.
 
 #ifndef LOOM_TARGET_ARCH_X86_LOWER_LOWER_H_
 #define LOOM_TARGET_ARCH_X86_LOWER_LOWER_H_
