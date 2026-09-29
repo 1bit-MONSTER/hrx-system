@@ -8,6 +8,8 @@
 
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test", "test_suite")
 load("@rules_testing//lib:util.bzl", "TestingAspectInfo")
+load("//build_tools/bazel:executable.bzl", "IreeExecutableInfo")
+load("//build_tools/bazel:runfiles.bzl", "IreeRunfilesArgumentsInfo")
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "LoomBinaryInfo",
@@ -394,28 +396,34 @@ def _test_explicit_runner_owns_profile_execution(name, **kwargs):
             "timeout": "short",
         },
         impl = _test_explicit_runner_owns_profile_execution_impl,
-        target = ":profiled_test_selected_execute_explicit_runner_test_launcher",
+        target = ":profiled_test_selected_execute_explicit_runner_test",
         **kwargs
     )
 
 def _test_explicit_runner_owns_profile_execution_impl(env, target):
-    info = target[LoomExecutionTestInfo]
-    env.expect.that_str(info.profile_name).equals("explicit_runner")
-    env.expect.that_str(info.test_runner.basename).contains("iree-test-loom")
-    if info.benchmark_runner != None:
-        env.fail("explicit profile runner unexpectedly retained %r" % info.benchmark_runner)
-    if info.benchmark_runner_args:
-        env.fail("explicit profile runner received benchmark arguments %r" % info.benchmark_runner_args)
-    if info.test_runner_args != [
+    info = target[IreeExecutableInfo]
+    env.expect.that_str(str(info.src)).contains("iree-test-loom")
+    arguments = target[IreeRunfilesArgumentsInfo].arguments
+    if not arguments[0].endswith("profiled_module.loombc"):
+        env.fail("unexpected explicit runner module argument %r" % arguments[0])
+    if arguments[1:] != [
         "--max-samples-per-case=1",
         "--case=benchmark_case",
         "--sample=0",
     ]:
-        env.fail("unexpected explicit runner args %r" % info.test_runner_args)
+        env.fail("unexpected explicit runner args %r" % arguments)
 
     runfiles = target[DefaultInfo].default_runfiles.files.to_list()
     _expect_basename(env, runfiles, "profiled_module.loombc")
-    _expect_basename(env, runfiles, info.test_runner.basename)
+    for expected_tag in [
+        "loom-execution-profile=explicit_runner",
+        "loom-executor=hosted",
+    ]:
+        if expected_tag not in target[TestingAspectInfo].attrs.tags:
+            env.fail(
+                "expected %r in test tags %r" %
+                (expected_tag, target[TestingAspectInfo].attrs.tags),
+            )
     for file in runfiles:
         if file.basename.startswith("iree-benchmark-loom"):
             env.fail("explicit profile runner retained benchmark runfile %r" % file)

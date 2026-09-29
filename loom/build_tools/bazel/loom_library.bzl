@@ -8,10 +8,10 @@
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//build_tools/bazel:cc_attrs.bzl", "cc_attrs")
+load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load("//build_tools/bazel:requirements.bzl", "apply_test_requirements")
 load(
     "//build_tools/bazel:runfiles.bzl",
-    "IreeRunfilesEnvironmentInfo",
     "RUNFILES_PATH_BEGIN",
     "RUNFILES_PATH_END",
 )
@@ -244,15 +244,6 @@ def _tool_runfiles(ctx, tool, files):
         runfiles = runfiles.merge(tool.runfiles)
     return runfiles
 
-def _tool_from_target(target):
-    default_info = target[DefaultInfo]
-    return struct(
-        environment = target[RunEnvironmentInfo].environment if RunEnvironmentInfo in target else {},
-        executable = default_info.files_to_run.executable,
-        runfiles = default_info.default_runfiles,
-        runfiles_environment = target[IreeRunfilesEnvironmentInfo].environment if IreeRunfilesEnvironmentInfo in target else {},
-    )
-
 def _shell_quote(value):
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
@@ -397,13 +388,6 @@ def _loom_correctness_test_launcher_impl(ctx):
         None,
     )
 
-def _loom_profile_execution_test_launcher_impl(ctx):
-    return _execution_test_launcher_providers(
-        ctx,
-        _tool_from_target(ctx.attr.runner),
-        None,
-    )
-
 _EXECUTION_TEST_LAUNCHER_ATTRS = {
     "module": attr.label(
         mandatory = True,
@@ -442,21 +426,6 @@ _loom_correctness_test_launcher = rule(
     doc = "Generates a correctness-only launcher for one Loom execution profile.",
     executable = True,
     toolchains = [_LOOM_TEST_TOOLCHAIN_TYPE],
-)
-
-_PROFILE_EXECUTION_TEST_LAUNCHER_ATTRS = dict(_EXECUTION_TEST_LAUNCHER_ATTRS)
-_PROFILE_EXECUTION_TEST_LAUNCHER_ATTRS["runner"] = attr.label(
-    cfg = "exec",
-    executable = True,
-    mandatory = True,
-    doc = "Executable owning this profile's execution.",
-)
-
-_loom_profile_execution_test_launcher = rule(
-    implementation = _loom_profile_execution_test_launcher_impl,
-    attrs = _PROFILE_EXECUTION_TEST_LAUNCHER_ATTRS,
-    doc = "Generates a launcher for a profile-owned execution runner.",
-    executable = True,
 )
 
 def _loom_format_test_launcher_impl(ctx):
@@ -652,6 +621,16 @@ def _declare_execution_test(
     )
     if visibility != None:
         test_kwargs["visibility"] = visibility
+    runner_args = profile.runner_args + workload_args + test_runner_args
+    if profile.runner != None:
+        iree_executable_test(
+            name = name,
+            args = ["$(rootpath %s)" % module] + runner_args,
+            data = [module],
+            src = profile.runner,
+            **test_kwargs
+        )
+        return
     launcher_attrs = {
         "module": module,
         "profile_args": profile.runner_args,
@@ -659,10 +638,7 @@ def _declare_execution_test(
         "test_args": test_runner_args,
         "workload_args": workload_args,
     }
-    if profile.runner != None:
-        launcher_rule = _loom_profile_execution_test_launcher
-        launcher_attrs["runner"] = profile.runner
-    elif benchmark_smoke:
+    if benchmark_smoke:
         launcher_rule = _loom_execution_test_launcher
     else:
         launcher_rule = _loom_correctness_test_launcher
