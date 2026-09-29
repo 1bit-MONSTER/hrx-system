@@ -21,6 +21,7 @@ namespace {
 
 enum class PairQuery { kConcrete, kProfile };
 enum class Site { kHost, kPm4, kSdma };
+enum TransferPhase : size_t { kUpload, kDownload, kTransferPhaseCount };
 enum BackingIndex : size_t {
   kSource,
   kInput,
@@ -56,25 +57,28 @@ struct Edge {
   Site producer;
   // Actor consuming those bytes after the separate ordering edge.
   Site consumer;
+  // Transfer phase that supplies this edge's SDMA-side cache operation.
+  // Edges without an SDMA site leave this field unused.
+  TransferPhase transfer_phase;
 };
 
 // Besides the four main payload edges, preserve the CPU seed and diagnostic
 // paths. Code publication additionally needs the qualified instruction-cache
 // operation in the first SystemBarrier below.
 constexpr std::array<Edge, 13> kEdges = {{
-    {"source_host_to_sdma", kSource, Site::kHost, Site::kSdma},
-    {"input_sdma_to_pm4", kInput, Site::kSdma, Site::kPm4},
-    {"output_pm4_to_sdma", kOutput, Site::kPm4, Site::kSdma},
-    {"readback_sdma_to_host", kReadback, Site::kSdma, Site::kHost},
-    {"input_seed_host_to_pm4", kInput, Site::kHost, Site::kPm4},
-    {"output_seed_host_to_sdma", kOutput, Site::kHost, Site::kSdma},
-    {"input_sdma_to_host", kInput, Site::kSdma, Site::kHost},
-    {"output_pm4_to_host", kOutput, Site::kPm4, Site::kHost},
-    {"arguments_host_to_pm4", kArguments, Site::kHost, Site::kPm4},
-    {"code_host_to_pm4", kCode, Site::kHost, Site::kPm4},
-    {"control_host_to_sdma", kControl, Site::kHost, Site::kSdma},
-    {"control_pm4_to_sdma", kControl, Site::kPm4, Site::kSdma},
-    {"control_sdma_to_host", kControl, Site::kSdma, Site::kHost},
+    {"source_host_to_sdma", kSource, Site::kHost, Site::kSdma, kUpload},
+    {"input_sdma_to_pm4", kInput, Site::kSdma, Site::kPm4, kUpload},
+    {"output_pm4_to_sdma", kOutput, Site::kPm4, Site::kSdma, kDownload},
+    {"readback_sdma_to_host", kReadback, Site::kSdma, Site::kHost, kDownload},
+    {"input_seed_host_to_pm4", kInput, Site::kHost, Site::kPm4, kUpload},
+    {"output_seed_host_to_sdma", kOutput, Site::kHost, Site::kSdma, kDownload},
+    {"input_sdma_to_host", kInput, Site::kSdma, Site::kHost, kUpload},
+    {"output_pm4_to_host", kOutput, Site::kPm4, Site::kHost, kDownload},
+    {"arguments_host_to_pm4", kArguments, Site::kHost, Site::kPm4, kUpload},
+    {"code_host_to_pm4", kCode, Site::kHost, Site::kPm4, kUpload},
+    {"control_host_to_sdma", kControl, Site::kHost, Site::kSdma, kUpload},
+    {"control_pm4_to_sdma", kControl, Site::kPm4, Site::kSdma, kDownload},
+    {"control_sdma_to_host", kControl, Site::kSdma, Site::kHost, kDownload},
 }};
 
 void CheckTransition(const amdf_cache_transition_t& transition,
@@ -173,8 +177,36 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
                                                       : sdma_family_.ordinal);
   }
 
-  void CheckPairs(PairQuery query_kind,
-                  const std::array<Backing, kBackingCount>& backings) {
+  void ResolveTransition(const amdf_cache_transition_t& transition, Site site,
+                         amdf_cache_operation_t operation,
+                         amdf_cache_operations_t* inout_sdma_operations) {
+    if (site != Site::kSdma) {
+      ASSERT_NO_FATAL_FAILURE(CheckTransition(
+          transition,
+          site == Site::kPm4 ? operation : AMDF_CACHE_OPERATION_NONE));
+      return;
+    }
+    if (transition.kind == AMDF_CACHE_TRANSITION_KIND_NONE) {
+      ASSERT_NO_FATAL_FAILURE(
+          CheckTransition(transition, AMDF_CACHE_OPERATION_NONE));
+      return;
+    }
+    ASSERT_NO_FATAL_FAILURE(CheckTransition(transition, operation));
+    ASSERT_NE(
+        sdma_family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR,
+        0u);
+    const amdf_cache_operations_t bit = UINT64_C(1) << operation;
+    ASSERT_NE(sdma_family_.cache_operations & bit, 0u);
+    ASSERT_NE(sdma_family_.cache_transition_kinds &
+                  AMDF_CACHE_TRANSITION_KINDS_GLOBAL,
+              0u);
+    *inout_sdma_operations |= bit;
+  }
+
+  void ResolvePairs(PairQuery query_kind,
+                    const std::array<Backing, kBackingCount>& backings,
+                    std::array<amdf_cache_operations_t, kTransferPhaseCount>*
+                        out_operations) {
     for (const Edge& edge : kEdges) {
       SCOPED_TRACE(edge.name);
       const Backing& backing = backings[edge.backing];
@@ -205,14 +237,12 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
       }
       ASSERT_NE(pair.flags & AMDF_MEMORY_PAIR_FLAG_SHARED_BACKING_REACHABLE,
                 0u);
-      ASSERT_NO_FATAL_FAILURE(CheckTransition(
-          pair.release, edge.producer == Site::kPm4
-                            ? AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM
-                            : AMDF_CACHE_OPERATION_NONE));
-      ASSERT_NO_FATAL_FAILURE(CheckTransition(
-          pair.acquire, edge.consumer == Site::kPm4
-                            ? AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM
-                            : AMDF_CACHE_OPERATION_NONE));
+      ASSERT_NO_FATAL_FAILURE(ResolveTransition(
+          pair.release, edge.producer, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+          &(*out_operations)[edge.transfer_phase]));
+      ASSERT_NO_FATAL_FAILURE(ResolveTransition(
+          pair.acquire, edge.consumer, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+          &(*out_operations)[edge.transfer_phase]));
       const std::string prefix = std::string("pm4_sdma_") + edge.name;
       RecordProperty(prefix + "_flags", std::to_string(pair.flags));
       RecordProperty(prefix + "_release", DescribeTransition(pair.release));
@@ -220,7 +250,16 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     }
   }
 
-  void RunCoherentHandoff(PairQuery query_kind) {
+  void RunCoherentHandoff(
+      PairQuery query_kind,
+      amdf_cache_operations_t required_sdma_operations = 0) {
+    if (required_sdma_operations != 0 &&
+        (sdma_family_.format_features &
+         AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) == 0) {
+      GTEST_SKIP() << "explicit SDMA cache operations require USER_GCR";
+    }
+    ASSERT_EQ(sdma_family_.cache_operations & required_sdma_operations,
+              required_sdma_operations);
     const auto* kernel_product =
         kernels::transform::kKernels.Find(gpu_endpoint_info_);
     ASSERT_NE(kernel_product, nullptr)
@@ -235,7 +274,9 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     constexpr uint32_t kPageWordCount = 1024;
     constexpr uint32_t kPayloadOffset = 16;
     constexpr uint32_t kPm4WordsPerEpoch = 64;
-    constexpr uint32_t kSdmaWordsPerEpoch = 28;
+    constexpr uint32_t kMinimumSdmaWordsPerEpoch = 28;
+    constexpr uint32_t kMaximumSdmaWordsPerEpoch =
+        kMinimumSdmaWordsPerEpoch + 20;
     constexpr uint32_t kEpochCount = 2;
     constexpr uint32_t kControlGuard = 0x68d329b7u;
     constexpr std::array<uint32_t, 4> kGuards = {0x759bf13du, 0x26a4e8c3u,
@@ -258,9 +299,14 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     }
     RecordProperty("pm4_sdma_pair_query_mode",
                    query_kind == PairQuery::kProfile ? "profile" : "concrete");
+    // An explicit GCR case exercises both phases even when the queried
+    // minimum for coherent backing is NONE. It retains every pair answer.
+    std::array<amdf_cache_operations_t, kTransferPhaseCount> sdma_operations = {
+        required_sdma_operations, required_sdma_operations};
     if (query_kind == PairQuery::kProfile) {
       // Every answer precedes all seven native allocations, including code.
-      ASSERT_NO_FATAL_FAILURE(CheckPairs(query_kind, backings));
+      ASSERT_NO_FATAL_FAILURE(
+          ResolvePairs(query_kind, backings, &sdma_operations));
     }
     for (size_t i = 0; i < kCode; ++i) {
       ASSERT_NO_FATAL_FAILURE(CreateMemory(system_scope_, backings[i].creation,
@@ -323,8 +369,13 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
                      std::to_string(memory.device_address));
     }
     if (query_kind == PairQuery::kConcrete) {
-      ASSERT_NO_FATAL_FAILURE(CheckPairs(query_kind, backings));
+      ASSERT_NO_FATAL_FAILURE(
+          ResolvePairs(query_kind, backings, &sdma_operations));
     }
+    RecordProperty("pm4_sdma_upload_operations",
+                   std::to_string(sdma_operations[kUpload]));
+    RecordProperty("pm4_sdma_download_operations",
+                   std::to_string(sdma_operations[kDownload]));
     auto& source = *backings[kSource].memory;
     auto& input = *backings[kInput].memory;
     auto& output = *backings[kOutput].memory;
@@ -361,10 +412,11 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     ASSERT_GE(pm4_queue->words().size_bytes(),
               kEpochCount * kPm4WordsPerEpoch * sizeof(uint32_t));
     ASSERT_GE(sdma_queue->words().size_bytes(),
-              kEpochCount * kSdmaWordsPerEpoch * sizeof(uint32_t));
+              kEpochCount * kMaximumSdmaWordsPerEpoch * sizeof(uint32_t));
     Pm4CommandWriter pm4(pm4_queue->words().data(), *pm4_profile_);
     SdmaCommandWriter sdma(sdma_queue->words().data(),
                            sdma_family_.format_features);
+    std::array<size_t, kEpochCount> sdma_frontiers;
     for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {
       pm4.WaitMemory32(control.device_address, epoch);
       pm4.SystemBarrier();  // Queried GLOBAL acquire and cold code publication.
@@ -372,15 +424,33 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
       pm4.DispatchWave32(kGridSize, 1, 1);
       pm4.ReleaseSystem32(control.device_address + 64, epoch);
       pm4.PadToEightWords();
+      if ((sdma_operations[kUpload] &
+           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) != 0) {
+        sdma.AcquireFromSystem();
+      }
       sdma.CopyLinear(source.device_address + 64, input.device_address + 64,
                       kGridSize * sizeof(uint32_t));
+      if ((sdma_operations[kUpload] &
+           AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+        sdma.ReleaseToSystem();
+      }
       sdma.Fence32(control.device_address, epoch);
       sdma.WaitMemory32(control.device_address + 64, epoch);
+      if ((sdma_operations[kDownload] &
+           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) != 0) {
+        sdma.AcquireFromSystem();
+      }
       sdma.CopyLinear(output.device_address + 64, readback.device_address + 64,
                       kGridSize * sizeof(uint32_t));
+      if ((sdma_operations[kDownload] &
+           AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+        sdma.ReleaseToSystem();
+      }
       sdma.Fence32(control.device_address + 128, epoch);
       ASSERT_EQ(pm4.word_count(), epoch * kPm4WordsPerEpoch);
-      ASSERT_EQ(sdma.word_count(), epoch * kSdmaWordsPerEpoch);
+      ASSERT_GE(sdma.word_count(), epoch * kMinimumSdmaWordsPerEpoch);
+      ASSERT_LE(sdma.word_count(), epoch * kMaximumSdmaWordsPerEpoch);
+      sdma_frontiers[epoch - 1] = sdma.word_count();
     }
     // Both complete streams are resident before the first publication. PM4's
     // index uses DWORDs; SDMA's index uses bytes. Neither stream wraps.
@@ -451,7 +521,7 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
       std::memcpy(arguments.host.pointer, expected_arguments.data(),
                   sizeof(expected_arguments));
       const uint64_t pm4_frontier = (epoch + 1) * kPm4WordsPerEpoch;
-      const uint64_t sdma_frontier = (epoch + 1) * kSdmaWordsPerEpoch;
+      const uint64_t sdma_frontier = sdma_frontiers[epoch];
       ASSERT_NO_FATAL_FAILURE(pm4_queue->Publish(api_, gpu_api_, pm4_frontier));
       ASSERT_NO_FATAL_FAILURE(
           sdma_queue->Publish(api_, gpu_api_, sdma_frontier));
@@ -524,6 +594,12 @@ TEST_F(Pm4SdmaRecipeTest, ConcreteCoherentUploadDispatchDownload) {
 
 TEST_F(Pm4SdmaRecipeTest, ProfileCoherentUploadDispatchDownload) {
   RunCoherentHandoff(PairQuery::kProfile);
+}
+
+TEST_F(Pm4SdmaRecipeTest, UserGcrUploadDispatchDownload) {
+  RunCoherentHandoff(PairQuery::kConcrete,
+                     AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM |
+                         AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM);
 }
 
 }  // namespace

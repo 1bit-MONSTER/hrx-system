@@ -30,6 +30,16 @@ struct PayloadPairs {
   amdf_memory_pair_info_t egress = {};
 };
 
+struct PayloadTransitions {
+  // AQL packet scopes for the upload-to-dispatch and dispatch-to-download
+  // edges.
+  aql::FenceScopes dispatch = {aql::FenceScope::kNone, aql::FenceScope::kNone};
+  // SDMA acquire before upload and release before its completion signal.
+  amdf_cache_operations_t upload = 0;
+  // SDMA acquire after the dispatch wait and release before host completion.
+  amdf_cache_operations_t download = 0;
+};
+
 struct PayloadSet {
   // Logical length of each of the four owned allocations.
   uint64_t byte_length;
@@ -43,9 +53,8 @@ struct PayloadSet {
   GpuMemory* output = nullptr;
   // Download destination observed before any other payload read.
   GpuMemory* readback = nullptr;
-  // Packet scopes resolved from this set's actual queried transitions.
-  aql::FenceScopes dispatch_scopes = {aql::FenceScope::kNone,
-                                      aql::FenceScope::kNone};
+  // Queue operations resolved from this set's actual queried transitions.
+  PayloadTransitions transitions;
 };
 
 struct StagedPayloadPairs {
@@ -259,53 +268,92 @@ class CopyDispatchRecipeTest : public AqlDispatchTest {
     RecordProperty(name + "_acquire", DescribeTransition(pair.acquire));
   }
 
+  void AccumulateSdmaTransition(const amdf_cache_transition_t& transition,
+                                amdf_cache_operation_t operation,
+                                amdf_cache_operations_t* inout_operations) {
+    if (transition.kind == AMDF_CACHE_TRANSITION_KIND_NONE) {
+      ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(transition));
+      return;
+    }
+    ASSERT_NO_FATAL_FAILURE(
+        CheckTransition(transition, AMDF_CACHE_TRANSITION_KIND_GLOBAL,
+                        AMDF_CACHE_TRANSITION_EXECUTOR_QUEUE, operation));
+    ASSERT_NE(
+        sdma_family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR,
+        0u);
+    const amdf_cache_operations_t bit = UINT64_C(1) << operation;
+    ASSERT_NE(sdma_family_.cache_operations & bit, 0u);
+    ASSERT_NE(sdma_family_.cache_transition_kinds &
+                  AMDF_CACHE_TRANSITION_KINDS_GLOBAL,
+              0u);
+    *inout_operations |= bit;
+  }
+
   void ResolvePairs(const PayloadPairs& pairs, const std::string& prefix,
-                    aql::FenceScopes* out_scopes) {
+                    PayloadTransitions* out_transitions) {
     RecordPair(prefix + "_host_to_sdma", pairs.ingress);
     RecordPair(prefix + "_sdma_to_aql", pairs.upload);
     RecordPair(prefix + "_aql_to_sdma", pairs.download);
     RecordPair(prefix + "_sdma_to_host", pairs.egress);
     ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.ingress.release));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.ingress.acquire));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.upload.release));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.ingress.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+        &out_transitions->upload));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.upload.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+        &out_transitions->upload));
     ASSERT_NO_FATAL_FAILURE(ResolveDispatchScope(
         pairs.upload.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
-        &out_scopes->acquire));
+        &out_transitions->dispatch.acquire));
     ASSERT_NO_FATAL_FAILURE(ResolveDispatchScope(
         pairs.download.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
-        &out_scopes->release));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.download.acquire));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.egress.release));
+        &out_transitions->dispatch.release));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.download.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+        &out_transitions->download));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.egress.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+        &out_transitions->download));
     ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.egress.acquire));
   }
 
   void ResolveStagedPairs(const StagedPayloadPairs& pairs,
                           const std::string& prefix,
-                          aql::FenceScopes* out_scopes) {
-    ASSERT_NO_FATAL_FAILURE(ResolvePairs(pairs.payload, prefix, out_scopes));
+                          PayloadTransitions* out_transitions) {
+    ASSERT_NO_FATAL_FAILURE(
+        ResolvePairs(pairs.payload, prefix, out_transitions));
     RecordPair(prefix + "_seed_host_to_sdma", pairs.seed_ingress);
     RecordPair(prefix + "_seed_sdma_to_aql", pairs.seed_upload);
     RecordPair(prefix + "_input_sdma_to_sdma", pairs.input_download);
     RecordPair(prefix + "_input_sdma_to_host", pairs.input_egress);
     ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.seed_ingress.release));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.seed_ingress.acquire));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.seed_upload.release));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.seed_ingress.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+        &out_transitions->upload));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.seed_upload.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+        &out_transitions->upload));
     aql::FenceScope seed_acquire = aql::FenceScope::kNone;
     ASSERT_NO_FATAL_FAILURE(ResolveDispatchScope(
         pairs.seed_upload.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
         &seed_acquire));
     // One global dispatch acquire satisfies both LOCAL input and output-seed
     // transitions. Each allocation's returned operation must agree.
-    ASSERT_EQ(seed_acquire, out_scopes->acquire);
-    ASSERT_NO_FATAL_FAILURE(
-        CheckNoCacheTransition(pairs.input_download.release));
-    ASSERT_NO_FATAL_FAILURE(
-        CheckNoCacheTransition(pairs.input_download.acquire));
-    ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.input_egress.release));
+    ASSERT_EQ(seed_acquire, out_transitions->dispatch.acquire);
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.input_download.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+        &out_transitions->upload));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.input_download.acquire, AMDF_CACHE_OPERATION_ACQUIRE_FROM_SYSTEM,
+        &out_transitions->download));
+    ASSERT_NO_FATAL_FAILURE(AccumulateSdmaTransition(
+        pairs.input_egress.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM,
+        &out_transitions->download));
     ASSERT_NO_FATAL_FAILURE(CheckNoCacheTransition(pairs.input_egress.acquire));
   }
 
-  void RunCoherentHandoff(PairQuery query_kind);
+  void RunCoherentHandoff(PairQuery query_kind,
+                          amdf_cache_operations_t required_sdma_operations = 0);
   void RunStagedHandoff(PairQuery query_kind);
 
   // Transfer family retained from the same passive endpoint match as AQL.
@@ -326,7 +374,15 @@ constexpr uint32_t kPageByteLength = 4096;
 constexpr uint32_t kControlGuardByteOffset =
     offsetof(CompletionState, download) + sizeof(uint32_t);
 
-void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
+void CopyDispatchRecipeTest::RunCoherentHandoff(
+    PairQuery query_kind, amdf_cache_operations_t required_sdma_operations) {
+  if (required_sdma_operations != 0 &&
+      (sdma_family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) ==
+          0) {
+    GTEST_SKIP() << "explicit SDMA cache operations require USER_GCR";
+  }
+  ASSERT_EQ(sdma_family_.cache_operations & required_sdma_operations,
+            required_sdma_operations);
   const auto* kernel_product =
       kernels::transform::kKernels.Find(gpu_endpoint_info_);
   ASSERT_NE(kernel_product, nullptr)
@@ -342,8 +398,10 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   constexpr uint32_t kInputGuard = 0x26a4e8c3u;
   constexpr uint32_t kOutputGuard = 0x93b57fd1u;
   constexpr uint32_t kReadbackGuard = 0x4cd218a7u;
-  constexpr size_t kChainWordCount = 7 + 4 + 6 + 7 + 4;
-  constexpr uint64_t kChainByteLength = kChainWordCount * sizeof(uint32_t);
+  constexpr size_t kMinimumChainWordCount = 7 + 4 + 6 + 7 + 4;
+  constexpr size_t kMaximumChainWordCount = kMinimumChainWordCount + 20;
+  constexpr uint64_t kMinimumChainByteLength =
+      kMinimumChainWordCount * sizeof(uint32_t);
   constexpr amdf_memory_access_t kReadWrite =
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
   const amdf_memory_device_access_t read_access = {
@@ -377,15 +435,15 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
   RecordProperty("payload_minimum_alignment",
                  std::to_string(read_creation.minimum_alignment));
 
-  aql::FenceScopes profile_scopes = {aql::FenceScope::kNone,
-                                     aql::FenceScope::kNone};
+  PayloadTransitions profile_transitions;
   if (query_kind == PairQuery::kProfile) {
     // Both sets will use these answers, obtained before any payload backing.
     PayloadPairs pairs;
     ASSERT_NO_FATAL_FAILURE(QueryProfilePairs(system_scope_, read_creation,
                                               read_write_creation,
                                               read_write_creation, &pairs));
-    ASSERT_NO_FATAL_FAILURE(ResolvePairs(pairs, "profile", &profile_scopes));
+    ASSERT_NO_FATAL_FAILURE(
+        ResolvePairs(pairs, "profile", &profile_transitions));
   }
   std::array<PayloadSet, 2> payload_sets = {{
       {.byte_length = 8192, .payload_byte_offset = 64},
@@ -423,14 +481,22 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
       PayloadPairs pairs;
       ASSERT_NO_FATAL_FAILURE(QueryConcretePairs(payload, &pairs));
       ASSERT_NO_FATAL_FAILURE(
-          ResolvePairs(pairs, prefix, &payload.dispatch_scopes));
+          ResolvePairs(pairs, prefix, &payload.transitions));
     } else {
-      payload.dispatch_scopes = profile_scopes;
+      payload.transitions = profile_transitions;
     }
+    // Explicit-GCR coverage requests the stronger stream recipe even when
+    // this backing's queried minimum is NONE. The pair answers stay intact.
+    payload.transitions.upload |= required_sdma_operations;
+    payload.transitions.download |= required_sdma_operations;
+    RecordProperty(prefix + "_sdma_upload_operations",
+                   std::to_string(payload.transitions.upload));
+    RecordProperty(prefix + "_sdma_download_operations",
+                   std::to_string(payload.transitions.download));
     RecordProperty(prefix + "_dispatch_acquire_scope",
-                   static_cast<uint32_t>(payload.dispatch_scopes.acquire));
+                   static_cast<uint32_t>(payload.transitions.dispatch.acquire));
     RecordProperty(prefix + "_dispatch_release_scope",
-                   static_cast<uint32_t>(payload.dispatch_scopes.release));
+                   static_cast<uint32_t>(payload.transitions.dispatch.release));
   }
   GpuMemory* arguments = nullptr;
   GpuMemory* control = nullptr;
@@ -466,9 +532,10 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
       aql_queue->host.ring_byte_length / sizeof(aql::Packet);
   const uint64_t sdma_capacity = sdma_queue->host.ring_byte_length;
   ASSERT_GE(aql_capacity, 2u);
-  ASSERT_GT(sdma_capacity, 2 * kChainByteLength);
+  ASSERT_GT(sdma_capacity, 2 * kMaximumChainWordCount * sizeof(uint32_t));
   const uint64_t epoch_count =
-      2 * std::max((aql_capacity + 1) / 2, sdma_capacity / kChainByteLength) +
+      2 * std::max((aql_capacity + 1) / 2,
+                   sdma_capacity / kMinimumChainByteLength) +
       1;
   ASSERT_LE(epoch_count, UINT32_MAX);
   RecordProperty("copy_dispatch_epoch_count", std::to_string(epoch_count));
@@ -569,32 +636,50 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(PairQuery query_kind) {
          {kGridSize, 1, 1}},
         kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         descriptor_address, arguments->device_address, compute_signal_address,
-        buffers.dispatch_scopes);
-    std::array<uint32_t, kChainWordCount> stream = {};
+        buffers.transitions.dispatch);
+    std::array<uint32_t, kMaximumChainWordCount> stream = {};
     SdmaCommandWriter commands(stream.data(), sdma_family_.format_features);
+    if ((buffers.transitions.upload &
+         AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) != 0) {
+      commands.AcquireFromSystem();
+    }
     commands.CopyLinear(
         buffers.source->device_address + buffers.payload_byte_offset,
         buffers.input->device_address + buffers.payload_byte_offset,
         kPayloadByteLength);
+    if ((buffers.transitions.upload &
+         AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+      commands.ReleaseToSystem();
+    }
     commands.Fence32(upload_signal_address + offsetof(aql::Signal, value), 0);
     commands.WaitMemory32(compute_signal_address + offsetof(aql::Signal, value),
                           0);
+    if ((buffers.transitions.download &
+         AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) != 0) {
+      commands.AcquireFromSystem();
+    }
     commands.CopyLinear(
         buffers.output->device_address + buffers.payload_byte_offset,
         buffers.readback->device_address + buffers.payload_byte_offset,
         kPayloadByteLength);
+    if ((buffers.transitions.download &
+         AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+      commands.ReleaseToSystem();
+    }
     commands.Fence32(download_address, epoch);
-    ASSERT_EQ(commands.word_count(), stream.size());
+    ASSERT_GE(commands.word_count(), kMinimumChainWordCount);
+    ASSERT_LE(commands.word_count(), stream.size());
+    const uint64_t chain_byte_length = commands.word_count() * sizeof(uint32_t);
     uint64_t offset = sdma_index % sdma_capacity;
     const uint64_t remaining = sdma_capacity - offset;
-    if (remaining < kChainByteLength) {
+    if (remaining < chain_byte_length) {
       // Native zero NOP dwords keep every packet contiguous at ring wrap.
       std::memset(sdma_ring + offset, 0, remaining);
       sdma_index += remaining;
       offset = 0;
     }
-    std::memcpy(sdma_ring + offset, stream.data(), kChainByteLength);
-    sdma_index += kChainByteLength;
+    std::memcpy(sdma_ring + offset, stream.data(), chain_byte_length);
+    sdma_index += chain_byte_length;
 
     // Consumer-first publication leaves every dataflow edge on the device.
     // Both rings are free from the preceding epoch before this reservation.
@@ -686,8 +771,10 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   constexpr uint32_t kGridSize = 1024;
   constexpr uint32_t kMaximumByteLength = 12288;
   constexpr size_t kMaximumWordCount = kMaximumByteLength / sizeof(uint32_t);
-  constexpr size_t kChainWordCount = 7 + 7 + 4 + 6 + 7 + 7 + 4;
-  constexpr uint64_t kChainByteLength = kChainWordCount * sizeof(uint32_t);
+  constexpr size_t kMinimumChainWordCount = 7 + 7 + 4 + 6 + 7 + 7 + 4;
+  constexpr size_t kMaximumChainWordCount = kMinimumChainWordCount + 20;
+  constexpr uint64_t kMinimumChainByteLength =
+      kMinimumChainWordCount * sizeof(uint32_t);
   constexpr amdf_memory_access_t kReadWrite =
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
   const amdf_memory_device_access_t source_access = {
@@ -722,10 +809,10 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
   RecordProperty("local_access_flags",
                  std::to_string(local_access.requirements.flags));
   RecordProperty("local_device_access", local_access.requirements.access);
-  RecordProperty("sdma_chain_word_count", std::to_string(kChainWordCount));
+  RecordProperty("sdma_minimum_chain_word_count",
+                 std::to_string(kMinimumChainWordCount));
 
-  aql::FenceScopes profile_scopes = {aql::FenceScope::kNone,
-                                     aql::FenceScope::kNone};
+  PayloadTransitions profile_transitions;
   if (query_kind == PairQuery::kProfile) {
     // These exact profiles and requirements create every matching allocation
     // below. Query all directional roles before any payload backing exists.
@@ -759,7 +846,7 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
                                              sdma, host_read,
                                              &pairs.input_egress));
     ASSERT_NO_FATAL_FAILURE(
-        ResolveStagedPairs(pairs, "profile", &profile_scopes));
+        ResolveStagedPairs(pairs, "profile", &profile_transitions));
   }
 
   std::array<StagedPayloadSet, 2> payload_sets = {{
@@ -849,14 +936,14 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
           staged.input_readback->DeviceSite(sdma_family_.ordinal),
           staged.input_readback->HostSite(), &pairs.input_egress));
       ASSERT_NO_FATAL_FAILURE(
-          ResolveStagedPairs(pairs, prefix, &payload.dispatch_scopes));
+          ResolveStagedPairs(pairs, prefix, &payload.transitions));
     } else {
-      payload.dispatch_scopes = profile_scopes;
+      payload.transitions = profile_transitions;
     }
     RecordProperty(prefix + "_dispatch_acquire_scope",
-                   static_cast<uint32_t>(payload.dispatch_scopes.acquire));
+                   static_cast<uint32_t>(payload.transitions.dispatch.acquire));
     RecordProperty(prefix + "_dispatch_release_scope",
-                   static_cast<uint32_t>(payload.dispatch_scopes.release));
+                   static_cast<uint32_t>(payload.transitions.dispatch.release));
   }
 
   GpuMemory* arguments = nullptr;
@@ -893,9 +980,10 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
       aql_queue->host.ring_byte_length / sizeof(aql::Packet);
   const uint64_t sdma_capacity = sdma_queue->host.ring_byte_length;
   ASSERT_GE(aql_capacity, 2u);
-  ASSERT_GT(sdma_capacity, 2 * kChainByteLength);
+  ASSERT_GT(sdma_capacity, 2 * kMaximumChainWordCount * sizeof(uint32_t));
   const uint64_t epoch_count =
-      2 * std::max((aql_capacity + 1) / 2, sdma_capacity / kChainByteLength) +
+      2 * std::max((aql_capacity + 1) / 2,
+                   sdma_capacity / kMinimumChainByteLength) +
       1;
   ASSERT_LE(epoch_count, UINT32_MAX);
   RecordProperty("copy_dispatch_epoch_count", std::to_string(epoch_count));
@@ -988,32 +1076,50 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
          {kGridSize, 1, 1}},
         kernel.private_segment_byte_length, kernel.group_segment_byte_length,
         descriptor_address, arguments->device_address, compute_signal_address,
-        buffers.dispatch_scopes);
-    std::array<uint32_t, kChainWordCount> stream = {};
+        buffers.transitions.dispatch);
+    std::array<uint32_t, kMaximumChainWordCount> stream = {};
     SdmaCommandWriter commands(stream.data(), sdma_family_.format_features);
+    if ((buffers.transitions.upload &
+         AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) != 0) {
+      commands.AcquireFromSystem();
+    }
     commands.CopyLinear(buffers.source->device_address,
                         buffers.input->device_address, byte_length);
     commands.CopyLinear(staged.seed->device_address,
                         buffers.output->device_address, byte_length);
+    if ((buffers.transitions.upload &
+         AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+      commands.ReleaseToSystem();
+    }
     commands.Fence32(upload_signal_address + offsetof(aql::Signal, value), 0);
     commands.WaitMemory32(compute_signal_address + offsetof(aql::Signal, value),
                           0);
+    if ((buffers.transitions.download &
+         AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM) != 0) {
+      commands.AcquireFromSystem();
+    }
     commands.CopyLinear(buffers.output->device_address,
                         buffers.readback->device_address, byte_length);
     commands.CopyLinear(buffers.input->device_address,
                         staged.input_readback->device_address, byte_length);
+    if ((buffers.transitions.download &
+         AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM) != 0) {
+      commands.ReleaseToSystem();
+    }
     commands.Fence32(download_address, epoch);
-    ASSERT_EQ(commands.word_count(), stream.size());
+    ASSERT_GE(commands.word_count(), kMinimumChainWordCount);
+    ASSERT_LE(commands.word_count(), stream.size());
+    const uint64_t chain_byte_length = commands.word_count() * sizeof(uint32_t);
     uint64_t offset = sdma_index % sdma_capacity;
     const uint64_t remaining = sdma_capacity - offset;
-    if (remaining < kChainByteLength) {
+    if (remaining < chain_byte_length) {
       // Native zero NOP dwords keep each complete packet contiguous.
       std::memset(sdma_ring + offset, 0, remaining);
       sdma_index += remaining;
       offset = 0;
     }
-    std::memcpy(sdma_ring + offset, stream.data(), kChainByteLength);
-    sdma_index += kChainByteLength;
+    std::memcpy(sdma_ring + offset, stream.data(), chain_byte_length);
+    sdma_index += chain_byte_length;
 
     // Consumer-first publication leaves both inter-engine edges on device.
     GpuStoreRelease(aql_queue->host.write_index_address, aql_index + 2);
@@ -1098,6 +1204,12 @@ TEST_F(CopyDispatchRecipeTest,
 TEST_F(CopyDispatchRecipeTest,
        ProfileCoherentSystemUploadDispatchDownloadReusesBothRings) {
   RunCoherentHandoff(PairQuery::kProfile);
+}
+
+TEST_F(CopyDispatchRecipeTest, UserGcrUploadDispatchDownloadReusesBothRings) {
+  RunCoherentHandoff(PairQuery::kConcrete,
+                     AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM |
+                         AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM);
 }
 
 TEST_F(CopyDispatchRecipeTest,
