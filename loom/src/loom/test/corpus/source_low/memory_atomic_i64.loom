@@ -81,3 +81,79 @@ kernel.def @integer_atomic_i64() {
   view.store %generic_cas_11, %results[1, 11] : i64, view<2x12xi64>
   kernel.return
 }
+
+// ====
+// LDS reductions and returning updates preserve both words, signed ordering,
+// and neighboring cells. Each operation starts from the same source value.
+kernel.def @workgroup_integer_atomic_i64() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer, %value: i64, %initial: i64) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 88 : offset
+  %storage = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %whole = buffer.view %storage[%base] : buffer -> view<11xi64>
+  %cells = view.subview %whole[1] : view<11xi64> -> view<9xi64>
+  %results = buffer.view %output[%base] : buffer -> view<20xi64>
+  view.store %initial, %whole[0] : i64, view<11xi64>
+  view.store %initial, %whole[10] : i64, view<11xi64>
+  view.store %initial, %cells[0] : i64, view<9xi64>
+  view.atomic.reduce<addi> %value, %cells[0] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %addi_old = view.atomic.rmw<addi> %value, %cells[0] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %addi_final = view.load %cells[0] : view<9xi64> -> i64
+  view.store %addi_old, %results[0] : i64, view<20xi64>
+  view.store %addi_final, %results[9] : i64, view<20xi64>
+  view.store %initial, %cells[1] : i64, view<9xi64>
+  view.atomic.reduce<subi> %value, %cells[1] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %subi_old = view.atomic.rmw<subi> %value, %cells[1] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %subi_final = view.load %cells[1] : view<9xi64> -> i64
+  view.store %subi_old, %results[1] : i64, view<20xi64>
+  view.store %subi_final, %results[10] : i64, view<20xi64>
+  view.store %initial, %cells[2] : i64, view<9xi64>
+  view.atomic.reduce<minsi> %value, %cells[2] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %minsi_old = view.atomic.rmw<minsi> %value, %cells[2] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %minsi_final = view.load %cells[2] : view<9xi64> -> i64
+  view.store %minsi_old, %results[2] : i64, view<20xi64>
+  view.store %minsi_final, %results[11] : i64, view<20xi64>
+  view.store %initial, %cells[3] : i64, view<9xi64>
+  view.atomic.reduce<maxsi> %value, %cells[3] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %maxsi_old = view.atomic.rmw<maxsi> %value, %cells[3] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %maxsi_final = view.load %cells[3] : view<9xi64> -> i64
+  view.store %maxsi_old, %results[3] : i64, view<20xi64>
+  view.store %maxsi_final, %results[12] : i64, view<20xi64>
+  view.store %initial, %cells[4] : i64, view<9xi64>
+  view.atomic.reduce<minui> %value, %cells[4] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %minui_old = view.atomic.rmw<minui> %value, %cells[4] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %minui_final = view.load %cells[4] : view<9xi64> -> i64
+  view.store %minui_old, %results[4] : i64, view<20xi64>
+  view.store %minui_final, %results[13] : i64, view<20xi64>
+  view.store %initial, %cells[5] : i64, view<9xi64>
+  view.atomic.reduce<maxui> %value, %cells[5] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %maxui_old = view.atomic.rmw<maxui> %value, %cells[5] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %maxui_final = view.load %cells[5] : view<9xi64> -> i64
+  view.store %maxui_old, %results[5] : i64, view<20xi64>
+  view.store %maxui_final, %results[14] : i64, view<20xi64>
+  view.store %initial, %cells[6] : i64, view<9xi64>
+  view.atomic.reduce<andi> %value, %cells[6] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %andi_old = view.atomic.rmw<andi> %value, %cells[6] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %andi_final = view.load %cells[6] : view<9xi64> -> i64
+  view.store %andi_old, %results[6] : i64, view<20xi64>
+  view.store %andi_final, %results[15] : i64, view<20xi64>
+  view.store %initial, %cells[7] : i64, view<9xi64>
+  view.atomic.reduce<ori> %value, %cells[7] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %ori_old = view.atomic.rmw<ori> %value, %cells[7] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %ori_final = view.load %cells[7] : view<9xi64> -> i64
+  view.store %ori_old, %results[7] : i64, view<20xi64>
+  view.store %ori_final, %results[16] : i64, view<20xi64>
+  view.store %initial, %cells[8] : i64, view<9xi64>
+  view.atomic.reduce<xori> %value, %cells[8] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %xori_old = view.atomic.rmw<xori> %value, %cells[8] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %xori_final = view.load %cells[8] : view<9xi64> -> i64
+  view.store %xori_old, %results[8] : i64, view<20xi64>
+  view.store %xori_final, %results[17] : i64, view<20xi64>
+  %before = view.load %whole[0] : view<11xi64> -> i64
+  %after = view.load %whole[10] : view<11xi64> -> i64
+  view.store %before, %results[18] : i64, view<20xi64>
+  view.store %after, %results[19] : i64, view<20xi64>
+  kernel.return
+}
