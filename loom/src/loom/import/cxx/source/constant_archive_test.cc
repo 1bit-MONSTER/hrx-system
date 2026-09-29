@@ -202,5 +202,79 @@ TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
   }
 }
 
+TEST(ConstantArchiveTest, PreservesRootedSubobjectIdentity) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(
+        IREE_SV("struct Parameters {"
+                "  unsigned scale, bias;"
+                "  constexpr const unsigned& get() const { return scale; }"
+                "};"
+                "constexpr Parameters first{3, 5}, second{3, 5};"
+                "extern Parameters external;"
+                "template<const unsigned& Value> struct Ref {};"
+                "using First = Ref<first.scale>;"
+                "using Second = Ref<second.get()>;"
+                "using Bias = Ref<first.bias>;"
+                "using External = Ref<external.get()>;"
+                "static_assert(__is_same(Ref<first.get()>, First));"
+                "static_assert(!__is_same(First, Second));"
+                "constexpr const unsigned* first_address = &first.get();"
+                "constexpr const unsigned* second_address = &second.scale;"
+                "constexpr const unsigned* bias_address = &first.bias;"
+                "constexpr const unsigned* external_address = "
+                "    &external.scale;"),
+        IREE_SV("fields.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::ArchiveReader reader;
+  ASSERT_TRUE(reader(bytes)) << reader.error();
+  cxx::SemanticArchiveRoots restored;
+  cxx::SemanticDecoder decoder(&destination.unit());
+  ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+
+  auto templates = restored.globalScope->find("Ref");
+  ASSERT_FALSE(templates.begin() == templates.end());
+  auto* primary = cxx::symbol_cast<cxx::ClassSymbol>(*templates.begin());
+  ASSERT_NE(primary, nullptr);
+  ASSERT_EQ(primary->specializations().size(), 4u);
+
+  constexpr std::array<const char*, 4> address_names = {
+      "first_address", "second_address", "bias_address", "external_address"};
+  std::array<cxx::Symbol*, address_names.size()> resolved_specializations = {};
+  for (size_t index = 0; index < address_names.size(); ++index) {
+    SCOPED_TRACE(address_names[index]);
+    auto symbols = restored.globalScope->find(address_names[index]);
+    ASSERT_FALSE(symbols.begin() == symbols.end());
+    auto* variable = cxx::symbol_cast<cxx::VariableSymbol>(*symbols.begin());
+    ASSERT_NE(variable, nullptr);
+    ASSERT_TRUE(variable->constValue());
+    auto address =
+        std::get<std::shared_ptr<cxx::ConstAddress>>(*variable->constValue());
+    ASSERT_NE(address, nullptr);
+    ASSERT_NE(address->parent(), nullptr);
+
+    const std::vector<cxx::TemplateArgument> arguments = {
+        *variable->constValue()};
+    resolved_specializations[index] =
+        primary->findSpecialization(&destination.unit(), arguments);
+    ASSERT_NE(resolved_specializations[index], nullptr);
+    for (size_t previous = 0; previous < index; ++previous) {
+      EXPECT_NE(resolved_specializations[index],
+                resolved_specializations[previous]);
+    }
+  }
+}
+
 }  // namespace
 }  // namespace loom::cxx_import
