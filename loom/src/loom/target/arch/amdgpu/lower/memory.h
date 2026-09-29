@@ -183,9 +183,9 @@ bool loom_amdgpu_memory_access_plan_select(
     loom_amdgpu_memory_access_selection_t* out_selection,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
 
-// Selects a flat global address plan for instrumentation that needs the actual
+// Selects a flat address plan for instrumentation that needs the actual
 // application pointer rather than a memory packet for the source access.
-bool loom_amdgpu_memory_access_select_flat_global_address(
+bool loom_amdgpu_memory_access_select_flat_address(
     const loom_module_t* module,
     const loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_t* out_access,

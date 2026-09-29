@@ -107,6 +107,7 @@ _L = AmdgpuMemoryDescriptorDomain.LDS
 _GF = AmdgpuMemoryDescriptorDomain.GLOBAL_FLAT
 _SM = AmdgpuMemoryDescriptorDomain.GLOBAL_SMEM
 _SC = AmdgpuMemoryDescriptorDomain.SCRATCH
+_F = AmdgpuMemoryDescriptorDomain.GENERIC_FLAT
 
 _AD = AmdgpuMemoryAddressForm.DEFAULT
 _BOZ = AmdgpuMemoryAddressForm.BUFFER_OFF_ZERO
@@ -220,6 +221,21 @@ _MEMORY_DESCRIPTOR_CANDIDATE_ROWS = (
     (_GF, _FL, _ST, 8, _V, _G, 2, "GLOBAL_STORE_B64"),
     (_GF, _FL, _ST, 12, _V, _G, 3, "GLOBAL_STORE_B96"),
     (_GF, _FL, _ST, 16, _V, _G, 4, "GLOBAL_STORE_B128"),
+    (_F, _FL, _LD, 1, _V, _G, 1, "FLAT_LOAD_I8"),
+    (_F, _FL, _LD, 1, _V, _U8, 1, "FLAT_LOAD_U8"),
+    (_F, _FL, _ST, 1, _V, _G, 1, "FLAT_STORE_B8"),
+    (_F, _FL, _LD, 2, _V, _F16, 1, "FLAT_LOAD_U16"),
+    (_F, _FL, _LD, 2, _V, _I16, 1, "FLAT_LOAD_I16"),
+    (_F, _FL, _LD, 2, _V, _G, 1, "FLAT_LOAD_U16"),
+    (_F, _FL, _ST, 2, _V, _G, 1, "FLAT_STORE_B16"),
+    (_F, _FL, _LD, 4, _V, _G, 1, "FLAT_LOAD_B32"),
+    (_F, _FL, _LD, 8, _V, _G, 2, "FLAT_LOAD_B64"),
+    (_F, _FL, _LD, 12, _V, _G, 3, "FLAT_LOAD_B96"),
+    (_F, _FL, _LD, 16, _V, _G, 4, "FLAT_LOAD_B128"),
+    (_F, _FL, _ST, 4, _V, _G, 1, "FLAT_STORE_B32"),
+    (_F, _FL, _ST, 8, _V, _G, 2, "FLAT_STORE_B64"),
+    (_F, _FL, _ST, 12, _V, _G, 3, "FLAT_STORE_B96"),
+    (_F, _FL, _ST, 16, _V, _G, 4, "FLAT_STORE_B128"),
     (_L, _AD, _LD, 1, _V, _G, 1, "DS_READ_U8"),
     (_L, _AD, _LD, 1, _V, _U8, 1, "DS_READ_U8"),
     (_L, _AD, _ST, 1, _V, _G, 1, "DS_WRITE_B8"),

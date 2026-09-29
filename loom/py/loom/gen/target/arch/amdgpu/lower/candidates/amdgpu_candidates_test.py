@@ -338,6 +338,7 @@ def test_memory_generator_distinguishes_unsigned_byte_loads() -> None:
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.BUFFER_RESOURCE: ("amdgpu.buffer_load_u8"),
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.GLOBAL_SADDR: ("amdgpu.global_load_u8_saddr"),
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.GLOBAL_FLAT: ("amdgpu.global_load_u8"),
+        amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.GENERIC_FLAT: ("amdgpu.flat_load_u8"),
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.LDS: ("amdgpu.ds_read_u8"),
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.SCRATCH: ("amdgpu.scratch_load_u8_vaddr"),
     }
@@ -356,6 +357,7 @@ def test_memory_generator_covers_96_bit_source_memory_packets() -> None:
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.BUFFER_RESOURCE,
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.GLOBAL_SADDR,
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.GLOBAL_FLAT,
+        amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.GENERIC_FLAT,
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.LDS,
         amdgpu_memory_candidates.AmdgpuMemoryDescriptorDomain.SCRATCH,
     )

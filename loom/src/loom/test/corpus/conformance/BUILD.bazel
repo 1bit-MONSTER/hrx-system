@@ -357,6 +357,27 @@ loom_test(
 )
 
 loom_test(
+    name = "generic_memory_test",
+    srcs = [
+        "generic_memory.loom",
+        "//loom/src/loom/test/corpus/source_low:memory_generic.loom-test",
+    ],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx950",
+        "//loom/target/amdgpu:gfx1100",
+        "//loom/target/amdgpu:gfx1151",
+        "//loom/target/amdgpu:gfx1170",
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1250",
+    ],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
     name = "workgroup_atomic_cmpxchg_test",
     srcs = ["workgroup_atomic_cmpxchg.loom"],
     compile_targets = [
