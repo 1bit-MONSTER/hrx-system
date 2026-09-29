@@ -62,8 +62,9 @@ static iree_status_t loom_run_hal_execution_backend_select_entry(
       .fn = loom_run_hal_execution_backend_accept_entry,
   };
   return loom_target_entry_select_entry(
-      request->run_module->module, &options, predicate, &diagnostic_emitter,
-      IREE_SV("HAL execution"), arena, out_selected, out_entry);
+      request->run_module->module, &options, predicate,
+      loom_target_entry_emitter(&diagnostic_emitter), IREE_SV("HAL execution"),
+      arena, out_selected, out_entry);
 }
 
 static iree_status_t loom_run_hal_write_artifact(
