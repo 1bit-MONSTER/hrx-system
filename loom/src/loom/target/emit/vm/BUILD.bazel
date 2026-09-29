@@ -29,11 +29,15 @@ loom_cc_library(
     name = "module_compiler",
     srcs = ["module_compiler.c"],
     hdrs = ["module_compiler.h"],
-    visibility = ["//loom/src/loom/tooling/target/vm:__pkg__"],
+    visibility = [
+        "//loom/src/loom/tooling/compile:__pkg__",
+        "//loom/src/loom/tooling/target/vm:__pkg__",
+    ],
     deps = [
         ":module_binary",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/vm:program_build",
+        "//loom/src/loom/target/arch/vm/ops",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],

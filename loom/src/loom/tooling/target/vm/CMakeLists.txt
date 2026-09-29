@@ -12,23 +12,6 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
-    module_provider
-  HDRS
-    "module_provider.h"
-  SRCS
-    "module_provider.c"
-  DEPS
-    iree::base
-    loom::target::arch::vm::ops
-    loom::target::emit::vm::module_compiler
-    loom::target::provider
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
     check
   HDRS
     "check.h"

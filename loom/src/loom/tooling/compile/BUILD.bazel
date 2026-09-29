@@ -60,7 +60,7 @@ _CONFIGURED_COMPILE_DEPS = (
     }) +
     iree_select({
         "//loom/config/target/arch:vm": [
-            "//loom/src/loom/tooling/target/vm:module_provider",
+            "//loom/src/loom/target/emit/vm:module_compiler",
         ],
         "//conditions:default": [],
     }) +

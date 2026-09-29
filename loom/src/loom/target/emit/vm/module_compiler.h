@@ -18,6 +18,9 @@ extern "C" {
 // Canonical VM binary module emitter.
 extern const loom_target_emitter_t loom_vm_module_emitter;
 
+// VM binary module emission composed with the VM target fact type.
+extern const loom_target_provider_t loom_vm_module_provider;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

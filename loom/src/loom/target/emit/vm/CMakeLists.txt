@@ -38,6 +38,7 @@ loom_cc_library(
     ::module_binary
     iree::base
     iree::base::internal::arena
+    loom::target::arch::vm::ops
     loom::target::arch::vm::program_build
     loom::target::provider
   PUBLIC

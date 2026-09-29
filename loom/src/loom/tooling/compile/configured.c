@@ -42,7 +42,7 @@
 #include "loom/tooling/target/amd/xdna/artifact_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#include "loom/tooling/target/vm/module_provider.h"
+#include "loom/target/emit/vm/module_compiler.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 #include "loom/tooling/target/wasm/module_provider.h"

@@ -6,6 +6,7 @@
 
 #include "loom/target/emit/vm/module_compiler.h"
 
+#include "loom/target/arch/vm/ops/ops.h"
 #include "loom/target/arch/vm/program_build.h"
 #include "loom/target/emit/vm/module_binary.h"
 
@@ -43,4 +44,15 @@ const loom_target_emitter_t loom_vm_module_emitter = {
     .default_identifier = IREE_SVL("module.vm"),
     .target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_VM_BINARY,
     .emit = loom_vm_module_emit,
+};
+
+const loom_target_provider_t loom_vm_module_provider = {
+    .emitter_list =
+        {
+            .values =
+                (const loom_target_emitter_t* const[]){&loom_vm_module_emitter},
+            .count = 1,
+        },
+    .canonical_module_emitter = &loom_vm_module_emitter,
+    .canonical_module_fact_type = &loom_vm_target_fact_type,
 };
