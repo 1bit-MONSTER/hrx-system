@@ -95,6 +95,11 @@ static iree_status_t loom_loop_like_validate_replacement_state(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "replacement result types are NULL");
   }
+  if (loom_loop_like_condition_region(source) && target_header_count != 0 &&
+      !state->header_types) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "replacement header types are NULL");
+  }
   IREE_RETURN_IF_ERROR(loom_loop_like_validate_replacement_domain(
       IREE_SV("header"), source_header_count, target_header_count,
       state->source_header_offsets));
@@ -242,15 +247,33 @@ static iree_status_t loom_loop_like_create_region(
       *out_entry);
 }
 
-static iree_status_t loom_loop_like_define_state_arguments(
+static iree_status_t loom_loop_like_define_fresh_state_arguments(
     loom_builder_t* builder, loom_block_t* block,
-    const loom_type_t* result_types, uint16_t state_count,
+    const loom_type_t* state_types, uint16_t state_count,
     loom_value_slice_t* out_state) {
   const uint16_t state_offset = block->arg_count;
   for (uint16_t i = 0; i < state_count; ++i) {
     loom_value_id_t argument = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(
-        builder, block, result_types[i], &argument));
+        builder, block, state_types[i], &argument));
+  }
+  *out_state = (loom_value_slice_t){
+      .values = state_count == 0 ? NULL : block->arg_ids + state_offset,
+      .count = state_count,
+  };
+  return iree_ok_status();
+}
+
+static iree_status_t loom_loop_like_define_reserved_state_arguments(
+    loom_builder_t* builder, loom_block_t* block,
+    const loom_type_t* state_types, uint16_t state_count,
+    loom_value_slice_t* out_state) {
+  const uint16_t state_offset = block->arg_count;
+  for (uint16_t i = 0; i < state_count; ++i) {
+    loom_value_id_t argument = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(
+        loom_builder_define_value(builder, state_types[i], &argument));
+    IREE_RETURN_IF_ERROR(loom_block_add_arg(builder->module, block, argument));
   }
   *out_state = (loom_value_slice_t){
       .values = state_count == 0 ? NULL : block->arg_ids + state_offset,
@@ -412,11 +435,6 @@ iree_status_t loom_loop_like_build_replacement(
            source.op->successor_count * sizeof(loom_block_t*));
   }
 
-  for (uint16_t i = 0; i < target_result_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_builder_define_result(
-        builder, state->result_types[i], &loom_op_results(target)[i]));
-  }
-
   const uint8_t body_region_index = source.vtable->body_region_index;
   const uint8_t condition_region_index = source.vtable->condition_region_index;
   IREE_ASSERT_EQ(source.op->region_count,
@@ -440,23 +458,18 @@ iree_status_t loom_loop_like_build_replacement(
     IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(
         builder, out_replacement->body_entry, iv_type, &target_iv));
   }
-  IREE_RETURN_IF_ERROR(loom_loop_like_define_state_arguments(
+  IREE_RETURN_IF_ERROR(loom_loop_like_define_fresh_state_arguments(
       builder, out_replacement->body_entry, state->result_types,
       target_result_count, &out_replacement->body_state));
   if (out_replacement->condition_entry) {
-    loom_type_t* header_types = NULL;
-    if (target_header_count != 0) {
-      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-          scratch_arena, target_header_count, sizeof(*header_types),
-          (void**)&header_types));
-      for (uint16_t i = 0; i < target_header_count; ++i) {
-        header_types[i] = loom_module_value_type(
-            builder->module, state->initial_values.values[i]);
-      }
-    }
-    IREE_RETURN_IF_ERROR(loom_loop_like_define_state_arguments(
-        builder, out_replacement->condition_entry, header_types,
+    IREE_RETURN_IF_ERROR(loom_loop_like_define_reserved_state_arguments(
+        builder, out_replacement->condition_entry, state->header_types,
         target_header_count, &out_replacement->condition_state));
+  }
+
+  for (uint16_t i = 0; i < target_result_count; ++i) {
+    IREE_RETURN_IF_ERROR(loom_builder_define_result(
+        builder, state->result_types[i], &loom_op_results(target)[i]));
   }
 
   out_replacement->results = (loom_value_slice_t){
@@ -468,12 +481,6 @@ iree_status_t loom_loop_like_build_replacement(
         builder->module, out_replacement->results.values,
         out_replacement->body_state.values, target_result_count));
   }
-  if (target_header_count != 0 && out_replacement->condition_entry) {
-    IREE_RETURN_IF_ERROR(loom_ir_remap_assign_value_types(
-        builder->module, state->initial_values.values,
-        out_replacement->condition_state.values, target_header_count));
-  }
-
   out_replacement->loop = (loom_loop_like_t){
       .op = target,
       .vtable = source.vtable,

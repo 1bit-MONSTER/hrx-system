@@ -166,7 +166,14 @@ iree_status_t loom_print_binding_list(loom_print_context_t* ctx,
         loom_print_field_ref(LOOM_PRINT_FIELD_OPERAND, operand_index)));
     IREE_RETURN_IF_ERROR(loom_print_emit_cstr(ctx, ":", false));
     IREE_RETURN_IF_ERROR(loom_print_space_if_needed(ctx));
-    IREE_RETURN_IF_ERROR(loom_print_value_type(ctx, *operand_ptr));
+    loom_value_id_t type_value_id = *operand_ptr;
+    if (iree_any_bit_set(element->data,
+                         LOOM_BINDING_LIST_ANNOTATES_BLOCK_ARGS) &&
+        block && (block_arg_offset + j) < block->arg_count) {
+      type_value_id =
+          loom_block_arg_id(block, (uint16_t)(block_arg_offset + j));
+    }
+    IREE_RETURN_IF_ERROR(loom_print_value_type(ctx, type_value_id));
     loom_print_did_write(ctx);
   }
   return loom_print_emit_cstr(ctx, ")", false);

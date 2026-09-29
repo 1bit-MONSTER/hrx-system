@@ -8,8 +8,30 @@
 
 import pytest
 
-from loom.assembly import ARROW, Attr, AttrDict, BlockArgs, OptionalGroup, PredicateList, Ref, Region, ResultType
-from loom.dsl import ANY, AttrDef, Dialect, Op, Operand, RegionDef, Result
+from loom.assembly import (
+    ARROW,
+    BINDING_TYPE_BLOCK_ARG,
+    Attr,
+    AttrDict,
+    BindingList,
+    BlockArgs,
+    OptionalGroup,
+    PredicateList,
+    Ref,
+    Region,
+    ResultType,
+    ResultTypeList,
+)
+from loom.dsl import (
+    ANY,
+    AttrDef,
+    Dialect,
+    LoopLikeInterface,
+    Op,
+    Operand,
+    RegionDef,
+    Result,
+)
 from loom.gen.ops.c_builder_model import build_flag_params, build_flags_storage_type, detect_builder_pattern, extract_c_params
 from loom.gen.ops.c_builder_source import generate_builders_c
 from loom.gen.ops.c_ops_header import generate_ops_h
@@ -152,3 +174,50 @@ def test_fixed_result_types_follow_fields_not_format_position(order: tuple[str, 
     assert "loom_type_t access_type," in header
     assert "loom_type_t view_type," in header
     assert "loom_type_t result_type," not in header
+
+
+def test_condition_loop_builder_exposes_independent_entry_scheme() -> None:
+    op = Op(
+        "test.while",
+        group=Dialect("test"),
+        operands=[Operand("iter_args", ANY, variadic=True)],
+        results=[Result("results", ANY, variadic=True)],
+        regions=[
+            RegionDef("before", single_block=True, terminator="test.condition"),
+            RegionDef(
+                "after",
+                single_block=True,
+                terminator="test.yield",
+                arg_source="results",
+            ),
+        ],
+        interfaces=[
+            LoopLikeInterface(
+                body="after",
+                condition_region="before",
+                iter_args="iter_args",
+                results="results",
+            )
+        ],
+        format=[
+            BindingList(
+                "iter_args",
+                type_source=BINDING_TYPE_BLOCK_ARG,
+            ),
+            Region("before"),
+            ResultTypeList("results"),
+            Region("after"),
+        ],
+    )
+
+    header = generate_ops_h("test", 0, [op])
+    assert "const loom_type_t* iter_args_types," in header
+    source = generate_builders_c("test", [op])
+    assert "if (result_count != iter_args_count)" in source
+    assert "requires explicit result types when initial and result counts differ" in source
+    assert ("result_types ? result_types[_i] : loom_module_value_type(builder->module, iter_args[_i])") in source
+    assert "iter_args_types ? iter_args_types[_i] :" in source
+    assert "loom_module_value_type(builder->module, iter_args[_i])" in source
+    assert "loom_builder_define_value(builder, _arg_type, &_arg_id)" in source
+    assert "loom_block_add_arg(builder->module, _block, _arg_id)" in source
+    assert '#include "loom/rewrite/remap.h"' in source

@@ -1,6 +1,8 @@
 // The before region executes once even for an immediately false condition.
-// Both its forwarded value and its memory effect remain observable on exit.
-func.def public @while_before_effects(%count: i32, %seed: i64) -> (i32, i64, i32) {
+// It produces a wider body/result tuple than the count/value state returned on
+// the backedge. Both condition-created values and the memory effect remain
+// observable on exit.
+func.def public @while_before_effects(%count: i32, %seed: i64) -> (i32, i64, i64, i32) {
   %c0 = scalar.constant 0 : i32
   %c1 = scalar.constant 1 : i32
   %increment = scalar.constant 1 : i64
@@ -9,30 +11,33 @@ func.def public @while_before_effects(%count: i32, %seed: i64) -> (i32, i64, i32
   %length = index.constant 1 : offset
   %visits = buffer.alloca<private> align(1) %length : buffer
   buffer.store.i8 %c0, %visits[%offset]
-  %remaining, %value = scf.while(%before_count = %count : i32, %before_value = %seed : i64) -> (i32, i64) {
+  %remaining, %value, %payload = scf.while(%before_count = %count : i32, %before_value = %seed : i64) -> (i32, i64, i64) {
     %previous_visits = buffer.load.i8.u %visits[%offset]
     %next_visits = scalar.addi %previous_visits, %c1 : i32
     buffer.store.i8 %next_visits, %visits[%offset]
     %forwarded = scalar.addi %before_value, %increment : i64
+    %condition_payload = scalar.addi %forwarded, %increment : i64
     %condition = scalar.cmpi sgt, %before_count, %c0 : i32
-    scf.condition %condition, %before_count, %forwarded : i1, i32, i64
-  } do(%body_count: i32, %body_value: i64) {
+    scf.condition %condition, %before_count, %forwarded, %condition_payload : i1, i32, i64, i64
+  } do(%body_count: i32, %body_value: i64, %body_payload: i64) {
     %next_count = scalar.subi %body_count, %c1 : i32
-    %next_value = scalar.addi %body_value, %body_increment : i64
+    %next_value = scalar.addi %body_payload, %body_increment : i64
     scf.yield %next_count, %next_value : i32, i64
   }
   %visit_count = buffer.load.i8.u %visits[%offset]
-  func.return %remaining, %value, %visit_count : i32, i64, i32
+  func.return %remaining, %value, %payload, %visit_count : i32, i64, i64, i32
 }
 
 check.case @while_before_effects_empty {
   %count = check.literal value(0) : i32
   %seed = check.literal value(4294967297) : i64
-  %remaining, %value, %visits = func.call @while_before_effects(%count, %seed) : (i32, i64) -> (i32, i64, i32)
+  %remaining, %value, %payload, %visits = func.call @while_before_effects(%count, %seed) : (i32, i64) -> (i32, i64, i64, i32)
   %expected_value = check.literal value(4294967298) : i64
+  %expected_payload = check.literal value(4294967299) : i64
   %expected_visits = check.literal value(1) : i32
   check.expect.equal actual(%remaining) expected(%count) : i32
   check.expect.equal actual(%value) expected(%expected_value) : i64
+  check.expect.equal actual(%payload) expected(%expected_payload) : i64
   check.expect.equal actual(%visits) expected(%expected_visits) : i32
   check.return
 }
@@ -40,12 +45,14 @@ check.case @while_before_effects_empty {
 check.case @while_before_effects_repeated {
   %count = check.literal value(4) : i32
   %seed = check.literal value(4294967297) : i64
-  %remaining, %value, %visits = func.call @while_before_effects(%count, %seed) : (i32, i64) -> (i32, i64, i32)
+  %remaining, %value, %payload, %visits = func.call @while_before_effects(%count, %seed) : (i32, i64) -> (i32, i64, i64, i32)
   %c0 = check.literal value(0) : i32
-  %expected_value = check.literal value(4294967342) : i64
+  %expected_value = check.literal value(4294967346) : i64
+  %expected_payload = check.literal value(4294967347) : i64
   %expected_visits = check.literal value(5) : i32
   check.expect.equal actual(%remaining) expected(%c0) : i32
   check.expect.equal actual(%value) expected(%expected_value) : i64
+  check.expect.equal actual(%payload) expected(%expected_payload) : i64
   check.expect.equal actual(%visits) expected(%expected_visits) : i32
   check.return
 }

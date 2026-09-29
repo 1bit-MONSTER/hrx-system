@@ -487,7 +487,7 @@ static iree_status_t loom_view_transport_reconstruct(
   // move with operand uses. The original value then becomes the offset operand
   // of the reconstructed view, without a self-replacement exception.
   loom_value_id_t replacement;
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(builder, 1, &replacement));
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(builder, 1, &replacement));
   IREE_RETURN_IF_ERROR(
       loom_module_set_value_type(rewriter->module, replacement, value->type));
   IREE_RETURN_IF_ERROR(

@@ -189,8 +189,8 @@ from loom.dsl import (
     UnpackedPayloadBitCountMatchesStorage,
     ValueCountMatchesStaticElementCount,
     Writes,
-    YieldCountMatchesResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldTypesMatch,
     binary_op,
     cast_op,
     comparison_op,
@@ -1881,11 +1881,11 @@ class TestConstraints:
         assert block_args_type_match.error is not None
         assert block_args_type_match.error.error_id == "ERR_TYPE_013"
 
-        yield_count = YieldCountMatchesResults("body", "results")
+        yield_count = YieldCountMatches("body", "results")
         assert yield_count.error is not None
         assert yield_count.error.error_id == "ERR_STRUCTURE_008"
 
-        yield_types = YieldTypesMatchResults("body", "results")
+        yield_types = YieldTypesMatch("body", "results")
         assert yield_types.error is not None
         assert yield_types.error.error_id == "ERR_TYPE_009"
 

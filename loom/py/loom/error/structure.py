@@ -106,7 +106,7 @@ ERR_STRUCTURE_007 = ErrorDef(
     fix_hint="Match the region entry argument count to its declared input tuple",
 )
 
-# ERR_STRUCTURE_008: YieldCountMatchesResults violated.
+# ERR_STRUCTURE_008: YieldCountMatches violated.
 ERR_STRUCTURE_008 = ErrorDef(
     domain=ErrorDomain.STRUCTURE,
     code=8,

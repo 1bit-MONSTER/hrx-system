@@ -183,6 +183,7 @@ TEST_F(LoopLikeReplacementTest,
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{target_initial,
                            (uint16_t)IREE_ARRAYSIZE(target_initial)},
+      /*.header_types=*/nullptr,
       /*.source_header_offsets=*/source_offsets,
       /*.result_types=*/target_types,
       /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_types),
@@ -250,6 +251,7 @@ TEST_F(LoopLikeReplacementTest, RebuildsStatelessCountedLoop) {
   loom_builder_set_before(&builder_, source);
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{nullptr, 0},
+      /*.header_types=*/nullptr,
       /*.source_header_offsets=*/nullptr,
       /*.result_types=*/nullptr,
       /*.result_count=*/0,
@@ -289,6 +291,7 @@ TEST_F(LoopLikeReplacementTest, RemovesSyntheticLoopState) {
   const uint16_t source_offsets[] = {0, 0};
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{nullptr, 0},
+      /*.header_types=*/nullptr,
       /*.source_header_offsets=*/source_offsets,
       /*.result_types=*/nullptr,
       /*.result_count=*/0,
@@ -343,6 +346,7 @@ TEST_F(LoopLikeReplacementTest, PreservesSegmentedScfForPolicies) {
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{target_initial,
                            (uint16_t)IREE_ARRAYSIZE(target_initial)},
+      /*.header_types=*/nullptr,
       /*.source_header_offsets=*/source_offsets,
       /*.result_types=*/target_types,
       /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_types),
@@ -388,10 +392,18 @@ TEST_F(LoopLikeReplacementTest,
       loom_attr_bool(true), loom_type_scalar(LOOM_SCALAR_TYPE_I1));
 
   const loom_value_id_t source_initial[] = {bank, dependent, rows};
-  loom_value_id_t source_results[IREE_ARRAYSIZE(source_initial)] = {};
-  IREE_ASSERT_OK(loom_builder_reserve_results(
-      &builder_, IREE_ARRAYSIZE(source_results), source_results));
-  const loom_type_t source_types[] = {
+  loom_value_id_t source_identities[2 * IREE_ARRAYSIZE(source_initial)] = {};
+  IREE_ASSERT_OK(loom_builder_reserve_values(
+      &builder_, IREE_ARRAYSIZE(source_identities), source_identities));
+  const loom_type_t source_header_types[] = {
+      bank_type,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
+                          loom_dim_pack_dynamic(source_identities[2]), 0),
+      index,
+  };
+  const loom_value_id_t* source_results =
+      source_identities + IREE_ARRAYSIZE(source_initial);
+  const loom_type_t source_result_types[] = {
       bank_type,
       loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
                           loom_dim_pack_dynamic(source_results[2]), 0),
@@ -399,9 +411,10 @@ TEST_F(LoopLikeReplacementTest,
   };
   loom_op_t* source = nullptr;
   IREE_ASSERT_OK(loom_scf_while_build(
-      &builder_, source_initial, IREE_ARRAYSIZE(source_initial), source_types,
-      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
-      &source));
+      &builder_, source_initial, IREE_ARRAYSIZE(source_initial),
+      source_header_types, source_result_types,
+      IREE_ARRAYSIZE(source_result_types), /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &source));
   loom_block_t* source_condition =
       loom_region_entry_block(loom_scf_while_before(source));
   loom_builder_ip_t saved = loom_builder_enter_region(
@@ -423,10 +436,19 @@ TEST_F(LoopLikeReplacementTest,
 
   loom_builder_set_before(&builder_, source);
   loom_value_id_t target_initial[] = {first, second, dependent, rows};
-  loom_value_id_t target_results[IREE_ARRAYSIZE(target_initial)] = {};
-  IREE_ASSERT_OK(loom_builder_reserve_results(
-      &builder_, IREE_ARRAYSIZE(target_results), target_results));
-  const loom_type_t target_types[] = {
+  loom_value_id_t target_identities[2 * IREE_ARRAYSIZE(target_initial)] = {};
+  IREE_ASSERT_OK(loom_builder_reserve_values(
+      &builder_, IREE_ARRAYSIZE(target_identities), target_identities));
+  const loom_type_t target_header_types[] = {
+      f32,
+      f32,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
+                          loom_dim_pack_dynamic(target_identities[3]), 0),
+      index,
+  };
+  const loom_value_id_t* target_results =
+      target_identities + IREE_ARRAYSIZE(target_initial);
+  const loom_type_t target_result_types[] = {
       f32,
       f32,
       loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
@@ -438,9 +460,10 @@ TEST_F(LoopLikeReplacementTest,
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{target_initial,
                            (uint16_t)IREE_ARRAYSIZE(target_initial)},
+      /*.header_types=*/target_header_types,
       /*.source_header_offsets=*/source_header_offsets,
-      /*.result_types=*/target_types,
-      /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_types),
+      /*.result_types=*/target_result_types,
+      /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_result_types),
       /*.source_result_offsets=*/source_result_offsets,
   };
   loom_loop_like_replacement_t replacement = {};

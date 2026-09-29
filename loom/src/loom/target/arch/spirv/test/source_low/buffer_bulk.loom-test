@@ -74,18 +74,18 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @compar
   %38 = OpConstant.i32 0
   %39 = OpConstant.i32 -1
   %40 = OpConstant.i32 1
-  %45, %order = low.scf.while(%41 = %36 : reg<spirv.offset64>, %42 = %38 : reg<spirv.id : i32>) -> (reg<spirv.offset64>, reg<spirv.id : i32>) {
+  %43, %order = low.scf.while(%41 = %36 : reg<spirv.offset64>, %42 = %38 : reg<spirv.id : i32>) -> (reg<spirv.offset64>, reg<spirv.id : i32>) {
     %47 = OpULessThan.offset64 %41, %byte_length
     %48 = OpIEqual %42, %38
     %49 = OpLogicalAnd.bool %47, %48
     low.scf.condition %49, %41, %42 : reg<spirv.id : i1>, reg<spirv.offset64>, reg<spirv.id : i32>
-  } do(%43: reg<spirv.offset64>, %44: reg<spirv.id : i32>) {
-    %50 = OpIAdd.offset64 %lhs_offset, %43
+  } do(%45: reg<spirv.offset64>, %46: reg<spirv.id : i32>) {
+    %50 = OpIAdd.offset64 %lhs_offset, %45
     %51 = OpPtrAccessChain.storage_buffer.raw_u8.byte_offset %lhs, %50
     %52 = OpLoad.storage_buffer.raw_u8 %51
     %53 = OpUConvert.raw_u8.u32 %52
     %54 = OpBitcast.u32.i32 %53
-    %55 = OpIAdd.offset64 %rhs_offset, %43
+    %55 = OpIAdd.offset64 %rhs_offset, %45
     %56 = OpPtrAccessChain.storage_buffer.raw_u8.byte_offset %rhs, %55
     %57 = OpLoad.storage_buffer.raw_u8 %56
     %58 = OpUConvert.raw_u8.u32 %57
@@ -96,7 +96,7 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @compar
     %63 = OpULessThan.u32 %61, %62
     %64 = OpSelect %63, %39, %40
     %65 = OpSelect %60, %38, %64
-    %66 = OpIAdd.offset64 %43, %37
+    %66 = OpIAdd.offset64 %45, %37
     low.scf.yield %66, %65 : reg<spirv.offset64>, reg<spirv.id : i32>
   }
   return %order

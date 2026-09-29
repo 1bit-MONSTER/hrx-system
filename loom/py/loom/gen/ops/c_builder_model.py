@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from loom.assembly import (
+    BINDING_TYPE_BLOCK_ARG,
     AlignedRefs,
     Attr,
     AttrDict,
@@ -495,13 +496,18 @@ def extract_c_params(op: Op, shared_enums: SharedEnumMap) -> list[dict[str, Any]
                     )
                     covered_attrs.add(static_field)
 
-                case BindingList(field=name, kind=binding_kind):
+                case BindingList(
+                    field=name,
+                    kind=binding_kind,
+                    type_source=type_source,
+                ):
                     params.append(
                         {
                             "name": name,
                             "kind": "binding_list",
                             "c_type": "const loom_value_id_t*",
                             "binding_kind": binding_kind,
+                            "type_source": type_source,
                             "may_consume": has_result_type_list,
                         }
                     )
@@ -510,6 +516,7 @@ def extract_c_params(op: Op, shared_enums: SharedEnumMap) -> list[dict[str, Any]
                     _pending_binding = {
                         "name": name,
                         "binding_kind": binding_kind,
+                        "type_source": type_source,
                     }
 
                 case BlockArgs(
@@ -838,6 +845,8 @@ def build_c_param_list(op: Op, params: list[dict[str, object]], layout: FieldLay
             case "binding_list":
                 c_params.append(f"{consume}const loom_value_id_t* {name}")
                 c_params.append(f"iree_host_size_t {name}_count")
+                if param["type_source"] == BINDING_TYPE_BLOCK_ARG:
+                    c_params.append(f"const loom_type_t* {name}_types")
             case "result_type":
                 c_params.append(f"loom_type_t {name}")
             case "result_types":

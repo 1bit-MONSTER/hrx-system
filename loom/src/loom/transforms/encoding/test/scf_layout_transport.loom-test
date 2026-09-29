@@ -416,6 +416,32 @@ func.def @while_layout(%keep: i1, %choose: i1) -> (encoding<layout>) {
 
 // ====
 
+// Independent condition-loop state domains are outside this positional
+// specialization. The general boundary projector owns the layout result when
+// the header contains only the state returned by the body backedge.
+func.def @while_independent_layout_state(%keep: i1, %initial: index, %pitch: index) -> (encoding<layout>, index) {
+  %layout, %state = scf.while(%before_state = %initial : index) -> (encoding<layout>, index) {
+    %next_layout = encoding.layout.strided [%pitch, 1] : encoding<layout>
+    scf.condition %keep, %next_layout, %before_state : i1, encoding<layout>, index
+  } do(%body_layout: encoding<layout>, %body_state: index) {
+    scf.yield %body_state : index
+  }
+  func.return %layout, %state : encoding<layout>, index
+}
+
+// ----
+func.def @while_independent_layout_state(%keep: i1, %initial: index, %pitch: index) -> (encoding<layout>, index) {
+  %layout, %state = scf.while(%before_state = %initial : index) -> (encoding<layout>, index) {
+    %next_layout = encoding.layout.strided [%pitch, 1] : encoding<layout>
+    scf.condition %keep, %next_layout, %before_state : i1, encoding<layout>, index
+  } do(%body_layout: encoding<layout>, %body_state: index) {
+    scf.yield %body_state : index
+  }
+  func.return %layout, %state : encoding<layout>, index
+}
+
+// ====
+
 // A loop whose descriptor is exact on every path needs no scalar payload.
 func.def @invariant_for_layout(%count: index) -> (encoding<layout>) {
   %c0 = index.constant 0 : index

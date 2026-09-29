@@ -486,28 +486,14 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
     if not op.operands[iter_args_index].variadic:
         raise ValueError(f"{interface_name} on {op.name!r}: operand {iface.iter_args!r} must be variadic")
 
+    results_index = c_queries.resolve_result_index(op, iface.results, interface_name)
+    if len(op.results) != 1 or results_index != 0 or not op.results[results_index].variadic:
+        raise ValueError(f"{interface_name} on {op.name!r}: carried results {iface.results!r} must be the only variadic result field")
+
     body_index = c_queries.resolve_region_index(op, iface.body, interface_name)
     body = op.regions[body_index]
     if body.variadic or body.optional or not body.single_block or body.terminator is None:
         raise ValueError(f"{interface_name} on {op.name!r}: body {iface.body!r} must be a required single-block region with a terminator")
-    if body.arg_source != iface.iter_args:
-        raise ValueError(f"{interface_name} on {op.name!r}: body {iface.body!r} must source carried arguments from {iface.iter_args!r}")
-
-    result_constraints = [constraint for constraint in op.constraints if constraint.name == "IterArgsMatchResults" and constraint.args[:1] == (iface.iter_args,)]
-    if len(result_constraints) != 1 or len(result_constraints[0].args) != 2:
-        raise ValueError(f"{interface_name} on {op.name!r}: requires one IterArgsMatchResults constraint for {iface.iter_args!r}")
-    results_name = result_constraints[0].args[1]
-    results_index = c_queries.resolve_result_index(op, results_name, interface_name)
-    if len(op.results) != 1 or results_index != 0 or not op.results[results_index].variadic:
-        raise ValueError(f"{interface_name} on {op.name!r}: carried results {results_name!r} must be the only variadic result field")
-
-    required_constraints = (
-        ("YieldCountMatchesResults", (iface.body, results_name)),
-        ("YieldTypesMatchResults", (iface.body, results_name)),
-    )
-    for constraint_name, constraint_args in required_constraints:
-        if not any(constraint.name == constraint_name and constraint.args == constraint_args for constraint in op.constraints):
-            raise ValueError(f"{interface_name} on {op.name!r}: requires {constraint_name}{constraint_args!r}")
 
     bound_names = (iface.lower_bound, iface.upper_bound, iface.step)
     present_bound_count = sum(name is not None for name in bound_names)
@@ -524,6 +510,18 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
         raise ValueError(f"{interface_name} on {op.name!r}: {control} loops require exactly {expected_region_count} region(s), got {len(op.regions)}")
 
     if has_counted_range:
+        if body.arg_source != iface.iter_args:
+            raise ValueError(f"{interface_name} on {op.name!r}: counted body {iface.body!r} must source carried arguments from {iface.iter_args!r}")
+        result_constraints = [constraint for constraint in op.constraints if constraint.name == "IterArgsMatchResults" and constraint.args == (iface.iter_args, iface.results)]
+        if len(result_constraints) != 1:
+            raise ValueError(f"{interface_name} on {op.name!r}: counted loops require one IterArgsMatchResults{(iface.iter_args, iface.results)!r}")
+        required_constraints = (
+            ("YieldCountMatches", (iface.body, iface.results)),
+            ("YieldTypesMatch", (iface.body, iface.results)),
+        )
+        for constraint_name, constraint_args in required_constraints:
+            if not any(constraint.name == constraint_name and constraint.args == constraint_args for constraint in op.constraints):
+                raise ValueError(f"{interface_name} on {op.name!r}: requires {constraint_name}{constraint_args!r}")
         if iface.iv is None:
             raise ValueError(f"{interface_name} on {op.name!r}: counted loops require an induction variable")
         for bound_name in bound_names:
@@ -535,6 +533,8 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
         if iv_index != 0 or len(body.implicit_args) != 1:
             raise ValueError(f"{interface_name} on {op.name!r}: induction variable must be the only implicit body argument")
     else:
+        if body.arg_source != iface.results:
+            raise ValueError(f"{interface_name} on {op.name!r}: condition body {iface.body!r} must source carried arguments from {iface.results!r}")
         if iface.iv is not None:
             raise ValueError(f"{interface_name} on {op.name!r}: condition loops cannot declare an induction variable")
         condition_index = c_queries.resolve_region_index(op, iface.condition_region, interface_name)
@@ -548,12 +548,14 @@ def _validate_loop_like_interface(op: Op, iface: LoopLikeInterface, interface_na
         condition_constraints = (
             (
                 "ConditionForwardedCountMatchesBlockArgs",
-                (iface.condition_region, iface.body, results_name),
+                (iface.condition_region, iface.body, iface.results),
             ),
             (
                 "ConditionForwardedTypesMatchBlockArgs",
-                (iface.condition_region, iface.body, results_name),
+                (iface.condition_region, iface.body, iface.results),
             ),
+            ("YieldCountMatches", (iface.body, iface.condition_region)),
+            ("YieldTypesMatch", (iface.body, iface.condition_region)),
         )
         for constraint_name, constraint_args in condition_constraints:
             if not any(constraint.name == constraint_name and constraint.args == constraint_args for constraint in op.constraints):

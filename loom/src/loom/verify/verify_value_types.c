@@ -131,67 +131,131 @@ iree_status_t loom_verify_func_like_exit(loom_verify_state_t* state,
   return iree_ok_status();
 }
 
-// Loop results describe one recurring type scheme. Unique result definitions
-// map to each entry's definitions; repeated initial operands never choose which
-// carried extent or encoding a body value depends on.
+static void loom_verify_loop_entry_count(loom_verify_state_t* state,
+                                         const loom_op_t* op,
+                                         const loom_block_t* entry,
+                                         uint32_t expected_count) {
+  if (entry->arg_count == expected_count) {
+    return;
+  }
+  const loom_diagnostic_param_t params[] = {
+      loom_param_u32(entry->arg_count),
+      loom_param_u32(expected_count),
+  };
+  loom_verify_emit_structured(state, op, LOOM_ERR_STRUCTURE_007, params,
+                              IREE_ARRAYSIZE(params));
+}
+
+static void loom_verify_loop_entry_scheme(loom_verify_state_t* state,
+                                          const loom_op_t* op,
+                                          const loom_value_id_t* scheme_values,
+                                          const loom_value_id_t* entry_values,
+                                          uint16_t value_count,
+                                          uint16_t diagnostic_offset) {
+  const loom_type_value_remap_t remap = {
+      .source_values = scheme_values,
+      .target_values = entry_values,
+      .count = value_count,
+      .flags = LOOM_TYPE_VALUE_REMAP_FLAG_SOURCE_DEFINITION_SLICE,
+  };
+  for (uint16_t i = 0; i < value_count; ++i) {
+    const loom_type_t actual =
+        loom_module_value_type(state->module, entry_values[i]);
+    const loom_type_t expected =
+        loom_module_value_type(state->module, scheme_values[i]);
+    if (loom_type_equal_after_value_remap(state->module, expected, actual,
+                                          &remap)) {
+      continue;
+    }
+    const loom_diagnostic_param_t params[] = {
+        loom_param_u32(i + diagnostic_offset),
+        loom_param_type(actual),
+        loom_param_type(expected),
+    };
+    loom_verify_emit_structured(state, op, LOOM_ERR_TYPE_013, params,
+                                IREE_ARRAYSIZE(params));
+  }
+}
+
+static void loom_verify_loop_initial_scheme(
+    loom_verify_state_t* state, const loom_op_t* op,
+    const loom_value_id_t* header_values, const loom_value_id_t* initial_values,
+    uint16_t value_count) {
+  const loom_type_value_remap_t remap = {
+      .source_values = header_values,
+      .target_values = initial_values,
+      .count = value_count,
+      .flags = LOOM_TYPE_VALUE_REMAP_FLAG_SOURCE_DEFINITION_SLICE,
+  };
+  for (uint16_t i = 0; i < value_count; ++i) {
+    const loom_type_t actual =
+        loom_module_value_type(state->module, initial_values[i]);
+    const loom_type_t expected =
+        loom_module_value_type(state->module, header_values[i]);
+    if (loom_type_equal_after_value_remap(state->module, expected, actual,
+                                          &remap)) {
+      continue;
+    }
+    char initial_name[32];
+    char header_name[32];
+    iree_snprintf(initial_name, sizeof(initial_name), "iter_args[%u]", i);
+    iree_snprintf(header_name, sizeof(header_name), "before.args[%u]", i);
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(iree_make_cstring_view(initial_name)),
+        loom_param_type(actual),
+        loom_param_string(iree_make_cstring_view(header_name)),
+        loom_param_type(expected),
+    };
+    loom_verify_emit_structured(state, op, LOOM_ERR_TYPE_001, params,
+                                IREE_ARRAYSIZE(params));
+  }
+}
+
+// Counted loops instantiate one result scheme at their body entry. Condition
+// loops have two independent schemes: condition-entry arguments define header
+// state A, while results define body/result state B.
 void loom_verify_loop_entry_types(loom_verify_state_t* state,
                                   const loom_op_t* op,
                                   const loom_loop_like_vtable_t* loop) {
-  const uint8_t regions[] = {loop->body_region_index,
-                             loop->condition_region_index};
-  for (uint8_t r = 0; r < IREE_ARRAYSIZE(regions); ++r) {
-    if (regions[r] == LOOM_REGION_INDEX_NONE) {
-      continue;
-    }
-    const loom_block_t* entry =
-        loom_region_const_entry_block(loom_op_regions(op)[regions[r]]);
-    const bool has_induction_variable =
-        regions[r] == loop->body_region_index &&
-        loop->iv_block_arg_index != LOOM_BLOCK_ARG_INDEX_NONE;
-    const uint16_t offset = has_induction_variable ? 1 : 0;
-    const uint32_t expected_count = (uint32_t)op->result_count + offset;
-    if (entry->arg_count != expected_count) {
-      loom_diagnostic_param_t params[] = {loom_param_u32(entry->arg_count),
-                                          loom_param_u32(expected_count)};
-      loom_verify_emit_structured(state, op, LOOM_ERR_STRUCTURE_007, params,
-                                  IREE_ARRAYSIZE(params));
-      continue;
-    }
-    if (offset) {
+  const loom_block_t* body_entry = loom_region_const_entry_block(
+      loom_op_regions(op)[loop->body_region_index]);
+  const bool counted = loop->iv_block_arg_index != LOOM_BLOCK_ARG_INDEX_NONE;
+  const uint16_t body_offset = counted ? 1 : 0;
+  const uint32_t expected_body_count = (uint32_t)op->result_count + body_offset;
+  loom_verify_loop_entry_count(state, op, body_entry, expected_body_count);
+  if (body_entry->arg_count == expected_body_count) {
+    if (counted) {
       const loom_loop_like_t reference = {(loom_op_t*)op, loop};
       const loom_type_t actual =
-          loom_module_value_type(state->module, entry->arg_ids[0]);
+          loom_module_value_type(state->module, body_entry->arg_ids[0]);
       const loom_type_t expected = loom_module_value_type(
           state->module, loom_loop_like_lower_bound(reference));
       if (!loom_type_equal(actual, expected)) {
-        loom_diagnostic_param_t params[] = {loom_param_u32(0),
-                                            loom_param_type(actual),
-                                            loom_param_type(expected)};
+        const loom_diagnostic_param_t params[] = {
+            loom_param_u32(0),
+            loom_param_type(actual),
+            loom_param_type(expected),
+        };
         loom_verify_emit_structured(state, op, LOOM_ERR_TYPE_013, params,
                                     IREE_ARRAYSIZE(params));
       }
     }
-    const loom_type_value_remap_t remap = {
-        .source_values = loom_op_const_results(op),
-        .target_values = offset ? entry->arg_ids + offset : entry->arg_ids,
-        .count = op->result_count,
-        .flags = LOOM_TYPE_VALUE_REMAP_FLAG_SOURCE_DEFINITION_SLICE,
-    };
-    for (uint16_t i = 0; i < op->result_count; ++i) {
-      const loom_type_t actual =
-          loom_module_value_type(state->module, remap.target_values[i]);
-      const loom_type_t expected =
-          loom_module_value_type(state->module, remap.source_values[i]);
-      if (loom_type_equal_after_value_remap(state->module, expected, actual,
-                                            &remap)) {
-        continue;
-      }
-      loom_diagnostic_param_t params[] = {loom_param_u32(i + offset),
-                                          loom_param_type(actual),
-                                          loom_param_type(expected)};
-      loom_verify_emit_structured(state, op, LOOM_ERR_TYPE_013, params,
-                                  IREE_ARRAYSIZE(params));
-    }
+    loom_verify_loop_entry_scheme(state, op, loom_op_const_results(op),
+                                  body_entry->arg_ids + body_offset,
+                                  op->result_count, body_offset);
+  }
+
+  if (counted) {
+    return;
+  }
+  const loom_loop_like_t reference = {(loom_op_t*)op, loop};
+  const loom_value_slice_t initial = loom_loop_like_iter_args(reference);
+  const loom_block_t* condition_entry = loom_region_const_entry_block(
+      loom_op_regions(op)[loop->condition_region_index]);
+  loom_verify_loop_entry_count(state, op, condition_entry, initial.count);
+  if (condition_entry->arg_count == initial.count) {
+    loom_verify_loop_initial_scheme(state, op, condition_entry->arg_ids,
+                                    initial.values, initial.count);
   }
 }
 

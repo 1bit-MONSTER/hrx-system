@@ -4,8 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Header stores include the final false observation. Body stores exclude it,
-// and the loop result names that final counter without an authored range.
+// Header state carries only the counter. Each condition evaluation computes a
+// wider body/result tuple containing the counter and a payload. The body uses
+// that payload and returns only the next counter to the header; the final false
+// payload remains observable after the loop.
 kernel.def @condition_counter_store() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
@@ -21,19 +23,19 @@ kernel.def @condition_counter_store() {
   %body_view = buffer.view %aligned_output[%base] : buffer -> view<4xi32>
   %header_view = buffer.view %aligned_output[%header_base] : buffer -> view<5xi32>
   %exit_view = buffer.view %aligned_output[%exit_base] : buffer -> view<1xi32>
-  %terminal = scf.while(%before = %begin : index) -> (index) {
+  %terminal, %terminal_payload = scf.while(%before = %begin : index) -> (index, i32) {
     %header_counter = index.cast %before : index to i32
     %header_value = scalar.addi %header_counter, %bias : i32
     view.store %header_value, %header_view[%before] : i32, view<5xi32>
     %more = index.cmp slt, %before, %end : index
-    scf.condition %more, %before : i1, index
-  } do(%position: index) {
-    %body_value = index.cast %position : index to i32
-    view.store %body_value, %body_view[%position] : i32, view<4xi32>
+    scf.condition %more, %before, %header_value : i1, index, i32
+  } do(%position: index, %body_payload: i32) {
+    view.store %body_payload, %body_view[%position] : i32, view<4xi32>
     %next = index.add %position, %step : index
     scf.yield %next : index
   }
-  %exit_value = index.cast %terminal : index to i32
+  %terminal_counter = index.cast %terminal : index to i32
+  %exit_value = scalar.addi %terminal_counter, %terminal_payload : i32
   view.store %exit_value, %exit_view[0] : i32, view<1xi32>
   kernel.return
 }
@@ -43,12 +45,12 @@ check.case public @condition_counter_store_case {
   kernel.launch @condition_counter_store(%actual) : (tensor<10xi32>)
   %body = check.tensor.view %actual offset(0) : tensor<10xi32> -> tensor<4xi32>
   %headers = check.tensor.view %actual offset(16) : tensor<10xi32> -> tensor<5xi32>
-  %expected_body = check.generate.iota offset(0) step(1) : tensor<4xi32>
+  %expected_body = check.generate.iota offset(17) step(1) : tensor<4xi32>
   %expected_headers = check.generate.iota offset(17) step(1) : tensor<5xi32>
   check.expect.equal actual(%body) expected(%expected_body) : tensor<4xi32>
   check.expect.equal actual(%headers) expected(%expected_headers) : tensor<5xi32>
   %exit = check.tensor.view %actual offset(36) : tensor<10xi32> -> tensor<1xi32>
-  %expected_exit = check.generate.fill value(4) : tensor<1xi32>
+  %expected_exit = check.generate.fill value(25) : tensor<1xi32>
   check.expect.equal actual(%exit) expected(%expected_exit) : tensor<1xi32>
   check.return
 }
@@ -210,7 +212,7 @@ kernel.def @condition_view() {
   %initial_view = buffer.view %input_aligned[%base] : buffer -> view<[%initial_rows]x4xi32, %initial_layout>
   %destination = buffer.view %output_aligned[%base] : buffer -> view<2xi32>
   %c0_i32 = scalar.constant 0 : i32
-  %remaining, %rows, %view, %sum = scf.while(%before_remaining = %iterations : index, %before_rows = %initial_rows : index, %before_view = %initial_view : view<[%initial_rows]x4xi32, %initial_layout>, %before_sum = %c0_i32 : i32) -> (index, index, view<[%rows]x4xi32, %initial_layout>, i32) {
+  %remaining, %rows, %view, %sum = scf.while(%before_remaining = %iterations : index, %before_rows = %initial_rows : index, %before_view = %initial_view : view<[%before_rows]x4xi32, %initial_layout>, %before_sum = %c0_i32 : i32) -> (index, index, view<[%rows]x4xi32, %initial_layout>, i32) {
     %more = index.cmp sgt, %before_remaining, %c0 : index
     %forward_rows = index.sub %before_rows, %c1 : index
     %forward_view = view.subview %before_view[1, 0] : view<[%before_rows]x4xi32, %initial_layout> -> view<[%forward_rows]x4xi32, %initial_layout>

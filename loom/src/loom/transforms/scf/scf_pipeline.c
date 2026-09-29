@@ -522,7 +522,7 @@ static iree_status_t loom_scf_pipeline_reserve_result_scheme(
 
   loom_ir_remap_t remap = {0};
   IREE_RETURN_IF_ERROR(loom_scf_pipeline_initialize_remap(context, &remap));
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(
       &context->rewriter->builder, result_count, reserved_results));
   IREE_RETURN_IF_ERROR(
       loom_ir_remap_map_values(&remap, loom_op_const_results(source),
@@ -849,7 +849,7 @@ static iree_status_t loom_scf_pipeline_emit_guarded_consumer(
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         context->arena, source->result_count, sizeof(*reserved_results),
         (void**)&reserved_results));
-    IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+    IREE_RETURN_IF_ERROR(loom_builder_reserve_values(
         builder, source->result_count, reserved_results));
     IREE_RETURN_IF_ERROR(
         loom_ir_remap_map_values(remap, loom_op_const_results(source),

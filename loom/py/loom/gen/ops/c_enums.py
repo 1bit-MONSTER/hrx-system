@@ -308,9 +308,9 @@ CONSTRAINT_MAP: dict[str, tuple[str, str]] = {
         "LOOM_RELATION_CONDITION_FORWARD_MATCH",
         "LOOM_PROPERTY_TYPE",
     ),
-    "YieldCountMatchesResults": ("LOOM_RELATION_YIELD_COUNT", "LOOM_PROPERTY_TYPE"),
-    "YieldTypesMatchResults": ("LOOM_RELATION_YIELD_MATCH", "LOOM_PROPERTY_TYPE"),
-    "YieldElementTypesMatchResults": (
+    "YieldCountMatches": ("LOOM_RELATION_YIELD_COUNT", "LOOM_PROPERTY_TYPE"),
+    "YieldTypesMatch": ("LOOM_RELATION_YIELD_MATCH", "LOOM_PROPERTY_TYPE"),
+    "YieldElementTypesMatch": (
         "LOOM_RELATION_YIELD_MATCH",
         "LOOM_PROPERTY_ELEMENT_TYPE",
     ),

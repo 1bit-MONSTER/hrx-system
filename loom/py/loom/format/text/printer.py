@@ -2074,10 +2074,13 @@ class Printer:
                         glue=element_index != 0 and glue,
                     )
 
-                case BindingList(field=name):
+                case BindingList(field=name, type_source=type_source):
                     assert isinstance(fields, ResolvedFields)
                     stream.emit(
-                        self._format_binding_list(fields, name, module), glue=True
+                        self._format_binding_list(
+                            fields, name, module, type_source=type_source
+                        ),
+                        glue=True,
                     )
 
                 case BlockArgs(
@@ -2334,7 +2337,12 @@ class Printer:
         return "[" + ", ".join(parts) + "]"
 
     def _format_binding_list(
-        self, fields: ResolvedFields, name: str, module: Module
+        self,
+        fields: ResolvedFields,
+        name: str,
+        module: Module,
+        *,
+        type_source: str,
     ) -> str:
         """Format (%block_arg = %operand : type, ...)."""
         operand_ids = fields.value_ids(name)
@@ -2343,26 +2351,28 @@ class Printer:
 
         # Binding args are appended after any implicit region args, so use the
         # trailing block args that correspond to the binding operands.
-        block_arg_names: list[str] = []
+        binding_arg_ids: list[int] = []
         op = fields._op
         if op.regions:
             first_region = op.regions[0]
             if first_region.blocks:
                 entry_block = first_region.blocks[0]
-                binding_arg_ids = entry_block.arg_ids
-                if len(binding_arg_ids) > len(operand_ids):
-                    binding_arg_ids = binding_arg_ids[-len(operand_ids) :]
-                block_arg_names.extend(
-                    self._value_name(arg_id) for arg_id in binding_arg_ids
-                )
+                entry_arg_ids = entry_block.arg_ids
+                if len(entry_arg_ids) > len(operand_ids):
+                    entry_arg_ids = entry_arg_ids[-len(operand_ids) :]
+                binding_arg_ids.extend(entry_arg_ids)
 
         parts: list[str] = []
         for i, operand_id in enumerate(operand_ids):
             operand_name = self._value_name(operand_id)
-            operand_type = self._print_value_type(operand_id, module)
+            type_value_id = operand_id
+            if type_source == "block_arg" and i < len(binding_arg_ids):
+                type_value_id = binding_arg_ids[i]
+            operand_type = self._print_value_type(type_value_id, module)
 
-            if i < len(block_arg_names):
-                parts.append(f"{block_arg_names[i]} = {operand_name} : {operand_type}")
+            if i < len(binding_arg_ids):
+                block_arg_name = self._value_name(binding_arg_ids[i])
+                parts.append(f"{block_arg_name} = {operand_name} : {operand_type}")
             else:
                 parts.append(f"{operand_name} : {operand_type}")
 

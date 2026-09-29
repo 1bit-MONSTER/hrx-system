@@ -184,7 +184,7 @@ TEST_F(MaterializeTest, ClonesCoResultDynamicTypeReferences) {
   loom_value_id_t source_input = loom_test_constant_result(input_op);
 
   loom_value_id_t reserved_results[2] = {};
-  IREE_ASSERT_OK(loom_builder_reserve_results(
+  IREE_ASSERT_OK(loom_builder_reserve_values(
       &source_builder_, IREE_ARRAYSIZE(reserved_results), reserved_results));
   loom_type_t result_types[] = {
       loom_type_shaped_1d(LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_F32,

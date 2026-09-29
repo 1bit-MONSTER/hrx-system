@@ -318,29 +318,29 @@ def condition_forwarded_types(
     return validate
 
 
-def yield_count(region: str, results: str) -> ValidateFn:
-    """Builds a predicate matching terminator and result counts."""
+def yield_count(region: str, target: str) -> ValidateFn:
+    """Builds a predicate matching terminator and target tuple counts."""
 
     def validate(values: dict[str, Any]) -> tuple[bool, str]:
         yielded = _region_terminator_operands(values.get(region))
         if yielded is None:
             return (True, "")
-        result_items = _flatten_field(results, values.get(results))
-        if len(yielded) == len(result_items):
+        target_items = _region_or_field_items(target, values.get(target))
+        if target_items is None:
+            return (True, "")
+        if len(yielded) == len(target_items):
             return (True, "")
         return (
             False,
             f"'{region}' terminator operand count {len(yielded)} != "
-            f"'{results}' count {len(result_items)}",
+            f"'{target}' count {len(target_items)}",
         )
 
     return validate
 
 
-def yield_types(
-    region: str, results: str, *, element_types: bool = False
-) -> ValidateFn:
-    """Builds a predicate matching terminator and result types."""
+def yield_types(region: str, target: str, *, element_types: bool = False) -> ValidateFn:
+    """Builds a predicate matching terminator and target tuple types."""
 
     def validate(values: dict[str, Any]) -> tuple[bool, str]:
         yielded = _region_terminator_operands(values.get(region))
@@ -349,15 +349,17 @@ def yield_types(
         yielded_items = [
             (f"{region}.yield[{i}]", item) for i, item in enumerate(yielded)
         ]
-        result_items = _flatten_field(results, values.get(results))
-        if len(yielded_items) != len(result_items):
+        target_items = _region_or_field_items(target, values.get(target))
+        if target_items is None:
+            return (True, "")
+        if len(yielded_items) != len(target_items):
             # The paired count relation owns this diagnostic.
             return (True, "")
         return _validate_positional_types(
             f"{region}.yield",
             yielded_items,
-            results,
-            result_items,
+            target,
+            target_items,
             element_types=element_types,
         )
 

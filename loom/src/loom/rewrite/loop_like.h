@@ -25,6 +25,14 @@ typedef struct loom_loop_like_replacement_state_t {
   // For condition loops they define the independent before-region tuple.
   loom_value_slice_t initial_values;
 
+  // New condition-region entry types.
+  //
+  // Required for non-empty condition-loop header state and unused for counted
+  // loops. Types may reference sibling replacement header IDs. Such callers
+  // reserve header identities followed by result identities before invoking
+  // loom_loop_like_build_replacement.
+  const loom_type_t* header_types;
+
   // Prefix offsets from each source header-state ordinal to its replacement
   // range. The array contains source iter_args count + 1 monotonically
   // increasing entries, begins at zero, and ends at |initial_values.count|.
@@ -35,9 +43,10 @@ typedef struct loom_loop_like_replacement_state_t {
   // New result types. These also define the body-region entry tuple.
   //
   // Types may reference sibling replacement result IDs. Callers constructing
-  // such a scheme reserve exactly |result_count| builder results before
-  // invoking loom_loop_like_build_replacement, matching generated loop builder
-  // semantics.
+  // such a scheme reserve the complete identity sequence before invoking
+  // loom_loop_like_build_replacement, matching generated loop builder
+  // semantics. Counted loops reserve only results. Condition loops reserve
+  // header identities first and result identities second.
   const loom_type_t* result_types;
 
   // Number of new results and body-region entry values.

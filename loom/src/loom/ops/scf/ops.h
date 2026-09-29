@@ -239,6 +239,8 @@ iree_status_t loom_scf_condition_build(
 
 // LOOM_OP_SCF_WHILE: Condition-controlled loop with explicit before and after regions. The before region terminates with scf.condition, and the after region terminates with scf.yield. The before region runs once before the first body iteration and again after each iteration, including the final false condition. Values forwarded by that false condition become the loop results.
 //
+// The header and condition payloads are independent tuples. Initial operands enter the before-region block arguments, and scf.yield supplies their next values. scf.condition may forward a different number or type of values: those values enter the after-region block arguments on the true edge and define the loop results on the false edge. This lets the condition expose a loaded payload, decoded tag, or other per-iteration value without carrying it around the backedge. Either tuple may be empty.
+//
 // When the initial value, invariant bound, and positive increment are known exactly, Loom can infer separate counter ranges for the condition region, body, and exit. The proof requires that the terminal increment cannot wrap the target's index or offset carrier. This allows bounded view accesses without repeating the counter range in an assumption. Compile reports use the same proof: a loop with N body iterations has N + 1 condition-region executions, even when N is zero. Unsupported recurrences keep unknown bounds and counts.
 // scf.while {
 //   scf.condition %cond : i1
@@ -250,15 +252,13 @@ LOOM_DEFINE_VARIADIC_OPERANDS(loom_scf_while_iter_args, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_scf_while_results, 0)
 LOOM_DEFINE_REGION(loom_scf_while_before, 0)
 LOOM_DEFINE_REGION(loom_scf_while_after, 1)
-// result_types has iter_args_count entries, or is NULL to preserve
-// the initial operand types. Explicit types define the recurring tuple;
-// reserve result IDs first when types refer to sibling results. Region
-// entry types instantiate that tuple with their own argument identities.
 iree_status_t loom_scf_while_build(
     loom_builder_t* builder,
     loom_may_consume const loom_value_id_t* iter_args,
     iree_host_size_t iter_args_count,
+    const loom_type_t* iter_args_types,
     const loom_type_t* result_types,
+    iree_host_size_t result_count,
     const loom_tied_result_t* tied_results,
     iree_host_size_t tied_result_count,
     loom_location_id_t location,

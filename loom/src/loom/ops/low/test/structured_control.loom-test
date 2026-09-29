@@ -73,6 +73,49 @@ low.func.def target<test.low.core>(@test_target) @while_carried(%condition: reg<
 
 test.target<low_core> @test_target
 
+// The condition can construct a wider body/result tuple than the state fed
+// back into the next condition evaluation.
+low.func.def target<test.low.core>(@test_target) @while_condition_payload(%condition: reg<test.i32>, %init: reg<test.i32>, %bias: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %state, %payload = low.scf.while(%before = %init : reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) {
+    %forwarded = test.add.i32 %before, %bias
+    low.scf.condition %condition, %before, %forwarded : reg<test.i32>, reg<test.i32>, reg<test.i32>
+  } do(%body_state: reg<test.i32>, %body_payload: reg<test.i32>) {
+    %next = test.add.i32 %body_state, %body_payload
+    low.scf.yield %next : reg<test.i32>
+  }
+  return %state, %payload
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @while_condition_only_payload(%condition: reg<test.i32>, %payload: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.scf.while -> (reg<test.i32>) {
+    low.scf.condition %condition, %payload : reg<test.i32>, reg<test.i32>
+  } do(%body: reg<test.i32>) {
+    low.scf.yield
+  }
+  return %result
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @while_header_only_state(%condition: reg<test.i32>, %init: reg<test.i32>) asm {
+  low.scf.while(%before = %init : reg<test.i32>) {
+    low.scf.condition %condition : reg<test.i32>
+  } do {
+    low.scf.yield %init : reg<test.i32>
+  }
+  return
+}
+
+// ====
+
+test.target<low_core> @test_target
+
 low.func.def target<test.low.core>(@test_target) @for_bare_unroll(%lower: reg<test.i32>, %upper: reg<test.i32>, %step: reg<test.i32>) {
   low.scf.for signed [%lower to %upper step %step] unroll do(%iv: reg<test.i32>) {
     low.scf.yield

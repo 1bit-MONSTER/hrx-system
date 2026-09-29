@@ -743,7 +743,7 @@ static iree_status_t loom_scf_unroll_reserve_result_scheme(
           .remap_symbol = loom_ir_remap_symbol_callback_empty(),
       },
       &remap));
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(
       &context->rewriter->builder, source->result_count, reserved_results));
   IREE_RETURN_IF_ERROR(
       loom_ir_remap_map_values(&remap, loom_op_const_results(source),

@@ -1172,7 +1172,7 @@ class ReaderTest : public ::testing::Test {
     loom_builder_initialize(module, &module->arena,
                             loom_region_entry_block(body), &body_builder);
     loom_value_id_t result_ids[2] = {};
-    IREE_CHECK_OK(loom_builder_reserve_results(
+    IREE_CHECK_OK(loom_builder_reserve_values(
         &body_builder, IREE_ARRAYSIZE(result_ids), result_ids));
     loom_type_t output_type =
         loom_type_shaped_1d(LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_F32,

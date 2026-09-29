@@ -143,9 +143,9 @@ from loom.dsl import (
     TiedResult,
     TypeDef,
     Writes,
-    YieldCountMatchesResults,
-    YieldElementTypesMatchResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldElementTypesMatch,
+    YieldTypesMatch,
     binary_op,
     cast_op,
     comparison_op,
@@ -1348,8 +1348,8 @@ test_map = Op(
         AllShapesMatch("inputs"),
         BlockArgCount("body", "inputs"),
         BlockArgsMatchElementTypes("body", "inputs"),
-        YieldCountMatchesResults("body", "result"),
-        YieldElementTypesMatchResults("body", "result"),
+        YieldCountMatches("body", "result"),
+        YieldElementTypesMatch("body", "result"),
     ],
     traits=[PURE, ELEMENTWISE, ImplicitTerminator("test.implicit_yield")],
     format=[
@@ -1729,6 +1729,7 @@ test_loop = Op(
         LoopLikeInterface(
             body="body",
             iter_args="iter_args",
+            results="results",
             iv="iv",
             lower_bound="lower_bound",
             upper_bound="upper_bound",
@@ -1737,8 +1738,8 @@ test_loop = Op(
     ],
     constraints=[
         IterArgsMatchResults("iter_args", "results"),
-        YieldCountMatchesResults("body", "results"),
-        YieldTypesMatchResults("body", "results"),
+        YieldCountMatches("body", "results"),
+        YieldTypesMatch("body", "results"),
     ],
     traits=[ImplicitTerminator("test.implicit_yield")],
     format=[

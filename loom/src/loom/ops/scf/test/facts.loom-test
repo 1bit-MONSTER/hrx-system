@@ -909,3 +909,110 @@ func.def @lookup_finite(%selector: index) -> (i1) {
   %finite = scalar.constant true : i1
   func.return %finite : i1
 }
+
+// ====
+
+// Header recurrence facts and condition payload facts occupy independent
+// domains. The condition-created payload stays exact in the body and result
+// while the body yields only the next header value.
+func.def @while_condition_payload_facts(%keep_going: i1) -> (i64, i64) {
+  %begin = scalar.constant 2 : i64
+  %step = scalar.constant 3 : i64
+  %constant_payload = scalar.constant 7 : i64
+  %terminal, %payload = scf.while(%before = %begin : i64) -> (i64, i64) {
+    scf.condition %keep_going, %before, %constant_payload : i1, i64, i64
+  } do(%body_state: i64, %body_payload: i64) {
+    %body_payload_lo = test.fact_range_lo %body_payload : i64 -> i64
+    %body_payload_hi = test.fact_range_hi %body_payload : i64 -> i64
+    test.use %body_payload, %body_payload_lo, %body_payload_hi : i64, i64, i64
+    %next = scalar.addi %body_state, %step : i64
+    scf.yield %next : i64
+  }
+  %payload_lo = test.fact_range_lo %payload : i64 -> i64
+  %payload_hi = test.fact_range_hi %payload : i64 -> i64
+  test.use %terminal, %payload : i64, i64
+  func.return %payload_lo, %payload_hi : i64, i64
+}
+
+// ----
+func.def @while_condition_payload_facts(%keep_going: i1) -> (i64, i64) {
+  %begin = scalar.constant 2 : i64
+  %step = scalar.constant 3 : i64
+  %constant_payload = scalar.constant 7 : i64
+  %terminal, %payload = scf.while(%before = %begin : i64) -> (i64, i64) {
+    scf.condition %keep_going, %before, %constant_payload : i1, i64, i64
+  } do(%body_state: i64, %body_payload: i64) {
+    %body_payload_lo = scalar.constant 7 : i64
+    %body_payload_hi = scalar.constant 7 : i64
+    test.use %body_payload, %body_payload_lo, %body_payload_hi : i64, i64, i64
+    %next = scalar.addi %body_state, %step : i64
+    scf.yield %next : i64
+  }
+  %payload_lo = scalar.constant 7 : i64
+  %payload_hi = scalar.constant 7 : i64
+  test.use %terminal, %payload : i64, i64
+  func.return %payload_lo, %payload_hi : i64, i64
+}
+
+// ====
+
+// A condition can expose a result without any loop-carried header state.
+func.def @while_condition_only_payload_facts(%keep_going: i1) -> (i64) {
+  %constant_payload = scalar.constant 7 : i64
+  %payload = scf.while -> (i64) {
+    scf.condition %keep_going, %constant_payload : i1, i64
+  } do(%body_payload: i64) {
+    %body_payload_lo = test.fact_range_lo %body_payload : i64 -> i64
+    test.use %body_payload, %body_payload_lo : i64, i64
+    scf.yield
+  }
+  %payload_lo = test.fact_range_lo %payload : i64 -> i64
+  test.use %payload : i64
+  func.return %payload_lo : i64
+}
+
+// ----
+func.def @while_condition_only_payload_facts(%keep_going: i1) -> (i64) {
+  %constant_payload = scalar.constant 7 : i64
+  %payload = scf.while -> (i64) {
+    scf.condition %keep_going, %constant_payload : i1, i64
+  } do(%body_payload: i64) {
+    %body_payload_lo = scalar.constant 7 : i64
+    test.use %body_payload, %body_payload_lo : i64, i64
+    scf.yield
+  }
+  %payload_lo = scalar.constant 7 : i64
+  test.use %payload : i64
+  func.return %payload_lo : i64
+}
+
+// ====
+
+// Header state remains analyzable when the condition and loop expose no
+// result tuple.
+func.def @while_header_only_facts(%keep_going: i1) {
+  %begin = scalar.constant 2 : i64
+  scf.while(%before = %begin : i64) {
+    %header_lo = test.fact_range_lo %before : i64 -> i64
+    %header_hi = test.fact_range_hi %before : i64 -> i64
+    test.use %before, %header_lo, %header_hi : i64, i64, i64
+    scf.condition %keep_going : i1
+  } do {
+    scf.yield %begin : i64
+  }
+  func.return
+}
+
+// ----
+func.def @while_header_only_facts(%keep_going: i1) {
+  %begin = scalar.constant 2 : i64
+  scf.while(%before = %begin : i64) {
+    %header_lo = scalar.constant 2 : i64
+    %header_hi = scalar.constant 2 : i64
+    test.use %before, %header_lo, %header_hi : i64, i64, i64
+    scf.condition %keep_going : i1
+  } do {
+    scf.yield %begin : i64
+  }
+  func.return
+}

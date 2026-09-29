@@ -480,6 +480,46 @@ static bool loom_verify_region_entry_args(const loom_op_t* op,
   return true;
 }
 
+// Resolves a value field or region entry into one positional type scheme.
+// Results and region arguments are definitions whose identities are remapped
+// at a consuming edge. Operand fields retain their enclosing identities.
+static bool loom_verify_resolve_tuple(const loom_op_t* op,
+                                      const loom_op_vtable_t* vtable,
+                                      loom_field_ref_t field_ref,
+                                      loom_verify_value_span_t* out_span,
+                                      bool* out_source_definitions) {
+  *out_span = (loom_verify_value_span_t){0};
+  *out_source_definitions = false;
+  const uint8_t category = LOOM_FIELD_REF_CATEGORY(field_ref);
+  if (category == LOOM_FIELD_REGION) {
+    *out_source_definitions = true;
+    return loom_verify_region_entry_args(op, field_ref, out_span);
+  }
+  if (category != LOOM_FIELD_OPERAND && category != LOOM_FIELD_RESULT) {
+    return false;
+  }
+  *out_source_definitions = category == LOOM_FIELD_RESULT;
+  if (category == LOOM_FIELD_OPERAND) {
+    const loom_value_slice_t span =
+        loom_op_operand_field_span(vtable, op, LOOM_FIELD_REF_INDEX(field_ref));
+    out_span->values = span.values;
+    out_span->count = span.count;
+    return span.count == 0 || span.values != NULL;
+  }
+  if (loom_verify_is_variadic_field(vtable, field_ref)) {
+    out_span->values = loom_verify_resolve_variadic_field(op, vtable, field_ref,
+                                                          &out_span->count);
+    return out_span->count == 0 || out_span->values != NULL;
+  }
+  if (LOOM_FIELD_REF_INDEX(field_ref) >= op->result_count) {
+    return false;
+  }
+  out_span->values =
+      loom_op_const_results(op) + LOOM_FIELD_REF_INDEX(field_ref);
+  out_span->count = 1;
+  return true;
+}
+
 typedef struct loom_verify_condition_forward_t {
   const loom_op_t* terminator;
   const loom_op_vtable_t* vtable;
@@ -1740,8 +1780,8 @@ static bool loom_verify_region_block_yield(
 }
 
 // YIELD_COUNT: every return terminator in a region has an operand count that
-// matches the element count of a variadic value field. Args: (region field,
-// variadic value field).
+// matches a value field or another region's entry tuple. Args: (region field,
+// target value or region field).
 static void loom_verify_relation_yield_count(
     loom_verify_state_t* state, const loom_op_t* op,
     const loom_op_vtable_t* vtable, const loom_constraint_t* constraint) {
@@ -1756,27 +1796,25 @@ static void loom_verify_relation_yield_count(
   if (region == NULL) {
     return;
   }
-  uint16_t result_count =
-      loom_verify_variadic_count(op, vtable, constraint->args[1]);
-  // A non-variadic result counts as a single element for the purposes
-  // of yield-count comparisons (the field still names a value).
-  if (LOOM_FIELD_REF_CATEGORY(constraint->args[1]) == LOOM_FIELD_RESULT &&
-      LOOM_FIELD_REF_INDEX(constraint->args[1]) < vtable->fixed_result_count) {
-    result_count = 1;
+  loom_verify_value_span_t target = {0};
+  bool source_definitions = false;
+  if (!loom_verify_resolve_tuple(op, vtable, constraint->args[1], &target,
+                                 &source_definitions)) {
+    return;
   }
   for (uint16_t block_index = 0; block_index < region->block_count;
        ++block_index) {
     uint16_t yield_count = 0;
     if (!loom_verify_region_block_yield(state, op, vtable, region_index,
                                         block_index, &yield_count, NULL) ||
-        yield_count == result_count) {
+        yield_count == target.count) {
       continue;
     }
     const loom_error_def_t* error =
         loom_verify_constraint_error_or(constraint, LOOM_ERR_STRUCTURE_008);
     loom_diagnostic_param_t params[] = {
         loom_param_u32(yield_count),
-        loom_param_u32(result_count),
+        loom_param_u32(target.count),
     };
     loom_verify_emit_structured(
         state, op, error, params,
@@ -1784,18 +1822,13 @@ static void loom_verify_relation_yield_count(
   }
 }
 
-// YIELD_MATCH: each region terminator (yield) operand's property
-// matches the corresponding element of a variadic result field at the
-// same position. Args: (region field, variadic result field).
+// YIELD_MATCH: each region terminator (yield) operand's property matches the
+// corresponding element of a value field or region entry tuple. Args: (region
+// field, target value or region field).
 static void loom_verify_relation_yield_match(
     loom_verify_state_t* state, const loom_op_t* op,
     const loom_op_vtable_t* vtable, const loom_constraint_t* constraint) {
   if (constraint->arg_count < 2) {
-    return;
-  }
-  // Yields forward into result values — only result-side fields are
-  // valid as the second arg.
-  if (LOOM_FIELD_REF_CATEGORY(constraint->args[1]) != LOOM_FIELD_RESULT) {
     return;
   }
   const uint8_t region_index = LOOM_FIELD_REF_INDEX(constraint->args[0]);
@@ -1806,10 +1839,10 @@ static void loom_verify_relation_yield_match(
   if (region == NULL) {
     return;
   }
-  uint16_t result_count = 0;
-  const loom_value_id_t* result_values = loom_verify_resolve_variadic_field(
-      op, vtable, constraint->args[1], &result_count);
-  if (!result_values) {
+  loom_verify_value_span_t target = {0};
+  bool source_definitions = false;
+  if (!loom_verify_resolve_tuple(op, vtable, constraint->args[1], &target,
+                                 &source_definitions)) {
     return;
   }
   for (uint16_t block_index = 0; block_index < region->block_count;
@@ -1822,23 +1855,25 @@ static void loom_verify_relation_yield_match(
       continue;
     }
     const uint16_t check_count =
-        yield_count < result_count ? yield_count : result_count;
+        yield_count < target.count ? yield_count : target.count;
     const loom_type_value_remap_t yield_remap = {
-        .source_values = result_values,
+        .source_values = target.values,
         .target_values = yield_operands,
         .count = check_count,
-        .flags = LOOM_TYPE_VALUE_REMAP_FLAG_SOURCE_DEFINITION_SLICE,
+        .flags = source_definitions
+                     ? LOOM_TYPE_VALUE_REMAP_FLAG_SOURCE_DEFINITION_SLICE
+                     : 0,
     };
     for (uint16_t i = 0; i < check_count; ++i) {
       const loom_type_t yield_type =
           loom_verify_value_type(state, yield_operands[i]);
-      const loom_type_t result_type =
-          loom_verify_value_type(state, result_values[i]);
+      const loom_type_t target_type =
+          loom_verify_value_type(state, target.values[i]);
       const bool matched =
           constraint->property == LOOM_PROPERTY_TYPE
-              ? loom_type_equal_after_value_remap(state->module, result_type,
+              ? loom_type_equal_after_value_remap(state->module, target_type,
                                                   yield_type, &yield_remap)
-              : loom_constraint_property_equals(yield_type, result_type,
+              : loom_constraint_property_equals(yield_type, target_type,
                                                 constraint->property);
       if (matched) {
         continue;
@@ -1847,8 +1882,8 @@ static void loom_verify_relation_yield_match(
           loom_verify_constraint_error_or(constraint, LOOM_ERR_TYPE_009);
       const loom_type_t expected_type =
           constraint->property == LOOM_PROPERTY_TYPE
-              ? result_type
-              : loom_type_scalar(loom_type_element_type(result_type));
+              ? target_type
+              : loom_type_scalar(loom_type_element_type(target_type));
       loom_diagnostic_param_t params[] = {
           loom_param_type(yield_type),
           loom_param_type(expected_type),

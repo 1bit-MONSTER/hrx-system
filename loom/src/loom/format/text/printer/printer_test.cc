@@ -1360,7 +1360,7 @@ TEST_F(PrintOpTest,
 
 TEST_F(PrintOpTest, DeflateWithResultDimReference) {
   // test.deflate with result 0's dim referencing result 1 (the length).
-  // Uses loom_builder_reserve_results so the result value_ids are known
+  // Uses loom_builder_reserve_values so the result value_ids are known
   // before constructing the result types.
   loom_type_t tensor_dyn = loom_type_shaped_1d(
       LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_F32, loom_dim_pack_dynamic(0), 0);
@@ -1370,7 +1370,7 @@ TEST_F(PrintOpTest, DeflateWithResultDimReference) {
   // Reserve 2 result value_ids so we can reference result[1] in
   // result[0]'s type.
   loom_value_id_t result_ids[2];
-  IREE_ASSERT_OK(loom_builder_reserve_results(&builder_, 2, result_ids));
+  IREE_ASSERT_OK(loom_builder_reserve_values(&builder_, 2, result_ids));
   loom_type_t tensor_ref =
       loom_type_shaped_1d(LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_F32,
                           loom_dim_pack_dynamic(result_ids[1]), 0);
