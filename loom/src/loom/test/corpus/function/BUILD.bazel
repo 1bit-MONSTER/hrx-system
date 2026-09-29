@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_sources")
-load(":manifest.bzl", "CONTROL_CORPUS")
+load(":manifest.bzl", "FUNCTION_CORPUS")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -14,5 +14,5 @@ package(
 
 loom_corpus_sources(
     name = "all",
-    manifest = CONTROL_CORPUS,
+    manifest = FUNCTION_CORPUS,
 )

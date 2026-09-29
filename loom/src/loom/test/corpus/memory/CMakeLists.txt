@@ -9,4 +9,27 @@
 
 iree_add_all_subdirs()
 
+loom_corpus_sources(
+  NAME
+    "all"
+  MANIFEST
+    "memory"
+  SRCS
+    "address.loom"
+    "allocation_freshness.loom"
+    "atomics.loom"
+    "buffer_access.loom"
+    "buffers.loom"
+    "masked_memory.loom"
+    "memory_boundaries.loom"
+    "nested_view_selection.loom"
+    "view_access.loom"
+    "view_boundary_transport.loom"
+    "view_offset_recurrence.loom"
+    "view_rotation.loom"
+    "view_selected_crops.loom"
+    "view_selection.loom"
+    "word.loom"
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

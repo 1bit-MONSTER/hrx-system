@@ -163,14 +163,14 @@ tables or source files.
 Portable lowering inputs come from the shared `source_low` TEMPLATE corpus;
 VM expectations specify the target's selected representation.
 
-The [function correctness corpus](../../../test/corpus/functions/) contains
-target-neutral functions and their `check.case` inputs and expectations. Its VM
-execution profile runs through `iree-test-loom`, using the
-[VM testbench](../../../tooling/target/vm/testbench.h). The testbench compiles
-one module for all its cases, releases the compiler copy and scratch before
-loading the emitted bytes, and reuses a runtime process and invocation storage.
-This exercises artifact ownership, dynamic execution, and returned buffer
-aliases rather than only comparing disassembly.
+The [semantic correctness corpus](../../../test/corpus/) contains target-neutral
+programs and their `check.case` inputs and expectations. The target-owned VM
+suite links and executes each source independently through `iree-test-loom`,
+using the [VM testbench](../../../tooling/target/vm/testbench.h). The testbench
+compiles one module for all cases in that source, releases the compiler copy and
+scratch before loading the emitted bytes, and reuses a runtime process and
+invocation storage. This exercises artifact ownership, dynamic execution, and
+returned buffer aliases rather than only comparing disassembly.
 
 The [tool integration suite](../../../tooling/target/vm/test/vm.test.json) compiles
 source with `loom-compile` and reads the resulting file with `vm-dis` in a

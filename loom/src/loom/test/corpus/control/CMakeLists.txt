@@ -9,4 +9,15 @@
 
 iree_add_all_subdirs()
 
+loom_corpus_sources(
+  NAME
+    "all"
+  MANIFEST
+    "control"
+  SRCS
+    "pipelined_address_domains.loom"
+    "structured_control.loom"
+    "vector_recurrence.loom"
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
