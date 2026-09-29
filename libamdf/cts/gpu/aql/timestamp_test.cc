@@ -16,18 +16,16 @@
 
 namespace {
 
-class AqlTimestampTest : public AqlQueueTest {
+class AqlTimestampTest
+    : public AqlQueueTest,
+      public ::testing::WithParamInterface<pm4::CopyDataPolicy> {
  protected:
   AqlTimestampTest()
       : AqlQueueTest(AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL) {
   }
 };
 
-TEST_F(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
-  if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
-    GTEST_SKIP() << "AQL clock capture requires the discrete coherent SYSTEM "
-                    "memory policy";
-  }
+TEST_P(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
   constexpr size_t kByteLength = 4096;
   constexpr size_t kWordCount = kByteLength / sizeof(uint32_t);
   constexpr size_t kOutputWordCount = kByteLength / sizeof(uint64_t);
@@ -39,7 +37,6 @@ TEST_F(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
       kTimestampByteOffsets[0] / sizeof(uint64_t),
       kTimestampByteOffsets[1] / sizeof(uint64_t)};
   constexpr uint32_t kBodyWordCount = 12;
-  constexpr uint32_t kIbWordCount = 14;
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
   GpuMemory* output = nullptr;
@@ -120,20 +117,23 @@ TEST_F(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
 
   std::array<uint32_t, kWordCount> expected_commands;
   expected_commands.fill(0x53b79d21u);
-  const auto predicate = aql::Gfx9VirtualXcc0(kBodyWordCount);
-  std::memcpy(expected_commands.data(), predicate.data(), sizeof(predicate));
-  size_t word_count = predicate.size();
+  const uint32_t prefix_word_count = aql::SingleExecutorPrefix(
+      expected_commands.data(), gpu_endpoint_info_.topology.xcc_count,
+      kBodyWordCount);
+  const uint32_t ib_word_count = prefix_word_count + kBodyWordCount;
+  size_t word_count = prefix_word_count;
   for (size_t byte_offset : kTimestampByteOffsets) {
-    word_count += pm4::Gfx9CopyGpuClock64(expected_commands.data() + word_count,
-                                          output->device_address + byte_offset);
+    word_count +=
+        pm4::CopyGpuClock64(expected_commands.data() + word_count,
+                            output->device_address + byte_offset, GetParam());
   }
-  ASSERT_EQ(word_count, kIbWordCount);
+  ASSERT_EQ(word_count, ib_word_count);
   // Upload the entire initialized page once. Predication selects the clock
   // executor; native completion still protects every XCC's borrowed IB use.
   std::memcpy(commands->host.pointer, expected_commands.data(),
               sizeof(expected_commands));
   const aql::Packet packet = aql::IndirectBuffer(
-      aql::HeaderBarrier::kEnabled, commands->device_address, kIbWordCount,
+      aql::HeaderBarrier::kEnabled, commands->device_address, ib_word_count,
       completion->device_address, kScopes);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
   auto* completion_guard_address =
@@ -155,10 +155,11 @@ TEST_F(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
   uint64_t index = first_index;
   RecordProperty("aql_timestamp_byte_length", kByteLength);
   RecordProperty("aql_timestamp_width_bits", 64);
-  RecordProperty("aql_timestamp_control", "0x02112509");
+  RecordProperty("aql_timestamp_control",
+                 std::to_string(expected_commands[prefix_word_count + 1]));
   RecordProperty("aql_timestamp_body_word_count", kBodyWordCount);
-  RecordProperty("aql_timestamp_ib_word_count", kIbWordCount);
-  RecordProperty("aql_timestamp_virtual_xcc_mask", 1);
+  RecordProperty("aql_timestamp_ib_word_count", ib_word_count);
+  RecordProperty("aql_timestamp_prefix_word_count", prefix_word_count);
   RecordProperty("aql_timestamp_sample_byte_offsets", "64,128");
   RecordProperty("aql_timestamp_acquire_scope",
                  static_cast<uint32_t>(kScopes.acquire));
@@ -246,5 +247,14 @@ TEST_F(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
   RecordProperty("aql_timestamp_work_packet_count", kEpochCount);
   RecordProperty("aql_timestamp_final_packet_index", std::to_string(index));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    Policy, AqlTimestampTest,
+    ::testing::Values(pm4::CopyDataPolicy::kDefault,
+                      pm4::CopyDataPolicy::kStreaming),
+    [](const ::testing::TestParamInfo<pm4::CopyDataPolicy>& info) {
+      return info.param == pm4::CopyDataPolicy::kDefault ? "Default"
+                                                         : "Streaming";
+    });
 
 }  // namespace

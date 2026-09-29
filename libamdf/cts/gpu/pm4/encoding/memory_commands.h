@@ -18,6 +18,12 @@ enum class CopyDataWidth : uint32_t {
   k64Bit = 1,
 };
 
+// COPY_DATA locality hint in cache-policy and temporal-policy encodings.
+enum class CopyDataPolicy : uint32_t {
+  kDefault = 0,
+  kStreaming = 1,
+};
+
 // TC operation selection for a CP atomic store implemented as a swap.
 enum class AtomicStoreWidth : uint32_t {
   k32Bit = 0x07,
@@ -38,12 +44,13 @@ size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
 size_t CopyData(uint32_t* words, uint64_t source_address,
                 uint64_t target_address, CopyDataWidth width);
 
-// Encodes a confirmed GFX9 64-bit GPU-clock COPY_DATA with MEMORY destination
-// and STREAM source/destination policies into six caller-owned DWORDs. Returns
-// six. The target is eight-byte aligned. Admission, XCC selection, visibility
-// and completion belong to the caller; sampling CP progress is not a shader
-// fence and supplies no clock-frequency or correlation information.
-size_t Gfx9CopyGpuClock64(uint32_t* words, uint64_t target_address);
+// Encodes a confirmed 64-bit GPU-clock COPY_DATA with MEMORY destination into
+// six caller-owned DWORDs and returns six. The target is eight-byte aligned.
+// Admission, XCC selection, visibility and completion belong to the caller;
+// sampling CP progress is not a shader fence and supplies no clock-frequency
+// or correlation information.
+size_t CopyGpuClock64(uint32_t* words, uint64_t target_address,
+                      CopyDataPolicy policy = CopyDataPolicy::kDefault);
 
 // Encodes a confirmed, incrementing TC/L2 write and returns 4 + value_count.
 // The target is four-byte aligned. The caller supplies 1..16381 payload DWORDs

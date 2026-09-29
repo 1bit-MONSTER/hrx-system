@@ -223,10 +223,6 @@ class AqlTransferTest
 };
 
 TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
-  if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
-    GTEST_SKIP() << "AQL transfers require the discrete coherent SYSTEM memory "
-                    "policy";
-  }
   constexpr size_t kPayloadByteOffset = 64;
   constexpr size_t kPayloadWordOffset = kPayloadByteOffset / sizeof(uint32_t);
   constexpr std::array<std::array<uint32_t, 2>, 2> kPayloads = {
@@ -240,7 +236,10 @@ TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
       width == pm4::CopyDataWidth::k32Bit ? 1 : 2;
   // WRITE_DATA has four prefix words and COPY_DATA has six total words.
   const uint32_t body_word_count = 10 + payload_word_count;
-  const uint32_t ib_word_count = 2 + body_word_count;
+  std::array<uint32_t, 2> predicate = {};
+  const uint32_t prefix_word_count = aql::SingleExecutorPrefix(
+      predicate.data(), gpu_endpoint_info_.topology.xcc_count, body_word_count);
+  const uint32_t ib_word_count = prefix_word_count + body_word_count;
 
   TransferPages pages;
   ASSERT_NO_FATAL_FAILURE(AllocatePages(
@@ -255,9 +254,8 @@ TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
   for (size_t epoch = 0; epoch < kPayloads.size(); ++epoch) {
     const size_t byte_offset = epoch * kCommandByteStride;
     auto* words = expected_commands.data() + byte_offset / sizeof(uint32_t);
-    const auto predicate = aql::Gfx9VirtualXcc0(body_word_count);
-    std::memcpy(words, predicate.data(), sizeof(predicate));
-    size_t word_count = predicate.size();
+    std::memcpy(words, predicate.data(), prefix_word_count * sizeof(uint32_t));
+    size_t word_count = prefix_word_count;
     word_count += pm4::WriteData(words + word_count,
                                  source->device_address + kPayloadByteOffset,
                                  kPayloads[epoch].data(), payload_word_count);
@@ -288,7 +286,7 @@ TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
   RecordProperty("aql_transfer_width_bits", payload_word_count * 32);
   RecordProperty("aql_transfer_body_word_count", body_word_count);
   RecordProperty("aql_transfer_ib_word_count", ib_word_count);
-  RecordProperty("aql_transfer_virtual_xcc_mask", 1);
+  RecordProperty("aql_transfer_prefix_word_count", prefix_word_count);
   RecordProperty("aql_transfer_memory_class", source->info.memory_class);
   RecordProperty("aql_transfer_source_memory_profile_ordinal",
                  source->info.memory_profile_ordinal);
@@ -348,16 +346,11 @@ TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
 }
 
 TEST_P(AqlTransferTest, CpuPublishedSourceFeedsCopyAcrossEpochs) {
-  if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
-    GTEST_SKIP() << "AQL transfers require the discrete coherent SYSTEM memory "
-                    "policy";
-  }
   constexpr size_t kPayloadByteOffset = 64;
   constexpr size_t kPayloadWordOffset = kPayloadByteOffset / sizeof(uint32_t);
   constexpr std::array<std::array<uint32_t, 2>, 2> kPayloads = {
       {{0x13579bdfu, 0x2468ace0u}, {0xfdb97531u, 0x80a6c42eu}}};
   constexpr uint32_t kBodyWordCount = 6;
-  constexpr uint32_t kIbWordCount = 2 + kBodyWordCount;
   const pm4::CopyDataWidth width = GetParam();
   const uint32_t payload_word_count =
       width == pm4::CopyDataWidth::k32Bit ? 1 : 2;
@@ -372,16 +365,18 @@ TEST_P(AqlTransferTest, CpuPublishedSourceFeedsCopyAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(ResolveCpuCopyScopes(pages, &scopes));
 
   std::array<uint32_t, kWordCount> expected_commands = {};
-  const auto predicate = aql::Gfx9VirtualXcc0(kBodyWordCount);
-  std::memcpy(expected_commands.data(), predicate.data(), sizeof(predicate));
-  size_t word_count = predicate.size();
+  const uint32_t prefix_word_count = aql::SingleExecutorPrefix(
+      expected_commands.data(), gpu_endpoint_info_.topology.xcc_count,
+      kBodyWordCount);
+  const uint32_t ib_word_count = prefix_word_count + kBodyWordCount;
+  size_t word_count = prefix_word_count;
   word_count +=
       pm4::CopyData(expected_commands.data() + word_count,
                     source->device_address + kPayloadByteOffset,
                     target->device_address + kPayloadByteOffset, width);
-  ASSERT_EQ(word_count, kIbWordCount);
+  ASSERT_EQ(word_count, ib_word_count);
   const aql::Packet packet = aql::IndirectBuffer(
-      aql::HeaderBarrier::kEnabled, commands->device_address, kIbWordCount,
+      aql::HeaderBarrier::kEnabled, commands->device_address, ib_word_count,
       completion->device_address, scopes);
   // One program and its initialized padding remain unchanged across both
   // epochs. Only CPU stores produce the data read by COPY_DATA.
@@ -401,8 +396,8 @@ TEST_P(AqlTransferTest, CpuPublishedSourceFeedsCopyAcrossEpochs) {
 
   RecordProperty("aql_transfer_width_bits", payload_word_count * 32);
   RecordProperty("aql_transfer_body_word_count", kBodyWordCount);
-  RecordProperty("aql_transfer_ib_word_count", kIbWordCount);
-  RecordProperty("aql_transfer_virtual_xcc_mask", 1);
+  RecordProperty("aql_transfer_ib_word_count", ib_word_count);
+  RecordProperty("aql_transfer_prefix_word_count", prefix_word_count);
   RecordProperty("aql_transfer_memory_class", source->info.memory_class);
   RecordProperty("aql_transfer_source_memory_profile_ordinal",
                  source->info.memory_profile_ordinal);
@@ -459,15 +454,14 @@ TEST_P(AqlTransferTest, CpuPublishedSourceFeedsCopyAcrossEpochs) {
 }
 
 TEST_P(AqlTransferTest, CompletedCarrierAllowsCopyAddressRebinding) {
-  if ((features_ & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) == 0) {
-    GTEST_SKIP() << "AQL transfers require the discrete coherent SYSTEM memory "
-                    "policy";
-  }
   constexpr size_t kEpochCount = 2;
   constexpr std::array<uint64_t, kEpochCount> kSourceByteOffsets = {64, 128};
   constexpr std::array<uint64_t, kEpochCount> kTargetByteOffsets = {256, 384};
   constexpr uint32_t kBodyWordCount = 6;
-  constexpr uint32_t kIbWordCount = 2 + kBodyWordCount;
+  std::array<uint32_t, 2> predicate = {};
+  const uint32_t prefix_word_count = aql::SingleExecutorPrefix(
+      predicate.data(), gpu_endpoint_info_.topology.xcc_count, kBodyWordCount);
+  const uint32_t ib_word_count = prefix_word_count + kBodyWordCount;
   const pm4::CopyDataWidth width = GetParam();
   const uint32_t payload_word_count =
       width == pm4::CopyDataWidth::k32Bit ? 1 : 2;
@@ -485,17 +479,16 @@ TEST_P(AqlTransferTest, CompletedCarrierAllowsCopyAddressRebinding) {
   // address words change; the in-page ranges leave the high words unchanged.
   std::array<PageWords, kEpochCount> expected_commands = {};
   for (size_t epoch = 0; epoch < kEpochCount; ++epoch) {
-    const auto predicate = aql::Gfx9VirtualXcc0(kBodyWordCount);
     auto* words = expected_commands[epoch].data();
-    std::memcpy(words, predicate.data(), sizeof(predicate));
-    size_t word_count = predicate.size();
+    std::memcpy(words, predicate.data(), prefix_word_count * sizeof(uint32_t));
+    size_t word_count = prefix_word_count;
     word_count += pm4::CopyData(
         words + word_count, source->device_address + kSourceByteOffsets[epoch],
         target->device_address + kTargetByteOffsets[epoch], width);
-    ASSERT_EQ(word_count, kIbWordCount);
+    ASSERT_EQ(word_count, ib_word_count);
   }
   const aql::Packet packet = aql::IndirectBuffer(
-      aql::HeaderBarrier::kEnabled, commands->device_address, kIbWordCount,
+      aql::HeaderBarrier::kEnabled, commands->device_address, ib_word_count,
       completion->device_address, scopes);
   std::memset(completion->host.pointer, 0, kByteLength);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
@@ -509,8 +502,8 @@ TEST_P(AqlTransferTest, CompletedCarrierAllowsCopyAddressRebinding) {
 
   RecordProperty("aql_transfer_width_bits", payload_word_count * 32);
   RecordProperty("aql_transfer_body_word_count", kBodyWordCount);
-  RecordProperty("aql_transfer_ib_word_count", kIbWordCount);
-  RecordProperty("aql_transfer_virtual_xcc_mask", 1);
+  RecordProperty("aql_transfer_ib_word_count", ib_word_count);
+  RecordProperty("aql_transfer_prefix_word_count", prefix_word_count);
   RecordProperty("aql_transfer_memory_class", source->info.memory_class);
   RecordProperty("aql_transfer_source_memory_profile_ordinal",
                  source->info.memory_profile_ordinal);
@@ -526,7 +519,9 @@ TEST_P(AqlTransferTest, CompletedCarrierAllowsCopyAddressRebinding) {
                  std::to_string(commands->access_info.flags));
   RecordProperty("aql_transfer_source_byte_offsets", "64,128");
   RecordProperty("aql_transfer_target_byte_offsets", "256,384");
-  RecordProperty("aql_transfer_changed_ib_dwords", "4,6");
+  RecordProperty("aql_transfer_changed_ib_dwords",
+                 std::to_string(prefix_word_count + 2) + "," +
+                     std::to_string(prefix_word_count + 4));
 
   GpuUserQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));

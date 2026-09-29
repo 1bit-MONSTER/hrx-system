@@ -551,11 +551,12 @@ TEST(Pm4EncodingTest, GpuClockCopyUsesConfirmedWideTimestampSource) {
   EXPECT_EQ(words.back(), 0x24681357u);
 }
 
-TEST(Pm4EncodingTest, Gfx9ClockCopyUsesConfirmedStreamingPolicies) {
+TEST(Pm4EncodingTest, ClockCopyUsesConfirmedStreamingPolicies) {
   std::array<uint32_t, 8> words;
   words.fill(0x24681357);
   const size_t word_count =
-      pm4::Gfx9CopyGpuClock64(words.data() + 1, UINT64_C(0x1234567887654328));
+      pm4::CopyGpuClock64(words.data() + 1, UINT64_C(0x1234567887654328),
+                          pm4::CopyDataPolicy::kStreaming);
   // aqlprofile's ClockRetrievePacket uses source 9, destination 5, STREAM
   // policy bits 13/25, 64-bit count 16 and confirmation 20. No source address
   // is present; the complete destination address is retained.

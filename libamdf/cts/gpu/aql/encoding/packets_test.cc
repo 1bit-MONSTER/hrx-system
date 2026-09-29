@@ -251,14 +251,29 @@ TEST(AqlEncodingTest, DataCarrierOrdersSystemTransferCompletion) {
   EXPECT_EQ(packet, expected);
 }
 
-TEST(AqlEncodingTest, Gfx9VirtualXcc0CountExcludesPredicatePrefix) {
+TEST(AqlEncodingTest, SingleXccHasNoExecutorPrefix) {
+  std::array<uint32_t, 3> words = {0x12345678, 0xabcdef01, 0x98765432};
+  const auto expected = words;
+  EXPECT_EQ(aql::SingleExecutorPrefix(words.data(), 1, 12), 0u);
+  EXPECT_EQ(words, expected);
+}
+
+TEST(AqlEncodingTest, MultiXccSelectsOneExecutorWithBodyCount) {
   // ROCm 8d57824901ff amd_gpu_pm4.h and Linux 50d05c7c76c9 soc15d.h:
   // PRED_EXEC opcode 0x23, two DWORDs; 14-bit body count and virtual-XCC
   // mask 1 at bit 24. These counts cover WRITE32/64 followed by COPY32/64.
-  const std::array<uint32_t, 2> expected32 = {0xc0002300, 0x0100000b};
-  const std::array<uint32_t, 2> expected64 = {0xc0002300, 0x0100000c};
-  EXPECT_EQ(aql::Gfx9VirtualXcc0(11), expected32);
-  EXPECT_EQ(aql::Gfx9VirtualXcc0(12), expected64);
+  const std::array<uint32_t, 3> expected32 = {0xc0002300, 0x0100000b,
+                                              0x98765432};
+  const std::array<uint32_t, 3> expected64 = {0xc0002300, 0x0100000c,
+                                              0x98765432};
+  for (uint32_t xcc_count : {2u, 8u}) {
+    SCOPED_TRACE(xcc_count);
+    std::array<uint32_t, 3> words = {0, 0, 0x98765432};
+    EXPECT_EQ(aql::SingleExecutorPrefix(words.data(), xcc_count, 11), 2u);
+    EXPECT_EQ(words, expected32);
+    EXPECT_EQ(aql::SingleExecutorPrefix(words.data(), xcc_count, 12), 2u);
+    EXPECT_EQ(words, expected64);
+  }
 }
 
 }  // namespace

@@ -265,14 +265,7 @@ void Pm4CommandWriter::WaitMemory64(uint64_t address, uint64_t value,
 }
 
 void Pm4CommandWriter::CopyGpuClock64(uint64_t target_address) {
-  // Matches PAL's compute timestamp and Mesa's top-of-pipe timestamp path:
-  // GPU clock source 9, memory destination 5, 64-bit count and confirmation.
-  words_[word_count_++] = MakeHeader(0x40, 6);
-  words_[word_count_++] = 9 | (5 << 8) | (1 << 16) | (1 << 20);
-  words_[word_count_++] = 0;
-  words_[word_count_++] = 0;
-  words_[word_count_++] = static_cast<uint32_t>(target_address);
-  words_[word_count_++] = static_cast<uint32_t>(target_address >> 32);
+  word_count_ += pm4::CopyGpuClock64(words_ + word_count_, target_address);
 }
 
 void Pm4CommandWriter::PadToEightWords() {

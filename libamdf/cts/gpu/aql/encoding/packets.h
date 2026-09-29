@@ -172,12 +172,18 @@ inline Packet IndirectBuffer(HeaderBarrier barrier, uint64_t ib_address,
   return packet;
 }
 
-// Routes the following complete PM4 body through virtual XCC 0. The positive
-// body count fits 14 bits and excludes this two-dword PRED_EXEC prefix.
-// Predication chooses the executor; native carrier completion still protects
-// the storage read by every participating XCC.
-inline std::array<uint32_t, 2> Gfx9VirtualXcc0(uint32_t body_word_count) {
-  return {0xc0002300u, 0x01000000u | body_word_count};
+// Selects virtual XCC 0 for a body that must execute once. A single-XCC queue
+// needs no prefix and leaves words untouched. Otherwise writes two PRED_EXEC
+// words and returns two; the positive 14-bit body count excludes that prefix.
+// Carrier completion still protects the storage read by every XCC.
+inline uint32_t SingleExecutorPrefix(uint32_t* words, uint32_t xcc_count,
+                                     uint32_t body_word_count) {
+  if (xcc_count == 1) {
+    return 0;
+  }
+  words[0] = 0xc0002300u;
+  words[1] = 0x01000000u | body_word_count;
+  return 2;
 }
 
 }  // namespace aql
