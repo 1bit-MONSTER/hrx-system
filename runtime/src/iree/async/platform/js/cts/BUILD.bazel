@@ -62,11 +62,11 @@ iree_runtime_cc_library(
 # host on wasm builds.
 iree_runtime_cc_test(
     name = "progress_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/core:progress_test",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ] + select({
         "@platforms//cpu:wasm32": ["//runtime/src/iree/async/platform/js:main"],
@@ -88,37 +88,37 @@ _CTS_WORKER_DEPS = [
 
 iree_runtime_cc_test(
     name = "lifecycle_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_WORKER_DEPS + [
         "//runtime/src/iree/async/cts/core:lifecycle_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )
 
 iree_runtime_cc_test(
     name = "nop_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_WORKER_DEPS + [
         "//runtime/src/iree/async/cts/core:nop_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )
 
 iree_runtime_cc_test(
     name = "timer_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_WORKER_DEPS + [
         "//runtime/src/iree/async/cts/core:timer_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )
 
 iree_runtime_cc_test(
     name = "resource_exhaustion_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_WORKER_DEPS + [
         "//runtime/src/iree/async/cts/core:resource_exhaustion_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )
 
@@ -137,27 +137,27 @@ _CTS_INLINE_DEPS = [
 
 iree_runtime_cc_test(
     name = "inline_lifecycle_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_INLINE_DEPS + [
         "//runtime/src/iree/async/cts/core:lifecycle_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )
 
 iree_runtime_cc_test(
     name = "inline_nop_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_INLINE_DEPS + [
         "//runtime/src/iree/async/cts/core:nop_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )
 
 iree_runtime_cc_test(
     name = "inline_progress_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _WASM_ONLY,
     deps = _CTS_INLINE_DEPS + [
         "//runtime/src/iree/async/cts/core:progress_test",
+        "//runtime/src/iree/async/cts/util:test_main",
     ],
 )

@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:executable.bzl", "iree_executable_test")
+load("//runtime/build_tools/bazel:cc.bzl", "iree_runtime_cc_library")
 load("//runtime/build_tools/bazel:cc_benchmark.bzl", "iree_runtime_cc_benchmark")
 load("//runtime/build_tools/bazel:cc_test.bzl", "iree_runtime_cc_test")
 
@@ -19,11 +20,50 @@ RDMA_COMPATIBILITY = ["@platforms//os:linux"] + select({
     "//conditions:default": ["@platforms//:incompatible"],
 })
 
-iree_runtime_cc_benchmark(
-    name = "collective_benchmarks",
+_BACKEND_DEPS = [
+    "//runtime/src/iree/async",
+    "//runtime/src/iree/base",
+    "//runtime/src/iree/net/carrier/rdma:factory",
+    "//runtime/src/iree/net/cts:transport_backend",
+    "//runtime/src/iree/net/rdma:context",
+    "//runtime/src/iree/net/rdma:region",
+    "//runtime/src/iree/net/rdma:test_context",
+]
+
+iree_runtime_cc_library(
+    name = "backend",
+    testonly = True,
     srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
+    deps = _BACKEND_DEPS,
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
+    name = "backend_unbatched",
+    testonly = True,
+    srcs = ["backend.cc"],
+    defines = ["IREE_NET_RDMA_CTS_POST_BATCH_SIZE=1"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = _BACKEND_DEPS,
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
+    name = "backend_segmented",
+    testonly = True,
+    srcs = ["backend.cc"],
+    defines = ["IREE_NET_RDMA_CTS_MAX_REQUEST_LENGTH=257"],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = _BACKEND_DEPS,
+    alwayslink = True,
+)
+
+iree_runtime_cc_benchmark(
+    name = "collective_benchmarks",
+    target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -39,9 +79,9 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "expert_benchmarks",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -57,9 +97,9 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "gather_benchmarks",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -75,9 +115,9 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "pipeline_round_trip_benchmarks",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -93,10 +133,10 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "direct_transfer_benchmarks",
-    srcs = ["backend.cc"],
     args = ["--benchmark_filter=^CheckedDirectTransfer/"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -112,11 +152,10 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "direct_transfer_unbatched_benchmarks",
-    srcs = ["backend.cc"],
     args = ["--benchmark_filter=^CheckedDirectTransfer/"],
-    defines = ["IREE_NET_RDMA_CTS_POST_BATCH_SIZE=1"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend_unbatched",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -154,9 +193,9 @@ iree_executable_test(
 
 iree_runtime_cc_benchmark(
     name = "transfer_benchmarks",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -172,9 +211,9 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_test(
     name = "collective_trial_tests",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -190,9 +229,9 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "direct_transfer_trial_tests",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -208,10 +247,9 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "direct_transfer_segmented_tests",
-    srcs = ["backend.cc"],
-    defines = ["IREE_NET_RDMA_CTS_MAX_REQUEST_LENGTH=257"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend_segmented",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -227,9 +265,9 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "transfer_trial_tests",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:platform_backends",
         "//runtime/src/iree/base",
@@ -245,9 +283,9 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "transport_tests",
-    srcs = ["backend.cc"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
+        ":backend",
         "//runtime/src/iree/async",
         "//runtime/src/iree/base",
         "//runtime/src/iree/net/carrier/rdma:factory",

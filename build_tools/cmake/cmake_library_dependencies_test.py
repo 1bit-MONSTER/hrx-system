@@ -44,7 +44,12 @@ class CMakeLibraryDependenciesTest(unittest.TestCase):
             )
 
             def check(expected):
-                build_project(build, "iree_fixture_probe", "iree_fixture_unified_probe")
+                build_project(
+                    build,
+                    "iree_fixture_probe",
+                    "iree_fixture_unified_probe",
+                    "iree_fixture_source_less_test_with_a_long_target_name_matching_real_cts_binaries",
+                )
                 for program in programs:
                     self.assertEqual(run_command(str(program)), f"{expected}\n")
 

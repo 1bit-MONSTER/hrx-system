@@ -46,144 +46,144 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_test(
     name = "buffer_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/buffer:all_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "local_stream_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/stream:local_stream_test",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "core_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/core:all_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "event_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/event:all_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "file_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/file:all_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "futex_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/futex:all_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "socket_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/socket:all_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "sync_notification_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/sync:notification_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "sync_shared_notification_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/sync:shared_notification_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "sync_platform_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/sync:platform_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "sync_relay_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/sync:relay_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )
 
 iree_runtime_cc_test(
     name = "sync_semaphore_tests",
-    srcs = ["//runtime/src/iree/async/cts/util:test_main.cc"],
     target_compatible_with = _POSIX_ONLY,
     deps = [
         ":backends",
         "//runtime/src/iree/async/cts/sync:semaphore_tests",
         "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_main",
         "//runtime/src/iree/testing:gtest",
     ],
 )

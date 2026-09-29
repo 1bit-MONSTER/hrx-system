@@ -61,6 +61,10 @@ build:windows-msvc --//build_tools/windows:compiler=msvc
 # Windows diagnostics before subsequent CI phases can replace the inputs.
 build:windows --verbose_failures
 
+# Ordinary builds do not execute their outputs. Defer expensive Windows
+# runfiles trees until a local action, test, or run command requires them.
+build:windows --nobuild_runfile_links
+
 # Destinations are independent of compiler selection. Native builds infer their
 # destination; cross builds preserve the native host for code generators.
 build:windows-x86_64 --platforms=//build_tools/windows:windows_x86_64

@@ -230,6 +230,16 @@ def _i64_samples() -> list[tuple[int, int]]:
     return samples
 
 
+def _i64_shift_basis() -> tuple[int, ...]:
+    single_bits = tuple(1 << bit for bit in range(64))
+    return (
+        0,
+        _U64_MASK,
+        *single_bits,
+        *(_U64_MASK ^ bit for bit in single_bits),
+    )
+
+
 def test_i64_binary_recipes_are_exact() -> None:
     binary_rules = (
         (_rule(scalar_bitwise.scalar_andi), lambda lhs, rhs: lhs & rhs),
@@ -257,7 +267,12 @@ def test_i64_shift_recipes_are_exact() -> None:
         for rule in AIE2P_I64_RULES
         if isinstance(rule, DescriptorRule) and rule.source_op in references
     ]
-    values = [lhs for lhs, _ in _i64_samples()[:1024]]
+    # Exercise every count against each independent source bit and dense
+    # complements. The additional random values cover interactions at every
+    # split-word regime boundary without multiplying them by all 64 counts.
+    basis_values = _i64_shift_basis()
+    random_values = [lhs for lhs, _ in _i64_samples()[:256]]
+    boundary_amounts = (0, 1, 30, 31, 32, 33, 62, 63)
     for rule in rules:
         reference = references[rule.source_op]
         count_range = next(
@@ -268,8 +283,16 @@ def test_i64_shift_recipes_are_exact() -> None:
             count_range.minimum if count_range else 0,
             count_range.maximum + 1 if count_range else 64,
         )
-        for value in values:
+        for value in basis_values:
             for amount in amounts:
+                assert (
+                    _evaluate_rule(rule, value, amount)
+                    == reference(value, amount) & _U64_MASK
+                )
+        for value in random_values:
+            for amount in boundary_amounts:
+                if amount not in amounts:
+                    continue
                 assert (
                     _evaluate_rule(rule, value, amount)
                     == reference(value, amount) & _U64_MASK
