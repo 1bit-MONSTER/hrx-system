@@ -215,6 +215,13 @@ static iree_status_t loom_low_emission_frame_build_impl(
   if (iree_status_is_ok(status) && model.body->block_count > 1 &&
       options->schedule_strategy == LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL) {
     schedule_options.flags |= LOOM_LOW_SCHEDULE_FLAG_RETAIN_BLOCK_PRESSURE;
+    if (retained_blocks == NULL &&
+        loom_low_function_schedule(low_func_op) != LOOM_LOW_SCHEDULE_LOCKED &&
+        loom_low_function_allocation(low_func_op) !=
+            LOOM_LOW_ALLOCATION_FIXED) {
+      schedule_options.flags |=
+          LOOM_LOW_SCHEDULE_FLAG_RETAIN_SOURCE_SUFFIX_BOUNDS;
+    }
   }
   if (iree_status_is_ok(status)) {
     status = loom_low_schedule_function(&model, &schedule_options, arena,
@@ -562,8 +569,8 @@ static iree_status_t loom_low_emission_frame_try_guarded_motion(
                         options->residency_model,
                         frame->allocation.physical_extents.ends_by_reg_class,
                         &trial.allocation) ||
-                    !loom_low_guarded_motion_improves_schedule(&frame->schedule,
-                                                               &trial.schedule);
+                    !loom_low_guarded_motion_improves_schedule(
+                        &plan, &frame->schedule, &trial.schedule);
     if (!rejected &&
         loom_target_residency_model_is_empty(options->residency_model)) {
       for (uint16_t i = 0; i < trial.allocation.physical_extents.count; ++i) {

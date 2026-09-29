@@ -852,6 +852,16 @@ loom_cc_library(
     ],
 )
 
+loom_cc_test(
+    name = "guarded_motion_test",
+    srcs = ["guarded_motion_test.cc"],
+    deps = [
+        ":guarded_motion",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "frame",
     srcs = ["frame.c"],
@@ -889,6 +899,7 @@ loom_cc_test(
     srcs = ["frame_test.cc"],
     deps = [
         ":frame",
+        ":guarded_motion",
         ":packet",
         ":text_asm",
         "//loom/src/loom/codegen/low/schedule",

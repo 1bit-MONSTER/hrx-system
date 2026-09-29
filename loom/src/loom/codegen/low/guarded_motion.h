@@ -44,9 +44,11 @@ typedef struct loom_low_guarded_motion_plan_t {
 } loom_low_guarded_motion_plan_t;
 
 // Proposes legal guarded-prefix movement, without mutating the function.
-// A coarse timing bound rejects prefixes that cannot fit in the predecessor.
-// Acceptance still requires a complete scheduled and allocated trial;
-// unchanged blocks may retain their accepted schedules.
+// Coarse timing rejects prefixes that cannot fit in the predecessor. When
+// every source suffix is already at its scheduler-owned lower bound, planning
+// rejects the whole batch before mutation. Every other batch still requires a
+// complete scheduled and allocated trial; unchanged blocks may retain their
+// accepted schedules.
 iree_status_t loom_low_guarded_motion_plan(
     const loom_low_schedule_table_t* schedule, iree_arena_allocator_t* arena,
     loom_low_guarded_motion_plan_t* out_plan);
@@ -59,11 +61,12 @@ iree_status_t loom_low_guarded_motion_apply(
 iree_status_t loom_low_guarded_motion_rollback(
     loom_rewriter_t* rewriter, const loom_low_guarded_motion_plan_t* plan);
 
-// Requires a strict improvement in at least one block and no increase in any
-// block's modeled issue extent. This bounds both outcomes of every guard;
-// acceptance does not assume a branch probability. Allocation economics are
-// checked separately by the emission-frame owner.
+// Requires a strict improvement in at least one guarded source block and no
+// increase in any block's modeled issue extent. This bounds both outcomes of
+// every guard; acceptance does not assume a branch probability. Allocation
+// economics are checked separately by the emission-frame owner.
 bool loom_low_guarded_motion_improves_schedule(
+    const loom_low_guarded_motion_plan_t* plan,
     const loom_low_schedule_table_t* baseline,
     const loom_low_schedule_table_t* trial);
 

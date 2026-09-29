@@ -9,6 +9,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/guarded_motion.h"
 #include "loom/codegen/low/packet.h"
 #include "loom/codegen/low/schedule/diagnostics.h"
 #include "loom/codegen/low/schedule/physical_issue.h"
@@ -665,6 +666,92 @@ low.func.def target<test.low.core> @state_live_out(%state: reg<test.schedule_sta
   ASSERT_EQ(frame.schedule.error_count, 0u);
   ASSERT_EQ(frame.allocation.error_count, 0u);
   EXPECT_EQ(frame.schedule.liveness.region, nullptr);
+}
+
+TEST_F(LowEmissionFrameTest, FailedScheduleDoesNotPublishSourceSuffixBounds) {
+  ModulePtr module = ParseModule(R"(
+low.func.def target<test.low.core> @dependency_cycle(%lhs: reg<test.schedule_state>, %rhs: reg<test.schedule_state>) asm {
+  low.br ^cycle
+^cycle:
+  %old = test.add.schedule_state %lhs, %rhs
+  %writer = test.state.add.schedule_state %lhs, %rhs
+  %cycle = test.explicit.state.add.schedule_state %writer, %old
+  return
+}
+)");
+  uint32_t diagnostic_count = 0;
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
+  options.emitter.fn = [](void* user_data,
+                          const loom_diagnostic_emission_t* emission) {
+    EXPECT_EQ(emission->error, LOOM_ERR_BACKEND_044);
+    ++*static_cast<uint32_t*>(user_data);
+    return iree_ok_status();
+  };
+  options.emitter.user_data = &diagnostic_count;
+  loom_low_emission_frame_t frame = {};
+  bool accepted = true;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &arena_, &frame, &accepted));
+
+  EXPECT_FALSE(accepted);
+  EXPECT_EQ(frame.schedule.error_count, 1u);
+  EXPECT_EQ(frame.schedule.source_suffix_issue_cycle_lower_bounds, nullptr);
+  EXPECT_EQ(diagnostic_count, 1u);
+}
+
+TEST_F(LowEmissionFrameTest, ProvenNoOpGuardedMotionSkipsTrialFrame) {
+  ModulePtr module = ParseModule(R"(
+low.func.def target<test.low.core> @guarded_tail(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) -> (reg<test.i32>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  %tail = test.event.fast.i32 %origin, %pixel
+  %result = test.add.i32 %tail, %pixel
+  return %result
+^done:
+  return %condition
+}
+)");
+  loom_low_planning_statistics_t statistics = {};
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
+  options.statistics = &statistics;
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &arena_, &frame, &accepted));
+
+  EXPECT_TRUE(accepted);
+  EXPECT_NE(frame.schedule.source_suffix_issue_cycle_lower_bounds, nullptr);
+  EXPECT_EQ(statistics.frame_build_count, 1u);
+  EXPECT_EQ(statistics.allocation_run_count, 1u);
+
+  loom_low_schedule_table_t unproven_schedule = frame.schedule;
+  unproven_schedule.source_suffix_issue_cycle_lower_bounds = nullptr;
+  loom_low_guarded_motion_plan_t unproven_plan = {};
+  IREE_ASSERT_OK(loom_low_guarded_motion_plan(&unproven_schedule, &arena_,
+                                              &unproven_plan));
+  ASSERT_EQ(unproven_plan.region_count, 1u);
+  const loom_low_guarded_motion_region_t& region = unproven_plan.regions[0];
+  const uint32_t source_suffix = region.node_start + region.node_count;
+  const uint32_t source_block =
+      frame.schedule.nodes[region.node_start].block_index;
+  const loom_low_schedule_block_t& block = frame.schedule.blocks[source_block];
+  ASSERT_NE(block.issue_group_count, 0u);
+  const uint32_t source_extent =
+      frame.schedule
+          .issue_groups[block.issue_group_start + block.issue_group_count - 1]
+          .issue_cycle;
+  EXPECT_EQ(
+      frame.schedule.source_suffix_issue_cycle_lower_bounds[source_suffix],
+      source_extent);
 }
 
 TEST_F(LowEmissionFrameTest, OrderedEffectUsesDirectionalTimingEndpoints) {

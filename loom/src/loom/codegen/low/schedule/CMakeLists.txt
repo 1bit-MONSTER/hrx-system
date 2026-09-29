@@ -119,6 +119,7 @@ loom_cc_library(
     "diagnostics.h"
     "json.h"
     "run.h"
+    "source_suffix.h"
     "types.h"
   SRCS
     "block.c"
@@ -147,6 +148,7 @@ loom_cc_library(
     "scopes.h"
     "setup_order.c"
     "setup_order.h"
+    "source_suffix.c"
     "storage_lifetime.c"
     "storage_lifetime.h"
     "storage_relation_index.c"
@@ -252,6 +254,20 @@ loom_cc_test(
   DEPS
     ::dependencies
     ::dependency_index
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    source_suffix_test
+  SRCS
+    "source_suffix_test.cc"
+  DEPS
+    ::dependencies
+    ::dependency_index
+    ::schedule
+    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
 )

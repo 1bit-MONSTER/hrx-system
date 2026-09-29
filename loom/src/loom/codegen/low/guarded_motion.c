@@ -113,6 +113,8 @@ iree_status_t loom_low_guarded_motion_plan(
   const loom_cfg_graph_t* graph = &schedule->cfg_graph;
   const loom_low_descriptor_set_t* descriptors =
       schedule->target.descriptor_set;
+  bool every_source_extent_is_proven =
+      schedule->source_suffix_issue_cycle_lower_bounds != NULL;
   iree_status_t status = iree_ok_status();
   for (uint32_t block_index = 0;
        iree_status_is_ok(status) && block_index < schedule->block_count;
@@ -192,6 +194,12 @@ iree_status_t loom_low_guarded_motion_plan(
       }
     }
     if (iree_status_is_ok(status)) {
+      const uint32_t source_suffix = block->node_start + prefix_count;
+      if (schedule->source_suffix_issue_cycle_lower_bounds != NULL &&
+          schedule->source_suffix_issue_cycle_lower_bounds[source_suffix] !=
+              loom_low_guarded_motion_block_extent(schedule, block_index)) {
+        every_source_extent_is_proven = false;
+      }
       out_plan->regions[out_plan->region_count++] =
           (loom_low_guarded_motion_region_t){
               .node_start = block->node_start,
@@ -204,6 +212,9 @@ iree_status_t loom_low_guarded_motion_plan(
       iree_bitmap_set(out_plan->changed_blocks, parent_index);
       iree_bitmap_set(out_plan->changed_blocks, block_index);
     }
+  }
+  if (every_source_extent_is_proven) {
+    out_plan->region_count = 0;
   }
   return status;
 }
@@ -241,16 +252,23 @@ iree_status_t loom_low_guarded_motion_rollback(
 }
 
 bool loom_low_guarded_motion_improves_schedule(
+    const loom_low_guarded_motion_plan_t* plan,
     const loom_low_schedule_table_t* baseline,
     const loom_low_schedule_table_t* trial) {
-  bool improved = false;
   for (uint32_t i = 0; i < baseline->block_count; ++i) {
     const uint32_t before = loom_low_guarded_motion_block_extent(baseline, i);
     const uint32_t after = loom_low_guarded_motion_block_extent(trial, i);
     if (after > before) {
       return false;
     }
-    improved |= after < before;
   }
-  return improved;
+  for (uint32_t i = 0; i < plan->region_count; ++i) {
+    const uint32_t source_block =
+        baseline->nodes[plan->regions[i].node_start].block_index;
+    if (loom_low_guarded_motion_block_extent(trial, source_block) <
+        loom_low_guarded_motion_block_extent(baseline, source_block)) {
+      return true;
+    }
+  }
+  return false;
 }
