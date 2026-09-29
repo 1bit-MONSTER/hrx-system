@@ -637,6 +637,29 @@ class CliTest(unittest.TestCase):
         )
         self.assertIsNone(bazel_dev.header_path_for_include("stdio.h"))
 
+    def test_bazel_try_finds_generated_header_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "generated"
+            package.mkdir()
+            (package / "BUILD.bazel").write_text("")
+            query = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="//generated:descriptor_ids\n", stderr=""
+            )
+            with (
+                mock.patch.object(bazel_dev, "REPO_ROOT", root),
+                mock.patch.object(
+                    bazel_dev, "run_captured", return_value=query
+                ) as run_captured,
+            ):
+                dep = bazel_dev.infer_dep_for_header_path(
+                    "bazel", package / "descriptors.h", env=None
+                )
+
+            self.assertEqual(dep, "//generated:descriptor_ids")
+            run_captured.assert_called_once()
+            self.assertIn("//generated:*", run_captured.call_args.args[0][2])
+
     def test_bazel_try_finds_exported_header_owner_in_subpackage(self):
         direct_query = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="", stderr=""
