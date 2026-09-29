@@ -418,6 +418,7 @@ def descriptor_set_view_for_spec(
         operand_forms=operand_forms,
         uses_storage_descriptor_tables=uses_storage_descriptor_tables,
         uses_storage_descriptor_view_tables=uses_storage_descriptor_view_tables,
+        uses_storage_descriptor_ref_tables=uses_storage_descriptor_tables,
         uses_storage_asm_form_tables=uses_storage_asm_form_tables,
         uses_storage_operand_form_tables=uses_storage_operand_form_tables,
         uses_storage_schedule_alternative_tables=(schedule_alternative_rows == compiled.schedule_alternative_rows[: len(schedule_alternative_rows)]),

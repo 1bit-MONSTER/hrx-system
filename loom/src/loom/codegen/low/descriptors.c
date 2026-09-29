@@ -496,7 +496,10 @@ uint32_t loom_low_descriptor_set_lookup_descriptor(
         descriptor_set, descriptor_ref->key_string_ref);
     const int comparison = iree_string_view_compare(descriptor_ref_key, key);
     if (comparison == 0) {
-      return descriptor_ref->descriptor_ordinal;
+      return descriptor_ref->descriptor_ordinal <
+                     descriptor_set->descriptor_count
+                 ? descriptor_ref->descriptor_ordinal
+                 : LOOM_LOW_DESCRIPTOR_ORDINAL_NONE;
     }
     if (comparison < 0) {
       low = mid + 1;

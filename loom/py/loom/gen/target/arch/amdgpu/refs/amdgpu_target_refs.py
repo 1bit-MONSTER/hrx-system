@@ -63,6 +63,7 @@ from loom.target.arch.amdgpu.target_info import (  # noqa: E402
     AMDGPU_DESCRIPTOR_SET_INFO_FLAG_STORE_DATA_WAIT_STATES,
     AmdgpuDescriptorSetInfo,
     amdgpu_descriptor_set_ordinal,
+    amdgpu_descriptor_set_supported_target_contract_keys,
     sorted_descriptor_set_infos,
 )
 from loom.target.low_descriptors import (  # noqa: E402
@@ -269,6 +270,18 @@ def select_target_ref_descriptor_set_infos(
         except KeyError as exc:
             raise ValueError(f"AMDGPU target-ref generator got unknown descriptor set '{descriptor_set_key}'") from exc
     return tuple(infos)
+
+
+def _materialization_descriptor_set_infos(
+    selected_infos: Sequence[AmdgpuDescriptorSetInfo],
+) -> tuple[AmdgpuDescriptorSetInfo, ...]:
+    """Adds portable views that determine exact descriptor storage order."""
+
+    selected_keys = {info.key for info in selected_infos}
+    for info in sorted_descriptor_set_infos():
+        if info.member_generator_targets and selected_keys.intersection(amdgpu_descriptor_set_supported_target_contract_keys(info)):
+            selected_keys.add(info.key)
+    return tuple(info for info in sorted_descriptor_set_infos() if info.key in selected_keys)
 
 
 def _c_identifier(value: str) -> str:
@@ -942,18 +955,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     descriptor_set_infos = select_target_ref_descriptor_set_infos(args.descriptor_set)
+    materialization_infos = _materialization_descriptor_set_infos(descriptor_set_infos)
     isa_specs = parse_amdgpu_isa_xml_paths_for_instructions(
         _parse_isa_xml_paths(args.isa_xml),
-        amdgpu_core_descriptor_set_instruction_names_by_isa_key(descriptor_set_infos),
+        amdgpu_core_descriptor_set_instruction_names_by_isa_key(materialization_infos),
     )
     descriptor_sets_by_target = build_amdgpu_core_descriptor_sets_from_specs(
-        tuple(info.generator_target for info in descriptor_set_infos),
+        tuple(info.generator_target for info in materialization_infos),
         isa_specs,
     )
     generate_target_ref_outputs(
         public_header=args.public_header,
         descriptor_set_infos=descriptor_set_infos,
-        descriptor_sets_by_key={info.key: descriptor_sets_by_target[info.generator_target] for info in descriptor_set_infos},
+        descriptor_sets_by_key={info.key: descriptor_sets_by_target[info.generator_target] for info in materialization_infos},
         header_path=args.header,
         source_path=args.source,
     )

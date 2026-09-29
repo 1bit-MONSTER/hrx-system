@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 44u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 45u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -1370,8 +1370,9 @@ typedef struct loom_low_descriptor_set_t {
   const uint64_t* supported_target_contract_stable_ids;
   // Number of identities in |supported_target_contract_stable_ids|.
   uint16_t supported_target_contract_count;
-  // Target-generated dense descriptor-set ordinal, or NONE when this set is not
-  // part of a target-owned dense descriptor-set table.
+  // Dense ordinal of the target-owned tables backing this view, or NONE when
+  // the view has no target-owned tables. Views over the same generated storage
+  // share this ordinal while retaining distinct stable identities and counts.
   uint16_t descriptor_set_ordinal;
   // String-pool reference for the descriptor-set key.
   loom_string_ref_t key_string_ref;
@@ -1387,9 +1388,11 @@ typedef struct loom_low_descriptor_set_t {
   const loom_low_descriptor_view_t* descriptor_views;
   // Number of descriptor rows owned by this set.
   uint32_t descriptor_count;
-  // Sorted symbolic descriptor-key reference rows.
+  // Sorted symbolic descriptor-key reference rows. Shared backing storage may
+  // include references to a hidden descriptor suffix; lookup filters those
+  // rows against |descriptor_count|.
   const loom_low_descriptor_ref_t* descriptor_refs;
-  // Number of symbolic descriptor-key reference rows.
+  // Number of symbolic descriptor-key reference rows in backing storage.
   uint32_t descriptor_ref_count;
   // Sparse encoding-equivalent physical forms available during scheduling.
   const loom_low_schedule_alternative_t* schedule_alternatives;

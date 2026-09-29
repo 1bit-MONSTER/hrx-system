@@ -1,0 +1,144 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Two waves repeatedly exchange distinct records through one LDS tile. The
+// first wave performs a longer private calculation after releasing the tile;
+// the second wave can stage the next record while that calculation continues.
+// An LDS completion wait before arrival makes every released read safe from the
+// next generation's overwrite.
+amdgpu.target<gfx12-generic> @target
+
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @split_arrive() asm {
+  s_wait_dscnt {dscnt = 0}
+  s_barrier_signal_all
+  return
+}
+
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @split_wait() asm {
+  s_barrier_wait_all
+  return
+}
+
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @long_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %sum0 = v_add_u32 %sum, %value
+  %sum1 = v_add_u32_src0_inline %sum0, 1
+  %sum2 = v_add_u32_src0_inline %sum1, 1
+  %sum3 = v_add_u32_src0_inline %sum2, 1
+  %sum4 = v_add_u32_src0_inline %sum3, 1
+  %sum5 = v_add_u32_src0_inline %sum4, 1
+  %sum6 = v_add_u32_src0_inline %sum5, 1
+  %sum7 = v_add_u32_src0_inline %sum6, 1
+  %sum8 = v_add_u32_src0_inline %sum7, 1
+  %sum9 = v_add_u32_src0_inline %sum8, 1
+  %sum10 = v_add_u32_src0_inline %sum9, 1
+  %sum11 = v_add_u32_src0_inline %sum10, 1
+  %sum12 = v_add_u32_src0_inline %sum11, 1
+  %sum13 = v_add_u32_src0_inline %sum12, 1
+  %sum14 = v_add_u32_src0_inline %sum13, 1
+  %sum15 = v_add_u32_src0_inline %sum14, 1
+  %sum16 = v_add_u32_src0_inline %sum15, 1
+  return %sum16
+}
+
+low.func.def target<amdgpu.gfx12.generic.core>(@target) @short_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %sum0 = v_add_u32 %sum, %value
+  %sum16 = v_add_u32_src0_inline %sum0, 16
+  return %sum16
+}
+
+kernel.def target(@target) @split_barrier_reuse() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c4 = index.constant 4 : index
+  %last = index.constant 63 : index
+  %lane = kernel.workitem.id<x> : index
+  %subgroup = kernel.subgroup.id : index
+  %is_first_subgroup = index.cmp eq, %subgroup, %c0 : index
+  %peer = index.sub %last, %lane : index
+  %base = index.constant 0 : offset
+  %scratch_bytes = index.constant 256 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4x64xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+  %tile = buffer.view %scratch[%base] : buffer -> view<64xi32>
+  %c0_i32 = scalar.constant 0 : i32
+  %initial = vector.splat %c0_i32 : vector<1xi32>
+  %total = scf.for %record = [%c0 to %c4 step %c1](%sum = %initial : vector<1xi32>) -> (vector<1xi32>) {
+    %current = vector.load %source[%record, %lane] : view<4x64xi32> -> vector<1xi32>
+    vector.store %current, %tile[%lane] : vector<1xi32>, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = vector.load %tile[%peer] : view<64xi32> -> vector<1xi32>
+    low.invoke @split_arrive() : ()
+    %updated = scf.if %is_first_subgroup -> (vector<1xi32>) {
+      %long = low.invoke @long_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      scf.yield %long : vector<1xi32>
+    } else {
+      %short = low.invoke @short_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      scf.yield %short : vector<1xi32>
+    }
+    low.invoke @split_wait() : ()
+    scf.yield %updated : vector<1xi32>
+  }
+  vector.store %total, %destination[%lane] : vector<1xi32>, view<64xi32>
+  kernel.return
+}
+
+kernel.def target(@target) @full_barrier_reuse() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c4 = index.constant 4 : index
+  %last = index.constant 63 : index
+  %lane = kernel.workitem.id<x> : index
+  %subgroup = kernel.subgroup.id : index
+  %is_first_subgroup = index.cmp eq, %subgroup, %c0 : index
+  %peer = index.sub %last, %lane : index
+  %base = index.constant 0 : offset
+  %scratch_bytes = index.constant 256 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4x64xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<64xi32>
+  %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+  %tile = buffer.view %scratch[%base] : buffer -> view<64xi32>
+  %c0_i32 = scalar.constant 0 : i32
+  %initial = vector.splat %c0_i32 : vector<1xi32>
+  %total = scf.for %record = [%c0 to %c4 step %c1](%sum = %initial : vector<1xi32>) -> (vector<1xi32>) {
+    %current = vector.load %source[%record, %lane] : view<4x64xi32> -> vector<1xi32>
+    vector.store %current, %tile[%lane] : vector<1xi32>, view<64xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %observed = vector.load %tile[%peer] : view<64xi32> -> vector<1xi32>
+    %updated = scf.if %is_first_subgroup -> (vector<1xi32>) {
+      %long = low.invoke @long_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      scf.yield %long : vector<1xi32>
+    } else {
+      %short = low.invoke @short_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      scf.yield %short : vector<1xi32>
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    scf.yield %updated : vector<1xi32>
+  }
+  vector.store %total, %destination[%lane] : vector<1xi32>, view<64xi32>
+  kernel.return
+}
+
+check.case public @split_barrier_reuse_case {
+  check.requires<hal.amdgpu.descriptor_set> {descriptor_set = "amdgpu.gfx12.generic.core"}
+  %input = check.generate.iota offset(1) step(1) : tensor<4x64xi32>
+  %split_output = check.generate.fill value(-1) : tensor<64xi32>
+  %full_output = check.generate.fill value(-2) : tensor<64xi32>
+  %expected = check.generate.iota offset(704) step(-4) : tensor<64xi32>
+  kernel.launch @split_barrier_reuse(%input, %split_output) : (tensor<4x64xi32>, tensor<64xi32>)
+  kernel.launch @full_barrier_reuse(%input, %full_output) : (tensor<4x64xi32>, tensor<64xi32>)
+  check.expect.bitwise actual(%split_output) expected(%full_output) : tensor<64xi32>
+  check.expect.bitwise actual(%split_output) expected(%expected) : tensor<64xi32>
+  check.return
+}

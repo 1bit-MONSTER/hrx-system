@@ -738,6 +738,7 @@ class DescriptorSet:
     resources: tuple[Resource, ...]
     schedule_classes: tuple[ScheduleClass, ...]
     descriptors: tuple[Descriptor, ...]
+    # Dense target-table storage ordinal shared by views over the same tables.
     descriptor_set_ordinal: int | None = None
     physical_registers: tuple[PhysicalRegister, ...] = ()
     physical_register_views: tuple[PhysicalRegisterView, ...] = ()

@@ -21,6 +21,7 @@ from loom.target.arch.amdgpu.encoding import (
     AMDGPU_ENCODING_FORMAT_VOP1_SDWA,
 )
 from loom.target.arch.amdgpu.target_info import (
+    amdgpu_descriptor_set_info_by_generator_target,
     amdgpu_descriptor_set_ordinal,
     sorted_descriptor_set_infos,
 )
@@ -282,6 +283,14 @@ def test_target_ref_tables_use_prebuilt_descriptor_sets() -> None:
     assert len(tables) == 1
     assert tables[0].descriptor_set_key == descriptor_set_info.key
     assert tables[0].descriptor_set_ordinal == amdgpu_descriptor_set_ordinal(descriptor_set_info.key)
+
+
+def test_exact_target_materialization_includes_compatible_portable_view() -> None:
+    rdna3_5_info = amdgpu_descriptor_set_info_by_generator_target("rdna3_5")
+    gfx11_info = amdgpu_descriptor_set_info_by_generator_target("gfx11_generic")
+
+    assert set(amdgpu_target_refs._materialization_descriptor_set_infos((rdna3_5_info,))) == {rdna3_5_info, gfx11_info}
+    assert amdgpu_target_refs._materialization_descriptor_set_infos((gfx11_info,)) == (gfx11_info,)
 
 
 def test_target_ref_source_shares_exact_tables() -> None:

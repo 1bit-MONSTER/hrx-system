@@ -64,6 +64,17 @@ def amdgpu_low_descriptor_provider_symbol(key: str) -> str:
     return "loom_" + amdgpu_label_fragment(key) + "_descriptor_set"
 
 
+def amdgpu_low_descriptor_storage_view_provider_symbol(
+    key: str, storage_generator_target: str
+) -> str:
+    return (
+        amdgpu_low_descriptor_provider_symbol(key)
+        + "_from_"
+        + amdgpu_label_fragment(storage_generator_target)
+        + "_storage"
+    )
+
+
 def amdgpu_encoding_table_header(info: AmdgpuDescriptorSetNameInfo) -> str:
     return f"loom/target/arch/amdgpu/encoding/{info.generator_target}_encoding_tables.h"
 

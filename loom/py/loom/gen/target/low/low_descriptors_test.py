@@ -1578,6 +1578,7 @@ def test_descriptor_set_family_emits_one_storage_table_and_ordered_headers() -> 
     )
     assert compiled_view.uses_storage_descriptor_tables
     assert compiled_view.uses_storage_descriptor_view_tables
+    assert compiled_view.uses_storage_descriptor_ref_tables
     assert compiled_view.uses_storage_asm_form_tables
     assert compiled_view.uses_storage_operand_form_tables
     assert len(compiled_view.canonical_asm_form_ordinals) == 1
@@ -1591,8 +1592,8 @@ def test_descriptor_set_family_emits_one_storage_table_and_ordered_headers() -> 
     assert source.count("static const loom_low_descriptor_t kTestLowCoreDescriptors[]") == 1
     assert "kTestLowExtensionCoreDescriptors" not in source
     assert ".descriptors = kTestLowCoreDescriptors," in source
-    assert ".descriptor_refs = kTestLowCoreDescriptorRefs," in source
-    assert ".descriptor_refs = kTestLowExtensionCoreDescriptorRefs," in source
+    assert source.count(".descriptor_refs = kTestLowCoreDescriptorRefs,") == 2
+    assert "kTestLowExtensionCoreDescriptorRefs" not in source
     assert "kTestLowExtensionCoreAsmForms" not in source
     assert "kTestLowExtensionCoreOperandForms" not in source
     assert source.count(".asm_forms = kTestLowCoreAsmForms,") == 2
