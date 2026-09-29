@@ -1,0 +1,149 @@
+// Adjacent cells share CAS words across wave boundaries. Interior views and
+// guard cells expose misplaced writes; divergent retries preserve retired lanes.
+kernel.def @subword_cmpxchg_i8() {
+  %unit = index.constant 1 : index
+  %width = index.constant 65 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %guard_output: buffer) {
+  %origin = index.constant 0 : offset
+  %cell_origin = index.constant 2 : offset
+  %bytes = index.constant 68 : offset
+  %lane = kernel.workitem.id<x> : index
+  %scratch = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %cells = buffer.view %scratch[%cell_origin] : buffer -> view<65xi8>
+  %storage = buffer.view %scratch[%origin] : buffer -> view<68xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<4x65xi8>
+  %guards = buffer.view %guard_output[%origin] : buffer -> view<2xi8>
+  %initial = scalar.constant -128 : i8
+  %replacement = scalar.constant 71 : i8
+  %next = scalar.constant 72 : i8
+  %guard = scalar.constant 77 : i8
+  %first_lane = index.constant 0 : index
+  %is_first = index.cmp eq, %lane, %first_lane : index
+  scf.if %is_first {
+    view.store %guard, %storage[0] : i8, view<68xi8>
+    view.store %guard, %storage[67] : i8, view<68xi8>
+  }
+  view.store %initial, %cells[%lane] : i8, view<65xi8>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %old = view.atomic.cmpxchg %initial, %replacement, %cells[%lane] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : i8, view<65xi8> -> i8
+  view.store %old, %results[0, %lane] : i8, view<4x65xi8>
+  %pair_size = index.constant 2 : index
+  %parity = index.rem %lane, %pair_size : index
+  %even = index.cmp eq, %parity, %first_lane : index
+  %second = scf.if %even -> (i8) {
+    %observed = view.atomic.cmpxchg %replacement, %next, %cells[%lane] {failure_ordering = relaxed, scope = subgroup, success_ordering = relaxed} : i8, view<65xi8> -> i8
+    scf.yield %observed : i8
+  } else {
+    %observed = view.load %cells[%lane] : view<65xi8> -> i8
+    scf.yield %observed : i8
+  }
+  view.store %second, %results[1, %lane] : i8, view<4x65xi8>
+  %failed = view.atomic.cmpxchg %initial, %replacement, %cells[%lane] {failure_ordering = seq_cst, scope = system, success_ordering = seq_cst} : i8, view<65xi8> -> i8
+  view.store %failed, %results[2, %lane] : i8, view<4x65xi8>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %final = view.load %cells[%lane] : view<65xi8> -> i8
+  view.store %final, %results[3, %lane] : i8, view<4x65xi8>
+  scf.if %is_first {
+    %prefix = view.load %storage[0] : view<68xi8> -> i8
+    %suffix = view.load %storage[67] : view<68xi8> -> i8
+    view.store %prefix, %guards[0] : i8, view<2xi8>
+    view.store %suffix, %guards[1] : i8, view<2xi8>
+  }
+  kernel.return
+}
+
+check.case public @subword_cmpxchg_values_i8 {
+  %output = check.generate.fill value(0) : tensor<4x65xi8>
+  %guards = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @subword_cmpxchg_i8(%output, %guards) : (tensor<4x65xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<4x65xi8> -> tensor<65xi8>
+  %expected_old = check.generate.fill value(-128) : tensor<65xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<65xi8>
+  %second = check.tensor.view %output offset(65) : tensor<4x65xi8> -> tensor<65xi8>
+  %expected_second = check.generate.fill value(71) : tensor<65xi8>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<65xi8>
+  %expected_final = check.generate.iota offset(72) step(-1) period(2) : tensor<65xi8>
+  %failed = check.tensor.view %output offset(130) : tensor<4x65xi8> -> tensor<65xi8>
+  check.expect.bitwise actual(%failed) expected(%expected_final) : tensor<65xi8>
+  %final = check.tensor.view %output offset(195) : tensor<4x65xi8> -> tensor<65xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<65xi8>
+  %expected_guard = check.generate.fill value(77) : tensor<2xi8>
+  check.expect.bitwise actual(%guards) expected(%expected_guard) : tensor<2xi8>
+  check.return
+}
+
+// Adjacent cells share CAS words across wave boundaries. Interior views and
+// guard cells expose misplaced writes; divergent retries preserve retired lanes.
+kernel.def @subword_cmpxchg_i16() {
+  %unit = index.constant 1 : index
+  %width = index.constant 65 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %guard_output: buffer) {
+  %origin = index.constant 0 : offset
+  %cell_origin = index.constant 4 : offset
+  %bytes = index.constant 136 : offset
+  %lane = kernel.workitem.id<x> : index
+  %scratch = buffer.alloca<workgroup> align(2) %bytes : buffer
+  %cells = buffer.view %scratch[%cell_origin] : buffer -> view<65xi16>
+  %storage = buffer.view %scratch[%origin] : buffer -> view<68xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<4x65xi16>
+  %guards = buffer.view %guard_output[%origin] : buffer -> view<2xi16>
+  %initial = scalar.constant -32768 : i16
+  %replacement = scalar.constant 71 : i16
+  %next = scalar.constant 72 : i16
+  %guard = scalar.constant 77 : i16
+  %first_lane = index.constant 0 : index
+  %is_first = index.cmp eq, %lane, %first_lane : index
+  scf.if %is_first {
+    view.store %guard, %storage[0] : i16, view<68xi16>
+    view.store %guard, %storage[67] : i16, view<68xi16>
+  }
+  view.store %initial, %cells[%lane] : i16, view<65xi16>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %old = view.atomic.cmpxchg %initial, %replacement, %cells[%lane] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : i16, view<65xi16> -> i16
+  view.store %old, %results[0, %lane] : i16, view<4x65xi16>
+  %pair_size = index.constant 2 : index
+  %parity = index.rem %lane, %pair_size : index
+  %even = index.cmp eq, %parity, %first_lane : index
+  %second = scf.if %even -> (i16) {
+    %observed = view.atomic.cmpxchg %replacement, %next, %cells[%lane] {failure_ordering = relaxed, scope = subgroup, success_ordering = relaxed} : i16, view<65xi16> -> i16
+    scf.yield %observed : i16
+  } else {
+    %observed = view.load %cells[%lane] : view<65xi16> -> i16
+    scf.yield %observed : i16
+  }
+  view.store %second, %results[1, %lane] : i16, view<4x65xi16>
+  %failed = view.atomic.cmpxchg %initial, %replacement, %cells[%lane] {failure_ordering = seq_cst, scope = system, success_ordering = seq_cst} : i16, view<65xi16> -> i16
+  view.store %failed, %results[2, %lane] : i16, view<4x65xi16>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %final = view.load %cells[%lane] : view<65xi16> -> i16
+  view.store %final, %results[3, %lane] : i16, view<4x65xi16>
+  scf.if %is_first {
+    %prefix = view.load %storage[0] : view<68xi16> -> i16
+    %suffix = view.load %storage[67] : view<68xi16> -> i16
+    view.store %prefix, %guards[0] : i16, view<2xi16>
+    view.store %suffix, %guards[1] : i16, view<2xi16>
+  }
+  kernel.return
+}
+
+check.case public @subword_cmpxchg_values_i16 {
+  %output = check.generate.fill value(0) : tensor<4x65xi16>
+  %guards = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @subword_cmpxchg_i16(%output, %guards) : (tensor<4x65xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<4x65xi16> -> tensor<65xi16>
+  %expected_old = check.generate.fill value(-32768) : tensor<65xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<65xi16>
+  %second = check.tensor.view %output offset(130) : tensor<4x65xi16> -> tensor<65xi16>
+  %expected_second = check.generate.fill value(71) : tensor<65xi16>
+  check.expect.bitwise actual(%second) expected(%expected_second) : tensor<65xi16>
+  %expected_final = check.generate.iota offset(72) step(-1) period(2) : tensor<65xi16>
+  %failed = check.tensor.view %output offset(260) : tensor<4x65xi16> -> tensor<65xi16>
+  check.expect.bitwise actual(%failed) expected(%expected_final) : tensor<65xi16>
+  %final = check.tensor.view %output offset(390) : tensor<4x65xi16> -> tensor<65xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<65xi16>
+  %expected_guard = check.generate.fill value(77) : tensor<2xi16>
+  check.expect.bitwise actual(%guards) expected(%expected_guard) : tensor<2xi16>
+  check.return
+}

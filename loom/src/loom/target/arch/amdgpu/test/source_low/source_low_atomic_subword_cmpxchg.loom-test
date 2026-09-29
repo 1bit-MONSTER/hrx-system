@@ -1,0 +1,132 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_atomic_subword_cmpxchg.loom-test
+// RUN: with-checks emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @subword_i8(%expected: i8, %replacement: i8) -> (i8) {
+  %origin = index.constant 1 : offset
+  %bytes = index.constant 3 : offset
+  %storage = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi8>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : i8, view<1xi8> -> i8
+  func.return %old : i8
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = ds_cmpst_rtn_b32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_i16(%expected: i16, %replacement: i16) -> (i16) {
+  %origin = index.constant 2 : offset
+  %bytes = index.constant 6 : offset
+  %storage = buffer.alloca<workgroup> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi16>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : i16, view<1xi16> -> i16
+  func.return %old : i16
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = ds_cmpst_rtn_b32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_f16(%expected: f16, %replacement: f16) -> (f16) {
+  %origin = index.constant 2 : offset
+  %bytes = index.constant 6 : offset
+  %storage = buffer.alloca<workgroup> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf16>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : f16, view<1xf16> -> f16
+  func.return %old : f16
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = ds_cmpst_rtn_b32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_bf16(%expected: bf16, %replacement: bf16) -> (bf16) {
+  %origin = index.constant 2 : offset
+  %bytes = index.constant 6 : offset
+  %storage = buffer.alloca<workgroup> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xbf16>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : bf16, view<1xbf16> -> bf16
+  func.return %old : bf16
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = ds_cmpst_rtn_b32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_f8e4m3(%expected: f8E4M3, %replacement: f8E4M3) -> (f8E4M3) {
+  %origin = index.constant 1 : offset
+  %bytes = index.constant 3 : offset
+  %storage = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf8E4M3>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : f8E4M3, view<1xf8E4M3> -> f8E4M3
+  func.return %old : f8E4M3
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = ds_cmpst_rtn_b32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_f8e5m2(%expected: f8E5M2, %replacement: f8E5M2) -> (f8E5M2) {
+  %origin = index.constant 1 : offset
+  %bytes = index.constant 3 : offset
+  %storage = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf8E5M2>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : f8E5M2, view<1xf8E5M2> -> f8E5M2
+  func.return %old : f8E5M2
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = ds_cmpst_rtn_b32 *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
