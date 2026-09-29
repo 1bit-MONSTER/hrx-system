@@ -199,17 +199,16 @@ iree_diagnostic_emitter_t loom_target_entry_emitter(
 }
 
 static iree_status_t loom_target_entry_emit(
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
-    const loom_op_t* op, const loom_error_def_t* error,
-    const loom_diagnostic_param_t* params, iree_host_size_t param_count) {
+    iree_diagnostic_emitter_t diagnostic_emitter, const loom_op_t* op,
+    const loom_error_def_t* error, const loom_diagnostic_param_t* params,
+    iree_host_size_t param_count) {
   const loom_diagnostic_emission_t emission = {
       .op = op,
       .error = error,
       .params = params,
       .param_count = param_count,
   };
-  return iree_diagnostic_emit(loom_target_entry_emitter(diagnostic_emitter),
-                              &emission);
+  return iree_diagnostic_emit(diagnostic_emitter, &emission);
 }
 
 iree_status_t loom_target_entry_verify_module(
@@ -274,9 +273,8 @@ static void loom_target_entry_from_facts(
 }
 
 static iree_status_t loom_target_entry_emit_missing_target_record(
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
-    const loom_op_t* op, iree_string_view_t pipeline_name,
-    iree_string_view_t function_name) {
+    iree_diagnostic_emitter_t diagnostic_emitter, const loom_op_t* op,
+    iree_string_view_t pipeline_name, iree_string_view_t function_name) {
   const loom_diagnostic_param_t params[] = {
       loom_param_string(pipeline_name),
       loom_param_string(function_name),
@@ -286,7 +284,7 @@ static iree_status_t loom_target_entry_emit_missing_target_record(
 }
 
 static iree_status_t loom_target_entry_emit_incompatible_bundle(
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     const loom_target_entry_t* entry, iree_string_view_t pipeline_name) {
   const loom_target_bundle_t* bundle = loom_target_entry_bundle(entry);
   const loom_target_snapshot_t* snapshot = bundle->snapshot;
@@ -318,7 +316,7 @@ static iree_status_t loom_target_entry_emit_incompatible_bundle(
 }
 
 static iree_status_t loom_target_entry_emit_no_compatible_entry(
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     iree_string_view_t pipeline_name) {
   const loom_diagnostic_param_t params[] = {
       loom_param_string(pipeline_name),
@@ -328,7 +326,7 @@ static iree_status_t loom_target_entry_emit_no_compatible_entry(
 }
 
 static iree_status_t loom_target_entry_emit_ambiguous_entry(
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     iree_string_view_t pipeline_name, uint32_t candidate_count) {
   const loom_diagnostic_param_t params[] = {
       loom_param_string(pipeline_name),
@@ -342,7 +340,7 @@ static iree_status_t loom_target_entry_try_entry(
     const loom_module_t* module, loom_symbol_fact_table_t* fact_table,
     const loom_target_function_version_snapshot_t* function_versions,
     loom_symbol_id_t symbol_id, loom_target_entry_predicate_t predicate,
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     iree_string_view_t pipeline_name, bool require_artifact_root,
     bool require_compatible, bool* out_compatible,
     loom_target_entry_t* out_entry) {
@@ -393,8 +391,7 @@ static iree_status_t loom_target_entry_try_entry(
     contract_valid = true;
   } else {
     IREE_RETURN_IF_ERROR(loom_target_function_contract_resolve_facts(
-        module, fact_table, func_facts,
-        loom_target_entry_emitter(diagnostic_emitter), fact_table->arena,
+        module, fact_table, func_facts, diagnostic_emitter, fact_table->arena,
         &contract_valid, &entry.target_facts));
   }
   if (!contract_valid) {
@@ -418,7 +415,7 @@ static iree_status_t loom_target_entry_select_named_entry(
     const loom_module_t* module, loom_symbol_fact_table_t* fact_table,
     const loom_target_function_version_snapshot_t* function_versions,
     iree_string_view_t entry_symbol, loom_target_entry_predicate_t predicate,
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     iree_string_view_t pipeline_name, bool* out_selected,
     loom_target_entry_t* out_entry) {
   *out_selected = false;
@@ -443,7 +440,7 @@ static iree_status_t loom_target_entry_select_single_entry(
     const loom_module_t* module, loom_symbol_fact_table_t* fact_table,
     const loom_target_function_version_snapshot_t* function_versions,
     loom_target_entry_predicate_t predicate,
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
+    iree_diagnostic_emitter_t diagnostic_emitter,
     iree_string_view_t pipeline_name, bool* out_selected,
     loom_target_entry_t* out_entry) {
   *out_selected = false;
@@ -493,24 +490,27 @@ iree_status_t loom_target_entry_select_entry(
   IREE_RETURN_IF_ERROR(loom_target_function_version_snapshot_build(
       module, options ? options->function_versions : NULL, arena,
       &function_versions));
+  const iree_diagnostic_emitter_t emitter =
+      loom_target_entry_emitter(diagnostic_emitter);
 
   iree_string_view_t entry_symbol = loom_target_entry_symbol_name(options);
   if (!iree_string_view_is_empty(entry_symbol)) {
     return loom_target_entry_select_named_entry(
         module, &fact_table, &function_versions, entry_symbol, predicate,
-        diagnostic_emitter, entry_kind, out_selected, out_entry);
+        emitter, entry_kind, out_selected, out_entry);
   }
   return loom_target_entry_select_single_entry(
-      module, &fact_table, &function_versions, predicate, diagnostic_emitter,
-      entry_kind, out_selected, out_entry);
+      module, &fact_table, &function_versions, predicate, emitter, entry_kind,
+      out_selected, out_entry);
 }
 
 iree_status_t loom_target_entry_select_all_entries(
-    const loom_module_t* module, const loom_target_entry_options_t* options,
+    const loom_module_t* module,
+    const loom_function_version_list_t* function_version_list,
     loom_target_entry_predicate_t predicate,
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
-    iree_string_view_t entry_kind, iree_arena_allocator_t* arena,
-    bool* out_selected, loom_target_entry_list_t* out_entries) {
+    iree_diagnostic_emitter_t diagnostic_emitter, iree_string_view_t entry_kind,
+    iree_arena_allocator_t* arena, bool* out_selected,
+    loom_target_entry_list_t* out_entries) {
   *out_entries = (loom_target_entry_list_t){0};
   *out_selected = false;
 
@@ -524,8 +524,7 @@ iree_status_t loom_target_entry_select_all_entries(
   loom_target_entry_initialize_fact_table(arena, &fact_table);
   loom_target_function_version_snapshot_t function_versions = {0};
   IREE_RETURN_IF_ERROR(loom_target_function_version_snapshot_build(
-      module, options ? options->function_versions : NULL, arena,
-      &function_versions));
+      module, function_version_list, arena, &function_versions));
 
   iree_host_size_t entry_count = 0;
   const loom_block_t* module_block =

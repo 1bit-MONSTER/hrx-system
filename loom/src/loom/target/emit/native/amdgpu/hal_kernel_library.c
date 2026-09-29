@@ -1134,7 +1134,8 @@ iree_status_t loom_amdgpu_emit_hal_kernel_library(
   bool selected = false;
   if (iree_status_is_ok(status)) {
     status = loom_target_entry_select_all_entries(
-        module, &target_options, entry_predicate, &diagnostic_emitter,
+        module, target_options.function_versions, entry_predicate,
+        loom_target_entry_emitter(&diagnostic_emitter),
         IREE_SV("AMDGPU HAL-native"), &table_arena, &selected, &entries);
   }
   if (iree_status_is_ok(status) && selected &&

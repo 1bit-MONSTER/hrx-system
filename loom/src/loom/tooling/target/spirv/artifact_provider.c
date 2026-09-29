@@ -197,7 +197,8 @@ static iree_status_t loom_spirv_artifact_provider_emit_artifact(
   loom_target_entry_list_t entries = {0};
   bool selected = false;
   iree_status_t status = loom_target_entry_select_all_entries(
-      module, &target_options, entry_predicate, &diagnostic_emitter,
+      module, target_options.function_versions, entry_predicate,
+      loom_target_entry_emitter(&diagnostic_emitter),
       IREE_SV("SPIR-V Vulkan HAL"), &arena, &selected, &entries);
   if (iree_status_is_ok(status) && selected &&
       diagnostic_emitter.error_count == 0) {

@@ -159,7 +159,8 @@ class TargetEntrySelectionTest : public ::testing::Test {
     bool selected = false;
     loom_target_entry_list_t entries = {};
     IREE_CHECK_OK(loom_target_entry_select_all_entries(
-        module, &options, predicate, &diagnostic_emitter, IREE_SV("test"),
+        module, options.function_versions, predicate,
+        loom_target_entry_emitter(&diagnostic_emitter), IREE_SV("test"),
         &analysis_arena_, &selected, &entries));
     IREE_ASSERT(selected);
     return entries;

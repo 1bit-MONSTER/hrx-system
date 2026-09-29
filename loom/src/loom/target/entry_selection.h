@@ -154,13 +154,16 @@ iree_status_t loom_target_entry_select_entry(
 
 // Selects every public or retained compatible func entry according to
 // |predicate| in top-level module operation order. Retention may come from the
-// source symbol or a concrete compiler function version.
+// source symbol or a concrete compiler function version. Selection diagnostics
+// are emitted directly through |diagnostic_emitter| so prepared compiler
+// frontends can preserve their existing diagnostic ownership.
 iree_status_t loom_target_entry_select_all_entries(
-    const loom_module_t* module, const loom_target_entry_options_t* options,
+    const loom_module_t* module,
+    const loom_function_version_list_t* function_versions,
     loom_target_entry_predicate_t predicate,
-    loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
-    iree_string_view_t entry_kind, iree_arena_allocator_t* arena,
-    bool* out_selected, loom_target_entry_list_t* out_entries);
+    iree_diagnostic_emitter_t diagnostic_emitter, iree_string_view_t entry_kind,
+    iree_arena_allocator_t* arena, bool* out_selected,
+    loom_target_entry_list_t* out_entries);
 
 #ifdef __cplusplus
 }  // extern "C"

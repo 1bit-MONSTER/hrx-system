@@ -92,7 +92,8 @@ class ArtifactManifestCollectTest : public ::testing::Test {
     };
     bool selected = false;
     IREE_RETURN_IF_ERROR(loom_target_entry_select_all_entries(
-        module, &options, predicate, &diagnostic_emitter, IREE_SV("test"),
+        module, options.function_versions, predicate,
+        loom_target_entry_emitter(&diagnostic_emitter), IREE_SV("test"),
         &analysis_arena_, &selected, out_entries));
     if (!selected) {
       return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
