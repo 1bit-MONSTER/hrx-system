@@ -19,6 +19,11 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
+exports_files(
+    ["execution_profiles.bzl"],
+    visibility = ["//visibility:public"],
+)
+
 _WASM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 iree_wasm_cc_library(

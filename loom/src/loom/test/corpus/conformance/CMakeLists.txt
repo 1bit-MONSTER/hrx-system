@@ -379,6 +379,8 @@ loom_execution_test(
 )
 endif()
 
+# numeric_vector_f32_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
 loom_test_module(
   NAME
     vector_i64_bitwise_test_module
