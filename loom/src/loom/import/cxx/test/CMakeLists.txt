@@ -32,6 +32,8 @@ loom_check_test_suite(
     "check.cxx-test"
     "check_records.cxx-test"
     "check_resources.cxx-test"
+    "class_conversions.cxx-test"
+    "class_conversions_invalid.cxx-test"
     "condition_declarations.cxx-test"
     "conditionals.cxx-test"
     "config.cxx-test"

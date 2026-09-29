@@ -12,6 +12,7 @@ exports_files([
     "bfloat16_semantics.patch",
     "bitfield_attributes.patch",
     "braced_vector_initialization.patch",
+    "builtin_class_conversions.patch",
     "builtin_macro_locations.patch",
     "compound_offsetof.patch",
     "condition_declarations.patch",

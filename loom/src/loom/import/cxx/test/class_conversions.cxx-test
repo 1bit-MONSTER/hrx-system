@@ -1,0 +1,151 @@
+// RUN: roundtrip
+// Constant wrappers participate in the same arithmetic as their scalar values.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned> width{5};
+constexpr Scalar<unsigned> shift{3};
+static_assert(width * 3u == 15u);
+static_assert(3u * width == 15u);
+static_assert(width * shift == 15u);
+static_assert(width / 2u == 2u);
+static_assert(20u / width == 4u);
+static_assert(width % 3u == 2u);
+static_assert(13u % width == 3u);
+static_assert((width << 1u) == 10u);
+static_assert((1u << shift) == 8u);
+static_assert((width >> 1u) == 2u);
+static_assert((64u >> shift) == 8u);
+static_assert((width & 3u) == 1u);
+static_assert((3u & width) == 1u);
+static_assert((width ^ 3u) == 6u);
+static_assert((3u ^ width) == 6u);
+static_assert((width | 2u) == 7u);
+static_assert((2u | width) == 7u);
+unsigned entry(unsigned index) {
+  constexpr unsigned stride = width * 3u;
+  constexpr unsigned mask = (width << shift) - 1u;
+  return (index / stride) & mask;
+}
+
+// ----
+func.def public @entry(%index: i32) -> (i32) {
+  %stride = scalar.constant 15 : i32
+  %mask = scalar.constant 39 : i32
+  %4 = scalar.divui %index, %stride : i32
+  %5 = scalar.andi %4, %mask : i32
+  func.return %5 : i32
+}
+
+// ====
+// Floating conversions retain their type; integral-only operators stay separate.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<float> scale{0.5f};
+static_assert(scale * 3.0f == 1.5f);
+static_assert(3.0f / scale == 6.0f);
+static_assert(__is_same(decltype(scale * 3.0f), float));
+float entry(float input) {
+  constexpr float bias = 3.0f / scale;
+  return input + bias;
+}
+
+// ----
+func.def public @entry(%input: f32) -> (f32) {
+  %bias = scalar.constant 6.0 : f32
+  %3 = scalar.addf %input, %bias : f32
+  func.return %3 : f32
+}
+
+// ====
+// The usual promotions determine results, including the left operand of shifts.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+constexpr Scalar<unsigned char> small{3};
+static_assert(__is_same(decltype(small << 1), int));
+static_assert(__is_same(decltype(1u << small), unsigned));
+static_assert(__is_same(decltype(small & small), int));
+int entry() {
+  constexpr int result = (small << 2) | (small & small);
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 15 : i32
+  func.return %result : i32
+}
+
+// ====
+// Dependent operands use class conversions after template substitution.
+template <class T>
+struct Scalar {
+  T value;
+  constexpr operator T() const { return value; }
+};
+template <class T>
+constexpr unsigned mix(T value) {
+  return (value * 3u) ^ (1u << value);
+}
+unsigned entry() {
+  constexpr unsigned result = mix(Scalar<unsigned>{3});
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 1 : i32
+  func.return %result : i32
+}
+
+// ====
+// A pointer conversion cannot compete for an arithmetic-only builtin.
+struct Scalar {
+  constexpr operator unsigned() const { return 5; }
+  operator int*() const;
+};
+constexpr Scalar value{};
+static_assert(value * 3u == 15u);
+static_assert((value & 3u) == 1u);
+static_assert((1u << value) == 32u);
+unsigned entry() {
+  constexpr unsigned result = (value * 3u) | (1u << value);
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 47 : i32
+  func.return %result : i32
+}
+
+// ====
+// Declared operators take precedence over a builtin reached by conversion.
+struct Scalar {
+  constexpr operator unsigned() const { return 5; }
+  constexpr unsigned operator*(unsigned) const { return 17; }
+  constexpr unsigned operator<<(unsigned) const { return 23; }
+  constexpr unsigned operator&(unsigned) const { return 42; }
+};
+constexpr Scalar value{};
+static_assert(value * 3u == 17u);
+static_assert((value << 1u) == 23u);
+static_assert((value & 3u) == 42u);
+unsigned entry() {
+  constexpr unsigned result = value * 3u + (value << 1u) + (value & 3u);
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 82 : i32
+  func.return %result : i32
+}

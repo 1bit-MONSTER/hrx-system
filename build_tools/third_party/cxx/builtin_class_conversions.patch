@@ -1,0 +1,244 @@
+diff --git a/src/parser/cxx/type_checker.cc b/src/parser/cxx/type_checker.cc
+--- a/src/parser/cxx/type_checker.cc
++++ b/src/parser/cxx/type_checker.cc
+@@ -663,7 +663,9 @@
+   void mark_virtual_dispatch(CallExpressionAST* ast);
+
+   [[nodiscard]] auto convert_class_operands_for_builtin(
+-      BinaryExpressionAST* ast) -> bool;
++      BinaryExpressionAST* ast,
++      BuiltinOperandKind kind = BuiltinOperandKind::kArithmeticOrPointer)
++      -> bool;
+
+   [[nodiscard]] auto resolve_binary_overload(BinaryExpressionAST* ast,
+                                              bool setValueCategory = true)
+@@ -4973,12 +4975,10 @@
+   if (traits.is_class_or_union(ast->leftExpression->type) ||
+       traits.is_class_or_union(ast->rightExpression->type)) {
+     if (resolve_binary_overload(ast)) return;
+-    error(
+-        ast->opLoc,
+-        std::format("'operator {}' is not defined for types {} and {}",
+-                    Token::spell(ast->op), to_string(ast->leftExpression->type),
+-                    to_string(ast->rightExpression->type)));
+-    return;
++    if (!convert_class_operands_for_builtin(ast,
++                                            BuiltinOperandKind::kArithmetic)) {
++      return;
++    }
+   }
+
+   if (traits.is_vector(ast->leftExpression->type) ||
+@@ -5264,6 +5264,10 @@
+     case TokenKind::T_SLASH:
+     case TokenKind::T_PERCENT:
+       if (resolve_binary_overload(ast)) break;
++      if (!convert_class_operands_for_builtin(
++              ast, BuiltinOperandKind::kArithmetic)) {
++        break;
++      }
+       ast->type = stdconv_.usualArithmeticConversion(ast->leftExpression,
+                                                      ast->rightExpression);
+       if (!ast->type) {
+@@ -5314,6 +5318,10 @@
+     case TokenKind::T_CARET:
+     case TokenKind::T_BAR:
+       if (resolve_binary_overload(ast)) break;
++      if (!convert_class_operands_for_builtin(
++              ast, BuiltinOperandKind::kArithmetic)) {
++        break;
++      }
+       ast->type = stdconv_.usualArithmeticConversion(ast->leftExpression,
+                                                      ast->rightExpression);
+       if (!ast->type) {
+@@ -6885,15 +6893,15 @@
+ }
+
+ auto TypeChecker::Visitor::convert_class_operands_for_builtin(
+-    BinaryExpressionAST* ast) -> bool {
++    BinaryExpressionAST* ast, BuiltinOperandKind kind) -> bool {
+   const auto leftIsClass = traits.is_class_or_union(ast->leftExpression->type);
+   const auto rightIsClass =
+       traits.is_class_or_union(ast->rightExpression->type);
+
+   if (!leftIsClass && !rightIsClass) return true;
+
+-  if (leftIsClass &&
+-      !stdconv_.convertClassOperandForBuiltinOperator(ast->leftExpression)) {
++  if (leftIsClass && !stdconv_.convertClassOperandForBuiltinOperator(
++                         ast->leftExpression, kind)) {
+     error(
+         ast->opLoc,
+         std::format("'operator {}' is not defined for types {} and {}",
+@@ -6902,14 +6910,21 @@
+     return false;
+   }
+
+-  if (rightIsClass &&
+-      !stdconv_.convertClassOperandForBuiltinOperator(ast->rightExpression)) {
++  if (rightIsClass && !stdconv_.convertClassOperandForBuiltinOperator(
++                          ast->rightExpression, kind)) {
+     error(
+         ast->opLoc,
+         std::format("'operator {}' is not defined for types {} and {}",
+                     Token::spell(ast->op), to_string(ast->leftExpression->type),
+                     to_string(ast->rightExpression->type)));
+     return false;
++  }
++
++  if (leftIsClass) {
++    check.useConversionFunction(ast->leftExpression);
++  }
++  if (rightIsClass) {
++    check.useConversionFunction(ast->rightExpression);
+   }
+
+   return true;
+diff --git a/src/parser/cxx/standard_conversion.h b/src/parser/cxx/standard_conversion.h
+--- a/src/parser/cxx/standard_conversion.h
++++ b/src/parser/cxx/standard_conversion.h
+@@ -40,6 +40,9 @@
+
+ enum class ConversionContext { kImplicit, kStandardOnly };
+
++// Destination types considered when converting a class operand for a builtin.
++enum class BuiltinOperandKind { kArithmetic, kArithmeticOrPointer };
++
+ struct AggregateListConversion {
+   bool viable = false;
+   bool narrows = false;
+@@ -108,7 +111,9 @@
+
+   void convertPointer(ExpressionAST*& expr, const Type* targetType);
+
+-  [[nodiscard]] auto convertClassOperandForBuiltinOperator(ExpressionAST*& expr)
++  [[nodiscard]] auto convertClassOperandForBuiltinOperator(
++      ExpressionAST*& expr,
++      BuiltinOperandKind kind = BuiltinOperandKind::kArithmeticOrPointer)
+       -> bool;
+
+   [[nodiscard]] auto isNullPointerConstant(ExpressionAST* expr) const -> bool;
+diff --git a/src/parser/cxx/standard_conversion.cc b/src/parser/cxx/standard_conversion.cc
+--- a/src/parser/cxx/standard_conversion.cc
++++ b/src/parser/cxx/standard_conversion.cc
+@@ -519,7 +519,7 @@
+ }
+
+ auto StandardConversion::convertClassOperandForBuiltinOperator(
+-    ExpressionAST*& expr) -> bool {
++    ExpressionAST*& expr, BuiltinOperandKind kind) -> bool {
+   if (!expr || !expr->type) return false;
+
+   auto classType = type_cast<ClassType>(traits.remove_cvref(expr->type));
+@@ -542,8 +542,10 @@
+     if (!returnType) continue;
+
+     if (!traits.is_arithmetic_or_unscoped_enum(returnType) &&
+-        !traits.is_pointer(returnType))
++        !(kind == BuiltinOperandKind::kArithmeticOrPointer &&
++          traits.is_pointer(returnType))) {
+       continue;
++    }
+
+     if (target && !traits.is_same(target, returnType)) return false;
+
+diff --git a/tests/unit_tests/sema/builtin_class_conversions_01.cc b/tests/unit_tests/sema/builtin_class_conversions_01.cc
+new file mode 100644
+--- /dev/null
++++ b/tests/unit_tests/sema/builtin_class_conversions_01.cc
+@@ -0,0 +1,95 @@
++// RUN: %cxx -verify -fsyntax-only %s
++
++template <class T>
++struct Scalar {
++  T value;
++  constexpr operator T() const { return value; }
++};
++
++constexpr Scalar<unsigned> width{5};
++constexpr Scalar<unsigned> shift{3};
++static_assert(width * 3u == 15u);
++static_assert(3u * width == 15u);
++static_assert(width * shift == 15u);
++static_assert(width / 2u == 2u);
++static_assert(20u / width == 4u);
++static_assert(width % 3u == 2u);
++static_assert(13u % width == 3u);
++static_assert((width << 1u) == 10u);
++static_assert((1u << shift) == 8u);
++static_assert((width >> 1u) == 2u);
++static_assert((64u >> shift) == 8u);
++static_assert((width & 3u) == 1u);
++static_assert((3u & width) == 1u);
++static_assert((width ^ 3u) == 6u);
++static_assert((3u ^ width) == 6u);
++static_assert((width | 2u) == 7u);
++static_assert((2u | width) == 7u);
++
++constexpr Scalar<float> scale{0.5f};
++static_assert(scale * 3.0f == 1.5f);
++static_assert(3.0f / scale == 6.0f);
++static_assert(__is_same(decltype(scale * 3.0f), float));
++constexpr Scalar<unsigned char> small{3};
++static_assert(__is_same(decltype(small << 1), int));
++static_assert(__is_same(decltype(1u << small), unsigned));
++static_assert(__is_same(decltype(small & small), int));
++
++template <class T>
++constexpr unsigned mix(T value) {
++  return (value * 3u) ^ (1u << value);
++}
++static_assert(mix(shift) == 1u);
++
++struct WithPointer {
++  constexpr operator unsigned() const { return 5; }
++  operator int*() const;
++};
++constexpr WithPointer withPointer{};
++static_assert(withPointer * 3u == 15u);
++static_assert((withPointer & 3u) == 1u);
++static_assert((1u << withPointer) == 32u);
++
++struct Overloaded {
++  constexpr operator unsigned() const { return 5; }
++  constexpr unsigned operator*(unsigned) const { return 17; }
++  constexpr unsigned operator<<(unsigned) const { return 23; }
++  constexpr unsigned operator&(unsigned) const { return 42; }
++};
++constexpr Overloaded overloaded{};
++static_assert(overloaded * 3u == 17u);
++static_assert((overloaded << 1u) == 23u);
++static_assert((overloaded & 3u) == 42u);
++
++struct Explicit {
++  explicit operator unsigned() const;
++};
++void explicit_conversion(Explicit value) {
++  // expected-error@+1 {{'operator *' is not defined for types ::Explicit and unsigned int}}
++  value * 3u;
++}
++struct Ambiguous {
++  operator unsigned() const;
++  operator int() const;
++};
++void ambiguous_conversion(Ambiguous value) {
++  // expected-error@+1 {{'operator <<' is not defined for types int and ::Ambiguous}}
++  1 << value;
++}
++
++struct Deleted {
++  operator unsigned() const = delete;
++};
++void deleted_conversion(Deleted value) {
++  // expected-error@+1 {{use of deleted function 'operator unsigned int'}}
++  1u << value;
++  // expected-error@+1 {{use of deleted function 'operator unsigned int'}}
++  value + 1u;
++}
++struct NonConst {
++  operator unsigned();
++};
++void const_object(const NonConst value) {
++  // expected-error@+1 {{'operator %' is not defined for types const ::NonConst and unsigned int}}
++  value % 3u;
++}
