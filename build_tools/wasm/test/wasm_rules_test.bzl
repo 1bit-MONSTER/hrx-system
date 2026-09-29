@@ -253,7 +253,11 @@ def _test_wasi_executable_wrapper_cross_compiles_source_impl(env, target):
 
 def _test_wasi_executable_alias_is_host_launchable_impl(env, target):
     executable = target[DefaultInfo].files_to_run.executable
-    env.expect.that_str(executable.basename).equals(target.label.name)
+    if executable.basename not in [target.label.name, target.label.name + ".exe"]:
+        env.fail("expected native executable for %r, got %r" % (
+            target.label.name,
+            executable.basename,
+        ))
     env.expect.that_collection(
         target[RunEnvironmentInfo].inherited_environment,
     ).contains_exactly([
