@@ -40,6 +40,11 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
     return false;
   }
   const bool rdna = properties->gfx_ip.major >= 11;
+  // CLR's native BARRIER_VALUE path selects CDNA firmware independently of
+  // ordinary AQL dispatch and standard AND/OR barriers.
+  const bool barrier_value = properties->gfx_ip.major == 9 &&
+                             properties->gfx_ip.minor >= 4 &&
+                             properties->gfx_ip.stepping <= 2;
   const uint64_t active_scratch_waves =
       (uint64_t)properties->compute.compute_unit_count *
       properties->compute.maximum_scratch_wave_count_per_compute_unit /
@@ -82,6 +87,8 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
           {
               .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_AQL,
               .format_version = AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1,
+              .format_features =
+                  barrier_value ? AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE : 0,
               .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER,
               .roles = AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_CACHE_CONTROL,
               .cache_operations = AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |

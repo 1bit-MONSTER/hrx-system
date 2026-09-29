@@ -284,6 +284,17 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// placements through the vendor envelope.
 #define AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 1u
 
+/// Optional native AQL packets reported in `format_features`.
+enum amdf_gpu_aql_format_feature_bits_e {
+  /// AMD vendor format 2 BARRIER_VALUE waits until (signal_value & mask)
+  /// satisfies the signed 64-bit HSA comparison against its reference value.
+  /// The dependency and optional completion are native AMD signal blocks.
+  /// All reserved packet fields are zero. Signal storage remains live through
+  /// the last dependent execution completion. Ordinary dispatch, BARRIER_AND,
+  /// and BARRIER_OR support does not imply this vendor extension.
+  AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE = UINT64_C(1) << 4,
+};
+
 /// Scratch backing borrowed by one directly published compute queue.
 ///
 /// An all-zero value disables scratch and accepts only commands whose private
