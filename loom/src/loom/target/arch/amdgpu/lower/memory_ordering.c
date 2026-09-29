@@ -33,7 +33,8 @@ static bool loom_amdgpu_memory_ordering_available(
 }
 
 static bool loom_amdgpu_memory_ordering_scope_supported(uint8_t scope) {
-  return scope == LOOM_ATOMIC_SCOPE_DEVICE || scope == LOOM_ATOMIC_SCOPE_SYSTEM;
+  return scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
+         scope == LOOM_ATOMIC_SCOPE_DEVICE || scope == LOOM_ATOMIC_SCOPE_SYSTEM;
 }
 
 loom_low_lower_visibility_model_t loom_amdgpu_memory_visibility_model(
@@ -67,9 +68,9 @@ iree_string_view_t loom_amdgpu_atomic_memory_rejection_key(
   if (source->minimum_alignment < source->element_byte_count) {
     return IREE_SV("atomic.alignment");
   }
-  if (source->atomic.scope != LOOM_ATOMIC_SCOPE_WORKGROUP &&
-      (is_workgroup ||
-       !loom_amdgpu_memory_ordering_scope_supported(source->atomic.scope))) {
+  if (is_workgroup ? source->atomic.scope != LOOM_ATOMIC_SCOPE_WORKGROUP
+                   : !loom_amdgpu_memory_ordering_scope_supported(
+                         source->atomic.scope)) {
     return IREE_SV("atomic.scope");
   }
   if (!loom_amdgpu_memory_ordering_available(descriptor_set)) {
@@ -249,6 +250,10 @@ iree_status_t loom_amdgpu_lower_memory_fence(
   }
   if (plan->ordering == LOOM_ATOMIC_ORDERING_RELEASE) {
     return iree_ok_status();
+  }
+  if (plan->scope == LOOM_ATOMIC_SCOPE_WORKGROUP) {
+    return loom_amdgpu_emit_workgroup_memory_acquire(
+        context, source_op, LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD);
   }
   if (loom_low_lower_context_read_visibility_scope(context) !=
       LOOM_ATOMIC_SCOPE_THREAD) {
