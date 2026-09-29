@@ -9,6 +9,32 @@
 
 iree_add_all_subdirs()
 
+iree_wasm_cc_library(
+  NAME
+    host_js
+  SRCS
+    "host.mjs"
+  MODULE
+    "loom_wasm_host"
+  PUBLIC
+)
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
+    host
+  HDRS
+    "host.h"
+  SRCS
+    "host.c"
+  DEPS
+    ::host_js
+    iree::base
+    loom::target::emit::wasm::program
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME

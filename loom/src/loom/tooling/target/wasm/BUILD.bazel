@@ -5,6 +5,10 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load(
+    "//build_tools/wasm:build_defs.bzl",
+    "iree_wasm_cc_library",
+)
+load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
 )
@@ -16,6 +20,23 @@ package(
 )
 
 _WASM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
+
+iree_wasm_cc_library(
+    name = "host_js",
+    srcs = ["host.mjs"],
+    module = "loom_wasm_host",
+)
+
+loom_cc_library(
+    name = "host",
+    srcs = ["host.c"],
+    hdrs = ["host.h"],
+    deps = [
+        ":host_js",
+        "//loom/src/loom/target/emit/wasm:program",
+        "//runtime/src/iree/base",
+    ],
+)
 
 loom_cc_library(
     name = "prepare",
