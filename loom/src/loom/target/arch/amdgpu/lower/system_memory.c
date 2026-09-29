@@ -328,8 +328,8 @@ iree_status_t loom_amdgpu_system_memory_append_load_attrs_scoped(
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
   return loom_amdgpu_system_memory_append_attrs(
-      builder, rule->load_attrs[scope == LOOM_CACHE_SCOPE_SYSTEM], scope, attrs,
-      attr_capacity, inout_attr_count);
+      builder, rule->load_attrs[scope], scope, attrs, attr_capacity,
+      inout_attr_count);
 }
 
 iree_status_t loom_amdgpu_system_memory_append_release_store_attrs(
@@ -348,8 +348,8 @@ iree_status_t loom_amdgpu_system_memory_append_release_store_attrs_scoped(
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
   return loom_amdgpu_system_memory_append_attrs(
-      builder, rule->store_attrs[scope == LOOM_CACHE_SCOPE_SYSTEM], scope,
-      attrs, attr_capacity, inout_attr_count);
+      builder, rule->store_attrs[scope], scope, attrs, attr_capacity,
+      inout_attr_count);
 }
 
 iree_status_t loom_amdgpu_system_memory_append_atomic_attrs(
@@ -368,8 +368,8 @@ iree_status_t loom_amdgpu_system_memory_append_atomic_attrs_scoped(
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
   return loom_amdgpu_system_memory_append_attrs(
-      builder, rule->atomic_attrs[scope == LOOM_CACHE_SCOPE_SYSTEM], scope,
-      attrs, attr_capacity, inout_attr_count);
+      builder, rule->atomic_attrs[scope], scope, attrs, attr_capacity,
+      inout_attr_count);
 }
 
 static iree_status_t loom_amdgpu_system_memory_build_resolved_packet(
@@ -432,8 +432,8 @@ static iree_status_t loom_amdgpu_system_memory_build_cache_packet(
   loom_named_attr_t attrs[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY] = {0};
   iree_host_size_t attr_count = 0;
   IREE_RETURN_IF_ERROR(loom_amdgpu_system_memory_append_attrs(
-      builder, rule->cache_attrs[scope == LOOM_CACHE_SCOPE_SYSTEM], scope,
-      attrs, IREE_ARRAYSIZE(attrs), &attr_count));
+      builder, rule->cache_attrs[scope], scope, attrs, IREE_ARRAYSIZE(attrs),
+      &attr_count));
   return loom_amdgpu_system_memory_build_explicit_packet(
       builder, descriptor_set, descriptor_ref,
       loom_make_named_attr_slice(attrs, attr_count), location);

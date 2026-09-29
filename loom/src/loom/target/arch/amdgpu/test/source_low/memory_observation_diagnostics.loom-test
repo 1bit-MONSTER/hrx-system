@@ -76,6 +76,6 @@ kernel.def @unsupported_fence_scope() {
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch() {
   // ERROR@+1: AMDGPU/023 {constraint_key="memory_fence.scope"}
-  buffer.fence scope(workgroup) ordering(acquire)
+  buffer.fence scope(subgroup) ordering(acquire)
   kernel.return
 }

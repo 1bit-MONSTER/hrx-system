@@ -173,7 +173,7 @@ low.kernel.def target<amdgpu.cdna3.core> abi_layout({constant_count = 0, direct_
   %15 = v_mov_b32 0
   %observed = ds_read_b32<volatile> %15
   s_waitcnt {lgkmcnt = 0}
-  %value = global_load_dword_saddr %15, %data {sc1 = 1}
+  %value = global_load_dword_saddr %15, %data {sc0 = 1}
   global_store_dword_saddr %15, %value, %results
   return
 }

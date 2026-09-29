@@ -1,0 +1,115 @@
+// Publication releases preceding accesses through both global and local roots.
+kernel.def @publish_workgroup_fence() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload: buffer, %signal: buffer, %value: i32) {
+  %base = index.constant 0 : offset
+  %local_bytes = index.constant 4 : offset
+  %local_storage = buffer.alloca<workgroup> align(4) %local_bytes : buffer
+  %local = buffer.view %local_storage[%base] : buffer -> view<1xi32>
+  %data = buffer.view %payload[%base] : buffer -> view<1xi32>
+  %word = buffer.view %signal[%base] : buffer -> view<1xi32>
+  %marker = scalar.constant 7 : i32
+  view.store %value, %data[0] : i32, view<1xi32>
+  view.store %marker, %local[0] : i32, view<1xi32>
+  buffer.fence scope(workgroup) ordering(release)
+  view.atomic.store %value, %word[0] {ordering = relaxed, scope = workgroup} : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+// The fence completes no-return atomics before making payload reads visible.
+kernel.def @acquire_workgroup_fence_after_reduce() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%signal: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %word = buffer.view %signal[%origin] : buffer -> view<1xi32>
+  %data = buffer.view %payload[%origin] : buffer -> view<1xi64>
+  %result = buffer.view %output[%origin] : buffer -> view<1xi64>
+  %increment = scalar.constant 1 : i32
+  view.atomic.reduce<addi> %increment, %word[0] {ordering = relaxed, scope = workgroup} : i32, view<1xi32>
+  buffer.fence scope(workgroup) ordering(acquire)
+  %value = view.load %data[0] : view<1xi64> -> i64
+  view.store %value, %result[0] : i64, view<1xi64>
+  kernel.return
+}
+
+// ====
+
+// Coherent payload reads replace invalidation while the fence keeps completion.
+kernel.def @coherent_workgroup_fence() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%signal: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %word = buffer.view %signal[%origin] : buffer -> view<1xi32>
+  %data = buffer.view %payload[%origin] : buffer -> view<1024xi32>
+  %result = buffer.view %output[%origin] : buffer -> view<1xi32>
+  %unused = view.atomic.load %word[0] {ordering = relaxed, scope = workgroup} : view<1xi32> -> i32
+  buffer.fence scope(workgroup) ordering(acquire)
+  %value = view.load %data[0] : view<1024xi32> -> i32
+  view.store %value, %result[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+// A relaxed LDS observation pairs with the fence before a global payload read.
+kernel.def @acquire_workgroup_fence_after_lds() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %flag = buffer.view %scratch[%origin] : buffer -> view<1xi32>
+  %data = buffer.view %payload[%origin] : buffer -> view<1xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<1xi32>
+  %initial = scalar.constant 0 : i32
+  view.atomic.store %initial, %flag[0] {ordering = relaxed, scope = workgroup} : i32, view<1xi32>
+  %observed = view.atomic.load %flag[0] {ordering = relaxed, scope = workgroup} : view<1xi32> -> i32
+  buffer.fence scope(workgroup) ordering(acquire)
+  %value = view.load %data[0] : view<1xi32> -> i32
+  view.store %value, %results[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ====
+
+// A fence completes both possible address domains of a generic atomic.
+kernel.def @acq_rel_workgroup_fence_after_generic() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%storage: buffer, %payload: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %generic = buffer.assume.memory_space<generic> %storage : buffer
+  %word = buffer.view %generic[%base] : buffer -> view<1xi32>
+  %data = buffer.view %payload[%base] : buffer -> view<1xi64>
+  %result = buffer.view %output[%base] : buffer -> view<1xi64>
+  %expected = scalar.constant 7 : i32
+  %replacement = scalar.constant 9 : i32
+  %observed = view.atomic.cmpxchg %expected, %replacement, %word[0] {failure_ordering = relaxed, scope = workgroup, success_ordering = relaxed} : i32, view<1xi32> -> i32
+  buffer.fence scope(workgroup) ordering(acq_rel)
+  %acquired = view.load %data[0] : view<1xi64> -> i64
+  view.store %acquired, %result[0] : i64, view<1xi64>
+  kernel.return
+}
+
+// ====
+
+kernel.def @sequential_workgroup_fence() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload: buffer, %signal: buffer, %output: buffer, %value: i32) {
+  %base = index.constant 0 : offset
+  %data = buffer.view %payload[%base] : buffer -> view<1xi32>
+  %word = buffer.view %signal[%base] : buffer -> view<1xi32>
+  %result = buffer.view %output[%base] : buffer -> view<1xi32>
+  view.store %value, %data[0] : i32, view<1xi32>
+  %observed = view.atomic.load %word[0] {ordering = relaxed, scope = workgroup} : view<1xi32> -> i32
+  buffer.fence scope(workgroup) ordering(seq_cst)
+  view.store %observed, %result[0] : i32, view<1xi32>
+  kernel.return
+}

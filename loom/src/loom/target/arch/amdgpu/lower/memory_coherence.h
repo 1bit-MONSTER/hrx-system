@@ -27,14 +27,14 @@ enum loom_amdgpu_memory_coherence_attr_bits_e {
 };
 
 typedef struct loom_amdgpu_memory_coherence_rule_t {
-  // Load attributes indexed by device (0) or system (1) scope.
-  loom_amdgpu_memory_coherence_attrs_t load_attrs[2];
-  // Store attributes indexed by device (0) or system (1) scope.
-  loom_amdgpu_memory_coherence_attrs_t store_attrs[2];
+  // Load attributes indexed by the selected cache scope.
+  loom_amdgpu_memory_coherence_attrs_t load_attrs[LOOM_CACHE_SCOPE_COUNT_];
+  // Store attributes indexed by the selected cache scope.
+  loom_amdgpu_memory_coherence_attrs_t store_attrs[LOOM_CACHE_SCOPE_COUNT_];
   // Update coherence attributes; the descriptor owns return-value control.
-  loom_amdgpu_memory_coherence_attrs_t atomic_attrs[2];
-  // Cache-control attributes indexed by device (0) or system (1) scope.
-  loom_amdgpu_memory_coherence_attrs_t cache_attrs[2];
+  loom_amdgpu_memory_coherence_attrs_t atomic_attrs[LOOM_CACHE_SCOPE_COUNT_];
+  // Cache-control attributes indexed by the selected cache scope.
+  loom_amdgpu_memory_coherence_attrs_t cache_attrs[LOOM_CACHE_SCOPE_COUNT_];
   // Explicit completion before source release updates, in addition to the
   // shared memory frontier's ordering of prior global accesses.
   uint32_t release_wait_masks[2];
@@ -60,7 +60,10 @@ typedef struct loom_amdgpu_memory_coherence_rule_t {
     uint32_t release_wait_masks[3];
     // Number of populated release wait masks.
     uint8_t release_wait_count;
-    // Cache invalidation after LDS completion, or zero for a shared cache.
+    // Cache domain shared by all waves in the target's workgroup mode.
+    uint8_t cache_scope;
+    // Cache invalidation after observation completion, or zero for a shared
+    // cache.
     loom_amdgpu_descriptor_ref_t invalidate;
   } workgroup;
 } loom_amdgpu_memory_coherence_rule_t;
@@ -70,7 +73,8 @@ const loom_amdgpu_memory_coherence_rule_t* loom_amdgpu_memory_coherence_rule(
     const loom_low_descriptor_set_t* descriptor_set);
 
 // Maps the supported source atomic scopes to cache packet scopes.
-loom_cache_scope_t loom_amdgpu_memory_coherence_scope(uint8_t atomic_scope);
+loom_cache_scope_t loom_amdgpu_memory_coherence_scope(
+    const loom_low_descriptor_set_t* descriptor_set, uint8_t atomic_scope);
 
 // At most two cache fields encode any supported coherence policy.
 #define LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY 2

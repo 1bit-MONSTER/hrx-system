@@ -75,7 +75,8 @@ bool loom_amdgpu_atomic_scope_supported(
           source->memory_space)) {
     return false;
   }
-  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_DEVICE) {
+  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
+      source->atomic.scope == LOOM_ATOMIC_SCOPE_DEVICE) {
     return true;
   }
   const int32_t bit_count =
@@ -159,7 +160,7 @@ loom_amdgpu_atomic_select_cache_packet(
   loom_amdgpu_memory_coherence_attr_t
       attrs[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY];
   packet.immediate_count = loom_amdgpu_memory_coherence_select_attrs(
-      rule->cache_attrs[scope == LOOM_CACHE_SCOPE_SYSTEM], scope, attrs);
+      rule->cache_attrs[scope], scope, attrs);
   for (iree_host_size_t i = 0; i < packet.immediate_count; ++i) {
     packet.immediates[i] = (loom_amdgpu_explicit_packet_immediate_template_t){
         .name = attrs[i].name,
@@ -235,6 +236,7 @@ static bool loom_amdgpu_atomic_select_workgroup_ordering(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_amdgpu_memory_coherence_rule_t* rule,
     const loom_low_source_memory_access_plan_t* source,
+    loom_amdgpu_atomic_operation_kind_t operation_kind,
     loom_amdgpu_atomic_ordering_selection_t* ordering) {
   if (loom_amdgpu_atomic_source_has_release_ordering(source)) {
     for (uint8_t i = 0; i < rule->workgroup.release_wait_count; ++i) {
@@ -248,11 +250,23 @@ static bool loom_amdgpu_atomic_select_workgroup_ordering(
     }
   }
   if (loom_amdgpu_atomic_source_has_acquire_ordering(source)) {
-    // LDS orders its own accesses, but a following global access must wait
-    // for the observation even when it does not consume the returned value.
+    // Cross-address-space acquisition requires observation completion even
+    // when the following payload access does not consume the returned value.
+    const uint32_t counter_mask =
+        source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
+            ? LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS
+            : (operation_kind == LOOM_AMDGPU_ATOMIC_OPERATION_REDUCE
+                   ? LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE
+                   : LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD);
     if (!loom_amdgpu_atomic_append_wait_counter_mask(
-            descriptor_set, LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS,
-            ordering->post_atomic_waits,
+            descriptor_set, counter_mask, ordering->post_atomic_waits,
+            IREE_ARRAYSIZE(ordering->post_atomic_waits),
+            &ordering->post_atomic_wait_count)) {
+      return false;
+    }
+    if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC &&
+        !loom_amdgpu_atomic_append_wait_counter_mask(
+            descriptor_set, rule->local_wait_mask, ordering->post_atomic_waits,
             IREE_ARRAYSIZE(ordering->post_atomic_waits),
             &ordering->post_atomic_wait_count)) {
       return false;
@@ -260,7 +274,8 @@ static bool loom_amdgpu_atomic_select_workgroup_ordering(
     if (rule->workgroup.invalidate) {
       ordering->post_atomic_visibility_packets[0] =
           loom_amdgpu_atomic_select_cache_packet(
-              rule, rule->workgroup.invalidate, LOOM_CACHE_SCOPE_SE);
+              rule, rule->workgroup.invalidate,
+              (loom_cache_scope_t)rule->workgroup.cache_scope);
       ordering->post_atomic_visibility_packet_count = 1;
     }
   }
@@ -282,15 +297,16 @@ bool loom_amdgpu_atomic_select_ordering(
   if (rule == NULL) {
     return false;
   }
-  if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
-    return loom_amdgpu_atomic_select_workgroup_ordering(descriptor_set, rule,
-                                                        source, ordering);
+  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP) {
+    return loom_amdgpu_atomic_select_workgroup_ordering(
+        descriptor_set, rule, source, operation_kind, ordering);
   }
 
   if (loom_amdgpu_atomic_source_has_release_ordering(source)) {
     if (!loom_amdgpu_atomic_select_global_release_packets(
             descriptor_set, rule,
-            loom_amdgpu_memory_coherence_scope(source->atomic.scope),
+            loom_amdgpu_memory_coherence_scope(descriptor_set,
+                                               source->atomic.scope),
             ordering)) {
       return false;
     }
@@ -310,7 +326,8 @@ bool loom_amdgpu_atomic_select_ordering(
     }
     if (!loom_amdgpu_atomic_select_global_acquire_cache_controls(
             descriptor_set, rule,
-            loom_amdgpu_memory_coherence_scope(source->atomic.scope),
+            loom_amdgpu_memory_coherence_scope(descriptor_set,
+                                               source->atomic.scope),
             ordering)) {
       return false;
     }
@@ -329,9 +346,10 @@ loom_amdgpu_memory_coherence_attr_t loom_amdgpu_atomic_select_packet_attr(
   }
   loom_amdgpu_memory_coherence_attr_t
       attrs[LOOM_AMDGPU_MEMORY_COHERENCE_ATTR_CAPACITY];
+  const loom_cache_scope_t scope =
+      loom_amdgpu_memory_coherence_scope(descriptor_set, source->atomic.scope);
   const uint8_t count = loom_amdgpu_memory_coherence_select_attrs(
-      rule->atomic_attrs[source->atomic.scope == LOOM_ATOMIC_SCOPE_SYSTEM],
-      loom_amdgpu_memory_coherence_scope(source->atomic.scope), attrs);
+      rule->atomic_attrs[scope], scope, attrs);
   // Atomic plans retain one scope field; return control stays in descriptors.
   IREE_ASSERT_LE(count, 1);
   return count ? attrs[0] : (loom_amdgpu_memory_coherence_attr_t){0};

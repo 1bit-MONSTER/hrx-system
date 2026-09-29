@@ -877,8 +877,10 @@ static iree_status_t loom_amdgpu_append_memory_cache_attrs(
     return loom_amdgpu_system_memory_append_release_store_attrs_scoped(
         loom_low_lower_context_builder(context),
         loom_low_lower_context_descriptor_set(context),
-        loom_amdgpu_memory_coherence_scope(access->source.atomic.scope), attrs,
-        attr_capacity, inout_attr_count);
+        loom_amdgpu_memory_coherence_scope(
+            loom_low_lower_context_descriptor_set(context),
+            access->source.atomic.scope),
+        attrs, attr_capacity, inout_attr_count);
   }
   uint8_t read_scope = access->source.read_visibility_scope;
   if (access->source.operation_kind ==
@@ -891,8 +893,9 @@ static iree_status_t loom_amdgpu_append_memory_cache_attrs(
     return loom_amdgpu_system_memory_append_load_attrs_scoped(
         loom_low_lower_context_builder(context),
         loom_low_lower_context_descriptor_set(context),
-        loom_amdgpu_memory_coherence_scope(read_scope), attrs, attr_capacity,
-        inout_attr_count);
+        loom_amdgpu_memory_coherence_scope(
+            loom_low_lower_context_descriptor_set(context), read_scope),
+        attrs, attr_capacity, inout_attr_count);
   }
   const loom_vector_memory_cache_policy_t* policy =
       &access->source.cache_policy;
