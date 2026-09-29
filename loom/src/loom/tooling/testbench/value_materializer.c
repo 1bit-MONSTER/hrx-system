@@ -1556,8 +1556,8 @@ static iree_status_t loom_testbench_materialize_tensor_view(
           source_value->buffer.byte_length - source->tensor_view.byte_offset) {
     return iree_make_status(
         IREE_STATUS_OUT_OF_RANGE,
-        "check.tensor.view byte range [%" PRIu64 ", %" PRIu64
-        ") exceeds source byte length %" PRIu64,
+        "check.tensor.view byte range [%" PRIdsz ", %" PRIdsz
+        ") exceeds source byte length %" PRIdsz,
         source->tensor_view.byte_offset,
         source->tensor_view.byte_offset + result_byte_length,
         source_value->buffer.byte_length);

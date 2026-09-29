@@ -45,8 +45,9 @@ typedef struct loom_parameterized_type_descriptor_t {
   loom_parameterized_type_flags_t flags;
 } loom_parameterized_type_descriptor_t;
 
-static_assert(sizeof(loom_parameterized_type_descriptor_t) == 24,
-              "parameterized type descriptor must remain 24 bytes");
+static_assert(sizeof(loom_parameterized_type_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 24 : 12),
+              "parameterized type descriptor must remain compact");
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -7,7 +7,22 @@
 #ifndef IREE_IO_STDIO_UTIL_H_
 #define IREE_IO_STDIO_UTIL_H_
 
+#include <stdio.h>
+
 #include "iree/base/api.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif  // __cplusplus
+
+// Opens a stdio file at the UTF-8 |path| using the fopen-compatible |mode|.
+// The returned FILE* must be closed by the caller with fclose.
+//
+// Windows paths are opened through the wide-character CRT boundary and support
+// extended-length paths without requiring a process manifest or system policy.
+IREE_API_EXPORT iree_status_t
+iree_io_stdio_file_open(iree_string_view_t path, const char* mode,
+                        iree_allocator_t host_allocator, FILE** out_file);
 
 //===----------------------------------------------------------------------===//
 // Platform Support
@@ -69,5 +84,9 @@
 #define iree_make_stdio_statusf iree_make_stdio_status
 
 #endif  // IREE_PLATFORM_*
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
 
 #endif  // IREE_IO_STDIO_UTIL_H_

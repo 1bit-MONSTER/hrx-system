@@ -136,6 +136,11 @@ def _merge_launch_environment(
         environment[name] = value
 
 def _wasm_entry(ctx, allow_default_test_main):
+    if ctx.file.wasm_main != None:
+        return struct(
+            main = ctx.file.wasm_main,
+            srcs = [],
+        )
     entry = discover_wasm_entry([ctx.attr.src])
     if entry != None:
         return struct(
@@ -155,7 +160,7 @@ def _wasm_executable_output(ctx, allow_default_test_main):
         output_name = ctx.label.name
     output = ctx.actions.declare_file(output_name)
     entry = _wasm_entry(ctx, allow_default_test_main)
-    output_mjs = collect_and_bundle_wasm(
+    wasm_bundle = collect_and_bundle_wasm(
         ctx = ctx,
         wasm_binary = ctx.executable.src,
         main_js = entry.main,
@@ -173,7 +178,7 @@ def _wasm_executable_output(ctx, allow_default_test_main):
     ).format(
         workspace = ctx.workspace_name,
         runner = ctx.file._wasm_runner.short_path,
-        bundle = output_mjs.short_path,
+        bundle = _runfile_path(ctx, wasm_bundle.main),
     )
     ctx.actions.write(
         content = wrapper_content,
@@ -181,12 +186,12 @@ def _wasm_executable_output(ctx, allow_default_test_main):
         output = output,
     )
     return struct(
-        bundle = output_mjs,
+        bundle = wasm_bundle.main,
         output = output,
         runfiles = ctx.runfiles(files = [
-            ctx.executable.src,
+            wasm_bundle.binary,
             ctx.file._wasm_runner,
-            output_mjs,
+            wasm_bundle.main,
         ]),
     )
 
@@ -315,6 +320,10 @@ _SHARED_ATTRS = {
         doc = "Executable target or file to expose.",
         executable = True,
         mandatory = True,
+    ),
+    "wasm_main": attr.label(
+        allow_single_file = [".js", ".mjs"],
+        doc = "Explicit JavaScript entry point used when wrapping a wasm executable.",
     ),
     "windows_launcher": attr.label(
         cfg = _launcher_transition,

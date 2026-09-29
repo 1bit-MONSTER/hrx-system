@@ -9,6 +9,7 @@
 # wasi-sdk 30 includes LLVM 21.1.4, lld, wasi-libc, libc++, and compiler-rt.
 WASI_SDK_VERSION = "30.0"
 WASI_SDK_TAG = "wasi-sdk-30"
+WASI_SDK_CLANG_RESOURCE_VERSION = "21"
 WASI_SDK_URL_TEMPLATE = "https://github.com/WebAssembly/wasi-sdk/releases/download/{tag}/wasi-sdk-{version}-{arch}-{os}.tar.gz"
 
 WASI_SDK_SHA256 = {

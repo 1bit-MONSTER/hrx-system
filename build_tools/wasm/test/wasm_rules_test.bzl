@@ -54,6 +54,13 @@ def _find_action_with_mnemonic(env, actions, mnemonic):
     env.fail("expected action mnemonic %r in %r" % (mnemonic, actions))
     return None
 
+def _find_action_with_output(env, actions, expected_output):
+    for action in actions:
+        if expected_output in action.outputs.to_list():
+            return action
+    env.fail("expected action producing %r in %r" % (expected_output, actions))
+    return None
+
 def _wasm_fixture_targets(name):
     iree_wasm_cc_library(
         name = name + "_imports",
@@ -146,17 +153,63 @@ def _test_executable_alias_bundles_wasm_target_impl(env, target):
     info = target[IreeExecutableInfo]
     env.expect.that_str(info.output.basename).equals(target.label.name)
 
+    actions = target[TestingAspectInfo].actions
     bundle_action = _find_action_with_mnemonic(
         env,
-        target[TestingAspectInfo].actions,
+        actions,
         "IreeWasmBundle",
     )
-    _expect_basename(env, bundle_action.outputs.to_list(), target.label.name + ".mjs")
+    bundle = bundle_action.outputs.to_list()[0]
+    env.expect.that_str(bundle.basename).equals(target.label.name + ".mjs")
+    _expect_basename(
+        env,
+        target[DefaultInfo].default_runfiles.files.to_list(),
+        target.label.name + ".wasm",
+    )
+
+    wrapper_action = _find_action_with_output(env, actions, info.output)
+    env.expect.that_str(wrapper_action.content).contains(
+        '"${RUNFILES}/_main/%s"' % bundle.short_path,
+    )
+
+def _test_executable_alias_accepts_explicit_wasm_main(name, **kwargs):
+    _fake_wasm_executable(
+        name = name + "_wasm",
+        tags = ["manual"],
+    )
+    iree_executable_alias(
+        name = name + "_subject",
+        src = ":" + name + "_wasm",
+        tags = ["manual"],
+        wasm_main = "entry_main.mjs",
+    )
+    analysis_test(
+        name = name,
+        attr_values = {
+            "timeout": "short",
+        },
+        config_settings = {
+            "//command_line_option:platforms": [Label("//build_tools/wasm/test:wasm32_platform")],
+        },
+        impl = _test_executable_alias_accepts_explicit_wasm_main_impl,
+        target = name + "_subject",
+        **kwargs
+    )
+
+def _test_executable_alias_accepts_explicit_wasm_main_impl(env, target):
+    actions = target[TestingAspectInfo].actions
+    bundle_action = _find_action_with_mnemonic(
+        env,
+        actions,
+        "IreeWasmBundle",
+    )
+    _expect_basename(env, bundle_action.inputs.to_list(), "entry_main.mjs")
 
 def wasm_rules_test_suite(name):
     test_suite(
         name = name,
         tests = [
+            _test_executable_alias_accepts_explicit_wasm_main,
             _test_wasm_cc_library_provides_cc_info_and_js_modules,
             _test_wasm_entry_records_main_and_sources,
             _test_executable_alias_bundles_wasm_target,

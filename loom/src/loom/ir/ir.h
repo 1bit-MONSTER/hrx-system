@@ -1013,7 +1013,8 @@ typedef struct loom_condition_refinement_descriptor_t {
   loom_condition_refinement_truth_flags_t truth_flags;
 } loom_condition_refinement_descriptor_t;
 
-static_assert(sizeof(loom_condition_refinement_descriptor_t) == 16,
+static_assert(sizeof(loom_condition_refinement_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 8),
               "condition refinement descriptors must remain compact");
 
 //===----------------------------------------------------------------------===//
@@ -1596,8 +1597,8 @@ struct loom_op_vtable_t {
   const loom_op_placement_descriptor_t* placement;
 };
 
-static_assert(sizeof(loom_op_vtable_t) == 192,
-              "loom_op_vtable_t must be 192 bytes");
+static_assert(sizeof(loom_op_vtable_t) == (IREE_PTR_SIZE == 8 ? 192 : 108),
+              "loom_op_vtable_t must retain its pointer-width layout");
 
 // Returns true when every operand is a declaration-owned signature definition
 // rather than a reference to a value defined elsewhere.
@@ -1721,7 +1722,8 @@ typedef struct loom_op_t {
   //   uint16_t           operand_segment_counts[operand_descriptor_count]
 } loom_op_t;
 
-static_assert(sizeof(loom_op_t) == 64, "loom_op_t must be 64 bytes");
+static_assert(sizeof(loom_op_t) == (IREE_PTR_SIZE == 8 ? 64 : 48),
+              "loom_op_t must retain its pointer-width layout");
 
 //===----------------------------------------------------------------------===//
 // Op trailing data accessors
@@ -1872,7 +1874,8 @@ typedef struct loom_block_t {
   loom_region_t* parent_region;
 } loom_block_t;
 
-static_assert(sizeof(loom_block_t) == 48, "loom_block_t must be 48 bytes");
+static_assert(sizeof(loom_block_t) == (IREE_PTR_SIZE == 8 ? 48 : 32),
+              "loom_block_t must retain its pointer-width layout");
 
 // Returns the |arg_index|-th block argument value ID.
 static inline loom_value_id_t loom_block_arg_id(const loom_block_t* block,
@@ -1987,7 +1990,8 @@ typedef struct loom_region_t {
   loom_block_t* inline_blocks[1];
 } loom_region_t;
 
-static_assert(sizeof(loom_region_t) == 96, "loom_region_t must be 96 bytes");
+static_assert(sizeof(loom_region_t) == (IREE_PTR_SIZE == 8 ? 96 : 72),
+              "loom_region_t must retain its pointer-width layout");
 
 // Returns true and writes |out_block_index| when |block| is owned by |region|.
 static inline bool loom_region_try_block_index(const loom_region_t* region,

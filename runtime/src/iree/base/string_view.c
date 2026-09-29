@@ -546,9 +546,14 @@ static void iree_hex_float_append_significand_bits(iree_hex_float_t* parsed,
 static bool iree_string_view_parse_hex_float(iree_string_view_t value,
                                              iree_hex_float_t* out_parsed) {
   memset(out_parsed, 0, sizeof(*out_parsed));
-  if (iree_string_view_is_empty(value) || value.size > INT64_MAX / 4) {
+  if (iree_string_view_is_empty(value)) {
     return false;
   }
+#if defined(IREE_PTR_SIZE_64)
+  if (value.size > INT64_MAX / 4) {
+    return false;
+  }
+#endif  // IREE_PTR_SIZE_64
 
   iree_host_size_t position = 0;
   if (value.data[position] == '+' || value.data[position] == '-') {

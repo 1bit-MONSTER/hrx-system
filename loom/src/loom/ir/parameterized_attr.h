@@ -41,8 +41,9 @@ typedef struct loom_parameterized_attr_descriptor_t {
   const loom_target_condition_descriptor_t* target_condition;
 } loom_parameterized_attr_descriptor_t;
 
-static_assert(sizeof(loom_parameterized_attr_descriptor_t) == 32,
-              "parameterized attribute descriptor must remain 32 bytes");
+static_assert(sizeof(loom_parameterized_attr_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 32 : 16),
+              "parameterized attribute descriptor must remain compact");
 
 #ifdef __cplusplus
 }  // extern "C"

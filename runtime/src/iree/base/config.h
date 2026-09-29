@@ -138,7 +138,15 @@ typedef IREE_DEVICE_SIZE_T iree_device_size_t;
 // owned by IREE from multiple threads concurrently or across threads without
 // proper barriers in place. Unless your target system is in a similar class to
 // an Arduino this is definitely not what you want.
+#if defined(IREE_PLATFORM_WASM) && !defined(__wasm_atomics__)
+// WebAssembly requires the atomics target feature for shared memory and
+// multithreading. Without it an instance is necessarily single-threaded and
+// the atomic wait/notify instructions used by the synchronized path are not
+// available.
+#define IREE_SYNCHRONIZATION_DISABLE_UNSAFE 1
+#else
 #define IREE_SYNCHRONIZATION_DISABLE_UNSAFE 0
+#endif  // IREE_PLATFORM_WASM && !__wasm_atomics__
 #endif  // !IREE_SYNCHRONIZATION_DISABLE_UNSAFE
 
 //===----------------------------------------------------------------------===//
@@ -149,11 +157,12 @@ typedef IREE_DEVICE_SIZE_T iree_device_size_t;
 // On platforms without file systems or in applications where no file I/O
 // utilities are used, all file I/O operations can be stripped out. Functions
 // relying on file I/O will still be defined, but they will return errors.
-#if defined(IREE_PLATFORM_WASM)
+// WASI exposes capability-scoped files through its libc and keeps support on.
+#if defined(IREE_PLATFORM_WASM) && !defined(IREE_PLATFORM_WASI)
 #define IREE_FILE_IO_ENABLE 0
 #else
 #define IREE_FILE_IO_ENABLE 1
-#endif  // IREE_PLATFORM_WASM
+#endif  // IREE_PLATFORM_WASM && !IREE_PLATFORM_WASI
 #endif  // !IREE_FILE_IO_ENABLE
 
 //===----------------------------------------------------------------------===//

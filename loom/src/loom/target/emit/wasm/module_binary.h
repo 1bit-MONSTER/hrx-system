@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 typedef enum loom_wasm_module_binary_flag_bits_e {
-  // Module defines one default linear memory section.
+  // Module defines and exports one default linear memory as `memory`.
   LOOM_WASM_MODULE_BINARY_FLAG_DEFINES_MEMORY = 1u << 0,
 } loom_wasm_module_binary_flag_bits_t;
 

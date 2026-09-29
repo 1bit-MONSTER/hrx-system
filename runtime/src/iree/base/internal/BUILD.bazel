@@ -57,6 +57,16 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "atomics_disabled_test",
+    srcs = ["atomics_disabled_test.c"],
+    defines = ["IREE_SYNCHRONIZATION_DISABLE_UNSAFE=1"],
+    deps = [
+        ":internal",
+        "//runtime/src/iree/base",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "math_test",
     srcs = ["math_test.cc"],
     deps = [
@@ -247,6 +257,7 @@ iree_runtime_cc_library(
     name = "dynamic_library",
     srcs = [
         "dynamic_library_posix.c",
+        "dynamic_library_wasi.c",
         "dynamic_library_win32.c",
     ],
     hdrs = ["dynamic_library.h"],

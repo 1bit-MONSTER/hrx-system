@@ -208,13 +208,3 @@ func.def public target(@target) @store_static(%output: buffer, %value: i32) {
   view.store %value, %view[0] : i32, view<1xi32>
   func.return
 }
-
-low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @read_byte(%address: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %value = i32.load8_u %address
-  return %value
-}
-
-low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @write_byte(%address: reg<wasm.i32>, %value: reg<wasm.i32>) asm {
-  i32.store8 %address, %value
-  return
-}

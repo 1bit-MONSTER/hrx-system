@@ -94,8 +94,9 @@ typedef struct loom_symbol_reference_descriptor_t {
   loom_symbol_reference_role_t role;
 } loom_symbol_reference_descriptor_t;
 
-static_assert(sizeof(loom_symbol_reference_descriptor_t) == 16,
-              "symbol reference descriptors must remain 16 bytes");
+static_assert(sizeof(loom_symbol_reference_descriptor_t) ==
+                  (IREE_PTR_SIZE == 8 ? 16 : 12),
+              "symbol reference descriptors must remain compact");
 
 static inline iree_string_view_t loom_symbol_reference_descriptor_name(
     const loom_symbol_reference_descriptor_t* descriptor) {

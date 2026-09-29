@@ -9,6 +9,32 @@
 
 iree_add_all_subdirs()
 
+iree_wasm_cc_library(
+  NAME
+    host_js
+  SRCS
+    "host.mjs"
+  MODULE
+    "loom_wasm_host"
+  PUBLIC
+)
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
+    host
+  HDRS
+    "host.h"
+  SRCS
+    "host.c"
+  DEPS
+    ::host_js
+    iree::base
+    loom::target::emit::wasm::program
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME
@@ -31,6 +57,36 @@ loom_cc_library(
     loom::target::emit::wasm::module_binary
     loom::target::emit::wasm::program
     loom::target::registers
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
+    testbench
+  HDRS
+    "testbench.h"
+  SRCS
+    "testbench.c"
+  DEPS
+    ::artifact_emitter
+    ::host
+    ::prepare
+    iree::base
+    iree::base::internal::arena
+    iree::hal
+    loom::error::source
+    loom::link::linker
+    loom::ops::op_defs
+    loom::target::entry_selection
+    loom::target::provider
+    loom::target::selection
+    loom::tooling::compile::pipeline
+    loom::tooling::compile::preparation
+    loom::tooling::compile::request
+    loom::tooling::config
+    loom::tooling::testbench::scenario::executor
   PUBLIC
 )
 endif()

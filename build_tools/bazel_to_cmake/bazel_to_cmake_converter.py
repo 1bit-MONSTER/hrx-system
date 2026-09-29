@@ -41,6 +41,7 @@ _PLATFORM_CMAKE_SYSTEM_NAME = {
     "@platforms//os:emscripten": "Emscripten",
     "@platforms//os:linux": "Linux",
     "@platforms//os:macos": "Darwin",
+    "@platforms//os:wasi": "WASI",
     "@platforms//os:windows": "Windows",
     # CPU architecture constraints.
     "@platforms//cpu:wasm32": "wasm_32",
@@ -2809,6 +2810,11 @@ class BuildFileFunctions(object):
 
     def iree_executable_test(self, src, **kwargs):
         self.native_test(src=src, **kwargs)
+
+    def iree_executable_alias(self, name, tags=None, **kwargs):
+        if self._should_skip_target(tags=tags, **kwargs):
+            return
+        raise NotImplementedError(f"iree_executable_alias: {name}")
 
     def cc_binary_benchmark(
         self,

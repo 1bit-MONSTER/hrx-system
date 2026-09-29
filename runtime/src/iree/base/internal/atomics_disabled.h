@@ -218,14 +218,14 @@ static inline int32_t iree_atomic_fetch_sub_int32_impl(
   return original;
 }
 
-static inline int32_t iree_atomic_fetch_add_uint32_impl(
-    volatile iree_atomic_int32_t* object, uint32_t operand) {
+static inline uint32_t iree_atomic_fetch_add_uint32_impl(
+    volatile iree_atomic_uint32_t* object, uint32_t operand) {
   uint32_t original = *object;
   *object += operand;
   return original;
 }
 
-static inline int32_t iree_atomic_fetch_sub_uint32_impl(
+static inline uint32_t iree_atomic_fetch_sub_uint32_impl(
     volatile iree_atomic_uint32_t* object, uint32_t operand) {
   uint32_t original = *object;
   *object -= operand;
@@ -285,14 +285,14 @@ static inline int64_t iree_atomic_fetch_sub_int64_impl(
   return original;
 }
 
-static inline int64_t iree_atomic_fetch_add_uint64_impl(
+static inline uint64_t iree_atomic_fetch_add_uint64_impl(
     volatile iree_atomic_uint64_t* object, uint64_t operand) {
   uint64_t original = *object;
   *object += operand;
   return original;
 }
 
-static inline int64_t iree_atomic_fetch_sub_uint64_impl(
+static inline uint64_t iree_atomic_fetch_sub_uint64_impl(
     volatile iree_atomic_uint64_t* object, uint64_t operand) {
   uint64_t original = *object;
   *object -= operand;

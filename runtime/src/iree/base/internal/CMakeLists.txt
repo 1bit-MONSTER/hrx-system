@@ -41,6 +41,18 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    atomics_disabled_test
+  SRCS
+    "atomics_disabled_test.c"
+  DEFINES
+    "IREE_SYNCHRONIZATION_DISABLE_UNSAFE=1"
+  DEPS
+    ::internal
+    iree::base
+)
+
+iree_cc_test(
+  NAME
     math_test
   SRCS
     "math_test.cc"
@@ -266,6 +278,7 @@ iree_cc_library(
     "dynamic_library.h"
   SRCS
     "dynamic_library_posix.c"
+    "dynamic_library_wasi.c"
     "dynamic_library_win32.c"
   DEPS
     ${CMAKE_DL_LIBS}

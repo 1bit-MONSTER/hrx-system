@@ -19,6 +19,7 @@ iree_cc_library(
   SRCS
     "file_contents.c"
     "file_handle.c"
+    "stdio_util.c"
   DEPS
     iree::base
     iree::base::internal

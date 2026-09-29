@@ -88,8 +88,9 @@ typedef struct loom_symbol_reference_occurrence_t {
   const loom_op_t* user_op;
 } loom_symbol_reference_occurrence_t;
 
-static_assert(sizeof(loom_symbol_reference_occurrence_t) == 32,
-              "symbol reference occurrences must remain 32 bytes");
+static_assert(sizeof(loom_symbol_reference_occurrence_t) ==
+                  (IREE_PTR_SIZE == 8 ? 32 : 24),
+              "symbol reference occurrences must remain compact");
 
 // Shift mapping an occurrence ID to its fixed-size segment.
 #define LOOM_SYMBOL_REFERENCE_OCCURRENCE_SEGMENT_SHIFT 6u
@@ -127,8 +128,8 @@ typedef struct loom_template_demand_t {
   bool has_path_condition;
 } loom_template_demand_t;
 
-static_assert(sizeof(loom_template_demand_t) == 24,
-              "template demands must remain 24 bytes");
+static_assert(sizeof(loom_template_demand_t) == (IREE_PTR_SIZE == 8 ? 24 : 16),
+              "template demands must remain compact");
 
 // Incoming/outgoing occurrence-list heads for one referenced symbol.
 typedef struct loom_symbol_reference_symbol_occurrences_t {

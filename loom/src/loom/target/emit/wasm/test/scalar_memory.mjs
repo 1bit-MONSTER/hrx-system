@@ -11,8 +11,10 @@ const binary = readFileSync(process.argv[2]);
 assert.ok(WebAssembly.validate(binary));
 const {instance} = await WebAssembly.instantiate(binary);
 const exports = instance.exports;
-const write = (base, bytes) => bytes.forEach((value, i) => exports.write_byte(base + i, value));
-const read = (base, length) => Uint8Array.from({length}, (_, i) => exports.read_byte(base + i));
+assert.ok(exports.memory instanceof WebAssembly.Memory);
+const memoryBytes = () => new Uint8Array(exports.memory.buffer);
+const write = (base, bytes) => memoryBytes().set(bytes, base);
+const read = (base, length) => memoryBytes().slice(base, base + length);
 
 // Every exchange combines a dynamic view base, a static prefix and an index.
 // DataView supplies the independent little-endian oracle for all four widths.

@@ -185,6 +185,27 @@ sh_test(
                 repo_root=str(repo_root),
             )
 
+    def test_loaded_executable_alias_honors_explicit_conversion_skip(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        repo_cfg = SimpleNamespace(PROJECTS=[], REPO_MAP={"@hrx": ""})
+        build_dir = str(repo_root / "synthetic")
+
+        cmake = bazel_to_cmake_converter.convert_build_file(
+            """
+load("//build_tools/bazel:executable.bzl", "iree_executable_alias")
+
+iree_executable_alias(
+    name = "bazel_only_alias",
+    src = ":tool",
+    tags = ["skip-bazel_to_cmake"],
+)
+""",
+            repo_cfg,
+            build_dir,
+            repo_root=str(repo_root),
+        )
+        self.assertNotIn("bazel_only_alias", cmake)
+
     def test_glob_exclusions_have_distinct_cmake_storage(self):
         repo_root = Path(__file__).resolve().parents[2]
         repo_cfg = SimpleNamespace(PROJECTS=[], REPO_MAP={"@hrx": ""})
@@ -323,6 +344,18 @@ cc_library(
         self.assertEqual(
             functions._target_compatible_condition(["@platforms//cpu:x86_64"]),
             'IREE_ARCH STREQUAL "x86_64"',
+        )
+
+    def test_converts_wasi_platform_condition(self):
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=SimpleNamespace(body=""),
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="",
+        )
+
+        self.assertEqual(
+            functions._convert_select_condition("@platforms//os:wasi"),
+            'CMAKE_SYSTEM_NAME STREQUAL "WASI"',
         )
 
     def test_target_compatible_with_parenthesizes_disjunctions(self):
