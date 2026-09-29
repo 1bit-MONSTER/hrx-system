@@ -160,7 +160,7 @@ def _wasm_executable_output(ctx, allow_default_test_main):
         output_name = ctx.label.name
     output = ctx.actions.declare_file(output_name)
     entry = _wasm_entry(ctx, allow_default_test_main)
-    output_mjs = collect_and_bundle_wasm(
+    wasm_bundle = collect_and_bundle_wasm(
         ctx = ctx,
         wasm_binary = ctx.executable.src,
         main_js = entry.main,
@@ -178,7 +178,7 @@ def _wasm_executable_output(ctx, allow_default_test_main):
     ).format(
         workspace = ctx.workspace_name,
         runner = ctx.file._wasm_runner.short_path,
-        bundle = _runfile_path(ctx, output_mjs),
+        bundle = _runfile_path(ctx, wasm_bundle.main),
     )
     ctx.actions.write(
         content = wrapper_content,
@@ -186,12 +186,12 @@ def _wasm_executable_output(ctx, allow_default_test_main):
         output = output,
     )
     return struct(
-        bundle = output_mjs,
+        bundle = wasm_bundle.main,
         output = output,
         runfiles = ctx.runfiles(files = [
-            ctx.executable.src,
+            wasm_bundle.binary,
             ctx.file._wasm_runner,
-            output_mjs,
+            wasm_bundle.main,
         ]),
     )
 

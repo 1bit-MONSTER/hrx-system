@@ -161,6 +161,11 @@ def _test_executable_alias_bundles_wasm_target_impl(env, target):
     )
     bundle = bundle_action.outputs.to_list()[0]
     env.expect.that_str(bundle.basename).equals(target.label.name + ".mjs")
+    _expect_basename(
+        env,
+        target[DefaultInfo].default_runfiles.files.to_list(),
+        target.label.name + ".wasm",
+    )
 
     wrapper_action = _find_action_with_output(env, actions, info.output)
     env.expect.that_str(wrapper_action.content).contains(
