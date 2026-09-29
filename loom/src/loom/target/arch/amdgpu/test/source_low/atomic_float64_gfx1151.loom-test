@@ -1,0 +1,218 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_atomic_float64_arithmetic.loom-test
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+// Native candidates must preserve f64 numerical and backing-memory semantics.
+// Source spaces and scopes select the corresponding native or bitwise CAS path.
+func.def @atomic_f64_realizations(%global_storage: buffer, %generic_storage: buffer, %value: f64) -> (f64, f64, f64, f64) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %global = buffer.assume.memory_space<global> %global_storage : buffer
+  %generic = buffer.assume.memory_space<generic> %generic_storage : buffer
+  %scratch = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %global_view = buffer.view %global[%base] : buffer -> view<3xf64>
+  %generic_view = buffer.view %generic[%base] : buffer -> view<2xf64>
+  %workgroup_view = buffer.view %scratch[%base] : buffer -> view<1xf64>
+  view.store %value, %workgroup_view[0] : f64, view<1xf64>
+  %add = view.atomic.rmw<addf, noftz> %value, %global_view[0] {ordering = relaxed, scope = device} : f64, view<3xf64> -> f64
+  view.atomic.reduce<addf, noftz> %value, %generic_view[0] {ordering = release, scope = system} : f64, view<2xf64>
+  %minnum = view.atomic.rmw<minnumf> %value, %global_view[1] {ordering = acq_rel, scope = device} : f64, view<3xf64> -> f64
+  view.atomic.reduce<maxnumf> %value, %workgroup_view[0] {ordering = release, scope = workgroup} : f64, view<1xf64>
+  %workgroup_add = view.atomic.rmw<addf, noftz> %value, %workgroup_view[0] {ordering = seq_cst, scope = system} : f64, view<1xf64> -> f64
+  %minimum = view.atomic.rmw<minimumf> %value, %generic_view[1] {ordering = acquire, scope = device} : f64, view<2xf64> -> f64
+  view.atomic.reduce<maximumf> %value, %global_view[2] {ordering = relaxed, scope = device} : f64, view<3xf64>
+  func.return %add, %minnum, %workgroup_add, %minimum : f64, f64, f64, f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @atomic_f64_realizations(%value: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %global_view = resource<hal_binding> {extent = 24, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %generic_view = resource<hal_binding> {extent = 16, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %125 = storage {byte_alignment = 8, byte_length = 8} : low.storage<workgroup>
+  %workgroup_view = storage_address %125 : low.storage<workgroup> -> reg<amdgpu.vgpr>
+  %127 = v_mov_b32 0
+  ds_write_b64 %127, %value
+  %130 = concat(%127, %127) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %142 = s_mov_b64_exec_read
+  low.br ^_bb1(%130: reg<amdgpu.vgpr x2>)
+^_bb1(%109: reg<amdgpu.vgpr x2>):
+  %131 = v_add_f64 %109, %value
+  %133 = concat(%131, %109) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %134 = global_atomic_cmpswap_b64_rtn_saddr %127, %133, %global_view
+  %135 = slice %134[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %136 = slice %134[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %137 = slice %109[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %138 = slice %109[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %139 = v_cmp_ne_i32 %136, %138
+  %140 = v_cmp_ne_i32 %135, %137
+  %141 = s_or_b64 %139, %140
+  %143, %144 = s_and_saveexec_b64 %141
+  low.cond_br %144, ^_bb2, ^_bb15 : reg<amdgpu.scc>
+^_bb2:
+  low.br ^_bb1(%134: reg<amdgpu.vgpr x2>)
+^_bb15:
+  s_mov_b64_exec %142
+  %160 = s_mov_b64_exec_read
+  low.br ^_bb3(%130: reg<amdgpu.vgpr x2>)
+^_bb3(%110: reg<amdgpu.vgpr x2>):
+  %145 = v_add_f64 %110, %value
+  %146 = slice %generic_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %147 = slice %generic_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %148 = v_mov_b32_copy %146
+  %149 = v_mov_b32_copy %147
+  %150 = concat(%148, %149) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
+  %151 = concat(%145, %110) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %152 = flat_atomic_cmpswap_b64_rtn %150, %151
+  %153 = slice %152[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %154 = slice %152[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %155 = slice %110[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %156 = slice %110[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %157 = v_cmp_ne_i32 %154, %156
+  %158 = v_cmp_ne_i32 %153, %155
+  %159 = s_or_b64 %157, %158
+  %161, %162 = s_and_saveexec_b64 %159
+  low.cond_br %162, ^_bb4, ^_bb16 : reg<amdgpu.scc>
+^_bb4:
+  low.br ^_bb3(%152: reg<amdgpu.vgpr x2>)
+^_bb16:
+  s_mov_b64_exec %160
+  %176 = s_mov_b64_exec_read
+  low.br ^_bb5(%130: reg<amdgpu.vgpr x2>)
+^_bb5(%111: reg<amdgpu.vgpr x2>):
+  %163 = v_max_f64 %111, %111
+  %164 = v_max_f64 %value, %value
+  %165 = v_min_f64 %163, %164
+  %166 = v_mov_b32 0
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
+  %167 = concat(%165, %111) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %168 = global_atomic_cmpswap_b64_rtn_saddr %166, %167, %global_view {offset = 8}
+  s_waitcnt {vmcnt = 0}
+  buffer_gl1_inv
+  buffer_gl0_inv
+  %169 = slice %168[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %170 = slice %168[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %171 = slice %111[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %172 = slice %111[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %173 = v_cmp_ne_i32 %170, %172
+  %174 = v_cmp_ne_i32 %169, %171
+  %175 = s_or_b64 %173, %174
+  %177, %178 = s_and_saveexec_b64 %175
+  low.cond_br %178, ^_bb6, ^_bb17 : reg<amdgpu.scc>
+^_bb6:
+  low.br ^_bb5(%168: reg<amdgpu.vgpr x2>)
+^_bb17:
+  s_mov_b64_exec %176
+  %190 = s_mov_b64_exec_read
+  low.br ^_bb7(%130: reg<amdgpu.vgpr x2>)
+^_bb7(%112: reg<amdgpu.vgpr x2>):
+  %179 = v_max_f64 %112, %112
+  %180 = v_max_f64 %value, %value
+  %181 = v_max_f64 %179, %180
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
+  %182 = ds_cmpst_rtn_b64 %workgroup_view, %112, %181
+  %183 = slice %182[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %184 = slice %182[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %185 = slice %112[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %186 = slice %112[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %187 = v_cmp_ne_i32 %184, %186
+  %188 = v_cmp_ne_i32 %183, %185
+  %189 = s_or_b64 %187, %188
+  %191, %192 = s_and_saveexec_b64 %189
+  low.cond_br %192, ^_bb8, ^_bb18 : reg<amdgpu.scc>
+^_bb8:
+  low.br ^_bb7(%182: reg<amdgpu.vgpr x2>)
+^_bb18:
+  s_mov_b64_exec %190
+  %202 = s_mov_b64_exec_read
+  low.br ^_bb9(%130: reg<amdgpu.vgpr x2>)
+^_bb9(%113: reg<amdgpu.vgpr x2>):
+  %193 = v_add_f64 %113, %value
+  s_waitcnt {vmcnt = 0, lgkmcnt = 0}
+  s_waitcnt_vscnt {vscnt = 0}
+  %194 = ds_cmpst_rtn_b64 %workgroup_view, %113, %193
+  s_waitcnt {lgkmcnt = 0}
+  buffer_gl0_inv
+  %195 = slice %194[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %196 = slice %194[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %197 = slice %113[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %198 = slice %113[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %199 = v_cmp_ne_i32 %196, %198
+  %200 = v_cmp_ne_i32 %195, %197
+  %201 = s_or_b64 %199, %200
+  %203, %204 = s_and_saveexec_b64 %201
+  low.cond_br %204, ^_bb10, ^_bb19 : reg<amdgpu.scc>
+^_bb10:
+  low.br ^_bb9(%194: reg<amdgpu.vgpr x2>)
+^_bb19:
+  s_mov_b64_exec %202
+  %233 = s_mov_b64_exec_read
+  low.br ^_bb11(%130: reg<amdgpu.vgpr x2>)
+^_bb11(%114: reg<amdgpu.vgpr x2>):
+  %205 = v_max_f64 %114, %114
+  %206 = v_max_f64 %value, %value
+  %207 = v_min_f64 %205, %206
+  %208 = v_cmp_u_f64 %114, %value
+  %209 = v_mov_b32 0
+  %210 = v_mov_b32 2146959360
+  %213 = slice %207[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %214 = v_cndmask_b32 %213, %209, %208
+  %216 = slice %207[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %217 = v_cndmask_b32 %216, %210, %208
+  %218 = concat(%214, %217) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %219 = slice %generic_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %220 = slice %generic_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %221 = v_mov_b32_copy %219
+  %222 = v_mov_b32_copy %220
+  %223 = concat(%221, %222) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %224 = concat(%218, %114) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %225 = flat_atomic_cmpswap_b64_rtn %223, %224 {offset = 8}
+  s_waitcnt {vmcnt = 0}
+  s_waitcnt {lgkmcnt = 0}
+  buffer_gl1_inv
+  buffer_gl0_inv
+  %226 = slice %225[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %227 = slice %225[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %228 = slice %114[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %229 = slice %114[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %230 = v_cmp_ne_i32 %227, %229
+  %231 = v_cmp_ne_i32 %226, %228
+  %232 = s_or_b64 %230, %231
+  %234, %235 = s_and_saveexec_b64 %232
+  low.cond_br %235, ^_bb12, ^_bb20 : reg<amdgpu.scc>
+^_bb12:
+  low.br ^_bb11(%225: reg<amdgpu.vgpr x2>)
+^_bb20:
+  s_mov_b64_exec %233
+  %257 = s_mov_b64_exec_read
+  low.br ^_bb13(%130: reg<amdgpu.vgpr x2>)
+^_bb13(%115: reg<amdgpu.vgpr x2>):
+  %236 = v_max_f64 %115, %115
+  %237 = v_max_f64 %value, %value
+  %238 = v_max_f64 %236, %237
+  %239 = v_cmp_u_f64 %115, %value
+  %241 = slice %238[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %242 = v_cndmask_b32 %241, %209, %239
+  %244 = slice %238[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %245 = v_cndmask_b32 %244, %210, %239
+  %246 = concat(%242, %245) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %247 = v_mov_b32 0
+  %248 = concat(%246, %115) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %249 = global_atomic_cmpswap_b64_rtn_saddr %247, %248, %global_view {offset = 16}
+  %250 = slice %249[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %251 = slice %249[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %252 = slice %115[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %253 = slice %115[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %254 = v_cmp_ne_i32 %251, %253
+  %255 = v_cmp_ne_i32 %250, %252
+  %256 = s_or_b64 %254, %255
+  %258, %259 = s_and_saveexec_b64 %256
+  low.cond_br %259, ^_bb14, ^_bb21 : reg<amdgpu.scc>
+^_bb14:
+  low.br ^_bb13(%249: reg<amdgpu.vgpr x2>)
+^_bb21:
+  s_mov_b64_exec %257
+  return %134, %168, %194, %225
+}

@@ -134,6 +134,7 @@ loom_check_test_suite(
     "test/assembly_vopd_profiles.loom-test"
     "test/assembly_wide_shifts.loom-test"
     "test/assembly_wmma.loom-test"
+    "test/atomic_float64.loom-test"
     "test/atomic_i64.loom-test"
     "test/cache_completion.loom-test"
     "test/compile_time_insertions.loom-test"

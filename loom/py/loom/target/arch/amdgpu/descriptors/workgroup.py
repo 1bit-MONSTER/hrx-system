@@ -444,7 +444,7 @@ def _ds_atomic_overlays(
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
-    include_packed_half_add: bool = False,
+    float_atomic_add_types: tuple[str, ...] = ("f32",),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     rows = [
         (
@@ -472,31 +472,28 @@ def _ds_atomic_overlays(
     ]
     rows.extend(
         (
-            f"ds_{operation}{return_suffix}_f32",
-            f"{semantic}.f32{'.return' if returns_old_value else ''}",
-            "FMT_NUM_F32",
-            32,
+            f"ds_{operation}{return_suffix}_f{width_bits}",
+            f"{semantic}.f{width_bits}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_F{width_bits}",
+            width_bits,
             returns_old_value,
         )
-        for operation, semantic in (
-            ("add", "add"),
-            ("min", "minnum"),
-            ("max", "maxnum"),
-        )
+        for width_bits in (32, 64)
+        for operation, semantic in (("min", "minnum"), ("max", "maxnum"))
         for return_suffix, returns_old_value in (("", False), ("_rtn", True))
     )
-    if include_packed_half_add:
-        rows.extend(
-            (
-                f"ds_pk_add{return_suffix}_{kind}",
-                f"add.pk2.{kind}{'.return' if returns_old_value else ''}",
-                f"FMT_NUM_PK2_{kind.upper()}",
-                32,
-                returns_old_value,
-            )
-            for kind in ("f16", "bf16")
-            for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+    rows.extend(
+        (
+            f"ds_{'pk_' if kind.startswith('pk2.') else ''}add"
+            f"{return_suffix}_{kind.split('.')[-1]}",
+            f"add.{kind}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_{kind.upper().replace('.', '_')}",
+            64 if kind == "f64" else 32,
+            returns_old_value,
         )
+        for kind in float_atomic_add_types
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+    )
     overlays = [
         _ds_atomic_overlay(
             descriptor_key=f"amdgpu.{mnemonic}",
@@ -852,7 +849,7 @@ def _ds_memory_overlays(
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
-    include_packed_half_atomic_add: bool = False,
+    float_atomic_add_types: tuple[str, ...] = ("f32",),
     include_u16_d16_loads: bool = False,
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     widths = ((32, 1), (64, 2), (96, 3), (128, 4))
@@ -900,7 +897,7 @@ def _ds_memory_overlays(
             cmpxchg_replacement_field=cmpxchg_replacement_field,
             encoding_name=encoding_name,
             fixed_encoding_fields=fixed_encoding_fields,
-            include_packed_half_add=include_packed_half_atomic_add,
+            float_atomic_add_types=float_atomic_add_types,
         ),
         *(
             _ds_load_u16_d16_overlays(

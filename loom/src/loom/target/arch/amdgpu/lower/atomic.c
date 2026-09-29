@@ -303,6 +303,8 @@ static bool loom_amdgpu_atomic_value_kind_matches(
       return loom_amdgpu_type_is_i32(value_type);
     case LOOM_AMDGPU_ATOMIC_VALUE_KIND_F32:
       return loom_amdgpu_type_is_f32(value_type);
+    case LOOM_AMDGPU_ATOMIC_VALUE_KIND_F64:
+      return loom_amdgpu_type_is_f64(value_type);
     case LOOM_AMDGPU_ATOMIC_VALUE_KIND_I64:
       return loom_amdgpu_type_is_i64(value_type);
     case LOOM_AMDGPU_ATOMIC_VALUE_KIND_PACKED_F16:
@@ -391,7 +393,8 @@ static bool loom_amdgpu_atomic_source_shape_supported(
   return ((loom_amdgpu_type_is_i32(value_type) ||
            loom_amdgpu_type_is_f32(value_type)) &&
           loom_amdgpu_atomic_scalar_source_shape(source, 4)) ||
-         (loom_amdgpu_type_is_i64(value_type) &&
+         ((loom_amdgpu_type_is_i64(value_type) ||
+           loom_amdgpu_type_is_f64(value_type)) &&
           loom_amdgpu_atomic_scalar_source_shape(source, 8)) ||
          loom_amdgpu_atomic_packed_half_source_shape(atomic_source, source,
                                                      value_type);
@@ -412,6 +415,8 @@ static bool loom_amdgpu_atomic_value_can_feed_vgpr(
       return loom_amdgpu_type_is_i32(value_type);
     case LOOM_AMDGPU_ATOMIC_VALUE_KIND_F32:
       return loom_amdgpu_type_is_f32(value_type);
+    case LOOM_AMDGPU_ATOMIC_VALUE_KIND_F64:
+      return loom_amdgpu_type_is_f64(value_type);
     case LOOM_AMDGPU_ATOMIC_VALUE_KIND_I64:
       return loom_amdgpu_type_is_i64(value_type);
     case LOOM_AMDGPU_ATOMIC_VALUE_KIND_PACKED_F16:
@@ -569,12 +574,9 @@ static bool loom_amdgpu_atomic_native_semantics_supported(
     loom_type_t value_type) {
   const bool noftz =
       iree_any_bit_set(access_flags, LOOM_MEMORY_ACCESS_FLAG_NOFTZ);
-  if (noftz && loom_type_element_type(value_type) != LOOM_SCALAR_TYPE_F32) {
-    return false;
-  }
   if (operation_kind == LOOM_AMDGPU_ATOMIC_OPERATION_CMPXCHG ||
-      atomic_kind == LOOM_ATOMIC_KIND_XCHGF ||
-      loom_type_element_type(value_type) != LOOM_SCALAR_TYPE_F32) {
+      loom_atomic_kind_is_exchange(atomic_kind) ||
+      !loom_atomic_kind_accepts_float(atomic_kind)) {
     return true;
   }
   if (atomic_kind == LOOM_ATOMIC_KIND_MINIMUMF ||
@@ -587,14 +589,15 @@ static bool loom_amdgpu_atomic_native_semantics_supported(
   loom_amdgpu_descriptor_set_info_flags_t required = 0;
   if (atomic_kind == LOOM_ATOMIC_KIND_MINNUMF ||
       atomic_kind == LOOM_ATOMIC_KIND_MAXNUMF) {
-    required |= LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_ATOMIC_F32_NUMBER_EXTREMA;
+    required |= LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_ATOMIC_NUMBER_EXTREMA;
   }
   if (memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     required |=
         scope == LOOM_ATOMIC_SCOPE_SYSTEM
             ? LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_ATOMIC_FLOAT_SYSTEM_MEMORY
             : LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_ATOMIC_FLOAT_AGENT_MEMORY;
-    if (atomic_kind == LOOM_ATOMIC_KIND_ADDF && noftz) {
+    if (atomic_kind == LOOM_ATOMIC_KIND_ADDF && noftz &&
+        loom_type_element_type(value_type) == LOOM_SCALAR_TYPE_F32) {
       required |= LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_ATOMIC_F32_ADD_DENORMALS;
     }
   }

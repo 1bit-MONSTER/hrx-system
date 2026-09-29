@@ -142,10 +142,16 @@ iree_status_t loom_view_target_legalize_atomic_float_reference(
 
   const loom_type_t float_type =
       loom_module_value_type(context->module, loom_memory_access_value(access));
-  if (!loom_type_equal(float_type, loom_type_scalar(LOOM_SCALAR_TYPE_F32))) {
+  if (!loom_type_is_scalar(float_type) ||
+      !loom_scalar_type_set_contains(
+          LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
+          loom_type_element_type(float_type))) {
     return iree_ok_status();
   }
-  const loom_type_t integer_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+  const loom_type_t integer_type = loom_type_scalar(
+      loom_type_element_type(float_type) == LOOM_SCALAR_TYPE_F64
+          ? LOOM_SCALAR_TYPE_I64
+          : LOOM_SCALAR_TYPE_I32);
 
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_set_before(&rewriter->builder, op);

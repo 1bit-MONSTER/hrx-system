@@ -21,6 +21,7 @@ _CONFIGURED_CASES = [
 ]
 
 _SCENARIO_CASES = [
+    "atomic_float64.loom",
     "numeric_vector_f32.loom",
     "packed_vector_select.loom",
     "predicate_logic.loom",
@@ -77,6 +78,16 @@ loom_test(
     name = "scalar_float_conversion_test",
     srcs = ["scalar_float_conversion.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "atomic_float64_test",
+    srcs = ["atomic_float64.loom"],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
 )
 
 loom_test(

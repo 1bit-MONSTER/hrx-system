@@ -424,7 +424,10 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
   }
   const loom_type_t value_type =
       loom_module_value_type(context->module, loom_memory_access_value(access));
-  if (!loom_type_equal(value_type, loom_type_scalar(LOOM_SCALAR_TYPE_F32))) {
+  if (!loom_type_is_scalar(value_type) ||
+      !loom_scalar_type_set_contains(
+          LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
+          loom_type_element_type(value_type))) {
     return iree_ok_status();
   }
 

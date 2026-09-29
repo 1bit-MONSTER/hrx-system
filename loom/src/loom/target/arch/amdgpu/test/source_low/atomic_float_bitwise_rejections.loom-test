@@ -8,14 +8,3 @@ func.def @exchange_f16(%input: buffer, %value: f16) -> (f16) {
   %old = view.atomic.rmw<xchgf> %value, %cell[0] {ordering = relaxed, scope = device} : f16, view<1xf16> -> f16
   func.return %old : f16
 }
-
-// ====
-
-func.def @arithmetic_f64(%input: buffer, %value: f64) -> (f64) {
-  %base = index.constant 0 : offset
-  %global = buffer.assume.memory_space<global> %input : buffer
-  %cell = buffer.view %global[%base] : buffer -> view<1xf64>
-  // ERROR@+1: AMDGPU/023 {constraint_key="atomic.shape"}
-  %old = view.atomic.rmw<addf> %value, %cell[0] {ordering = relaxed, scope = system} : f64, view<1xf64> -> f64
-  func.return %old : f64
-}
