@@ -873,7 +873,8 @@ static iree_status_t loom_amdgpu_append_memory_cache_attrs(
     return iree_ok_status();
   }
   if (access->source.operation_kind ==
-      LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_STORE) {
+          LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_STORE &&
+      access->source.atomic.scope > LOOM_ATOMIC_SCOPE_SUBGROUP) {
     return loom_amdgpu_system_memory_append_release_store_attrs_scoped(
         loom_low_lower_context_builder(context),
         loom_low_lower_context_descriptor_set(context),
@@ -887,7 +888,7 @@ static iree_status_t loom_amdgpu_append_memory_cache_attrs(
       LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_LOAD) {
     read_scope = iree_max(read_scope, access->source.atomic.scope);
   }
-  if (read_scope != LOOM_ATOMIC_SCOPE_THREAD) {
+  if (read_scope > LOOM_ATOMIC_SCOPE_SUBGROUP) {
     // The retained visibility obligation and atomic observation scope both
     // constrain these reads. Advisory cache preferences cannot weaken them.
     return loom_amdgpu_system_memory_append_load_attrs_scoped(

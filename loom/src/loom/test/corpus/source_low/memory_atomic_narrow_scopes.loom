@@ -1,0 +1,107 @@
+// Each lane publishes to its neighbor in one converged subgroup. Global and
+// LDS payloads are independent of the atomic flags and their returned values.
+kernel.def @subgroup_atomic_handoff() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%signal: buffer, %payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 256 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %local = buffer.view %scratch[%origin] : buffer -> view<2x32xi32>
+  %flag = buffer.view %signal[%origin] : buffer -> view<32xi32>
+  %generic = buffer.assume.memory_space<generic> %signal : buffer
+  %generic_flag = buffer.view %generic[%origin] : buffer -> view<32xi32>
+  %data = buffer.view %payload[%origin] : buffer -> view<32xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<6x32xi32>
+  %lane = kernel.workitem.id<x> : index
+  %step = index.constant 1 : index
+  %neighbor = index.xori %lane, %step : index
+  %ordinal = index.cast %lane : index to i32
+  %bias = scalar.constant 65536 : i32
+  %value = scalar.addi %ordinal, %bias : i32
+  %unpublished = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  view.store %value, %data[%lane] : i32, view<32xi32>
+  view.store %value, %local[0, %lane] : i32, view<2x32xi32>
+  view.atomic.store %increment, %flag[%lane] {ordering = release, scope = subgroup} : i32, view<32xi32>
+  %observed = view.atomic.load %flag[%neighbor] {ordering = acquire, scope = subgroup} : view<32xi32> -> i32
+  %failed = view.atomic.cmpxchg %unpublished, %unpublished, %generic_flag[%neighbor] {failure_ordering = acquire, scope = subgroup, success_ordering = acq_rel} : i32, view<32xi32> -> i32
+  view.atomic.store %unpublished, %local[1, %lane] {ordering = relaxed, scope = subgroup} : i32, view<2x32xi32>
+  %old = view.atomic.rmw<addi> %increment, %local[1, %lane] {ordering = acq_rel, scope = subgroup} : i32, view<2x32xi32> -> i32
+  view.atomic.reduce<addi> %increment, %local[1, %lane] {ordering = release, scope = subgroup} : i32, view<2x32xi32>
+  buffer.fence scope(subgroup) ordering(release)
+  %local_flag = view.atomic.load %local[1, %neighbor] {ordering = relaxed, scope = subgroup} : view<2x32xi32> -> i32
+  buffer.fence scope(subgroup) ordering(acquire)
+  %global_value = view.load %data[%neighbor] : view<32xi32> -> i32
+  %local_value = view.load %local[0, %neighbor] : view<2x32xi32> -> i32
+  view.store %global_value, %results[0, %neighbor] : i32, view<6x32xi32>
+  view.store %local_value, %results[1, %neighbor] : i32, view<6x32xi32>
+  view.store %observed, %results[2, %lane] : i32, view<6x32xi32>
+  view.store %failed, %results[3, %lane] : i32, view<6x32xi32>
+  view.store %old, %results[4, %lane] : i32, view<6x32xi32>
+  view.store %local_flag, %results[5, %lane] : i32, view<6x32xi32>
+  kernel.return
+}
+
+// ====
+// Thread scope retains every observation and the full 64-bit old value.
+kernel.def @thread_atomic_sequence() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%signal: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %scratch = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %local = buffer.view %scratch[%origin] : buffer -> view<1xi64>
+  %word = buffer.view %signal[%origin] : buffer -> view<1xi64>
+  %generic = buffer.assume.memory_space<generic> %signal : buffer
+  %generic_word = buffer.view %generic[%origin] : buffer -> view<1xi64>
+  %results = buffer.view %output[%origin] : buffer -> view<4xi64>
+  %initial = scalar.constant 4294967297 : i64
+  %increment = scalar.constant 1 : i64
+  view.atomic.store %initial, %word[0] {ordering = seq_cst, scope = thread} : i64, view<1xi64>
+  %discarded = view.atomic.load %word[0] {ordering = relaxed, scope = thread} : view<1xi64> -> i64
+  %observed = view.atomic.load %word[0] {ordering = seq_cst, scope = thread} : view<1xi64> -> i64
+  %old = view.atomic.rmw<addi> %increment, %generic_word[0] {ordering = acq_rel, scope = thread} : i64, view<1xi64> -> i64
+  view.atomic.reduce<addi> %increment, %word[0] {ordering = release, scope = thread} : i64, view<1xi64>
+  view.atomic.store %initial, %local[0] {ordering = release, scope = thread} : i64, view<1xi64>
+  %exchanged = view.atomic.cmpxchg %initial, %increment, %local[0] {failure_ordering = acquire, scope = thread, success_ordering = seq_cst} : i64, view<1xi64> -> i64
+  buffer.fence scope(thread) ordering(seq_cst)
+  %final = view.atomic.load %generic_word[0] {ordering = acquire, scope = thread} : view<1xi64> -> i64
+  view.store %observed, %results[0] : i64, view<4xi64>
+  view.store %old, %results[1] : i64, view<4xi64>
+  view.store %exchanged, %results[2] : i64, view<4xi64>
+  view.store %final, %results[3] : i64, view<4xi64>
+  kernel.return
+}
+
+// ====
+// Broader authored scopes on LDS retain workgroup publication and acquisition,
+// including payloads in global memory and acquisition on a failed compare.
+kernel.def @lds_broad_scope() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%payload: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %flag = buffer.view %scratch[%origin] : buffer -> view<1xi32>
+  %data = buffer.view %payload[%origin] : buffer -> view<1xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<4xi32>
+  %unpublished = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %value = scalar.constant 65537 : i32
+  view.store %value, %data[0] : i32, view<1xi32>
+  view.atomic.store %increment, %flag[0] {ordering = release, scope = system} : i32, view<1xi32>
+  %observed = view.atomic.load %flag[0] {ordering = acquire, scope = device} : view<1xi32> -> i32
+  %failed = view.atomic.cmpxchg %unpublished, %unpublished, %flag[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : i32, view<1xi32> -> i32
+  %acquired = view.load %data[0] : view<1xi32> -> i32
+  view.atomic.reduce<addi> %increment, %flag[0] {ordering = release, scope = device} : i32, view<1xi32>
+  %old = view.atomic.rmw<addi> %increment, %flag[0] {ordering = seq_cst, scope = system} : i32, view<1xi32> -> i32
+  view.store %observed, %results[0] : i32, view<4xi32>
+  view.store %failed, %results[1] : i32, view<4xi32>
+  view.store %old, %results[2] : i32, view<4xi32>
+  view.store %acquired, %results[3] : i32, view<4xi32>
+  kernel.return
+}

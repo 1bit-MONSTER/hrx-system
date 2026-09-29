@@ -8,6 +8,7 @@
 
 #include "loom/ops/atomic.h"
 #include "loom/ops/buffer/ops.h"
+#include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/lower/descriptor_ref.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
 #include "loom/target/arch/amdgpu/lower/legality.h"
@@ -30,11 +31,6 @@ static bool loom_amdgpu_memory_ordering_available(
          loom_amdgpu_wait_packet_try_select_counter_mask(
              descriptor_set, rule->local_wait_mask,
              /*target_count=*/0, &selection);
-}
-
-static bool loom_amdgpu_memory_ordering_scope_supported(uint8_t scope) {
-  return scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
-         scope == LOOM_ATOMIC_SCOPE_DEVICE || scope == LOOM_ATOMIC_SCOPE_SYSTEM;
 }
 
 loom_low_lower_visibility_model_t loom_amdgpu_memory_visibility_model(
@@ -68,11 +64,6 @@ iree_string_view_t loom_amdgpu_atomic_memory_rejection_key(
   }
   if (source->minimum_alignment < source->element_byte_count) {
     return IREE_SV("atomic.alignment");
-  }
-  if (is_workgroup ? source->atomic.scope != LOOM_ATOMIC_SCOPE_WORKGROUP
-                   : !loom_amdgpu_memory_ordering_scope_supported(
-                         source->atomic.scope)) {
-    return IREE_SV("atomic.scope");
   }
   if (!loom_amdgpu_memory_ordering_available(descriptor_set)) {
     return IREE_SV("atomic.ordering");
@@ -132,17 +123,27 @@ static iree_status_t loom_amdgpu_emit_memory_release(
 iree_status_t loom_amdgpu_emit_memory_ordering_prefix(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_low_source_memory_access_plan_t* source) {
+  if (source->atomic.scope <= LOOM_ATOMIC_SCOPE_SUBGROUP) {
+    // A wave's memory paths preserve issue order without cache maintenance.
+    // Observable packets retain the compiler's ordered memory frontier.
+    return iree_ok_status();
+  }
+  // LDS can synchronize only participants in its owning workgroup, including
+  // when the source requests a broader scope. The recipe still orders payloads
+  // through both global and local memory.
+  const uint8_t scope =
+      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
+          ? LOOM_ATOMIC_SCOPE_WORKGROUP
+          : source->atomic.scope;
   if (source->operation_kind == LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_STORE &&
       source->atomic.ordering != LOOM_ATOMIC_ORDERING_RELAXED) {
-    return loom_amdgpu_emit_memory_release(context, source_op,
-                                           source->atomic.scope);
+    return loom_amdgpu_emit_memory_release(context, source_op, scope);
   }
   if (source->operation_kind == LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_LOAD &&
       source->atomic.ordering == LOOM_ATOMIC_ORDERING_SEQ_CST) {
     // Acquire alone does not prevent an earlier sequentially consistent store
     // from completing after this load. Drain prior accesses before the load.
-    return loom_amdgpu_emit_memory_release(context, source_op,
-                                           source->atomic.scope);
+    return loom_amdgpu_emit_memory_release(context, source_op, scope);
   }
   return iree_ok_status();
 }
@@ -187,7 +188,8 @@ iree_status_t loom_amdgpu_emit_memory_ordering_suffix(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_low_source_memory_access_plan_t* source) {
   if (source->operation_kind != LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_LOAD ||
-      source->atomic.ordering == LOOM_ATOMIC_ORDERING_RELAXED) {
+      source->atomic.ordering == LOOM_ATOMIC_ORDERING_RELAXED ||
+      source->atomic.scope <= LOOM_ATOMIC_SCOPE_SUBGROUP) {
     return iree_ok_status();
   }
   if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC) {
@@ -199,7 +201,8 @@ iree_status_t loom_amdgpu_emit_memory_ordering_suffix(
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_wait(context, source_op,
                                                       rule->local_wait_mask));
   }
-  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP) {
+  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
+      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     return loom_amdgpu_emit_workgroup_memory_acquire(
         context, source_op,
         source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP
@@ -225,8 +228,7 @@ iree_status_t loom_amdgpu_select_memory_fence_plan(
     loom_low_lower_plan_t* out_plan) {
   *out_plan = loom_low_lower_plan_empty();
   const uint8_t scope = loom_buffer_fence_scope(source_op);
-  if (!loom_amdgpu_memory_ordering_scope_supported(scope) ||
-      !loom_amdgpu_memory_ordering_available(
+  if (!loom_amdgpu_memory_ordering_available(
           loom_low_lower_context_descriptor_set(context))) {
     return iree_ok_status();
   }
@@ -244,6 +246,13 @@ iree_status_t loom_amdgpu_select_memory_fence_plan(
 iree_status_t loom_amdgpu_lower_memory_fence(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_memory_fence_plan_t* plan) {
+  if (plan->scope <= LOOM_ATOMIC_SCOPE_SUBGROUP) {
+    // Narrow fences order compiler scheduling without a hardware rendezvous
+    // or cache operation. Erasing the fence would lose its issue-order bound.
+    loom_op_t* fence = NULL;
+    return loom_low_schedule_fence_build(
+        loom_low_lower_context_builder(context), source_op->location, &fence);
+  }
   if (plan->ordering == LOOM_ATOMIC_ORDERING_ACQUIRE) {
     // An acquire fence may follow a no-return RMW or an LDS atomic. Complete
     // those observations without the writeback required by a release.
@@ -287,11 +296,6 @@ iree_status_t loom_amdgpu_low_legality_verify_memory_fence(
     return iree_ok_status();
   }
   *out_handled = true;
-  if (!loom_amdgpu_memory_ordering_scope_supported(
-          loom_buffer_fence_scope(op))) {
-    return loom_amdgpu_low_legality_reject(context, op,
-                                           IREE_SV("memory_fence.scope"));
-  }
   if (!loom_amdgpu_memory_ordering_available(
           loom_target_low_legality_descriptor_set(context))) {
     return loom_amdgpu_low_legality_reject(context, op,
