@@ -134,19 +134,6 @@ static const loom_target_facts_t* loom_spirv_program_function_target_facts(
                                   : NULL;
 }
 
-static bool loom_spirv_program_needs_function_versions(
-    const loom_spirv_compile_options_t* options) {
-  if (options == NULL || options->entry_count == 0) {
-    return true;
-  }
-  for (iree_host_size_t i = 0; i < options->entry_count; ++i) {
-    if (options->entries[i].target_facts == NULL) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static iree_status_t loom_spirv_program_prepare_function(
     loom_spirv_program_build_t* build, loom_op_t* function_op,
     const loom_target_facts_t* selected_target_facts,
@@ -228,7 +215,7 @@ static iree_status_t loom_spirv_program_plan_prepare(
       .function_capacity = function_capacity,
   };
   loom_symbol_fact_table_initialize(&build.symbol_facts, arena);
-  if (loom_spirv_program_needs_function_versions(options)) {
+  if (options == NULL || options->entry_count == 0) {
     IREE_RETURN_IF_ERROR(loom_target_function_version_snapshot_build(
         module, options != NULL ? options->function_versions : NULL, arena,
         &build.function_versions));

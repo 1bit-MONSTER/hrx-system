@@ -26,16 +26,16 @@ extern "C" {
 typedef struct loom_spirv_compile_entry_t {
   // Verified target-low function definition.
   loom_op_t* function_op;
-  // Immutable target facts already selected for |function_op|, or NULL to
-  // resolve them from the function version or authored target witness.
+  // Immutable target facts already selected for |function_op|.
   const loom_target_facts_t* target_facts;
 } loom_spirv_compile_entry_t;
 
 typedef struct loom_spirv_compile_options_t {
   // Optional compiler-owned function versions participating in preparation.
   const loom_function_version_list_t* function_versions;
-  // Optional selected entry table in emission order. NULL prepares every
-  // SPIR-V Low function in source module order.
+  // Optional compiler-owned selected entry table in emission order. Every
+  // entry carries target facts. NULL prepares every SPIR-V Low function in
+  // source module order.
   const loom_spirv_compile_entry_t* entries;
   // Number of entries in |entries|. Zero selects from the module.
   iree_host_size_t entry_count;
