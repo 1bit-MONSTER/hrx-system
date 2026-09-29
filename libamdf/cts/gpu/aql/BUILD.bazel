@@ -82,6 +82,7 @@ amdf_cc_library(
     }),
     deps = [
         ":queue_fixture",
-        "//libamdf/cts/gpu/kernels:image",
+        "//libamdf/cts/gpu/kernels:kernel",
+        "//libamdf/cts/gpu/pm4/encoding:profile",
     ],
 )

@@ -9,6 +9,9 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
+
+#include "libamdf/cts/gpu/pm4/encoding/profile.h"
 
 namespace aql {
 
@@ -108,8 +111,8 @@ inline Packet Dispatch(HeaderBarrier barrier, const DispatchGeometry& geometry,
   return packet;
 }
 
-// AMD BARRIER_VALUE for a decreasing USER signal epoch on admitted gfx942
-// queues. The following barrier-enabled dispatch supplies its SYSTEM acquire
+// Optional AMD BARRIER_VALUE for a decreasing USER signal epoch. The queue
+// advertises this packet; the following dispatch supplies its SYSTEM acquire
 // and completion; that completion also bounds the dependency signal's use.
 inline Packet BarrierValueLessThan(uint64_t signal, int64_t reference,
                                    int64_t mask) {
@@ -125,26 +128,36 @@ inline Packet BarrierValueLessThan(uint64_t signal, int64_t reference,
   return packet;
 }
 
-// ROCr's gfx9 executable-publication ACQUIRE_MEM recipe. The code base is
-// 256-byte aligned and its rounded range remains inside caller-owned backing.
-inline std::array<uint32_t, 7> Gfx9CodeCacheInvalidate(uint64_t code_address,
-                                                       uint32_t byte_length) {
+// Executable-publication ACQUIRE_MEM for an admitted CDNA/RDNA target. The
+// code base is 256-byte aligned and its rounded range stays in owned backing.
+// CDNA uses COHER_CNTL; RDNA uses the selected generation's GCR controls.
+inline std::vector<uint32_t> CodeCacheInvalidate(
+    const amdf_gpu_endpoint_info_t& endpoint, uint64_t code_address,
+    uint32_t byte_length) {
   const uint64_t granule_count = (uint64_t{byte_length} + 255) >> 8;
-  return {0xc0055800u,
-          0x28840000u,
-          static_cast<uint32_t>(granule_count),
-          static_cast<uint32_t>(granule_count >> 32),
-          static_cast<uint32_t>(code_address >> 8),
-          static_cast<uint32_t>(code_address >> 40),
-          0};
+  std::vector<uint32_t> words = {0xc0055800u,
+                                 0x28840000u,
+                                 static_cast<uint32_t>(granule_count),
+                                 static_cast<uint32_t>(granule_count >> 32),
+                                 static_cast<uint32_t>(code_address >> 8),
+                                 static_cast<uint32_t>(code_address >> 40),
+                                 0};
+  if (endpoint.gfx_ip.major != 9) {
+    const auto& profile = *Pm4CommandProfile::Find(endpoint);
+    words[0] = 0xc0065800u;
+    words[1] = 0;
+    words.push_back(profile.system_acquire_gcr);
+  }
+  return words;
 }
 
-// AMD gfx9 vendor carrier for a caller-owned immutable PM4 program. Executable
-// IB storage and its complete extent are dword-aligned and below 2^48; the
-// positive word count fits 20 bits. Native completion protects IB lifetime.
-inline Packet Gfx9IndirectBuffer(HeaderBarrier barrier, uint64_t ib_address,
-                                 uint32_t word_count, uint64_t completion,
-                                 FenceScopes scopes) {
+// AMD format-1 vendor carrier for a caller-owned immutable PM4 program.
+// Executable IB storage and its complete extent are dword-aligned and below
+// 2^48; the positive word count fits 20 bits. Native completion protects IB
+// lifetime.
+inline Packet IndirectBuffer(HeaderBarrier barrier, uint64_t ib_address,
+                             uint32_t word_count, uint64_t completion,
+                             FenceScopes scopes) {
   Packet packet = {};
   packet[0] = (1u << 16) | static_cast<uint32_t>(barrier) |
               (static_cast<uint32_t>(scopes.acquire) << 9) |

@@ -17,6 +17,7 @@ amdf_cc_library(
     name = "packets",
     testonly = True,
     hdrs = ["packets.h"],
+    deps = ["//libamdf/cts/gpu/pm4/encoding:profile"],
 )
 
 amdf_cc_test(

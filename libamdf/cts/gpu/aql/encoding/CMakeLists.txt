@@ -17,6 +17,7 @@ iree_cc_library(
     "packets.h"
   DEPS
     amdf::headers
+    libamdf::cts::gpu::pm4::encoding::profile
   TESTONLY
   PUBLIC
 )

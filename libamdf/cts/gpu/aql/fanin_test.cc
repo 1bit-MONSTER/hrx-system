@@ -105,10 +105,10 @@ TEST_F(AqlDispatchTest, BarrierAndJoinsIndependentShaderPayloads) {
   uint64_t consumer_index = 0;
   uint64_t producer_descriptor = 0;
   uint64_t consumer_descriptor = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel.executable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel,
                                         "aql_fanin_producer_kernel",
                                         &producer_index, &producer_descriptor));
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel.executable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel,
                                         "aql_fanin_consumer_kernel",
                                         &consumer_index, &consumer_descriptor));
   const uint64_t first_producer_packet_index = producer_index;

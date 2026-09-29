@@ -189,20 +189,40 @@ TEST(AqlEncodingTest, BarrierValueEncodesMaskedEpochAndLessThanCondition) {
 }
 
 TEST(AqlEncodingTest, Gfx9CodeCacheInvalidateUsesBounded256ByteRange) {
+  amdf_gpu_endpoint_info_t endpoint = {};
+  endpoint.gfx_ip = {9, 4, 2};
   const auto commands =
-      aql::Gfx9CodeCacheInvalidate(UINT64_C(0x1234567887654300), 1408);
+      aql::CodeCacheInvalidate(endpoint, UINT64_C(0x1234567887654300), 1408);
   // ROCm 8d57824901ff amd_gpu_pm4.h: ACQUIRE_MEM opcode 0x58, seven
   // dwords, coherent actions at bits 18/23/27/29, base/size in 256 bytes.
   // InvalidateCodeCaches supplies zero poll interval. Linux soc15d.h agrees
   // on the action bits and base fields; no gfx10+ GCR word is appended.
-  const std::array<uint32_t, 7> expected = {0xc0055800, 0x28840000, 0x00000006,
-                                            0x00000000, 0x78876543, 0x00123456,
-                                            0x00000000};
+  const std::vector<uint32_t> expected = {0xc0055800, 0x28840000, 0x00000006,
+                                          0x00000000, 0x78876543, 0x00123456,
+                                          0x00000000};
   EXPECT_EQ(commands, expected);
 }
 
-TEST(AqlEncodingTest, Gfx9CodeCachePublicationOwnsIndirectBufferCompletion) {
-  const auto packet = aql::Gfx9IndirectBuffer(
+TEST(AqlEncodingTest, RdnaCodePublicationSelectsGenerationSpecificGcr) {
+  for (uint32_t target : {110501u, 120000u, 120500u}) {
+    SCOPED_TRACE(target);
+    amdf_gpu_endpoint_info_t endpoint = {};
+    endpoint.gfx_ip = {target / 10000, (target / 100) % 100, target % 100};
+    const auto commands =
+        aql::CodeCacheInvalidate(endpoint, UINT64_C(0x1234567887654300), 1408);
+    // RDNA's eight-dword ACQUIRE_MEM appends GCR instead of COHER_CNTL.
+    // Reserved fields and the GFX125x system scope follow the PM4 profile.
+    const uint32_t gcr = target == 110501   ? 0xc3a1u
+                         : target == 120000 ? 0xc181u
+                                            : 0x1c1e1u;
+    const std::vector<uint32_t> expected = {0xc0065800, 0,          6, 0,
+                                            0x78876543, 0x00123456, 0, gcr};
+    EXPECT_EQ(commands, expected);
+  }
+}
+
+TEST(AqlEncodingTest, CodeCachePublicationOwnsIndirectBufferCompletion) {
+  const auto packet = aql::IndirectBuffer(
       aql::HeaderBarrier::kDisabled, UINT64_C(0x123498765400), 7,
       UINT64_C(0x3456789aa9876500),
       {aql::FenceScope::kNone, aql::FenceScope::kNone});
@@ -216,8 +236,8 @@ TEST(AqlEncodingTest, Gfx9CodeCachePublicationOwnsIndirectBufferCompletion) {
   EXPECT_EQ(packet, expected);
 }
 
-TEST(AqlEncodingTest, Gfx9DataCarrierOrdersSystemTransferCompletion) {
-  const auto packet = aql::Gfx9IndirectBuffer(
+TEST(AqlEncodingTest, DataCarrierOrdersSystemTransferCompletion) {
+  const auto packet = aql::IndirectBuffer(
       aql::HeaderBarrier::kEnabled, UINT64_C(0xabcd98765400), 14,
       UINT64_C(0x3456789aa9876500),
       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});

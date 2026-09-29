@@ -14,7 +14,12 @@
 
 namespace {
 
-TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
+class AqlEpochTest : public AqlDispatchTest {
+ protected:
+  AqlEpochTest() : AqlDispatchTest(AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE) {}
+};
+
+TEST_F(AqlEpochTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
   const auto* kernel_product =
       kernels::transform::kKernels.Find(gpu_endpoint_info_);
   ASSERT_NE(kernel_product, nullptr)
@@ -84,12 +89,10 @@ TEST_F(AqlDispatchTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
   uint64_t consumer_index = 0;
   uint64_t producer_descriptor = 0;
   uint64_t consumer_descriptor = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel.executable,
-                                        "aql_kernel", &producer_index,
-                                        &producer_descriptor));
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel.executable,
-                                        "aql_kernel", &consumer_index,
-                                        &consumer_descriptor));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*producer, kernel, "aql_kernel",
+                                        &producer_index, &producer_descriptor));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*consumer, kernel, "aql_kernel",
+                                        &consumer_index, &consumer_descriptor));
   RecordProperty("aql_epoch_initial_value", std::to_string(kInitialEpoch));
 
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {

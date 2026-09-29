@@ -10,13 +10,14 @@
 #include <cstdint>
 
 #include "libamdf/cts/gpu/aql/queue_fixture.h"
-#include "libamdf/cts/gpu/kernels/image.h"
+#include "libamdf/cts/gpu/kernels/kernel.h"
 
-// Exact gfx942 artifact admission and completed cold code publication.
+// Target-selected executable publication completed before workload dispatch.
 // Dataflow dependencies and result observations belong to each consuming case.
 class AqlDispatchTest : public AqlQueueTest {
  protected:
-  AqlDispatchTest() : AqlQueueTest(AMDF_QUEUE_ROLE_CACHE_CONTROL) {}
+  explicit AqlDispatchTest(amdf_queue_format_features_t format_features = 0)
+      : AqlQueueTest(AMDF_QUEUE_ROLE_CACHE_CONTROL, format_features) {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;
@@ -26,12 +27,16 @@ class AqlDispatchTest : public AqlQueueTest {
   void CreateFixedScratchQueue(uint32_t maximum_private_segment_byte_length,
                                GpuUserQueue** out_queue);
 
+  // Includes speculative instruction fetch and compiler-requested prefetch.
+  // Allocation granularity belongs to the executable storage owner.
+  uint64_t CodeByteLength(const kernels::Kernel& kernel) const;
+
   // Allocates case-owned executable storage and a private setup signal, then
   // waits for code publication and ring consumption. Advances the packet index
   // at reservation and publishes the descriptor address only after completion.
   // All backing remains owned by the case through successful queue destruction.
   // Distinct images use distinct receipt prefixes to retain both identities.
-  void PublishKernel(GpuUserQueue& queue, const kernels::Image& image,
+  void PublishKernel(GpuUserQueue& queue, const kernels::Kernel& kernel,
                      const char* property_prefix, uint64_t* next_packet_index,
                      uint64_t* out_descriptor_address);
 };

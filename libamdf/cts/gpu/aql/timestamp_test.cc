@@ -132,7 +132,7 @@ TEST_F(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
   // executor; native completion still protects every XCC's borrowed IB use.
   std::memcpy(commands->host.pointer, expected_commands.data(),
               sizeof(expected_commands));
-  const aql::Packet packet = aql::Gfx9IndirectBuffer(
+  const aql::Packet packet = aql::IndirectBuffer(
       aql::HeaderBarrier::kEnabled, commands->device_address, kIbWordCount,
       completion->device_address, kScopes);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);

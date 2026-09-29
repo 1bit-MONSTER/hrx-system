@@ -18,8 +18,7 @@ amdf_status_t AqlDispatchTest::MatchGpuEndpoint(amdf_endpoint_t* endpoint,
   if (!amdf_status_is_ok(status)) {
     return status;
   }
-  if (info.gfx_ip.major != 9 || info.gfx_ip.minor != 4 ||
-      info.gfx_ip.stepping != 2) {
+  if (info.gfx_ip.major != 9 && Pm4CommandProfile::Find(info) == nullptr) {
     *out_matches = false;
     return AMDF_STATUS_OK;
   }
@@ -38,18 +37,20 @@ void AqlDispatchTest::CreateFixedScratchQueue(
             AMDF_STATUS_OK);
   const auto& compute = endpoint_info.compute;
   const auto& topology = endpoint_info.topology;
-  ASSERT_EQ(compute.wavefront_size, 64u);
+  ASSERT_TRUE(compute.wavefront_size == 32 || compute.wavefront_size == 64);
   ASSERT_GT(compute.compute_unit_count, 0u);
   ASSERT_GT(compute.maximum_scratch_wave_count_per_compute_unit, 0u);
   ASSERT_GT(topology.xcc_count, 0u);
   ASSERT_GT(topology.shader_engine_count_per_xcc, 0u);
   ASSERT_EQ(compute.compute_unit_count % topology.xcc_count, 0u);
+  const uint64_t shader_engine_count =
+      uint64_t{topology.xcc_count} * topology.shader_engine_count_per_xcc;
   const uint64_t wave_count =
-      uint64_t{compute.compute_unit_count} *
-      compute.maximum_scratch_wave_count_per_compute_unit;
+      ((uint64_t{compute.compute_unit_count} + shader_engine_count - 1) /
+       shader_engine_count) *
+      shader_engine_count * compute.maximum_scratch_wave_count_per_compute_unit;
   ASSERT_LE(wave_count, UINT32_MAX);
   const uint64_t waves_per_xcc = wave_count / topology.xcc_count;
-  ASSERT_LE(waves_per_xcc, 0xfffu);
   ASSERT_EQ(waves_per_xcc % topology.shader_engine_count_per_xcc, 0u);
   const uint64_t bytes_per_xcc = waves_per_xcc * wave_byte_length;
   ASSERT_LE(bytes_per_xcc, UINT32_MAX);
@@ -91,17 +92,28 @@ void AqlDispatchTest::CreateFixedScratchQueue(
       CreateQueue(out_queue, AMDF_QUEUE_PRODUCER_MODE_SINGLE, scratch));
 }
 
+uint64_t AqlDispatchTest::CodeByteLength(const kernels::Kernel& kernel) const {
+  const auto& image = kernel.executable;
+  const auto* profile = Pm4CommandProfile::Find(gpu_endpoint_info_);
+  return profile ? profile->CodeByteLength(image.byte_length,
+                                           kernel.entry_byte_offset,
+                                           kernel.program.resource3)
+                 : ((uint64_t{image.byte_length} + 63u) & ~UINT64_C(63)) + 192u;
+}
+
 void AqlDispatchTest::PublishKernel(GpuUserQueue& queue,
-                                    const kernels::Image& image,
+                                    const kernels::Kernel& kernel,
                                     const char* property_prefix,
                                     uint64_t* next_packet_index,
                                     uint64_t* out_descriptor_address) {
+  const auto& image = kernel.executable;
+  const uint64_t code_byte_length = CodeByteLength(kernel);
   GpuMemory* code = nullptr;
   GpuMemory* commands = nullptr;
   GpuMemory* completion = nullptr;
-  ASSERT_NO_FATAL_FAILURE(CreateMemory(
-      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
-      (uint64_t{image.byte_length} + 4095u) & ~UINT64_C(4095), &code));
+  ASSERT_NO_FATAL_FAILURE(
+      CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
+                   (code_byte_length + 4095u) & ~UINT64_C(4095), &code));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE, 4096, &commands));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
@@ -111,11 +123,11 @@ void AqlDispatchTest::PublishKernel(GpuUserQueue& queue,
   ASSERT_LT(commands->device_address, UINT64_C(1) << 48);
   std::memset(code->host.pointer, 0, code->info.byte_length);
   std::memcpy(code->host.pointer, image.words, image.byte_length);
-  const auto code_publication =
-      aql::Gfx9CodeCacheInvalidate(code->device_address, image.byte_length);
+  const auto code_publication = aql::CodeCacheInvalidate(
+      gpu_endpoint_info_, code->device_address, image.byte_length);
   std::memset(commands->host.pointer, 0, commands->info.byte_length);
   std::memcpy(commands->host.pointer, code_publication.data(),
-              sizeof(code_publication));
+              code_publication.size() * sizeof(uint32_t));
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
   auto& signal = *static_cast<aql::Signal*>(completion->host.pointer);
   signal.kind = 1;
@@ -129,7 +141,7 @@ void AqlDispatchTest::PublishKernel(GpuUserQueue& queue,
   const uint64_t index = (*next_packet_index)++;
   GpuStoreRelease(queue.host.write_index_address, *next_packet_index);
   Publish(queue, index,
-          aql::Gfx9IndirectBuffer(
+          aql::IndirectBuffer(
               aql::HeaderBarrier::kDisabled, commands->device_address,
               code_publication.size(), completion->device_address,
               {aql::FenceScope::kNone, aql::FenceScope::kNone}));

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
@@ -44,14 +45,18 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   constexpr uint8_t kControlGuard = 0x6b;
   constexpr uint32_t kSignalGuardByteOffset = 2 * sizeof(aql::Signal);
   const uint32_t kCacheRangeByteLength =
-      (first_kernel.executable.byte_length + 255u) & ~255u;
-  const std::array<const kernels::Image*, 3> kImages = {
-      &first_kernel.executable, &alternate_kernel.executable,
-      &first_kernel.executable};
+      (std::max(first_kernel.executable.byte_length,
+                alternate_kernel.executable.byte_length) +
+       255u) &
+      ~255u;
+  const uint64_t kCodeByteLength = (std::max(CodeByteLength(first_kernel),
+                                             CodeByteLength(alternate_kernel)) +
+                                    kPageByteLength - 1) &
+                                   ~(uint64_t{kPageByteLength} - 1);
+  const std::array<const kernels::Kernel*, 3> kKernels = {
+      &first_kernel, &alternate_kernel, &first_kernel};
   constexpr std::array<uint32_t, 3> kMultipliers = {3, 5, 3};
-  constexpr uint64_t kPacketCount = 2 * kImages.size();
-
-  ASSERT_LE(kCacheRangeByteLength, kPageByteLength);
+  constexpr uint64_t kPacketCount = 2 * kKernels.size();
 
   GpuMemory* code = nullptr;
   GpuMemory* commands = nullptr;
@@ -61,7 +66,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   GpuMemory* control = nullptr;
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
-                   kPageByteLength, &code));
+                   kCodeByteLength, &code));
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_EXECUTE,
                    kPageByteLength, &commands));
@@ -77,7 +82,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
                    kPageByteLength, &control));
   ASSERT_EQ(code->device_address % 256, 0u);
   ASSERT_LT(code->device_address, UINT64_C(1) << 48);
-  ASSERT_LE(kPageByteLength, (UINT64_C(1) << 48) - code->device_address);
+  ASSERT_LE(kCodeByteLength, (UINT64_C(1) << 48) - code->device_address);
   ASSERT_EQ(commands->device_address % 4, 0u);
   ASSERT_LT(commands->device_address, UINT64_C(1) << 48);
   ASSERT_LE(kPageByteLength, (UINT64_C(1) << 48) - commands->device_address);
@@ -91,15 +96,13 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   const uint64_t capacity = queue->host.ring_byte_length / sizeof(aql::Packet);
   ASSERT_GE(capacity, kPacketCount);
   uint64_t next_packet_index = 0;
-  const uint64_t descriptor_address =
-      code->device_address + first_kernel.executable.descriptor_byte_offset;
 
   std::array<uint32_t, kWordCount> expected_input;
   std::array<uint32_t, kWordCount> expected_output;
   std::array<uint32_t, kWordCount> observed_input;
   std::array<uint32_t, kWordCount> observed_output;
-  std::array<uint8_t, kPageByteLength> expected_code;
-  std::array<uint8_t, kPageByteLength> observed_code;
+  std::vector<uint8_t> expected_code(kCodeByteLength);
+  std::vector<uint8_t> observed_code(kCodeByteLength);
   std::array<uint8_t, kPageByteLength> expected_commands = {};
   std::array<uint8_t, kPageByteLength> observed_commands;
   std::array<uint8_t, kPageByteLength> expected_arguments;
@@ -126,10 +129,10 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
               first_kernel.arguments.byte_length);
   std::memcpy(arguments->host.pointer, expected_arguments.data(),
               sizeof(expected_arguments));
-  const auto cache_commands = aql::Gfx9CodeCacheInvalidate(
-      code->device_address, first_kernel.executable.byte_length);
+  const auto cache_commands = aql::CodeCacheInvalidate(
+      gpu_endpoint_info_, code->device_address, kCacheRangeByteLength);
   std::memcpy(expected_commands.data(), cache_commands.data(),
-              sizeof(cache_commands));
+              cache_commands.size() * sizeof(uint32_t));
   std::memcpy(commands->host.pointer, expected_commands.data(),
               sizeof(expected_commands));
   std::memset(control->host.pointer, kControlGuard, kPageByteLength);
@@ -137,19 +140,10 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   auto* signals = static_cast<aql::Signal*>(control->host.pointer);
   signals[0].kind = 1;
   signals[1].kind = 1;
-  const auto cache_packet = aql::Gfx9IndirectBuffer(
+  const auto cache_packet = aql::IndirectBuffer(
       aql::HeaderBarrier::kDisabled, commands->device_address,
       cache_commands.size(), control->device_address,
       {aql::FenceScope::kNone, aql::FenceScope::kNone});
-  const auto dispatch_packet = aql::Dispatch(
-      aql::HeaderBarrier::kDisabled,
-      {1,
-       {static_cast<uint16_t>(first_kernel.workgroup_size()), 1, 1},
-       {kGridSize, 1, 1}},
-      first_kernel.private_segment_byte_length,
-      first_kernel.group_segment_byte_length, descriptor_address,
-      arguments->device_address, control->device_address + sizeof(aql::Signal),
-      {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
 
   RecordProperty("aql_replacement_first_image_sha256",
                  first_kernel.executable.sha256);
@@ -164,7 +158,8 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   RecordProperty("aql_replacement_kernarg_byte_length",
                  first_kernel.arguments.byte_length);
   RecordProperty("aql_replacement_code_allocation_count", 1);
-  RecordProperty("aql_replacement_code_backing_byte_length", kPageByteLength);
+  RecordProperty("aql_replacement_code_backing_byte_length",
+                 std::to_string(kCodeByteLength));
   RecordProperty("aql_replacement_cache_range_byte_length",
                  kCacheRangeByteLength);
   RecordProperty("aql_replacement_cache_ib_word_count", cache_commands.size());
@@ -183,15 +178,15 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
                  std::to_string(capacity));
   RecordProperty("aql_replacement_completed_generations", 0);
 
-  for (uint32_t generation = 0; generation < kImages.size(); ++generation) {
+  for (uint32_t generation = 0; generation < kKernels.size(); ++generation) {
     SCOPED_TRACE(generation);
-    const kernels::Image& image = *kImages[generation];
-    expected_code.fill(0);
+    const kernels::Kernel& kernel = *kKernels[generation];
+    const auto& image = kernel.executable;
+    std::fill(expected_code.begin(), expected_code.end(), 0);
     std::memcpy(expected_code.data(), image.words, image.byte_length);
     // This queue is the only borrower. The preceding iteration completed and
     // retired every old use before reaching either of these host writes.
-    std::memcpy(code->host.pointer, expected_code.data(),
-                sizeof(expected_code));
+    std::memcpy(code->host.pointer, expected_code.data(), expected_code.size());
     expected_output.fill(kOutputGuard);
     for (uint32_t i = 0; i < kCount; ++i) {
       expected_output[kPayloadWordOffset + i] = static_cast<uint32_t>(
@@ -215,6 +210,16 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
     // unpredicated cache command before making the dispatch reachable.
     ASSERT_NO_FATAL_FAILURE(
         WaitCompletionAndConsumption(*queue, signals[0], next_packet_index));
+    const auto dispatch_packet = aql::Dispatch(
+        aql::HeaderBarrier::kDisabled,
+        {1,
+         {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+         {kGridSize, 1, 1}},
+        kernel.private_segment_byte_length, kernel.group_segment_byte_length,
+        code->device_address + image.descriptor_byte_offset,
+        arguments->device_address,
+        control->device_address + sizeof(aql::Signal),
+        {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
     Publish(*queue, next_packet_index++, dispatch_packet);
     GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signals[1].value), 0);
@@ -224,8 +229,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
                 sizeof(observed_output));
     std::memcpy(observed_input.data(), input->host.pointer,
                 sizeof(observed_input));
-    std::memcpy(observed_code.data(), code->host.pointer,
-                sizeof(observed_code));
+    std::memcpy(observed_code.data(), code->host.pointer, observed_code.size());
     std::memcpy(observed_commands.data(), commands->host.pointer,
                 sizeof(observed_commands));
     std::memcpy(observed_arguments.data(), arguments->host.pointer,
@@ -236,8 +240,10 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
       EXPECT_EQ(observed_output[i], expected_output[i]) << "output word=" << i;
       EXPECT_EQ(observed_input[i], expected_input[i]) << "input word=" << i;
     }
-    for (uint32_t i = 0; i < kPageByteLength; ++i) {
+    for (uint64_t i = 0; i < kCodeByteLength; ++i) {
       EXPECT_EQ(observed_code[i], expected_code[i]) << "code byte=" << i;
+    }
+    for (uint32_t i = 0; i < kPageByteLength; ++i) {
       EXPECT_EQ(observed_commands[i], expected_commands[i]) << "IB byte=" << i;
       EXPECT_EQ(observed_arguments[i], expected_arguments[i])
           << "argument byte=" << i;
@@ -272,10 +278,10 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
   ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
   ASSERT_EQ(status.producer_index, kPacketCount);
   ASSERT_EQ(status.consumed_index, kPacketCount);
-  RecordProperty("aql_replacement_image_upload_count", kImages.size());
-  RecordProperty("aql_replacement_count", kImages.size() - 1);
-  RecordProperty("aql_replacement_cache_publication_count", kImages.size());
-  RecordProperty("aql_replacement_dispatch_count", kImages.size());
+  RecordProperty("aql_replacement_image_upload_count", kKernels.size());
+  RecordProperty("aql_replacement_count", kKernels.size() - 1);
+  RecordProperty("aql_replacement_cache_publication_count", kKernels.size());
+  RecordProperty("aql_replacement_dispatch_count", kKernels.size());
   RecordProperty("aql_replacement_final_producer_index",
                  std::to_string(status.producer_index));
   RecordProperty("aql_replacement_final_consumed_index",

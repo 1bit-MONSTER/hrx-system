@@ -87,9 +87,8 @@ TEST_F(AqlDispatchTest, CoherentSystemPatternFillPreservesSubspanAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable,
-                                        "aql_pattern_fill_kernel", &index,
-                                        &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(
+      *queue, kernel, "aql_pattern_fill_kernel", &index, &descriptor_address));
   const uint64_t first_work_packet_index = index;
   const uint64_t capacity = queue->host.ring_byte_length / sizeof(aql::Packet);
   ASSERT_GE(capacity, index + kByteLengths.size());

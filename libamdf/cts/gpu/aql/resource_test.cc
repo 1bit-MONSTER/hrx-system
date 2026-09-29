@@ -92,10 +92,10 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   uint64_t index = 0;
   uint64_t private_descriptor_address = 0;
   uint64_t lds_descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, private_kernel.executable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, private_kernel,
                                         "aql_transition_private", &index,
                                         &private_descriptor_address));
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, lds_kernel.executable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, lds_kernel,
                                         "aql_transition_lds", &index,
                                         &lds_descriptor_address));
   const uint64_t first_work_packet_index = index;

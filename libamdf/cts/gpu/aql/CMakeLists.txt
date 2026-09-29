@@ -142,7 +142,8 @@ iree_cc_library(
   DEPS
     ::queue_fixture
     amdf::headers
-    libamdf::cts::gpu::kernels::image
+    libamdf::cts::gpu::kernels::kernel
+    libamdf::cts::gpu::pm4::encoding::profile
   TESTONLY
   PUBLIC
 )

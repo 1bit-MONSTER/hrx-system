@@ -75,8 +75,8 @@ TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable, "aql_kernel",
-                                        &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(
+      PublishKernel(*queue, kernel, "aql_kernel", &index, &descriptor_address));
 
   std::array<uint32_t, kWordCount> expected;
   std::array<uint32_t, kWordCount> observed;

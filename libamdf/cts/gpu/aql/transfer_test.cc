@@ -265,7 +265,7 @@ TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
         words + word_count, source->device_address + kPayloadByteOffset,
         target->device_address + kPayloadByteOffset, width);
     ASSERT_EQ(word_count, ib_word_count);
-    packets[epoch] = aql::Gfx9IndirectBuffer(
+    packets[epoch] = aql::IndirectBuffer(
         aql::HeaderBarrier::kEnabled, commands->device_address + byte_offset,
         ib_word_count, completion->device_address, kScopes);
   }
@@ -380,7 +380,7 @@ TEST_P(AqlTransferTest, CpuPublishedSourceFeedsCopyAcrossEpochs) {
                     source->device_address + kPayloadByteOffset,
                     target->device_address + kPayloadByteOffset, width);
   ASSERT_EQ(word_count, kIbWordCount);
-  const aql::Packet packet = aql::Gfx9IndirectBuffer(
+  const aql::Packet packet = aql::IndirectBuffer(
       aql::HeaderBarrier::kEnabled, commands->device_address, kIbWordCount,
       completion->device_address, scopes);
   // One program and its initialized padding remain unchanged across both
@@ -494,7 +494,7 @@ TEST_P(AqlTransferTest, CompletedCarrierAllowsCopyAddressRebinding) {
         target->device_address + kTargetByteOffsets[epoch], width);
     ASSERT_EQ(word_count, kIbWordCount);
   }
-  const aql::Packet packet = aql::Gfx9IndirectBuffer(
+  const aql::Packet packet = aql::IndirectBuffer(
       aql::HeaderBarrier::kEnabled, commands->device_address, kIbWordCount,
       completion->device_address, scopes);
   std::memset(completion->host.pointer, 0, kByteLength);

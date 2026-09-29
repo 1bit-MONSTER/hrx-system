@@ -16,10 +16,10 @@ public AQL queue ABI.
 
 [transform_alternate.loom](transform_alternate.loom) changes the multiplier to
 five while preserving the transform's argument and memory-access contract. Its
-[executable replacement case](../aql/executable_test.cc) checks identical
-descriptors, entry offsets and complete image extents for the two compiled
-programs. It uploads A → B → A to one retained code allocation after each
-prior use has completed, with fixed inputs and arguments distinguishing the
+[executable replacement case](../aql/executable_test.cc) retains each program's
+descriptor placement, resource requirements and complete fetch extent. It
+uploads A → B → A to one retained code allocation sized for both programs after
+each prior use has completed, with fixed inputs and arguments distinguishing the
 programs. Both programs have valid bounded accesses if instruction fetch
 observes the preceding image.
 
@@ -110,14 +110,21 @@ Alignment padding never becomes another argument or uninitialized input.
 
 ## AQL publication and observation
 
-The shared fixture copies the image into coherent system memory with GPU
-READ|EXECUTE access. Before dispatch it executes the seven-dword GC9
-`ACQUIRE_MEM` code-cache publication sequence through an AQL vendor PM4-IB
-packet and waits for that packet's native completion. This follows ROCr's
+The shared fixture copies the exact target image into coherent system memory
+with GPU READ|EXECUTE access. Its allocation includes speculative fetch padding
+and the compiler's target-specific prefetch extent. Before dispatch it executes
+`ACQUIRE_MEM` through an AQL vendor PM4-IB packet: seven-dword COHER_CNTL on
+CDNA or eight-dword GCR with the selected RDNA generation's cache fields.
+It waits for that packet's native completion. This follows ROCr's
 [code freezing][freeze], [cache invalidation][invalidate] and
 [ExecutePM4][execute] paths. Both vendor packet fence scopes are NONE,
 matching the [ExecutePM4 defaults][defaults].
 The explicit cache command owns the instruction publication transition.
+
+Ordinary dispatch and standard AND/OR barriers require the AQL queue contract.
+The [epoch case](../aql/epoch_test.cc) additionally requires the optional
+`AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE` capability before activation.
+Its full-width masked comparison is independent of basic AQL support.
 
 The transform payload case uses SYSTEM acquire/release scopes. Its two
 completed epochs change the input, addend and count, launch 1024 workitems,
@@ -200,8 +207,9 @@ The private source keeps both nine-iteration loops volatile. Every load selects
 an initialized slot within the nine-word array and contributes to global
 output. The descriptor owns the exact frame requirement; the queue rounds
 `private_bytes * 64` up to a 1024-byte wave allocation unit. Scratch backing
-covers the queried CU count times scratch slots per CU, across all XCCs, and
-remains exclusive through successful queue destruction.
+covers the queried CU count rounded up to a whole number of shader engines,
+times scratch slots per CU, across all XCCs. This includes harvested-slot
+padding and remains exclusive through successful queue destruction.
 
 The case launches eight full workgroups and checks all 4608 output words per
 epoch, with changed seeds/rotations, complement poison and distinct allocation

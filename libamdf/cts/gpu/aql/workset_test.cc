@@ -132,14 +132,12 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
     ASSERT_NO_FATAL_FAILURE(CreateFixedScratchQueue(
         producer_kernel.private_segment_byte_length, &workset.queue));
     const std::string prefix = "aql_workset_" + std::to_string(i);
-    ASSERT_NO_FATAL_FAILURE(
-        PublishKernel(*workset.queue, producer_kernel.executable,
-                      (prefix + "_private_kernel").c_str(),
-                      &workset.next_packet_index, &workset.descriptors[0]));
-    ASSERT_NO_FATAL_FAILURE(
-        PublishKernel(*workset.queue, consumer_kernel.executable,
-                      (prefix + "_consumer_kernel").c_str(),
-                      &workset.next_packet_index, &workset.descriptors[1]));
+    ASSERT_NO_FATAL_FAILURE(PublishKernel(
+        *workset.queue, producer_kernel, (prefix + "_private_kernel").c_str(),
+        &workset.next_packet_index, &workset.descriptors[0]));
+    ASSERT_NO_FATAL_FAILURE(PublishKernel(
+        *workset.queue, consumer_kernel, (prefix + "_consumer_kernel").c_str(),
+        &workset.next_packet_index, &workset.descriptors[1]));
     workset.first_packet_index = workset.next_packet_index;
     workset.capacity =
         workset.queue->host.ring_byte_length / sizeof(aql::Packet);
