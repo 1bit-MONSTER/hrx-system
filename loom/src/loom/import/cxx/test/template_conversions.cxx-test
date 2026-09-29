@@ -189,11 +189,11 @@ unsigned entry(unsigned x) { return choose<count>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose__const_(%x) : (i32) -> (i32)
+  %2 = func.call @choose_count(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
-func.def @choose__const_(%x: i32) -> (i32) {
+func.def @choose_count(%x: i32) -> (i32) {
   %5 = scalar.constant 5 : i32
   %6 = scalar.addi %x, %5 : i32
   func.return %6 : i32
