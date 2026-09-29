@@ -21,8 +21,6 @@
 #include "common/stream.h"
 #include "common/stream_value.h"
 #include "iree/async/frontier_tracker.h"
-#include "iree/async/operations/semaphore.h"
-#include "iree/async/util/proactor_pool.h"
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "iree/base/threading/mutex.h"
@@ -41,8 +39,6 @@ typedef struct iree_hal_streaming_context_module_entry_t
     iree_hal_streaming_context_module_entry_t;
 typedef struct iree_hal_streaming_context_symbol_map_t
     iree_hal_streaming_context_symbol_map_t;
-typedef struct iree_hal_streaming_value_flush_timer_t
-    iree_hal_streaming_value_flush_timer_t;
 
 typedef struct iree_hal_streaming_deferred_device_free_t
     iree_hal_streaming_deferred_device_free_t;
@@ -200,133 +196,10 @@ typedef struct iree_hal_streaming_graph_memory_size_entry_t {
   uint32_t reference_count;
 } iree_hal_streaming_graph_memory_size_entry_t;
 
-typedef enum iree_hal_streaming_value_wait_submission_state_e {
-  // The completion observer is active but queue acceptance is not yet known.
-  IREE_HAL_STREAMING_VALUE_WAIT_SUBMISSION_STATE_PREPARED = 0,
-  // The queue operation was accepted and this record is owned by its lane.
-  IREE_HAL_STREAMING_VALUE_WAIT_SUBMISSION_STATE_PUBLISHED = 1,
-  // The queue operation was rejected and no lane owns this record.
-  IREE_HAL_STREAMING_VALUE_WAIT_SUBMISSION_STATE_REJECTED = 2,
-} iree_hal_streaming_value_wait_submission_state_t;
-
-// Terminal record for one accepted submission on a value-wait lane. Each
-// submission owns an independent semaphore so a later submission failure
-// cannot poison the completion proof for earlier blocked work on the queue.
-typedef struct iree_hal_streaming_value_wait_submission_t {
-  // Next accepted submission in lane order.
-  struct iree_hal_streaming_value_wait_submission_t* next;
-  // Previous accepted submission in lane order.
-  struct iree_hal_streaming_value_wait_submission_t* prev;
-  // Next completion observer registered in the context.
-  struct iree_hal_streaming_value_wait_submission_t* observer_next;
-  // Previous completion observer registered in the context.
-  struct iree_hal_streaming_value_wait_submission_t* observer_prev;
-  // Semaphore that becomes terminal only with this exact submission.
-  iree_hal_semaphore_t* completion_semaphore;
-  // Context and lane are borrowed while the record is prepared or published.
-  struct iree_hal_streaming_context_t* context;
-  struct iree_hal_streaming_value_wait_lane_t* lane;
-  // A preaccepted asynchronous observer. Its completion callback always runs
-  // from proactor poll context, never inline on a queue completion thread.
-  iree_async_proactor_t* observer_proactor;
-  iree_async_semaphore_wait_operation_t observer_operation;
-  iree_async_semaphore_t* observer_semaphore;
-  uint64_t observer_value;
-  // Fields below are guarded by |context->value_wait_lane_mutex|.
-  iree_hal_streaming_value_wait_submission_state_t state;
-  bool is_terminal;
-  bool has_failed;
-  bool cancellation_requested;
-  bool observer_active;
-} iree_hal_streaming_value_wait_submission_t;
-
-typedef enum iree_hal_streaming_value_wait_lane_list_state_e {
-  IREE_HAL_STREAMING_VALUE_WAIT_LANE_LIST_STATE_NONE = 0,
-  IREE_HAL_STREAMING_VALUE_WAIT_LANE_LIST_STATE_IDLE = 1,
-  IREE_HAL_STREAMING_VALUE_WAIT_LANE_LIST_STATE_PENDING = 2,
-} iree_hal_streaming_value_wait_lane_list_state_t;
-
 // Optional test instrumentation run while the final observer completion is
 // serialized with context teardown by |value_wait_lane_mutex|.
 typedef void (*iree_hal_streaming_value_wait_observer_finish_hook_t)(
     void* user_data);
-
-// Exact queue kept exclusive to one logical stream while any of its externally
-// controlled atomic waits may block. Further waits on that stream append to the
-// same lane; completed lanes are recycled across streams.
-typedef struct iree_hal_streaming_value_wait_lane_t {
-  // Next lane in a context-owned idle or pending list.
-  struct iree_hal_streaming_value_wait_lane_t* next;
-  // Previous lane in a context-owned idle or pending list.
-  struct iree_hal_streaming_value_wait_lane_t* prev;
-  // List owning this lane, or NONE while temporarily acquired/detached.
-  iree_hal_streaming_value_wait_lane_list_state_t list_state;
-  // Dynamically acquired exact queue owned by this lane.
-  iree_hal_queue_t* queue;
-  // Queue family the lane realizes.
-  const iree_hal_queue_family_t* family;
-  // Scheduling priority the lane realizes.
-  iree_hal_queue_priority_t priority;
-  // Immutable execution-resource set the lane realizes.
-  iree_hal_queue_execution_resource_list_t execution_resources;
-  // Stable identifier of the stream whose ordered waits occupy this lane.
-  // Zero while the lane is idle.
-  unsigned long long owner_stream_id;
-  // Accepted submissions on this lane in enqueue order. The lane becomes
-  // reusable only after every record is terminal.
-  iree_hal_streaming_value_wait_submission_t* submission_head;
-  iree_hal_streaming_value_wait_submission_t* submission_tail;
-  // Number of unresolved records in the submission list.
-  iree_host_size_t submission_count;
-  // Failed terminal records retained until authoritative queue teardown. A
-  // backend may still own its exact completion semaphore after publishing the
-  // failure, so these records outlive both pending-list and acquired states.
-  iree_hal_streaming_value_wait_submission_t* retired_failure_head;
-  iree_host_size_t retired_failure_count;
-  // True while an acquired lane must return to the pending list if the new
-  // submission is rejected synchronously.
-  bool restore_pending;
-  // True after any tracked submission fails. Such a lane is destroyed, never
-  // recycled, after every tracked submission is terminal.
-  bool has_failed_submission;
-  // Serializes the narrow queue-acceptance/publication transaction with
-  // asynchronous completion/failure processing for this lane. Stream flushes
-  // and queue teardown never run while this gate is held.
-  iree_slim_mutex_t submission_mutex;
-} iree_hal_streaming_value_wait_lane_t;
-
-// Removes every terminal record from |lane| while the context value-wait lane
-// mutex is held, including terminal holes after an unresolved record. If the
-// lane is on the pending list and becomes empty it is detached into exactly
-// one of the completed/failed outputs. Reclaimed records are returned for
-// destruction outside the mutex.
-void iree_hal_streaming_detach_resolved_value_wait_lanes_locked(
-    iree_hal_streaming_context_t* context,
-    iree_hal_streaming_value_wait_lane_t* lane,
-    iree_hal_streaming_value_wait_submission_t** out_reclaimed_submissions,
-    iree_hal_streaming_value_wait_lane_t** out_completed_lanes,
-    iree_hal_streaming_value_wait_lane_t** out_failed_lanes);
-
-// Internal value-wait lifecycle entry points shared with focused tests.
-void iree_hal_streaming_value_wait_lanes_initialize(
-    iree_hal_streaming_context_t* context);
-iree_status_t iree_hal_streaming_prepare_value_wait_submission(
-    iree_hal_streaming_context_t* context,
-    iree_hal_streaming_value_wait_lane_t* lane,
-    iree_hal_streaming_value_wait_submission_t** out_submission);
-void iree_hal_streaming_publish_pending_value_wait_lane(
-    iree_hal_streaming_context_t* context,
-    iree_hal_streaming_value_wait_lane_t* lane,
-    iree_hal_streaming_value_wait_submission_t* submission);
-void iree_hal_streaming_reject_value_wait_submission(
-    iree_hal_streaming_context_t* context,
-    iree_hal_streaming_value_wait_submission_t* submission);
-bool iree_hal_streaming_value_wait_lane_accepts_submission(
-    iree_hal_streaming_context_t* context,
-    const iree_hal_streaming_value_wait_lane_t* lane);
-void iree_hal_streaming_release_value_wait_lane(
-    iree_hal_streaming_context_t* context,
-    iree_hal_streaming_value_wait_lane_t* lane);
 
 // Stream context mapped to HAL device.
 struct iree_hal_streaming_context_t {
