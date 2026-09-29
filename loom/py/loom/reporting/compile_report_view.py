@@ -28,6 +28,10 @@ from loom.reporting.compile_report_bank_service import (
     build_bank_service_diff,
     build_bank_service_show,
 )
+from loom.reporting.compile_report_barriers import (
+    append_barrier_show_text,
+    build_barrier_show,
+)
 from loom.reporting.compile_report_boundary_projections import (
     append_boundary_projection_show_text,
     build_boundary_projection_show,
@@ -422,6 +426,9 @@ def build_compile_report_show(
     loop_pipelines = build_loop_pipeline_show(document)
     if loop_pipelines is not None:
         view["loop_pipelines"] = loop_pipelines
+    barriers = build_barrier_show(document)
+    if barriers is not None:
+        view["barriers"] = barriers
     boundary_projections = build_boundary_projection_show(document)
     if boundary_projections is not None:
         view["boundary_projections"] = boundary_projections
@@ -719,6 +726,9 @@ def format_compile_report_show_text(view: dict[str, object]) -> str:
     loop_pipelines = view.get("loop_pipelines")
     if isinstance(loop_pipelines, dict):
         append_loop_pipeline_show_text(lines, loop_pipelines)
+    barriers = view.get("barriers")
+    if isinstance(barriers, dict):
+        append_barrier_show_text(lines, barriers)
     boundary_projections = view.get("boundary_projections")
     if isinstance(boundary_projections, dict):
         append_boundary_projection_show_text(lines, boundary_projections)
