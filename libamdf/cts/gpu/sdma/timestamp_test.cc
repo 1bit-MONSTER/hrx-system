@@ -72,8 +72,13 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   std::array<uint64_t, 4096 / sizeof(uint64_t)> observed_timestamps;
   GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->words().size_bytes(), 128u);
+  ASSERT_GE(queue->words().size_bytes(), 37u * sizeof(uint32_t));
   SdmaCommandWriter commands(queue->words().data(), family_.format_features);
+  const bool user_gcr =
+      (family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+  if (user_gcr) {
+    commands.AcquireFromSystem();
+  }
   commands.WriteGlobalTimestamp(observations->device_address + 32);
   commands.CopyLinear(source->device_address, intermediate->device_address,
                       kByteLength);
@@ -83,6 +88,9 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   commands.CopyLinear(intermediate->device_address, target->device_address,
                       kByteLength);
   commands.WriteGlobalTimestamp(observations->device_address + 96);
+  if (user_gcr) {
+    commands.ReleaseToSystem();
+  }
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));

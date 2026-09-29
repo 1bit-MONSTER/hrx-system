@@ -14,8 +14,15 @@ EncodedUserQueueStream EncodeCopyStream(
     amdf_queue_format_features_t features, uint32_t* words,
     uint64_t source_address, uint64_t target_address) {
   SdmaCommandWriter commands(words, features);
+  const bool user_gcr = (features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+  if (user_gcr) {
+    commands.AcquireFromSystem();
+  }
   commands.CopyLinear(source_address, target_address,
                       kUserQueueMemoryElementCount * sizeof(uint32_t));
+  if (user_gcr) {
+    commands.ReleaseToSystem();
+  }
   commands.Fence32(target_address + kUserQueueMemoryCompletionByteOffset,
                    kUserQueueMemoryCompletionValue);
   const size_t byte_length = commands.word_count() * sizeof(uint32_t);

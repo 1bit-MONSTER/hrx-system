@@ -15,6 +15,7 @@ identity, independent observation and checked retirement.
 | PM4 execution and dependencies | [dispatch](pm4/dispatch_test.cc), [cross-queue handoff](pm4/handoff_test.cc), [indirect dispatch](pm4/indirect_test.cc), [command buffers](pm4/command_buffer_test.cc) | Shader outputs across generations, device-produced dispatch counts, immutable indirect buffers and completed-use command rebuilding. |
 | PM4 shader resources | [LDS](pm4/lds_test.cc), [resource changes](pm4/resource_test.cc) | Cross-wave exchange through fixed workgroup storage and transitions between distinct resource configurations. |
 | SDMA transfers | [copy](sdma/copy_test.cc), [fill](sdma/fill_test.cc) | Linear copies, byte tails/page crossings, DWORD fills, NOP-separated dependent copies and fence-visible output. |
+| SDMA data visibility | [cache commands](sdma/cache_test.cc), [SDMA/AQL](recipes/copy_dispatch_test.cc), [PM4/SDMA](recipes/pm4_sdma_test.cc) | Explicit USER_GCR acquire/release, changing payloads, immutable commands, and queried cache operations at upload and download boundaries. |
 | AQL publication and dependencies | [publication](aql/publication_test.cc), [barriers](aql/barrier_test.cc), [epochs](aql/epoch_test.cc), [fan-in](aql/fanin_test.cc), [scope](aql/scope_test.cc) | Slot reuse, independent producer publication, AND/OR/value dependencies, complete shader payloads and AGENT-to-SYSTEM scope composition. |
 | AQL execution and resources | [dispatch](aql/dispatch_test.cc), [geometry](aql/geometry_test.cc), [scratch](aql/private_test.cc), [LDS](aql/lds_test.cc), [resource changes](aql/resource_test.cc) | Complete/partial multidimensional grids, caller-owned private storage, fixed group storage and resource rebinding. |
 | AQL transfer and reuse | [carriers](aql/transfer_test.cc), [byte copy](aql/byte_copy_test.cc), [pattern fill](aql/pattern_fill_test.cc), [executable reuse](aql/executable_test.cc), [worksets](aql/workset_test.cc) | PM4-carried copies, shader subspan operations, completed-use code replacement and independent final-use obligations. |
@@ -37,15 +38,23 @@ The target name alone does not select a valid recipe.
 
 | Deployment | Corpus and native path | Backing and lifetime distinctions |
 | --- | --- | --- |
-| Linux gfx1151 | PM4 and SDMA USER queues; PM4/SDMA recipes. | Ordinary command storage and control are coherent SYSTEM allocations. Shader fixtures select the exact gfx1151 image. |
-| Linux gfx942 | AQL and SDMA USER queues; SDMA/AQL recipes. | Coherent SYSTEM and staged LOCAL payload cases are separate. Scratch, code, arguments and completion have their own retained owners. The gfx1151-specific SDMA NOP case is a separate target predicate. |
-| Linux gfx1151 + NPU5 | GPU/XDNA recipes, USER PM4 and native XDNA kernel submissions. | Joint allocation is exercised with PROCESS and INSTANCE lifetimes. Caller-page registration requires PROCESS lifetime on this KFD path. |
-| Windows gfx1150 + NPU4 | GPU/XDNA recipes, KERNEL PM4 and native XDNA kernel submissions. | Joint registration is exercised with either lifetime. Joint allocation has no common advertised construction/export route; it is not substituted with registration. |
+| Linux RDNA | PM4, AQL and SDMA USER queues; both compute/SDMA recipes. | SYSTEM cases work independently of a LOCAL heap. LOCAL cases require that heap's advertised backing contract. |
+| Linux CDNA | AQL and SDMA USER queues; SDMA/AQL recipes. | PM4 compute is outside the required matrix. Fixed-function AQL carriers account for single- and multi-XCC topologies. |
+| Windows RDNA | PM4 and SDMA KERNEL queues; PM4/SDMA recipes. | Ordinary command cases use executable command buffers and native submission retirement. Mapped USER queue state and AQL are separate unavailable services. |
+| Linux RDNA + XDNA | GPU/XDNA recipes, USER PM4 and native XDNA kernel submissions. | Joint allocation and registration select their actual common memory contract. Caller-page registration requires PROCESS lifetime on this KFD path. |
+| Windows RDNA + XDNA | GPU/XDNA recipes, KERNEL PM4 and native XDNA kernel submissions. | Joint registration can use either lifetime. A missing common allocation/export route is not substituted with registration. |
 | Linux NPU5 / Windows NPU4 | CPU/XDNA recipes through native kernel submissions. | Allocation and registration are independently selected from live capabilities. Both image profiles are built from the same Loom source. |
 
-Windows compilation of the ordinary PM4/AQL/SDMA corpora does not establish a
-USER queue service there. The GPU/XDNA fixture has its own explicit KERNEL
-publication path. Physical peer-GPU execution has
+The kernel catalog selects the physical GPU image and instruction overlay;
+behavioral cases retain the same input/output oracles. Native engine format
+features select packet fields independently of that image. Explicit GCR cases
+require USER_GCR, while scoped SDMA data commands carry system scope themselves.
+Ordinary transfers bracket their payloads with GCR when that format is present.
+Query-driven recipes emit the backing's returned NONE or GLOBAL transitions;
+neither HOST_COHERENT nor a compiler target name substitutes for those answers.
+
+Windows compilation does not establish a USER queue service or native execution
+result. Physical peer-GPU execution has
 [no compiled cases](peer/README.md).
 
 Per-dispatch LDS capacity changes, additional packet fields, rectangular SDMA
@@ -76,13 +85,13 @@ require its XDNA target/emitter, and GPU/NPU recipes require both. The SDMA and
 host encoding corpora have no shader compiler dependency. The
 [source fixture guide](kernels/README.md) describes generated image identities.
 
-A short gfx1151 PM4 execution witness is:
+A short RDNA PM4 execution witness supplies its exact physical target:
 
 ```sh
 iree-bazel-test --config=asan \
   //libamdf/cts/gpu/pm4:pm4_dynamic \
   --test_arg="--amdf_gpu_endpoint_id=${GPU_ENDPOINT_ID}" \
-  --test_arg=--amdf_gpu_target=gfx1151 \
+  --test_arg="--amdf_gpu_target=${GPU_TARGET}" \
   --test_arg=--gtest_filter=Pm4DispatchTest.CoherentSystemPayloadChangesAcrossEpochs \
   --test_arg=--amdf_require_test=Pm4DispatchTest.CoherentSystemPayloadChangesAcrossEpochs
 ```
@@ -93,13 +102,13 @@ For a resident GPU/NPU path with registered backing:
 iree-bazel-test --config=asan \
   //libamdf/cts/interop/gpu/xdna/recipes:execution_dynamic \
   --test_arg="--amdf_gpu_endpoint_id=${GPU_ENDPOINT_ID}" \
-  --test_arg=--amdf_gpu_target=gfx1151 \
+  --test_arg="--amdf_gpu_target=${GPU_TARGET}" \
   --test_arg=--gtest_filter=ResidentGpuXdnaTest.RegisteredCausalRoundTrip \
   --test_arg=--amdf_require_test=ResidentGpuXdnaTest.RegisteredCausalRoundTrip
 ```
 
-Use `gfx1150` for the corresponding Windows resident path. A parameterized
-NPU-initiated witness has the full name
+The Windows resident path uses the same case and its own physical target. A
+parameterized NPU-initiated witness has the full name
 `NpuInitiated/ResidentNpuInitiatedTest.ReturnsEveryWord/Rounds17Words16`.
 The same suite's `GpuOnlyAbort` and `NpuOnlyAbort` parameters exercise accepted
 work draining after the startup decision without a submitted peer.

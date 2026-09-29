@@ -73,16 +73,24 @@ TEST_F(SdmaFillTest, ConstantFillCompletesBeforeFence) {
 
   GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->words().size_bytes(), 19u * sizeof(uint32_t));
+  ASSERT_GE(queue->words().size_bytes(), 29u * sizeof(uint32_t));
   SdmaCommandWriter commands(queue->words().data(), family_.format_features);
+  const bool user_gcr =
+      (family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+  if (user_gcr) {
+    commands.AcquireFromSystem();
+  }
   // The three disjoint fills need no ordering among themselves. The final
   // range crosses a mapped page boundary while remaining inside the target.
   for (const auto& fill : kFills) {
     commands.Fill32(target->device_address + fill.offset, fill.pattern,
                     fill.length);
   }
+  if (user_gcr) {
+    commands.ReleaseToSystem();
+  }
   commands.Fence32(completion->device_address, 1);
-  ASSERT_EQ(commands.word_count(), 19u);
+  ASSERT_EQ(commands.word_count(), 19u + (user_gcr ? 10u : 0u));
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),

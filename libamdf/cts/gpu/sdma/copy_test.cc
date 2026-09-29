@@ -47,10 +47,18 @@ TEST_F(SdmaCopyTest, LinearCopyCompletesBeforeFence) {
   output[kWordCount] = 0x725ae191;
   GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->words().size_bytes(), 64u);
+  ASSERT_GE(queue->words().size_bytes(), 21u * sizeof(uint32_t));
   SdmaCommandWriter commands(queue->words().data(), family_.format_features);
+  const bool user_gcr =
+      (family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+  if (user_gcr) {
+    commands.AcquireFromSystem();
+  }
   commands.CopyLinear(source->device_address, target->device_address,
                       kWordCount * sizeof(uint32_t));
+  if (user_gcr) {
+    commands.ReleaseToSystem();
+  }
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
@@ -101,6 +109,11 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->words().size_bytes(), 256u);
   SdmaCommandWriter commands(queue->words().data(), family_.format_features);
+  const bool user_gcr =
+      (family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+  if (user_gcr) {
+    commands.AcquireFromSystem();
+  }
   for (size_t i = 0; i < kByteLengths.size(); ++i) {
     // Differently aligned ranges cross the first source and target page.
     const uint64_t source_offset = i == 3 ? 4092 : 4095;
@@ -110,6 +123,9 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
                         kByteLengths[i]);
     std::copy_n(input + source_offset, kByteLengths[i],
                 expected.data() + target_offset);
+  }
+  if (user_gcr) {
+    commands.ReleaseToSystem();
   }
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
@@ -141,7 +157,9 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
   constexpr uint32_t kIntermediateOffset = 256;
   constexpr uint32_t kOutputOffset = 384;
   constexpr uint32_t kCompletionOffset = 64;
-  constexpr size_t kWordsPerEpoch = 19;
+  const bool user_gcr =
+      (family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
+  const size_t words_per_epoch = 19 + (user_gcr ? 10 : 0);
   constexpr std::array<uint32_t, 2> kSeeds = {0x13579bdfu, 0xa5c31f27u};
   GpuMemory* source = nullptr;
   GpuMemory* intermediate = nullptr;
@@ -174,7 +192,7 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
   GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   ASSERT_GE(queue->words().size_bytes(),
-            kSeeds.size() * kWordsPerEpoch * sizeof(uint32_t));
+            kSeeds.size() * words_per_epoch * sizeof(uint32_t));
   SdmaCommandWriter commands(queue->words().data(), family_.format_features);
 
   RecordProperty("sdma_nop_family_ordinal", family_.ordinal);
@@ -192,9 +210,11 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
   RecordProperty("sdma_nop_intermediate_checked_byte_length", kDataLength);
   RecordProperty("sdma_nop_output_checked_byte_length", kDataLength);
   RecordProperty("sdma_nop_completion_checked_byte_length", kControlLength);
-  RecordProperty("sdma_nop_words_per_epoch", kWordsPerEpoch);
-  RecordProperty("sdma_nop_first_byte_frontier", 76);
-  RecordProperty("sdma_nop_final_byte_frontier", 152);
+  RecordProperty("sdma_nop_words_per_epoch", words_per_epoch);
+  RecordProperty("sdma_nop_first_byte_frontier",
+                 words_per_epoch * sizeof(uint32_t));
+  RecordProperty("sdma_nop_final_byte_frontier",
+                 kSeeds.size() * words_per_epoch * sizeof(uint32_t));
   RecordProperty("sdma_nop_completed_epochs", 0);
 
   for (size_t epoch = 0; epoch < kSeeds.size(); ++epoch) {
@@ -233,14 +253,20 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
     completion_words[kCompletionOffset / sizeof(uint32_t)] = 0;
     expected_completion[kCompletionOffset / sizeof(uint32_t)] = marker;
 
+    if (user_gcr) {
+      commands.AcquireFromSystem();
+    }
     commands.CopyLinear(source->device_address + kSourceOffset,
                         intermediate->device_address + kIntermediateOffset,
                         kCopyLength);
     commands.Noop();
     commands.CopyLinear(intermediate->device_address + kIntermediateOffset,
                         output->device_address + kOutputOffset, kCopyLength);
+    if (user_gcr) {
+      commands.ReleaseToSystem();
+    }
     commands.Fence32(completion->device_address + kCompletionOffset, marker);
-    ASSERT_EQ(commands.word_count(), (epoch + 1) * kWordsPerEpoch);
+    ASSERT_EQ(commands.word_count(), (epoch + 1) * words_per_epoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(

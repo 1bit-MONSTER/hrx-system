@@ -110,8 +110,15 @@ The manual lifecycle corpus has ordinary PM4/SDMA cases that copy between
 exact-access attachments on the cached device, observe both complete pages
 before retirement, and release their queue before its backing. SDMA uses the
 coherent SYSTEM COPY/FENCE recipe; PM4 retains its explicit cache transitions.
-These cases exercise the same resource helper as the `DISABLED_` peer-device
-recreation scenarios, without creating extra devices. Recreation requires
+SDMA emits explicit GCR acquire/release when the family provides that format,
+or uses the family's per-command scope fields. The dependency NOP and timestamp
+cases keep cache commands outside the dependent-copy sequence so they cannot
+replace the ordering operation under test. Query-driven compute compositions
+place required SDMA cache operations at each upload/download boundary; explicit
+GCR variants also exercise that stream when the backing permits a no-op.
+
+The lifecycle cases exercise the same resource helper as the `DISABLED_`
+peer-device recreation scenarios, without creating extra devices. Recreation requires
 `--gtest_also_run_disabled_tests` and is a separate qualification. The manual
 corpus is not part of the ordinary command aggregate. Other API/interop suites
 can have intentional owner-lifetime tests of their own.
