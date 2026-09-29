@@ -137,6 +137,7 @@ loom_cc_library(
     loom::ops::low
     loom::ops::op_defs
     loom::target::arch::wasm::descriptors
+    loom::target::arch::wasm::ops
     loom::target::provider
     loom::target::registers
   PUBLIC

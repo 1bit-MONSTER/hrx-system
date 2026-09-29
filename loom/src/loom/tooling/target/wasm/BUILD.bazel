@@ -69,19 +69,6 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "module_provider",
-    srcs = ["module_provider.c"],
-    hdrs = ["module_provider.h"],
-    visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
-    deps = [
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/wasm/ops",
-        "//loom/src/loom/target/emit/wasm:module_compiler",
-        "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_library(
     name = "loom_check",
     srcs = ["check/loom_check.c"],
     hdrs = ["check/loom_check.h"],

@@ -103,7 +103,10 @@ loom_cc_library(
     name = "module_compiler",
     srcs = ["module_compiler.c"],
     hdrs = ["module_compiler.h"],
-    visibility = ["//loom/src/loom/tooling/target/wasm:__pkg__"],
+    visibility = [
+        "//loom/src/loom/tooling/compile:__pkg__",
+        "//loom/src/loom/tooling/target/wasm:__pkg__",
+    ],
     deps = [
         ":module_binary",
         ":program",
@@ -117,6 +120,7 @@ loom_cc_library(
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target:registers",
         "//loom/src/loom/target/arch/wasm/descriptors",
+        "//loom/src/loom/target/arch/wasm/ops",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],

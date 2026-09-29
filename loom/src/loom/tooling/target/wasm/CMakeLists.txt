@@ -67,23 +67,6 @@ endif()
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME
-    module_provider
-  HDRS
-    "module_provider.h"
-  SRCS
-    "module_provider.c"
-  DEPS
-    iree::base
-    loom::target::arch::wasm::ops
-    loom::target::emit::wasm::module_compiler
-    loom::target::provider
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-loom_cc_library(
-  NAME
     loom_check
   HDRS
     "check/loom_check.h"

@@ -45,7 +45,7 @@
 #include "loom/target/emit/vm/module_compiler.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#include "loom/tooling/target/wasm/module_provider.h"
+#include "loom/target/emit/wasm/module_compiler.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
 
 enum {

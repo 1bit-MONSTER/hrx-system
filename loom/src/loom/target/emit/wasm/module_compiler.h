@@ -44,6 +44,9 @@ iree_status_t loom_wasm_compile_module_binary(
 // Canonical Wasm binary module emitter.
 extern const loom_target_emitter_t loom_wasm_module_emitter;
 
+// Wasm binary module emission composed with the Wasm target fact type.
+extern const loom_target_provider_t loom_wasm_module_provider;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

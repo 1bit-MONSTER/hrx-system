@@ -14,6 +14,7 @@
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/target/arch/wasm/descriptors/descriptors.h"
+#include "loom/target/arch/wasm/ops/ops.h"
 #include "loom/target/registers.h"
 
 typedef struct loom_wasm_local_entry_t {
@@ -669,4 +670,16 @@ const loom_target_emitter_t loom_wasm_module_emitter = {
                 LOOM_TARGET_CONTROL_FLOW_LOWERING_STRUCTURED_LOW,
         },
     .emit = loom_wasm_module_emit,
+};
+
+const loom_target_provider_t loom_wasm_module_provider = {
+    .emitter_list =
+        {
+            .values =
+                (const loom_target_emitter_t* const[]){
+                    &loom_wasm_module_emitter},
+            .count = 1,
+        },
+    .canonical_module_emitter = &loom_wasm_module_emitter,
+    .canonical_module_fact_type = &loom_wasm_target_fact_type,
 };
