@@ -41,6 +41,7 @@ _PLATFORM_CMAKE_SYSTEM_NAME = {
     "@platforms//os:emscripten": "Emscripten",
     "@platforms//os:linux": "Linux",
     "@platforms//os:macos": "Darwin",
+    "@platforms//os:wasi": "WASI",
     "@platforms//os:windows": "Windows",
     # CPU architecture constraints.
     "@platforms//cpu:wasm32": "wasm_32",

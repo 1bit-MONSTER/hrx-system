@@ -325,6 +325,18 @@ cc_library(
             'IREE_ARCH STREQUAL "x86_64"',
         )
 
+    def test_converts_wasi_platform_condition(self):
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=SimpleNamespace(body=""),
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="",
+        )
+
+        self.assertEqual(
+            functions._convert_select_condition("@platforms//os:wasi"),
+            'CMAKE_SYSTEM_NAME STREQUAL "WASI"',
+        )
+
     def test_target_compatible_with_parenthesizes_disjunctions(self):
         functions = bazel_to_cmake_converter.BuildFileFunctions(
             converter=SimpleNamespace(body=""),
