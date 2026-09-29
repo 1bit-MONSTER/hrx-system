@@ -60,6 +60,31 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "testbench",
+    srcs = ["testbench.c"],
+    hdrs = ["testbench.h"],
+    visibility = ["//loom/src/loom/tools/iree-test-loom:__pkg__"],
+    deps = [
+        ":host",
+        ":prepare",
+        "//loom/src/loom/error:source",
+        "//loom/src/loom/link:linker",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/target:entry_selection",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target:selection",
+        "//loom/src/loom/tooling/compile:pipeline",
+        "//loom/src/loom/tooling/compile:preparation",
+        "//loom/src/loom/tooling/compile:request",
+        "//loom/src/loom/tooling/config",
+        "//loom/src/loom/tooling/testbench/scenario:executor",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/hal",
+    ],
+)
+
+loom_cc_library(
     name = "artifact_emitter",
     srcs = ["artifact_emitter.c"],
     hdrs = ["artifact_emitter.h"],
