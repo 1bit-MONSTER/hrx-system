@@ -33,6 +33,7 @@
 #include "loom/transforms/vector/shape_legalization.h"
 #include "loom/transforms/vector/table_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
+#include "loom/transforms/view/atomic.h"
 #include "loom/transforms/view/target_legalization.h"
 
 static bool loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
@@ -422,6 +423,23 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
       loom_atomic_kind_is_exchange(atomic_kind)) {
     return iree_ok_status();
   }
+  loom_value_fact_view_reference_t view_reference = {0};
+  if (!loom_value_facts_query_view_reference(
+          &context->fact_table->context,
+          loom_value_fact_table_lookup(context->fact_table,
+                                       loom_memory_access_view(access)),
+          &view_reference)) {
+    return iree_ok_status();
+  }
+  if (view_reference.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE) {
+    // Kernel metadata enables preserving scalar arithmetic for all float modes.
+    // Invocation-private updates need no memory atomicity or inter-thread
+    // order.
+    IREE_RETURN_IF_ERROR(
+        loom_view_atomic_rewrite_private(context->rewriter, op));
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+    return iree_ok_status();
+  }
   const loom_type_t value_type =
       loom_module_value_type(context->module, loom_memory_access_value(access));
   if (!loom_type_is_scalar(value_type) ||
@@ -431,14 +449,6 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
     return iree_ok_status();
   }
 
-  loom_value_fact_view_reference_t view_reference = {0};
-  if (!loom_value_facts_query_view_reference(
-          &context->fact_table->context,
-          loom_value_fact_table_lookup(context->fact_table,
-                                       loom_memory_access_view(access)),
-          &view_reference)) {
-    return iree_ok_status();
-  }
   const loom_amdgpu_atomic_operation_kind_t operation_kind =
       loom_view_atomic_reduce_isa(op) ? LOOM_AMDGPU_ATOMIC_OPERATION_REDUCE
                                       : LOOM_AMDGPU_ATOMIC_OPERATION_RMW;
@@ -460,6 +470,35 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
   }
   return loom_view_target_legalize_atomic_float_reference(context, op,
                                                           out_result);
+}
+
+static iree_status_t loom_amdgpu_legalize_packed_atomic(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_retain_native_vector_op(entry, context, op, out_result));
+  if (out_result->action != LOOM_TARGET_LEGALIZER_ACTION_DEFER) {
+    return iree_ok_status();
+  }
+  const loom_memory_access_t access =
+      loom_memory_access_cast(context->module, op);
+  loom_value_fact_view_reference_t reference = {0};
+  if (!loom_value_facts_query_view_reference(
+          &context->fact_table->context,
+          loom_value_fact_table_lookup(context->fact_table,
+                                       loom_memory_access_view(access)),
+          &reference) ||
+      reference.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE) {
+    return iree_ok_status();
+  }
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_atomic_to_scalar_rewrite_op(
+      context->pass, context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
 }
 
 static bool loom_amdgpu_match_value_type_is_supported(loom_type_t type) {
@@ -724,19 +763,19 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .root_kind = LOOM_OP_VECTOR_INSERT,
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
-    // Half-precision atomics require packed instructions. Preserve the vector
-    // footprint for native selection and its alignment/scope diagnostics.
+    // Shared half-precision atomics require packed instructions; private
+    // elements use the scalar reference and ordinary private accesses.
     {
         .root_kind = LOOM_OP_VECTOR_ATOMIC_REDUCE,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_BF16,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_packed_atomic,
     },
     {
         .root_kind = LOOM_OP_VECTOR_ATOMIC_RMW,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_BF16,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_packed_atomic,
     },
     {
         .root_kind = LOOM_OP_VIEW_ATOMIC_REDUCE,

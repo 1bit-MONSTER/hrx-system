@@ -15,6 +15,7 @@
 #include "loom/ops/scf/ops.h"
 #include "loom/ops/view/ops.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/transforms/view/atomic.h"
 
 // Compare-exchange failure cannot carry release semantics. This table maps a
 // verified atomic RMW ordering to the strongest valid failure ordering that
@@ -29,22 +30,6 @@ static const loom_atomic_ordering_t kAtomicRmwFailureOrderings[] = {
 static_assert(IREE_ARRAYSIZE(kAtomicRmwFailureOrderings) ==
                   LOOM_ATOMIC_ORDERING_COUNT_,
               "all atomic RMW orderings must map to a failure ordering");
-
-// Floating combines share the generated binary-builder signature. A missing
-// entry leaves other atomic kinds to their native or reference providers.
-typedef iree_status_t (*loom_view_atomic_float_combine_fn_t)(
-    loom_builder_t* builder, uint8_t instance_flags, loom_value_id_t lhs,
-    loom_value_id_t rhs, loom_type_t result_type, loom_location_id_t location,
-    loom_op_t** out_op);
-
-static const loom_view_atomic_float_combine_fn_t
-    kAtomicFloatCombines[LOOM_ATOMIC_KIND_COUNT_] = {
-        [LOOM_ATOMIC_KIND_ADDF] = loom_scalar_addf_build,
-        [LOOM_ATOMIC_KIND_MINIMUMF] = loom_scalar_minimumf_build,
-        [LOOM_ATOMIC_KIND_MAXIMUMF] = loom_scalar_maximumf_build,
-        [LOOM_ATOMIC_KIND_MINNUMF] = loom_scalar_minnumf_build,
-        [LOOM_ATOMIC_KIND_MAXNUMF] = loom_scalar_maxnumf_build,
-};
 
 static loom_view_atomic_cmpxchg_build_flags_t
 loom_view_legalize_atomic_cmpxchg_cache_policy(loom_cache_policy_t policy,
@@ -66,14 +51,14 @@ loom_view_legalize_atomic_cmpxchg_cache_policy(loom_cache_policy_t policy,
 
 static iree_status_t loom_view_legalize_build_atomic_float_before_region(
     loom_builder_t* builder, loom_op_t* loop, loom_memory_access_t access,
-    loom_type_t float_type, loom_type_t integer_type,
-    loom_view_atomic_float_combine_fn_t combine, loom_location_id_t location) {
+    loom_type_t float_type, loom_type_t integer_type, loom_atomic_kind_t kind,
+    loom_location_id_t location) {
   const loom_value_id_t expected =
       loom_region_entry_arg_id(loom_scf_while_before(loop), 0);
-  loom_op_t* combine_op = NULL;
-  IREE_RETURN_IF_ERROR(combine(builder, /*instance_flags=*/0, expected,
-                               loom_memory_access_value(access), float_type,
-                               location, &combine_op));
+  loom_value_id_t combined = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_view_atomic_build_combine(
+      builder, kind, expected, loom_memory_access_value(access), float_type,
+      location, &combined));
 
   uint8_t cache_scope = 0;
   uint8_t cache_temporal = 0;
@@ -89,9 +74,9 @@ static iree_status_t loom_view_legalize_build_atomic_float_before_region(
           loom_memory_access_atomic_ordering(access));
   loom_op_t* cmpxchg_op = NULL;
   IREE_RETURN_IF_ERROR(loom_view_atomic_cmpxchg_build(
-      builder, build_flags, expected, loom_op_results(combine_op)[0],
-      loom_memory_access_view(access), indices.values, indices.count,
-      static_indices.i64_array, static_indices.count, success_ordering,
+      builder, build_flags, expected, combined, loom_memory_access_view(access),
+      indices.values, indices.count, static_indices.i64_array,
+      static_indices.count, success_ordering,
       kAtomicRmwFailureOrderings[success_ordering],
       (loom_atomic_scope_t)loom_attr_as_enum(
           loom_memory_access_atomic_scope(access)),
@@ -133,10 +118,10 @@ iree_status_t loom_view_target_legalize_atomic_float_reference(
   };
   const loom_memory_access_t access =
       loom_memory_access_cast(context->module, op);
-  const loom_view_atomic_float_combine_fn_t combine =
-      kAtomicFloatCombines[loom_attr_as_enum(
-          loom_memory_access_atomic_kind(access))];
-  if (!combine) {
+  const loom_atomic_kind_t kind = (loom_atomic_kind_t)loom_attr_as_enum(
+      loom_memory_access_atomic_kind(access));
+  if (!loom_atomic_kind_accepts_float(kind) ||
+      loom_atomic_kind_is_exchange(kind)) {
     return iree_ok_status();
   }
 
@@ -173,7 +158,7 @@ iree_status_t loom_view_target_legalize_atomic_float_reference(
   loom_builder_ip_t saved_ip = loom_builder_enter_region(
       &rewriter->builder, loop, loom_scf_while_before(loop));
   iree_status_t status = loom_view_legalize_build_atomic_float_before_region(
-      &rewriter->builder, loop, access, float_type, integer_type, combine,
+      &rewriter->builder, loop, access, float_type, integer_type, kind,
       op->location);
   loom_builder_restore(&rewriter->builder, saved_ip);
   IREE_RETURN_IF_ERROR(status);
@@ -218,7 +203,44 @@ static iree_status_t loom_view_legalize_atomic_float(
                                                           out_result);
 }
 
+static iree_status_t loom_view_legalize_atomic_private(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (iree_any_bit_set(op->instance_flags, LOOM_MEMORY_ACCESS_FLAG_NOFTZ)) {
+    return iree_ok_status();
+  }
+  const loom_memory_access_t access =
+      loom_memory_access_cast(context->module, op);
+  loom_value_fact_view_reference_t reference = {0};
+  if (!loom_value_facts_query_view_reference(
+          &context->fact_table->context,
+          loom_value_fact_table_lookup(context->fact_table,
+                                       loom_memory_access_view(access)),
+          &reference) ||
+      reference.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_view_atomic_rewrite_private(context->rewriter, op));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
 static const loom_target_legalizer_rule_t kViewLegalizerRules[] = {
+    {.root_kind = LOOM_OP_VIEW_ATOMIC_LOAD,
+     .legalize = loom_view_legalize_atomic_private},
+    {.root_kind = LOOM_OP_VIEW_ATOMIC_STORE,
+     .legalize = loom_view_legalize_atomic_private},
+    {.root_kind = LOOM_OP_VIEW_ATOMIC_REDUCE,
+     .legalize = loom_view_legalize_atomic_private},
+    {.root_kind = LOOM_OP_VIEW_ATOMIC_RMW,
+     .legalize = loom_view_legalize_atomic_private},
+    {.root_kind = LOOM_OP_VIEW_ATOMIC_CMPXCHG,
+     .legalize = loom_view_legalize_atomic_private},
     {
         .root_kind = LOOM_OP_VIEW_ATOMIC_REDUCE,
         .legalize = loom_view_legalize_atomic_float,

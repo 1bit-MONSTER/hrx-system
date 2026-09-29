@@ -42,11 +42,16 @@ static const loom_target_legalizer_entry_t* LookupOnlyEntry(
 static void ExpectReferenceProvider(
     const loom_target_legalizer_registry_t* registry, loom_op_kind_t op_kind,
     iree_string_view_t expected_name) {
-  const loom_target_legalizer_entry_t* entry =
-      LookupOnlyEntry(registry, op_kind);
-  ASSERT_NE(entry, nullptr);
-  EXPECT_TRUE(iree_string_view_equal(entry->provider_name, expected_name));
-  EXPECT_EQ(entry->provider_strategy, LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE);
+  const loom_target_legalizer_op_entry_t op_entry =
+      loom_target_legalizer_registry_lookup_kind(registry, op_kind);
+  ASSERT_GT(op_entry.entry_count, 0u);
+  for (uint32_t i = 0; i < op_entry.entry_count; ++i) {
+    const loom_target_legalizer_entry_t& entry =
+        registry->entries[op_entry.entry_start + i];
+    EXPECT_TRUE(iree_string_view_equal(entry.provider_name, expected_name));
+    EXPECT_EQ(entry.provider_strategy,
+              LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE);
+  }
 }
 
 TEST(LowLegalizerRegistryTest, TargetProvidersPrecedeGenericProviders) {

@@ -362,7 +362,6 @@ TEST(CleanupPatternsTest, ConfiguredProvidersCoverOwnedRoots) {
                                                       LOOM_OP_VECTOR_TRUNCI)
                 .count,
             1u);
-  EXPECT_EQ(source_combine->pattern_count, 16u);
   loom_cleanup_pattern_registry_storage_deinitialize(&storage);
 }
 

@@ -417,6 +417,7 @@ loom_cc_library(
         "//loom/src/loom/transforms/vector:shape_legalization",
         "//loom/src/loom/transforms/vector:table_legalization",
         "//loom/src/loom/transforms/vector:to_scalar",
+        "//loom/src/loom/transforms/view:atomic",
         "//loom/src/loom/transforms/view:target_legalization",
         "//runtime/src/iree/base",
     ],

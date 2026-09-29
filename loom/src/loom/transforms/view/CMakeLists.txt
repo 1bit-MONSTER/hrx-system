@@ -11,17 +11,39 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    atomic
+  HDRS
+    "atomic.h"
+  SRCS
+    "atomic.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::atomic
+    loom::ops::cache
+    loom::ops::op_defs
+    loom::ops::scalar
+    loom::ops::scf
+    loom::ops::view
+    loom::rewrite::rewriter
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     combine_patterns
   HDRS
     "combine_patterns.h"
   SRCS
     "combine_patterns.c"
   DEPS
+    ::atomic
     ::load_coalescing
     iree::base
     loom::ops::view
     loom::rewrite::pattern_registry
     loom::transforms::cleanup::patterns
+    loom::util::fact_table
   PUBLIC
 )
 
@@ -161,6 +183,7 @@ loom_cc_library(
   SRCS
     "target_legalization.c"
   DEPS
+    ::atomic
     iree::base
     loom::ir
     loom::ops::atomic
