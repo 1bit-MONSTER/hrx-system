@@ -134,6 +134,9 @@ iree_runtime_cc_library(
             "//runtime/src/iree/async/platform/io_uring",
             "//runtime/src/iree/async/platform/posix",
         ],
+        "@platforms//os:wasi": [
+            "//runtime/src/iree/async/platform/js:proactor",
+        ],
         "@platforms//os:windows": [
             "//runtime/src/iree/async/platform/iocp",
         ],
