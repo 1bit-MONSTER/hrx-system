@@ -17,6 +17,7 @@
 #include "loom/codegen/low/lower/lower.h"
 #include "loom/codegen/low/source_memory_plan.h"
 #include "loom/error/error_defs.h"
+#include "loom/ir/encoding.h"
 #include "loom/ir/ir.h"
 #include "loom/util/string_pool.h"
 
@@ -726,6 +727,9 @@ typedef enum loom_low_lower_guard_kind_e {
   // Source value must have no ordinary operand use that can dynamically
   // execute after the source operation. Type uses are ignored.
   LOOM_LOW_LOWER_GUARD_VALUE_NO_USES_AFTER = 35,
+  // Source value's complete encoded-operand schema must equal the rule-set
+  // storage_operand_schemas row selected by index.element_index.
+  LOOM_LOW_LOWER_GUARD_VALUE_STORAGE_OPERAND_SCHEMA = 36,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;
@@ -1087,6 +1091,10 @@ typedef struct loom_low_lower_rule_set_t {
   const loom_low_lower_guard_t* guards;
   // Number of rows in guards.
   uint16_t guard_count;
+  // Exact encoded-operand schemas referenced by guards.
+  const loom_encoding_operand_summary_t* storage_operand_schemas;
+  // Number of rows in storage_operand_schemas.
+  uint16_t storage_operand_schema_count;
   // Guard refs addressed by rule guard spans.
   const loom_low_lower_guard_ref_t* guard_refs;
   // Number of rows in guard_refs.
