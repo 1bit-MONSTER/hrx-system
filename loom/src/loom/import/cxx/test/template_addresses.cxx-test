@@ -319,3 +319,35 @@ func.def public @entry() -> (i32) {
   %1 = scalar.constant 7 : i32
   func.return %1 : i32
 }
+
+// ====
+// A reference argument retains its identity until a value read. Reading a
+// constant table element then imports its scalar value without global storage.
+namespace model {
+constexpr unsigned table[2] = {3, 5};
+}
+template <const unsigned& value>
+unsigned add(unsigned input) { return input + value; }
+unsigned entry(unsigned input) {
+  return add<model::table[0]>(input) + add<model::table[1]>(input);
+}
+
+// ----
+func.def public @entry(%input: i32) -> (i32) {
+  %2 = func.call @add__const_(%input) : (i32) -> (i32)
+  %3 = func.call @add__const__1(%input) : (i32) -> (i32)
+  %4 = scalar.addi %2, %3 : i32
+  func.return %4 : i32
+}
+
+func.def @add__const_(%input: i32) -> (i32) {
+  %7 = scalar.constant 3 : i32
+  %8 = scalar.addi %input, %7 : i32
+  func.return %8 : i32
+}
+
+func.def @add__const__1(%input: i32) -> (i32) {
+  %11 = scalar.constant 5 : i32
+  %12 = scalar.addi %input, %11 : i32
+  func.return %12 : i32
+}

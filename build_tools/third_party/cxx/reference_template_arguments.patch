@@ -1,19 +1,28 @@
 diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_interpreter_expressions.cc
 --- a/src/parser/cxx/ast_interpreter_expressions.cc
 +++ b/src/parser/cxx/ast_interpreter_expressions.cc
-@@ -1042,7 +1042,11 @@
+@@ -1042,11 +1042,16 @@
      if (auto fv = address.owner()->subobject(sym)) storage = *fv;
    } else if (auto slot = lookupLocalSlot(sym)) {
      storage = *slot;
 +  } else if (auto field = symbol_cast<FieldSymbol>(sym);
 +             field && field->isStatic()) {
++    if (!isDeclaredConstant(field) || traits.is_volatile(field->type()) ||
++        (!field->isConstexpr() &&
++         !traits.is_integral_or_enum(traits.remove_cvref(field->type())))) {
++      return std::nullopt;
++    }
 +    storage = evaluateStaticField(field);
    } else if (auto var = symbol_cast<VariableSymbol>(sym)) {
-+    var = var->resolvedDefinition();
-     if (auto cv = var->constValue())
-       storage = cv;
-     else if (var->initializer())
-@@ -1177,7 +1181,10 @@
+-    if (auto cv = var->constValue())
+-      storage = cv;
+-    else if (var->initializer())
+-      storage = expression(var->initializer());
++    storage = readVariable(var->resolvedDefinition());
+   }
+   if (!storage.has_value()) return std::nullopt;
+   if (index == 0 && objectType) {
+@@ -1177,7 +1182,10 @@
        }
        return std::nullopt;
      }
@@ -25,7 +34,7 @@ diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_
        if (auto owner = fieldOwner(ast))
          return std::make_shared<ConstAddress>(owner, idExpr->symbol);
        return std::nullopt;
-@@ -1212,17 +1219,76 @@
+@@ -1212,17 +1220,76 @@
      return std::make_shared<ConstAddress>(objLit->symbol);
    }
 
@@ -113,7 +122,7 @@ diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_
    }
 
    if (auto call = ast_cast<CallExpressionAST>(ast))
-@@ -1339,7 +1405,7 @@
+@@ -1339,7 +1406,7 @@
        if (!value) return std::nullopt;
        auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
        if (!address || !*address) return std::nullopt;
@@ -122,7 +131,7 @@ diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_
      }
      return variable->constValue();
    }
-@@ -1961,7 +2027,11 @@
+@@ -1961,7 +2028,11 @@
 
  auto ASTInterpreter::ExpressionVisitor::operator()(UnaryExpressionAST* ast)
      -> ExpressionResult {
@@ -135,7 +144,7 @@ diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_
 
    if (ast->symbol) return evaluateOperatorCall(ast->symbol, expressionResult);
 
-@@ -2320,29 +2390,7 @@
+@@ -2320,29 +2391,7 @@
    }
 
    if (ast->castKind == ImplicitCastKind::kArrayToPointerConversion) {
@@ -166,7 +175,7 @@ diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_
    }
 
    auto value = evaluate(ast->expression);
-@@ -2393,24 +2441,33 @@
+@@ -2393,24 +2442,33 @@
    if (op == TokenKind::T_PLUS || op == TokenKind::T_MINUS) {
      auto rebased = [](const ConstAddress& a,
                        std::intmax_t off) -> std::shared_ptr<ConstAddress> {
@@ -211,6 +220,22 @@ diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_
      }
    }
 
+diff --git a/src/parser/cxx/ast_rewriter_expressions.cc b/src/parser/cxx/ast_rewriter_expressions.cc
+--- a/src/parser/cxx/ast_rewriter_expressions.cc
++++ b/src/parser/cxx/ast_rewriter_expressions.cc
+@@ -644,6 +644,12 @@
+
+       if (auto var = symbol_cast<VariableSymbol>(substituted)) {
+         if (var->type()) copy->type = var->type();
++        auto traits = translationUnit()->typeTraits();
++        if (traits.is_reference(var->type())) {
++          copy->type = traits.remove_reference(var->type());
++          copy->valueCategory = ValueCategory::kLValue;
++          return copy;
++        }
+
+         if (auto constant = scalarTemplateArgument(var, copy)) {
+           return constant;
 diff --git a/src/parser/cxx/const_value.cc b/src/parser/cxx/const_value.cc
 --- a/src/parser/cxx/const_value.cc
 +++ b/src/parser/cxx/const_value.cc
@@ -238,6 +263,49 @@ diff --git a/src/parser/cxx/const_value.h b/src/parser/cxx/const_value.h
 
    explicit ConstAddress(const StringLiteral* string, std::intmax_t offset = 0)
        : string_(string), offset_(offset) {}
+diff --git a/src/parser/cxx/standard_conversion.cc b/src/parser/cxx/standard_conversion.cc
+--- a/src/parser/cxx/standard_conversion.cc
++++ b/src/parser/cxx/standard_conversion.cc
+@@ -279,19 +279,34 @@
+     operand = nested->expression;
+
+   FieldSymbol* field = nullptr;
++  VariableSymbol* reference = nullptr;
+   MemberExpressionAST* member = nullptr;
+   if (auto id = ast_cast<IdExpressionAST>(operand)) {
+     field = symbol_cast<FieldSymbol>(id->symbol);
++    auto variable = symbol_cast<VariableSymbol>(id->symbol);
++    if (variable && traits.is_reference(variable->type()) &&
++        variable->constValue() && traits.is_scalar(cast->type)) {
++      reference = variable;
++    }
+   } else {
+     member = ast_cast<MemberExpressionAST>(operand);
+     if (member) field = symbol_cast<FieldSymbol>(member->symbol);
+   }
+
+-  if (!field) return;
+-  if (!field->isStatic()) return;
+-  if (!traits.is_scalar(field->type())) return;
+-
+-  if (!member && field->definition()) return;
++  if (!reference) {
++    if (!field) {
++      return;
++    }
++    if (!field->isStatic()) {
++      return;
++    }
++    if (!traits.is_scalar(field->type())) {
++      return;
++    }
++    if (!member && field->definition()) {
++      return;
++    }
++  }
+
+   auto interp = ASTInterpreter{unit_};
+   if (auto value = interp.evaluate(operand)) {
 diff --git a/src/parser/cxx/substitution.cc b/src/parser/cxx/substitution.cc
 --- a/src/parser/cxx/substitution.cc
 +++ b/src/parser/cxx/substitution.cc

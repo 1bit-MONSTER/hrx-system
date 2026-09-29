@@ -155,3 +155,29 @@ unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
   return choose<table[0][1]>();
 }
+
+// ====
+// A constant address does not make the contents of a mutable global constant.
+unsigned object = 5;
+template <const unsigned& value>
+constexpr unsigned read() { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read<object>() == 5);
+
+// ====
+// A const-qualified floating object still needs constexpr for a constant read.
+const float object = 1.5f;
+template <const float& value>
+constexpr float read() { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read<object>() == 1.5f);
+
+// ====
+// Static member references obey the same constant-read requirements.
+struct Settings {
+  inline static const float scale = 1.5f;
+};
+template <const float& value>
+constexpr float read() { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read<Settings::scale>() == 1.5f);
