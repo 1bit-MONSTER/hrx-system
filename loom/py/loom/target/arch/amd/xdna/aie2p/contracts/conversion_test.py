@@ -21,6 +21,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.conversion import (
     AIE2P_CONVERSION_RULES,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
+    FLOAT8_PACKET_FORMATS,
     INTEGER_PACK_CASES,
     INTEGER_WIDEN_RULE_SHAPES,
 )
@@ -153,6 +154,62 @@ def _evaluate(rule: DescriptorRule, input_value: int | tuple[int, int]) -> int:
     if isinstance(result, tuple):
         return result[0] | (result[1] << 32)
     return result
+
+
+def _evaluate_fp8_packet_lane(rule: DescriptorRule, input_value: int) -> int:
+    """Evaluates one replicated lane through a native FP8 packet program."""
+
+    values: dict[ValueRef, int] = {ValueRef.operand("input"): input_value}
+    for emit in rule.emit:
+        if isinstance(emit, EmitRegisterSlice):
+            values[emit.result] = values[emit.source]
+            continue
+        if isinstance(emit, EmitRegisterConcat):
+            source_values = [values[source] for source in emit.sources]
+            assert all(value == source_values[0] for value in source_values)
+            values[emit.result] = source_values[0]
+            continue
+
+        descriptor_key = emit.descriptor.key.removeprefix("amd.xdna.aie2p.")
+        result_ref = next(iter(emit.results.values()))
+        if emit.form is DescriptorEmitForm.CONST:
+            value = emit.immediates["i"]
+        else:
+            operands = {name: values[ref] for name, ref in emit.operands.items()}
+            if descriptor_key == "sub.i8x64":
+                value = (operands["s1"] - operands["s2"]) & 0xFF
+            elif descriptor_key == "shuffle.x.configured":
+                assert operands["mod"] == 20
+                value = (operands["s1"] & 0xFF) | ((operands["s2"] & 0xFF) << 8)
+            elif descriptor_key == "splat.i16x32":
+                value = operands["src"] & 0xFFFF
+            elif descriptor_key == "add.i16x32":
+                value = (operands["s1"] + operands["s2"]) & 0xFFFF
+            elif descriptor_key == "sub.i16x32":
+                value = (operands["s1"] - operands["s2"]) & 0xFFFF
+            elif descriptor_key == "and.bits512":
+                value = operands["s1"] & operands["s2"]
+            elif descriptor_key == "or.bits512":
+                value = operands["s1"] | operands["s2"]
+            elif descriptor_key == "cmp.eqz.i16x32.el.low32":
+                value = int((operands["s2"] & 0xFFFF) == 0)
+            elif descriptor_key == "cmp.lt.unsigned.i16x32.el.low32":
+                value = int((operands["s1"] & 0xFFFF) < (operands["s2"] & 0xFFFF))
+            elif descriptor_key == "predicate.complete.zero.high32":
+                value = operands["storage"]
+            elif descriptor_key == "select.i16x32.mask64":
+                value = operands["s2"] if operands["sel"] else operands["s1"]
+            elif descriptor_key.startswith("move."):
+                value = operands["src"]
+            elif descriptor_key in (
+                "convert.bf16x16.to.f32x16",
+                "convert.bf16x32.to.f32x32",
+            ):
+                value = (operands["src"] & 0xFFFF) << 16
+            else:
+                raise AssertionError(f"unmodeled packet descriptor {descriptor_key}")
+        values[result_ref] = value
+    return values[ValueRef.result("result")]
 
 
 def _reference_f16_to_f32(input_bits: int) -> int:
@@ -630,6 +687,55 @@ def test_native_bfloat16_packet_conversions_preserve_exact_width_and_rounding() 
         0,
         1,
     ]
+
+
+def test_float8_packet_widening_covers_every_native_logical_width() -> None:
+    lane_ranges = ("16", "32", "1-15", "17-31")
+    for fp8_format in FLOAT8_PACKET_FORMATS:
+        for lane_range in lane_ranges:
+            for result_name in ("bfloat16", "binary32"):
+                rule = _rule(
+                    f"native_{fp8_format.report_name}x{lane_range}_to_"
+                    f"{result_name}x{lane_range}"
+                )
+                descriptor_keys = [
+                    emit.descriptor.key
+                    for emit in rule.emit
+                    if isinstance(emit, EmitDescriptorOp)
+                ]
+                assert descriptor_keys[:4] == [
+                    "amd.xdna.aie2p.sub.i8x64",
+                    "amd.xdna.aie2p.constant.i32.mova",
+                    "amd.xdna.aie2p.shuffle.x.configured",
+                    "amd.xdna.aie2p.shuffle.x.configured",
+                ]
+                assert all(
+                    ".extract." not in key and ".insert." not in key
+                    for key in descriptor_keys
+                )
+
+
+def test_float8_packet_widening_matches_exhaustive_oracles() -> None:
+    for fp8_format in FLOAT8_PACKET_FORMATS:
+        bf16_rule = _rule(f"native_{fp8_format.report_name}x32_to_bfloat16x32")
+        f32_rule = _rule(f"native_{fp8_format.report_name}x32_to_binary32x32")
+        for bits in range(1 << 8):
+            expected_f32 = _reference_fp8_to_f32(
+                bits,
+                exponent_bits=7 - fp8_format.mantissa_bits,
+                mantissa_bits=fp8_format.mantissa_bits,
+                has_infinity=fp8_format.has_infinity,
+            )
+            assert _evaluate_fp8_packet_lane(bf16_rule, bits) == (expected_f32 >> 16), (
+                fp8_format.element,
+                hex(bits),
+                "bf16",
+            )
+            assert _evaluate_fp8_packet_lane(f32_rule, bits) == expected_f32, (
+                fp8_format.element,
+                hex(bits),
+                "f32",
+            )
 
 
 def test_bfloat16_packet_to_signed_i32_is_exact_over_defined_domain() -> None:

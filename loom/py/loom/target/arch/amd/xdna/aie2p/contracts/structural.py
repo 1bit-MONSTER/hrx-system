@@ -13,6 +13,9 @@ from loom.target.arch.amd.xdna.aie2p.contracts.accumulator_structural import (
     _ACCUMULATOR_VECTOR_SHAPES,
     _F32X32_ACCUMULATOR,
 )
+from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
+    I8_INTERLEAVE_CONTROL,
+)
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
 )
@@ -158,9 +161,6 @@ _WIDE_VECTOR_EXTRACT_SPECS = (
 # 512-bit source. Each logical 32-byte result retains the target's 512-bit X
 # carrier, with the remaining lanes outside the source vector's value domain.
 _I8_DEINTERLEAVE_CONTROLS = (0, 1)
-
-# T8_2x64_lo interleaves the low thirty-two byte lanes of two X carriers.
-_I8_INTERLEAVE_CONTROL = 20
 
 # T16_2x32_lo interleaves the low sixteen 16-bit lanes of two X carriers.
 _I16_INTERLEAVE_CONTROL = 18
@@ -1510,7 +1510,7 @@ AIE2P_STRUCTURAL_RULES = (
             minimum_lanes=2,
             maximum_lanes=64,
         ),
-        _I8_INTERLEAVE_CONTROL,
+        I8_INTERLEAVE_CONTROL,
     ),
     _vector_interleave_rule(
         Vector(("i16", "f16", "bf16"), lanes=16),

@@ -15,6 +15,7 @@ from loom.dialect.vector import defs as vector
 from loom.dsl import Op
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
     BF16_CONVERSION_ROUNDING,
+    I8_INTERLEAVE_CONTROL,
 )
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
@@ -213,6 +214,45 @@ class BFloatConversionRuleShape:
 
 
 @dataclass(frozen=True, slots=True)
+class Float8PacketFormat:
+    """One source float8 encoding widened through native i16 packets."""
+
+    # Source vector element type.
+    element: str
+    # Number of explicit source significand bits.
+    mantissa_bits: int
+    # Source exponent bias.
+    exponent_bias: int
+    # Whether the maximum exponent with a zero mantissa encodes infinity.
+    has_infinity: bool
+
+    @property
+    def normal_shift(self) -> int:
+        """Left shift positioning a normal payload as BF16 bits."""
+
+        return 7 - self.mantissa_bits
+
+    @property
+    def normal_base(self) -> int:
+        """BF16 exponent contribution independent of the source payload."""
+
+        return (127 - self.exponent_bias) << 7
+
+    @property
+    def special_payload(self) -> int:
+        """First unsigned payload carrying the maximum source exponent."""
+
+        exponent_bits = 7 - self.mantissa_bits
+        return ((1 << exponent_bits) - 1) << self.mantissa_bits
+
+    @property
+    def report_name(self) -> str:
+        """Stable lowercase type spelling used by compile reports."""
+
+        return self.element.lower()
+
+
+@dataclass(frozen=True, slots=True)
 class IntegerPackCase:
     """One source-visible shape supported by native VPACK forms."""
 
@@ -345,6 +385,15 @@ BF16_F32_PACKET_RULE_SHAPES = (
     BFloatConversionRuleShape(32, 17, 31),
 )
 
+FLOAT8_PACKET_FORMATS = (
+    Float8PacketFormat("f8E4M3", 3, 7, False),
+    Float8PacketFormat("f8E5M2", 2, 15, True),
+)
+
+_FP8_PAYLOAD_AND_SIGN_MASK = 0x807F
+_FP8_SUBNORMAL_THRESHOLD = 0x0080
+_CANONICAL_BF16_NAN = 0x7FC0
+
 INTEGER_PACK_CASES = (
     IntegerPackCase("i16", 32, None),
     IntegerPackCase("i16", 64, None),
@@ -359,6 +408,130 @@ def _descriptor(key: str) -> Descriptor:
 
 def _exact_vector(element: str, element_count: int) -> Vector:
     return Vector(element, lanes=element_count)
+
+
+class _I16PacketProgram:
+    """Builds lane-wise i16 descriptor programs over one X carrier."""
+
+    def __init__(self, temporary_prefix: str = "") -> None:
+        self.emits: list[ContractEmit] = []
+        self.temporary_prefix = temporary_prefix
+
+    def temporary(self, name: str) -> ValueRef:
+        return ValueRef.temporary(f"{self.temporary_prefix}{name}")
+
+    def constant(
+        self,
+        name: str,
+        value: int,
+        *,
+        descriptor_key: str | None = None,
+    ) -> ValueRef:
+        if descriptor_key is None:
+            descriptor_key = (
+                "amd.xdna.aie2p.constant.i32.short"
+                if -1024 <= value <= 1023
+                else "amd.xdna.aie2p.constant.i32"
+            )
+        result = self.temporary(name)
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=_descriptor(descriptor_key),
+                results={"dst": result},
+                result_types={"dst": DescriptorResultType()},
+                immediates={"i": value},
+                form=DescriptorEmitForm.CONST,
+            )
+        )
+        return result
+
+    def operation(
+        self,
+        name: str | None,
+        descriptor_key: str,
+        result_field: str,
+        **operands: ValueRef,
+    ) -> ValueRef:
+        result = ValueRef.result("result") if name is None else self.temporary(name)
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=_descriptor(f"amd.xdna.aie2p.{descriptor_key}"),
+                operands=operands,
+                results={result_field: result},
+                result_types=(
+                    None if name is None else {result_field: DescriptorResultType()}
+                ),
+                form=DescriptorEmitForm.OP,
+            )
+        )
+        return result
+
+    def splat(self, name: str, value: int) -> ValueRef:
+        scalar = self.constant(f"{name}_scalar", value)
+        return self.operation(name, "splat.i16x32", "dst", src=scalar)
+
+    def binary(
+        self,
+        name: str,
+        descriptor_key: str,
+        lhs: ValueRef,
+        rhs: ValueRef,
+    ) -> ValueRef:
+        return self.operation(name, descriptor_key, "d", s1=lhs, s2=rhs)
+
+    def compare_zero(self, name: str, value: ValueRef) -> ValueRef:
+        low = self.operation(f"{name}_low", "cmp.eqz.i16x32.el.low32", "cmp", s2=value)
+        result = self.temporary(name)
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=_descriptor("amd.xdna.aie2p.predicate.complete.zero.high32"),
+                operands={"storage": low},
+                results={"dst": result},
+                result_types={"dst": DescriptorResultType()},
+                immediates={"i": 0},
+                form=DescriptorEmitForm.OP,
+            )
+        )
+        return result
+
+    def compare_unsigned_less_than(
+        self, name: str, lhs: ValueRef, rhs: ValueRef
+    ) -> ValueRef:
+        low = self.operation(
+            f"{name}_low",
+            "cmp.lt.unsigned.i16x32.el.low32",
+            "cmp",
+            s1=lhs,
+            s2=rhs,
+        )
+        result = self.temporary(name)
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=_descriptor("amd.xdna.aie2p.predicate.complete.zero.high32"),
+                operands={"storage": low},
+                results={"dst": result},
+                result_types={"dst": DescriptorResultType()},
+                immediates={"i": 0},
+                form=DescriptorEmitForm.OP,
+            )
+        )
+        return result
+
+    def select(
+        self,
+        name: str | None,
+        true_value: ValueRef,
+        false_value: ValueRef,
+        condition: ValueRef,
+    ) -> ValueRef:
+        return self.operation(
+            name,
+            "select.i16x32.mask64",
+            "d",
+            s1=false_value,
+            s2=true_value,
+            sel=condition,
+        )
 
 
 def integer_widen_state_emits(
@@ -767,27 +940,33 @@ def _f32_to_bf16_vector_rule(
     )
 
 
-def _bf16_to_f32_vector_rule(
+def _bf16_to_f32_emits(
     rule_shape: BFloatConversionRuleShape,
-) -> DescriptorRule:
+    source: ValueRef,
+    *,
+    temporary_prefix: str = "",
+) -> tuple[ContractEmit, ...]:
+    """Converts one source-visible BF16 packet to its F32 carrier."""
+
+    def temporary(name: str) -> ValueRef:
+        return ValueRef.temporary(f"{temporary_prefix}{name}")
+
     native_lane_count = rule_shape.native_lane_count
     convert = _descriptor(
         f"amd.xdna.aie2p.convert.bf16x{native_lane_count}.to.f32x{native_lane_count}"
     )
-    source_type = rule_shape.vector_type("bf16")
-    result_type = rule_shape.vector_type("f32")
-    native_source = ValueRef.operand("input")
+    native_source = source
     input_emits: tuple[ContractEmit, ...] = ()
     native_result = ValueRef.result("result")
     result_types = None
     output_emits: tuple[ContractEmit, ...] = ()
     if native_lane_count == 16:
-        native_source = ValueRef.temporary("source_w")
-        native_result = ValueRef.temporary("converted_accumulator")
+        native_source = temporary("source_w")
+        native_result = temporary("converted_accumulator")
         result_types = {"dst": DescriptorResultType()}
         input_emits = (
             EmitRegisterSlice(
-                source=ValueRef.operand("input"),
+                source=source,
                 result=native_source,
                 unit_count=1,
             ),
@@ -803,15 +982,13 @@ def _bf16_to_f32_vector_rule(
             ),
         )
     elif rule_shape.maximum_lane_count < native_lane_count:
-        native_result = ValueRef.temporary("converted_accumulator")
+        native_result = temporary("converted_accumulator")
         result_types = {"dst": DescriptorResultType()}
         vector_units = []
         output_emit_list: list[ContractEmit] = []
         for unit_index in range(2):
-            accumulator_unit = ValueRef.temporary(
-                f"result_accumulator_unit_{unit_index}"
-            )
-            vector_unit = ValueRef.temporary(f"result_vector_unit_{unit_index}")
+            accumulator_unit = temporary(f"result_accumulator_unit_{unit_index}")
+            vector_unit = temporary(f"result_vector_unit_{unit_index}")
             output_emit_list.extend(
                 (
                     EmitRegisterSlice(
@@ -839,26 +1016,213 @@ def _bf16_to_f32_vector_rule(
             )
         )
         output_emits = tuple(output_emit_list)
+    return (
+        *input_emits,
+        EmitDescriptorOp(
+            descriptor=convert,
+            operands={"src": native_source},
+            results={"dst": native_result},
+            result_types=result_types,
+            form=DescriptorEmitForm.OP,
+        ),
+        *output_emits,
+    )
+
+
+def _bf16_to_f32_vector_rule(
+    rule_shape: BFloatConversionRuleShape,
+) -> DescriptorRule:
+    convert = _descriptor(
+        f"amd.xdna.aie2p.convert.bf16x{rule_shape.native_lane_count}.to."
+        f"f32x{rule_shape.native_lane_count}"
+    )
     return DescriptorRule(
         source_op=vector.vector_extf,
         descriptor=convert,
         guards=(
-            Guard.value_type("input", source_type),
-            Guard.value_type("result", result_type),
+            Guard.value_type("input", rule_shape.vector_type("bf16")),
+            Guard.value_type("result", rule_shape.vector_type("f32")),
         ),
-        emit=(
-            *input_emits,
-            EmitDescriptorOp(
-                descriptor=convert,
-                operands={"src": native_source},
-                results={"dst": native_result},
-                result_types=result_types,
-                form=DescriptorEmitForm.OP,
-            ),
-            *output_emits,
-        ),
+        emit=_bf16_to_f32_emits(rule_shape, ValueRef.operand("input")),
         report_key=(
             f"native_bfloat16x{rule_shape.report_lane_range}_to_"
+            f"binary32x{rule_shape.report_lane_range}"
+        ),
+    )
+
+
+def _fp8_to_bf16_emits(
+    fp8_format: Float8PacketFormat,
+    *,
+    result_name: str | None,
+) -> tuple[ValueRef, tuple[ContractEmit, ...]]:
+    """Widens up to thirty-two FP8 lanes into exact BF16 bit patterns."""
+
+    program = _I16PacketProgram("fp8_")
+    source = ValueRef.operand("input")
+    zero = program.operation("zero", "sub.i8x64", "d", s1=source, s2=source)
+    interleave_control = program.constant(
+        "interleave_control",
+        I8_INTERLEAVE_CONTROL,
+        descriptor_key="amd.xdna.aie2p.constant.i32.mova",
+    )
+    low_bytes = program.operation(
+        "low_bytes",
+        "shuffle.x.configured",
+        "dst",
+        s1=source,
+        s2=zero,
+        mod=interleave_control,
+    )
+    high_bytes = program.operation(
+        "high_bytes",
+        "shuffle.x.configured",
+        "dst",
+        s1=zero,
+        s2=source,
+        mod=interleave_control,
+    )
+    payload_and_sign_mask = program.splat(
+        "payload_and_sign_mask", _FP8_PAYLOAD_AND_SIGN_MASK
+    )
+    payload = program.binary("payload", "and.bits512", low_bytes, payload_and_sign_mask)
+    sign = program.binary("sign", "and.bits512", high_bytes, payload_and_sign_mask)
+
+    scaled_payloads = [payload]
+    for shift in range(1, 7):
+        scaled_payloads.append(
+            program.binary(
+                f"payload_x{1 << shift}",
+                "add.i16x32",
+                scaled_payloads[-1],
+                scaled_payloads[-1],
+            )
+        )
+
+    threshold = program.splat("subnormal_threshold", _FP8_SUBNORMAL_THRESHOLD)
+    normal_base = program.splat("normal_base", fp8_format.normal_base)
+    normal = program.binary(
+        "normal",
+        "add.i16x32",
+        scaled_payloads[fp8_format.normal_shift],
+        normal_base,
+    )
+
+    # Each source-subnormal range with the same leading one is affine. The
+    # range base advances by one BF16 exponent bit (0x80), while its payload
+    # shift decreases by one. Build the few ranges from smallest to largest.
+    single_base = normal_base
+    for index in range(fp8_format.mantissa_bits - 1):
+        single_base = program.binary(
+            f"single_base_{index}",
+            "sub.i16x32",
+            single_base,
+            threshold,
+        )
+    is_zero = program.compare_zero("is_zero", payload)
+    subnormal = program.select("subnormal_1", zero, single_base, is_zero)
+    range_base = single_base
+    for leading_bit in range(1, fp8_format.mantissa_bits):
+        payload_shift = 7 - leading_bit
+        candidate = program.binary(
+            f"subnormal_{1 << leading_bit}",
+            "add.i16x32",
+            scaled_payloads[payload_shift],
+            range_base,
+        )
+        below_range = program.compare_unsigned_less_than(
+            f"below_{1 << leading_bit}",
+            scaled_payloads[payload_shift],
+            threshold,
+        )
+        subnormal = program.select(
+            f"subnormal_through_{(1 << (leading_bit + 1)) - 1}",
+            subnormal,
+            candidate,
+            below_range,
+        )
+        if leading_bit + 1 < fp8_format.mantissa_bits:
+            range_base = program.binary(
+                f"range_base_{leading_bit + 1}",
+                "add.i16x32",
+                range_base,
+                threshold,
+            )
+
+    exponent_is_zero = program.compare_unsigned_less_than(
+        "exponent_is_zero",
+        scaled_payloads[fp8_format.normal_shift],
+        threshold,
+    )
+    finite_unsigned = program.select(
+        "finite_unsigned", subnormal, normal, exponent_is_zero
+    )
+    finite = program.binary("finite", "or.bits512", finite_unsigned, sign)
+    canonical_nan = program.splat("canonical_nan", _CANONICAL_BF16_NAN)
+
+    if fp8_format.has_infinity:
+        special_payload = program.splat("special_payload", fp8_format.special_payload)
+        is_finite = program.compare_unsigned_less_than(
+            "is_finite", payload, special_payload
+        )
+        special_delta = program.binary(
+            "special_delta", "sub.i16x32", payload, special_payload
+        )
+        is_infinity = program.compare_zero("is_infinity", special_delta)
+        infinity_unsigned = program.binary(
+            "infinity_unsigned", "add.i16x32", normal, normal_base
+        )
+        infinity = program.binary("infinity", "or.bits512", infinity_unsigned, sign)
+        special = program.select("special", infinity, canonical_nan, is_infinity)
+        result = program.select(result_name, finite, special, is_finite)
+    else:
+        nan_payload = program.splat("nan_payload", 0x7F)
+        nan_delta = program.binary("nan_delta", "sub.i16x32", payload, nan_payload)
+        is_nan = program.compare_zero("is_nan", nan_delta)
+        result = program.select(result_name, canonical_nan, finite, is_nan)
+
+    return result, tuple(program.emits)
+
+
+def _fp8_to_bf16_vector_rule(
+    fp8_format: Float8PacketFormat,
+    rule_shape: BFloatConversionRuleShape,
+) -> DescriptorRule:
+    _, emits = _fp8_to_bf16_emits(fp8_format, result_name=None)
+    return DescriptorRule(
+        source_op=vector.vector_extf,
+        descriptor=emits[-1].descriptor,
+        guards=(
+            Guard.value_type("input", rule_shape.vector_type(fp8_format.element)),
+            Guard.value_type("result", rule_shape.vector_type("bf16")),
+        ),
+        emit=emits,
+        report_key=(
+            f"native_{fp8_format.report_name}x{rule_shape.report_lane_range}_to_"
+            f"bfloat16x{rule_shape.report_lane_range}"
+        ),
+    )
+
+
+def _fp8_to_f32_vector_rule(
+    fp8_format: Float8PacketFormat,
+    rule_shape: BFloatConversionRuleShape,
+) -> DescriptorRule:
+    bf16, packet_emits = _fp8_to_bf16_emits(fp8_format, result_name="decoded_bf16")
+    convert_emits = _bf16_to_f32_emits(rule_shape, bf16, temporary_prefix="fp8_widen_")
+    return DescriptorRule(
+        source_op=vector.vector_extf,
+        descriptor=_descriptor(
+            f"amd.xdna.aie2p.convert.bf16x{rule_shape.native_lane_count}.to."
+            f"f32x{rule_shape.native_lane_count}"
+        ),
+        guards=(
+            Guard.value_type("input", rule_shape.vector_type(fp8_format.element)),
+            Guard.value_type("result", rule_shape.vector_type("f32")),
+        ),
+        emit=(*packet_emits, *convert_emits),
+        report_key=(
+            f"native_{fp8_format.report_name}x{rule_shape.report_lane_range}_to_"
             f"binary32x{rule_shape.report_lane_range}"
         ),
     )
@@ -1029,6 +1393,15 @@ AIE2P_PACKET_CONVERSION_RULES = (
         for rule_shape in INTEGER_WIDEN_RULE_SHAPES
     ),
     *(_integer_pack_rule(pack_case) for pack_case in INTEGER_PACK_CASES),
+    *(
+        rule
+        for fp8_format in FLOAT8_PACKET_FORMATS
+        for rule_shape in BF16_F32_PACKET_RULE_SHAPES
+        for rule in (
+            _fp8_to_bf16_vector_rule(fp8_format, rule_shape),
+            _fp8_to_f32_vector_rule(fp8_format, rule_shape),
+        )
+    ),
     *(
         _f32_to_bf16_vector_rule(rule_shape)
         for rule_shape in BF16_F32_PACKET_RULE_SHAPES

@@ -7,11 +7,13 @@
 """Tests for AMD XDNA AIE2P structural vector contracts."""
 
 from loom.dialect.vector import defs as vector
+from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
+    I8_INTERLEAVE_CONTROL,
+)
 from loom.target.arch.amd.xdna.aie2p.contracts.structural import (
     _ACCUMULATOR_BITCAST_TYPE_GROUPS,
     _ACCUMULATOR_VECTOR_SHAPES,
     _F32X32_ACCUMULATOR,
-    _I8_INTERLEAVE_CONTROL,
     _I16_F16_BF16_8X8_VECTOR,
     _I16_INTERLEAVE_CONTROL,
     _I16_TRANSPOSE_8X8_CONTROLS,
@@ -719,8 +721,8 @@ def test_partial_byte_interleave_uses_low_native_shuffle() -> None:
         Guard.i64_range("axis", 0, 0),
     )
     assert len(rule.emit) == 2
-    assert rule.emit[0].immediates == {"i": _I8_INTERLEAVE_CONTROL}
-    assert _I8_INTERLEAVE_CONTROL == 20
+    assert rule.emit[0].immediates == {"i": I8_INTERLEAVE_CONTROL}
+    assert I8_INTERLEAVE_CONTROL == 20
     assert rule.emit[1].descriptor.key == "amd.xdna.aie2p.shuffle.x.configured"
     assert rule.emit[1].operands["s1"].field == "even"
     assert rule.emit[1].operands["s2"].field == "odd"
