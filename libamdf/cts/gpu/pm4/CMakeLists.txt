@@ -62,7 +62,7 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::kernels::lds_exchange
-    libamdf::cts::gpu::kernels::lds_exchange_gfx1151
+    libamdf::cts::gpu::kernels::lds_exchange_kernels
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_gfx1151
     libamdf::cts::gpu::pm4::encoding::commands

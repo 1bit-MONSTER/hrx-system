@@ -12,29 +12,12 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
-#include "libamdf/cts/gpu/kernels/lds_exchange_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 namespace {
 
-namespace kernel = kernels::gfx1151_lds_exchange;
-
 using Arguments = kernels::lds_exchange::Arguments;
-static_assert(kernel::kArgumentByteOffsets ==
-              kernels::lds_exchange::kArgumentByteOffsets);
-static_assert(kernel::kArgumentByteLengths ==
-              kernels::lds_exchange::kArgumentByteLengths);
-static_assert(kernel::kArgumentValueKinds ==
-              kernels::lds_exchange::kArgumentValueKinds);
-static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
-static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{128, 1, 1});
-static_assert(kernel::kWavefrontSize == 32);
-// BindCompute supplies the kernarg pointer, group X and local X inputs.
-static_assert(kernel::kKernelCodeProperties == 0x408 &&
-              kernel::kKernargPreload == 0);
-static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
 
 using Pm4LdsTest = Pm4DispatchTest;
 
@@ -54,18 +37,18 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
   constexpr uint32_t kSuffixGuard = 0xe270c84bu;
   constexpr uint32_t kTailGuard = 0x7c42a695u;
   constexpr uint32_t kControlGuard = 0x68d329b7u;
-  static_assert(kernel::kWorkgroupSize == 128);
-  static_assert(kernel::kGroupSegmentByteLength == 512);
-  static_assert(kernel::kPrivateSegmentByteLength == 0);
-  static_assert(kGridSize / kernel::kWorkgroupSize == 4);
-  static_assert(kGridSize % kernel::kWorkgroupSize == 0);
 
   amdf_gpu_endpoint_info_t endpoint_info = {};
   endpoint_info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
-  ASSERT_LE(kernel::kGroupSegmentByteLength,
+  const auto* selected = kernels::lds_exchange::kKernels.Find(endpoint_info);
+  ASSERT_NE(selected, nullptr) << "missing compiled LDS kernel for endpoint";
+  const auto& kernel = *selected;
+  RecordProperty("lds_kernel_target", kernel.target);
+
+  ASSERT_LE(kernel.group_segment_byte_length,
             endpoint_info.compute.local_data_share_byte_length);
 
   GpuMemory* output = nullptr;
@@ -80,18 +63,18 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
   Pm4ComputeProgram program = {
       0,
-      kernel::kComputePgmRsrc1,
-      kernel::kComputePgmRsrc2,
-      kernel::kComputePgmRsrc3,
-      kernel::kGroupSegmentByteLength,
-      {kernel::kWorkgroupSize, 1, 1},
+      kernel.program.resource1,
+      kernel.program.resource2,
+      kernel.program.resource3,
+      kernel.group_segment_byte_length,
+      {kernel.workgroup_size(), 1, 1},
   };
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
-      kernel::kExecutable, kernel::kEntryByteOffset, &program, "pm4", &code));
+      kernel.executable, kernel.entry_byte_offset, &program, "pm4", &code));
 
   std::array<uint32_t, kOutputWordCount> expected_output;
   std::array<uint32_t, kOutputWordCount> observed_output;
@@ -101,8 +84,8 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
   std::array<uint32_t, kControlWordCount> observed_control;
   std::vector<uint8_t> expected_code(code->info.byte_length, 0);
   std::vector<uint8_t> observed_code(code->info.byte_length);
-  std::memcpy(expected_code.data(), kernel::kExecutable.words,
-              kernel::kExecutable.byte_length);
+  std::memcpy(expected_code.data(), kernel.executable.words,
+              kernel.executable.byte_length);
   expected_control.fill(kControlGuard);
   expected_control[kCompletionWordIndex] = 0;
   // Initialize the whole page once. Only GPU writes advance its epoch word.
@@ -125,17 +108,18 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
       "pm4_lds_capacity_per_compute_unit",
       std::to_string(endpoint_info.compute.local_data_share_byte_length));
   RecordProperty("pm4_lds_fixed_group_byte_length",
-                 kernel::kGroupSegmentByteLength);
+                 kernel.group_segment_byte_length);
   // PAL/Mesa's four-wave SIMD destination policy remains fixed across rows.
   RecordProperty("pm4_lds_compute_resource_limits", 0x00400000);
   RecordProperty("pm4_lds_kernarg_semantic_byte_length",
                  kernels::lds_exchange::kArgumentByteLength);
   RecordProperty("pm4_lds_kernarg_slot_byte_length", sizeof(Arguments));
-  RecordProperty("pm4_lds_workgroup_size", kernel::kWorkgroupSize);
-  RecordProperty("pm4_lds_wavefront_size", 32);
+  RecordProperty("pm4_lds_workgroup_size", kernel.workgroup_size());
+  RecordProperty("pm4_lds_wavefront_size", kernel.wavefront_size);
   RecordProperty("pm4_lds_reported_wavefront_size",
                  endpoint_info.compute.wavefront_size);
-  RecordProperty("pm4_lds_waves_per_workgroup", 4);
+  RecordProperty("pm4_lds_waves_per_workgroup",
+                 kernel.workgroup_size() / kernel.wavefront_size);
   RecordProperty("pm4_lds_grid_size", kGridSize);
   RecordProperty("pm4_lds_output_words_per_epoch", kPayloadWordCount);
   RecordProperty("pm4_lds_checked_output_byte_length", sizeof(expected_output));
@@ -236,7 +220,7 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
     RecordProperty(prefix + "_group_byte_length",
                    program.group_segment_byte_length);
     RecordProperty(prefix + "_bound_compute_pgm_rsrc2",
-                   kernel::kComputePgmRsrc2 |
+                   kernel.program.resource2 |
                        ((program.group_segment_byte_length / 512u) << 15));
     RecordProperty(prefix + "_producer_index",
                    std::to_string(commands.word_count()));

@@ -54,7 +54,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::byte_copy_unaligned_gfx942
     libamdf::cts::gpu::kernels::geometry_ids_gfx942
     libamdf::cts::gpu::kernels::lds_exchange
-    libamdf::cts::gpu::kernels::lds_exchange_gfx942
+    libamdf::cts::gpu::kernels::lds_exchange_kernels
     libamdf::cts::gpu::kernels::pattern_fill_unaligned
     libamdf::cts::gpu::kernels::pattern_fill_unaligned_gfx942
     libamdf::cts::gpu::kernels::private_roundtrip

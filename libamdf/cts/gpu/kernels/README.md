@@ -191,8 +191,13 @@ independent [host oracle](lds_exchange.h). Repeated dispatches change the seed
 on the same image and queue. Completion-visible payloads are captured before
 queue retirement.
 
-The two target profiles produce wave64/gfx942 and wave32/gfx1151 kernels, each
-with 512 fixed LDS bytes and no private storage. The source uses ordinary
+The LDS product set covers every exact physical target and encoding overlay
+in Loom's target catalog. Each variant retains its compiled wave size, 512 fixed
+LDS bytes and zero private bytes. [Kernel metadata](kernel.h) travels with the
+selected image; the [host product test](kernel_test.cc) checks every variant
+against the typed ABI. Physical selection preserves the gfx1250 A0 overlay
+instead of treating its base code-object name as a sufficient identity. The
+source uses ordinary
 `buffer.alloca<workgroup>` storage. Native callers supply the compiler-declared
 capacity through the AQL packet or PM4 binding, while compiler descriptors
 remain immutable. These cases qualify fixed storage; changing per-dispatch LDS
@@ -213,16 +218,17 @@ the transform and LDS programs on PM4.
 
 The authored `.loom` file is the source of truth. Building a consuming CTS
 corpus recompiles its images when the source, target profile or compiler changes.
-An individual image can also be built and inspected directly:
+A kernel set can also be built and inspected directly:
 
 ```sh
-iree-bazel-build //libamdf/cts/gpu/kernels:lds_exchange_gfx942_embed
-iree-cmake-build libamdf_cts_gpu_kernels_lds_exchange_gfx942_embed
+iree-bazel-build //libamdf/cts/gpu/kernels:lds_exchange_kernels_embed
+iree-cmake-build libamdf_cts_gpu_kernels_lds_exchange_kernels_embed
 ```
 
-The generated header and corresponding `.hsaco` live in the build output tree.
-The header records the actual argument layout, resource requirements and
-content hashes, and preserves the complete descriptor/text image. No generated
+The generated header, implementation and target `.hsaco` files live in the
+build output tree. The small header declares the immutable kernel set; one
+implementation owns the bytes, argument layouts, resources and content hashes
+for all variants. Callers select once from the GPU endpoint identity. No generated
 kernel binaries, headers or JSON records are checked into this directory.
 
 [freeze]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_loader_context.cpp#L347-L373

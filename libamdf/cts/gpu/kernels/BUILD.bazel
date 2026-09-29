@@ -6,8 +6,10 @@
 
 load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
-load("//libamdf/build_tools/bazel:cts_gpu_kernel.bzl", "amdf_cts_gpu_kernel")
+load("//libamdf/build_tools/bazel:cc_test.bzl", "amdf_cc_test")
+load("//libamdf/build_tools/bazel:cts_gpu_kernel.bzl", "amdf_cts_gpu_kernel", "amdf_cts_gpu_kernel_set")
 load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
+load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_SUPPORTED_TARGETS")
 load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile")
 
 package(
@@ -36,25 +38,30 @@ py_binary(
     visibility = ["//libamdf:__subpackages__"],
 )
 
-loom_target_profile(
-    name = "gfx942",
-    family = "amdgpu",
-    selector = "gfx942",
-    visibility = ["//visibility:private"],
-)
+# Every exact physical selector, including encoding overlays, shares the same
+# authored kernels. Generic code-object processors are not physical endpoints.
+_KERNEL_TARGETS = sorted([
+    target
+    for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+    if not target.endswith("-generic")
+])
 
-loom_target_profile(
-    name = "gfx1150",
-    family = "amdgpu",
-    selector = "gfx1150",
-    visibility = ["//visibility:private"],
-)
+[
+    loom_target_profile(
+        name = target,
+        family = "amdgpu",
+        selector = target,
+        visibility = ["//visibility:private"],
+    )
+    for target in _KERNEL_TARGETS
+]
 
-loom_target_profile(
-    name = "gfx1151",
-    family = "amdgpu",
-    selector = "gfx1151",
-    visibility = ["//visibility:private"],
+amdf_cc_library(
+    name = "kernel",
+    testonly = True,
+    srcs = ["kernel.cc"],
+    hdrs = ["kernel.h"],
+    deps = [":image"],
 )
 
 amdf_cc_library(
@@ -191,20 +198,24 @@ amdf_cc_library(
     hdrs = ["lds_exchange.h"],
 )
 
-amdf_cts_gpu_kernel(
-    name = "lds_exchange_gfx1151",
+amdf_cts_gpu_kernel_set(
+    name = "lds_exchange_kernels",
     src = "lds_exchange.loom",
     entry_point = "lds_exchange",
-    namespace = "kernels::gfx1151_lds_exchange",
-    target = ":gfx1151",
+    namespace = "kernels::lds_exchange",
+    targets = _KERNEL_TARGETS,
 )
 
-amdf_cts_gpu_kernel(
-    name = "lds_exchange_gfx942",
-    src = "lds_exchange.loom",
-    entry_point = "lds_exchange",
-    namespace = "kernels::gfx942_lds_exchange",
-    target = ":gfx942",
+amdf_cc_test(
+    name = "kernel_test",
+    srcs = ["kernel_test.cc"],
+    deps = [
+        ":kernel",
+        ":lds_exchange",
+        ":lds_exchange_kernels",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
 )
 
 amdf_cc_library(

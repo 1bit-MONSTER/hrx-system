@@ -31,7 +31,7 @@ static_assert(offsetof(Arguments, seed) == 8);
 inline constexpr uint32_t kArgumentByteLength =
     offsetof(Arguments, seed) + sizeof(Arguments::seed);
 
-// Both compiled target images share this native caller layout.
+// All compiled target variants share this native caller layout.
 inline constexpr std::array<uint32_t, 2> kArgumentByteOffsets = {
     offsetof(Arguments, output), offsetof(Arguments, seed)};
 inline constexpr std::array<uint32_t, 2> kArgumentByteLengths = {

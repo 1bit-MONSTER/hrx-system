@@ -12,27 +12,11 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
-#include "libamdf/cts/gpu/kernels/lds_exchange_gfx942.h"
+#include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 
 namespace {
 
-namespace kernel = kernels::gfx942_lds_exchange;
-
 using Arguments = kernels::lds_exchange::Arguments;
-static_assert(kernel::kArgumentByteOffsets ==
-              kernels::lds_exchange::kArgumentByteOffsets);
-static_assert(kernel::kArgumentByteLengths ==
-              kernels::lds_exchange::kArgumentByteLengths);
-static_assert(kernel::kArgumentValueKinds ==
-              kernels::lds_exchange::kArgumentValueKinds);
-static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
-static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
-static_assert(kernel::kRequiredWorkgroupSize ==
-              std::array<uint32_t, 3>{128, 1, 1});
-static_assert(kernel::kWavefrontSize == 64);
-static_assert(kernel::kKernelCodeProperties == 8 &&
-              kernel::kKernargPreload == 0);
-static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
 
 using AqlLdsTest = AqlDispatchTest;
 
@@ -45,29 +29,29 @@ TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
   constexpr uint32_t kSuffixGuard = 0xe270c84bu;
   constexpr std::array<uint32_t, 3> kSeeds = {0x13579bdfu, 0xa5c31f27u,
                                               0x2468ace1u};
-  static_assert(kernel::kWorkgroupSize == 128);
-  static_assert(kernel::kGroupSegmentByteLength == 512);
-  static_assert(kernel::kPrivateSegmentByteLength == 0);
-  static_assert(kGridSize / kernel::kWorkgroupSize == 4);
-  static_assert(kGridSize % kernel::kWorkgroupSize == 0);
 
   amdf_gpu_endpoint_info_t endpoint_info = {};
   endpoint_info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
-  ASSERT_EQ(endpoint_info.compute.wavefront_size, 64u);
-  ASSERT_LE(kernel::kGroupSegmentByteLength,
+  const auto* selected = kernels::lds_exchange::kKernels.Find(endpoint_info);
+  ASSERT_NE(selected, nullptr) << "missing compiled LDS kernel for endpoint";
+  const auto& kernel = *selected;
+  RecordProperty("lds_kernel_target", kernel.target);
+
+  ASSERT_EQ(endpoint_info.compute.wavefront_size, kernel.wavefront_size);
+  ASSERT_LE(kernel.group_segment_byte_length,
             endpoint_info.compute.local_data_share_byte_length);
   RecordProperty(
       "aql_lds_capacity_per_compute_unit",
       std::to_string(endpoint_info.compute.local_data_share_byte_length));
   RecordProperty("aql_lds_fixed_group_byte_length",
-                 kernel::kGroupSegmentByteLength);
+                 kernel.group_segment_byte_length);
   RecordProperty("aql_lds_kernarg_semantic_byte_length",
                  kernels::lds_exchange::kArgumentByteLength);
   RecordProperty("aql_lds_kernarg_slot_byte_length", sizeof(Arguments));
-  RecordProperty("aql_lds_workgroup_size", kernel::kWorkgroupSize);
+  RecordProperty("aql_lds_workgroup_size", kernel.workgroup_size());
   RecordProperty("aql_lds_grid_size", kGridSize);
   RecordProperty("aql_lds_output_words_per_epoch", kOutputWordCount);
 
@@ -80,7 +64,7 @@ TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
   ASSERT_NO_FATAL_FAILURE(
       CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
   ASSERT_GE(arguments->info.byte_length, sizeof(Arguments));
-  ASSERT_EQ(arguments->device_address % kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % kernel.arguments.alignment, 0u);
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
@@ -91,8 +75,8 @@ TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   uint64_t index = 0;
   uint64_t descriptor_address = 0;
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(
-      *queue, kernel::kExecutable, "aql_kernel", &index, &descriptor_address));
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, kernel.executable, "aql_kernel",
+                                        &index, &descriptor_address));
 
   std::array<uint32_t, kWordCount> expected;
   std::array<uint32_t, kWordCount> observed;
@@ -127,9 +111,11 @@ TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
     signal.value = 1;
     const auto packet =
         aql::Dispatch(aql::HeaderBarrier::kDisabled,
-                      {1, {kernel::kWorkgroupSize, 1, 1}, {kGridSize, 1, 1}},
-                      kernel::kPrivateSegmentByteLength,
-                      kernel::kGroupSegmentByteLength, descriptor_address,
+                      {1,
+                       {static_cast<uint16_t>(kernel.workgroup_size()), 1, 1},
+                       {kGridSize, 1, 1}},
+                      kernel.private_segment_byte_length,
+                      kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address, completion->device_address,
                       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, index + 1);
@@ -149,7 +135,7 @@ TEST_F(AqlLdsTest, StaticStorageExchangesBetweenWaves) {
     const std::string prefix = "aql_lds_epoch_" + std::to_string(epoch + 1);
     RecordProperty(prefix + "_seed", std::to_string(kSeeds[epoch]));
     RecordProperty(prefix + "_group_byte_length",
-                   kernel::kGroupSegmentByteLength);
+                   kernel.group_segment_byte_length);
   }
   RecordProperty("aql_lds_completed_epochs", kSeeds.size());
 }

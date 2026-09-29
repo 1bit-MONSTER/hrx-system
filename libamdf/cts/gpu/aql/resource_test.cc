@@ -12,14 +12,13 @@
 
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
-#include "libamdf/cts/gpu/kernels/lds_exchange_gfx942.h"
+#include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip_gfx942.h"
 
 namespace {
 
 namespace private_kernel = kernels::gfx942_private_roundtrip;
-namespace lds_kernel = kernels::gfx942_lds_exchange;
 
 static_assert(private_kernel::kArgumentByteOffsets ==
               kernels::private_roundtrip::kArgumentByteOffsets);
@@ -27,12 +26,6 @@ static_assert(private_kernel::kArgumentByteLengths ==
               kernels::private_roundtrip::kArgumentByteLengths);
 static_assert(private_kernel::kArgumentValueKinds ==
               kernels::private_roundtrip::kArgumentValueKinds);
-static_assert(lds_kernel::kArgumentByteOffsets ==
-              kernels::lds_exchange::kArgumentByteOffsets);
-static_assert(lds_kernel::kArgumentByteLengths ==
-              kernels::lds_exchange::kArgumentByteLengths);
-static_assert(lds_kernel::kArgumentValueKinds ==
-              kernels::lds_exchange::kArgumentValueKinds);
 
 TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   constexpr uint32_t kGridSize = 512;
@@ -56,19 +49,13 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   static_assert(private_kernel::kWorkgroupSize == 64);
   static_assert(private_kernel::kPrivateSegmentByteLength > 0);
   static_assert(private_kernel::kGroupSegmentByteLength == 0);
-  static_assert(lds_kernel::kWorkgroupSize == 128);
-  static_assert(lds_kernel::kPrivateSegmentByteLength == 0);
-  static_assert(lds_kernel::kGroupSegmentByteLength == 512);
+
   static_assert(sizeof(kernels::private_roundtrip::Arguments) ==
                 private_kernel::kKernargByteLength);
   static_assert(alignof(kernels::private_roundtrip::Arguments) %
                     private_kernel::kKernargAlignment ==
                 0);
-  static_assert(sizeof(kernels::lds_exchange::Arguments) ==
-                lds_kernel::kKernargByteLength);
-  static_assert(alignof(kernels::lds_exchange::Arguments) %
-                    lds_kernel::kKernargAlignment ==
-                0);
+
   static_assert(sizeof(kernels::lds_exchange::Arguments) <=
                 kArgumentSlotByteLength);
 
@@ -77,7 +64,12 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
-  ASSERT_LE(lds_kernel::kGroupSegmentByteLength,
+  const auto* selected = kernels::lds_exchange::kKernels.Find(endpoint_info);
+  ASSERT_NE(selected, nullptr) << "missing compiled LDS kernel for endpoint";
+  const auto& lds_kernel = *selected;
+  RecordProperty("lds_kernel_target", lds_kernel.target);
+
+  ASSERT_LE(lds_kernel.group_segment_byte_length,
             endpoint_info.compute.local_data_share_byte_length);
 
   GpuMemory* output = nullptr;
@@ -92,7 +84,7 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
   ASSERT_EQ(arguments->device_address % private_kernel::kKernargAlignment, 0u);
-  ASSERT_EQ(arguments->device_address % lds_kernel::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % lds_kernel.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % alignof(aql::Signal), 0u);
   std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
   std::memset(completion->host.pointer, 0, completion->info.byte_length);
@@ -114,7 +106,7 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, private_kernel::kExecutable,
                                         "aql_transition_private", &index,
                                         &private_descriptor_address));
-  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, lds_kernel::kExecutable,
+  ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, lds_kernel.executable,
                                         "aql_transition_lds", &index,
                                         &lds_descriptor_address));
   const uint64_t first_work_packet_index = index;
@@ -132,15 +124,15 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   RecordProperty("aql_transition_private_kernarg_byte_length",
                  private_kernel::kKernargByteLength);
   RecordProperty("aql_transition_lds_entry_byte_offset",
-                 lds_kernel::kEntryByteOffset);
+                 lds_kernel.entry_byte_offset);
   RecordProperty("aql_transition_lds_private_segment_byte_length",
-                 lds_kernel::kPrivateSegmentByteLength);
+                 lds_kernel.private_segment_byte_length);
   RecordProperty("aql_transition_lds_fixed_group_byte_length",
-                 lds_kernel::kGroupSegmentByteLength);
+                 lds_kernel.group_segment_byte_length);
   RecordProperty("aql_transition_lds_workgroup_size",
-                 lds_kernel::kWorkgroupSize);
+                 lds_kernel.workgroup_size());
   RecordProperty("aql_transition_lds_kernarg_byte_length",
-                 lds_kernel::kKernargByteLength);
+                 lds_kernel.arguments.byte_length);
   RecordProperty("aql_resource_transition_sequence", "private,lds,private,lds");
   RecordProperty("aql_resource_transition_lds_capacity_per_compute_unit",
                  endpoint_info.compute.local_data_share_byte_length);
@@ -167,13 +159,13 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
         uses_private ? kPrivateOutputWordCount : kLdsOutputWordCount;
     const uint32_t private_byte_length =
         uses_private ? private_kernel::kPrivateSegmentByteLength
-                     : lds_kernel::kPrivateSegmentByteLength;
+                     : lds_kernel.private_segment_byte_length;
     const uint32_t group_byte_length =
         uses_private ? private_kernel::kGroupSegmentByteLength
-                     : lds_kernel::kGroupSegmentByteLength;
+                     : lds_kernel.group_segment_byte_length;
     const uint16_t workgroup_size = uses_private
                                         ? private_kernel::kWorkgroupSize
-                                        : lds_kernel::kWorkgroupSize;
+                                        : lds_kernel.workgroup_size();
     expected_output.fill(kSuffixGuard);
     for (uint32_t word = 0; word < kGuardWordCount; ++word) {
       expected_output[word] = kPrefixGuard;

@@ -512,7 +512,7 @@ def extract_image(data, symbol):
     )
 
 
-def render_header(kernel, namespace):
+def render_header(kernel, namespace, *, implementation=False):
     require(
         re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*", namespace),
         "invalid C++ namespace",
@@ -633,19 +633,154 @@ def render_header(kernel, namespace):
             "",
         ]
     )
+    if implementation:
+        # The set implementation owns constants in private variant namespaces.
+        # Only the small KernelSet declaration is included by test sources.
+        first = lines.index(f"namespace {namespace} {{")
+        last = lines.index(f"}}  // namespace {namespace}")
+        lines = lines[first : last + 1]
     return "\n".join(lines)
+
+
+def render_set(variants, namespace, header_name):
+    require(
+        re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*", namespace),
+        "invalid C++ namespace",
+    )
+    guard = "AMDF_CTS_GPU_KERNELS_" + namespace.replace("::", "_").upper() + "_SET_H_"
+    preamble = [
+        "// Copyright 2026 The IREE Authors",
+        "//",
+        "// Licensed under the Apache License v2.0 with LLVM Exceptions.",
+        "// See https://llvm.org/LICENSE.txt for license information.",
+        "// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception",
+        "",
+        "// Generated from Loom compiler products by embed.py.",
+        "",
+    ]
+    header = preamble + [
+        f"#ifndef {guard}",
+        f"#define {guard}",
+        "",
+        '#include "libamdf/cts/gpu/kernels/kernel.h"',
+        "",
+        f"namespace {namespace} {{",
+        "extern const ::kernels::KernelSet kKernels;",
+        f"}}  // namespace {namespace}",
+        "",
+        f"#endif  // {guard}",
+        "",
+    ]
+    source = preamble + [f'#include "{header_name}"', "", "namespace {", ""]
+    for selector, kernel in variants:
+        require(
+            re.fullmatch(r"gfx[0-9a-f]+(?:-a0)?", selector), "invalid target selector"
+        )
+        # The physical selector is supplied by the build. An ELF target can
+        # omit the overlay, but cannot name a different base processor.
+        processor = selector.split("-", 1)[0]
+        require(
+            kernel.target.split(":", 1)[0] == f"amdgcn-amd-amdhsa--{processor}",
+            f"compiler target {kernel.target!r} does not match {selector!r}",
+        )
+        source += [
+            render_header(kernel, selector.replace("-", "_"), implementation=True),
+            "",
+        ]
+    source += [f"constexpr ::kernels::Kernel kVariants[{len(variants)}] = {{"]
+    for selector, _ in variants:
+        prefix = selector.replace("-", "_") + "::"
+
+        def value(name):
+            return prefix + name
+
+        source += [
+            "    {",
+            f"        {json.dumps(selector)},",
+            f"        {value('kHsacoSha256')},",
+            f"        {value('kExecutable')},",
+            f"        {value('kEntryByteOffset')},",
+            f"        {value('kEntryByteLength')},",
+            f"        {value('kTextByteLength')},",
+            "        {"
+            + ", ".join(
+                value(name)
+                for name in (
+                    "kKernargByteLength",
+                    "kKernargAlignment",
+                    "kArgumentByteOffsets",
+                    "kArgumentByteLengths",
+                    "kArgumentAlignments",
+                    "kArgumentNames",
+                    "kArgumentValueKinds",
+                )
+            )
+            + "},",
+            f"        {value('kRequiredWorkgroupSize')},",
+            f"        {value('kMaxFlatWorkgroupSize')},",
+            f"        {value('kWavefrontSize')},",
+            f"        {value('kGroupSegmentByteLength')},",
+            f"        {value('kPrivateSegmentByteLength')},",
+            "        {"
+            + ", ".join(
+                value(name)
+                for name in (
+                    "kComputePgmRsrc1",
+                    "kComputePgmRsrc2",
+                    "kComputePgmRsrc3",
+                    "kSgprCount",
+                    "kVgprCount",
+                    "kKernelCodeProperties",
+                    "kKernargPreload",
+                )
+            )
+            + "},",
+            "    },",
+        ]
+    source += [
+        "};",
+        "",
+        "}  // namespace",
+        "",
+        f"namespace {namespace} {{",
+        "const ::kernels::KernelSet kKernels = {kVariants};",
+        f"}}  // namespace {namespace}",
+        "",
+    ]
+    return "\n".join(header), "\n".join(source)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True)
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--input", type=Path)
+    inputs.add_argument("--variant", action="append", metavar="TARGET=PATH")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--implementation", type=Path)
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--namespace", required=True)
     args = parser.parse_args()
     try:
-        kernel = extract_image(args.input.read_bytes(), args.symbol)
-        header = render_header(kernel, args.namespace)
+        if args.variant:
+            require(
+                args.implementation is not None, "kernel set requires --implementation"
+            )
+            variants = []
+            for item in args.variant:
+                selector, separator, path = item.partition("=")
+                require(separator and path, "variant must be TARGET=PATH")
+                require(selector not in dict(variants), "duplicate target selector")
+                variants.append(
+                    (selector, extract_image(Path(path).read_bytes(), args.symbol))
+                )
+            header, source = render_set(variants, args.namespace, args.output.name)
+            args.implementation.write_text(source, encoding="utf-8")
+        else:
+            require(
+                args.implementation is None, "single image has no implementation output"
+            )
+            kernel = extract_image(args.input.read_bytes(), args.symbol)
+            header = render_header(kernel, args.namespace)
         args.output.write_text(header, encoding="utf-8")
     except (ImageError, OSError) as error:
         parser.exit(1, f"embed.py: {error}\n")

@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/lds_exchange.h"
-#include "libamdf/cts/gpu/kernels/lds_exchange_gfx1151.h"
+#include "libamdf/cts/gpu/kernels/lds_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
 #include "libamdf/cts/gpu/kernels/transform_gfx1151.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
@@ -20,32 +20,19 @@
 namespace {
 
 namespace transform = kernels::gfx1151_transform;
-namespace lds = kernels::gfx1151_lds_exchange;
 
-static_assert(lds::kArgumentByteOffsets ==
-              kernels::lds_exchange::kArgumentByteOffsets);
-static_assert(lds::kArgumentByteLengths ==
-              kernels::lds_exchange::kArgumentByteLengths);
-static_assert(lds::kArgumentValueKinds ==
-              kernels::lds_exchange::kArgumentValueKinds);
 static_assert(alignof(kernels::transform::Arguments) %
                   transform::kKernargAlignment ==
               0);
 static_assert(offsetof(kernels::transform::Arguments, addend) +
                   sizeof(uint32_t) ==
               transform::kKernargByteLength);
-static_assert(alignof(kernels::lds_exchange::Arguments) %
-                  lds::kKernargAlignment ==
-              0);
-static_assert(sizeof(kernels::lds_exchange::Arguments) ==
-              lds::kKernargByteLength);
+
+static_assert(transform::kWorkgroupSize == 64);
+static_assert(transform::kGroupSegmentByteLength == 0);
+static_assert(transform::kPrivateSegmentByteLength == 0);
 static_assert(sizeof(kernels::transform::Arguments) == 32);
 static_assert(sizeof(kernels::lds_exchange::Arguments) <= 32);
-static_assert(transform::kWorkgroupSize == 64 && lds::kWorkgroupSize == 128);
-static_assert(transform::kGroupSegmentByteLength == 0 &&
-              lds::kGroupSegmentByteLength == 512);
-static_assert(transform::kPrivateSegmentByteLength == 0 &&
-              lds::kPrivateSegmentByteLength == 0);
 
 TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   constexpr uint32_t kTransformGridSize = 1024;
@@ -70,8 +57,13 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
+  const auto* selected = kernels::lds_exchange::kKernels.Find(endpoint_info);
+  ASSERT_NE(selected, nullptr) << "missing compiled LDS kernel for endpoint";
+  const auto& lds = *selected;
+  RecordProperty("lds_kernel_target", lds.target);
+
   ASSERT_GE(endpoint_info.compute.local_data_share_byte_length,
-            lds::kGroupSegmentByteLength);
+            lds.group_segment_byte_length);
 
   GpuMemory* input = nullptr;
   GpuMemory* transform_output = nullptr;
@@ -98,7 +90,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
       CreateMemory(AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
                    kPageByteLength, &completion));
   ASSERT_EQ(arguments->device_address % transform::kKernargAlignment, 0u);
-  ASSERT_EQ(arguments->device_address % lds::kKernargAlignment, 0u);
+  ASSERT_EQ(arguments->device_address % lds.arguments.alignment, 0u);
   ASSERT_EQ(completion->device_address % sizeof(uint32_t), 0u);
   Pm4ComputeProgram transform_program = {0,
                                          transform::kComputePgmRsrc1,
@@ -107,17 +99,17 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
                                          transform::kGroupSegmentByteLength,
                                          {transform::kWorkgroupSize, 1, 1}};
   Pm4ComputeProgram lds_program = {0,
-                                   lds::kComputePgmRsrc1,
-                                   lds::kComputePgmRsrc2,
-                                   lds::kComputePgmRsrc3,
-                                   lds::kGroupSegmentByteLength,
-                                   {lds::kWorkgroupSize, 1, 1}};
+                                   lds.program.resource1,
+                                   lds.program.resource2,
+                                   lds.program.resource3,
+                                   lds.group_segment_byte_length,
+                                   {lds.workgroup_size(), 1, 1}};
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
       transform::kExecutable, transform::kEntryByteOffset, &transform_program,
       "pm4_mixed_transform", &transform_code));
-  ASSERT_NO_FATAL_FAILURE(PrepareProgram(lds::kExecutable,
-                                         lds::kEntryByteOffset, &lds_program,
-                                         "pm4_mixed_lds", &lds_code));
+  ASSERT_NO_FATAL_FAILURE(PrepareProgram(lds.executable, lds.entry_byte_offset,
+                                         &lds_program, "pm4_mixed_lds",
+                                         &lds_code));
 
   std::array<uint32_t, kWordCount> expected_input, observed_input;
   std::array<uint32_t, kWordCount> expected_transform, observed_transform;
@@ -133,8 +125,8 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   std::vector<uint8_t> observed_lds_code(lds_code->info.byte_length);
   std::memcpy(expected_transform_code.data(), transform::kExecutable.words,
               transform::kExecutable.byte_length);
-  std::memcpy(expected_lds_code.data(), lds::kExecutable.words,
-              lds::kExecutable.byte_length);
+  std::memcpy(expected_lds_code.data(), lds.executable.words,
+              lds.executable.byte_length);
   expected_control.fill(0x68d329b7u);
   expected_control[kCompletionWordIndex] = 0;
   // Only the GPU advances this word after its once-only initialization.
@@ -155,12 +147,12 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   RecordProperty(
       "pm4_mixed_bound_rsrc2_sequence",
       std::to_string(transform::kComputePgmRsrc2) + "," +
-          std::to_string(lds::kComputePgmRsrc2 |
-                         ((lds::kGroupSegmentByteLength / 512u) << 15)) +
+          std::to_string(lds.program.resource2 |
+                         ((lds.group_segment_byte_length / 512u) << 15)) +
           "," + std::to_string(transform::kComputePgmRsrc2));
   RecordProperty("pm4_mixed_bound_rsrc3_sequence",
                  std::to_string(transform::kComputePgmRsrc3) + "," +
-                     std::to_string(lds::kComputePgmRsrc3) + "," +
+                     std::to_string(lds.program.resource3) + "," +
                      std::to_string(transform::kComputePgmRsrc3));
   RecordProperty("pm4_mixed_resource_limits_sequence", "0,0x00400000,0");
   RecordProperty("pm4_mixed_workgroup_sequence", "64x1x1,128x1x1,64x1x1");

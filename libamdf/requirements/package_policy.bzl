@@ -82,6 +82,7 @@ PACKAGE_POLICIES = [
         ],
         excluded_packages = [
             "libamdf/cts/gpu/aql/encoding",
+            "libamdf/cts/gpu/kernels",
             "libamdf/cts/gpu/pm4/encoding",
             "libamdf/cts/gpu/sdma/encoding",
         ],
