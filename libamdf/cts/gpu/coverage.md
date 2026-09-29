@@ -40,7 +40,7 @@ The target name alone does not select a valid recipe.
 | --- | --- | --- |
 | Linux RDNA | PM4, AQL and SDMA USER queues; both compute/SDMA recipes. | SYSTEM cases work independently of a LOCAL heap. LOCAL cases require that heap's advertised backing contract. |
 | Linux CDNA | AQL and SDMA USER queues; SDMA/AQL recipes. | PM4 compute is outside the required matrix. Fixed-function AQL carriers account for single- and multi-XCC topologies. |
-| Windows RDNA | PM4 and SDMA KERNEL queues; PM4/SDMA recipes. | Ordinary command cases use executable command buffers and native submission retirement. Mapped USER queue state and AQL are separate unavailable services. |
+| Windows RDNA | PM4 KERNEL queues; SDMA and PM4/SDMA recipes require an advertised HWS SDMA family. | Ordinary command cases use executable command buffers and native submission retirement. SWS SDMA submission, mapped USER queue state and AQL are unavailable services. |
 | Linux RDNA + XDNA | GPU/XDNA recipes, USER PM4 and native XDNA kernel submissions. | Joint allocation and registration select their actual common memory contract. Caller-page registration requires PROCESS lifetime on this KFD path. |
 | Windows RDNA + XDNA | GPU/XDNA recipes, KERNEL PM4 and native XDNA kernel submissions. | Joint registration can use either lifetime. A missing common allocation/export route is not substituted with registration. |
 | Linux NPU5 / Windows NPU4 | CPU/XDNA recipes through native kernel submissions. | Allocation and registration are independently selected from live capabilities. Both image profiles are built from the same Loom source. |
