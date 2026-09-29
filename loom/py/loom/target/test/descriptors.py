@@ -241,6 +241,10 @@ def _explicit32_result(field_name: str = "dst") -> Operand:
     return Operand(field_name, OperandRole.RESULT, _EXPLICIT32_ALT)
 
 
+def _explicit32_operand(field_name: str) -> Operand:
+    return Operand(field_name, OperandRole.OPERAND, _EXPLICIT32_ALT)
+
+
 def _packed_narrow_result(field_name: str = "dst") -> Operand:
     return Operand(field_name, OperandRole.RESULT, _PACKED_NARROW_ALT)
 
@@ -556,6 +560,20 @@ TEST_LOW_REMATERIALIZE_I32_DESCRIPTOR = Descriptor(
     semantic_tag="test.rematerialize.i32",
     operands=(_i32_result(), _i32_operand("src")),
     constraints=(Constraint(ConstraintKind.REMATERIALIZABLE, 0),),
+    asm_forms=_asm(results=("dst",), operands=("src",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_REMATERIALIZE_TIED_EXPLICIT32_DESCRIPTOR = Descriptor(
+    key="test.rematerialize.tied.explicit32",
+    mnemonic="test.rematerialize.tied.explicit32",
+    semantic_tag="test.rematerialize.tied.explicit32",
+    operands=(_explicit32_result(), _explicit32_operand("src")),
+    constraints=(
+        *_TIED_RESULT_CONSTRAINTS,
+        Constraint(ConstraintKind.REMATERIALIZABLE, 0),
+    ),
     asm_forms=_asm(results=("dst",), operands=("src",)),
     schedule_class=_SCHEDULE_SCALAR_ALU,
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
@@ -2362,6 +2380,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_CONST_PACKED_NARROW_DESCRIPTOR,
         TEST_LOW_CONST_EXPLICIT32_DESCRIPTOR,
         TEST_LOW_REMATERIALIZE_I32_DESCRIPTOR,
+        TEST_LOW_REMATERIALIZE_TIED_EXPLICIT32_DESCRIPTOR,
         TEST_LOW_ADD_I32_DESCRIPTOR,
         TEST_LOW_TOTAL_ADD_I32_DESCRIPTOR,
         TEST_LOW_MASKED_ADD_I32_DESCRIPTOR,

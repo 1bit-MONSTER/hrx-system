@@ -60,6 +60,7 @@ PREDICATE_DESCRIPTOR_SPECS = (
         "integer.cmp.eq.i8x64",
         "II_VEQZ_8",
         storage_overrides=(("cmp", "eLPredicate"),),
+        rematerializable=True,
     ),
     *(
         _DescriptorSpec(
@@ -71,6 +72,7 @@ PREDICATE_DESCRIPTOR_SPECS = (
             asm_mnemonic=f"veqz.{width}.el.low32",
             operand_register_parts=(("cmp", _EL_LOW32_PART),),
             encoding_adapter_overrides=(("cmp", "LOOM_eL_low32"),),
+            rematerializable=True,
         )
         for width in (16, 32)
     ),
@@ -242,6 +244,7 @@ PREDICATE_DESCRIPTOR_SPECS = (
         operand_register_parts=(("dst", _EL_HIGH32_PART),),
         encoding_adapter_overrides=(("dst", "LOOM_eL_high32_OP_mLdaCg"),),
         storage_continuation_part=_EL_LOW32_PART,
+        rematerializable=True,
     ),
 )
 

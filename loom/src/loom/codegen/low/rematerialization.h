@@ -8,9 +8,10 @@
 //
 // This layer mutates IR only when a pure descriptor packet explicitly opts its
 // result in to rematerialization. Allocation and scheduling retain the evidence
-// that selects a candidate; this utility owns cloning the producer near each
-// user and removing the original long-lived value. Repeated operands in one
-// user share the same cloned producer.
+// that selects a candidate; this utility owns cloning the producer ownership
+// chain near each user and removing the original long-lived value. Every packet
+// in a tied chain must opt in. Repeated operands in one user share the same
+// cloned chain.
 
 #ifndef LOOM_CODEGEN_LOW_REMATERIALIZATION_H_
 #define LOOM_CODEGEN_LOW_REMATERIALIZATION_H_
@@ -38,7 +39,7 @@ typedef enum loom_low_allocation_rematerialization_trigger_e {
 typedef struct loom_low_value_rematerialization_result_t {
   // SSA value whose defining packet was rematerialized.
   loom_value_id_t value_id;
-  // Number of descriptor packet clones inserted, one per distinct user.
+  // Number of descriptor packet clones inserted across all distinct users.
   uint32_t cloned_packet_count;
   // Number of operand uses rewritten to cloned packet results.
   uint32_t rewritten_operand_count;
@@ -83,10 +84,12 @@ void loom_low_rematerialization_invalidate_placement(
     loom_low_rematerialization_state_t* state);
 
 // Rematerializes a descriptor-backed SSA value once near each distinct user.
-// Multiple operands of that user share one rematerialized value.
-// Consumes verified IR: the definition dominates its existing operand uses, so
-// its inputs and external type/attribute captures remain available at each
-// clone.
+// A tied result recreates its complete rematerializable ownership chain so each
+// clone consumes private storage. Multiple operands of one user share one
+// rematerialized value.
+// Consumes verified IR: the definition dominates its existing operand uses.
+// Recipes with consumed external inputs are ineligible, so every remaining
+// input and external type/attribute capture remains available at each clone.
 //
 // Returns OK with a zero result when |value_id| is not a safe rematerialization
 // candidate. A preplanned batch may retain immutable snapshot facts while

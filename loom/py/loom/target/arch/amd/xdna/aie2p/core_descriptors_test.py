@@ -1301,6 +1301,14 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
         assert select.operands[-1].register_part == "aie2p.elpredicate.low32"
         assert select.operands[-1].encoding_adapter_id != 0
 
+    rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for width in (8, 16, 32):
+        suffix = ".el.low32" if width != 8 else ""
+        equality = descriptors[
+            f"amd.xdna.aie2p.cmp.eqz.i{width}x{512 // width}{suffix}"
+        ]
+        assert rematerializable in equality.constraints
+
     for operation in ("and", "or", "xor"):
         low = descriptors[f"amd.xdna.aie2p.predicate.{operation}.low32"]
         tied_low = descriptors[f"amd.xdna.aie2p.predicate.{operation}.low32.rhs_tied"]
@@ -1346,9 +1354,13 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
     assert complete.operands[0].register_part == "aie2p.elpredicate.high32"
     assert complete.operands[1].register_part == "aie2p.elpredicate.low32"
     assert OperandFlag.STORAGE_CONTINUATION in complete.operands[1].flags
-    assert complete.constraints[0].kind is ConstraintKind.TIED
-    assert complete.constraints[0].lhs_operand_index == 0
-    assert complete.constraints[0].rhs_operand_index == 1
+    assert rematerializable in complete.constraints
+    complete_ties = [
+        constraint
+        for constraint in complete.constraints
+        if constraint.kind is ConstraintKind.TIED
+    ]
+    assert complete_ties == [Constraint(ConstraintKind.TIED, 0, 1)]
     assert complete.asm_forms[0].operands == ("storage",)
 
 
