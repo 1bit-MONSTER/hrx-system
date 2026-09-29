@@ -1018,12 +1018,26 @@ static iree_status_t loom_low_lower_rule_build_result_types(
     } else {
       const uint16_t value_ref_index =
           (uint16_t)(emit->result_type.value_ref_start + i);
-      loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-          context->module, rule_set, state, value_ref_index);
-      IREE_RETURN_IF_ERROR(loom_low_lower_rule_map_result_type(
-          context,
-          loom_low_lower_rule_emit_source_op(rule_set, state, value_ref_index),
-          source_value_id, &result_types[i]));
+      const loom_low_lower_value_ref_t* value_ref =
+          &rule_set->value_refs[value_ref_index];
+      if (value_ref->kind == LOOM_LOW_LOWER_VALUE_REF_TEMPORARY) {
+        IREE_ASSERT_LT(value_ref->index, state->temporary_count);
+        IREE_ASSERT(state->temporaries != NULL);
+        const loom_value_id_t low_value_id =
+            state->temporaries[value_ref->index];
+        IREE_ASSERT_NE(low_value_id, LOOM_VALUE_ID_INVALID);
+        result_types[i] = loom_module_value_type(context->module, low_value_id);
+        IREE_ASSERT(loom_low_type_is_register(result_types[i]));
+      } else {
+        const loom_value_id_t source_value_id =
+            loom_low_lower_rule_emit_source_value(context->module, rule_set,
+                                                  state, value_ref_index);
+        IREE_RETURN_IF_ERROR(loom_low_lower_rule_map_result_type(
+            context,
+            loom_low_lower_rule_emit_source_op(rule_set, state,
+                                               value_ref_index),
+            source_value_id, &result_types[i]));
+      }
     }
   }
   *out_result_types = result_types;

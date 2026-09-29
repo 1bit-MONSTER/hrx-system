@@ -159,8 +159,13 @@ def test_compile_structural_register_emits() -> None:
                         unit_offset=1,
                         unit_count=1,
                     ),
-                    EmitRegisterSlice(
+                    EmitRegisterCopy(
                         source=ValueRef.temporary("element"),
+                        result=ValueRef.temporary("reclassified"),
+                        result_type=ValueRef.temporary("element"),
+                    ),
+                    EmitRegisterSlice(
+                        source=ValueRef.temporary("reclassified"),
                         result=ValueRef.result("result"),
                     ),
                 ),
@@ -208,6 +213,7 @@ def test_compile_structural_register_emits() -> None:
     ]
     assert tuple(emit.kind for emit in slice_emits) == (
         LowerEmitKind.REGISTER_SLICE,
+        LowerEmitKind.REGISTER_COPY,
         LowerEmitKind.REGISTER_SLICE,
     )
     assert slice_emits[0].operand_ref_count == 1
@@ -216,8 +222,11 @@ def test_compile_structural_register_emits() -> None:
     assert slice_emits[0].flags == 0
     typed_slice_result = compiled.value_refs[slice_emits[0].result_bind_ref_start]
     assert typed_slice_result.kind is SourceValueKind.TEMPORARY
-    assert slice_emits[1].operand_ref_count == 1
-    assert slice_emits[1].structural_offset == 0
+    temporary_type_ref = compiled.value_refs[slice_emits[1].result_ref_start]
+    assert temporary_type_ref.kind is SourceValueKind.TEMPORARY
+    assert temporary_type_ref.index == typed_slice_result.index
+    assert slice_emits[2].operand_ref_count == 1
+    assert slice_emits[2].structural_offset == 0
 
     copy_emit = compiled.emits[
         rules_by_source_op[scalar_conversion.scalar_bitcast].emit_start

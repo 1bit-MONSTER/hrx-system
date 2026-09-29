@@ -770,10 +770,6 @@ def _validate_structural_result(
             raise ValueError(
                 f"{source_op.name}: {subject} type cannot bind source memory"
             )
-        if result_type.kind == SourceValueKind.TEMPORARY:
-            raise ValueError(
-                f"{source_op.name}: {subject} type cannot bind a temporary"
-            )
         _validate_value_ref(
             source_op,
             result_type,

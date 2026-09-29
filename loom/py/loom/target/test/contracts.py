@@ -455,7 +455,13 @@ TEST_LOW_CORE_CONTRACT_FRAGMENT = ContractFragment(
             emit=(
                 EmitRegisterCopy(
                     source=ValueRef.operand("input"),
+                    result=ValueRef.temporary("reclassified"),
+                    result_type=_F32,
+                ),
+                EmitRegisterCopy(
+                    source=ValueRef.temporary("reclassified"),
                     result=ValueRef.result("result"),
+                    result_type=ValueRef.temporary("reclassified"),
                 ),
             ),
         ),

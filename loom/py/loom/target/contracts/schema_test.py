@@ -352,6 +352,29 @@ def test_structural_register_emits_validate_program_shape() -> None:
             ),
         )
 
+    fragment = ContractFragment(
+        name="register.copy.temporary-type",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(
+            DescriptorRule(
+                source_op=scalar_analysis.scalar_assume,
+                emit=(
+                    EmitRegisterCopy(
+                        source=ValueRef.operand("values"),
+                        result=ValueRef.temporary("carrier"),
+                        result_type=Scalar("i32"),
+                    ),
+                    EmitRegisterCopy(
+                        source=ValueRef.temporary("carrier"),
+                        result=ValueRef.temporary("reclassified"),
+                        result_type=ValueRef.temporary("carrier"),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert len(fragment.cases[0].emit) == 2
+
 
 def test_ordinal_alias_rule_validates_variadic_identity_fields() -> None:
     table = ContractFragment(
