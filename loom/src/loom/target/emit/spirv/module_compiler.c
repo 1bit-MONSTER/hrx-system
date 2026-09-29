@@ -50,26 +50,6 @@ typedef struct loom_spirv_program_build_t {
   bool has_contract;
 } loom_spirv_program_build_t;
 
-static iree_status_t loom_spirv_compile_options_validate(
-    const loom_spirv_compile_options_t* options) {
-  if (options == NULL || options->entry_count == 0) {
-    return iree_ok_status();
-  }
-  if (options->entries == NULL) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "selected SPIR-V entries require a compile entry table");
-  }
-  for (iree_host_size_t i = 0; i < options->entry_count; ++i) {
-    if (options->entries[i].function_op == NULL) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "selected SPIR-V entry table contains a null function");
-    }
-  }
-  return iree_ok_status();
-}
-
 static iree_host_size_t loom_spirv_program_candidate_count(
     const loom_module_t* module, const loom_spirv_compile_options_t* options) {
   if (options != NULL && options->entry_count != 0) {
@@ -228,7 +208,6 @@ static iree_status_t loom_spirv_program_plan_prepare(
   IREE_ASSERT_ARGUMENT(out_plan);
   *out_accepted = false;
   *out_plan = (loom_spirv_program_plan_t){0};
-  IREE_RETURN_IF_ERROR(loom_spirv_compile_options_validate(options));
 
   const iree_host_size_t function_capacity =
       loom_spirv_program_candidate_count(module, options);
