@@ -77,12 +77,8 @@ iree_status_t loom_pass_registry_storage_initialize_from_registries(
     iree_host_size_t registry_count,
     loom_pass_registry_storage_t* out_storage) {
   IREE_ASSERT_ARGUMENT(out_storage);
-  *out_storage = (loom_pass_registry_storage_t){
-      .registry =
-          {
-              .descriptors = out_storage->descriptors,
-          },
-  };
+  out_storage->registry.descriptors = out_storage->descriptors;
+  out_storage->registry.descriptor_count = 0;
 
   for (iree_host_size_t registry_index = 0; registry_index < registry_count;
        ++registry_index) {
