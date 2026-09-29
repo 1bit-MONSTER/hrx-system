@@ -25,13 +25,21 @@
 extern "C" {
 #endif
 
-// Operand occurrence that observes a consumed value.
+// Operand occurrence selected by a consumption query.
 typedef struct loom_consumption_use_t {
   // Operation containing the observing operand.
   const loom_op_t* op;
   // Operand index on |op| that observes the value.
   uint16_t operand_index;
 } loom_consumption_use_t;
+
+// Finds a tied- or moved-result operand that consumes |value|, if present.
+// Mutually exclusive control-flow paths may each contain a consuming
+// occurrence. |out_use| receives the first retained occurrence and may be NULL
+// when only membership is needed.
+bool loom_consumption_find_consuming_use(const loom_module_t* module,
+                                         const loom_value_t* value,
+                                         loom_consumption_use_t* out_use);
 
 // Reusable per-region query state for consumed-value checks.
 typedef struct loom_consumption_region_query_t {

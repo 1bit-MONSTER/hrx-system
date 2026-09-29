@@ -682,6 +682,7 @@ loom_cc_library(
     ::target_binding
     iree::base
     iree::base::internal::arena
+    loom::analysis::consumption
     loom::codegen::low::allocation::live_range
     loom::codegen::low::allocation::storage
     loom::error::emitter
@@ -708,6 +709,7 @@ loom_cc_library(
     ::representation_binding
     iree::base
     iree::base::internal::arena
+    loom::analysis::consumption
     loom::codegen::low::allocation::live_range
     loom::codegen::low::allocation::storage
     loom::error::emitter

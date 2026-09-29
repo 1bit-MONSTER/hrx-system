@@ -375,6 +375,43 @@ low.func.def target<test.low.core>(@test_target) @rematerialize_descriptor_op(%a
 
 // ====
 
+// The packet captures %c before low.move consumes it. Replaying the packet at
+// its later user would read the consumed source instead of the captured value.
+// RUN: pass low-materialize-allocation{budgets=test.i32=3}
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_input(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
+  %derived = test.rematerialize.i32 %c
+  %ab = test.add.i32 %a, %b
+  %next = move %c : reg<test.i32> -> reg<test.i32>
+  %bc = test.add.i32 %b, %next
+  %use = test.add.i32 %bc, %derived
+  %out = test.add.i32 %use, %ab
+  return %out
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @do_not_rematerialize_consumed_input(%a: reg<test.i32>, %b: reg<test.i32>, %c: reg<test.i32>) -> (reg<test.i32>) asm {
+  %do_not_rematerialize_consumed_input_spill_storage_0 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %do_not_rematerialize_consumed_input_spill_storage_1 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  low.spill %a, %do_not_rematerialize_consumed_input_spill_storage_1 : reg<test.i32>, low.storage<private>
+  %derived = test.rematerialize.i32 %c
+  low.spill %derived, %do_not_rematerialize_consumed_input_spill_storage_0 : reg<test.i32>, low.storage<private>
+  %13 = low.reload %do_not_rematerialize_consumed_input_spill_storage_1 : low.storage<private> -> reg<test.i32>
+  %ab = test.add.i32 %13, %b
+  %next = move %c : reg<test.i32> -> reg<test.i32>
+  %bc = test.add.i32 %b, %next
+  %11 = low.reload %do_not_rematerialize_consumed_input_spill_storage_0 : low.storage<private> -> reg<test.i32>
+  %use = test.add.i32 %bc, %11
+  %out = test.add.i32 %use, %ab
+  return %out
+}
+
+// ====
+
 // RUN: pass low-materialize-allocation{budgets=test.i32=3,diagnostics=spills}
 
 test.target<low_core> @test_target

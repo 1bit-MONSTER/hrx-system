@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/analysis/consumption.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/descriptor_traits.h"
@@ -72,6 +73,18 @@ static bool loom_low_descriptor_packet_kind_may_rematerialize(
     loom_low_descriptor_packet_kind_t kind) {
   return kind == LOOM_LOW_DESCRIPTOR_PACKET_OP ||
          kind == LOOM_LOW_DESCRIPTOR_PACKET_CONST;
+}
+
+static bool loom_low_rematerialization_inputs_remain_available(
+    const loom_module_t* module, const loom_op_t* op) {
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    if (loom_consumption_find_consuming_use(
+            module, loom_module_value(module, operands[i]), NULL)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static bool loom_low_rematerialization_use_is_eligible(
@@ -152,7 +165,8 @@ iree_status_t loom_low_rematerialize_value_uses(
   }
 
   const loom_value_t* value = loom_module_value(module, value_id);
-  if (loom_value_is_block_arg(value) || loom_value_is_consumed(value) ||
+  if (loom_value_is_block_arg(value) ||
+      loom_consumption_find_consuming_use(module, value, NULL) ||
       loom_value_has_attribute_uses(value) || value->use_count == 0 ||
       loom_module_value_has_type_uses(module, value_id)) {
     return iree_ok_status();
@@ -177,6 +191,10 @@ iree_status_t loom_low_rematerialize_value_uses(
       defining_op->tied_result_count != 0 ||
       iree_any_bit_set(loom_op_effective_traits(module, defining_op),
                        LOOM_TRAIT_OBSERVABLE_EFFECT)) {
+    return iree_ok_status();
+  }
+  if (!loom_low_rematerialization_inputs_remain_available(module,
+                                                          defining_op)) {
     return iree_ok_status();
   }
 

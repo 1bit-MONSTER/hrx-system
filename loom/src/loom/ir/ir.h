@@ -343,19 +343,14 @@ enum loom_value_flag_bits_e {
   // stores a loom_block_t* (use loom_value_def_block to extract).
   LOOM_VALUE_FLAG_BLOCK_ARG = 1u << 0,
 
-  // This value has been consumed by a tied operand (linear ownership
-  // transfer). Any use of this value after the consuming op is a
-  // verification error. Set by the verifier or during IR construction.
-  LOOM_VALUE_FLAG_CONSUMED = 1u << 1,
-
   // The use list has overflowed inline storage. When set, access uses
   // through overflow_uses pointer instead of inline_uses array.
   // Check: if use_count > LOOM_VALUE_INLINE_USE_COUNT, this must be set.
-  LOOM_VALUE_FLAG_OVERFLOW_USES = 1u << 2,
+  LOOM_VALUE_FLAG_OVERFLOW_USES = 1u << 1,
 
   // This value has incoming operation attribute uses. Exact owners are retained
   // in the shared dependency index, separate from ordinary operand uses.
-  LOOM_VALUE_FLAG_ATTRIBUTE_USES = 1u << 3,
+  LOOM_VALUE_FLAG_ATTRIBUTE_USES = 1u << 2,
 };
 typedef uint16_t loom_value_flags_t;
 
@@ -458,10 +453,6 @@ static_assert(sizeof(loom_value_t) == 64, "loom_value_t must be 64 bytes");
 
 static inline bool loom_value_is_block_arg(const loom_value_t* value) {
   return iree_any_bit_set(value->flags, LOOM_VALUE_FLAG_BLOCK_ARG);
-}
-
-static inline bool loom_value_is_consumed(const loom_value_t* value) {
-  return iree_any_bit_set(value->flags, LOOM_VALUE_FLAG_CONSUMED);
 }
 
 static inline bool loom_value_has_overflow_uses(const loom_value_t* value) {
