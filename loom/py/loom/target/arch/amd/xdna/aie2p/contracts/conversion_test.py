@@ -25,7 +25,8 @@ from loom.target.arch.amd.xdna.aie2p.contracts.conversion import (
 from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     FLOAT8_PACKET_FORMATS,
     FLOAT_PACKET_SOURCE_FORMATS,
-    INTEGER_PACK_CASES,
+    INTEGER_PACK_INSTRUCTIONS,
+    INTEGER_PACK_RULE_SHAPES,
     INTEGER_WIDEN_RULE_SHAPES,
     Float8PacketFormat,
     FloatPacketSourceFormat,
@@ -258,10 +259,13 @@ def _evaluate_fp8_packet_lane(rule: DescriptorRule, input_value: int) -> int:
                 assert state["srs-mode"] == 0
                 rounded = _round_signed_to_even(_s32(operands["src"]), operands["su"])
                 value = min(max(rounded, -(1 << 15)), (1 << 15) - 1) & 0xFFFF
-            elif descriptor_key == "pack.w.trunc.configured":
+            elif descriptor_key in (
+                "pack.w.trunc.configured",
+                "pack.x.trunc.configured",
+            ):
                 assert state["saturation"] == 0
-                assert state["pack-size"] == 1
-                value = operands["src"] & 0xFF
+                output_bits = 4 << state["pack-size"]
+                value = operands["src"] & ((1 << output_bits) - 1)
             elif descriptor_key in (
                 "convert.bf16x16.to.f32x16",
                 "convert.bf16x32.to.f32x32",
@@ -1263,12 +1267,33 @@ def test_native_integer_widening_covers_each_logical_carrier_interval() -> None:
             assert set_ups_mode.immediates == {"i": instruction.ups_mode}
 
 
-def test_native_integer_packing_uses_exact_packet_shapes() -> None:
-    for pack_case in INTEGER_PACK_CASES:
-        rule = _rule(pack_case.report_key)
-        assert rule.source_op is pack_case.source_op
+def test_native_integer_packing_covers_each_logical_carrier_interval() -> None:
+    expected_truncation_lanes = {
+        ("i16", "i8"): set(range(1, 65)),
+        ("i32", "i16"): set(range(1, 33)),
+    }
+    covered_truncation_lanes = {key: set() for key in expected_truncation_lanes}
+    for rule_shape in INTEGER_PACK_RULE_SHAPES:
+        instruction = rule_shape.instruction
+        if instruction.bit_width is None:
+            key = (instruction.input_element, instruction.result_element)
+            logical_lane_counts = set(
+                range(
+                    rule_shape.minimum_lane_count,
+                    rule_shape.maximum_lane_count + 1,
+                )
+            )
+            assert covered_truncation_lanes[key].isdisjoint(logical_lane_counts)
+            covered_truncation_lanes[key].update(logical_lane_counts)
+
+        rule = _rule(rule_shape.report_key)
+        assert rule.source_op is instruction.source_op
         assert rule.descriptor.key == (
-            f"amd.xdna.aie2p.pack.{pack_case.physical_width}.trunc.configured"
+            f"amd.xdna.aie2p.pack.{instruction.physical_width}.trunc.configured"
+        )
+        assert rule.guards[:2] == (
+            Guard.value_type(instruction.source_field, rule_shape.input_type),
+            Guard.value_type("result", rule_shape.result_type),
         )
         assert [
             emit.descriptor.key
@@ -1280,7 +1305,51 @@ def test_native_integer_packing_uses_exact_packet_shapes() -> None:
             rule.descriptor.key,
         ]
         assert rule.emit[0].immediates == {"i": 0}
-        assert rule.emit[1].immediates == {"i": pack_case.pack_size}
+        assert rule.emit[1].immediates == {"i": instruction.pack_size}
+        assert sum(isinstance(emit, EmitRegisterSlice) for emit in rule.emit) == int(
+            instruction.pad_result
+        )
+        assert sum(isinstance(emit, EmitRegisterConcat) for emit in rule.emit) == int(
+            instruction.pad_result
+        )
+    assert covered_truncation_lanes == expected_truncation_lanes
+
+    assert {
+        rule_shape.instruction
+        for rule_shape in INTEGER_PACK_RULE_SHAPES
+        if (
+            rule_shape.minimum_lane_count == rule_shape.instruction.native_lane_count
+            and rule_shape.maximum_lane_count
+            == rule_shape.instruction.native_lane_count
+        )
+    } == set(INTEGER_PACK_INSTRUCTIONS)
+
+
+def test_native_integer_truncation_preserves_low_bits_at_boundaries() -> None:
+    boundary_values = {
+        "i16": (0, 1, 0x7F, 0x80, 0xFF, 0x100, 0x7FFF, 0x8000, 0xFFFF),
+        "i32": (
+            0,
+            1,
+            0x7FFF,
+            0x8000,
+            0xFFFF,
+            0x10000,
+            0x7FFFFFFF,
+            0x80000000,
+            0xFFFFFFFF,
+        ),
+    }
+    for rule_shape in INTEGER_PACK_RULE_SHAPES:
+        instruction = rule_shape.instruction
+        if instruction.bit_width is not None:
+            continue
+        rule = _rule(rule_shape.report_key)
+        result_mask = (1 << instruction.output_element_bits) - 1
+        for input_value in boundary_values[instruction.input_element]:
+            assert _evaluate_fp8_packet_lane(rule, input_value) == (
+                input_value & result_mask
+            )
 
 
 def test_binary32_to_integer_programs_match_truncation_oracles() -> None:

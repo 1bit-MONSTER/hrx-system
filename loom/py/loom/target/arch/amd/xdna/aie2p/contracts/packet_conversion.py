@@ -342,15 +342,27 @@ class FloatPacketSourceFormat:
 
 
 @dataclass(frozen=True, slots=True)
-class IntegerPackCase:
-    """One source-visible shape supported by native VPACK forms."""
+class IntegerPackInstruction:
+    """One exact physical shape supported by a native VPACK form."""
 
     # Source vector element type.
     input_element: str
     # Number of source lanes packed by the conversion.
-    input_lanes: int
+    native_lane_count: int
+    # Source-visible result vector element type.
+    result_element: str
     # Required vector.bitpack width, or None for vector.trunci.
     bit_width: int | None
+
+    def __post_init__(self) -> None:
+        input_bits = int(self.input_element[1:])
+        result_bits = int(self.result_element[1:])
+        if input_bits != self.output_element_bits * 2:
+            raise ValueError("integer pack must narrow each source lane by two")
+        if self.native_lane_count * self.output_element_bits % result_bits:
+            raise ValueError("integer pack result does not fill whole storage lanes")
+        if self.memory_width_bits not in (256, 512):
+            raise ValueError("integer pack must produce one native W or X carrier")
 
     @property
     def source_op(self) -> Op:
@@ -368,19 +380,25 @@ class IntegerPackCase:
     def output_element_bits(self) -> int:
         """Logical result element width packed by VPACK."""
 
-        return 8 if self.bit_width is None else self.bit_width
+        return (
+            int(self.result_element[1:]) if self.bit_width is None else self.bit_width
+        )
 
     @property
     def result_lanes(self) -> int:
-        """Number of physical i8 lanes carrying the packed result."""
+        """Number of source-visible storage lanes carrying the packed result."""
 
-        return self.input_lanes * self.output_element_bits // 8
+        return (
+            self.native_lane_count
+            * self.output_element_bits
+            // int(self.result_element[1:])
+        )
 
     @property
     def memory_width_bits(self) -> int:
         """Number of result bits written by a fused packing store."""
 
-        return self.result_lanes * 8
+        return self.result_lanes * int(self.result_element[1:])
 
     @property
     def physical_width(self) -> str:
@@ -400,12 +418,12 @@ class IntegerPackCase:
 
         if self.bit_width is None:
             return (
-                f"native_trunc_{self.input_element}x{self.input_lanes}_to_"
-                f"i8x{self.result_lanes}"
+                f"native_trunc_{self.input_element}x{self.native_lane_count}_to_"
+                f"{self.result_element}x{self.result_lanes}"
             )
         return (
-            f"native_bitpack_{self.input_element}x{self.input_lanes}_to_"
-            f"i{self.bit_width}x{self.input_lanes}"
+            f"native_bitpack_{self.input_element}x{self.native_lane_count}_to_"
+            f"i{self.bit_width}x{self.native_lane_count}"
         )
 
     @property
@@ -413,6 +431,82 @@ class IntegerPackCase:
         """Whether the result preserves an unused X-carrier half."""
 
         return self.memory_width_bits == 256
+
+
+@dataclass(frozen=True, slots=True)
+class IntegerPackRuleShape:
+    """Logical lane interval realized by one physical VPACK form."""
+
+    # Physical instruction shape used for the conversion.
+    instruction: IntegerPackInstruction
+    # First logical source lane count realized by this rule.
+    minimum_lane_count: int
+    # Last logical source lane count realized by this rule.
+    maximum_lane_count: int
+
+    def __post_init__(self) -> None:
+        if not (
+            1
+            <= self.minimum_lane_count
+            <= self.maximum_lane_count
+            <= self.instruction.native_lane_count
+        ):
+            raise ValueError("integer pack logical lane interval is invalid")
+        if self.instruction.bit_width is not None and (
+            self.minimum_lane_count != self.instruction.native_lane_count
+            or self.maximum_lane_count != self.instruction.native_lane_count
+        ):
+            raise ValueError("packed sub-byte results require an exact lane count")
+
+    @staticmethod
+    def _vector_type(element: str, minimum_lanes: int, maximum_lanes: int) -> Vector:
+        if minimum_lanes == maximum_lanes:
+            return Vector(element, lanes=minimum_lanes)
+        return Vector(
+            element,
+            minimum_lanes=minimum_lanes,
+            maximum_lanes=maximum_lanes,
+        )
+
+    @property
+    def input_type(self) -> Vector:
+        """Source-visible input type interval."""
+
+        return self._vector_type(
+            self.instruction.input_element,
+            self.minimum_lane_count,
+            self.maximum_lane_count,
+        )
+
+    @property
+    def result_type(self) -> Vector:
+        """Source-visible result type interval."""
+
+        if self.instruction.bit_width is not None:
+            return Vector(
+                self.instruction.result_element,
+                lanes=self.instruction.result_lanes,
+            )
+        return self._vector_type(
+            self.instruction.result_element,
+            self.minimum_lane_count,
+            self.maximum_lane_count,
+        )
+
+    @property
+    def report_key(self) -> str:
+        """Stable compile-report key for this logical interval."""
+
+        if (
+            self.minimum_lane_count == self.instruction.native_lane_count
+            and self.maximum_lane_count == self.instruction.native_lane_count
+        ):
+            return self.instruction.report_key
+        lane_range = f"{self.minimum_lane_count}-{self.maximum_lane_count}"
+        return (
+            f"native_trunc_{self.instruction.input_element}x{lane_range}_to_"
+            f"{self.instruction.result_element}x{lane_range}"
+        )
 
 
 _I16_TO_I32_W = IntegerWidenInstruction("i16", "i32", 16)
@@ -504,11 +598,41 @@ _FP8_PAYLOAD_AND_SIGN_MASK = 0x807F
 _FP8_SUBNORMAL_THRESHOLD = 0x0080
 _CANONICAL_BF16_NAN = 0x7FC0
 
-INTEGER_PACK_CASES = (
-    IntegerPackCase("i16", 32, None),
-    IntegerPackCase("i16", 64, None),
-    IntegerPackCase("i8", 64, 4),
-    IntegerPackCase("i8", 128, 4),
+_I32_TO_I16_W_PACK = IntegerPackInstruction("i32", 16, "i16", None)
+_I32_TO_I16_X_PACK = IntegerPackInstruction("i32", 32, "i16", None)
+_I16_TO_I8_W_PACK = IntegerPackInstruction("i16", 32, "i8", None)
+_I16_TO_I8_X_PACK = IntegerPackInstruction("i16", 64, "i8", None)
+_I8_TO_I4_W_PACK = IntegerPackInstruction("i8", 64, "i8", 4)
+_I8_TO_I4_X_PACK = IntegerPackInstruction("i8", 128, "i8", 4)
+
+# Exact physical shapes also own fused memory rules, whose access width cannot
+# exceed the source value's logical footprint.
+INTEGER_PACK_INSTRUCTIONS = (
+    _I32_TO_I16_W_PACK,
+    _I32_TO_I16_X_PACK,
+    _I16_TO_I8_W_PACK,
+    _I16_TO_I8_X_PACK,
+    _I8_TO_I4_W_PACK,
+    _I8_TO_I4_X_PACK,
+)
+
+# Standalone truncation can consume every physical lane in the source carrier
+# because VPACK is nontrapping and packed lanes beyond the logical value remain
+# unobservable. Sub-byte bitpack keeps exact shapes: a partial source interval
+# does not map linearly to an unrestricted interval of byte storage lanes.
+INTEGER_PACK_RULE_SHAPES = (
+    *(
+        IntegerPackRuleShape(
+            instruction,
+            instruction.native_lane_count,
+            instruction.native_lane_count,
+        )
+        for instruction in INTEGER_PACK_INSTRUCTIONS
+    ),
+    IntegerPackRuleShape(_I32_TO_I16_W_PACK, 1, 15),
+    IntegerPackRuleShape(_I32_TO_I16_X_PACK, 17, 31),
+    IntegerPackRuleShape(_I16_TO_I8_W_PACK, 1, 31),
+    IntegerPackRuleShape(_I16_TO_I8_X_PACK, 33, 63),
 )
 
 
@@ -1896,7 +2020,7 @@ def _float_to_fp8_vector_rule(
 
 
 def _integer_pack_emits(
-    pack_case: IntegerPackCase,
+    pack_instruction: IntegerPackInstruction,
     pack: Descriptor,
     source: ValueRef,
     *,
@@ -1904,11 +2028,11 @@ def _integer_pack_emits(
 ) -> tuple[ContractEmit, ...]:
     packed_result = (
         ValueRef.temporary("packed_w")
-        if pack_case.pad_result
+        if pack_instruction.pad_result
         else ValueRef.result("result")
     )
     result_emits: tuple[ContractEmit, ...] = ()
-    if pack_case.pad_result:
+    if pack_instruction.pad_result:
         result_emits = (
             EmitRegisterSlice(
                 source=source,
@@ -1922,13 +2046,13 @@ def _integer_pack_emits(
             ),
         )
     return (
-        *integer_pack_state_emits(pack_case.pack_size, saturation=saturation),
+        *integer_pack_state_emits(pack_instruction.pack_size, saturation=saturation),
         EmitDescriptorOp(
             descriptor=pack,
             operands={"src": source},
             results={"dst": packed_result},
             result_types=(
-                {"dst": DescriptorResultType()} if pack_case.pad_result else None
+                {"dst": DescriptorResultType()} if pack_instruction.pad_result else None
             ),
             form=DescriptorEmitForm.OP,
         ),
@@ -1936,41 +2060,44 @@ def _integer_pack_emits(
     )
 
 
-def _integer_pack_rule(pack_case: IntegerPackCase) -> DescriptorRule:
+def _integer_pack_rule(rule_shape: IntegerPackRuleShape) -> DescriptorRule:
+    pack_instruction = rule_shape.instruction
     pack = _descriptor(
-        f"amd.xdna.aie2p.pack.{pack_case.physical_width}.trunc.configured"
+        f"amd.xdna.aie2p.pack.{pack_instruction.physical_width}.trunc.configured"
     )
     return DescriptorRule(
-        source_op=pack_case.source_op,
+        source_op=pack_instruction.source_op,
         descriptor=pack,
         guards=(
             Guard.value_type(
-                pack_case.source_field,
-                _exact_vector(pack_case.input_element, pack_case.input_lanes),
+                pack_instruction.source_field,
+                rule_shape.input_type,
             ),
-            Guard.value_type("result", _exact_vector("i8", pack_case.result_lanes)),
+            Guard.value_type("result", rule_shape.result_type),
             *(
                 (
                     Guard.attr_kind("width", "i64"),
                     Guard.i64_range(
                         "width",
-                        pack_case.bit_width,
-                        pack_case.bit_width,
+                        pack_instruction.bit_width,
+                        pack_instruction.bit_width,
                     ),
                 )
-                if pack_case.bit_width is not None
+                if pack_instruction.bit_width is not None
                 else ()
             ),
         ),
         emit=_integer_pack_emits(
-            pack_case, pack, ValueRef.operand(pack_case.source_field)
+            pack_instruction,
+            pack,
+            ValueRef.operand(pack_instruction.source_field),
         ),
-        report_key=pack_case.report_key,
+        report_key=rule_shape.report_key,
     )
 
 
 def _saturating_i4_pack_rule(
-    pack_case: IntegerPackCase,
+    pack_instruction: IntegerPackInstruction,
     outer_op: Op,
     inner_op: Op,
     value_fields: tuple[str, str],
@@ -1980,7 +2107,7 @@ def _saturating_i4_pack_rule(
     bounds = {vector.vector_maxsi: -8, vector.vector_minsi: 7}
     bound_fields = tuple("rhs" if field == "lhs" else "lhs" for field in value_fields)
     pack = _descriptor(
-        f"amd.xdna.aie2p.pack.{pack_case.physical_width}.signed.configured"
+        f"amd.xdna.aie2p.pack.{pack_instruction.physical_width}.signed.configured"
     )
     source = ValueRef.operand(value_fields[1], source_node="inner")
     order = "min_max" if outer_op is vector.vector_minsi else "max_min"
@@ -1989,8 +2116,12 @@ def _saturating_i4_pack_rule(
         descriptor=pack,
         priority=1,
         guards=(
-            Guard.value_type("source", _exact_vector("i8", pack_case.input_lanes)),
-            Guard.value_type("result", _exact_vector("i8", pack_case.result_lanes)),
+            Guard.value_type(
+                "source", _exact_vector("i8", pack_instruction.native_lane_count)
+            ),
+            Guard.value_type(
+                "result", _exact_vector("i8", pack_instruction.result_lanes)
+            ),
             Guard.i64_range("width", 4, 4),
         ),
         source_nodes=(
@@ -2020,9 +2151,9 @@ def _saturating_i4_pack_rule(
                 ),
             ),
         ),
-        emit=_integer_pack_emits(pack_case, pack, source, saturation=1),
+        emit=_integer_pack_emits(pack_instruction, pack, source, saturation=1),
         report_key=(
-            f"native_saturating_signed_i8x{pack_case.input_lanes}_to_i4_"
+            f"native_saturating_signed_i8x{pack_instruction.native_lane_count}_to_i4_"
             f"{order}_{value_fields[0]}_{value_fields[1]}"
         ),
     )
@@ -2030,9 +2161,9 @@ def _saturating_i4_pack_rule(
 
 AIE2P_PACKET_CONVERSION_RULES = (
     *(
-        _saturating_i4_pack_rule(pack_case, outer_op, inner_op, value_fields)
-        for pack_case in INTEGER_PACK_CASES
-        if pack_case.bit_width == 4
+        _saturating_i4_pack_rule(instruction, outer_op, inner_op, value_fields)
+        for instruction in INTEGER_PACK_INSTRUCTIONS
+        if instruction.bit_width == 4
         for outer_op, inner_op in (
             (vector.vector_minsi, vector.vector_maxsi),
             (vector.vector_maxsi, vector.vector_minsi),
@@ -2059,7 +2190,7 @@ AIE2P_PACKET_CONVERSION_RULES = (
         )
         for rule_shape in INTEGER_WIDEN_RULE_SHAPES
     ),
-    *(_integer_pack_rule(pack_case) for pack_case in INTEGER_PACK_CASES),
+    *(_integer_pack_rule(rule_shape) for rule_shape in INTEGER_PACK_RULE_SHAPES),
     *(
         _float_to_fp8_vector_rule(source_format, fp8_format, rule_shape)
         for source_format in FLOAT_PACKET_SOURCE_FORMATS
