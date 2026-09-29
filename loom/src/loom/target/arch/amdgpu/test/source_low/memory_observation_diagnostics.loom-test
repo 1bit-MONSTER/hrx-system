@@ -79,3 +79,21 @@ kernel.def @unsupported_fence_scope() {
   buffer.fence scope(subgroup) ordering(acquire)
   kernel.return
 }
+
+// ====
+
+// Generic storage has the same indivisible width and alignment requirements.
+kernel.def @generic_observation_alignment() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %value: i64) {
+  %generic = buffer.assume.memory_space<generic> %input : buffer
+  %aligned = buffer.assume.alignment %generic {minimum_alignment = 8} : buffer
+  %origin = index.constant 4 : offset
+  %word = buffer.view %aligned[%origin] : buffer -> view<1xi64, align(4)>
+  // ERROR@+1: AMDGPU/023 {constraint_key="atomic.alignment"}
+  %observed = view.atomic.load %word[0] {ordering = acquire, scope = workgroup} : view<1xi64, align(4)> -> i64
+  // ERROR@+1: AMDGPU/023 {constraint_key="atomic.alignment"}
+  view.atomic.store %value, %word[0] {ordering = release, scope = system} : i64, view<1xi64, align(4)>
+  kernel.return
+}

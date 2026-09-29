@@ -1833,6 +1833,80 @@ loom_check_compile_tests(
 
 loom_test_module(
   NAME
+    generic_memory_test_module
+  SRCS
+    "generic_memory.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic.loom-test"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic_atomic_addressing.loom-test"
+)
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+loom_execution_test(
+  NAME
+    generic_memory_test_execute_amdgpu_hardware_test
+  MODULE
+    "::generic_memory_test_module"
+  RUNNER_ARGS
+    "--device=amdgpu"
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+    "loom-execution-profile=amdgpu_hardware"
+    "loom-target-family=amdgpu"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
+loom_execution_test(
+  NAME
+    generic_memory_test_execute_amdgpu_access_test
+  MODULE
+    "::generic_memory_test_module"
+  RUNNER_ARGS
+    "--device=amdgpu"
+    "--sanitizer=access"
+  LABELS
+    "notsan"
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+    "loom-execution-profile=amdgpu_access"
+    "loom-target-family=amdgpu"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+loom_check_compile_tests(
+  NAME
+    "generic_memory_test"
+  SRC
+    "::generic_memory_test_module"
+  TARGETS
+    loom::target::amdgpu::gfx1100
+    loom::target::amdgpu::gfx1151
+    loom::target::amdgpu::gfx1170
+    loom::target::amdgpu::gfx1200
+    loom::target::amdgpu::gfx1250
+    loom::target::amdgpu::gfx942
+    loom::target::amdgpu::gfx950
+)
+
+loom_test_module(
+  NAME
     workgroup_atomic_cmpxchg_test_module
   SRCS
     "workgroup_atomic_cmpxchg.loom"
@@ -2390,6 +2464,8 @@ loom_module(
     "${_GLOB_X_LOOM_14D15B72}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic.loom-test"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic_atomic_addressing.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_workgroup_atomic_observations.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability_cfg.loom-test"

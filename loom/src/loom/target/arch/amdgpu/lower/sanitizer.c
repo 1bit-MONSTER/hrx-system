@@ -755,7 +755,7 @@ static bool loom_amdgpu_sanitizer_assert_access_plan_build(
     return false;
   }
 
-  if (!loom_amdgpu_memory_access_select_flat_global_address(
+  if (!loom_amdgpu_memory_access_select_flat_address(
           module, &source, &out_plan->address, &out_diagnostic->memory)) {
     return false;
   }
