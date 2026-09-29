@@ -868,6 +868,10 @@ static iree_status_t loom_amdgpu_append_memory_cache_attrs(
     loom_low_lower_context_t* context,
     const loom_amdgpu_memory_access_t* access, loom_named_attr_t* attrs,
     iree_host_size_t attr_capacity, iree_host_size_t* inout_attr_count) {
+  // LDS observations participate in ordering without a global cache policy.
+  if (access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+    return iree_ok_status();
+  }
   if (access->source.operation_kind ==
       LOOM_MEMORY_ACCESS_OPERATION_ATOMIC_STORE) {
     return loom_amdgpu_system_memory_append_release_store_attrs_scoped(
