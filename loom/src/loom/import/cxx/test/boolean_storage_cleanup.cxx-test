@@ -19,8 +19,10 @@ bool conditional(bool input, bool enabled) {
   return value;
 }
 // ----
-CHECK: *scf.select* : i8
-CHECK: *scalar.xori* : i1
+CHECK: * = scalar.xori %enabled, %input : i1
+CHECK-NOT: *scf.select*
+CHECK-NOT: *scalar.extui*
+CHECK-NOT: *scalar.cmpi*
 CHECK-NOT: *buffer.alloca*
 CHECK-NOT: *view.load*
 CHECK-NOT: *view.store*

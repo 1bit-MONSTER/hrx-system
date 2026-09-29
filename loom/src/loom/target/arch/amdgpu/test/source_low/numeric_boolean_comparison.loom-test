@@ -234,3 +234,64 @@ low.func.def public target<amdgpu.gfx11.generic.core> abi(hal_kernel) @condition
   %result = s_cselect_b32 %23, %c0, %selected
   return %result
 }
+
+// ====
+
+// This is the SSA shape of a promoted byte-sized Boolean local.
+func.def public @conditional_byte_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_byte = scalar.extui %input : i1 to i8
+  %inverse_byte = scalar.extui %inverse : i1 to i8
+  %selected = scf.select %enabled, %inverse_byte, %input_byte : i8
+  %c0_i8 = scalar.constant 0 : i8
+  %truth = scalar.cmpi ne, %selected, %c0_i8 : i8
+  %result = scalar.extui %truth : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amdgpu.gfx11.generic.core> abi(hal_kernel) @conditional_byte_inversion(%input_bits: reg<amdgpu.sgpr>, %enabled_bits: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %c0 = s_mov_b32 0
+  %input = s_cmp_lg_i32 %input_bits, %c0
+  %enabled = s_cmp_lg_i32 %enabled_bits, %c0
+  %26 = s_mov_b32 1
+  %27 = s_cselect_b32 %26, %c0, %enabled
+  %28 = s_cselect_b32 %26, %c0, %input
+  %29 = s_xor_b32 %27, %28
+  %30 = s_cmp_lg_i32 %29, %c0
+  %result = s_cselect_b32 %26, %c0, %30
+  return %result
+}
+
+// ====
+
+func.def public @conditional_signed_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %input_word = scalar.extsi %input : i1 to i32
+  %inverse_word = scalar.extsi %inverse : i1 to i32
+  %result = scf.select %enabled, %inverse_word, %input_word : i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amdgpu.gfx11.generic.core> abi(hal_kernel) @conditional_signed_inversion(%input_bits: reg<amdgpu.sgpr>, %enabled_bits: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %c0 = s_mov_b32 0
+  %input = s_cmp_lg_i32 %input_bits, %c0
+  %enabled = s_cmp_lg_i32 %enabled_bits, %c0
+  %23 = s_mov_b32 1
+  %24 = s_cselect_b32 %23, %c0, %enabled
+  %25 = s_cselect_b32 %23, %c0, %input
+  %26 = s_xor_b32 %24, %25
+  %27 = s_cmp_lg_i32 %26, %c0
+  %28 = s_mov_b32 4294967295
+  %result = s_cselect_b32 %28, %c0, %27
+  return %result
+}

@@ -16,6 +16,7 @@ loom_check_test_suite(
     "canonicalize.loom-test"
     "canonicalize_condition_loop.loom-test"
     "canonicalize_select.loom-test"
+    "canonicalize_select_extensions.loom-test"
     "canonicalize_speculation.loom-test"
     "combine_extrema.loom-test"
     "convergence_facts.loom-test"
