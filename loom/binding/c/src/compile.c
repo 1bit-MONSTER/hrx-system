@@ -13,6 +13,9 @@
 #include "diagnostic.h"
 #include "iree/base/internal/atomics.h"
 #include "loom/codegen/low/launch_config_program.h"
+#include "loom/pass/environment.h"
+#include "loom/pass/interpreter.h"
+#include "loom/target/predicate.h"
 #include "loom/target/specialization.h"
 #include "loom/util/json.h"
 #include "loom/util/stream.h"
@@ -161,6 +164,73 @@ static iree_status_t loomc_compile_capture_diagnostic_emission(
       (loomc_compile_diagnostic_capture_t*)user_data;
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
       capture->result, capture->module, LOOM_EMITTER_PASS, emission));
+}
+
+static loomc_status_t loomc_compile_run_pass_program(
+    loomc_compiler_t* compiler, loomc_workspace_t* workspace,
+    const loomc_pass_program_t* pass_program, loom_module_t* internal_module,
+    loom_function_version_owner_t* function_version_owner,
+    loom_kernel_launch_config_program_t* launch_config_program,
+    loomc_result_t* result) {
+  loomc_compile_diagnostic_capture_t capture = {
+      .result = result,
+      .module = internal_module,
+  };
+  loom_codegen_pass_environment_storage_t codegen_environment_storage = {0};
+  loom_pass_environment_t pass_environment =
+      loomc_codegen_pass_environment_storage_initialize(
+          loomc_context_target_pass_environment(compiler->context),
+          loomc_context_cleanup_pattern_registry(compiler->context),
+          function_version_owner, &codegen_environment_storage);
+  loom_target_pass_predicate_provider_storage_t predicate_storage = {0};
+  loom_pass_predicate_provider_t predicate_provider = {0};
+  if (loomc_context_target_pass_environment(compiler->context) != NULL) {
+    loom_target_pass_predicate_provider_storage_initialize(
+        loomc_workspace_block_pool(workspace), &predicate_storage);
+    predicate_provider =
+        loom_target_pass_predicate_provider(&predicate_storage);
+  }
+  const loom_pass_environment_capability_t* extended_capabilities
+      [IREE_ARRAYSIZE(codegen_environment_storage.capabilities) + 1];
+  if (launch_config_program != NULL) {
+    for (iree_host_size_t i = 0; i < pass_environment.capability_count; ++i) {
+      extended_capabilities[i] = pass_environment.capabilities[i];
+    }
+    extended_capabilities[pass_environment.capability_count] =
+        loom_kernel_launch_config_program_capability(launch_config_program);
+    pass_environment = loom_pass_environment_make(
+        extended_capabilities, pass_environment.capability_count + 1);
+  }
+  const loom_pass_interpreter_options_t interpreter_options = {
+      .block_pool = loomc_workspace_block_pool(workspace),
+      .predicate_provider = predicate_provider,
+      .diagnostic_emitter =
+          {
+              .fn = loomc_compile_capture_diagnostic_emission,
+              .user_data = &capture,
+          },
+      .environment = pass_environment,
+      .function_versions = &function_version_owner->list,
+  };
+  loom_pass_run_result_t run_result = {0};
+  loomc_status_t status =
+      loomc_status_from_iree(loom_pass_interpreter_run_program(
+          loomc_pass_program_loom_pass_program(pass_program), internal_module,
+          &interpreter_options, &run_result));
+  if (!loomc_status_is_ok(status)) {
+    if (!loomc_status_is_result_diagnostic(status)) {
+      return status;
+    }
+    if (run_result.error_count == 0) {
+      return loomc_result_fail_status_diagnostic_consume(
+          result, /*source=*/NULL, LOOMC_DIAGNOSTIC_SEVERITY_ERROR,
+          loomc_make_cstring_view("PASS_PROGRAM/EXECUTION"), status);
+    }
+    loomc_status_free(status);
+  }
+  return run_result.error_count != 0
+             ? loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED)
+             : loomc_ok_status();
 }
 
 static loomc_status_t loomc_compile_specialize_functions(
@@ -600,12 +670,9 @@ static loomc_status_t loomc_compile_module_into_result(
     launch_config_program_initialized = loomc_status_is_ok(status);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
-    status = loomc_pass_program_run_internal_module(
-        workspace, pass_program, internal_module, function_versions,
-        launch_config_requested ? loom_kernel_launch_config_program_capability(
-                                      &launch_config_program)
-                                : NULL,
-        result);
+    status = loomc_compile_run_pass_program(
+        compiler, workspace, pass_program, internal_module, function_versions,
+        launch_config_requested ? &launch_config_program : NULL, result);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result) &&
       launch_config_requested) {
