@@ -166,6 +166,8 @@ set(IREE_DEP_CXX_PATCHES
   "//build_tools/third_party/cxx:constant_archive.patch"
   "//build_tools/third_party/cxx:constexpr_bitcast.patch"
   "//build_tools/third_party/cxx:list_initialization_diagnostics.patch"
+  "//build_tools/third_party/cxx:builtin_class_conversions.patch"
+  "//build_tools/third_party/cxx:constant_template_conversions.patch"
 )
 set(IREE_DEP_CXX_PATCH_ARGS
   "-p1"
