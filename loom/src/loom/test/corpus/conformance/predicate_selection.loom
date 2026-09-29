@@ -1,0 +1,35 @@
+// Each runtime trial chooses one Boolean payload and one independent selector.
+// Both arm orders and a separately observed complement must preserve their bits.
+func.def @conditional_predicates(%trial: index, %output: buffer) {
+  %ordinal = index.cast %trial : index to i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %input_bits = scalar.andi %ordinal, %c1 : i32
+  %enabled_bits = scalar.andi %ordinal, %c2 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %true = scalar.constant true : i1
+  %inverse = scalar.xori %input, %true : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %reversed = scf.select %enabled, %input, %inverse : i1
+  %selected_word = scalar.extui %selected : i1 to i32
+  %reversed_word = scalar.extui %reversed : i1 to i32
+  %inverse_word = scalar.extui %inverse : i1 to i32
+  %base = index.constant 0 : offset
+  %out = buffer.view %output[%base] : buffer -> view<3xi32>
+  view.store %selected_word, %out[0] : i32, view<3xi32>
+  view.store %reversed_word, %out[1] : i32, view<3xi32>
+  view.store %inverse_word, %out[2] : i32, view<3xi32>
+  func.return
+}
+
+check.scenario @conditional_predicate_values {
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(-123) : tensor<3xi32>
+    check.compare<@conditional_predicates>(%trial, %output) : (index, tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3xi32>
+    }
+  }
+  check.return
+}

@@ -151,3 +151,51 @@ low.func.def public target<vm.core> abi(vm_function) @boolean_unsigned_extension
   %wide = conversion.integer %input, "u1.to.i64"
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<vm.core> abi(vm_function) @conditional_inversion(%input_bits: reg<vm.value : i32>, %enabled_bits: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
+  %c0 = constant.i32 0
+  %input = integer.compare.i32 %input_bits, %c0, "ne"
+  %enabled = integer.compare.i32 %enabled_bits, %c0, "ne"
+  %selected = integer.xor.i32 %enabled, %input : reg<vm.value : i1>
+  %result = conversion.integer %selected, "u1.to.i32" : reg<vm.value : i32>
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<vm.core> abi(vm_function) @conditional_inversion_false(%input_bits: reg<vm.value : i32>, %enabled_bits: reg<vm.value : i32>) -> (reg<vm.value : i32>) asm {
+  %c0 = constant.i32 0
+  %input = integer.compare.i32 %input_bits, %c0, "ne"
+  %enabled = integer.compare.i32 %enabled_bits, %c0, "ne"
+  %c1 = constant.i32 1 : reg<vm.value : i1>
+  %inverse = integer.xor.i32 %input, %c1 : reg<vm.value : i1>
+  %selected = integer.xor.i32 %enabled, %inverse : reg<vm.value : i1>
+  %result = conversion.integer %selected, "u1.to.i32" : reg<vm.value : i32>
+  return %result
+}

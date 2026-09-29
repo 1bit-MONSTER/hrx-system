@@ -175,3 +175,62 @@ low.func.def public target<amdgpu.gfx11.generic.core> abi(hal_kernel) @boolean_u
   %wide = concat(%27, %30) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amdgpu.gfx11.generic.core> abi(hal_kernel) @conditional_inversion(%input_bits: reg<amdgpu.sgpr>, %enabled_bits: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %c0 = s_mov_b32 0
+  %input = s_cmp_lg_i32 %input_bits, %c0
+  %enabled = s_cmp_lg_i32 %enabled_bits, %c0
+  %21 = s_mov_b32 1
+  %22 = s_cselect_b32 %21, %c0, %enabled
+  %23 = s_cselect_b32 %21, %c0, %input
+  %24 = s_xor_b32 %22, %23
+  %selected = s_cmp_lg_i32 %24, %c0
+  %result = s_cselect_b32 %21, %c0, %selected
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<amdgpu.gfx11.generic.core> abi(hal_kernel) @conditional_inversion_false(%input_bits: reg<amdgpu.sgpr>, %enabled_bits: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %c0 = s_mov_b32 0
+  %input = s_cmp_lg_i32 %input_bits, %c0
+  %enabled = s_cmp_lg_i32 %enabled_bits, %c0
+  %c1 = s_cmp_eq_i32 %c0, %c0
+  %23 = s_mov_b32 1
+  %24 = s_cselect_b32 %23, %c0, %input
+  %25 = s_cselect_b32 %23, %c0, %c1
+  %26 = s_xor_b32 %24, %25
+  %inverse = s_cmp_lg_i32 %26, %c0
+  %30 = s_cselect_b32 %23, %c0, %enabled
+  %31 = s_cselect_b32 %23, %c0, %inverse
+  %32 = s_xor_b32 %30, %31
+  %selected = s_cmp_lg_i32 %32, %c0
+  %result = s_cselect_b32 %23, %c0, %selected
+  return %result
+}

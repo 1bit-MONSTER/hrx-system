@@ -155,3 +155,53 @@ low.func.def public target<spirv.logical.core> abi(shader_entry_point) @boolean_
   %wide = OpSelect.i64 %input, %17, %18
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<spirv.logical.core> abi(shader_entry_point) @conditional_inversion(%input_bits: reg<spirv.id : i32>, %enabled_bits: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %c0 = OpConstant.i32 0
+  %input = OpINotEqual %input_bits, %c0
+  %enabled = OpINotEqual %enabled_bits, %c0
+  %selected = OpLogicalNotEqual.bool %enabled, %input
+  %21 = OpConstant.i32 1
+  %result = OpSelect %selected, %21, %c0
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<spirv.logical.core> abi(shader_entry_point) @conditional_inversion_false(%input_bits: reg<spirv.id : i32>, %enabled_bits: reg<spirv.id : i32>) -> (reg<spirv.id : i32>) asm {
+  %c0 = OpConstant.i32 0
+  %input = OpINotEqual %input_bits, %c0
+  %enabled = OpINotEqual %enabled_bits, %c0
+  %c1 = OpConstantTrue.bool
+  %inverse = OpLogicalNotEqual.bool %input, %c1
+  %selected = OpLogicalNotEqual.bool %enabled, %inverse
+  %23 = OpConstant.i32 1
+  %result = OpSelect %selected, %23, %c0
+  return %result
+}

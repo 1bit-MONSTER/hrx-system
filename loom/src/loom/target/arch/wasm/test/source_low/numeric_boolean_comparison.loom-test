@@ -145,3 +145,49 @@ low.func.def public target<wasm.core.simd128> abi(wasm_function) @boolean_unsign
   %wide = i64.select %11, %12, %word
   return %word, %wide
 }
+
+// ====
+
+func.def public @conditional_inversion(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %inverse, %input : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<wasm.core.simd128> abi(wasm_function) @conditional_inversion(%input_bits: reg<wasm.i32>, %enabled_bits: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %c0 = i32.const 0
+  %input = i32.ne %input_bits, %c0
+  %enabled = i32.ne %enabled_bits, %c0
+  %result = i32.xor %enabled, %input
+  return %result
+}
+
+// ====
+
+func.def public @conditional_inversion_false(%input_bits: i32, %enabled_bits: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  %input = scalar.cmpi ne, %input_bits, %c0 : i32
+  %enabled = scalar.cmpi ne, %enabled_bits, %c0 : i32
+  %c1 = scalar.constant true : i1
+  %inverse = scalar.xori %input, %c1 : i1
+  %selected = scf.select %enabled, %input, %inverse : i1
+  %result = scalar.extui %selected : i1 to i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def public target<wasm.core.simd128> abi(wasm_function) @conditional_inversion_false(%input_bits: reg<wasm.i32>, %enabled_bits: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %c0 = i32.const 0
+  %input = i32.ne %input_bits, %c0
+  %enabled = i32.ne %enabled_bits, %c0
+  %c1 = i32.const 1
+  %inverse = i32.xor %input, %c1
+  %result = i32.xor %enabled, %inverse
+  return %result
+}
