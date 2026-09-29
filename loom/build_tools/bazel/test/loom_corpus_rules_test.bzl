@@ -35,7 +35,7 @@ def _test_program_fans_out_by_profile(name, **kwargs):
     analysis_test(
         name = name,
         impl = _test_program_fans_out_by_profile_impl,
-        target = _FIXTURE + ":sample_fixture",
+        target = _FIXTURE + ":sample_nested_fixture",
         **kwargs
     )
 
@@ -84,7 +84,7 @@ def _test_program_exposes_outputs_and_batched_xfails(name, **kwargs):
     analysis_test(
         name = name,
         impl = _test_program_exposes_outputs_and_batched_xfails_impl,
-        target = _FIXTURE + ":sample_fixture",
+        target = _FIXTURE + ":sample_nested_fixture",
         **kwargs
     )
 
@@ -188,7 +188,7 @@ def _test_aggregate_collects_program_outputs_impl(env, target):
         env.fail("expected three catalog sources, got %r" % corpus.sources.to_list())
     if sorted(corpus.source_identities.to_list()) != [
         "sample/excluded.loom",
-        "sample/fixture.loom",
+        "sample/nested/fixture.loom",
         "sample/other.loom",
     ]:
         env.fail("unexpected source identities %r" % corpus.source_identities.to_list())

@@ -128,7 +128,7 @@ def loom_corpus_sources(name, manifest, visibility = ["//visibility:public"]):
         )
     srcs = iree_checked_glob(
         files = manifest.srcs,
-        include = ["*.loom"],
+        include = ["**/*.loom"],
         allow_empty = False,
     )
     native.exports_files(srcs, visibility = visibility)

@@ -18,7 +18,7 @@ function(loom_corpus_sources)
     message(FATAL_ERROR
       "loom_corpus_sources(${_RULE_NAME}) requires SRCS")
   endif()
-  file(GLOB _INVENTORY
+  file(GLOB_RECURSE _INVENTORY
     CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/*.loom"

@@ -61,7 +61,7 @@ loom_corpus_build(
             "sample/excluded.loom": "This fixture proves explicit whole-source exclusion.",
         },
         ":profile_c": {
-            "sample/fixture.loom": "Profile C deliberately exercises whole-file exclusion.",
+            "sample/nested/fixture.loom": "Profile C deliberately exercises whole-file exclusion.",
             "sample/other.loom": "Profile C deliberately exercises whole-file exclusion.",
         },
     },
@@ -69,11 +69,11 @@ loom_corpus_build(
     tags = ["manual"],
     xfails = {
         ":primary_profiles": {
-            "sample/fixture.loom:@unsupported_common": "TYPE/002",
+            "sample/nested/fixture.loom:@unsupported_common": "TYPE/002",
         },
         ":profile_b": {
-            "sample/fixture.loom:@unsupported": "TARGET/072",
-            "sample/fixture.loom:@unsupported_other": "TYPE/001",
+            "sample/nested/fixture.loom:@unsupported": "TARGET/072",
+            "sample/nested/fixture.loom:@unsupported_other": "TYPE/001",
             "sample/other.loom:@other": "TARGET/033",
         },
     },
