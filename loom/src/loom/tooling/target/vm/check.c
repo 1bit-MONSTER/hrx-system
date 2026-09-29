@@ -72,7 +72,8 @@ static iree_status_t loom_vm_check_emit(
   };
   loom_target_emit_artifact_t artifact = {0};
   bool emitted = false;
-  status = loom_vm_artifact_emit(&emit_request, &emitted, &artifact);
+  status = loom_vm_artifact_emitter_provider.canonical_module_emitter->emit(
+      &emit_request, &emitted, &artifact);
   iree_byte_span_t contents = iree_byte_span_empty();
   if (iree_status_is_ok(status) && emitted) {
     status = iree_byte_sequence_clone(artifact.contents,

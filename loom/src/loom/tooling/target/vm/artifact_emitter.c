@@ -10,9 +10,9 @@
 #include "loom/target/emit/vm/module_binary.h"
 #include "loom/tooling/target/vm/program_prepare.h"
 
-iree_status_t loom_vm_artifact_emit(const loom_target_emit_request_t* request,
-                                    bool* out_emitted,
-                                    loom_target_emit_artifact_t* out_artifact) {
+static iree_status_t loom_vm_artifact_emit(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
   *out_emitted = false;
   *out_artifact = (loom_target_emit_artifact_t){0};
 

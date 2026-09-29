@@ -259,7 +259,8 @@ static iree_status_t loom_vm_testbench_compile(
         .scratch_arena = &arena,
         .allocator = testbench->host_allocator,
     };
-    status = loom_vm_artifact_emit(&request, &artifact_emitted, &artifact);
+    status = loom_vm_artifact_emitter_provider.canonical_module_emitter->emit(
+        &request, &artifact_emitted, &artifact);
   }
   if (iree_status_is_ok(status) && !testbench->compile_rejected &&
       !artifact_emitted) {

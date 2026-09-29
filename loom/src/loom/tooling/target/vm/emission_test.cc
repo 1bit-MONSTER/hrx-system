@@ -159,7 +159,8 @@ class VMEmissionTest : public ::testing::Test {
       request.function_versions = &pipeline_.function_versions.list;
       request.scratch_arena = &arena;
       request.allocator = allocations->allocator();
-      status = loom_vm_artifact_emit(&request, out_emitted, out_artifact);
+      status = loom_vm_artifact_emitter_provider.canonical_module_emitter->emit(
+          &request, out_emitted, out_artifact);
       EXPECT_EQ(arena.used_allocation_size, checkpoint.used_allocation_size);
       EXPECT_EQ(arena.total_allocation_size, checkpoint.total_allocation_size);
       for (unsigned i = 0; i < 64; ++i) {

@@ -462,7 +462,8 @@ class VMSourceCaptureTest : public VMImportsTest {
     loom_target_emit_artifact_t artifact;
     bool artifact_emitted = false;
     IREE_ASSERT_OK(
-        loom_vm_artifact_emit(&emission, &artifact_emitted, &artifact));
+        loom_vm_artifact_emitter_provider.canonical_module_emitter->emit(
+            &emission, &artifact_emitted, &artifact));
     ASSERT_TRUE(artifact_emitted);
     iree_byte_span_t image;
     IREE_ASSERT_OK(iree_byte_sequence_clone(artifact.contents,

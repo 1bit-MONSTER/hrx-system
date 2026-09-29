@@ -13,11 +13,6 @@
 extern "C" {
 #endif
 
-// Prepares and emits one VM module artifact from the shared compiler result.
-iree_status_t loom_vm_artifact_emit(const loom_target_emit_request_t* request,
-                                    bool* out_emitted,
-                                    loom_target_emit_artifact_t* out_artifact);
-
 // VM binary artifact emission from prepared target-low modules. Compose with
 // loom_vm_target_provider for source lowering and target IR registration.
 extern const loom_target_provider_t loom_vm_artifact_emitter_provider;
