@@ -387,7 +387,6 @@ static bool loom_amdgpu_atomic_source_shape_supported(
     const loom_low_source_memory_access_plan_t* source,
     loom_type_t value_type) {
   if (atomic_source->operation_kind == LOOM_AMDGPU_ATOMIC_OPERATION_CMPXCHG &&
-      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP &&
       loom_type_is_scalar(value_type) &&
       (source->element_byte_count == 1 || source->element_byte_count == 2)) {
     return loom_amdgpu_atomic_scalar_source_shape(
@@ -686,14 +685,20 @@ static bool loom_amdgpu_atomic_select_descriptor(
     diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_NATIVE_SEMANTICS;
     return false;
   }
+  // A subword global access uses a full flat pointer: the logical buffer end
+  // may bisect the physical word used by its masked compare-exchange.
+  const loom_value_fact_memory_space_t descriptor_memory_space =
+      selection->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT
+          ? LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC
+          : selection->source.memory_space;
   const bool prefer_global_saddr = loom_amdgpu_atomic_prefers_global_saddr(
-      descriptor_set, selection->source.memory_space, value_type);
+      descriptor_set, descriptor_memory_space, value_type);
   bool found_kind = false;
   bool found_type = false;
   uint32_t memory_space_index = 0;
   uint32_t atomic_kind_index = 0;
-  if (!loom_amdgpu_atomic_memory_space_candidate_index(
-          selection->source.memory_space, &memory_space_index) ||
+  if (!loom_amdgpu_atomic_memory_space_candidate_index(descriptor_memory_space,
+                                                       &memory_space_index) ||
       selection->operation_kind >= LOOM_AMDGPU_ATOMIC_OPERATION_COUNT_ ||
       !loom_amdgpu_atomic_kind_candidate_index(selection->operation_kind,
                                                atomic_source->atomic_kind,
@@ -704,7 +709,7 @@ static bool loom_amdgpu_atomic_select_descriptor(
 
   loom_amdgpu_memory_address_form_t address_forms[2] = {0};
   const iree_host_size_t address_form_count =
-      loom_amdgpu_atomic_address_form_order(selection->source.memory_space,
+      loom_amdgpu_atomic_address_form_order(descriptor_memory_space,
                                             prefer_global_saddr, address_forms);
   for (iree_host_size_t address_form_ordinal = 0;
        address_form_ordinal < address_form_count; ++address_form_ordinal) {
@@ -776,8 +781,7 @@ static bool loom_amdgpu_atomic_selection_uses_buffer_resource(
 
 static bool loom_amdgpu_atomic_uses_flat_address(
     const loom_amdgpu_atomic_plan_t* plan) {
-  return plan->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC &&
-         plan->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT;
+  return plan->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT;
 }
 
 static void loom_amdgpu_atomic_append_saddr(
@@ -805,9 +809,10 @@ static bool loom_amdgpu_atomic_select_offset(
           selection->source.vector_lane_count <
       4) {
     // Subword CAS aligns the complete physical address before applying its
-    // byte mask. Keep the descriptor offset zero and materialize this logical
-    // offset with the address in the retry emitter.
-    if (!loom_amdgpu_source_memory_offset_fits_u32(
+    // byte mask. Keep the descriptor offset zero and incorporate the logical
+    // offset before aligning the LDS or full flat address.
+    if (selection->address_form != LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT &&
+        !loom_amdgpu_source_memory_offset_fits_u32(
             &selection->source, selection->source.static_byte_offset)) {
       diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_RANGE;
       return false;
@@ -971,23 +976,31 @@ static bool loom_amdgpu_atomic_select(
     diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_CACHE_POLICY;
     return false;
   }
+  const uint32_t packet_byte_count = out_selection->source.element_byte_count *
+                                     out_selection->source.vector_lane_count;
+  const loom_type_t packet_type = packet_byte_count < 4
+                                      ? loom_type_scalar(LOOM_SCALAR_TYPE_I32)
+                                      : value_type;
   if (!loom_amdgpu_atomic_orderings_supported(descriptor_set,
                                               &out_selection->source)) {
     diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_ORDERING;
     return false;
   }
-  if (!loom_amdgpu_atomic_scope_supported(descriptor_set,
-                                          &out_selection->source, value_type)) {
+  if (!loom_amdgpu_atomic_scope_supported(
+          descriptor_set, &out_selection->source, packet_type)) {
     diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_SCOPE;
     return false;
   }
 
+  if (packet_byte_count < 4 && out_selection->source.memory_space ==
+                                   LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
+    out_selection->address_form = LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT;
+  }
   loom_amdgpu_memory_access_t memory_access = {
       .source = out_selection->source,
       .address_form = out_selection->address_form,
   };
-  if (out_selection->source.memory_space ==
-      LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC) {
+  if (out_selection->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT) {
     if (!loom_amdgpu_memory_access_select_flat_address(
             module, &out_selection->source, &memory_access,
             memory_diagnostic)) {
@@ -1009,11 +1022,6 @@ static bool loom_amdgpu_atomic_select(
     out_selection->dynamic_term_kinds[i] = memory_access.dynamic_term_kinds[i];
   }
 
-  const uint32_t packet_byte_count = out_selection->source.element_byte_count *
-                                     out_selection->source.vector_lane_count;
-  const loom_type_t packet_type = packet_byte_count < 4
-                                      ? loom_type_scalar(LOOM_SCALAR_TYPE_I32)
-                                      : value_type;
   if (!loom_amdgpu_atomic_select_descriptor(module, fact_table, descriptor_set,
                                             atomic_source, out_selection,
                                             packet_type, diagnostic)) {

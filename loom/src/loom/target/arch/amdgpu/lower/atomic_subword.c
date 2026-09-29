@@ -29,9 +29,20 @@ iree_status_t loom_amdgpu_emit_subword_cmpxchg(
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_make_sgpr_range_type(context, 2, &mask_type));
 
-  // Alignment is applied to the complete physical address, including the
-  // allocation's packed LDS origin and the logical view's static byte offset.
-  if (plan->source.static_byte_offset) {
+  // Flat address assembly already includes every logical offset. LDS address
+  // assembly leaves the descriptor's static offset for this emitter.
+  const bool flat_address =
+      plan->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT;
+  loom_type_t vgpr_x2_type = loom_type_none();
+  loom_value_id_t address_high = LOOM_VALUE_ID_INVALID;
+  if (flat_address) {
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_make_vgpr_range_type(context, 2, &vgpr_x2_type));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(
+        context, source_op, address, 1, vgpr_type, &address_high));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(context, source_op, address,
+                                                    0, vgpr_type, &address));
+  } else if (plan->source.static_byte_offset) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_binary_immediate(
         context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_ADD_U32_LIT, address,
         (uint32_t)plan->source.static_byte_offset, vgpr_type, &address));
@@ -40,6 +51,14 @@ iree_status_t loom_amdgpu_emit_subword_cmpxchg(
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_binary_immediate(
       context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_AND_B32_LIT, address,
       ~3u, vgpr_type, &word_address));
+  if (flat_address) {
+    const loom_value_id_t address_parts[] = {word_address, address_high};
+    loom_op_t* concat_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_concat_build(
+        builder, address_parts, IREE_ARRAYSIZE(address_parts), vgpr_x2_type,
+        location, &concat_op));
+    word_address = loom_low_concat_result(concat_op);
+  }
   loom_value_id_t shift = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_binary_immediate(
       context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_AND_B32_LIT, address, 3u,
@@ -133,11 +152,21 @@ iree_status_t loom_amdgpu_emit_subword_cmpxchg(
       context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B64_EXEC, &pending,
       1, loom_named_attr_slice_empty(), /*result_types=*/NULL,
       /*result_count=*/0, &packet));
-  const loom_value_id_t operands[] = {word_address, expected_word,
-                                      replacement_word};
+  loom_value_id_t operands[] = {word_address, expected_word, replacement_word};
+  iree_host_size_t operand_count = IREE_ARRAYSIZE(operands);
+  if (flat_address) {
+    // Flat compare-exchange consumes replacement followed by expected bits.
+    const loom_value_id_t pair_parts[] = {replacement_word, expected_word};
+    loom_op_t* concat_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_low_concat_build(builder, pair_parts, IREE_ARRAYSIZE(pair_parts),
+                              vgpr_x2_type, location, &concat_op));
+    operands[1] = loom_low_concat_result(concat_op);
+    operand_count = 2;
+  }
   IREE_RETURN_IF_ERROR(loom_low_lower_emit_resolved_descriptor_op(
-      context, &plan->descriptor, operands, IREE_ARRAYSIZE(operands),
-      packet_attrs, &vgpr_type, 1, /*tied_results=*/NULL,
+      context, &plan->descriptor, operands, operand_count, packet_attrs,
+      &vgpr_type, 1, /*tied_results=*/NULL,
       /*tied_result_count=*/0, location, &packet));
   const loom_value_id_t attempted_word = loom_low_op_results(packet).values[0];
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_op(

@@ -130,3 +130,85 @@ CHECK: * = v_cmp_ne_i32 *
 CHECK: * = v_cmp_eq_i32 *
 CHECK: *low.cond_br *
 CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_global_i8(%input: buffer, %expected: i8, %replacement: i8) -> (i8) {
+  %memory = buffer.assume.memory_space<global> %input : buffer
+  %origin = index.constant 3 : offset
+  %cell = buffer.view %memory[%origin] : buffer -> view<1xi8>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : i8, view<1xi8> -> i8
+  func.return %old : i8
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = flat_atomic_cmpswap_b32_rtn *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+func.def @subword_generic_f16(%input: buffer, %expected: f16, %replacement: f16) -> (f16) {
+  %memory = buffer.assume.memory_space<generic> %input : buffer
+  %origin = index.constant 2 : offset
+  %cell = buffer.view %memory[%origin] : buffer -> view<1xf16>
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : f16, view<1xf16> -> f16
+  func.return %old : f16
+}
+
+// ----
+CHECK: low.func.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = flat_atomic_cmpswap_b32_rtn *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *
+
+// ====
+
+// Both the static origin and a lane-varying stride exceed the low address word.
+kernel.def @subword_generic_wide_address() {
+  %unit = index.constant 1 : index
+  %width = index.constant 2 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%storage: buffer, %output: buffer) {
+  %generic = buffer.assume.memory_space<generic> %storage : buffer
+  %origin = index.constant 4294967298 : offset
+  %stride = index.constant 4294967296 : offset
+  %result_origin = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %relative = index.scale %lane, %stride : index, offset -> offset
+  %address = index.add %origin, %relative : offset
+  %cell = buffer.view %generic[%address] : buffer -> view<1xi16>
+  %results = buffer.view %output[%result_origin] : buffer -> view<2xi16>
+  %expected = scalar.constant -32768 : i16
+  %replacement = scalar.constant 71 : i16
+  %old = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = relaxed, scope = device, success_ordering = relaxed} : i16, view<1xi16> -> i16
+  view.store %old, %results[%lane] : i16, view<2xi16>
+  kernel.return
+}
+
+// ----
+CHECK: low.kernel.def *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *low.op<*
+CHECK: * = s_mov_b32 1
+CHECK: * = s_addc_u32 *
+CHECK: * = v_add_co_ci_u32 *
+CHECK: * = v_and_b32_lit *, 4294967292
+CHECK: * = concat(*)*
+CHECK: * = flat_atomic_cmpswap_b32_rtn *
+CHECK: * = v_cndmask_b32 *
+CHECK: * = v_cmp_ne_i32 *
+CHECK: * = v_cmp_eq_i32 *
+CHECK: *low.cond_br *
+CHECK: * = v_lshrrev_b32 *

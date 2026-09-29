@@ -15,8 +15,8 @@ extern "C" {
 #endif
 
 // Emits a strong byte/halfword compare-exchange using a word CAS. The selected
-// LDS plan retains the logical footprint; the physical word is addressable in
-// the workgroup allocation. Neighbor bits survive successful updates, and
+// plan retains the logical footprint; the containing physical word stays in
+// the mapped page or workgroup allocation. Neighbor bits survive updates, and
 // completed lanes retain their old payload while other lanes retry.
 iree_status_t loom_amdgpu_emit_subword_cmpxchg(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
