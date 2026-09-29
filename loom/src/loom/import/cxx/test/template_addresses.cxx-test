@@ -196,3 +196,126 @@ func.def public @entry() -> (i32) {
   %1 = scalar.constant 7 : i32
   func.return %1 : i32
 }
+
+// ====
+// Array references, pointer aliases and equivalent glvalue spellings retain
+// the same element identity without loading the referent.
+constexpr unsigned table[3] = {3, 5, 7};
+constexpr const auto& alias = table;
+constexpr const unsigned* pointer = table + 1;
+template <const unsigned& value>
+struct Ref {};
+static_assert(__is_same(Ref<alias[1]>, Ref<table[1]>));
+static_assert(__is_same(Ref<pointer[0]>, Ref<table[1]>));
+static_assert(__is_same(Ref<*pointer>, Ref<table[1]>));
+static_assert(__is_same(Ref<*(table + 1)>, Ref<table[1]>));
+static_assert(!__is_same(Ref<pointer[0]>, Ref<table[0]>));
+static_assert(__is_same(Ref<true ? table[0] : table[1]>, Ref<table[0]>));
+unsigned entry() {
+  constexpr unsigned result = alias[1];
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 5 : i32
+  func.return %result : i32
+}
+
+// ====
+// Reference-returning constexpr accessors preserve the address of their result.
+constexpr unsigned table[3] = {3, 5, 7};
+static constexpr const unsigned& second() { return table[1]; }
+template <const unsigned& value>
+struct Ref {};
+static_assert(__is_same(Ref<second()>, Ref<table[1]>));
+static_assert(!__is_same(Ref<second()>, Ref<table[0]>));
+unsigned entry() {
+  constexpr unsigned result = second();
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 5 : i32
+  func.return %result : i32
+}
+
+// ====
+// A class's static data member is independently addressable static storage.
+struct Table {
+  static constexpr unsigned value = 5;
+};
+template <const unsigned& value>
+struct Ref {};
+template <const unsigned& value>
+constexpr unsigned read() { return value; }
+static_assert(__is_same(Ref<Table::value>, Ref<Table::value>));
+unsigned entry() {
+  constexpr unsigned result = read<Table::value>();
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 5 : i32
+  func.return %result : i32
+}
+
+// ====
+// Canonical declaration identity does not lose the later definition's value.
+extern const unsigned value;
+constexpr unsigned value = 5;
+constexpr const unsigned* pointer = &value;
+static_assert(*pointer == 5);
+unsigned entry() {
+  constexpr unsigned result = *pointer;
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 5 : i32
+  func.return %result : i32
+}
+
+// ====
+// Forming an address evaluates side effects once, including reference-returning
+// calls and the index expression of a subscript.
+constexpr unsigned table[3] = {3, 5, 7};
+static constexpr const unsigned& advance(unsigned& index) {
+  ++index;
+  return table[index];
+}
+static constexpr unsigned count() {
+  unsigned index = 0;
+  const unsigned* first = &table[++index];
+  const unsigned* second = &advance(index);
+  return index + *first + *second;
+}
+static_assert(count() == 14);
+unsigned entry() {
+  constexpr unsigned result = count();
+  return result;
+}
+
+// ----
+func.def public @entry() -> (i32) {
+  %result = scalar.constant 14 : i32
+  func.return %result : i32
+}
+
+// ====
+// A one-past pointer retains its position without reading an array element.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+struct Pointer {};
+static_assert(__is_same(Pointer<table + 3>, Pointer<&table[0] + 3>));
+static_assert(!__is_same(Pointer<table + 3>, Pointer<table + 2>));
+unsigned entry() { return 7; }
+
+// ----
+func.def public @entry() -> (i32) {
+  %1 = scalar.constant 7 : i32
+  func.return %1 : i32
+}

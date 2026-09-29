@@ -82,3 +82,76 @@ unsigned entry() {
   // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
   return choose<object>();
 }
+
+// ====
+// A template pointer cannot designate an element outside the static array.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table - 1>();
+}
+
+// ====
+// A template pointer cannot designate an element outside the static array.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table + 4>();
+}
+
+// ====
+// One-past pointers are valid values, but cannot supply an object reference.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table[3]>();
+}
+
+// ====
+// An array with unknown extent cannot prove an element beyond its base.
+extern unsigned table[];
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table + 3>();
+}
+
+// ====
+// Pointer offset arithmetic must not overflow the constant interpreter.
+constexpr unsigned table[3] = {3, 5, 7};
+template <const unsigned* value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int*'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<(table + 0x7fffffffffffffffLL) + 1>();
+}
+
+// ====
+// Subtracting addresses of different objects is not a constant expression.
+constexpr unsigned left[1] = {5}, right[1] = {5};
+// ERROR@+2: PARSE/036 "static assertion expression is not an integral constant expression"
+// WARNING@+1: PARSE/036 "invalid binary expression"
+static_assert(right - left == 0);
+
+// ====
+// Nested array elements need a subobject path, not a sum of element offsets.
+constexpr unsigned table[2][2] = {{3, 5}, {7, 11}};
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument is not a converted constant expression of type 'const unsigned int&'"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<table[0][1]>();
+}

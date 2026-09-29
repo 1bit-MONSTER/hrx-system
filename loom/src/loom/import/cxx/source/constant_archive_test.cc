@@ -128,13 +128,20 @@ TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
   loom_cxx_import_options_initialize(&options);
   std::vector<std::uint8_t> bytes;
   {
-    Source source(IREE_SV("constexpr unsigned left = 5, right = 5;"
-                          "template<const unsigned& N> struct Ref {};"
-                          "using Left = Ref<left>; using Right = Ref<right>;"
-                          "constexpr const unsigned* left_address = &left;"
-                          "constexpr const unsigned* right_address = &right;"
-                          "static_assert(!__is_same(Left, Right));"),
-                  IREE_SV("references.cxx"), options);
+    Source source(
+        IREE_SV("constexpr unsigned left = 5, right = 5;"
+                "template<const unsigned& N> struct Ref {};"
+                "using Left = Ref<left>; using Right = Ref<right>;"
+                "constexpr const unsigned* left_address = &left;"
+                "constexpr const unsigned* right_address = &right;"
+                "static_assert(!__is_same(Left, Right));"
+                "constexpr unsigned table[2] = {5, 5};"
+                "using First = Ref<table[0]>;"
+                "using Second = Ref<table[1]>;"
+                "constexpr const auto& alias = table;"
+                "constexpr const unsigned* first_address = &table[0];"
+                "constexpr const unsigned* second_address = &alias[1];"),
+        IREE_SV("references.cxx"), options);
     cxx::ArchiveWriter writer;
     cxx::SemanticArchiveRoots roots;
     roots.ast = source.unit().ast();
@@ -155,11 +162,13 @@ TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
   ASSERT_FALSE(primary_symbols.begin() == primary_symbols.end());
   auto* primary = cxx::symbol_cast<cxx::ClassSymbol>(*primary_symbols.begin());
   ASSERT_NE(primary, nullptr);
-  ASSERT_EQ(primary->specializations().size(), 2u);
+  ASSERT_EQ(primary->specializations().size(), 4u);
 
-  const std::array<const char*, 2> object_names = {"left", "right"};
-  const std::array<const char*, 2> address_names = {"left_address",
-                                                    "right_address"};
+  const std::array<const char*, 4> object_names = {"left", "right", "table",
+                                                   "table"};
+  const std::array<const char*, 4> address_names = {
+      "left_address", "right_address", "first_address", "second_address"};
+  const std::array<std::intmax_t, 4> offsets = {0, 0, 0, 1};
   for (size_t index = 0; index < object_names.size(); ++index) {
     SCOPED_TRACE(object_names[index]);
     auto objects = restored.globalScope->find(object_names[index]);
@@ -173,6 +182,7 @@ TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
         std::get<std::shared_ptr<cxx::ConstAddress>>(*variable->constValue());
     ASSERT_NE(address, nullptr);
     EXPECT_EQ(address->symbol(), *objects.begin());
+    EXPECT_EQ(address->offset(), offsets[index]);
 
     // The independent address constant must find the restored specialization,
     // even though it has a different ConstAddress allocation from its key.
@@ -186,7 +196,8 @@ TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
                                         arguments.front()));
     EXPECT_FALSE(cxx::compare_single_arg(
         &destination.unit(),
-        primary->specializations()[1 - index].arguments.front(),
+        primary->specializations()[(index + 1) % object_names.size()]
+            .arguments.front(),
         arguments.front()));
   }
 }
