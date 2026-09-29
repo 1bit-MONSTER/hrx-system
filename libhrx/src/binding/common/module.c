@@ -10,8 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "common/context.h"
+#include "common/device.h"
 #include "common/fat_binary.h"
-#include "common/internal.h"
 #include "iree/io/file_handle.h"
 
 //===----------------------------------------------------------------------===//
