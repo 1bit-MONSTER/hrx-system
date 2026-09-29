@@ -8,10 +8,10 @@
 
 #include <stdint.h>
 
+#include "loom/target/emit/spirv/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/tool/spirv.h"
 #include "loom/tooling/compile/pipeline.h"
-#include "loom/tooling/target/spirv/prepare.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/source_low.h"
 #include "loom/verify/verify.h"

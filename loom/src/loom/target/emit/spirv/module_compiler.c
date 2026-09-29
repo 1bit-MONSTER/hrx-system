@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/tooling/target/spirv/prepare.h"
+#include "loom/target/emit/spirv/module_compiler.h"
 
 #include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/diagnostics.h"
@@ -15,6 +15,7 @@
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/module_contract.h"
 #include "loom/target/emit/spirv/module_emitter.h"
+#include "loom/target/emit/spirv/program.h"
 #include "loom/target/function_version.h"
 
 typedef enum loom_spirv_prepare_function_disposition_e {
@@ -220,7 +221,7 @@ static iree_status_t loom_spirv_program_prepare_function(
   return iree_ok_status();
 }
 
-iree_status_t loom_spirv_program_plan_prepare(
+static iree_status_t loom_spirv_program_plan_prepare(
     loom_module_t* module,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,

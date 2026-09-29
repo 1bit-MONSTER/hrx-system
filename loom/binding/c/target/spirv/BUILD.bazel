@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
@@ -46,8 +47,15 @@ loom_cc_library(
         "//loom/src/loom/target/arch/spirv:profile",
         "//loom/src/loom/target/arch/spirv:provider",
         "//loom/src/loom/target/arch/spirv/records:target_records",
-        "//loom/src/loom/tooling/target/spirv:prepare",
+        "//loom/src/loom/target/emit/spirv:module_compiler",
         "//runtime/src/iree/base",
     ],
     alwayslink = True,
+)
+
+iree_assert_dependency_boundary(
+    name = "spirv_has_no_tooling_target_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/target/..."],
+    message = "The LoomC SPIR-V target package must compose compiler-owned target emission without tooling target adapters",
+    target = ":spirv",
 )

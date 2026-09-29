@@ -9,37 +9,6 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-loom_cc_library(
-  NAME
-    prepare
-  HDRS
-    "prepare.h"
-  SRCS
-    "prepare.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::analysis::symbol_facts
-    loom::codegen::low::descriptors
-    loom::codegen::low::diagnostics
-    loom::codegen::low::function
-    loom::codegen::low::target_binding
-    loom::error::emitter
-    loom::error::error_defs
-    loom::ir
-    loom::target::arch::spirv::descriptors
-    loom::target::arch::spirv::module_contract
-    loom::target::emit::spirv::module_builder
-    loom::target::emit::spirv::module_emitter
-    loom::target::emit::spirv::program
-    loom::target::facts
-    loom::target::function_version
-    loom::target::types
-  PUBLIC
-)
-endif()
-
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_library(
   NAME
@@ -49,8 +18,8 @@ loom_cc_library(
   SRCS
     "check/loom_check.c"
   DEPS
-    ::prepare
     iree::base
+    loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
     loom::target::tool::spirv
     loom::tooling::compile::pipeline
@@ -85,11 +54,11 @@ loom_cc_library(
   SRCS
     "artifact_provider.c"
   DEPS
-    ::prepare
     iree::base
     loom::target::arch::spirv::descriptors::low_registry
     loom::target::arch::spirv::profile
     loom::target::emit::spirv::module_builder
+    loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
     loom::target::function_contract
     loom::target::low_descriptor_registry
@@ -232,15 +201,13 @@ loom_cc_test(
 )
 endif()
 
-if(IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_test(
   NAME
-    module_emitter_test
+    module_compiler_test
   SRCS
-    "module_emitter_test.cc"
+    "module_compiler_test.cc"
   DEPS
-    ::prepare
-    ::vulkan_profile
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
@@ -256,6 +223,7 @@ loom_cc_test(
     loom::target::arch::spirv::features
     loom::target::arch::spirv::ops
     loom::target::arch::spirv::profile
+    loom::target::emit::spirv::module_compiler
     loom::target::facts_builder
     loom::target::function_contract
     loom::target::function_version

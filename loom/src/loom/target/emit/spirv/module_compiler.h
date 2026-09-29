@@ -4,10 +4,10 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Compiler-owned preparation for SPIR-V binary emission.
+// SPIR-V module compilation from prepared target-low IR.
 
-#ifndef LOOM_TOOLING_TARGET_SPIRV_PREPARE_H_
-#define LOOM_TOOLING_TARGET_SPIRV_PREPARE_H_
+#ifndef LOOM_TARGET_EMIT_SPIRV_MODULE_COMPILER_H_
+#define LOOM_TARGET_EMIT_SPIRV_MODULE_COMPILER_H_
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
@@ -16,7 +16,6 @@
 #include "loom/ir/function_version.h"
 #include "loom/ir/ir.h"
 #include "loom/target/emit/spirv/module_builder.h"
-#include "loom/target/emit/spirv/program.h"
 #include "loom/target/facts.h"
 
 #ifdef __cplusplus
@@ -45,17 +44,6 @@ typedef struct loom_spirv_compile_options_t {
 void loom_spirv_compile_options_initialize(
     loom_spirv_compile_options_t* out_options);
 
-// Resolves selected entries and projects their immutable target bindings into
-// an arena-owned SPIR-V program. Structured semantic rejection returns OK with
-// |out_accepted| false. Infrastructure failures return a status and leave the
-// plan empty.
-iree_status_t loom_spirv_program_plan_prepare(
-    loom_module_t* module,
-    const loom_low_descriptor_registry_t* descriptor_registry,
-    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
-    const loom_spirv_compile_options_t* options, bool* out_accepted,
-    loom_spirv_program_plan_t* out_plan);
-
 // Prepares and emits one SPIR-V module through the production boundary.
 // Structured semantic rejection returns OK with |out_emitted| false and no
 // binary.
@@ -70,4 +58,4 @@ iree_status_t loom_spirv_compile_module_binary(
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TOOLING_TARGET_SPIRV_PREPARE_H_
+#endif  // LOOM_TARGET_EMIT_SPIRV_MODULE_COMPILER_H_

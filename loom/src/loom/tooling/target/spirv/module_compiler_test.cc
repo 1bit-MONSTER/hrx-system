@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "loom/target/emit/spirv/module_compiler.h"
+
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/symbol_facts.h"
@@ -24,8 +26,6 @@
 #include "loom/target/function_version.h"
 #include "loom/target/profile.h"
 #include "loom/testing/module_ptr.h"
-#include "loom/tooling/target/spirv/prepare.h"
-#include "loom/tooling/target/spirv/vulkan_profile.h"
 
 namespace loom {
 namespace {
@@ -58,7 +58,7 @@ static bool SpirvModuleHasCapability(const loom_spirv_module_binary_t& module,
   return false;
 }
 
-class SpirvModuleEmitterTest : public ::testing::Test {
+class SpirvModuleCompilerTest : public ::testing::Test {
  protected:
   void SetUp() override {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
@@ -83,8 +83,7 @@ class SpirvModuleEmitterTest : public ::testing::Test {
     loom_low_descriptor_text_asm_environment_initialize(
         &low_registry_.registry, &options.low_asm_environment);
     loom_module_t* module = nullptr;
-    IREE_CHECK_OK(loom_text_parse(source,
-                                  IREE_SV("spirv_module_emitter_test.loom"),
+    IREE_CHECK_OK(loom_text_parse(source, IREE_SV("module_compiler_test.loom"),
                                   &context_, &block_pool_, &options, &module));
     return ModulePtr(module);
   }
@@ -104,7 +103,7 @@ class SpirvModuleEmitterTest : public ::testing::Test {
   loom_target_low_descriptor_registry_t low_registry_ = {};
 };
 
-TEST_F(SpirvModuleEmitterTest,
+TEST_F(SpirvModuleCompilerTest,
        FunctionTargetFactsSelectCapabilitiesWithoutMutatingIR) {
   ModulePtr module = ParseModule(IREE_SV(R"(
 spirv.target<vulkan1_3> @generic
@@ -137,34 +136,12 @@ low.func.def target<spirv.logical.core>(@generic) abi(shader_entry_point) @kerne
       loom_target_symbol_facts_cast(base_target_facts);
   ASSERT_NE(target_facts, nullptr);
 
-  loom_spirv_vulkan_hal_profile_facts_t device_facts = {};
-  device_facts.api_version = LOOM_SPIRV_VULKAN_API_VERSION_1_3;
-  device_facts.flags =
-      LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_RAW_BDA_EXECUTABLE |
-      LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_BUFFER_DEVICE_ADDRESS |
-      LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_FLOAT16 |
-      LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_INT8 |
-      LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_INT16 |
-      LOOM_SPIRV_VULKAN_HAL_PROFILE_FLAG_SHADER_INT64;
-  device_facts.subgroup_size = 32;
-  device_facts.max_compute_workgroup_invocations = 256;
-  device_facts.max_compute_workgroup_size.x = 256;
-  device_facts.max_compute_workgroup_size.y = 128;
-  device_facts.max_compute_workgroup_size.z = 64;
-  device_facts.max_compute_workgroup_count.x = 65535;
-  device_facts.max_compute_workgroup_count.y = 65535;
-  device_facts.max_compute_workgroup_count.z = 65535;
-  device_facts.max_compute_shared_memory_size = 32 * 1024;
-  loom_spirv_vulkan_hal_target_profile_storage_t exact_profile = {};
-  IREE_ASSERT_OK(loom_spirv_vulkan_hal_target_profile_storage_initialize(
-      &device_facts, /*cooperative_matrix_properties=*/nullptr,
-      /*cooperative_matrix_property_count=*/0, iree_allocator_system(),
-      &exact_profile));
+  const loom_spirv_target_profile_t* exact_profile = nullptr;
+  IREE_ASSERT_OK(loom_spirv_target_profile_select(
+      IREE_SV("vulkan1.3+bda+extended-types"), &exact_profile));
   loom_target_facts_t* profile_facts = nullptr;
-  IREE_ASSERT_OK(loom_target_profile_project_facts(&exact_profile.profile.base,
+  IREE_ASSERT_OK(loom_target_profile_project_facts(&exact_profile->base,
                                                    &arena_, &profile_facts));
-  loom_spirv_vulkan_hal_target_profile_storage_deinitialize(
-      &exact_profile, iree_allocator_system());
   ASSERT_TRUE(loom_target_facts_satisfy_specialization_requirement(
       profile_facts, target_facts->projection));
   loom_target_facts_builder_apply_requirement(target_facts->projection,

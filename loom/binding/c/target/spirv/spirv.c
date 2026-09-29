@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "loom/target/arch/spirv/provider.h"
-#include "loom/tooling/target/spirv/prepare.h"
+#include "loom/target/emit/spirv/module_compiler.h"
 #include "loomc/target/spirv/base.h"
 #include "target.h"
 

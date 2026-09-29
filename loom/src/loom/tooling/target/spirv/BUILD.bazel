@@ -42,39 +42,12 @@ _SPIRV_VULKAN_HAL_COMPATIBLE_WITH = loom_config_compatible_with([
 _SPIRV_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 loom_cc_library(
-    name = "prepare",
-    srcs = ["prepare.c"],
-    hdrs = ["prepare.h"],
-    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
-    deps = [
-        "//loom/src/loom/analysis:symbol_facts",
-        "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/codegen/low:diagnostics",
-        "//loom/src/loom/codegen/low:function",
-        "//loom/src/loom/codegen/low:target_binding",
-        "//loom/src/loom/error:emitter",
-        "//loom/src/loom/error:error_defs",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/target:facts",
-        "//loom/src/loom/target:function_version",
-        "//loom/src/loom/target:types",
-        "//loom/src/loom/target/arch/spirv:module_contract",
-        "//loom/src/loom/target/arch/spirv/descriptors",
-        "//loom/src/loom/target/emit/spirv:module_builder",
-        "//loom/src/loom/target/emit/spirv:module_emitter",
-        "//loom/src/loom/target/emit/spirv:program",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_library(
     name = "loom_check",
     srcs = ["check/loom_check.c"],
     hdrs = ["check/loom_check.h"],
     deps = [
-        ":prepare",
         "//loom/src/loom/target:entry_selection",
+        "//loom/src/loom/target/emit/spirv:module_compiler",
         "//loom/src/loom/target/tool:spirv",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tools/loom-check:execute",
@@ -101,7 +74,6 @@ loom_cc_library(
     hdrs = ["artifact_provider.h"],
     target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
     deps = [
-        ":prepare",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:function_contract",
         "//loom/src/loom/target:low_descriptor_registry",
@@ -109,6 +81,7 @@ loom_cc_library(
         "//loom/src/loom/target/arch/spirv:profile",
         "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
         "//loom/src/loom/target/emit/spirv:module_builder",
+        "//loom/src/loom/target/emit/spirv:module_compiler",
         "//loom/src/loom/target/reporting:artifact_manifest_collect",
         "//loom/src/loom/target/reporting:report",
         "//loom/src/loom/tooling/compile:artifact",
@@ -222,12 +195,10 @@ loom_cc_test(
 )
 
 loom_cc_test(
-    name = "module_emitter_test",
-    srcs = ["module_emitter_test.cc"],
-    target_compatible_with = LOOM_SPIRV_VULKAN_COMPATIBLE_WITH,
+    name = "module_compiler_test",
+    srcs = ["module_compiler_test.cc"],
+    target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
     deps = [
-        ":prepare",
-        ":vulkan_profile",
         "//loom/src/loom/analysis:symbol_facts",
         "//loom/src/loom/codegen/low:text_asm",
         "//loom/src/loom/format/text:parser",
@@ -245,6 +216,7 @@ loom_cc_test(
         "//loom/src/loom/target/arch/spirv:profile",
         "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
         "//loom/src/loom/target/arch/spirv/ops",
+        "//loom/src/loom/target/emit/spirv:module_compiler",
         "//loom/src/loom/testing:module_ptr",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
