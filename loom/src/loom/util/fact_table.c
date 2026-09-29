@@ -664,15 +664,6 @@ bool loom_value_fact_table_values_equal(const loom_value_fact_table_t* table,
          lhs_facts.range_lo == rhs_facts.range_lo;
 }
 
-loom_value_id_t loom_value_fact_table_query_identity(
-    const loom_value_fact_table_t* table, loom_value_id_t value_id) {
-  if (!table || value_id >= table->identities.capacity) {
-    return value_id;
-  }
-  const loom_value_id_t identity = table->identities.entries[value_id];
-  return identity != LOOM_VALUE_ID_INVALID ? identity : value_id;
-}
-
 void loom_value_fact_table_pending_exact_relations(
     const loom_value_fact_table_t* table, loom_op_t* const** out_ops,
     iree_host_size_t* out_op_count) {

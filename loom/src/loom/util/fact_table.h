@@ -497,8 +497,14 @@ void loom_value_fact_table_contextual_query_values(
 // itself when the table is NULL or no identity has been established. This is
 // an O(1) lookup, not an IR traversal. Identities have the same populated-scope
 // lifetime and mutation/recomputation contract as numeric facts.
-loom_value_id_t loom_value_fact_table_query_identity(
-    const loom_value_fact_table_t* table, loom_value_id_t value_id);
+static inline loom_value_id_t loom_value_fact_table_query_identity(
+    const loom_value_fact_table_t* table, loom_value_id_t value_id) {
+  if (!table || value_id >= table->identities.capacity) {
+    return value_id;
+  }
+  const loom_value_id_t identity = table->identities.entries[value_id];
+  return identity != LOOM_VALUE_ID_INVALID ? identity : value_id;
+}
 
 // Returns true when exact predicate-bearing identities await consumption.
 static inline bool loom_value_fact_table_has_pending_exact_relations(

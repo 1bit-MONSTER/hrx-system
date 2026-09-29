@@ -234,6 +234,23 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    fact_table_api
+  HDRS
+    "fact_extensions.h"
+    "fact_layout.h"
+    "fact_table.h"
+  DEPS
+    ::numeric_format
+    ::reference_facts
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ir::facts
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     fact_table
   HDRS
     "fact_cfg.h"
@@ -259,6 +276,7 @@ loom_cc_library(
     ::cfg_loop_nest
     ::cfg_regions
     ::fact_control
+    ::fact_table_api
     ::numeric_format
     ::reference_facts
     iree::base

@@ -334,10 +334,12 @@ loom_cc_library(
     iree::base::internal::arena
     loom::ir
     loom::ir::facts
-    loom::ops::index
-    loom::ops::scalar
+    loom::ops::index::comparison
+    loom::ops::index::op_defs
+    loom::ops::scalar::comparison
+    loom::ops::scalar::op_defs
     loom::util::adaptive_sort
-    loom::util::fact_table
+    loom::util::fact_table_api
   PUBLIC
 )
 
