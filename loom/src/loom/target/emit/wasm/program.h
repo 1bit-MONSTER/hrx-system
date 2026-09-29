@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Prepared physical WebAssembly program consumed by binary emission.
+// Planned physical WebAssembly program consumed by binary emission.
 
 #ifndef LOOM_TARGET_EMIT_WASM_PROGRAM_H_
 #define LOOM_TARGET_EMIT_WASM_PROGRAM_H_
@@ -34,13 +34,13 @@ typedef struct loom_wasm_function_type_t {
   uint32_t result_count;
 } loom_wasm_function_type_t;
 
-// One prepared Low function ready for WebAssembly body emission.
+// One planned Low function ready for WebAssembly body emission.
 typedef struct loom_wasm_function_plan_t {
   // Structured Low function body walked by the WebAssembly writer.
   const loom_region_t* body;
-  // Function-local value IDs indexed by prepared value ordinal.
+  // Function-local value IDs indexed by planned value ordinal.
   const loom_value_id_t* value_ids;
-  // WebAssembly local index by prepared value ordinal. Entries without a
+  // WebAssembly local index by planned value ordinal. Entries without a
   // physical local contain LOOM_WASM_PROGRAM_INDEX_NONE.
   const uint32_t* local_indices_by_value_ordinal;
   // Number of entries in |value_ids| and |local_indices_by_value_ordinal|.
@@ -55,22 +55,22 @@ typedef struct loom_wasm_function_plan_t {
   uint32_t type_index;
   // Interned WebAssembly function signature.
   loom_wasm_function_type_t type;
-  // Prepared parameter and physical-local types in local-index order.
+  // Planned parameter and physical-local types in local-index order.
   const loom_wasm_value_type_t* local_types;
   // Number of parameter entries at the start of |local_types|.
   uint32_t parameter_count;
-  // Number of prepared entries in |local_types|.
+  // Number of planned entries in |local_types|.
   uint32_t local_count;
 } loom_wasm_function_plan_t;
 
-// Immutable physical WebAssembly program produced by compiler preparation.
+// Immutable physical WebAssembly program produced by target planning.
 //
 // All tables are arena-owned and borrow the semantically immutable Low module.
 // The plan contains only target-consumable physical facts; compiler liveness,
 // allocation intervals, diagnostics, and rejected candidates do not cross the
 // emission boundary.
 typedef struct loom_wasm_program_plan_t {
-  // Low module containing the prepared function bodies. Emission preserves
+  // Low module containing the planned function bodies. Emission preserves
   // semantic IR and uses only the module-owned value-ordinal scratch map.
   loom_module_t* module;
   // Functions in WebAssembly function-index order.

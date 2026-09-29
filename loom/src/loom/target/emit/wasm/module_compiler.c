@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/tooling/target/wasm/prepare.h"
+#include "loom/target/emit/wasm/module_compiler.h"
 
 #include <string.h>
 
@@ -23,12 +23,12 @@ typedef struct loom_wasm_local_entry_t {
   uint32_t location_base;
   // WebAssembly value type stored in this local.
   loom_wasm_value_type_t value_type;
-  // Function-local WebAssembly index assigned by preparation.
+  // Function-local WebAssembly index assigned by program planning.
   uint32_t local_index;
 } loom_wasm_local_entry_t;
 
 typedef struct loom_wasm_program_build_t {
-  // Module being prepared.
+  // Module being planned.
   loom_module_t* module;
   // Mutable function plan storage.
   loom_wasm_function_plan_t* functions;
@@ -140,7 +140,7 @@ static iree_status_t loom_wasm_program_build_function_type(
       loom_func_like_const_cast(allocation->module, allocation->function_op);
   if (!loom_func_like_isa(function)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm preparation requires a func-like op");
+                            "Wasm program planning requires a func-like op");
   }
 
   uint16_t parameter_count = 0;
@@ -230,27 +230,27 @@ static iree_status_t loom_wasm_program_build_function_allocation(
           loom_wasm_core_simd128_descriptor_set()) {
     status = iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm preparation requires descriptor set 'wasm.core.simd128'");
+        "Wasm program planning requires descriptor set 'wasm.core.simd128'");
   }
   if (iree_status_is_ok(status) && (out_allocation->spill_count != 0 ||
                                     out_allocation->spill_plan_count != 0)) {
-    status =
-        iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                         "Wasm preparation requires an unspilled allocation");
+    status = iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "Wasm program planning requires an unspilled allocation");
   }
   if (iree_status_is_ok(status) &&
       (out_allocation->edge_copy_count != 0 ||
        out_allocation->edge_copy_group_count != 0)) {
     status = iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm preparation requires structured allocation without CFG edge "
+        "Wasm program planning requires structured allocation without CFG edge "
         "copies");
   }
   if (iree_status_is_ok(status) &&
       out_allocation->packet_move_group_count != 0) {
     status = iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "Wasm preparation requires allocation without packet-local moves");
+        "Wasm program planning requires allocation without packet-local moves");
   }
   if (iree_status_is_ok(status)) {
     *out_accepted = true;
@@ -326,7 +326,7 @@ static iree_status_t loom_wasm_program_append_local_type(
     uint32_t* out_local_index) {
   if (*local_count >= local_capacity || *local_count >= UINT32_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "Wasm local index exceeds prepared capacity");
+                            "Wasm local index exceeds planned capacity");
   }
   *out_local_index = (uint32_t)*local_count;
   local_types[(*local_count)++] = value_type;
@@ -340,7 +340,7 @@ static iree_status_t loom_wasm_program_project_function_allocation(
       loom_func_like_const_cast(allocation->module, allocation->function_op);
   if (!loom_func_like_isa(function_like)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm preparation requires a func-like function");
+                            "Wasm planning requires a func-like function");
   }
   uint16_t parameter_count = 0;
   const loom_value_id_t* parameter_ids =
@@ -473,7 +473,7 @@ static iree_status_t loom_wasm_program_project_function_allocation(
   return status;
 }
 
-static iree_status_t loom_wasm_program_prepare_function(
+static iree_status_t loom_wasm_program_build_function(
     loom_wasm_program_build_t* build, loom_op_t* function_op,
     loom_wasm_function_plan_t* function,
     const loom_low_descriptor_registry_t* descriptor_registry,
@@ -498,7 +498,7 @@ static iree_status_t loom_wasm_program_prepare_function(
   return iree_ok_status();
 }
 
-iree_status_t loom_wasm_program_plan_prepare(
+iree_status_t loom_wasm_program_plan_build(
     loom_module_t* module,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
@@ -512,7 +512,7 @@ iree_status_t loom_wasm_program_plan_prepare(
   *out_plan = (loom_wasm_program_plan_t){0};
   if (module->symbols.count == 0) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm preparation requires low functions");
+                            "Wasm program planning requires low functions");
   }
 
   loom_wasm_program_build_t build = {
@@ -546,7 +546,7 @@ iree_status_t loom_wasm_program_plan_prepare(
     if (loom_low_kernel_def_isa(defining_op)) {
       return iree_make_status(
           IREE_STATUS_UNIMPLEMENTED,
-          "Wasm module preparation for low.kernel.def is not implemented");
+          "Wasm program planning for low.kernel.def is not implemented");
     }
     if (!loom_low_func_def_isa(defining_op)) {
       continue;
@@ -571,7 +571,7 @@ iree_status_t loom_wasm_program_plan_prepare(
       ++build.export_count;
     }
     bool function_accepted = false;
-    IREE_RETURN_IF_ERROR(loom_wasm_program_prepare_function(
+    IREE_RETURN_IF_ERROR(loom_wasm_program_build_function(
         &build, defining_op, function, descriptor_registry, diagnostic_emitter,
         arena, &function_accepted));
     if (!function_accepted) {
@@ -582,7 +582,7 @@ iree_status_t loom_wasm_program_plan_prepare(
 
   if (build.function_count == 0) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "Wasm preparation requires at least one "
+                            "Wasm program planning requires at least one "
                             "low.func.def");
   }
   *out_plan = (loom_wasm_program_plan_t){
@@ -612,9 +612,9 @@ iree_status_t loom_wasm_compile_module_binary(
 
   loom_wasm_program_plan_t plan = {0};
   bool accepted = false;
-  IREE_RETURN_IF_ERROR(loom_wasm_program_plan_prepare(
-      module, descriptor_registry, diagnostic_emitter, arena, &accepted,
-      &plan));
+  IREE_RETURN_IF_ERROR(loom_wasm_program_plan_build(module, descriptor_registry,
+                                                    diagnostic_emitter, arena,
+                                                    &accepted, &plan));
   if (!accepted) {
     return iree_ok_status();
   }

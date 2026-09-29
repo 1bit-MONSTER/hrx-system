@@ -44,27 +44,6 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "prepare",
-    srcs = ["prepare.c"],
-    hdrs = ["prepare.h"],
-    deps = [
-        "//loom/src/loom/codegen/low:allocation",
-        "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/codegen/low:function_model",
-        "//loom/src/loom/error:emitter",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/target:registers",
-        "//loom/src/loom/target/arch/wasm/descriptors",
-        "//loom/src/loom/target/emit/wasm:module_binary",
-        "//loom/src/loom/target/emit/wasm:program",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_library(
     name = "testbench",
     srcs = ["testbench.c"],
     hdrs = ["testbench.h"],
@@ -72,13 +51,13 @@ loom_cc_library(
     deps = [
         ":artifact_emitter",
         ":host",
-        ":prepare",
         "//loom/src/loom/error:source",
         "//loom/src/loom/link:linker",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target:selection",
+        "//loom/src/loom/target/emit/wasm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/compile:preparation",
         "//loom/src/loom/tooling/compile:request",
@@ -96,9 +75,9 @@ loom_cc_library(
     hdrs = ["artifact_emitter.h"],
     visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
     deps = [
-        ":prepare",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/wasm/ops",
+        "//loom/src/loom/target/emit/wasm:module_compiler",
         "//runtime/src/iree/base",
     ],
 )
@@ -108,7 +87,7 @@ loom_cc_library(
     srcs = ["check/loom_check.c"],
     hdrs = ["check/loom_check.h"],
     deps = [
-        ":prepare",
+        "//loom/src/loom/target/emit/wasm:module_compiler",
         "//loom/src/loom/target/tool:wasm",
         "//loom/src/loom/tools/loom-check:execute",
         "//runtime/src/iree/base",

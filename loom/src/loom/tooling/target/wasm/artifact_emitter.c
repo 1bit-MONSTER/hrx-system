@@ -7,7 +7,7 @@
 #include "loom/tooling/target/wasm/artifact_emitter.h"
 
 #include "loom/target/arch/wasm/ops/ops.h"
-#include "loom/tooling/target/wasm/prepare.h"
+#include "loom/target/emit/wasm/module_compiler.h"
 
 static iree_status_t loom_wasm_artifact_emit(
     const loom_target_emit_request_t* request, bool* out_emitted,

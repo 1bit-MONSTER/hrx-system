@@ -99,6 +99,35 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "module_compiler",
+    srcs = ["module_compiler.c"],
+    hdrs = ["module_compiler.h"],
+    visibility = ["//loom/src/loom/tooling/target/wasm:__pkg__"],
+    deps = [
+        ":module_binary",
+        ":program",
+        "//loom/src/loom/codegen/low:allocation",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:function_model",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//loom/src/loom/target/arch/wasm/descriptors",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "module_compiler_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "Wasm module compilation is target-owned and must not depend on tooling",
+    target = ":module_compiler",
+)
+
 iree_assert_dependency_boundary(
     name = "module_binary_analysis_boundary",
     allowed_dependencies = [
@@ -106,7 +135,7 @@ iree_assert_dependency_boundary(
         "//loom/src/loom/codegen/low:representation_binding",
     ],
     forbidden_subtrees = ["//loom/src/loom/codegen/low/..."],
-    message = "Wasm binary emission may consume verified Low representation bindings but must not run target resolution or compiler preparation",
+    message = "Wasm binary emission may consume verified Low representation bindings but must not run target resolution or program planning",
     target = ":module_binary",
 )
 

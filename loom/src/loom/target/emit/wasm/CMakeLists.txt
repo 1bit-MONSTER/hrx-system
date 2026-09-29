@@ -117,6 +117,32 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
+    module_compiler
+  HDRS
+    "module_compiler.h"
+  SRCS
+    "module_compiler.c"
+  DEPS
+    ::module_binary
+    ::program
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::allocation
+    loom::codegen::low::descriptors
+    loom::codegen::low::function_model
+    loom::error::emitter
+    loom::ir
+    loom::ops::low
+    loom::ops::op_defs
+    loom::target::arch::wasm::descriptors
+    loom::target::registers
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_test(
   NAME
     descriptor_fields_test

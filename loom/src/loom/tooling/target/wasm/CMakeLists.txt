@@ -38,32 +38,6 @@ endif()
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME
-    prepare
-  HDRS
-    "prepare.h"
-  SRCS
-    "prepare.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::codegen::low::allocation
-    loom::codegen::low::descriptors
-    loom::codegen::low::function_model
-    loom::error::emitter
-    loom::ir
-    loom::ops::low
-    loom::ops::op_defs
-    loom::target::arch::wasm::descriptors
-    loom::target::emit::wasm::module_binary
-    loom::target::emit::wasm::program
-    loom::target::registers
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-loom_cc_library(
-  NAME
     testbench
   HDRS
     "testbench.h"
@@ -72,13 +46,13 @@ loom_cc_library(
   DEPS
     ::artifact_emitter
     ::host
-    ::prepare
     iree::base
     iree::base::internal::arena
     iree::hal
     loom::error::source
     loom::link::linker
     loom::ops::op_defs
+    loom::target::emit::wasm::module_compiler
     loom::target::entry_selection
     loom::target::provider
     loom::target::selection
@@ -100,9 +74,9 @@ loom_cc_library(
   SRCS
     "artifact_emitter.c"
   DEPS
-    ::prepare
     iree::base
     loom::target::arch::wasm::ops
+    loom::target::emit::wasm::module_compiler
     loom::target::provider
   PUBLIC
 )
@@ -117,8 +91,8 @@ loom_cc_library(
   SRCS
     "check/loom_check.c"
   DEPS
-    ::prepare
     iree::base
+    loom::target::emit::wasm::module_compiler
     loom::target::tool::wasm
     loom::tools::loom-check::execute
   PUBLIC

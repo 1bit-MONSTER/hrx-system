@@ -12,6 +12,7 @@
 #include "iree/hal/buffer.h"
 #include "loom/link/linker.h"
 #include "loom/ops/op_defs.h"
+#include "loom/target/emit/wasm/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
@@ -20,7 +21,6 @@
 #include "loom/tooling/config/config.h"
 #include "loom/tooling/target/wasm/artifact_emitter.h"
 #include "loom/tooling/target/wasm/host.h"
-#include "loom/tooling/target/wasm/prepare.h"
 
 enum {
   LOOM_WASM_TESTBENCH_ROOT_ALIGNMENT = 16,
@@ -319,10 +319,10 @@ static iree_status_t loom_wasm_testbench_compile_product(
     loom_target_entry_diagnostic_emitter_t entry_emitter;
     loom_target_entry_diagnostic_emitter_initialize(
         module, &entry_options, LOOM_EMITTER_VERIFIER, &entry_emitter);
-    status = loom_wasm_program_plan_prepare(
-        module, &low_registry.registry,
-        loom_target_entry_emitter(&entry_emitter), &arena, &program_accepted,
-        &program);
+    status =
+        loom_wasm_program_plan_build(module, &low_registry.registry,
+                                     loom_target_entry_emitter(&entry_emitter),
+                                     &arena, &program_accepted, &program);
   }
   if (iree_status_is_ok(status) && !program_accepted) {
     status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
@@ -344,7 +344,7 @@ static iree_status_t loom_wasm_testbench_compile_product(
             : program.function_indices_by_symbol[symbol_id];
     if (function_index == LOOM_WASM_PROGRAM_INDEX_NONE) {
       status = iree_make_status(IREE_STATUS_NOT_FOUND,
-                                "Wasm scenario subject '%.*s' was not prepared",
+                                "Wasm scenario subject '%.*s' was not planned",
                                 (int)function_name.size, function_name.data);
     } else {
       function = &program.functions[function_index];

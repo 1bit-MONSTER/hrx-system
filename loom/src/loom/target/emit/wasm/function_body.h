@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// WebAssembly function-body emission from prepared structured target-low IR.
+// WebAssembly function-body emission from planned structured target-low IR.
 //
 // This emits the size-prefixed function body stored in a Wasm code section,
 // not a complete Wasm module. Module sections, imports/exports, validation
@@ -48,7 +48,7 @@ typedef struct loom_wasm_function_body_t {
 void loom_wasm_function_body_deinitialize(loom_wasm_function_body_t* body,
                                           iree_allocator_t allocator);
 
-// Emits a size-prefixed Wasm code-section function body from one prepared
+// Emits a size-prefixed Wasm code-section function body from one planned
 // function plan. Physical locals and direct-call targets are trusted facts in
 // |program|; the writer may append private locals required by Wasm encoding.
 iree_status_t loom_wasm_emit_function_body(
