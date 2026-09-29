@@ -94,6 +94,8 @@ typedef struct loom_amdgpu_hsaco_data_symbol_layout_t {
 } loom_amdgpu_hsaco_data_symbol_layout_t;
 
 typedef struct loom_amdgpu_hsaco_payloads_t {
+  // Canonical AMDHSA target ID projected once for code-object metadata.
+  iree_string_view_t code_object_target_id;
   // Arena-backed copied metadata kernel rows.
   loom_amdgpu_metadata_kernel_t* metadata_kernels;
   // Number of entries in |metadata_kernels|.
@@ -340,37 +342,12 @@ static iree_status_t loom_amdgpu_hsaco_validate_symbol(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_hsaco_validate_target_id(
-    iree_string_view_t target, iree_string_view_t processor_name,
-    loom_amdgpu_amdhsa_target_id_t* out_target_id) {
-  *out_target_id = (loom_amdgpu_amdhsa_target_id_t){0};
-  if (iree_string_view_is_empty(processor_name)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AMDGPU HSACO processor is required");
-  }
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_amdhsa_target_id_parse(target, out_target_id));
-  if (!iree_string_view_equal(out_target_id->processor->name, processor_name)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AMDGPU HSACO target id '%.*s' selects processor '%.*s' but input "
-        "processor is '%.*s'",
-        (int)target.size, target.data, (int)out_target_id->processor->name.size,
-        out_target_id->processor->name.data, (int)processor_name.size,
-        processor_name.data);
-  }
-  return iree_ok_status();
-}
-
 static iree_status_t loom_amdgpu_hsaco_validate_input(
-    const loom_amdgpu_hsaco_input_t* input,
-    loom_amdgpu_amdhsa_target_id_t* out_target_id) {
+    const loom_amdgpu_hsaco_input_t* input) {
   if (input == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "AMDGPU HSACO input description is required");
   }
-  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_validate_target_id(
-      input->target, input->processor, out_target_id));
   if (input->kernel_count == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "AMDGPU HSACO requires at least one kernel");
@@ -579,7 +556,7 @@ static iree_status_t loom_amdgpu_hsaco_build_note(
   *out_note = iree_make_const_byte_span(NULL, 0);
 
   const loom_amdgpu_code_object_metadata_t metadata = {
-      .target = input->target,
+      .target = payloads->code_object_target_id,
       .kernels = payloads->metadata_kernels,
       .kernel_count = payloads->metadata_kernel_count,
   };
@@ -1518,14 +1495,17 @@ iree_status_t loom_amdgpu_hsaco_prepare(const loom_amdgpu_hsaco_input_t* input,
                                         loom_amdgpu_hsaco_plan_t* out_plan,
                                         iree_arena_allocator_t* arena) {
   *out_plan = (loom_amdgpu_hsaco_plan_t){0};
-  loom_amdgpu_amdhsa_target_id_t target_id = {0};
-  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_validate_input(input, &target_id));
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_amdhsa_target_id_elf_flags(&target_id, &out_plan->elf_flags));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_validate_input(input));
+  const loom_amdgpu_processor_info_t* processor =
+      loom_amdgpu_target_info_target_processor(input->target_identity.target);
+  IREE_ASSERT(processor != NULL);
+  out_plan->elf_flags = loom_amdgpu_amdhsa_elf_flags(&input->target_identity);
 
   loom_amdgpu_hsaco_payloads_t payloads = {
       .plan = out_plan,
   };
+  IREE_RETURN_IF_ERROR(loom_amdgpu_amdhsa_target_id_format(
+      &input->target_identity, arena, &payloads.code_object_target_id));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, input->kernel_count, sizeof(payloads.kernel_layouts[0]),
       (void**)&payloads.kernel_layouts));
@@ -1541,8 +1521,8 @@ iree_status_t loom_amdgpu_hsaco_prepare(const loom_amdgpu_hsaco_input_t* input,
   }
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_hsaco_copy_metadata_kernels(input, &payloads, arena));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_hsaco_prepare_sections(
-      input, target_id.processor, &payloads, arena));
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_hsaco_prepare_sections(input, processor, &payloads, arena));
   loom_amdgpu_hsaco_prepare_segments(&payloads);
   return iree_ok_status();
 }

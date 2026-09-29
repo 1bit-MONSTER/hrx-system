@@ -410,11 +410,10 @@ loom_cc_library(
     loom::codegen::low::schedule
     loom::ir
     loom::ops::low
-    loom::target::arch::amdgpu::amdhsa_target_id
-    loom::target::arch::amdgpu::artifact_key
     loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::hal::kernel_abi
     loom::target::arch::amdgpu::refs::target_refs
+    loom::target::arch::amdgpu::target_identity
     loom::target::arch::amdgpu::target_info
     loom::target::launch
   PUBLIC
@@ -508,6 +507,7 @@ loom_cc_library(
     iree::base
     loom::codegen::low::allocation
     loom::codegen::low::schedule
+    loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::hal::kernel_abi
   PUBLIC
 )
@@ -552,6 +552,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::hal::kernel_abi
     loom::target::arch::amdgpu::planning::occupancy
     loom::target::arch::amdgpu::planning::packet_plan
+    loom::target::arch::amdgpu::target_identity
     loom::target::residency
   PUBLIC
 )
@@ -616,6 +617,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::target::arch::amdgpu::amdhsa_target_id
+    loom::target::arch::amdgpu::target_identity
     loom::target::arch::amdgpu::target_info
     loom::target::emit::native::elf
   PUBLIC
@@ -807,6 +809,7 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::profile
+    loom::target::arch::amdgpu::target_identity
     loom::target::arch::amdgpu::target_info
     loom::target::emit::native::elf
   LABELS
@@ -828,6 +831,8 @@ loom_cc_test(
     iree::io::stream
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::target::arch::amdgpu::target_identity
+    loom::target::arch::amdgpu::target_info
     loom::target::emit::native::elf
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"

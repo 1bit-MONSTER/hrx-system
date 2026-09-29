@@ -8,6 +8,7 @@
 
 #include <inttypes.h>
 
+#include "loom/target/arch/amdgpu/amdhsa_target_id.h"
 #include "loom/target/emit/native/amdgpu/assembly.h"
 #include "loom/target/emit/native/amdgpu/kernel_entry.h"
 #include "loom/target/emit/native/amdgpu/kernel_record.h"
@@ -48,7 +49,8 @@ static bool loom_amdgpu_kernel_assembly_supports_wgp_mode(
 }
 
 static iree_status_t loom_amdgpu_kernel_assembly_append_metadata(
-    const loom_amdgpu_kernel_record_t* record, iree_string_builder_t* builder) {
+    const loom_amdgpu_kernel_record_t* record,
+    iree_string_view_t code_object_target_id, iree_string_builder_t* builder) {
   const loom_amdgpu_metadata_kernel_t* kernel = &record->metadata;
   const bool has_architected_flat_scratch =
       loom_amdgpu_processor_properties_kernel_descriptor_has_flags(
@@ -231,7 +233,7 @@ static iree_status_t loom_amdgpu_kernel_assembly_append_metadata(
       iree_string_builder_append_cstring(builder, ".end_amdhsa_kernel\n"));
 
   const loom_amdgpu_code_object_metadata_t metadata = {
-      .target = record->code_object_target_id,
+      .target = code_object_target_id,
       .kernels = &record->metadata,
       .kernel_count = 1,
   };
@@ -251,12 +253,14 @@ static iree_status_t loom_amdgpu_kernel_assembly_emit(
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_record_build(
       schedule, allocation, &record_options, &record, scratch_arena));
+  iree_string_view_t code_object_target_id = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(loom_amdgpu_amdhsa_target_id_format(
+      &record.target_identity, scratch_arena, &code_object_target_id));
 
   IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, ".text\n"));
-  IREE_RETURN_IF_ERROR(
-      iree_string_builder_append_format(builder, ".amdgcn_target \"%.*s\"\n",
-                                        (int)record.code_object_target_id.size,
-                                        record.code_object_target_id.data));
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      builder, ".amdgcn_target \"%.*s\"\n", (int)code_object_target_id.size,
+      code_object_target_id.data));
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       builder, ".amdhsa_code_object_version %u\n\n",
       LOOM_AMDGPU_KERNEL_ASSEMBLY_CODE_OBJECT_VERSION));
@@ -288,7 +292,8 @@ static iree_status_t loom_amdgpu_kernel_assembly_emit(
       ".size %.*s, .Lfunc_end0-%.*s\n",
       (int)record.symbol.size, record.symbol.data, (int)record.symbol.size,
       record.symbol.data));
-  return loom_amdgpu_kernel_assembly_append_metadata(&record, builder);
+  return loom_amdgpu_kernel_assembly_append_metadata(
+      &record, code_object_target_id, builder);
 }
 
 iree_status_t loom_amdgpu_emit_kernel_assembly(

@@ -1015,15 +1015,6 @@ iree_status_t EmitB128CopyKernelForAmdgpu(const AmdgpuHsaTarget& target,
                             arena.arena());
 }
 
-std::string CodeObjectTargetIdForIdentity(
-    const loom_amdgpu_target_identity_t& identity) {
-  TestArena arena;
-  iree_string_view_t target_id = iree_string_view_empty();
-  IREE_CHECK_OK(loom_amdgpu_amdhsa_target_id_format(&identity, arena.arena(),
-                                                    &target_id));
-  return std::string(target_id.data, target_id.size);
-}
-
 loom_amdgpu_metadata_kernel_t MinimalKernel(iree_string_view_t name,
                                             iree_string_view_t symbol,
                                             uint32_t wavefront_size) {
@@ -1083,14 +1074,11 @@ iree_status_t EmitRuntimeGlobalKernelForAmdgpu(const AmdgpuHsaTarget& target,
           /*.flags=*/LOOM_AMDGPU_HSACO_DATA_SYMBOL_FLAG_WRITABLE,
       },
   };
-  const std::string target_id =
-      CodeObjectTargetIdForIdentity(target_profile.identity);
   loom_amdgpu_hsaco_kernel_t revisioned_kernel = kernel;
   revisioned_kernel.metadata.target_extensions =
       target_profile.identity.target->kernel_metadata_extensions;
   const loom_amdgpu_hsaco_input_t input = {
-      /*.target=*/iree_make_string_view(target_id.data(), target_id.size()),
-      /*.processor=*/processor->name,
+      /*.target_identity=*/target_profile.identity,
       /*.kernels=*/&revisioned_kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/data_symbols,

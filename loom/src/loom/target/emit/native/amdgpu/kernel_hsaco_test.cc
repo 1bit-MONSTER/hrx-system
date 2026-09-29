@@ -14,6 +14,7 @@
 #include "iree/io/vec_stream.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/elf.h"
 
 namespace loom {
@@ -175,13 +176,20 @@ loom_amdgpu_metadata_kernel_t MinimalKernel(iree_string_view_t name,
   };
 }
 
+loom_amdgpu_target_identity_t TargetIdentity(const char* target_name) {
+  const loom_amdgpu_target_info_t* target = nullptr;
+  IREE_CHECK_OK(loom_amdgpu_target_info_lookup_target(
+      iree_make_cstring_view(target_name), &target));
+  loom_amdgpu_target_identity_t identity = {};
+  loom_amdgpu_target_identity_initialize(target, &identity);
+  return identity;
+}
+
 loom_amdgpu_kernel_hsaco_contribution_t Contribution(
     iree_string_view_t name, iree_string_view_t descriptor_symbol,
     iree_const_byte_span_t text) {
   return {
-      /*.artifact_target_key=*/IREE_SV("gfx1100"),
-      /*.code_object_target_id=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernel=*/
       {
           /*.metadata=*/MinimalKernel(name, descriptor_symbol),
@@ -306,7 +314,7 @@ TEST(AmdgpuKernelHsacoTest, WritesDataSymbolsFromWriteOptions) {
             "loom_runtime_slot");
 }
 
-TEST(AmdgpuKernelHsacoTest, RejectsMismatchedContributionProcessor) {
+TEST(AmdgpuKernelHsacoTest, RejectsMismatchedContributionTarget) {
   const uint8_t text[] = {0x00, 0x00, 0x81, 0xbf};
   loom_amdgpu_kernel_hsaco_contribution_t contributions[] = {
       Contribution(IREE_SV("first_kernel"), IREE_SV("first_kernel.kd"),
@@ -314,7 +322,7 @@ TEST(AmdgpuKernelHsacoTest, RejectsMismatchedContributionProcessor) {
       Contribution(IREE_SV("second_kernel"), IREE_SV("second_kernel.kd"),
                    iree_make_const_byte_span(text, sizeof(text))),
   };
-  contributions[1].processor = IREE_SV("gfx1101");
+  contributions[1].target_identity = TargetIdentity("gfx1101");
 
   StreamPtr stream = CreateStream();
   TestArena arena;
@@ -332,14 +340,16 @@ TEST(AmdgpuKernelHsacoTest, RejectsFeatureDistinctContributionTargets) {
       Contribution(IREE_SV("second_kernel"), IREE_SV("second_kernel.kd"),
                    iree_make_const_byte_span(text, sizeof(text))),
   };
-  contributions[0].artifact_target_key = IREE_SV("gfx942:sramecc-:xnack-");
-  contributions[0].code_object_target_id =
-      IREE_SV("amdgcn-amd-amdhsa--gfx942:sramecc-:xnack-");
-  contributions[0].processor = IREE_SV("gfx942");
-  contributions[1].artifact_target_key = IREE_SV("gfx942:sramecc+:xnack-");
-  contributions[1].code_object_target_id =
-      IREE_SV("amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-");
-  contributions[1].processor = IREE_SV("gfx942");
+  contributions[0].target_identity = TargetIdentity("gfx942");
+  contributions[0].target_identity.amdhsa_features.sramecc =
+      LOOM_AMDGPU_TARGET_FEATURE_OFF;
+  contributions[0].target_identity.amdhsa_features.xnack =
+      LOOM_AMDGPU_TARGET_FEATURE_OFF;
+  contributions[1].target_identity = TargetIdentity("gfx942");
+  contributions[1].target_identity.amdhsa_features.sramecc =
+      LOOM_AMDGPU_TARGET_FEATURE_ON;
+  contributions[1].target_identity.amdhsa_features.xnack =
+      LOOM_AMDGPU_TARGET_FEATURE_OFF;
 
   StreamPtr stream = CreateStream();
   TestArena arena;
@@ -365,10 +375,8 @@ TEST(AmdgpuKernelHsacoTest, RejectsDistinctTargetContributions) {
                    iree_make_const_byte_span(text, sizeof(text))),
   };
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(contributions); ++i) {
-    contributions[i].artifact_target_key = targets[i]->name;
-    contributions[i].code_object_target_id =
-        IREE_SV("amdgcn-amd-amdhsa--gfx1250");
-    contributions[i].processor = IREE_SV("gfx1250");
+    loom_amdgpu_target_identity_initialize(targets[i],
+                                           &contributions[i].target_identity);
     contributions[i].kernel.metadata.target_extensions =
         targets[i]->kernel_metadata_extensions;
   }

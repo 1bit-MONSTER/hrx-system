@@ -100,9 +100,7 @@ iree_status_t loom_amdgpu_build_kernel_hsaco_contribution(
       .residency_summary = target_resources.residency_summary,
   };
   *out_contribution = (loom_amdgpu_kernel_hsaco_contribution_t){
-      .artifact_target_key = record.artifact_target_key,
-      .code_object_target_id = record.code_object_target_id,
-      .processor = record.processor->name,
+      .target_identity = record.target_identity,
       .kernel = kernel,
       .instruction_layout = stream.layout,
       .native_insertions = stream.native_insertions,
@@ -141,51 +139,27 @@ iree_status_t loom_amdgpu_write_kernel_hsaco_contributions(
         "AMDGPU kernel HSACO requires at least one contribution");
   }
 
-  const iree_string_view_t artifact_target_key =
-      contributions[0].artifact_target_key;
-  const iree_string_view_t code_object_target_id =
-      contributions[0].code_object_target_id;
-  const iree_string_view_t processor = contributions[0].processor;
+  const loom_amdgpu_target_identity_t target_identity =
+      contributions[0].target_identity;
   loom_amdgpu_hsaco_kernel_t* kernels = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       scratch_arena, contribution_count, sizeof(kernels[0]), (void**)&kernels));
   for (iree_host_size_t i = 0; i < contribution_count; ++i) {
     const loom_amdgpu_kernel_hsaco_contribution_t* contribution =
         &contributions[i];
-    if (!iree_string_view_equal(contribution->artifact_target_key,
-                                artifact_target_key)) {
+    if (!loom_amdgpu_target_identity_equal(&contribution->target_identity,
+                                           &target_identity)) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "AMDGPU kernel contribution %" PRIhsz
-          " artifact target '%.*s' does not match batch target '%.*s'",
-          i, (int)contribution->artifact_target_key.size,
-          contribution->artifact_target_key.data, (int)artifact_target_key.size,
-          artifact_target_key.data);
-    }
-    if (!iree_string_view_equal(contribution->code_object_target_id,
-                                code_object_target_id)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "AMDGPU kernel contribution %" PRIhsz
-          " code-object target '%.*s' does not match batch target '%.*s'",
-          i, (int)contribution->code_object_target_id.size,
-          contribution->code_object_target_id.data,
-          (int)code_object_target_id.size, code_object_target_id.data);
-    }
-    if (!iree_string_view_equal(contribution->processor, processor)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "AMDGPU kernel contribution %" PRIhsz
-          " processor '%.*s' does not match batch processor '%.*s'",
-          i, (int)contribution->processor.size, contribution->processor.data,
-          (int)processor.size, processor.data);
+          " target identity does not match the batch target",
+          i);
     }
     kernels[i] = contribution->kernel;
   }
 
   const loom_amdgpu_hsaco_input_t input = {
-      .target = code_object_target_id,
-      .processor = processor,
+      .target_identity = target_identity,
       .kernels = kernels,
       .kernel_count = contribution_count,
       .data_symbols = options ? options->data_symbols : NULL,

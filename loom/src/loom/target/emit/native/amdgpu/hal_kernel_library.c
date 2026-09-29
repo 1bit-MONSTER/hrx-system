@@ -931,6 +931,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
   }
   if (iree_status_is_ok(status) && !diagnostics_failed) {
     iree_byte_sequence_t* hsaco = NULL;
+    iree_string_view_t artifact_target_key = iree_string_view_empty();
     const loom_amdgpu_hsaco_data_symbol_t* code_object_data_symbols = NULL;
     iree_host_size_t code_object_data_symbol_count = 0;
     status = loom_amdgpu_hal_kernel_library_compose_data_symbols(
@@ -942,6 +943,13 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
         .data_symbol_count = code_object_data_symbol_count,
     };
     if (iree_status_is_ok(status)) {
+      const loom_amdgpu_target_facts_t* target_facts =
+          loom_amdgpu_target_facts_cast(plans[0].target.target_facts);
+      IREE_ASSERT(target_facts != NULL);
+      status = loom_amdgpu_artifact_key_format_arena(
+          &target_facts->identity, table_arena, &artifact_target_key);
+    }
+    if (iree_status_is_ok(status)) {
       status = loom_amdgpu_hal_kernel_library_write_hsaco(
           contributions, entries.count,
           code_object_data_symbol_count != 0 ? &write_options : NULL,
@@ -949,7 +957,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
     }
     if (iree_status_is_ok(status)) {
       status = loom_amdgpu_hal_kernel_library_set_contents(
-          contributions[0].artifact_target_key, hsaco, allocator, out_library);
+          artifact_target_key, hsaco, allocator, out_library);
     }
     if (iree_status_is_ok(status)) {
       hsaco = NULL;

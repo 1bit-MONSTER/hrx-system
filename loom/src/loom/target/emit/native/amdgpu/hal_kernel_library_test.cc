@@ -1120,12 +1120,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
     std::string hsaco;
     IREE_ASSERT_OK(CloneByteSequenceToString(library.hsaco_data, &hsaco));
     ASSERT_GE(hsaco.size(), 64u);
-    loom_amdgpu_amdhsa_target_id_t parsed_target_id = {};
-    IREE_ASSERT_OK(loom_amdgpu_amdhsa_target_id_parse(code_object_target_view,
-                                                      &parsed_target_id));
-    uint32_t expected_elf_flags = 0;
-    IREE_ASSERT_OK(loom_amdgpu_amdhsa_target_id_elf_flags(&parsed_target_id,
-                                                          &expected_elf_flags));
+    const uint32_t expected_elf_flags = loom_amdgpu_amdhsa_elf_flags(&identity);
     EXPECT_EQ(LoadLeU32(hsaco, 48), expected_elf_flags);
     EXPECT_NE(hsaco.find(code_object_target), std::string::npos);
 

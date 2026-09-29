@@ -15,6 +15,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
+#include "loom/target/arch/amdgpu/target_identity.h"
 #include "loom/target/emit/native/amdgpu/descriptor.h"
 #include "loom/target/emit/native/amdgpu/hsaco.h"
 #include "loom/target/emit/native/amdgpu/text_fixup.h"
@@ -62,13 +63,8 @@ typedef struct loom_amdgpu_hsaco_data_symbol_t {
 
 // Complete AMDGPU HSA code object description.
 typedef struct loom_amdgpu_hsaco_input_t {
-  // Full AMDHSA code-object target ID such as
-  // `amdgcn-amd-amdhsa--gfx11-generic`. This contains only feature states
-  // represented by the AMDHSA ABI; artifact-only qualification remains in the
-  // enclosing artifact key and kernel metadata.
-  iree_string_view_t target;
-  // Exact or generic processor used for ELF flags and descriptor packing.
-  iree_string_view_t processor;
+  // Resolved compiler target and normalized AMDHSA feature states.
+  loom_amdgpu_target_identity_t target_identity;
   // Kernel entries emitted into this code object.
   const loom_amdgpu_hsaco_kernel_t* kernels;
   // Number of entries in |kernels|.

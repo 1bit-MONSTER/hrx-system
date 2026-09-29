@@ -263,6 +263,15 @@ std::string StringViewToString(iree_string_view_t value) {
   return std::string(value.data, value.size);
 }
 
+loom_amdgpu_target_identity_t TargetIdentity(const char* target_name) {
+  const loom_amdgpu_target_info_t* target = nullptr;
+  IREE_CHECK_OK(loom_amdgpu_target_info_lookup_target(
+      iree_make_cstring_view(target_name), &target));
+  loom_amdgpu_target_identity_t identity = {};
+  loom_amdgpu_target_identity_initialize(target, &identity);
+  return identity;
+}
+
 std::string CodeObjectTargetIdForIdentity(
     const loom_amdgpu_target_identity_t& identity) {
   TestArena arena;
@@ -281,8 +290,7 @@ TEST(AmdgpuHsacoTest, WritesGfx1100CodeObjectEnvelope) {
       /*.text=*/iree_make_const_byte_span(s_endpgm, sizeof(s_endpgm)),
   };
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
   };
@@ -460,8 +468,7 @@ TEST(AmdgpuHsacoTest, WritesWritableRuntimeDataSymbols) {
       },
   };
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/data_symbols,
@@ -557,8 +564,7 @@ TEST(AmdgpuHsacoTest, WritesAlignedReadOnlyDataSymbols) {
       /*.alignment=*/128,
   };
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/&data_symbol,
@@ -654,8 +660,7 @@ TEST(AmdgpuHsacoTest, PatchesDataSymbolRel32TextFixups) {
       },
   };
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
       /*.data_symbols=*/data_symbols,
@@ -735,8 +740,7 @@ TEST(AmdgpuHsacoTest, RejectsInvalidTextFixups) {
         /*.text_fixup_count=*/1,
     };
     const loom_amdgpu_hsaco_input_t file = {
-        /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-        /*.processor=*/IREE_SV("gfx1100"),
+        /*.target_identity=*/TargetIdentity("gfx1100"),
         /*.kernels=*/&kernel,
         /*.kernel_count=*/1,
         /*.data_symbols=*/&data_symbol,
@@ -765,8 +769,7 @@ TEST(AmdgpuHsacoTest, RejectsInvalidTextFixups) {
         /*.text_fixup_count=*/1,
     };
     const loom_amdgpu_hsaco_input_t file = {
-        /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-        /*.processor=*/IREE_SV("gfx1100"),
+        /*.target_identity=*/TargetIdentity("gfx1100"),
         /*.kernels=*/&kernel,
         /*.kernel_count=*/1,
         /*.data_symbols=*/&data_symbol,
@@ -810,8 +813,7 @@ TEST(AmdgpuHsacoTest, WritesEveryTargetCodeObjectFlags) {
     };
     const std::string target_id = CodeObjectTargetIdForIdentity(identity);
     const loom_amdgpu_hsaco_input_t file = {
-        /*.target=*/iree_make_string_view(target_id.data(), target_id.size()),
-        /*.processor=*/processor->name,
+        /*.target_identity=*/identity,
         /*.kernels=*/&kernel,
         /*.kernel_count=*/1,
     };
@@ -945,8 +947,7 @@ TEST(AmdgpuHsacoTest, WritesNativeKernargLayoutsWithoutHalCompaction) {
   EXPECT_EQ(kernels[1].metadata.arguments[1].size, 2u);
 
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1100"),
+      /*.target_identity=*/TargetIdentity("gfx1100"),
       /*.kernels=*/kernels,
       /*.kernel_count=*/IREE_ARRAYSIZE(kernels),
   };
@@ -984,8 +985,7 @@ TEST(AmdgpuHsacoTest, WritesGfx942CodeObjectTargetFlags) {
       /*.text=*/iree_make_const_byte_span(s_endpgm, sizeof(s_endpgm)),
   };
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx942"),
-      /*.processor=*/IREE_SV("gfx942"),
+      /*.target_identity=*/TargetIdentity("gfx942"),
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
   };
@@ -1003,27 +1003,6 @@ TEST(AmdgpuHsacoTest, WritesGfx942CodeObjectTargetFlags) {
                                       LOOM_AMDGPU_ELF_FEATURE_SRAMECC_ANY_V4);
 }
 
-TEST(AmdgpuHsacoTest, RejectsMismatchedProcessor) {
-  const uint8_t text[] = {0x00, 0x00, 0x81, 0xbf};
-  const loom_amdgpu_hsaco_kernel_t kernel = {
-      /*.metadata=*/
-      MinimalKernel(IREE_SV("loom_kernel"), IREE_SV("loom_kernel.kd")),
-      /*.descriptor_options=*/{},
-      /*.text=*/iree_make_const_byte_span(text, sizeof(text)),
-  };
-  const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx1100"),
-      /*.processor=*/IREE_SV("gfx1200"),
-      /*.kernels=*/&kernel,
-      /*.kernel_count=*/1,
-  };
-
-  StreamPtr stream = CreateStream();
-  TestArena arena;
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        WriteHsaco(&file, stream.get(), arena.arena()));
-}
-
 TEST(AmdgpuHsacoTest, WritesTargetFeatureSuffixCodeObjectFlags) {
   const uint8_t text[] = {0x00, 0x00, 0x81, 0xbf};
   loom_amdgpu_metadata_kernel_t metadata =
@@ -1034,9 +1013,11 @@ TEST(AmdgpuHsacoTest, WritesTargetFeatureSuffixCodeObjectFlags) {
       /*.descriptor_options=*/{},
       /*.text=*/iree_make_const_byte_span(text, sizeof(text)),
   };
+  loom_amdgpu_target_identity_t identity = TargetIdentity("gfx942");
+  identity.amdhsa_features.sramecc = LOOM_AMDGPU_TARGET_FEATURE_ON;
+  identity.amdhsa_features.xnack = LOOM_AMDGPU_TARGET_FEATURE_OFF;
   const loom_amdgpu_hsaco_input_t file = {
-      /*.target=*/IREE_SV("amdgcn-amd-amdhsa--gfx942:sramecc+:xnack-"),
-      /*.processor=*/IREE_SV("gfx942"),
+      /*.target_identity=*/identity,
       /*.kernels=*/&kernel,
       /*.kernel_count=*/1,
   };
