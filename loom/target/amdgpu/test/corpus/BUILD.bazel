@@ -15,7 +15,7 @@ package(default_visibility = ["//visibility:public"])
 
 loom_test(
     name = "pipelined_address_domains_test",
-    srcs = ["//loom/src/loom/test/corpus/control:pipelined_address_domains.loom"],
+    srcs = ["//loom/src/loom/test/corpus/control:schedule/address_domains.loom"],
     execution_profiles = [
         AMDGPU_HARDWARE_PROFILE,
         AMDGPU_ACCESS_PROFILE,
@@ -24,6 +24,6 @@ loom_test(
 
 loom_test(
     name = "word_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:word.loom"],
+    srcs = ["//loom/src/loom/test/corpus/memory:storage/word.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )

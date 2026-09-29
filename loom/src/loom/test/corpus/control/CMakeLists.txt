@@ -15,9 +15,9 @@ loom_corpus_sources(
   MANIFEST
     "control"
   SRCS
-    "pipelined_address_domains.loom"
-    "structured_control.loom"
-    "vector_recurrence.loom"
+    "branch/structured.loom"
+    "loop/vector_recurrence.loom"
+    "schedule/address_domains.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -14,6 +14,6 @@ package(default_visibility = ["//visibility:public"])
 
 loom_test(
     name = "pipelined_address_domains_test",
-    srcs = ["//loom/src/loom/test/corpus/control:pipelined_address_domains.loom"],
+    srcs = ["//loom/src/loom/test/corpus/control:schedule/address_domains.loom"],
     execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
 )

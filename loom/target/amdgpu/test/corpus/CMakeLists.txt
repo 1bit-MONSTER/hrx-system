@@ -13,7 +13,7 @@ loom_test_module(
   NAME
     pipelined_address_domains_test_module
   SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/pipelined_address_domains.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/schedule/address_domains.loom"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
@@ -70,7 +70,7 @@ loom_test_module(
   NAME
     word_test_module
   SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/word.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/storage/word.loom"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)

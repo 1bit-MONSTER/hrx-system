@@ -12,8 +12,8 @@ CONTROL_CORPUS = loom_corpus_manifest(
     name = "control",
     package = "//loom/src/loom/test/corpus/control",
     srcs = [
-        "pipelined_address_domains.loom",
-        "structured_control.loom",
-        "vector_recurrence.loom",
+        "branch/structured.loom",
+        "loop/vector_recurrence.loom",
+        "schedule/address_domains.loom",
     ],
 )
