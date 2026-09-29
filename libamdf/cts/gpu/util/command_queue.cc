@@ -123,14 +123,7 @@ void GpuCommandQueue::Publish(const amdf_api_t* api,
     const amdf_gpu_kernel_command_t command = {.memory = commands_.memory,
                                                .byte_offset = byte_offset,
                                                .byte_length = byte_length};
-    amdf_gpu_kernel_queue_submission_info_t submit = {};
-    submit.type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_SUBMISSION_INFO;
-    submit.structure_size = sizeof(submit);
-    submit.command_count = 1;
-    submit.commands = &command;
-    ASSERT_EQ(
-        gpu_api->kernel_queue_submit(kernel_queue_, &submit, &submission_),
-        AMDF_STATUS_OK);
+    ASSERT_NO_FATAL_FAILURE(Submit(gpu_api, command));
   } else {
     const uint64_t index = command_type_ == AMDF_QUEUE_COMMAND_TYPE_GPU_PM4
                                ? word_count
@@ -138,6 +131,18 @@ void GpuCommandQueue::Publish(const amdf_api_t* api,
     ASSERT_NO_FATAL_FAILURE(user_queue_.PublishStream(index));
   }
   published_word_count_ = word_count;
+}
+
+void GpuCommandQueue::Submit(const amdf_gpu_api_t* gpu_api,
+                             const amdf_gpu_kernel_command_t& command) {
+  ASSERT_NE(kernel_queue_, nullptr);
+  amdf_gpu_kernel_queue_submission_info_t submit = {};
+  submit.type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_SUBMISSION_INFO;
+  submit.structure_size = sizeof(submit);
+  submit.command_count = 1;
+  submit.commands = &command;
+  ASSERT_EQ(gpu_api->kernel_queue_submit(kernel_queue_, &submit, &submission_),
+            AMDF_STATUS_OK);
 }
 
 void GpuCommandQueue::WaitRetired(const amdf_api_t* api) {

@@ -31,9 +31,10 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   constexpr uint32_t kPayloadOffset = 16;
   constexpr uint32_t kPageByteLength = 4096;
   constexpr uint32_t kPageWordCount = kPageByteLength / sizeof(uint32_t);
-  constexpr uint32_t kIndirectWordCount = 40;
-  constexpr uint32_t kRingWordsPerEpoch = 32;
+  constexpr uint32_t kIndirectWordCount = 64;
+  constexpr uint32_t kCommandWordsPerEpoch = 8;
   constexpr uint32_t kCompletionWord = 0;
+  constexpr uint32_t kEpochByteOffset = 64;
   constexpr std::array<uint32_t, 2> kCounts = {1003, 997};
   constexpr std::array<uint32_t, 2> kAddends = {7, 0x80000023u};
 
@@ -80,10 +81,16 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
               kernel.executable.byte_length);
   std::array<uint32_t, kPageWordCount> expected_indirect = {};
   Pm4CommandWriter indirect(expected_indirect.data(), *pm4_profile_);
+  indirect.SystemBarrier();
   indirect.BindCompute(program, arguments->device_address);
   indirect.DispatchWave32(kGridSize, 1, 1);
-  // The complete nine-DWORD NOP pads the 31 active words to 40. Retain the
-  // entire initialized page, independently of the active command count.
+  indirect.SystemBarrier();
+  // The immutable IB reads its completion epoch separately from the shader's
+  // kernarg ABI. Completion is part of the IB on both publication transports.
+  ASSERT_LE(kernel.arguments.byte_length, kEpochByteOffset);
+  indirect.CopyData32(arguments->device_address + kEpochByteOffset,
+                      completion->device_address);
+  // Retain the entire initialized page, including the complete final NOP.
   indirect.PadToEightWords();
   ASSERT_EQ(indirect.word_count(), kIndirectWordCount);
   std::memcpy(indirect_buffer->host.pointer, expected_indirect.data(),
@@ -98,40 +105,46 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   std::memcpy(completion->host.pointer, expected_control.data(),
               sizeof(expected_control));
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const size_t ring_word_count =
-      queue->host.ring_byte_length / sizeof(uint32_t);
+  const bool primary_ring =
+      queue->publication_mode() == AMDF_QUEUE_PUBLICATION_MODE_USER;
+  const size_t command_capacity = primary_ring ? queue->words().size() : 0;
   // Both complete programs stay resident without wrapping and leave the
-  // mandatory free DWORD. Unpublished ring bytes are initialized as well.
-  ASSERT_GT(ring_word_count, kRingWordsPerEpoch * kCounts.size());
-  std::vector<uint32_t> expected_ring(ring_word_count, 0);
-  std::vector<uint32_t> observed_ring(ring_word_count);
-  std::array<uint64_t, kCounts.size()> frontiers;
-  std::array<size_t, kCounts.size()> call_word_offsets;
-  Pm4CommandWriter commands(expected_ring.data(), *pm4_profile_);
-  for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
-    commands.SystemBarrier();
-    call_word_offsets[epoch] = commands.word_count();
-    commands.CallIndirectBuffer(indirect_buffer->device_address,
-                                static_cast<uint32_t>(indirect.word_count()));
-    // Return resumes ring parsing; this explicit barrier separately joins
-    // the shader and publishes its stores before the confirmed marker.
-    commands.SystemBarrier();
-    commands.WriteData32(
-        completion->device_address + kCompletionWord * sizeof(uint32_t),
-        epoch + 1);
-    commands.PadToEightWords();
-    frontiers[epoch] = commands.word_count();
-    ASSERT_EQ(frontiers[epoch], (epoch + 1) * kRingWordsPerEpoch);
+  // mandatory free DWORD. Unpublished command storage bytes are initialized as
+  // well.
+  if (primary_ring) {
+    ASSERT_GT(command_capacity, kCommandWordsPerEpoch * kCounts.size());
   }
-  std::memcpy(reinterpret_cast<void*>(queue->host.ring_address),
-              expected_ring.data(), queue->host.ring_byte_length);
+  std::vector<uint32_t> expected_commands(command_capacity, 0);
+  std::vector<uint32_t> observed_commands(command_capacity);
+  std::array<uint64_t, kCounts.size()> frontiers = {};
+  std::array<size_t, kCounts.size()> entry_word_offsets = {};
+  Pm4CommandWriter commands(expected_commands.data(), *pm4_profile_);
+  for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
+    if (primary_ring) {
+      entry_word_offsets[epoch] = commands.word_count();
+      commands.CallIndirectBuffer(indirect_buffer->device_address,
+                                  kIndirectWordCount);
+      commands.PadToEightWords();
+      frontiers[epoch] = commands.word_count();
+      ASSERT_EQ(frontiers[epoch], (epoch + 1) * kCommandWordsPerEpoch);
+    }
+  }
+  if (primary_ring) {
+    std::memcpy(queue->words().data(), expected_commands.data(),
+                queue->words().size_bytes());
+  }
 
-  RecordProperty("pm4_command_buffer_ib_packet_header",
-                 std::to_string(expected_ring[call_word_offsets[0]]));
-  RecordProperty("pm4_command_buffer_ib_packet_control",
-                 std::to_string(expected_ring[call_word_offsets[0] + 3]));
+  RecordProperty("pm4_command_buffer_entry",
+                 primary_ring ? "primary_ring_call" : "kernel_submission");
+  if (primary_ring) {
+    RecordProperty("pm4_command_buffer_ib_packet_header",
+                   std::to_string(expected_commands[entry_word_offsets[0]]));
+    RecordProperty(
+        "pm4_command_buffer_ib_packet_control",
+        std::to_string(expected_commands[entry_word_offsets[0] + 3]));
+  }
   RecordProperty("pm4_command_buffer_ib_word_count",
                  std::to_string(indirect.word_count()));
   RecordProperty("pm4_command_buffer_ib_byte_length",
@@ -154,10 +167,10 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   RecordProperty("pm4_command_buffer_ib_observed_byte_length", kPageByteLength);
   RecordProperty("pm4_command_buffer_observed_owner_byte_length",
                  2 * kWordCount * sizeof(uint32_t) + 4 * kPageByteLength);
-  RecordProperty("pm4_command_buffer_ring_capacity_dwords",
-                 std::to_string(ring_word_count));
-  RecordProperty("pm4_command_buffer_observed_ring_byte_length",
-                 std::to_string(queue->host.ring_byte_length));
+  RecordProperty("pm4_command_buffer_command_capacity_dwords",
+                 std::to_string(command_capacity));
+  RecordProperty("pm4_command_buffer_observed_commands_byte_length",
+                 std::to_string(command_capacity * sizeof(uint32_t)));
 
   std::array<uint32_t, kWordCount> expected_input;
   std::array<uint32_t, kWordCount> expected_output;
@@ -199,16 +212,30 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
     // bytes into fully initialized backing, retaining it through final use.
     std::memcpy(expected_arguments.data(), &payload,
                 kernel.arguments.byte_length);
+    const uint32_t completion_epoch = epoch + 1;
+    std::memcpy(expected_arguments.data() + kEpochByteOffset, &completion_epoch,
+                sizeof(completion_epoch));
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
 
-    queue->PublishStream(frontiers[epoch]);
+    if (primary_ring) {
+      ASSERT_NO_FATAL_FAILURE(queue->Publish(api_, gpu_api_, frontiers[epoch]));
+    } else {
+      // KERNEL consumes the IB itself. A ring-style call inside that buffer
+      // would incorrectly request compute IB2 nesting.
+      const amdf_gpu_kernel_command_t command = {
+          .memory = indirect_buffer->memory,
+          .byte_offset = 0,
+          .byte_length = kIndirectWordCount * sizeof(uint32_t),
+      };
+      ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
+    }
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
         epoch + 1);
-    // Capture every initialized owner and the complete ring before any
-    // diagnostic or consumption wait can add another observation boundary.
+    // Capture every initialized owner and the complete command storage before
+    // any diagnostic or retirement wait can add another observation boundary.
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     std::memcpy(observed_input.data(), input->host.pointer,
@@ -221,9 +248,10 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
                 sizeof(observed_code));
     std::memcpy(observed_indirect.data(), indirect_buffer->host.pointer,
                 sizeof(observed_indirect));
-    std::memcpy(observed_ring.data(),
-                reinterpret_cast<const void*>(queue->host.ring_address),
-                queue->host.ring_byte_length);
+    if (primary_ring) {
+      std::memcpy(observed_commands.data(), queue->words().data(),
+                  queue->words().size_bytes());
+    }
 
     expected_control[kCompletionWord] = epoch + 1;
     for (uint32_t word = 0; word < kWordCount; ++word) {
@@ -244,13 +272,14 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
       EXPECT_EQ(observed_indirect[word], expected_indirect[word])
           << "indirect-buffer word=" << word;
     }
-    for (size_t word = 0; word < ring_word_count; ++word) {
-      EXPECT_EQ(observed_ring[word], expected_ring[word])
-          << "ring word=" << word;
+    for (size_t word = 0; word < command_capacity; ++word) {
+      EXPECT_EQ(observed_commands[word], expected_commands[word])
+          << "command storage word=" << word;
     }
-    // Every nonfatal mismatch still retires the published ring range. No
-    // payload or argument rewrite follows a failed observation or retirement.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, frontiers[epoch]));
+    // Every nonfatal mismatch still retires the published command storage
+    // range. No payload or argument rewrite follows a failed observation or
+    // retirement.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -259,15 +288,17 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
     RecordProperty(prefix + "_count", kCounts[epoch]);
     RecordProperty(prefix + "_addend", std::to_string(kAddends[epoch]));
     RecordProperty(prefix + "_completion", observed_control[kCompletionWord]);
-    RecordProperty(prefix + "_call_word_offset",
-                   std::to_string(call_word_offsets[epoch]));
-    RecordProperty(prefix + "_producer_frontier",
-                   std::to_string(frontiers[epoch]));
+    if (primary_ring) {
+      RecordProperty(prefix + "_entry_word_offset",
+                     std::to_string(entry_word_offsets[epoch]));
+      RecordProperty(prefix + "_producer_frontier",
+                     std::to_string(frontiers[epoch]));
+    }
   }
   RecordProperty("pm4_command_buffer_completed_epochs", kCounts.size());
-  RecordProperty("pm4_command_buffer_ring_command_word_count",
+  RecordProperty("pm4_command_buffer_command_word_count",
                  std::to_string(commands.word_count()));
-  RecordProperty("pm4_command_buffer_final_producer_index",
+  RecordProperty("pm4_command_buffer_final_published_word_count",
                  std::to_string(frontiers.back()));
 }
 
@@ -284,10 +315,11 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
   constexpr uint32_t kArgumentByteStride = 128;
   constexpr uint32_t kPageByteLength = 4096;
   constexpr uint32_t kPageWordCount = kPageByteLength / sizeof(uint32_t);
-  constexpr uint32_t kIndirectWordCount = 40;
-  constexpr uint32_t kKernargLowWord = 24;
-  constexpr uint32_t kDispatchXWord = 27;
-  constexpr uint32_t kRingWordsPerEpoch = 32;
+  constexpr uint32_t kIndirectWordCount = 64;
+  constexpr uint32_t kKernargLowWord = 34;
+  constexpr uint32_t kDispatchXWord = 37;
+  constexpr uint32_t kCompletionValueWord = 55;
+  constexpr uint32_t kCommandWordsPerEpoch = 8;
   constexpr uint32_t kCompletionWord = 0;
   constexpr std::array<uint32_t, 2> kGridSizes = {1024, 576};
   constexpr std::array<uint32_t, 2> kPayloadOffsets = {64, 2112};
@@ -353,16 +385,20 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
     std::memcpy(expected_arguments.data() + epoch * kArgumentByteStride,
                 &payload, kernel.arguments.byte_length);
     Pm4CommandWriter indirect(indirect_images[epoch].data(), *pm4_profile_);
+    indirect.SystemBarrier();
     indirect.BindCompute(
         program, arguments->device_address + epoch * kArgumentByteStride);
     indirect.DispatchWave32(kGridSizes[epoch], 1, 1);
+    indirect.SystemBarrier();
+    indirect.WriteData32(completion->device_address, epoch + 1);
     indirect.PadToEightWords();
     ASSERT_EQ(indirect.word_count(), kIndirectWordCount);
     ASSERT_EQ(kGridSizes[epoch] % kernel.workgroup_size(), 0u);
     ASSERT_LE(kGridSizes[epoch], kCandidateWordCount);
   }
   for (uint32_t word = 0; word < kPageWordCount; ++word) {
-    if (word == kKernargLowWord || word == kDispatchXWord) {
+    if (word == kKernargLowWord || word == kDispatchXWord ||
+        word == kCompletionValueWord) {
       ASSERT_NE(indirect_images[0][word], indirect_images[1][word]);
     } else {
       ASSERT_EQ(indirect_images[0][word], indirect_images[1][word]);
@@ -380,42 +416,49 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
   std::memcpy(completion->host.pointer, expected_control.data(),
               sizeof(expected_control));
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const size_t ring_word_count =
-      queue->host.ring_byte_length / sizeof(uint32_t);
-  ASSERT_GT(ring_word_count, kRingWordsPerEpoch * kGridSizes.size());
-  std::vector<uint32_t> expected_ring(ring_word_count, 0);
-  std::vector<uint32_t> observed_ring(ring_word_count);
-  std::array<uint64_t, kGridSizes.size()> frontiers;
-  std::array<size_t, kGridSizes.size()> call_word_offsets;
-  Pm4CommandWriter commands(expected_ring.data(), *pm4_profile_);
-  for (uint32_t epoch = 0; epoch < kGridSizes.size(); ++epoch) {
-    commands.SystemBarrier();
-    call_word_offsets[epoch] = commands.word_count();
-    commands.CallIndirectBuffer(indirect_buffer->device_address,
-                                kIndirectWordCount);
-    // This resumed-ring join is separate from command return and consumption.
-    commands.SystemBarrier();
-    commands.WriteData32(
-        completion->device_address + kCompletionWord * sizeof(uint32_t),
-        epoch + 1);
-    commands.PadToEightWords();
-    frontiers[epoch] = commands.word_count();
-    ASSERT_EQ(frontiers[epoch], (epoch + 1) * kRingWordsPerEpoch);
+  const bool primary_ring =
+      queue->publication_mode() == AMDF_QUEUE_PUBLICATION_MODE_USER;
+  const size_t command_capacity = primary_ring ? queue->words().size() : 0;
+  if (primary_ring) {
+    ASSERT_GT(command_capacity, kCommandWordsPerEpoch * kGridSizes.size());
   }
-  std::memcpy(reinterpret_cast<void*>(queue->host.ring_address),
-              expected_ring.data(), queue->host.ring_byte_length);
+  std::vector<uint32_t> expected_commands(command_capacity, 0);
+  std::vector<uint32_t> observed_commands(command_capacity);
+  std::array<uint64_t, kGridSizes.size()> frontiers = {};
+  std::array<size_t, kGridSizes.size()> entry_word_offsets = {};
+  Pm4CommandWriter commands(expected_commands.data(), *pm4_profile_);
+  for (uint32_t epoch = 0; epoch < kGridSizes.size(); ++epoch) {
+    if (primary_ring) {
+      entry_word_offsets[epoch] = commands.word_count();
+      commands.CallIndirectBuffer(indirect_buffer->device_address,
+                                  kIndirectWordCount);
+      commands.PadToEightWords();
+      frontiers[epoch] = commands.word_count();
+      ASSERT_EQ(frontiers[epoch], (epoch + 1) * kCommandWordsPerEpoch);
+    }
+  }
+  if (primary_ring) {
+    std::memcpy(queue->words().data(), expected_commands.data(),
+                queue->words().size_bytes());
+  }
 
-  RecordProperty("pm4_command_rebuild_ib_packet_header",
-                 std::to_string(expected_ring[call_word_offsets[0]]));
-  RecordProperty("pm4_command_rebuild_ib_packet_control",
-                 std::to_string(expected_ring[call_word_offsets[0] + 3]));
+  RecordProperty("pm4_command_rebuild_entry",
+                 primary_ring ? "primary_ring_call" : "kernel_submission");
+  if (primary_ring) {
+    RecordProperty("pm4_command_rebuild_ib_packet_header",
+                   std::to_string(expected_commands[entry_word_offsets[0]]));
+    RecordProperty(
+        "pm4_command_rebuild_ib_packet_control",
+        std::to_string(expected_commands[entry_word_offsets[0] + 3]));
+  }
   RecordProperty("pm4_command_rebuild_ib_word_count", kIndirectWordCount);
   RecordProperty("pm4_command_rebuild_ib_byte_length",
                  kIndirectWordCount * sizeof(uint32_t));
   RecordProperty("pm4_command_rebuild_changed_ib_word_0", kKernargLowWord);
   RecordProperty("pm4_command_rebuild_changed_ib_word_1", kDispatchXWord);
+  RecordProperty("pm4_command_rebuild_changed_ib_word_2", kCompletionValueWord);
   RecordProperty("pm4_command_rebuild_workgroup_size", kernel.workgroup_size());
   RecordProperty("pm4_command_rebuild_argument_record_count",
                  kGridSizes.size());
@@ -440,10 +483,10 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
                  kPageByteLength);
   RecordProperty("pm4_command_rebuild_observed_owner_byte_length",
                  2 * kWordCount * sizeof(uint32_t) + 4 * kPageByteLength);
-  RecordProperty("pm4_command_rebuild_ring_capacity_dwords",
-                 std::to_string(ring_word_count));
-  RecordProperty("pm4_command_rebuild_observed_ring_byte_length",
-                 std::to_string(queue->host.ring_byte_length));
+  RecordProperty("pm4_command_rebuild_command_capacity_dwords",
+                 std::to_string(command_capacity));
+  RecordProperty("pm4_command_rebuild_observed_commands_byte_length",
+                 std::to_string(command_capacity * sizeof(uint32_t)));
 
   std::array<uint32_t, kWordCount> expected_input;
   std::array<uint32_t, kWordCount> expected_output;
@@ -475,7 +518,7 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
             region == epoch && i < kGridSizes[epoch] ? result : ~result;
       }
     }
-    // Only a successfully observed and consumed prior call reaches this
+    // Only a successfully observed and retired prior call reaches this
     // rewrite. The whole IB page remains owned through queue removal.
     std::memcpy(indirect_buffer->host.pointer, indirect_images[epoch].data(),
                 sizeof(indirect_images[epoch]));
@@ -484,7 +527,18 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
     std::memcpy(output->host.pointer, observed_output.data(),
                 sizeof(observed_output));
 
-    queue->PublishStream(frontiers[epoch]);
+    if (primary_ring) {
+      ASSERT_NO_FATAL_FAILURE(queue->Publish(api_, gpu_api_, frontiers[epoch]));
+    } else {
+      // KERNEL consumes the IB itself. A ring-style call inside that buffer
+      // would incorrectly request compute IB2 nesting.
+      const amdf_gpu_kernel_command_t command = {
+          .memory = indirect_buffer->memory,
+          .byte_offset = 0,
+          .byte_length = kIndirectWordCount * sizeof(uint32_t),
+      };
+      ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
+    }
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
@@ -503,9 +557,10 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
                 sizeof(observed_code));
     std::memcpy(observed_indirect.data(), indirect_buffer->host.pointer,
                 sizeof(observed_indirect));
-    std::memcpy(observed_ring.data(),
-                reinterpret_cast<const void*>(queue->host.ring_address),
-                queue->host.ring_byte_length);
+    if (primary_ring) {
+      std::memcpy(observed_commands.data(), queue->words().data(),
+                  queue->words().size_bytes());
+    }
 
     expected_control[kCompletionWord] = epoch + 1;
     for (uint32_t word = 0; word < kWordCount; ++word) {
@@ -526,11 +581,11 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
       EXPECT_EQ(observed_indirect[word], indirect_images[epoch][word])
           << "indirect-buffer word=" << word;
     }
-    for (size_t word = 0; word < ring_word_count; ++word) {
-      EXPECT_EQ(observed_ring[word], expected_ring[word])
-          << "ring word=" << word;
+    for (size_t word = 0; word < command_capacity; ++word) {
+      EXPECT_EQ(observed_commands[word], expected_commands[word])
+          << "command storage word=" << word;
     }
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, frontiers[epoch]));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -542,17 +597,19 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
     RecordProperty(prefix + "_payload_word_offset", kPayloadOffsets[epoch]);
     RecordProperty(prefix + "_addend", std::to_string(kAddends[epoch]));
     RecordProperty(prefix + "_completion", observed_control[kCompletionWord]);
-    RecordProperty(prefix + "_call_word_offset",
-                   std::to_string(call_word_offsets[epoch]));
-    RecordProperty(prefix + "_producer_frontier",
-                   std::to_string(frontiers[epoch]));
+    if (primary_ring) {
+      RecordProperty(prefix + "_entry_word_offset",
+                     std::to_string(entry_word_offsets[epoch]));
+      RecordProperty(prefix + "_producer_frontier",
+                     std::to_string(frontiers[epoch]));
+    }
   }
   RecordProperty("pm4_command_rebuild_completed_epochs", kGridSizes.size());
   RecordProperty("pm4_command_rebuild_ib_upload_count", kGridSizes.size());
   RecordProperty("pm4_command_rebuild_ib_rebuild_count", kGridSizes.size() - 1);
-  RecordProperty("pm4_command_rebuild_ring_command_word_count",
+  RecordProperty("pm4_command_rebuild_command_word_count",
                  std::to_string(commands.word_count()));
-  RecordProperty("pm4_command_rebuild_final_producer_index",
+  RecordProperty("pm4_command_rebuild_final_published_word_count",
                  std::to_string(frontiers.back()));
 }
 

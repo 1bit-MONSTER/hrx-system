@@ -15,8 +15,12 @@ namespace {
 class SdmaFillTest : public GpuCommandTest {
  protected:
   SdmaFillTest()
-      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
-                       AMDF_QUEUE_ROLE_TRANSFER) {}
+      : GpuCommandTest({
+            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+            .roles = AMDF_QUEUE_ROLE_TRANSFER,
+            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
+        }) {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override {
@@ -85,12 +89,10 @@ TEST_F(SdmaFillTest, ConstantFillCompletesBeforeFence) {
   }
   expected_completion[0] = 1;
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 19u * sizeof(uint32_t));
-  SdmaCommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address),
-      family_.format_features);
+  ASSERT_GE(queue->words().size_bytes(), 19u * sizeof(uint32_t));
+  SdmaCommandWriter commands(queue->words().data(), family_.format_features);
   // The three disjoint fills need no ordering among themselves. The final
   // range crosses a mapped page boundary while remaining inside the target.
   for (const auto& fill : kFills) {
@@ -99,13 +101,13 @@ TEST_F(SdmaFillTest, ConstantFillCompletesBeforeFence) {
   }
   commands.Fence32(completion->device_address, 1);
   ASSERT_EQ(commands.word_count(), 19u);
-  const uint64_t byte_length = commands.word_count() * sizeof(uint32_t);
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_length));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
 
-  // Snapshot and observe both complete allocations before ring consumption
-  // can add synchronization. No payload cache operation intervenes.
+  // Snapshot and observe both complete allocations before command storage
+  // retirement can add synchronization. No payload cache operation intervenes.
   std::array<uint8_t, kTargetLength> observed_target;
   std::array<uint8_t, kCompletionLength> observed_completion;
   std::memcpy(observed_target.data(), target->host.pointer,
@@ -122,7 +124,7 @@ TEST_F(SdmaFillTest, ConstantFillCompletesBeforeFence) {
   }
   // Nonfatal oracle failures still reach retirement. The fixture removes the
   // queue before releasing either allocation, preserving backing on failure.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 }  // namespace

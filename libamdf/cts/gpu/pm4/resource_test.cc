@@ -130,13 +130,11 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
       reinterpret_cast<uintptr_t>(completion->host.pointer) +
       kCompletionByteOffset;
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const uint64_t ring_capacity =
-      queue->host.ring_byte_length / sizeof(uint32_t);
-  ASSERT_GT(ring_capacity, kCounts.size() * kCommandWordsPerEpoch);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  const uint64_t command_capacity = queue->words().size();
+  ASSERT_GT(command_capacity, kCounts.size() * kCommandWordsPerEpoch);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   RecordProperty("pm4_mixed_program_sequence", "transform,lds,transform");
   RecordProperty(
       "pm4_mixed_bound_rsrc2_sequence",
@@ -174,10 +172,10 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
                  std::to_string(expected_lds_code.size()));
   RecordProperty("pm4_mixed_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_mixed_command_words_per_epoch", kCommandWordsPerEpoch);
-  RecordProperty("pm4_mixed_first_producer_index",
+  RecordProperty("pm4_mixed_first_published_word_count",
                  std::to_string(commands.word_count()));
-  RecordProperty("pm4_mixed_ring_capacity_dwords",
-                 std::to_string(ring_capacity));
+  RecordProperty("pm4_mixed_command_capacity_dwords",
+                 std::to_string(command_capacity));
   RecordProperty("pm4_mixed_completed_epochs", 0);
   RecordProperty("pm4_mixed_completed_dispatches", 0);
 
@@ -274,11 +272,12 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
                          epoch + 1);
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordsPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
 
     // Snapshot the final consumer first, then every other complete initialized
-    // extent before diagnostics or consumed-frontier polling can intervene.
+    // extent before diagnostics or command-retirement queries can intervene.
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     std::memcpy(observed_lds.data(), lds_output->host.pointer,
@@ -319,7 +318,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
           << "control word=" << i;
     }
     // Oracle failures still retire the stream and stop before any owner reuse.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -330,12 +329,12 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     RecordProperty(prefix + "_lds_seed", std::to_string(kSeeds[epoch]));
     RecordProperty(prefix + "_last_addend",
                    std::to_string(kLastAddends[epoch]));
-    RecordProperty(prefix + "_producer_index",
+    RecordProperty(prefix + "_published_word_count",
                    std::to_string(commands.word_count()));
     RecordProperty("pm4_mixed_completed_epochs", epoch + 1);
     RecordProperty("pm4_mixed_completed_dispatches", (epoch + 1) * 3);
   }
-  RecordProperty("pm4_mixed_final_producer_index",
+  RecordProperty("pm4_mixed_final_published_word_count",
                  std::to_string(commands.word_count()));
   RecordProperty("pm4_mixed_command_word_count",
                  std::to_string(commands.word_count()));

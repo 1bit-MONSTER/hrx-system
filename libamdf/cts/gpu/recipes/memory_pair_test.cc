@@ -99,16 +99,15 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
     ASSERT_NO_FATAL_FAILURE(CheckQueueTransition(
         egress.release, AMDF_CACHE_OPERATION_RELEASE_TO_SYSTEM));
 
-    GpuUserQueue* producer = nullptr;
-    GpuUserQueue* consumer = nullptr;
+    GpuCommandQueue* producer = nullptr;
+    GpuCommandQueue* consumer = nullptr;
     ASSERT_NO_FATAL_FAILURE(CreateQueue(&producer));
     ASSERT_NO_FATAL_FAILURE(CreateQueue(&consumer));
-    EXPECT_TRUE(amdf_device_id_is_equal(&producer->info.device_id,
-                                        &consumer->info.device_id));
-    ASSERT_FALSE(amdf_queue_id_is_equal(&producer->info.queue_id,
-                                        &consumer->info.queue_id));
-    ASSERT_GE(producer->host.ring_byte_length, 2048u);
-    ASSERT_GE(consumer->host.ring_byte_length, 2048u);
+    EXPECT_TRUE(amdf_device_id_is_equal(&producer->device_id(),
+                                        &consumer->device_id()));
+    ASSERT_NE(producer->native_handle(), consumer->native_handle());
+    ASSERT_GE(producer->words().size_bytes(), 2048u);
+    ASSERT_GE(consumer->words().size_bytes(), 2048u);
     auto* input = static_cast<uint32_t*>(source->host.pointer);
     auto* output = static_cast<uint32_t*>(target->host.pointer);
     auto* staging = static_cast<uint32_t*>(intermediate->host.pointer);
@@ -121,10 +120,8 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
         input[i] = epoch * 0x17390000u + static_cast<uint32_t>(i) * 0x00110101u;
         staging[i] = output[i] = ~input[i];
       }
-      Pm4CommandWriter produce(
-          reinterpret_cast<uint32_t*>(producer->host.ring_address) +
-              producer_index,
-          *pm4_profile_);
+      Pm4CommandWriter produce(producer->words().data() + producer_index,
+                               *pm4_profile_);
       produce.SystemBarrier();  // ingress.acquire.
       for (size_t i = 0; i < kWordCount; ++i) {
         produce.CopyData32(source->device_address + i * sizeof(uint32_t),
@@ -135,10 +132,8 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
       produce.PadToEightWords();
       producer_index += produce.word_count();
 
-      Pm4CommandWriter consume(
-          reinterpret_cast<uint32_t*>(consumer->host.ring_address) +
-              consumer_index,
-          *pm4_profile_);
+      Pm4CommandWriter consume(consumer->words().data() + consumer_index,
+                               *pm4_profile_);
       consume.WaitMemory32(control->device_address, epoch);
       consume.SystemBarrier();  // handoff.acquire, after the ordering edge.
       for (size_t i = 0; i < kWordCount; ++i) {
@@ -152,15 +147,17 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
 
       // Submit the consumer first. The device memory dependency, not host
       // retirement or queue submission order, makes the payload usable.
-      ASSERT_NO_FATAL_FAILURE(consumer->PublishStream(consumer_index));
-      ASSERT_NO_FATAL_FAILURE(producer->PublishStream(producer_index));
+      ASSERT_NO_FATAL_FAILURE(
+          consumer->Publish(api_, gpu_api_, consumer_index));
+      ASSERT_NO_FATAL_FAILURE(
+          producer->Publish(api_, gpu_api_, producer_index));
       GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 16),
                              epoch);
       for (size_t i = 0; i < kWordCount; ++i) {
         EXPECT_EQ(output[i], input[i]) << i;
       }
-      ASSERT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, producer_index));
-      ASSERT_NO_FATAL_FAILURE(consumer->WaitConsumed(api_, consumer_index));
+      ASSERT_NO_FATAL_FAILURE(producer->WaitRetired(api_));
+      ASSERT_NO_FATAL_FAILURE(consumer->WaitRetired(api_));
     }
   }
 };

@@ -14,16 +14,18 @@
 // requirements before borrowing the cached native device.
 class Pm4CommandTest : public GpuCommandTest {
  protected:
-  explicit Pm4CommandTest(amdf_queue_roles_t additional_roles = 0,
-                          amdf_queue_publication_modes_t publication_modes =
-                              AMDF_QUEUE_PUBLICATION_MODE_USER)
-      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
-                       AMDF_QUEUE_ROLE_TRANSFER |
-                           AMDF_QUEUE_ROLE_CACHE_CONTROL | additional_roles,
-                       AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR,
-                       AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
-                           AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
-                       AMDF_CACHE_TRANSITION_KINDS_GLOBAL, publication_modes) {}
+  explicit Pm4CommandTest(amdf_queue_roles_t additional_roles = 0)
+      : GpuCommandTest({
+            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
+            .roles = AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL |
+                     additional_roles,
+            .format_features = AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR,
+            .cache_operations = AMDF_CACHE_OPERATIONS_RELEASE_TO_SYSTEM |
+                                AMDF_CACHE_OPERATIONS_ACQUIRE_FROM_SYSTEM,
+            .cache_transition_kinds = AMDF_CACHE_TRANSITION_KINDS_GLOBAL,
+            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
+        }) {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override {

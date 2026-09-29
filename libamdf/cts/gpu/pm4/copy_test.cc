@@ -33,15 +33,14 @@ TEST_F(Pm4CopyTest, CopiesBetweenExactAccessAttachments) {
     output[i] = ~input[i];
   }
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  EXPECT_TRUE(amdf_device_id_is_equal(&queue->info.device_id,
+  EXPECT_TRUE(amdf_device_id_is_equal(&queue->device_id(),
                                       &source->access_info.device_id));
-  EXPECT_TRUE(amdf_device_id_is_equal(&queue->info.device_id,
+  EXPECT_TRUE(amdf_device_id_is_equal(&queue->device_id(),
                                       &target->access_info.device_id));
-  ASSERT_GT(queue->host.ring_byte_length, 512u);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  ASSERT_GT(queue->words().size_bytes(), 512u);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   commands.SystemBarrier();
   for (size_t i = 0; i < kWordCount; ++i) {
     commands.CopyData32(source->device_address + i * sizeof(uint32_t),
@@ -50,10 +49,11 @@ TEST_F(Pm4CopyTest, CopiesBetweenExactAccessAttachments) {
   commands.SystemBarrier();
   commands.WriteData32(completion->device_address, 1);
   commands.PadToEightWords();
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount> observed_output;
   std::array<uint32_t, kWordCount> observed_input;
   std::memcpy(observed_output.data(), output, sizeof(observed_output));
@@ -65,7 +65,7 @@ TEST_F(Pm4CopyTest, CopiesBetweenExactAccessAttachments) {
     EXPECT_EQ(observed_input[i], expected) << "source word " << i;
   }
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 class Pm4CopyWidthTest : public Pm4CommandTest,
@@ -94,11 +94,10 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
     expected[i] = output[i] = ~input[i];
   }
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 256u);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  ASSERT_GE(queue->words().size_bytes(), 256u);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   commands.SystemBarrier();
   for (size_t position : positions) {
     const uint64_t offset = position * sizeof(uint32_t);
@@ -116,10 +115,11 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
   commands.SystemBarrier();
   commands.WriteData32(completion->device_address, 1);
   commands.PadToEightWords();
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount> observed_output;
   std::array<uint32_t, kWordCount> observed_input;
   std::memcpy(observed_output.data(), output, sizeof(observed_output));
@@ -131,7 +131,7 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
     EXPECT_EQ(observed_input[i], expected_input) << "source word " << i;
   }
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 INSTANTIATE_TEST_SUITE_P(Width, Pm4CopyWidthTest, ::testing::Values(4, 8),
@@ -160,11 +160,10 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
     input[i] = UINT64_C(0x13579bdf2468ace0) + i * UINT64_C(0x0102030405060708);
     staging[i] = output[i] = ~input[i];
   }
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 1024u);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  ASSERT_GE(queue->words().size_bytes(), 1024u);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   commands.SystemBarrier();
   for (size_t i = 0; i < kValueCount; ++i) {
     const uint64_t offset = i * sizeof(uint64_t);
@@ -178,10 +177,11 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
   commands.SystemBarrier();
   commands.WriteData32(completion->device_address, 1);
   commands.PadToEightWords();
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint64_t, kValueCount> observed_staging;
   std::array<uint64_t, kValueCount> observed_output;
   std::array<uint64_t, kValueCount> observed_input;
@@ -196,7 +196,7 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
     EXPECT_EQ(observed_input[i], expected) << "source word " << i;
   }
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 class Pm4DmaTest : public Pm4CommandTest {};
@@ -245,15 +245,13 @@ TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
       reinterpret_cast<uintptr_t>(completion->host.pointer) +
       kCompletionByteOffset;
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const uint64_t ring_capacity =
-      queue->host.ring_byte_length / sizeof(uint32_t);
-  ASSERT_GT(ring_capacity, kCommandWordCount);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  const uint64_t command_capacity = queue->words().size();
+  ASSERT_GT(command_capacity, kCommandWordCount);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   // Both batches are complete before the first publication. Each remains
-  // immutable through its completion and consumed frontier.
+  // immutable through its completion and retired frontier.
   for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {
     commands.SystemBarrier();
     commands.DmaCopyL2(source->device_address + kSourceByteOffset,
@@ -267,8 +265,7 @@ TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), epoch * kCommandWordsPerEpoch);
   }
-  std::memcpy(expected_commands.data(),
-              reinterpret_cast<const void*>(queue->host.ring_address),
+  std::memcpy(expected_commands.data(), queue->words().data(),
               sizeof(expected_commands));
   RecordProperty("pm4_dma_packet_header", "0xc0055000");
   RecordProperty("pm4_dma_copy_control", "0x60300000");
@@ -283,8 +280,9 @@ TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
   RecordProperty("pm4_dma_checked_command_bytes", sizeof(expected_commands));
   RecordProperty("pm4_dma_command_words_per_epoch", kCommandWordsPerEpoch);
   RecordProperty("pm4_dma_command_word_count", commands.word_count());
-  RecordProperty("pm4_dma_ring_capacity_dwords", std::to_string(ring_capacity));
-  RecordProperty("pm4_dma_first_producer_index", 0);
+  RecordProperty("pm4_dma_command_capacity_dwords",
+                 std::to_string(command_capacity));
+  RecordProperty("pm4_dma_first_published_word_count", 0);
   RecordProperty("pm4_dma_completed_epochs", 0);
 
   for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {
@@ -309,20 +307,20 @@ TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
     std::memcpy(target->host.pointer, observed_target.data(),
                 sizeof(observed_target));
     expected_control[kCompletionWordIndex] = epoch;
-    const uint64_t producer_index = epoch * kCommandWordsPerEpoch;
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(producer_index));
+    const uint64_t published_word_count = epoch * kCommandWordsPerEpoch;
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, published_word_count));
     GpuWaitEqual<uint32_t>(completion_address, epoch);
 
     // Capture the complete target first, then all other initialized storage,
-    // before diagnostics or consumption can add synchronization.
+    // before diagnostics or retirement can add synchronization.
     std::memcpy(observed_target.data(), target->host.pointer,
                 sizeof(observed_target));
     std::memcpy(observed_source.data(), source->host.pointer,
                 sizeof(observed_source));
     std::memcpy(observed_control.data(), completion->host.pointer,
                 sizeof(observed_control));
-    std::memcpy(observed_commands.data(),
-                reinterpret_cast<const void*>(queue->host.ring_address),
+    std::memcpy(observed_commands.data(), queue->words().data(),
                 sizeof(observed_commands));
     for (uint32_t i = 0; i < kPageWordCount; ++i) {
       EXPECT_EQ(observed_target[i], expected_target[i]) << "target word=" << i;
@@ -334,17 +332,18 @@ TEST_F(Pm4DmaTest, CoherentSystemCopyCompletesBeforeReuse) {
       EXPECT_EQ(observed_commands[i], expected_commands[i])
           << "command word=" << i;
     }
-    // The marker supplies transfer visibility; consumption retires command
-    // storage. Nonfatal oracle failures still reach this separate obligation.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, producer_index));
+    // The marker supplies transfer visibility. Native progress separately
+    // retires command storage, including after nonfatal oracle failures.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
-    RecordProperty("pm4_dma_epoch_" + std::to_string(epoch) + "_producer_index",
-                   std::to_string(producer_index));
+    RecordProperty(
+        "pm4_dma_epoch_" + std::to_string(epoch) + "_published_word_count",
+        std::to_string(published_word_count));
     RecordProperty("pm4_dma_completed_epochs", epoch);
   }
-  RecordProperty("pm4_dma_final_producer_index", kCommandWordCount);
+  RecordProperty("pm4_dma_final_published_word_count", kCommandWordCount);
 }
 
 }  // namespace

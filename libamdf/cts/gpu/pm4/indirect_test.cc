@@ -99,13 +99,11 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
       reinterpret_cast<uintptr_t>(completion->host.pointer) +
       kCompletionByteOffset;
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const uint64_t ring_capacity =
-      queue->host.ring_byte_length / sizeof(uint32_t);
-  ASSERT_GT(ring_capacity, kWorkgroupCounts.size() * kCommandWordsPerEpoch);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  const uint64_t command_capacity = queue->words().size();
+  ASSERT_GT(command_capacity, kWorkgroupCounts.size() * kCommandWordsPerEpoch);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   RecordProperty("pm4_indirect_packet_header", "0xc0021602");
   RecordProperty("pm4_indirect_dispatch_initiator", "0x8005");
   RecordProperty("pm4_indirect_count_units", "workgroups");
@@ -120,10 +118,10 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
   RecordProperty("pm4_indirect_checked_page_bytes_each", kPageByteLength);
   RecordProperty("pm4_indirect_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_indirect_command_words_per_epoch", kCommandWordsPerEpoch);
-  RecordProperty("pm4_indirect_first_producer_index",
+  RecordProperty("pm4_indirect_first_published_word_count",
                  std::to_string(commands.word_count()));
-  RecordProperty("pm4_indirect_ring_capacity_dwords",
-                 std::to_string(ring_capacity));
+  RecordProperty("pm4_indirect_command_capacity_dwords",
+                 std::to_string(command_capacity));
   RecordProperty("pm4_indirect_completed_epochs", 0);
 
   for (uint32_t epoch = 0; epoch < kWorkgroupCounts.size(); ++epoch) {
@@ -173,10 +171,12 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
     // The 55-word body needs a legal nine-word NOP, not a one-word packet.
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordsPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
 
-    // Observe all initialized storage before diagnostics or ring retirement.
+    // Observe all initialized storage before diagnostics or command storage
+    // retirement.
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     std::memcpy(observed_input.data(), input->host.pointer,
@@ -203,18 +203,18 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
       EXPECT_EQ(observed_control[i], expected_control[i])
           << "control word=" << i;
     }
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
     const std::string prefix =
         "pm4_indirect_epoch_" + std::to_string(epoch + 1);
     RecordProperty(prefix + "_addend", std::to_string(kAddends[epoch]));
-    RecordProperty(prefix + "_producer_index",
+    RecordProperty(prefix + "_published_word_count",
                    std::to_string(commands.word_count()));
     RecordProperty("pm4_indirect_completed_epochs", epoch + 1);
   }
-  RecordProperty("pm4_indirect_final_producer_index",
+  RecordProperty("pm4_indirect_final_published_word_count",
                  std::to_string(commands.word_count()));
 }
 
@@ -310,13 +310,11 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
       reinterpret_cast<uintptr_t>(completion->host.pointer) +
       kCompletionByteOffset;
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const uint64_t ring_capacity =
-      queue->host.ring_byte_length / sizeof(uint32_t);
-  ASSERT_GT(ring_capacity, kWorkgroupCounts.size() * kCommandWordsPerEpoch);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  const uint64_t command_capacity = queue->words().size();
+  ASSERT_GT(command_capacity, kWorkgroupCounts.size() * kCommandWordsPerEpoch);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   RecordProperty("pm4_produced_indirect_packet_header", "0xc0021602");
   RecordProperty("pm4_produced_indirect_dispatch_initiator", "0x8005");
   RecordProperty("pm4_produced_indirect_count_units", "workgroups");
@@ -351,10 +349,10 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
                  kCompletionByteOffset);
   RecordProperty("pm4_produced_indirect_command_words_per_epoch",
                  kCommandWordsPerEpoch);
-  RecordProperty("pm4_produced_indirect_first_producer_index",
+  RecordProperty("pm4_produced_indirect_first_published_word_count",
                  std::to_string(commands.word_count()));
-  RecordProperty("pm4_produced_indirect_ring_capacity_dwords",
-                 std::to_string(ring_capacity));
+  RecordProperty("pm4_produced_indirect_command_capacity_dwords",
+                 std::to_string(command_capacity));
   RecordProperty("pm4_produced_indirect_completed_epochs", 0);
   RecordProperty("pm4_produced_indirect_completed_dispatches", 0);
 
@@ -395,7 +393,7 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
         kConsumerCount, kConsumerAddends[epoch]};
     expected_arguments.fill(0x3d);
     // Both argument records remain immutable through completion and
-    // consumption. Zero the backing padding; copy only the 24 semantic bytes.
+    // retirement. Zero the backing padding; copy only the 24 semantic bytes.
     std::memset(expected_arguments.data(), 0, sizeof(producer_payload));
     std::memcpy(expected_arguments.data(), &producer_payload,
                 kernel.arguments.byte_length);
@@ -427,11 +425,13 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
     // The aligned 96-word body still receives a complete eight-word NOP.
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordsPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
 
-    // Snapshot all six initialized allocations before diagnostics or ring
-    // retirement can add synchronization to the payload observations.
+    // Snapshot all six initialized allocations before diagnostics or
+    // command storage retirement can add synchronization to the payload
+    // observations.
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     std::memcpy(observed_tuple.data(), tuple->host.pointer,
@@ -458,7 +458,7 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
       EXPECT_EQ(observed_control[i], expected_control[i])
           << "control word=" << i;
     }
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -468,13 +468,13 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
                    std::to_string(kConsumerAddends[epoch]));
     RecordProperty(prefix + "_observed_workgroup_count_x",
                    std::to_string(observed_tuple[kTupleWordIndex]));
-    RecordProperty(prefix + "_producer_index",
+    RecordProperty(prefix + "_published_word_count",
                    std::to_string(commands.word_count()));
     RecordProperty("pm4_produced_indirect_completed_epochs", epoch + 1);
     RecordProperty("pm4_produced_indirect_completed_dispatches",
                    (epoch + 1) * 2);
   }
-  RecordProperty("pm4_produced_indirect_final_producer_index",
+  RecordProperty("pm4_produced_indirect_final_published_word_count",
                  std::to_string(commands.word_count()));
 }
 

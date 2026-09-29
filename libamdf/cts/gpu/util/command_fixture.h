@@ -35,16 +35,8 @@ struct GpuQueueRequirements {
 // No helper emits cache commands or conflates ring consumption with execution.
 class GpuCommandTest : public GpuDeviceFixture {
  protected:
-  GpuCommandTest(amdf_queue_command_type_t command_type,
-                 amdf_queue_roles_t roles,
-                 amdf_queue_format_features_t format_features = 0,
-                 amdf_cache_operations_t cache_operations = 0,
-                 amdf_cache_transition_kinds_t cache_transition_kinds = 0,
-                 amdf_queue_publication_modes_t publication_modes =
-                     AMDF_QUEUE_PUBLICATION_MODE_USER)
-      : requirements_{command_type,           roles,
-                      format_features,        cache_operations,
-                      cache_transition_kinds, publication_modes} {}
+  explicit GpuCommandTest(const GpuQueueRequirements& requirements)
+      : requirements_(requirements) {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override;

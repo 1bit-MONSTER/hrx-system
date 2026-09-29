@@ -56,13 +56,12 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
       kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  // Each batch has 56 command words and an eight-word NOP. Both batches stay
-  // resident in distinct ring positions; this case does not wrap the ring.
-  ASSERT_GE(queue->host.ring_byte_length, 128 * sizeof(uint32_t));
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  // Each batch has 56 command words and an eight-word NOP. Both batches occupy
+  // distinct command ranges and are published separately.
+  ASSERT_GE(queue->words().size_bytes(), 128 * sizeof(uint32_t));
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     std::array<uint32_t, kWordCount> upload;
     std::array<uint32_t, kWordCount> expected;
@@ -102,7 +101,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     // wait; the host never resets a value that the command processor writes.
     commands.WriteData32(completion->device_address, epoch + 1);
     commands.PadToEightWords();
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
     std::memcpy(download.data(), output->host.pointer, sizeof(download));
@@ -113,9 +113,9 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
       EXPECT_EQ(unchanged_input[i], upload[i])
           << "epoch=" << epoch << " word=" << i;
     }
-    // Observe the complete payload before consumption can add synchronization.
+    // Observe the complete payload before retirement can add synchronization.
     // Retire the stream even on an oracle failure, then stop before reuse.
-    ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -180,14 +180,12 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
       kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   // Each epoch has 97 command words and a seven-word NOP. Both finite batches
-  // remain in distinct resident ranges, with no packet crossing ring wrap.
-  ASSERT_GE(queue->host.ring_byte_length / sizeof(uint32_t),
-            kCommandWordCountPerEpoch * kCounts.size());
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  // remain in distinct resident command ranges.
+  ASSERT_GE(queue->words().size(), kCommandWordCountPerEpoch * kCounts.size());
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     SCOPED_TRACE(epoch);
     std::array<uint32_t, kWordCount> upload;
@@ -237,7 +235,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
         kConsumerAddends[epoch],
     };
     // Both records retain zero padding and remain immutable through terminal
-    // completion and consumption. The compiler consumes only 24 bytes each.
+    // completion and retirement. The compiler consumes only 24 bytes each.
     std::memset(arguments->host.pointer, 0, arguments->info.byte_length);
     std::memcpy(arguments->host.pointer, &producer_payload,
                 kernel.arguments.byte_length);
@@ -260,12 +258,14 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
     commands.WriteData32(completion->device_address, epoch + 1);
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
 
-    // Capture every observed byte before diagnostics or ring-consumption
-    // operations can add synchronization to the payload observations.
+    // Capture every observed byte before diagnostics or
+    // command-retirement operations can add synchronization to the
+    // payload observations.
     std::memcpy(output_words.data(), output->host.pointer,
                 sizeof(output_words));
     std::memcpy(intermediate_words.data(), intermediate->host.pointer,
@@ -285,7 +285,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
     }
     // Oracle failures still retire the complete stream. Neither backing nor
     // arguments may be reused after a failed observation or retirement.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -353,14 +353,12 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
       kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   // The 49-word sequence is followed by a seven-word NOP. Both batches remain
-  // in distinct resident ring ranges, with no packet crossing ring wrap.
-  ASSERT_GE(queue->host.ring_byte_length / sizeof(uint32_t),
-            kCommandWordCountPerEpoch * kCounts.size());
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  // in distinct resident command ranges.
+  ASSERT_GE(queue->words().size(), kCommandWordCountPerEpoch * kCounts.size());
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   RecordProperty("pm4_release_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_release_command_word_count_per_epoch",
                  kCommandWordCountPerEpoch);
@@ -407,11 +405,12 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
                              epoch + 1);
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion_word),
                            epoch + 1);
 
-    // Snapshot every observed byte before diagnostics or consumed-index
+    // Snapshot every observed byte before diagnostics or retirement
     // polling can add synchronization to the payload observation.
     std::memcpy(output_words.data(), output->host.pointer,
                 sizeof(output_words));
@@ -428,8 +427,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
           << "control word=" << i;
     }
     // Nonfatal oracle failures still reach retirement. No arguments or payload
-    // are rewritten after a failed observation or consumed-index wait.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    // are rewritten after a failed observation or retirement wait.
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -502,14 +501,12 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
   ASSERT_NO_FATAL_FAILURE(PrepareProgram(
       kernel.executable, kernel.entry_byte_offset, &program, "pm4"));
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   // Each epoch has 114 active words and a six-word NOP. Both batches remain
-  // resident without wrapping, leaving the ring's required free word.
-  ASSERT_GT(queue->host.ring_byte_length / sizeof(uint32_t),
-            kCommandWordCountPerEpoch * kCounts.size());
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  // resident in distinct ranges, leaving the USER ring's required free word.
+  ASSERT_GT(queue->words().size(), kCommandWordCountPerEpoch * kCounts.size());
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   RecordProperty("pm4_shader_timestamp_command_word_count_per_epoch",
                  kCommandWordCountPerEpoch);
   uint64_t previous_end_ticks = 0;
@@ -571,10 +568,11 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
                          epoch + 1);
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(marker_host_address, epoch + 1);
 
-    // Capture every observed byte before diagnostics or consumed-index polling
+    // Capture every observed byte before diagnostics or retirement polling
     // can add synchronization. The marker is the only host completion wait.
     std::memcpy(output_words.data(), output->host.pointer,
                 sizeof(output_words));
@@ -632,7 +630,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
                    std::to_string(commands.word_count()));
     // Retire trailing command storage even after a nonfatal oracle failure.
     // No timestamp, arguments or payload may be reused after either failure.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }

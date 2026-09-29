@@ -22,7 +22,8 @@ amdf_queue_publication_modes_t SelectGpuHostPublication(
 // KERNEL writes executable command memory and submits successive ranges. The
 // caller encodes complete packets, explicit cache work and completion markers,
 // and observes payloads before retiring command storage. No stream wraps or
-// reuses storage, and each publication retires before the next publication.
+// reuses the owner's storage, and each publication retires before the next.
+// KERNEL callers may also submit their own already-published command buffers.
 class GpuCommandQueue {
  public:
   void Initialize(const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
@@ -31,6 +32,12 @@ class GpuCommandQueue {
                   amdf_queue_publication_modes_t publication_mode);
 
   std::span<uint32_t> words() const { return words_; }
+  // PM4 USER commands enter on the primary ring; KERNEL commands enter in an
+  // IB. The case uses this distinction when encoding control-flow packets.
+  amdf_queue_publication_modes_t publication_mode() const {
+    return kernel_queue_ ? AMDF_QUEUE_PUBLICATION_MODE_KERNEL
+                         : AMDF_QUEUE_PUBLICATION_MODE_USER;
+  }
   const amdf_device_id_t& device_id() const { return device_id_; }
   // Native object identity, without inventing a USER queue ID for KERNEL.
   const void* native_handle() const;
@@ -39,6 +46,11 @@ class GpuCommandQueue {
   // Command-cache publication is independent of caller-owned payload edges.
   void Publish(const amdf_api_t* api, const amdf_gpu_api_t* gpu_api,
                size_t word_count);
+  // KERNEL entry for an already-published caller-owned command buffer. The
+  // caller retains its memory and every referenced allocation through native
+  // retirement and queue removal, just as for commands written through words().
+  void Submit(const amdf_gpu_api_t* gpu_api,
+              const amdf_gpu_kernel_command_t& command);
   // Retires the last publication. USER consumption permits command-storage
   // reuse only; it does not establish shader completion or payload visibility.
   void WaitRetired(const amdf_api_t* api);

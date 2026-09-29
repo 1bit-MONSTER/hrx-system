@@ -167,7 +167,10 @@ typedef struct amdf_gpu_device_info_t {
 /// ring storage can be reused; command completion requires a separate fence.
 /// Each publication ends on an eight-dword boundary, padded with type-3 NOP
 /// packets when necessary; packets never straddle ring wrap.
-/// Kernel publication accepts an immutable dword-aligned command stream.
+/// Kernel publication accepts an immutable dword-aligned first-level IB.
+/// A USER primary ring can call a first-level IB and resume after it. KERNEL
+/// submits that IB directly; placing the ring's call inside a KERNEL buffer
+/// would request unsupported compute IB2 nesting.
 #define AMDF_GPU_PM4_QUEUE_FORMAT_VERSION_1 1u
 
 /// Native PM4 encoding features reported in `format_features`.

@@ -106,6 +106,8 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
         .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
         .roles = AMDF_QUEUE_ROLE_TRANSFER,
         .format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+        .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                             AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
     };
     amdf_queue_family_info_t sdma_family = {};
     bool matches = false;
@@ -352,26 +354,20 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     std::memcpy(expected_code.data(), kernel.executable.words,
                 kernel.executable.byte_length);
 
-    GpuUserQueue* pm4_queue = nullptr;
-    GpuUserQueue* sdma_queue = nullptr;
+    GpuCommandQueue* pm4_queue = nullptr;
+    GpuCommandQueue* sdma_queue = nullptr;
     ASSERT_NO_FATAL_FAILURE(CreateQueue(&pm4_queue));
     ASSERT_NO_FATAL_FAILURE(CreateQueue(sdma_family_, &sdma_queue));
-    ASSERT_EQ(pm4_queue->info.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_PM4);
-    ASSERT_EQ(sdma_queue->info.command_type, AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
-    ASSERT_TRUE(amdf_device_id_is_equal(&pm4_queue->info.device_id,
-                                        &sdma_queue->info.device_id));
-    ASSERT_FALSE(amdf_queue_id_is_equal(&pm4_queue->info.queue_id,
-                                        &sdma_queue->info.queue_id));
-    ASSERT_GE(pm4_queue->host.ring_byte_length,
+    ASSERT_TRUE(amdf_device_id_is_equal(&pm4_queue->device_id(),
+                                        &sdma_queue->device_id()));
+    ASSERT_NE(pm4_queue->native_handle(), sdma_queue->native_handle());
+    ASSERT_GE(pm4_queue->words().size_bytes(),
               kEpochCount * kPm4WordsPerEpoch * sizeof(uint32_t));
-    ASSERT_GE(sdma_queue->host.ring_byte_length,
+    ASSERT_GE(sdma_queue->words().size_bytes(),
               kEpochCount * kSdmaWordsPerEpoch * sizeof(uint32_t));
-    Pm4CommandWriter pm4(
-        reinterpret_cast<uint32_t*>(pm4_queue->host.ring_address),
-        *pm4_profile_);
-    SdmaCommandWriter sdma(
-        reinterpret_cast<uint32_t*>(sdma_queue->host.ring_address),
-        sdma_family_.format_features);
+    Pm4CommandWriter pm4(pm4_queue->words().data(), *pm4_profile_);
+    SdmaCommandWriter sdma(sdma_queue->words().data(),
+                           sdma_family_.format_features);
     for (uint32_t epoch = 1; epoch <= kEpochCount; ++epoch) {
       pm4.WaitMemory32(control.device_address, epoch);
       pm4.SystemBarrier();  // Queried GLOBAL acquire and cold code publication.
@@ -396,9 +392,9 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     RecordProperty("pm4_sdma_sdma_format_features",
                    std::to_string(sdma_family_.format_features));
     RecordProperty("pm4_sdma_pm4_capacity_dwords",
-                   std::to_string(pm4_queue->host.ring_byte_length / 4));
+                   std::to_string(pm4_queue->words().size()));
     RecordProperty("pm4_sdma_sdma_capacity_bytes",
-                   std::to_string(sdma_queue->host.ring_byte_length));
+                   std::to_string(sdma_queue->words().size_bytes()));
     RecordProperty("pm4_sdma_payload_byte_offset", 64);
     RecordProperty("pm4_sdma_copy_byte_length", kGridSize * sizeof(uint32_t));
     RecordProperty("pm4_sdma_grid_size", kGridSize);
@@ -458,10 +454,10 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
       std::memcpy(arguments.host.pointer, expected_arguments.data(),
                   sizeof(expected_arguments));
       const uint64_t pm4_frontier = (epoch + 1) * kPm4WordsPerEpoch;
-      const uint64_t sdma_frontier =
-          (epoch + 1) * kSdmaWordsPerEpoch * sizeof(uint32_t);
-      pm4_queue->PublishStream(pm4_frontier);
-      sdma_queue->PublishStream(sdma_frontier);
+      const uint64_t sdma_frontier = (epoch + 1) * kSdmaWordsPerEpoch;
+      ASSERT_NO_FATAL_FAILURE(pm4_queue->Publish(api_, gpu_api_, pm4_frontier));
+      ASSERT_NO_FATAL_FAILURE(
+          sdma_queue->Publish(api_, gpu_api_, sdma_frontier));
       GpuWaitEqual<uint32_t>(
           reinterpret_cast<uintptr_t>(control.host.pointer) + 128, epoch + 1);
       // This complete readback snapshot is the decisive dependency observation.
@@ -501,8 +497,8 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
       }
       // Both retirement calls run after every nonfatal oracle, then any failure
       // stops the next CPU rewrite. Native teardown failure retains all owners.
-      EXPECT_NO_FATAL_FAILURE(pm4_queue->WaitConsumed(api_, pm4_frontier));
-      EXPECT_NO_FATAL_FAILURE(sdma_queue->WaitConsumed(api_, sdma_frontier));
+      EXPECT_NO_FATAL_FAILURE(pm4_queue->WaitRetired(api_));
+      EXPECT_NO_FATAL_FAILURE(sdma_queue->WaitRetired(api_));
       if (HasFailure()) {
         return;
       }
@@ -511,7 +507,8 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
       RecordProperty(prefix + "_addend", std::to_string(kAddends[epoch]));
       RecordProperty(prefix + "_completion", observed_control[32]);
       RecordProperty(prefix + "_pm4_frontier", std::to_string(pm4_frontier));
-      RecordProperty(prefix + "_sdma_frontier", std::to_string(sdma_frontier));
+      RecordProperty(prefix + "_sdma_word_frontier",
+                     std::to_string(sdma_frontier));
     }
     RecordProperty("pm4_sdma_completed_epochs", kEpochCount);
     RecordProperty("pm4_sdma_pm4_command_dwords",

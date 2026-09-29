@@ -17,7 +17,7 @@ behavior.
 ```text
 gpu/
   gpu_device_fixture.h       # Passive selection and the existing device cache.
-  util/                      # Case-owned memory and mapped user queues.
+  util/                      # Case-owned memory and native queue transports.
   pm4/                       # One native PM4 corpus.
     encoding/                # Host-only wire-format checks and test encoder.
   sdma/                      # One native SDMA corpus.
@@ -46,17 +46,26 @@ and owns stable case-local memory and queue collections. Each case can create
 N queues without creating N devices. Explicit cleanup precedes provider unload,
 including partial initialization and failed native removal paths.
 
-The shared utilities expose memory contracts and mapped producer state. They
-do not insert cache commands, poll payload memory or wait for a producer as a
-side effect of constructing a consumer. Engine fixtures own packet publication
-and exact completion semantics. Resource setup is test infrastructure; none of
-these collections or helpers becomes production queue scheduling machinery.
+The shared utilities expose memory contracts and native command storage.
+`GpuCommandQueue` publishes finite PM4/SDMA streams through either a mapped
+USER ring or executable KERNEL command buffers. Publishing owned KERNEL storage
+submits only each newly appended range. PM4 control flow preserves the entry context:
+USER calls a first-level IB from the primary ring, while KERNEL submits that
+IB directly. Compute IB2 call-and-return is unsupported.
+The IB cases carry acquisition, dispatch, shader join and completion inside
+the referenced body, with the same payload and full-backing oracles. AQL and
+USER lifecycle cases use the mapped producer state in `GpuUserQueue` directly.
+The utilities publish command bytes without inserting payload cache commands
+or completion markers. Engine fixtures own exact completion semantics. Resource
+setup is test infrastructure; these helpers are separate from production queue
+scheduling machinery.
 
 Dataflow cases observe their payloads after the named completion and before
-polling ring consumption. Independent CPU expectations cover the initialized
+retiring command storage. Independent CPU expectations cover the initialized
 payloads and guards; input preservation is checked separately. Oracle failures
-still reach retirement before teardown or any reuse. Ring-consumption checks
-remain separate from execution completion and payload visibility.
+still reach retirement before teardown or any reuse. USER consumption and
+KERNEL submission retirement retain their distinct native meanings; neither
+replaces the case's earlier payload observation.
 
 ## Build and execution
 
@@ -68,8 +77,10 @@ retains the three binding modes.
 Native corpora require x86-64 and Linux or Windows at compile time, inherit
 the `libamdf.resource.amd_gpu` execution requirement and share the AMD GPU
 resource group. Encoder target predicates and family capabilities select the
-actual native queue service. Windows compilation of a user-ring corpus does
-not imply Windows user-ring execution.
+actual native queue service. Linux RDNA runs PM4 and SDMA through USER queues;
+Windows RDNA runs them through KERNEL queues. AQL uses USER publication on
+Linux. Tests specifically exercising mapped USER state require that service
+independently of ordinary command behavior.
 
 Each `encoding/` package has one plain host-test binary. Package policy removes
 the GPU execution requirement for these exact packages, so byte-layout checks

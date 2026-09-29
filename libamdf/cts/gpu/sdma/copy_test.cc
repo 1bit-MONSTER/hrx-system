@@ -18,8 +18,12 @@ namespace {
 class SdmaCopyTest : public GpuCommandTest {
  protected:
   SdmaCopyTest()
-      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
-                       AMDF_QUEUE_ROLE_TRANSFER) {}
+      : GpuCommandTest({
+            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+            .roles = AMDF_QUEUE_ROLE_TRANSFER,
+            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
+        }) {}
 };
 
 TEST_F(SdmaCopyTest, LinearCopyCompletesBeforeFence) {
@@ -41,20 +45,18 @@ TEST_F(SdmaCopyTest, LinearCopyCompletesBeforeFence) {
   }
   // Guard words make an incorrect byte count observable.
   output[kWordCount] = 0x725ae191;
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 64u);
-  SdmaCommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address),
-      family_.format_features);
+  ASSERT_GE(queue->words().size_bytes(), 64u);
+  SdmaCommandWriter commands(queue->words().data(), family_.format_features);
   commands.CopyLinear(source->device_address, target->device_address,
                       kWordCount * sizeof(uint32_t));
   commands.Fence32(completion->device_address, 1);
-  const uint64_t byte_length = commands.word_count() * sizeof(uint32_t);
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_length));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount + 1> observed_output;
   std::array<uint32_t, kWordCount> observed_input;
   std::memcpy(observed_output.data(), output, sizeof(observed_output));
@@ -67,7 +69,7 @@ TEST_F(SdmaCopyTest, LinearCopyCompletesBeforeFence) {
   }
   EXPECT_EQ(observed_output[kWordCount], 0x725ae191u);
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
@@ -95,12 +97,10 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   std::vector<uint8_t> observed_output(kTargetLength);
   std::vector<uint8_t> observed_input(kSourceLength);
   *static_cast<uint32_t*>(completion->host.pointer) = 0;
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 256u);
-  SdmaCommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address),
-      family_.format_features);
+  ASSERT_GE(queue->words().size_bytes(), 256u);
+  SdmaCommandWriter commands(queue->words().data(), family_.format_features);
   for (size_t i = 0; i < kByteLengths.size(); ++i) {
     // Differently aligned ranges cross the first source and target page.
     const uint64_t source_offset = i == 3 ? 4092 : 4095;
@@ -112,11 +112,11 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
                 expected.data() + target_offset);
   }
   commands.Fence32(completion->device_address, 1);
-  const uint64_t byte_length = commands.word_count() * sizeof(uint32_t);
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_length));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::memcpy(observed_output.data(), output, observed_output.size());
   std::memcpy(observed_input.data(), input, observed_input.size());
   for (uint64_t i = 0; i < kTargetLength; ++i) {
@@ -128,15 +128,19 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
         << "source byte " << i;
   }
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 class SdmaDependencyTest : public GpuCommandTest {
  protected:
   SdmaDependencyTest()
-      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
-                       AMDF_QUEUE_ROLE_TRANSFER,
-                       AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE) {}
+      : GpuCommandTest({
+            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+            .roles = AMDF_QUEUE_ROLE_TRANSFER,
+            .format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
+        }) {}
 
   amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
                                  bool* out_matches) override {
@@ -206,13 +210,11 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
   std::array<uint32_t, kDataLength / sizeof(uint32_t)> observed_intermediate;
   std::array<uint32_t, kDataLength / sizeof(uint32_t)> observed_output;
   std::array<uint32_t, kControlLength / sizeof(uint32_t)> observed_completion;
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length,
+  ASSERT_GE(queue->words().size_bytes(),
             kSeeds.size() * kWordsPerEpoch * sizeof(uint32_t));
-  SdmaCommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address),
-      family_.format_features);
+  SdmaCommandWriter commands(queue->words().data(), family_.format_features);
 
   RecordProperty("sdma_nop_family_ordinal", family_.ordinal);
   RecordProperty("sdma_nop_format_version", family_.format_version);
@@ -278,8 +280,8 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
                         output->device_address + kOutputOffset, kCopyLength);
     commands.Fence32(completion->device_address + kCompletionOffset, marker);
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kWordsPerEpoch);
-    const uint64_t byte_frontier = commands.word_count() * sizeof(uint32_t);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_frontier));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionOffset,
@@ -307,7 +309,7 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
     }
     // An oracle failure still retires the published stream. A failed epoch
     // leaves every allocation untouched until queue-first teardown.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_frontier));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }

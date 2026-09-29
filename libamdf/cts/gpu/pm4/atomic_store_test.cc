@@ -226,15 +226,13 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
         reinterpret_cast<uintptr_t>(control->host.pointer) +
         kCompletionByteOffset;
 
-    GpuUserQueue* queue = nullptr;
+    GpuCommandQueue* queue = nullptr;
     ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-    ASSERT_EQ(queue->host.ring_byte_length % sizeof(uint32_t), 0u);
-    const size_t ring_word_count =
-        queue->host.ring_byte_length / sizeof(uint32_t);
-    ASSERT_GT(ring_word_count, kCommandWordCount);
-    std::vector<uint32_t> expected_ring(ring_word_count, 0);
-    std::vector<uint32_t> observed_ring(ring_word_count);
-    Pm4CommandWriter commands(expected_ring.data(), *pm4_profile_);
+    const size_t command_capacity = queue->words().size();
+    ASSERT_GT(command_capacity, kCommandWordCount);
+    std::vector<uint32_t> expected_commands(command_capacity, 0);
+    std::vector<uint32_t> observed_commands(command_capacity);
+    Pm4CommandWriter commands(expected_commands.data(), *pm4_profile_);
     for (uint32_t epoch = 0; epoch < kEpochCount; ++epoch) {
       commands.SystemBarrier();
       for (size_t cell = 0; cell < kCellCount; ++cell) {
@@ -253,8 +251,8 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
       ASSERT_EQ(commands.word_count(), (epoch + 1) * kWordsPerEpoch);
     }
     // Initialize even the unsubmitted extent; neither batch is rewritten.
-    std::memcpy(reinterpret_cast<void*>(queue->host.ring_address),
-                expected_ring.data(), queue->host.ring_byte_length);
+    std::memcpy(queue->words().data(), expected_commands.data(),
+                queue->words().size_bytes());
     RecordProperty("pm4_atomic_store_width_bits", sizeof(T) * 8);
     RecordProperty("pm4_atomic_store_profile_ordinal",
                    creation.memory_profile_ordinal);
@@ -271,8 +269,8 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
     RecordProperty("pm4_atomic_store_completion_byte_offset",
                    kCompletionByteOffset);
     RecordProperty("pm4_atomic_store_checked_page_bytes_each", kPageByteLength);
-    RecordProperty("pm4_atomic_store_ring_capacity_dwords",
-                   std::to_string(ring_word_count));
+    RecordProperty("pm4_atomic_store_command_capacity_dwords",
+                   std::to_string(command_capacity));
     RecordProperty("pm4_atomic_store_command_word_count",
                    commands.word_count());
     RecordProperty("pm4_atomic_store_completed_epochs", 0);
@@ -286,8 +284,9 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
       const uint32_t completion = epoch + 1;
       std::memcpy(expected_control.data() + kCompletionByteOffset, &completion,
                   sizeof(completion));
-      const uint64_t producer_index = completion * kWordsPerEpoch;
-      ASSERT_NO_FATAL_FAILURE(queue->PublishStream(producer_index));
+      const uint64_t published_word_count = completion * kWordsPerEpoch;
+      ASSERT_NO_FATAL_FAILURE(
+          queue->Publish(api_, gpu_api_, published_word_count));
       GpuWaitEqual<uint32_t>(completion_address, completion);
       // Capture all initialized storage before diagnostics or retirement can
       // supply additional synchronization to the observation under test.
@@ -295,21 +294,21 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
                   kPageByteLength);
       std::memcpy(observed_control.data(), control->host.pointer,
                   kPageByteLength);
-      std::memcpy(observed_ring.data(),
-                  reinterpret_cast<const void*>(queue->host.ring_address),
-                  queue->host.ring_byte_length);
+      std::memcpy(observed_commands.data(), queue->words().data(),
+                  queue->words().size_bytes());
       for (uint32_t i = 0; i < kPageByteLength; ++i) {
         EXPECT_EQ(observed_target[i], expected_target[i])
             << "target byte=" << i;
         EXPECT_EQ(observed_control[i], expected_control[i])
             << "control byte=" << i;
       }
-      for (size_t i = 0; i < ring_word_count; ++i) {
-        EXPECT_EQ(observed_ring[i], expected_ring[i]) << "ring word=" << i;
+      for (size_t i = 0; i < command_capacity; ++i) {
+        EXPECT_EQ(observed_commands[i], expected_commands[i])
+            << "command storage word=" << i;
       }
-      // The marker joins STORE visibility; the consumed frontier retires the
-      // command borrow. Oracle mismatches never skip that separate obligation.
-      EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, producer_index));
+      // The marker joins STORE visibility; native progress separately retires
+      // the command borrow. Oracle mismatches never skip that obligation.
+      EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
       if (HasFailure()) {
         return;
       }
@@ -342,21 +341,11 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
       }
       RecordProperty("pm4_atomic_store_completed_epochs", completion);
     }
-    amdf_user_queue_status_t status = {};
-    status.type = AMDF_STRUCTURE_TYPE_USER_QUEUE_STATUS;
-    status.structure_size = sizeof(status);
-    ASSERT_EQ(api_->user_queue_query_status(queue->queue, &status),
-              AMDF_STATUS_OK);
-    ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
-    ASSERT_EQ(status.producer_index, kCommandWordCount);
-    ASSERT_EQ(status.consumed_index, kCommandWordCount);
     RecordProperty("pm4_atomic_store_store_count", kEpochCount * kCellCount);
     RecordProperty("pm4_atomic_store_cpu_exchange_count",
                    kEpochCount * kCellCount);
-    RecordProperty("pm4_atomic_store_final_producer_index",
-                   std::to_string(status.producer_index));
-    RecordProperty("pm4_atomic_store_final_consumed_index",
-                   std::to_string(status.consumed_index));
+    RecordProperty("pm4_atomic_store_final_published_word_count",
+                   std::to_string(kCommandWordCount));
   }
 };
 

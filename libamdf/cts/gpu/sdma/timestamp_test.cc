@@ -18,8 +18,12 @@ namespace {
 class SdmaTimestampTest : public GpuCommandTest {
  protected:
   SdmaTimestampTest()
-      : GpuCommandTest(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
-                       AMDF_QUEUE_ROLE_TRANSFER) {}
+      : GpuCommandTest({
+            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+            .roles = AMDF_QUEUE_ROLE_TRANSFER,
+            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
+                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
+        }) {}
 };
 
 TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
@@ -70,12 +74,10 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   std::vector<uint32_t> observed_output(kWordCount);
   std::vector<uint32_t> observed_input(kWordCount);
   std::array<uint64_t, 4096 / sizeof(uint64_t)> observed_timestamps;
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 128u);
-  SdmaCommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address),
-      family_.format_features);
+  ASSERT_GE(queue->words().size_bytes(), 128u);
+  SdmaCommandWriter commands(queue->words().data(), family_.format_features);
   commands.WriteGlobalTimestamp(observations->device_address + 32);
   commands.CopyLinear(source->device_address, intermediate->device_address,
                       kByteLength);
@@ -86,11 +88,11 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
                       kByteLength);
   commands.WriteGlobalTimestamp(observations->device_address + 96);
   commands.Fence32(completion->device_address, 1);
-  const uint64_t byte_length = commands.word_count() * sizeof(uint32_t);
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(byte_length));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
                          1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::memcpy(observed_staging.data(), staging, kByteLength);
   std::memcpy(observed_output.data(), output, kByteLength);
   std::memcpy(observed_input.data(), input, kByteLength);
@@ -126,7 +128,7 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   RecordProperty("sdma_timestamp_last",
                  std::to_string(observed_timestamps[12]));
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, byte_length));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 }  // namespace

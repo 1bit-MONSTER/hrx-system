@@ -82,23 +82,23 @@ TEST_P(Pm4WaitTest, AlreadySatisfiedOperandAllowsFollowingWork) {
   values[0] = GetParam().final_value;
   values[8] = ~GetParam().final_value;
   values[16] = 0;
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 256u);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  ASSERT_GE(queue->words().size_bytes(), 256u);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   commands.SystemBarrier();
   EmitWait(commands, control->device_address);
   commands.CopyData64(control->device_address, control->device_address + 64);
   commands.SystemBarrier();
   commands.WriteData32(control->device_address + 128, 1);
   commands.PadToEightWords();
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(values + 16), 1);
   // Observe payload before retirement queries can add synchronization.
   EXPECT_EQ(values[0], GetParam().final_value);
   EXPECT_EQ(values[8], GetParam().final_value);
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
@@ -122,14 +122,13 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
   milestones[0] = GetParam().initial_value;
   milestones[8] = milestones[16] = milestones[24] = 0;
 
-  GpuUserQueue* producer = nullptr;
-  GpuUserQueue* consumer = nullptr;
+  GpuCommandQueue* producer = nullptr;
+  GpuCommandQueue* consumer = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&producer));
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&consumer));
-  ASSERT_GE(producer->host.ring_byte_length, 256u);
-  ASSERT_GT(consumer->host.ring_byte_length, 256u);
-  Pm4CommandWriter produce(
-      reinterpret_cast<uint32_t*>(producer->host.ring_address), *pm4_profile_);
+  ASSERT_GE(producer->words().size_bytes(), 256u);
+  ASSERT_GT(consumer->words().size_bytes(), 256u);
+  Pm4CommandWriter produce(producer->words().data(), *pm4_profile_);
   produce.SystemBarrier();
   produce.CopyData64(source->device_address + 64, intermediate->device_address);
   produce.SystemBarrier();
@@ -142,8 +141,7 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
   produce.WriteData32(control->device_address + 128, 1);
   produce.PadToEightWords();
 
-  Pm4CommandWriter consume(
-      reinterpret_cast<uint32_t*>(consumer->host.ring_address), *pm4_profile_);
+  Pm4CommandWriter consume(consumer->words().data(), *pm4_profile_);
   consume.SystemBarrier();
   consume.WriteData32(control->device_address + 64, 1);
   EmitWait(consume, control->device_address);
@@ -156,20 +154,22 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
   // Readiness belongs to the consumer's confirmed prefix. The host then
   // publishes the finite producer, without any sleep or intermediate host
   // retirement that could substitute for the tested memory dependency.
-  ASSERT_NO_FATAL_FAILURE(consumer->PublishStream(consume.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      consumer->Publish(api_, gpu_api_, consume.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 8), 1);
   EXPECT_EQ(
       GpuLoadAcquire<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 24)),
       0u);
-  ASSERT_NO_FATAL_FAILURE(producer->PublishStream(produce.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      producer->Publish(api_, gpu_api_, produce.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 24), 1);
   // The consumer's own marker must suffice for observing its output.
   EXPECT_EQ(*static_cast<uint64_t*>(target->host.pointer), kPayload);
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 16), 1);
   EXPECT_EQ(*static_cast<uint64_t*>(intermediate->host.pointer), kPayload);
   EXPECT_EQ(milestones[0], GetParam().final_value);
-  ASSERT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, produce.word_count()));
-  ASSERT_NO_FATAL_FAILURE(consumer->WaitConsumed(api_, consume.word_count()));
+  ASSERT_NO_FATAL_FAILURE(producer->WaitRetired(api_));
+  ASSERT_NO_FATAL_FAILURE(consumer->WaitRetired(api_));
 }
 
 INSTANTIATE_TEST_SUITE_P(Comparison, Pm4WaitTest,

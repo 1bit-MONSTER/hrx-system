@@ -132,24 +132,19 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
   std::memcpy(expected_code.data(), kernel.executable.words,
               kernel.executable.byte_length);
 
-  GpuUserQueue* producer = nullptr;
-  GpuUserQueue* consumer = nullptr;
+  GpuCommandQueue* producer = nullptr;
+  GpuCommandQueue* consumer = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&producer));
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&consumer));
-  ASSERT_TRUE(amdf_device_id_is_equal(&producer->info.device_id,
-                                      &consumer->info.device_id));
-  ASSERT_FALSE(amdf_queue_id_is_equal(&producer->info.queue_id,
-                                      &consumer->info.queue_id));
-  ASSERT_EQ(producer->host.ring_byte_length, kPageWordCount * sizeof(uint32_t));
-  ASSERT_EQ(consumer->host.ring_byte_length, kPageWordCount * sizeof(uint32_t));
-  std::memset(reinterpret_cast<void*>(producer->host.ring_address), 0,
-              producer->host.ring_byte_length);
-  std::memset(reinterpret_cast<void*>(consumer->host.ring_address), 0,
-              consumer->host.ring_byte_length);
-  Pm4CommandWriter produce(
-      reinterpret_cast<uint32_t*>(producer->host.ring_address), *pm4_profile_);
-  Pm4CommandWriter consume(
-      reinterpret_cast<uint32_t*>(consumer->host.ring_address), *pm4_profile_);
+  ASSERT_TRUE(
+      amdf_device_id_is_equal(&producer->device_id(), &consumer->device_id()));
+  ASSERT_NE(producer->native_handle(), consumer->native_handle());
+  ASSERT_EQ(producer->words().size_bytes(), kPageWordCount * sizeof(uint32_t));
+  ASSERT_EQ(consumer->words().size_bytes(), kPageWordCount * sizeof(uint32_t));
+  std::memset(producer->words().data(), 0, producer->words().size_bytes());
+  std::memset(consumer->words().data(), 0, consumer->words().size_bytes());
+  Pm4CommandWriter produce(producer->words().data(), *pm4_profile_);
+  Pm4CommandWriter consume(consumer->words().data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     produce.SystemBarrier();
     produce.BindCompute(program, arguments->device_address);
@@ -175,14 +170,12 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     consume.PadToEightWords();
     ASSERT_EQ(consume.word_count(), (epoch + 1) * kConsumerWordsPerEpoch);
   }
-  std::array<uint32_t, kPageWordCount> expected_producer_ring;
-  std::array<uint32_t, kPageWordCount> expected_consumer_ring;
-  std::memcpy(expected_producer_ring.data(),
-              reinterpret_cast<const void*>(producer->host.ring_address),
-              sizeof(expected_producer_ring));
-  std::memcpy(expected_consumer_ring.data(),
-              reinterpret_cast<const void*>(consumer->host.ring_address),
-              sizeof(expected_consumer_ring));
+  std::array<uint32_t, kPageWordCount> expected_producer_commands;
+  std::array<uint32_t, kPageWordCount> expected_consumer_commands;
+  std::memcpy(expected_producer_commands.data(), producer->words().data(),
+              sizeof(expected_producer_commands));
+  std::memcpy(expected_consumer_commands.data(), consumer->words().data(),
+              sizeof(expected_consumer_commands));
 
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     SCOPED_TRACE(epoch);
@@ -239,12 +232,13 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     std::array<uint8_t, sizeof(expected_arguments)> observed_arguments;
     std::array<uint32_t, kPageWordCount> observed_control;
     std::array<uint32_t, kPageWordCount> observed_code;
-    std::array<uint32_t, kPageWordCount> observed_producer_ring;
-    std::array<uint32_t, kPageWordCount> observed_consumer_ring;
+    std::array<uint32_t, kPageWordCount> observed_producer_commands;
+    std::array<uint32_t, kPageWordCount> observed_consumer_commands;
 
     const uint64_t producer_frontier = (epoch + 1) * kProducerWordsPerEpoch;
     const uint64_t consumer_frontier = (epoch + 1) * kConsumerWordsPerEpoch;
-    ASSERT_NO_FATAL_FAILURE(consumer->PublishStream(consumer_frontier));
+    ASSERT_NO_FATAL_FAILURE(
+        consumer->Publish(api_, gpu_api_, consumer_frontier));
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(control_words + kReadyWord), epoch + 1);
     const std::array<uint32_t, 3> pending = {
@@ -257,7 +251,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     };
     // Prefix readiness is not proof that the wait has polled unsuccessfully.
     // The finite producer runs without an intervening host completion join.
-    ASSERT_NO_FATAL_FAILURE(producer->PublishStream(producer_frontier));
+    ASSERT_NO_FATAL_FAILURE(
+        producer->Publish(api_, gpu_api_, producer_frontier));
     GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(control_words + kConsumerCompletionWord),
         epoch + 1);
@@ -278,12 +273,10 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
                 sizeof(observed_control));
     std::memcpy(observed_code.data(), code->host.pointer,
                 sizeof(observed_code));
-    std::memcpy(observed_producer_ring.data(),
-                reinterpret_cast<const void*>(producer->host.ring_address),
-                sizeof(observed_producer_ring));
-    std::memcpy(observed_consumer_ring.data(),
-                reinterpret_cast<const void*>(consumer->host.ring_address),
-                sizeof(observed_consumer_ring));
+    std::memcpy(observed_producer_commands.data(), producer->words().data(),
+                sizeof(observed_producer_commands));
+    std::memcpy(observed_consumer_commands.data(), consumer->words().data(),
+                sizeof(observed_consumer_commands));
     for (const auto word : {kGateWord, kReadyWord, kProducerCompletionWord,
                             kConsumerCompletionWord}) {
       expected_control[word] = epoch + 1;
@@ -305,13 +298,13 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
       EXPECT_EQ(observed_control[i], expected_control[i])
           << "control word=" << i;
       EXPECT_EQ(observed_code[i], expected_code[i]) << "code word=" << i;
-      EXPECT_EQ(observed_producer_ring[i], expected_producer_ring[i])
-          << "producer ring word=" << i;
-      EXPECT_EQ(observed_consumer_ring[i], expected_consumer_ring[i])
-          << "consumer ring word=" << i;
+      EXPECT_EQ(observed_producer_commands[i], expected_producer_commands[i])
+          << "producer command storage word=" << i;
+      EXPECT_EQ(observed_consumer_commands[i], expected_consumer_commands[i])
+          << "consumer command storage word=" << i;
     }
-    EXPECT_NO_FATAL_FAILURE(producer->WaitConsumed(api_, producer_frontier));
-    EXPECT_NO_FATAL_FAILURE(consumer->WaitConsumed(api_, consumer_frontier));
+    EXPECT_NO_FATAL_FAILURE(producer->WaitRetired(api_));
+    EXPECT_NO_FATAL_FAILURE(consumer->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -333,7 +326,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
   RecordProperty("pm4_handoff_payload_word_count", kPayloadWordCount);
   RecordProperty("pm4_handoff_argument_stride", kArgumentStride);
   RecordProperty("pm4_handoff_observed_backing_bytes", 9 * 4096);
-  RecordProperty("pm4_handoff_observed_ring_bytes", 2 * 4096);
+  RecordProperty("pm4_handoff_observed_commands_bytes", 2 * 4096);
   RecordProperty("pm4_handoff_producer_command_word_count",
                  std::to_string(produce.word_count()));
   RecordProperty("pm4_handoff_consumer_command_word_count",

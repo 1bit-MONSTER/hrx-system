@@ -158,7 +158,9 @@ code/arguments/data and release completed shader writes. The hardware
 [cache field reference](../../../../docs/reference/amd/gpu/pm4/cache.md)
 details the generation differences.
 A separate confirmed completion marker precedes the independent full-buffer
-oracle; ring consumption is observed afterward, before reusing data or arguments.
+oracle; native command-storage retirement follows before data or argument
+reuse. The same PM4 stream uses USER publication on Linux and KERNEL
+publication on Windows, without adding a host wait to the payload edge.
 Every queue is destroyed before referenced allocations. Two completed epochs
 exercise changing inputs, count and addend; they do not qualify hot code
 replacement or runtime instrumentation policy.

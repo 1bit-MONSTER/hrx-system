@@ -41,11 +41,10 @@ TEST_F(Pm4TimestampTest, CommandProcessorSamplesBracketConfirmedCopies) {
   samples[1] = UINT64_MAX;
   samples[9] = 0;
   samples[32] = 0;
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->host.ring_byte_length, 1024u);
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  ASSERT_GE(queue->words().size_bytes(), 1024u);
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   commands.SystemBarrier();
   commands.CopyGpuClock64(observations->device_address + 8);
   for (size_t i = 0; i < kValueCount; ++i) {
@@ -59,9 +58,10 @@ TEST_F(Pm4TimestampTest, CommandProcessorSamplesBracketConfirmedCopies) {
   // caches.
   commands.WriteData32(observations->device_address + 256, 1);
   commands.PadToEightWords();
-  ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(
+      queue->Publish(api_, gpu_api_, commands.word_count()));
   GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(samples + 32), 1);
-  // Capture every observation before diagnostics or consumption can intervene.
+  // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint64_t, kValueCount> observed_output;
   std::array<uint64_t, kValueCount> observed_input;
   std::array<uint64_t, 16> observed_samples;
@@ -89,7 +89,7 @@ TEST_F(Pm4TimestampTest, CommandProcessorSamplesBracketConfirmedCopies) {
                  std::to_string(observed_samples[1]));
   RecordProperty("cp_gpu_clock_end_ticks", std::to_string(observed_samples[9]));
   // Nonfatal oracle failures still reach normal retirement.
-  ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+  ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
 }  // namespace

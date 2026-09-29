@@ -14,12 +14,7 @@
 namespace {
 
 class Pm4WriteTest : public Pm4CommandTest,
-                     public ::testing::WithParamInterface<size_t> {
- protected:
-  Pm4WriteTest()
-      : Pm4CommandTest(0, AMDF_QUEUE_PUBLICATION_MODE_USER |
-                              AMDF_QUEUE_PUBLICATION_MODE_KERNEL) {}
-};
+                     public ::testing::WithParamInterface<size_t> {};
 
 TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
   constexpr size_t kWordCount = 4096 / sizeof(uint32_t);
@@ -36,7 +31,7 @@ TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
   *static_cast<uint32_t*>(completion->host.pointer) = 0;
   GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  ASSERT_GE(queue->words().size_bytes(), 512u);
+  ASSERT_GE(queue->words().size_bytes(), 1024u);
   Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < 2; ++epoch) {
     for (size_t i = 0; i < values.size(); ++i) {

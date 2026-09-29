@@ -95,15 +95,13 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
       reinterpret_cast<uintptr_t>(completion->host.pointer) +
       kCompletionByteOffset;
 
-  GpuUserQueue* queue = nullptr;
+  GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
-  const uint64_t ring_capacity =
-      queue->host.ring_byte_length / sizeof(uint32_t);
+  const uint64_t command_capacity = queue->words().size();
   // Each 56-word sequence has a complete eight-word NOP. All batches occupy
-  // distinct resident ranges; no command crosses ring wrap.
-  ASSERT_GE(ring_capacity, kCommandWordCountPerEpoch * kSeeds.size());
-  Pm4CommandWriter commands(
-      reinterpret_cast<uint32_t*>(queue->host.ring_address), *pm4_profile_);
+  // distinct resident command ranges.
+  ASSERT_GE(command_capacity, kCommandWordCountPerEpoch * kSeeds.size());
+  Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   RecordProperty(
       "pm4_lds_capacity_per_compute_unit",
       std::to_string(endpoint_info.compute.local_data_share_byte_length));
@@ -132,9 +130,10 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
   RecordProperty("pm4_lds_completion_byte_offset", kCompletionByteOffset);
   RecordProperty("pm4_lds_command_word_count_per_epoch",
                  kCommandWordCountPerEpoch);
-  RecordProperty("pm4_lds_first_producer_index",
+  RecordProperty("pm4_lds_first_published_word_count",
                  std::to_string(commands.word_count()));
-  RecordProperty("pm4_lds_ring_capacity_dwords", std::to_string(ring_capacity));
+  RecordProperty("pm4_lds_command_capacity_dwords",
+                 std::to_string(command_capacity));
 
   for (uint32_t epoch = 0; epoch < kSeeds.size(); ++epoch) {
     SCOPED_TRACE(epoch);
@@ -181,11 +180,13 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
                          epoch + 1);
     commands.PadToEightWords();
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
-    ASSERT_NO_FATAL_FAILURE(queue->PublishStream(commands.word_count()));
+    ASSERT_NO_FATAL_FAILURE(
+        queue->Publish(api_, gpu_api_, commands.word_count()));
     GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
 
-    // Capture every initialized extent before diagnostics or ring retirement
-    // can add synchronization to these completion-visible observations.
+    // Capture every initialized extent before diagnostics or command storage
+    // retirement can add synchronization to these completion-visible
+    // observations.
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     std::memcpy(observed_arguments.data(), arguments->host.pointer,
@@ -211,7 +212,7 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
     }
     // An oracle failure still retires the whole stream before stopping. The
     // immutable image and all other backing remain owned through teardown.
-    EXPECT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, commands.word_count()));
+    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     if (HasFailure()) {
       return;
     }
@@ -222,7 +223,7 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
     RecordProperty(prefix + "_bound_compute_pgm_rsrc2",
                    kernel.program.resource2 |
                        ((program.group_segment_byte_length / 512u) << 15));
-    RecordProperty(prefix + "_producer_index",
+    RecordProperty(prefix + "_published_word_count",
                    std::to_string(commands.word_count()));
   }
   RecordProperty("pm4_lds_completed_epochs", kSeeds.size());
