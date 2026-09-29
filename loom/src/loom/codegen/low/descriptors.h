@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 45u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 46u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -605,10 +605,22 @@ typedef struct loom_low_reg_class_t {
   uint16_t physical_atomic_unit_count;
 } loom_low_reg_class_t;
 
-// Returns the allocation base alignment in register units. Power-of-two spans
-// retain the packet-width placement preference; other multi-unit spans obey
-// the class's tuple alignment. Single registers remain independently usable.
+// Returns the class's required base alignment in register units. Individual
+// instruction operands may impose stronger constraints through their register
+// alternatives. A tuple's width alone does not impose hardware alignment.
 static inline uint32_t loom_low_reg_class_unit_alignment(
+    const loom_low_reg_class_t* reg_class, uint32_t unit_count) {
+  return unit_count > 1 &&
+                 iree_any_bit_set(reg_class->flags,
+                                  LOOM_LOW_REG_CLASS_FLAG_EVEN_ALIGNED_TUPLES)
+             ? 2u
+             : 1u;
+}
+
+// Returns the preferred packing alignment, not an allocation legality rule.
+// Power-of-two spans prefer packet-width alignment; other spans use the class
+// requirement. Concrete operand requirements remain authoritative.
+static inline uint32_t loom_low_reg_class_preferred_unit_alignment(
     const loom_low_reg_class_t* reg_class, uint32_t unit_count) {
   if (unit_count <= 1) {
     return 1u;
@@ -616,10 +628,7 @@ static inline uint32_t loom_low_reg_class_unit_alignment(
   if ((unit_count & (unit_count - 1u)) == 0) {
     return unit_count;
   }
-  return iree_any_bit_set(reg_class->flags,
-                          LOOM_LOW_REG_CLASS_FLAG_EVEN_ALIGNED_TUPLES)
-             ? 2u
-             : 1u;
+  return loom_low_reg_class_unit_alignment(reg_class, unit_count);
 }
 
 // One named physical register and the atomic storage units it occupies.
@@ -715,6 +724,10 @@ typedef struct loom_low_reg_class_alt_t {
   uint16_t reg_class_id;
   // Alternative flags such as preferred, immediate, or physical-only.
   loom_low_reg_class_alt_flags_t flags;
+  // Log2 of this operand's required base alignment in allocation units. Zero
+  // permits any base. Literals and explicit physical-register IDs use zero;
+  // explicit classes express legality through their declared register views.
+  uint16_t unit_alignment_log2;
 } loom_low_reg_class_alt_t;
 
 typedef struct loom_low_operand_t {

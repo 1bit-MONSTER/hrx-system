@@ -132,7 +132,7 @@ def _s_sub_co_u32_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
-def _s_borrow_inline_overlay(
+def _s_carry_inline_overlay(
     descriptor: AmdgpuDescriptorOverlay, source_operand: str
 ) -> AmdgpuDescriptorOverlay:
     source_field = {"lhs": "SSRC0", "rhs": "SSRC1"}[source_operand]
@@ -168,7 +168,7 @@ def _s_borrow_inline_overlay(
 
 
 def _s_sub_co_u32_inline_overlay(source_operand: str) -> AmdgpuDescriptorOverlay:
-    return _s_borrow_inline_overlay(_s_sub_co_u32_overlay(), source_operand)
+    return _s_carry_inline_overlay(_s_sub_co_u32_overlay(), source_operand)
 
 
 def _s_subb_u32_overlay() -> AmdgpuDescriptorOverlay:
@@ -204,7 +204,7 @@ def _s_subb_u32_overlay() -> AmdgpuDescriptorOverlay:
 
 
 def _s_subb_u32_inline_overlay(source_operand: str) -> AmdgpuDescriptorOverlay:
-    return _s_borrow_inline_overlay(_s_subb_u32_overlay(), source_operand)
+    return _s_carry_inline_overlay(_s_subb_u32_overlay(), source_operand)
 
 
 def _s_addc_u32_overlay() -> AmdgpuDescriptorOverlay:
@@ -225,8 +225,19 @@ def _s_addc_u32_overlay() -> AmdgpuDescriptorOverlay:
             _scc_input(_scc_predicate("carry_in")),
         ),
         asm_forms=_asm(results=("sum", "carry"), operands=("lhs", "rhs", "carry_in")),
+        operand_forms=tuple(
+            _literal_operand_form(
+                replacement_descriptor=f"amdgpu.s_addc_u32.{source}_inline",
+                source_operand=source,
+            )
+            for source in ("lhs", "rhs")
+        ),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
+
+
+def _s_addc_u32_inline_overlay(source_operand: str) -> AmdgpuDescriptorOverlay:
+    return _s_carry_inline_overlay(_s_addc_u32_overlay(), source_operand)
 
 
 def _s_addc_u32_rhs_symbol_rel32_hi_overlay() -> AmdgpuDescriptorOverlay:
@@ -268,6 +279,7 @@ __all__ = [
     "_s_add_co_u32_rhs_inline_overlay",
     "_s_add_u32_rhs_symbol_rel32_lo_overlay",
     "_s_addc_u32_overlay",
+    "_s_addc_u32_inline_overlay",
     "_s_addc_u32_rhs_symbol_rel32_hi_overlay",
     "_s_sub_co_u32_overlay",
     "_s_sub_co_u32_inline_overlay",

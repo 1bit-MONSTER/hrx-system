@@ -1123,6 +1123,12 @@ static loom_type_t loom_low_source_memory_element_vector_type(
 static loom_type_t loom_low_source_memory_access_payload_vector_type(
     const loom_module_t* module, const loom_op_t* source_op,
     loom_memory_access_t access, loom_type_t view_type) {
+  if (loom_vector_memory_op_footprint_kind(module, source_op) ==
+      LOOM_VECTOR_MEMORY_FOOTPRINT_FRAGMENT) {
+    // The source address is the logical origin. The target's fragment layout
+    // supplies each lane's physical footprint, not the payload vector shape.
+    return loom_low_source_memory_element_vector_type(view_type);
+  }
   const loom_value_id_t value_id = loom_memory_access_value(access);
   if (value_id != LOOM_VALUE_ID_INVALID && value_id < module->values.count) {
     const loom_type_t value_type = loom_module_value_type(module, value_id);

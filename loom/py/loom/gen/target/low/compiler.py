@@ -62,6 +62,7 @@ from loom.target.low_descriptors import (
     PressureDelta,
     RegClass,
     RegClassAltFlag,
+    RegClassFlag,
     Resource,
     ResourceKind,
     ScheduleClass,
@@ -1165,12 +1166,22 @@ def compile_descriptor_set(
             )
             concrete_reg_alt_count = 0
             for reg_alt in operand.reg_alts:
+                validation.validate_u16(
+                    reg_alt.unit_alignment,
+                    f"descriptor '{descriptor.key}' operand '{operand.field_name}' register alignment",
+                )
+                if reg_alt.unit_alignment == 0 or reg_alt.unit_alignment & (reg_alt.unit_alignment - 1):
+                    raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' register alignment must be a positive power of two")
                 if reg_alt.reg_class is None:
                     if RegClassAltFlag.IMMEDIATE not in reg_alt.flags:
                         raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' has a classless alternative without the immediate flag")
+                    if reg_alt.unit_alignment != 1:
+                        raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' immediate alternative cannot require register alignment")
                     continue
                 if reg_alt.reg_class not in reg_class_inputs:
                     raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' references unknown register class '{reg_alt.reg_class}'")
+                if reg_alt.unit_alignment != 1 and RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS in reg_class_inputs[reg_alt.reg_class].flags:
+                    raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' explicit physical alternative cannot require numeric register alignment")
                 used_reg_class_names.add(reg_alt.reg_class)
                 concrete_reg_alt_count += 1
             if operand.register_part is not None:
@@ -1388,8 +1399,8 @@ def compile_descriptor_set(
     asm_table_storage = CompiledAsmTableStorage()
     asm_table_storage.append_forms(asm_forms)
 
-    reg_class_alts: list[tuple[int | None, tuple[RegClassAltFlag, ...]]] = []
-    reg_alt_group_starts: dict[tuple[tuple[int | None, tuple[RegClassAltFlag, ...]], ...], int] = {}
+    reg_class_alts: list[tuple[int | None, tuple[RegClassAltFlag, ...], int]] = []
+    reg_alt_group_starts: dict[tuple[tuple[int | None, tuple[RegClassAltFlag, ...], int], ...], int] = {}
     immediate_encoding_slice_group_starts: dict[tuple[ImmediateEncodingSlice, ...], int] = {}
     effect_group_starts: dict[tuple[Effect, ...], int] = {}
     constraint_group_starts: dict[tuple[Constraint, ...], int] = {}
@@ -1568,10 +1579,11 @@ def compile_descriptor_set(
                 strict=True,
             )
         ):
-            alt_group: tuple[tuple[int | None, tuple[RegClassAltFlag, ...]], ...] = tuple(
+            alt_group: tuple[tuple[int | None, tuple[RegClassAltFlag, ...], int], ...] = tuple(
                 (
                     None if reg_alt.reg_class is None else reg_class_ids[reg_alt.reg_class],
                     reg_alt.flags,
+                    reg_alt.unit_alignment.bit_length() - 1,
                 )
                 for reg_alt in operand.reg_alts
             )

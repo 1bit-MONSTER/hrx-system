@@ -1195,23 +1195,11 @@ low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0,
   %column = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %input_view = resource<hal_binding> {extent = 2048, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 2048, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %22 = v_lshlrev_b32_src0_inline %column, 1
-  %23 = s_lshl_b32_rhs_inline %workgroup, 7
-  %24 = slice %input_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %25 = slice %input_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %26 = s_mov_b32 0
-  %27, %28 = s_add_co_u32 %24, %23
-  %29, %30 = s_addc_u32 %25, %26, %28
-  %31 = concat(%27, %29) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %loaded = global_load_d16_b16_saddr %22, %31
-  %33 = v_bfe_u32_offset_0_width_16_low16 %loaded
-  %35 = s_lshl_b32_rhs_inline %workgroup, 7
-  %36 = slice %output_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %37 = slice %output_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %39, %40 = s_add_co_u32 %36, %35
-  %41, %42 = s_addc_u32 %37, %26, %40
-  %43 = concat(%39, %41) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  global_store_short_saddr %22, %33, %43
+  %22 = v_lshl_add_u32_shift_imm %workgroup, %column, 6
+  %23 = v_lshlrev_b32_src0_inline %22, 1
+  %loaded = global_load_d16_b16_saddr %23, %input_view
+  %25 = v_bfe_u32_offset_0_width_16_low16 %loaded
+  global_store_short_saddr %23, %25, %output_view
   return
 }
 

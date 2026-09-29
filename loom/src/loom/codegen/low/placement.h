@@ -243,6 +243,11 @@ typedef struct loom_low_placement_table_t {
   // ordinal. Unconnected values name themselves. NULL when the function has no
   // tied storage.
   const loom_value_ordinal_t* tied_storage_origins_by_value_ordinal;
+  // Required instruction alignment exponents indexed by liveness interval.
+  // Exact tied-storage components share their strongest requirement. NULL
+  // when no packet requires alignment beyond one allocation unit.
+  // Optional slice/concat aliases are checked at their concrete derived base.
+  const uint8_t* unit_alignment_log2_by_interval;
 } loom_low_placement_table_t;
 
 // Returns true when |relation| can justify overlapping target-visible storage.

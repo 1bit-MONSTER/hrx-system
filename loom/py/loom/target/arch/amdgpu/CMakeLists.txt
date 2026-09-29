@@ -234,6 +234,7 @@ iree_py_library(
   SRCS
     "descriptor_overlay.py"
     "descriptors/__init__.py"
+    "descriptors/alignment.py"
     "descriptors/alu.py"
     "descriptors/api.py"
     "descriptors/atomic.py"
@@ -296,6 +297,7 @@ iree_py_test(
     "../../../tools/pytest_style_runner.py"
   SRCS
     "descriptor_overlay_test.py"
+    "descriptors/alignment_test.py"
     "descriptors/atomic_test.py"
     "descriptors/rdna35_test.py"
     "descriptors/rdna4_test.py"
@@ -308,6 +310,7 @@ iree_py_test(
     "../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.amdgpu.descriptor_overlay_test"
+    "loom.target.arch.amdgpu.descriptors.alignment_test"
     "loom.target.arch.amdgpu.descriptors.atomic_test"
     "loom.target.arch.amdgpu.descriptors.rdna4_test"
     "loom.target.arch.amdgpu.descriptors.rdna35_test"

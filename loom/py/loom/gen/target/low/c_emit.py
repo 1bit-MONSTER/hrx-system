@@ -575,8 +575,9 @@ def emit_source_for_views(
             [
                 ".reg_class_id = " + ("LOOM_LOW_REG_CLASS_NONE" if reg_class_id is None else str(reg_class_id)) + ",",
                 f".flags = {c_spelling.flag_expr(flags)},",
+                f".unit_alignment_log2 = {unit_alignment_log2},",
             ]
-            for reg_class_id, flags in compiled.reg_class_alts
+            for reg_class_id, flags, unit_alignment_log2 in compiled.reg_class_alts
         ],
     )
     _emit_array(

@@ -167,9 +167,9 @@ bool loom_amdgpu_source_memory_offset_fits_u32(
     const loom_low_source_memory_access_plan_t* source,
     int64_t static_byte_offset);
 
-// Selects a complete AMDGPU memory packet sequence from source IR and facts
-// into caller-owned bounded workspace. Operand paths use the same retained
-// source placement as value mapping.
+// Selects a complete AMDGPU memory packet sequence from a canonical source
+// access and facts into caller-owned bounded workspace. The mutable source
+// copy receives target visibility; operand paths use retained source placement.
 bool loom_amdgpu_memory_access_plan_select(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_low_descriptor_set_t* descriptor_set,
@@ -179,9 +179,8 @@ bool loom_amdgpu_memory_access_plan_select(
     loom_amdgpu_instruction_constraint_bits_t instruction_constraints,
     const loom_amdgpu_source_alloca_layout_t* alloca_layout,
     uint8_t read_visibility_scope, const loom_op_t* source_op,
-    loom_low_source_memory_access_plan_t* out_source,
+    loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_selection_t* out_selection,
-    loom_low_source_memory_access_diagnostic_t* out_source_diagnostic,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
 
 // Selects a flat global address plan for instrumentation that needs the actual
@@ -233,6 +232,15 @@ bool loom_amdgpu_memory_access_select_vaddr_dynamic_terms(
 // Routes all dynamic source terms through the VGPR byte-address operand.
 void loom_amdgpu_memory_access_route_dynamic_terms_through_vaddr(
     loom_amdgpu_memory_access_t* access);
+
+// Selects a bounds-checked buffer packet and partitions its static offset.
+// Dynamic contributions retain their canonical proof even when a physical
+// realization supplies the descriptor base and vector offset.
+bool loom_amdgpu_memory_access_try_select_buffer(
+    const loom_low_descriptor_set_t* descriptor_set,
+    loom_low_source_memory_operation_kind_t kind,
+    loom_amdgpu_memory_access_t* access,
+    loom_amdgpu_memory_access_diagnostic_t* diagnostic);
 
 // Emits the target buffer descriptor consumed by MUBUF-style packets from a low
 // HAL binding pointer. When the low resource has no explicit extent,

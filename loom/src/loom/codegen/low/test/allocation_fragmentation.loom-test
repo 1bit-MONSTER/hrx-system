@@ -180,12 +180,11 @@ low.func.def target<test.low.core>(@target) @required_tuple_shortage(%scalar: re
 
 // ====
 
-// RUN: emit low-allocation-json @required_tuple_fixed_conflict test.i32=5 fixed=%scalar:target_id:0:1 output=none
+// RUN: with-checks emit low-allocation-json @required_tuple_uses_unaligned_gap test.i32=5 fixed=%scalar:target_id:0:1
 
 test.target<low_core> @target
 
-// ERROR@+1: BACKEND/005 "spill-traffic-register-exhausted"
-low.func.def target<test.low.core>(@target) @required_tuple_fixed_conflict(%scalar: reg<test.i32>, %wide: reg<test.i32 x4>) asm {
+low.func.def target<test.low.core>(@target) @required_tuple_uses_unaligned_gap(%scalar: reg<test.i32>, %wide: reg<test.i32 x4>) asm {
   %storage = storage {byte_alignment = 16, byte_length = 32} : low.storage<private>
   low.spill %scalar, %storage {offset = 16} : reg<test.i32>, low.storage<private>
   low.spill %wide, %storage : reg<test.i32 x4>, low.storage<private>
@@ -193,3 +192,5 @@ low.func.def target<test.low.core>(@target) @required_tuple_fixed_conflict(%scal
 }
 
 // ----
+CHECK: *"spill_count":0,*
+CHECK: *"name":"wide"*"location":{"kind":"target_id","base":1,"count":4}*

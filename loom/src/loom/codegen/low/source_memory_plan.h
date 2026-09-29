@@ -203,6 +203,14 @@ typedef struct loom_low_source_memory_dynamic_realization_t {
   uint8_t term_count;
 } loom_low_source_memory_dynamic_realization_t;
 
+typedef struct loom_low_source_memory_dynamic_component_t {
+  // Dominating source SSA term that exactly represents the selected byte sum.
+  // Borrows immutable storage from the function's retained source-access plans.
+  const loom_low_source_memory_dynamic_term_t* term;
+  // Canonical dynamic terms represented by term, including noncontiguous sets.
+  uint16_t term_mask;
+} loom_low_source_memory_dynamic_component_t;
+
 typedef struct loom_low_source_memory_access_plan_t {
   // Source operation category being planned.
   loom_low_source_memory_operation_kind_t operation_kind;
@@ -293,12 +301,31 @@ typedef struct loom_low_source_memory_access_plan_t {
       dynamic_realizations[LOOM_LOW_SOURCE_MEMORY_DYNAMIC_REALIZATION_CAPACITY];
   // Number of populated dynamic realization entries.
   uint8_t dynamic_realization_count;
+  // Shared lowering's selected cross-access source realization. This only
+  // changes materialization; canonical terms and correlated bounds stay intact.
+  loom_low_source_memory_dynamic_component_t retained_component;
   // Optional cache policy copied from the source memory op.
   loom_vector_memory_cache_policy_t cache_policy;
   // Required visibility selected by the shared acquire plan. Thread scope
   // means no per-access obligation. This is independent of advisory caching.
   uint8_t read_visibility_scope;
 } loom_low_source_memory_access_plan_t;
+
+// Returns a selected component when its complete member set remains in the
+// requested suffix and its byte coefficient converts exactly to coordinate
+// units. Consumers that already materialized a view base pass its term count.
+static inline const loom_low_source_memory_dynamic_component_t*
+loom_low_source_memory_access_retained_component(
+    const loom_low_source_memory_access_plan_t* access, uint8_t first_term,
+    uint32_t coordinate_unit_byte_count) {
+  const loom_low_source_memory_dynamic_component_t* component =
+      &access->retained_component;
+  return component->term != NULL &&
+                 !(component->term_mask & ((1u << first_term) - 1u)) &&
+                 component->term->byte_stride % coordinate_unit_byte_count == 0
+             ? component
+             : NULL;
+}
 
 static inline bool loom_low_source_memory_access_is_dynamic(
     const loom_low_source_memory_access_plan_t* plan) {

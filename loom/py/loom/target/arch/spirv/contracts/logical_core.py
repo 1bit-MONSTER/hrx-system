@@ -825,16 +825,17 @@ def _cooperative_matrix_memory(
     operation: SourceMemoryOperation,
     *,
     element_byte_width: int,
-    lane_count: int,
     minimum_alignment: int,
 ) -> SourceMemoryConstraint:
+    # Source memory supplies the logical origin. The descriptor owns the
+    # cooperative tile footprint; its fragment payload is not contiguous IO.
     return SourceMemoryConstraint(
         operation=operation,
         root_kind=SourceMemoryRootKind.ANY,
         address_layout=SourceMemoryAddressLayout.COMPACT_ROW_MAJOR,
         memory_spaces=_STORAGE_BUFFER_MEMORY_SPACES,
         element_byte_count=element_byte_width,
-        vector_lane_count=lane_count,
+        vector_lane_count=1,
         vector_lane_byte_stride=element_byte_width,
         static_byte_offset_minimum=0,
         static_byte_offset_maximum=(2**63) - 1,
@@ -933,7 +934,6 @@ def _cooperative_matrix_load_rule(
                 source_memory=_cooperative_matrix_memory(
                     SourceMemoryOperation.LOAD,
                     element_byte_width=scalar.byte_width,
-                    lane_count=result_lanes,
                     minimum_alignment=16,
                 ),
                 source_memory_address_materializer=address_materializer,
@@ -986,7 +986,6 @@ def _cooperative_matrix_store_rule(
                 source_memory=_cooperative_matrix_memory(
                     SourceMemoryOperation.STORE,
                     element_byte_width=scalar.byte_width,
-                    lane_count=value_lanes,
                     minimum_alignment=16,
                 ),
                 source_memory_address_materializer=address_materializer,

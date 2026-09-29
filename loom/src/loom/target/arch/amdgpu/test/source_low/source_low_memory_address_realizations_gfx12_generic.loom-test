@@ -107,33 +107,12 @@ low.kernel.def target<amdgpu.gfx12.generic.core> abi_layout({constant_count = 1,
   %47, %48 = s_and_saveexec_b64 %inside
   low.cond_br %48, ^_bb1, ^_bb2 : reg<amdgpu.scc>
 ^_bb1:
-  %49 = v_lshl_add_u32_shift_imm %row_in_group, %column, 6
+  %49 = v_lshl_add_u32_shift_imm %row, %column, 6
   %50 = v_lshlrev_b32_src0_inline %49, 2
-  %51 = s_lshl_b32_rhs_inline %group, 9
-  %52 = slice %input_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %53 = slice %input_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %54 = s_mov_b32 0
-  %55, %56 = s_add_co_u32 %52, %51
-  %57, %58 = s_addc_u32 %53, %54, %56
-  %59 = concat(%55, %57) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %first = global_load_b32_saddr %50, %59
-  %63 = s_lshl_b32_rhs_inline %group, 9
-  %67, %68 = s_add_co_u32 %52, %63
-  %69, %70 = s_addc_u32 %53, %54, %68
-  %71 = concat(%67, %69) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %second = global_load_b32_saddr %50, %71 {offset = 128}
-  %75 = s_lshl_b32_rhs_inline %group, 9
-  %76 = slice %output_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %77 = slice %output_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %79, %80 = s_add_co_u32 %76, %75
-  %81, %82 = s_addc_u32 %77, %54, %80
-  %83 = concat(%79, %81) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  global_store_b32_saddr %50, %first, %83
-  %86 = s_lshl_b32_rhs_inline %group, 9
-  %90, %91 = s_add_co_u32 %76, %86
-  %92, %93 = s_addc_u32 %77, %54, %91
-  %94 = concat(%90, %92) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  global_store_b32_saddr %50, %second, %94 {offset = 128}
+  %first = global_load_b32_saddr %50, %input_view
+  %second = global_load_b32_saddr %50, %input_view {offset = 128}
+  global_store_b32_saddr %50, %first, %output_view
+  global_store_b32_saddr %50, %second, %output_view {offset = 128}
   low.br ^_bb2
 ^_bb2:
   s_mov_b64_exec %47
@@ -166,22 +145,10 @@ low.kernel.def target<amdgpu.gfx12.generic.core> abi_layout({constant_count = 0,
   %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %input_view = resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
-  %17 = v_lshlrev_b32_src0_inline %lane, 2
-  %18 = s_lshl_b32_rhs_inline %group, 8
-  %19 = slice %input_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %20 = slice %input_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %21 = s_mov_b32 0
-  %22, %23 = s_add_co_u32 %19, %18
-  %24, %25 = s_addc_u32 %20, %21, %23
-  %26 = concat(%22, %24) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %value = global_load_b32_saddr %17, %26
-  %29 = s_lshl_b32_rhs_inline %group, 8
-  %30 = slice %output_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %31 = slice %output_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %33, %34 = s_add_co_u32 %30, %29
-  %35, %36 = s_addc_u32 %31, %21, %34
-  %37 = concat(%33, %35) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  global_store_b32_saddr %17, %value, %37
+  %linear = v_lshl_add_u32_shift_imm %group, %lane, 6
+  %18 = v_lshlrev_b32_src0_inline %linear, 2
+  %value = global_load_b32_saddr %18, %input_view
+  global_store_b32_saddr %18, %value, %output_view
   return
 }
 
@@ -221,25 +188,16 @@ low.kernel.def target<amdgpu.gfx12.generic.core> abi_layout({constant_count = 3,
   %26, %27 = s_and_saveexec_b64 %inside
   low.cond_br %27, ^_bb1, ^_bb2 : reg<amdgpu.scc>
 ^_bb1:
-  %28 = v_lshlrev_b32_src0_inline %lane, 2
-  %29 = s_mov_b32 0
-  %30 = concat(%group, %29) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %31 = s_mov_b32 8
-  %32 = s_lshl_b64 %30, %31
-  %33 = slice %base[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %34 = slice %base[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %35 = slice %32[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %36 = slice %32[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %37, %38 = s_add_co_u32 %33, %35
-  %39, %40 = s_addc_u32 %34, %36, %38
-  %42 = slice %input_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %43 = slice %input_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
-  %46, %47 = s_add_co_u32 %42, %37
-  %48, %49 = s_addc_u32 %43, %39, %47
-  %50 = concat(%46, %48) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %value = global_load_b32_saddr %28, %50
-  %52 = v_lshlrev_b32_src0_inline %linear, 2
-  global_store_b32_saddr %52, %value, %output_view
+  %28 = v_lshlrev_b32_src0_inline %linear, 2
+  %29 = slice %input_view[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %30 = slice %input_view[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %31 = slice %base[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = slice %base[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %33, %34 = s_add_co_u32 %29, %31
+  %35, %36 = s_addc_u32 %30, %32, %34
+  %37 = concat(%33, %35) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %value = global_load_b32_saddr %28, %37
+  global_store_b32_saddr %28, %value, %output_view
   low.br ^_bb2
 ^_bb2:
   s_mov_b64_exec %26

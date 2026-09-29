@@ -17,6 +17,7 @@
 #define LOOM_CODEGEN_LOW_LOWER_SOURCE_PLAN_H_
 
 #include "loom/codegen/low/lower/rules.h"
+#include "loom/codegen/low/lower/source_memory.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,7 @@ extern "C" {
 
 typedef struct loom_low_lower_resolved_emit_t loom_low_lower_resolved_emit_t;
 typedef struct loom_low_representation_plan_t loom_low_representation_plan_t;
+typedef struct loom_low_lower_realizations_t loom_low_lower_realizations_t;
 
 enum loom_low_lower_value_storage_flag_bits_e {
   // The source value must be materialized as a target-Low SSA value.
@@ -116,8 +118,20 @@ typedef struct loom_low_lower_source_plan_t {
   // Function-local physical-representation plan, or NULL when the target has
   // no representation observer or before that observer begins.
   loom_low_representation_plan_t* representation_plan;
+  // Shared pure-value placement, initialization and supplemental CFG payloads.
+  loom_low_lower_realizations_t* realizations;
   // Per-source-value storage demand flags indexed by source value ordinal.
   loom_low_lower_value_storage_flags_t* value_storage_flags;
+  // Canonical accesses joined across observation and selection without an op
+  // lookup table or a second address-analysis walk.
+  struct {
+    // First retained access in shared source traversal order.
+    loom_low_lower_source_memory_record_t* first;
+    // Next access to consume during per-operation selection.
+    const loom_low_lower_source_memory_record_t* cursor;
+    // Access visible to the current observer or selector, or NULL.
+    const loom_low_lower_source_memory_record_t* current;
+  } memory;
   // Selected plans in source traversal order.
   loom_low_lower_selected_plan_t* selected_plans;
   // Number of populated selected plans.

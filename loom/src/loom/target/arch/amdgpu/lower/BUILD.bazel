@@ -74,6 +74,7 @@ loom_cc_library(
     name = "lower",
     srcs = [
         "abi.c",
+        "address_realization.c",
         "arithmetic.c",
         "async.c",
         "atomic.c",
@@ -173,6 +174,7 @@ loom_cc_library(
     ],
     hdrs = [
         "abi.h",
+        "address_realization.h",
         "arithmetic.h",
         "async.h",
         "atomic_ordering.h",
@@ -307,6 +309,7 @@ loom_cc_library(
         "//loom/src/loom/sanitizer:site_table",
         "//loom/src/loom/target:low_legality",
         "//loom/src/loom/target:registers",
+        "//loom/src/loom/target/arch/amdgpu:buffer_resource",
         "//loom/src/loom/target/arch/amdgpu:error_defs",
         "//loom/src/loom/target/arch/amdgpu:facts",
         "//loom/src/loom/target/arch/amdgpu:target_info",

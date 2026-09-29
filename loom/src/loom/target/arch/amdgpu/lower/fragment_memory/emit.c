@@ -489,9 +489,11 @@ iree_status_t loom_amdgpu_lower_vector_fragment_load(
   loom_type_t vgpr_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &vgpr_type));
   const uint16_t lane_divisor = plan->address_layout.primary_lane_divisor;
-  loom_amdgpu_matrix_fragment_lane_ids_t lane_ids;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_matrix_fragment_lane_ids(
-      context, source_op, lane_divisor, vgpr_type, &lane_ids));
+  loom_amdgpu_matrix_fragment_lane_ids_t lane_ids = {0};
+  if (plan->address_realization == NULL) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_matrix_fragment_lane_ids(
+        context, source_op, lane_divisor, vgpr_type, &lane_ids));
+  }
   const bool load_packed_16bit_result =
       plan->payload_form ==
       LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_LOAD_PACKED_16BIT_RESULT;
@@ -840,6 +842,11 @@ iree_status_t loom_amdgpu_lower_vector_fragment_store(
 void loom_amdgpu_mark_fragment_memory_address_storage_demands(
     loom_low_lower_context_t* context,
     const loom_amdgpu_fragment_memory_plan_t* plan) {
+  if (plan->address_realization) {
+    // The shared realization owner demands initializer inputs; canonical
+    // periodic expressions remain analysis facts, not emitted arithmetic.
+    return;
+  }
   if (plan->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     loom_low_lower_require_source_value_storage(
         context,

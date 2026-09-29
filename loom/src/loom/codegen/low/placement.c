@@ -107,6 +107,8 @@ typedef struct loom_low_placement_build_state_t {
   loom_value_ordinal_t storage_value_order_count;
   // Earliest value in each exact tied-storage component.
   loom_value_ordinal_t* tied_storage_origins_by_value_ordinal;
+  // Instruction alignment exponents, dense by liveness interval when needed.
+  uint8_t* unit_alignment_log2_by_interval;
   // Number of relation records counted or populated.
   uint32_t relation_count;
   // Number of whole-value edge relations counted during collection.
@@ -412,6 +414,43 @@ static loom_value_id_t loom_low_placement_descriptor_operand_value_id(
   return loom_op_const_operands(op)[descriptor_operand->source_value_index];
 }
 
+static iree_status_t loom_low_placement_collect_operand_alignment(
+    loom_low_placement_build_state_t* state, const loom_low_operand_t* operand,
+    loom_value_id_t value_id) {
+  const loom_value_ordinal_t ordinal =
+      loom_low_placement_value_ordinal(state, value_id);
+  const loom_liveness_interval_t* interval =
+      loom_liveness_interval_for_value_ordinal(state->liveness, ordinal);
+  if (interval == NULL ||
+      interval->value_class.type_kind != LOOM_TYPE_REGISTER) {
+    return iree_ok_status();
+  }
+  const uint16_t reg_class_id = interval->value_class.register_class_id;
+  for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* alternative =
+        &state->descriptor_set
+             ->reg_class_alts[operand->reg_class_alt_start + i];
+    if (alternative->reg_class_id != reg_class_id ||
+        alternative->unit_alignment_log2 == 0) {
+      continue;
+    }
+    if (state->unit_alignment_log2_by_interval == NULL) {
+      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+          state->arena, state->liveness->interval_count,
+          sizeof(*state->unit_alignment_log2_by_interval),
+          (void**)&state->unit_alignment_log2_by_interval));
+      memset(state->unit_alignment_log2_by_interval, 0,
+             state->liveness->interval_count *
+                 sizeof(*state->unit_alignment_log2_by_interval));
+    }
+    uint8_t* alignment =
+        &state->unit_alignment_log2_by_interval[interval -
+                                                state->liveness->intervals];
+    *alignment = iree_max(*alignment, alternative->unit_alignment_log2);
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_placement_collect_op_relations(
     loom_low_placement_build_state_t* state,
     const loom_liveness_operation_point_t* operation_point) {
@@ -491,6 +530,23 @@ static iree_status_t loom_low_placement_collect_op_relations(
   const loom_low_descriptor_t* descriptor = packet.descriptor;
   const loom_low_operand_t* descriptor_operands =
       &state->descriptor_set->operands[descriptor->operand_start];
+  for (uint16_t i = 0; i < descriptor->operand_count; ++i) {
+    const loom_low_operand_t* operand = &descriptor_operands[i];
+    if (operand->source_value_index == LOOM_LOW_ID_NONE) {
+      continue;
+    }
+    if (iree_any_bit_set(operand->flags, LOOM_LOW_OPERAND_FLAG_VARIADIC)) {
+      for (uint16_t j = operand->source_value_index; j < op->operand_count;
+           ++j) {
+        IREE_RETURN_IF_ERROR(loom_low_placement_collect_operand_alignment(
+            state, operand, loom_op_const_operands(op)[j]));
+      }
+    } else {
+      IREE_RETURN_IF_ERROR(loom_low_placement_collect_operand_alignment(
+          state, operand,
+          loom_low_placement_descriptor_operand_value_id(op, operand)));
+    }
+  }
   for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &state->descriptor_set
@@ -890,6 +946,35 @@ static iree_status_t loom_low_placement_build(
                  state->edge_relation_count);
   IREE_RETURN_IF_ERROR(loom_low_placement_build_storage_graph(state));
 
+  // Every exact tied component uses one base. Retain its strongest packet
+  // requirement once, before fixed-input validation or allocation can place
+  // any member. Optional copy and slice relations do not constrain the source.
+  if (state->unit_alignment_log2_by_interval != NULL &&
+      state->tied_storage_origins_by_value_ordinal != NULL) {
+    const uint32_t* interval_indices = state->liveness->value_interval_indices;
+    for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
+      const uint32_t interval_index = interval_indices[i];
+      if (interval_index == UINT32_MAX) {
+        continue;
+      }
+      const uint32_t origin_index =
+          interval_indices[state->tied_storage_origins_by_value_ordinal[i]];
+      uint8_t* origin = &state->unit_alignment_log2_by_interval[origin_index];
+      *origin = iree_max(
+          *origin, state->unit_alignment_log2_by_interval[interval_index]);
+    }
+    for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
+      const uint32_t interval_index = interval_indices[i];
+      if (interval_index == UINT32_MAX) {
+        continue;
+      }
+      const uint32_t origin_index =
+          interval_indices[state->tied_storage_origins_by_value_ordinal[i]];
+      state->unit_alignment_log2_by_interval[interval_index] =
+          state->unit_alignment_log2_by_interval[origin_index];
+    }
+  }
+
   *out_table = (loom_low_placement_table_t){
       .module = state->module,
       .region = state->region,
@@ -914,6 +999,7 @@ static iree_status_t loom_low_placement_build(
       .storage_value_order_count = state->storage_value_order_count,
       .tied_storage_origins_by_value_ordinal =
           state->tied_storage_origins_by_value_ordinal,
+      .unit_alignment_log2_by_interval = state->unit_alignment_log2_by_interval,
   };
   return iree_ok_status();
 }

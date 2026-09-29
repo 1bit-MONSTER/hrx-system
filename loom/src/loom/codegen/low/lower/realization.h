@@ -1,0 +1,194 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Shared placement and CFG ownership of target-shaped pure values.
+
+#ifndef LOOM_CODEGEN_LOW_LOWER_REALIZATION_H_
+#define LOOM_CODEGEN_LOW_LOWER_REALIZATION_H_
+
+#include "loom/codegen/low/lower/lower.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct loom_low_lower_realization_t loom_low_lower_realization_t;
+typedef struct loom_low_lower_realizations_t loom_low_lower_realizations_t;
+
+typedef enum loom_low_lower_realization_input_kind_e {
+  // An authored value whose definition must precede initialization.
+  LOOM_LOW_LOWER_REALIZATION_INPUT_SOURCE = 0,
+  // Target entry state established by ABI import and entry setup. Its identity
+  // is target-owned; it is not a source SSA value or a storage demand.
+  LOOM_LOW_LOWER_REALIZATION_INPUT_ENTRY = 1,
+  // A previously requested physical value. Construction order makes these
+  // dependencies acyclic; the shared owner retains their emission order.
+  LOOM_LOW_LOWER_REALIZATION_INPUT_REALIZATION = 2,
+} loom_low_lower_realization_input_kind_t;
+
+typedef struct loom_low_lower_realization_input_t {
+  // Dependency namespace.
+  loom_low_lower_realization_input_kind_t kind;
+  // Identity in the selected namespace.
+  union {
+    // Source value ID or target entry-state key.
+    uint32_t identity;
+    // Previously interned physical dependency.
+    const loom_low_lower_realization_t* realization;
+  } value;
+} loom_low_lower_realization_input_t;
+
+// Retained uniform loop domain admitting complete, lane-valid edge payloads.
+// Entry and backedge are dedicated unconditional edges; the sole exit is a
+// uniform header test. This is a realization candidate domain, not a source
+// program restriction. Other loops retain their ordinary direct lowering.
+typedef struct loom_low_lower_realization_loop_t {
+  // Source header defining the supplemental carried values.
+  const loom_block_t* header;
+  // Dedicated entry edge, executed even when the loop has zero trips.
+  const loom_op_t* entry;
+  // Dedicated backedge, executed once per body iteration.
+  const loom_op_t* backedge;
+  // Borrowed induction equation owned by the retained CFG facts.
+  const loom_value_fact_induction_t* induction;
+  // Exact source-integer initial value.
+  int64_t initial_value;
+  // Exact positive source-integer increment.
+  int64_t step;
+  // Exact source-integer exit value, including zero-trip loops.
+  int64_t exit_value;
+  // Exact number of body executions.
+  uint64_t trip_count;
+} loom_low_lower_realization_loop_t;
+
+// Pure target arithmetic only: no memory effects, control changes or source
+// value rebinding. Initializers consume only their declared dependencies.
+// Updates consume the current carried value. Builders own emitted IR; recipe
+// data and its inputs retain function-arena lifetime.
+typedef iree_status_t (*loom_low_lower_realization_emit_fn_t)(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const void* data, loom_value_id_t carried_value,
+    loom_value_id_t* out_value);
+
+typedef struct loom_low_lower_realization_recipe_t {
+  // Physical carrier of both the initialized and carried value.
+  loom_type_t type;
+  // Target recipe family; distinct families never share physical values.
+  loom_low_lower_plan_id_t id;
+  // Canonical opaque recipe key, excluding inputs and loop identity. The
+  // producer initializes every byte; core compares the complete payload.
+  iree_const_byte_span_t key;
+  // Explicit dependencies used for dominance, placement and storage demand.
+  const loom_low_lower_realization_input_t* inputs;
+  // Number of populated input records.
+  uint16_t input_count;
+  // Pure arithmetic emitted once after all dependencies have become available.
+  loom_low_lower_realization_emit_fn_t initialize;
+  // Backedge arithmetic, or NULL for an invariant realization.
+  loom_low_lower_realization_emit_fn_t update;
+  // Function-owned target data consumed by initialize and update.
+  const void* data;
+} loom_low_lower_realization_recipe_t;
+
+// Deferred packet replacement, applied only after the shared owner selects the
+// complete reuse group. The callback requests physical values and updates its
+// retained target plan; it does not emit IR or traverse source operations.
+typedef iree_status_t (*loom_low_lower_realization_apply_fn_t)(
+    loom_low_lower_context_t* context, const loom_op_t* source_op, void* data);
+
+typedef struct loom_low_lower_realization_offer_t {
+  // Target recipe family defining the cost units and opaque keys.
+  loom_low_lower_plan_id_t id;
+  // Shared replacement identity, excluding the loop and source block. Every
+  // byte is initialized; offers with equal keys use the same group costs.
+  iree_const_byte_span_t key;
+  // Cost paid once to initialize the group's shared physical state.
+  uint32_t group_setup_cost;
+  // Cost paid once per iteration for the group's shared physical state.
+  uint32_t group_iteration_cost;
+  // Target identity of the direct calculation removed by this offer. Equal
+  // identities receive credit once, even when several packets reuse it.
+  uint64_t removed_key;
+  // Per-iteration cost of the removed direct calculation.
+  uint32_t removed_iteration_cost;
+  // Conservative setup cost for this packet's additional invariant values.
+  uint32_t setup_cost;
+  // Applies the selected replacement to the retained target packet plan.
+  loom_low_lower_realization_apply_fn_t apply;
+  // Function-owned callback payload, including the retained packet plan.
+  void* data;
+} loom_low_lower_realization_offer_t;
+
+// Creates the shared owner and retains loop eligibility from existing facts.
+// It does not traverse operations or recover induction expressions.
+iree_status_t loom_low_lower_realizations_create(
+    loom_low_lower_context_t* context);
+
+// Returns the admitted innermost loop, or NULL outside the candidate domain.
+const loom_low_lower_realization_loop_t* loom_low_lower_realization_loop(
+    const loom_low_lower_context_t* context, const loom_op_t* source_op);
+
+// Offers a replacement whose shared loop cost must be amortized by distinct
+// direct calculations. The bounded domain is the dedicated latch block, which
+// executes exactly trip_count times. Other blocks keep their direct plans.
+// No physical values or source demands are created for rejected offers.
+iree_status_t loom_low_lower_realization_offer(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_low_lower_realization_loop_t* loop,
+    const loom_low_lower_realization_offer_t* offer);
+
+// Interns a physical value and retains its source-use boundary. A NULL result
+// means the input definitions cannot be placed in the requested scope. Loop
+// recipes initialize before entry and produce a supplemental header argument;
+// invariant recipes initialize immediately after their last dependency.
+// Called during shared memory preparation, before operation selection.
+iree_status_t loom_low_lower_realization_request(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_low_lower_realization_loop_t* loop,
+    const loom_low_lower_realization_recipe_t* recipe,
+    const loom_low_lower_realization_t** out_realization);
+
+// Selects complete reuse groups, freezes placement/use boundaries and marks
+// source dependencies before the backward operation demand walk. No subsequent
+// request is permitted.
+iree_status_t loom_low_lower_realizations_finalize(
+    loom_low_lower_context_t* context);
+
+// Creates supplemental block arguments after all authored arguments exist.
+iree_status_t loom_low_lower_realizations_map_blocks(
+    loom_low_lower_context_t* context);
+
+// Emits initializers at block entry and initializers/updates after an authored
+// operation. Both run inside the normal shared emission scratch lifetime.
+iree_status_t loom_low_lower_realizations_emit_entry(
+    loom_low_lower_context_t* context, const loom_block_t* source_block);
+iree_status_t loom_low_lower_realizations_emit_after(
+    loom_low_lower_context_t* context, const loom_op_t* source_op);
+
+// Emits any backedge updates whose use boundary is the edge itself.
+iree_status_t loom_low_lower_realizations_emit_edge(
+    loom_low_lower_context_t* context, const loom_op_t* source_terminator);
+
+// Returns the physical value selected for ordinary uses. Carried values are
+// header arguments; invariant values were emitted at their source anchor.
+loom_value_id_t loom_low_lower_realization_value(
+    const loom_low_lower_realization_t* realization);
+
+// Number of supplemental values on an admitted entry/backedge.
+uint16_t loom_low_lower_realization_edge_count(
+    const loom_low_lower_context_t* context,
+    const loom_op_t* source_terminator);
+
+// Writes the complete supplemental edge payload in header-argument order.
+void loom_low_lower_realization_edge_values(
+    const loom_low_lower_context_t* context, const loom_op_t* source_terminator,
+    loom_value_id_t* values);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
+
+#endif  // LOOM_CODEGEN_LOW_LOWER_REALIZATION_H_

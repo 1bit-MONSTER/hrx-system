@@ -141,4 +141,7 @@ low.func.def target<test.low.core>(@target) @partial_concat_preserves_tied_sourc
 }
 
 // ----
-CHECK: *"spill_count":0,*"name":"low"*"base":0,"count":2}*"name":"tuple"*"base":4,"count":4}*"name":"result"*"base":4,"count":4}*
+CHECK: *"spill_count":0,*
+CHECK: *"name":"tuple"*"base":2,"count":4}*
+CHECK: *"name":"low"*"base":0,"count":2}*
+CHECK: *"name":"result"*"base":2,"count":4}*

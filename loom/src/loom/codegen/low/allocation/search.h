@@ -124,6 +124,15 @@ bool loom_low_allocation_search_find_free_location(
     const loom_liveness_interval_t* interval,
     loom_low_allocation_class_capacity_t capacity, uint32_t* out_base);
 
+// Enumerates each aligned linear base in [0, last_base] exactly once, with
+// preferred-aligned bases first. Both alignments are positive powers of two,
+// preferred_alignment >= required_alignment, and candidate_index is less than
+// last_base / required_alignment + 1. This order expresses a packing preference
+// without excluding legal gaps or changing explicit physical-view semantics.
+uint32_t loom_low_allocation_search_linear_candidate_base(
+    uint64_t candidate_index, uint32_t last_base, uint32_t required_alignment,
+    uint32_t preferred_alignment);
+
 // Returns whether an active assignment may be spilled, and the capacity needed
 // to materialize its spill slot when requested.
 iree_status_t loom_low_allocation_search_assignment_spill_capacity(

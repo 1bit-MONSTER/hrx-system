@@ -15,10 +15,10 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @tuple_slice_waits(%address: r
 }
 
 // ----
-  ds_read_b128 v[8:11], v0 offset:0
-  ds_read_b128 v[12:15], v0 offset:16
+  ds_read_b128 v[4:7], v0 offset:0
+  ds_read_b128 v[8:11], v0 offset:16
   s_waitcnt vmcnt(63) lgkmcnt(0)
-  v_add_u32 v1, v8, v12
+  v_add_u32 v1, v4, v8
   ds_write_b32 v0, v1 offset:32
   s_endpgm
 
@@ -101,12 +101,12 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @block_entry_separates_waits(%
 }
 
 // ----
-  ds_read_b128 v[8:11], v0 offset:0
-  ds_read_b128 v[12:15], v0 offset:16
+  ds_read_b128 v[4:7], v0 offset:0
+  ds_read_b128 v[8:11], v0 offset:16
   s_waitcnt vmcnt(63) lgkmcnt(1)
 .Lbb1:
   s_waitcnt vmcnt(63) lgkmcnt(0)
-  v_add_u32 v1, v8, v12
+  v_add_u32 v1, v4, v8
   ds_write_b32 v0, v1 offset:32
   s_endpgm
 
@@ -130,12 +130,12 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @authored_wait_separates_group
 }
 
 // ----
-  ds_read_b128 v[8:11], v0 offset:0
-  ds_read_b128 v[12:15], v0 offset:16
+  ds_read_b128 v[4:7], v0 offset:0
+  ds_read_b128 v[8:11], v0 offset:16
   s_waitcnt vmcnt(63) lgkmcnt(1)
   s_waitcnt vmcnt(63) lgkmcnt(2)
   s_waitcnt vmcnt(63) lgkmcnt(0)
-  v_add_u32 v1, v8, v12
+  v_add_u32 v1, v4, v8
   ds_write_b32 v0, v1 offset:32
   s_endpgm
 
@@ -158,10 +158,10 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @mixed_counter_slices(%address
 }
 
 // ----
-  ds_read_b128 v[8:11], v0 offset:0
-  global_load_b128 v[12:15], v0, s[0:1] offset:0
+  ds_read_b128 v[4:7], v0 offset:0
+  global_load_b128 v[8:11], v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(0)
-  v_add_u32 v1, v8, v12
+  v_add_u32 v1, v4, v8
   ds_write_b32 v0, v1 offset:32
   s_endpgm
 

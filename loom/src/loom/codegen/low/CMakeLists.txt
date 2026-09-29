@@ -530,9 +530,14 @@ loom_cc_test(
   SRCS
     "placement_test.cc"
   DEPS
+    ::builder
     ::placement
+    iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::ir
+    loom::ops::low
+    loom::target::registers
 )
 
 loom_cc_library(

@@ -300,11 +300,12 @@ iree_status_t loom_amdgpu_emit_lane_mask_equal_scc(
     loom_value_id_t low_lhs, loom_value_id_t low_rhs, uint32_t wavefront_size,
     loom_value_id_t* out_low_scc);
 
-// Emits an SGPR x2 base plus one-unit SGPR unsigned byte offset.
+// Emits an SGPR x2 base plus one-unit SGPR unsigned byte offset as low/high
+// scalar words. The caller assembles the final pointer or descriptor tuple.
 iree_status_t loom_amdgpu_emit_sgpr64_add_u32_offset(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_base, loom_value_id_t low_offset,
-    loom_value_id_t* out_low_sum);
+    loom_value_id_t out_low_words[2]);
 
 // Emits one unary VGPR descriptor op.
 iree_status_t loom_amdgpu_emit_vgpr_unary(

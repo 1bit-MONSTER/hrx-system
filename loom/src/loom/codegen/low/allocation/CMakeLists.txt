@@ -233,6 +233,20 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_test(
+  NAME
+    concat_reservation_test
+  SRCS
+    "concat_reservation_test.cc"
+  DEPS
+    ::active_set
+    ::concat_reservation
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+)
+
 loom_cc_library(
   NAME
     coalescing
@@ -506,6 +520,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::liveness
     loom::codegen::low::descriptors
+    loom::codegen::low::placement
     loom::ir
     loom::target::registers
     loom::util::adaptive_sort

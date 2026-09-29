@@ -29,6 +29,8 @@ typedef struct loom_low_lower_rule_source_memory_state_t {
   bool plan_available;
   // Caller-owned storage receiving the canonical source-memory plan.
   loom_low_source_memory_access_plan_t* access_plan;
+  // Shared preselection's immutable source plan, or NULL in read-only legality.
+  const loom_low_source_memory_access_plan_t* retained_access;
   // Exact source-access rejection facts when planning did not succeed.
   loom_low_source_memory_access_diagnostic_t diagnostic;
 } loom_low_lower_rule_source_memory_state_t;

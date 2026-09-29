@@ -367,6 +367,19 @@ static void loom_low_lower_mark_source_memory_access_storage_demands(
       }
     }
   }
+  const loom_low_source_memory_dynamic_component_t* component =
+      loom_low_source_memory_access_retained_component(
+          access, first_canonical_term,
+          address_materializer != NULL
+              ? address_materializer->coordinate_unit_byte_count
+              : 1);
+  if (component != NULL) {
+    loom_low_lower_mark_value_storage_required(context, component->term->index);
+    for (uint8_t i = 0; i < component->term->stride_value_count; ++i) {
+      loom_low_lower_mark_value_storage_required(
+          context, component->term->stride_values[i]);
+    }
+  }
   for (uint8_t term_ordinal = first_canonical_term;
        term_ordinal < access->dynamic_term_count; ++term_ordinal) {
     const loom_low_source_memory_dynamic_term_t* term =
@@ -661,6 +674,7 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
     loom_low_lower_context_t* context, loom_region_t* source_region,
     const loom_low_lower_source_plan_observer_t* observer, void* observer_state,
     loom_low_lower_visibility_builder_t* visibility,
+    loom_low_lower_source_memory_builder_t* memory_builder,
     iree_host_size_t* inout_plan_capacity) {
   const uint16_t* block_order =
       source_region == loom_func_like_body(context->source_function)
@@ -670,10 +684,14 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
        ++position) {
     const uint16_t block_index = block_order ? block_order[position] : position;
     loom_block_t* block = loom_region_block(source_region, block_index);
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_source_memory_enter_block(memory_builder, block));
     loom_op_t* op = NULL;
     loom_block_for_each_op(block, op) {
       const loom_trait_flags_t traits =
           loom_op_effective_traits(context->module, op);
+      IREE_RETURN_IF_ERROR(
+          loom_low_lower_source_memory_observe(memory_builder, context, op));
       IREE_RETURN_IF_ERROR(
           loom_low_lower_visibility_observe(context, visibility, op));
       const bool is_callable_exit =
@@ -696,7 +714,7 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
           if (regions[i] != NULL) {
             IREE_RETURN_IF_ERROR(loom_low_lower_visit_region_plan_ops(
                 context, regions[i], observer, observer_state, visibility,
-                inout_plan_capacity));
+                memory_builder, inout_plan_capacity));
           }
         }
         continue;
@@ -707,6 +725,7 @@ static iree_status_t loom_low_lower_visit_region_plan_ops(
       }
     }
   }
+  loom_low_lower_source_memory_leave_region(memory_builder, source_region);
   return iree_ok_status();
 }
 
@@ -724,14 +743,23 @@ static iree_status_t loom_low_lower_prepare_plan(
   if (context->policy->visibility_model) {
     visibility.model = context->policy->visibility_model(context);
   }
+  loom_low_lower_source_memory_builder_t* memory_builder = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_source_memory_builder_create(context, &memory_builder));
   IREE_RETURN_IF_ERROR(loom_low_lower_visit_region_plan_ops(
       context, source_body, observer, observer_state, &visibility,
-      &plan_capacity));
+      memory_builder, &plan_capacity));
+  context->lowering.source_plan.memory.current = NULL;
+  context->lowering.source_plan.memory.cursor =
+      context->lowering.source_plan.memory.first;
   IREE_RETURN_IF_ERROR(loom_low_lower_visibility_select(
       context, &visibility,
       &context->lowering.source_plan.read_visibility_scope));
   if (observer != NULL) {
     IREE_RETURN_IF_ERROR(observer->end(observer_state, context));
+  }
+  if (!loom_low_lower_context_should_stop(context)) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_memory_prepare(context));
   }
   if (context->result->error_count == 0) {
     IREE_RETURN_IF_ERROR(loom_low_lower_function_boundary_finalize(context));
@@ -1215,6 +1243,20 @@ static iree_status_t loom_low_lower_plan_op(loom_low_lower_context_t* context,
     return iree_ok_status();
   }
 
+  const loom_low_lower_source_memory_record_t* prepared_memory =
+      context->lowering.source_plan.memory.current;
+  if (prepared_memory &&
+      !loom_low_lower_plan_is_empty(prepared_memory->prepared_plan)) {
+    loom_low_lower_record_selected_plan(
+        context, (loom_low_lower_selected_plan_t){
+                     .source_op = source_op,
+                     .kind = LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK,
+                     .rule_set_index = UINT16_MAX,
+                     .rule_index = UINT16_MAX,
+                     .data.target_plan = prepared_memory->prepared_plan,
+                 });
+    return iree_ok_status();
+  }
   bool selected_callback = false;
   IREE_RETURN_IF_ERROR(loom_low_lower_try_select_op_callback(
       context, context->policy->preselect_op, source_op, &selected_callback));
@@ -1228,6 +1270,16 @@ static iree_status_t loom_low_lower_plan_op(loom_low_lower_context_t* context,
   loom_low_lower_rule_source_memory_state_t source_memory_state;
   loom_low_lower_rule_source_memory_state_initialize(
       source_op, &source_memory_access, &source_memory_state);
+  const loom_low_lower_source_memory_record_t* memory_record =
+      context->lowering.source_plan.memory.current;
+  if (memory_record != NULL) {
+    if (memory_record->available) {
+      source_memory_state.retained_access = &memory_record->access;
+    } else {
+      source_memory_state.plan_attempted = true;
+      source_memory_state.diagnostic = memory_record->diagnostic;
+    }
+  }
   bool selected_rule = false;
   if (context->policy->contract.index != NULL) {
     IREE_RETURN_IF_ERROR(loom_low_lower_plan_op_from_contract_index(
@@ -1292,6 +1344,7 @@ static iree_status_t loom_low_lower_plan_region(
     loom_block_for_each_op(block, op) {
       const bool is_callable_exit =
           loom_low_lower_source_op_is_callable_exit(context, op);
+      loom_low_lower_source_memory_select_op(context, op);
       loom_low_lower_planning_scope_begin(context);
       iree_status_t status =
           loom_low_lower_plan_op(context, op, is_callable_exit);

@@ -30,16 +30,16 @@ typedef struct loom_amdgpu_memory_dynamic_term_sequence_t {
   uint8_t count;
 } loom_amdgpu_memory_dynamic_term_sequence_t;
 
-// Retains a set of mixed scalar/vector source realizations that fits u32 VADDR
-// and removes every dynamic scalar term. Partial scalar-sum simplification
-// does not justify extending the realizations' vector lifetimes.
+// Selects a legal operand for a shared cross-access component, preserving the
+// complete VADDR bound. Otherwise retains opportunistic mixed scalar/vector
+// realizations only when their complete set removes dynamic scalar arithmetic.
 void loom_amdgpu_memory_access_select_vaddr_realizations(
     loom_amdgpu_memory_access_t* access);
 
-// Resolves canonical terms using only source realizations already materialized
-// for another use. Same-bank realizations preserve the selected operand path;
-// mixed-bank realizations require the entire retained set to be available so
-// promotion eliminates dynamic scalar address calculation.
+// Resolves each canonical contribution exactly once. Selected cross-access
+// components have demanded storage; optional local realizations are used only
+// when mapped. Same-bank local realizations preserve the selected operand path;
+// mixed-bank local promotion requires its entire selected set to be available.
 void loom_amdgpu_memory_access_resolve_dynamic_terms(
     const loom_low_lower_context_t* context,
     const loom_amdgpu_memory_access_t* access,

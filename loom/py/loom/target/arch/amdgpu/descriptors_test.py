@@ -2529,7 +2529,7 @@ def test_scalar_carry_forms_preserve_native_unsigned_addition() -> None:
         assert OperandFlag.STATE_READ in carry_in.flags
 
 
-def test_scalar_borrow_forms_preserve_scc_dependencies() -> None:
+def test_scalar_carry_and_borrow_forms_preserve_scc_dependencies() -> None:
     for overlays in (
         _gfx940_core_overlays(),
         _gfx950_core_overlays(),
@@ -2538,9 +2538,10 @@ def test_scalar_borrow_forms_preserve_scc_dependencies() -> None:
         _gfx125x_core_overlays(),
     ):
         descriptors = {row.descriptor_key: row for row in overlays}
-        for mnemonic, instruction in (
-            ("s_sub_co_u32", "S_SUB_U32"),
-            ("s_subb_u32", "S_SUBB_U32"),
+        for mnemonic, instruction, state_name in (
+            ("s_addc_u32", "S_ADDC_U32", "carry"),
+            ("s_sub_co_u32", "S_SUB_U32", "borrow"),
+            ("s_subb_u32", "S_SUBB_U32", "borrow"),
         ):
             base = descriptors[f"amdgpu.{mnemonic}"]
             for suffix in ("", ".lhs_inline", ".rhs_inline"):
@@ -2548,14 +2549,14 @@ def test_scalar_borrow_forms_preserve_scc_dependencies() -> None:
                 assert descriptor.instruction_name == instruction
                 assert descriptor.implicit_operands == base.implicit_operands
                 assert descriptor.asm_forms[0].results == base.asm_forms[0].results
-                borrow = descriptor.implicit_operands[0].descriptor_operand
-                assert borrow.role is OperandRole.RESULT
-                assert OperandFlag.STATE_WRITE in borrow.flags
-                if mnemonic == "s_subb_u32":
-                    borrow_in = descriptor.implicit_operands[1].descriptor_operand
-                    assert borrow_in.role is OperandRole.PREDICATE
-                    assert OperandFlag.STATE_READ in borrow_in.flags
-                    assert "borrow_in" in descriptor.asm_forms[0].operands
+                state = descriptor.implicit_operands[0].descriptor_operand
+                assert state.role is OperandRole.RESULT
+                assert OperandFlag.STATE_WRITE in state.flags
+                if mnemonic in ("s_addc_u32", "s_subb_u32"):
+                    state_in = descriptor.implicit_operands[1].descriptor_operand
+                    assert state_in.role is OperandRole.PREDICATE
+                    assert OperandFlag.STATE_READ in state_in.flags
+                    assert f"{state_name}_in" in descriptor.asm_forms[0].operands
                 if suffix:
                     assert (
                         descriptor.asm_forms[0].native_assembly_mnemonic
