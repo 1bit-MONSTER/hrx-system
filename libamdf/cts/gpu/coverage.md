@@ -13,10 +13,10 @@ identity, independent observation and checked retirement.
 | --- | --- | --- |
 | PM4 memory operations | [write](pm4/write_test.cc), [copy](pm4/copy_test.cc), [wait](pm4/wait_test.cc), [atomic store](pm4/atomic_store_test.cc) | Changed data, selected widths and extents, surrounding bytes, producer/consumer ordering and CPU handoffs. Atomic-store coverage is distinct from read-modify-write operations. |
 | PM4 execution and dependencies | [dispatch](pm4/dispatch_test.cc), [cross-queue handoff](pm4/handoff_test.cc), [indirect dispatch](pm4/indirect_test.cc), [command buffers](pm4/command_buffer_test.cc) | Shader outputs across generations, device-produced dispatch counts, immutable indirect buffers and completed-use command rebuilding. |
-| PM4 shader resources | [LDS](pm4/lds_test.cc), [resource changes](pm4/resource_test.cc) | Cross-wave exchange through static/dynamic workgroup storage and transitions between distinct resource configurations. |
+| PM4 shader resources | [LDS](pm4/lds_test.cc), [resource changes](pm4/resource_test.cc) | Cross-wave exchange through fixed workgroup storage and transitions between distinct resource configurations. |
 | SDMA transfers | [copy](sdma/copy_test.cc), [fill](sdma/fill_test.cc) | Linear copies, byte tails/page crossings, DWORD fills, NOP-separated dependent copies and fence-visible output. |
 | AQL publication and dependencies | [publication](aql/publication_test.cc), [barriers](aql/barrier_test.cc), [epochs](aql/epoch_test.cc), [fan-in](aql/fanin_test.cc), [scope](aql/scope_test.cc) | Slot reuse, independent producer publication, AND/OR/value dependencies, complete shader payloads and AGENT-to-SYSTEM scope composition. |
-| AQL execution and resources | [dispatch](aql/dispatch_test.cc), [geometry](aql/geometry_test.cc), [scratch](aql/private_test.cc), [LDS](aql/lds_test.cc), [resource changes](aql/resource_test.cc) | Complete/partial multidimensional grids, caller-owned private storage, static/dynamic group storage and resource rebinding. |
+| AQL execution and resources | [dispatch](aql/dispatch_test.cc), [geometry](aql/geometry_test.cc), [scratch](aql/private_test.cc), [LDS](aql/lds_test.cc), [resource changes](aql/resource_test.cc) | Complete/partial multidimensional grids, caller-owned private storage, fixed group storage and resource rebinding. |
 | AQL transfer and reuse | [carriers](aql/transfer_test.cc), [byte copy](aql/byte_copy_test.cc), [pattern fill](aql/pattern_fill_test.cc), [executable reuse](aql/executable_test.cc), [worksets](aql/workset_test.cc) | PM4-carried copies, shader subspan operations, completed-use code replacement and independent final-use obligations. |
 | CPU/GPU and cross-engine memory edges | [memory pairs](recipes/memory_pair_test.cc), [SDMA/AQL](recipes/copy_dispatch_test.cc), [PM4/SDMA](recipes/pm4_sdma_test.cc) | Queried concrete/profile policies, coherent SYSTEM and staged LOCAL payloads, upload/compute/download and final consumer output. |
 | CPU/NPU execution | [CPU/XDNA recipes](../xdna/recipes/README.md) | Allocated/registered backing, queried host publication/acquisition, changed arithmetic outputs, full guards and native retirement. |
@@ -48,9 +48,10 @@ USER queue service there. The GPU/XDNA fixture has its own explicit KERNEL
 publication path. Physical peer-GPU execution has
 [no compiled cases](peer/README.md).
 
-Additional packet fields, rectangular SDMA transfers, SDMA atomics, general
-poll/cache controls, command-buffer variants, physical peers and hardware-counter
-collection need their own native witnesses. The corresponding
+Per-dispatch LDS capacity changes, additional packet fields, rectangular SDMA
+transfers, SDMA atomics, general poll/cache controls, command-buffer variants,
+physical peers and hardware-counter collection need their own native witnesses.
+The corresponding
 [hardware reference](../../../docs/reference/amd/gpu/README.md) has a broader
 semantic scope than the implemented CTS. A new HAL recipe is qualified by its
 complete producer/dependency/consumer/reuse behavior, not by finding its opcode

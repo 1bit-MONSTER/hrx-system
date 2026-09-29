@@ -37,8 +37,7 @@ static_assert(offsetof(kernels::transform::Arguments, addend) +
 static_assert(alignof(kernels::lds_exchange::Arguments) %
                   lds::kKernargAlignment ==
               0);
-static_assert(offsetof(kernels::lds_exchange::Arguments, dynamic_stride) +
-                  sizeof(uint32_t) ==
+static_assert(sizeof(kernels::lds_exchange::Arguments) ==
               lds::kKernargByteLength);
 static_assert(sizeof(kernels::transform::Arguments) == 32);
 static_assert(sizeof(kernels::lds_exchange::Arguments) <= 32);
@@ -168,17 +167,15 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   RecordProperty("pm4_mixed_grid_sequence", "1024x1x1,512x1x1,1024x1x1");
   RecordProperty("pm4_mixed_group_byte_length_sequence", "0,512,0");
   RecordProperty("pm4_mixed_argument_offsets", "0,64,128");
-  RecordProperty("pm4_mixed_kernarg_semantic_byte_lengths",
-                 std::to_string(transform::kKernargByteLength) + "," +
-                     std::to_string(lds::kKernargByteLength) + "," +
-                     std::to_string(transform::kKernargByteLength));
+  RecordProperty(
+      "pm4_mixed_kernarg_semantic_byte_lengths",
+      std::to_string(transform::kKernargByteLength) + "," +
+          std::to_string(kernels::lds_exchange::kArgumentByteLength) + "," +
+          std::to_string(transform::kKernargByteLength));
   RecordProperty("pm4_mixed_kernarg_slot_byte_length", 32);
   RecordProperty(
       "pm4_mixed_lds_capacity_per_compute_unit",
       std::to_string(endpoint_info.compute.local_data_share_byte_length));
-  RecordProperty("pm4_mixed_lds_dynamic_stride", 0);
-  RecordProperty("pm4_mixed_lds_dynamic_byte_offset",
-                 lds::kGroupSegmentByteLength);
   RecordProperty("pm4_mixed_payload_offset_words", kPayloadOffset);
   RecordProperty("pm4_mixed_last_transform_count", kTransformGridSize);
   RecordProperty("pm4_mixed_checked_data_bytes_each", sizeof(expected_input));
@@ -219,7 +216,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     }
     for (uint32_t i = 0; i < kLdsGridSize; ++i) {
       const auto record =
-          kernels::lds_exchange::ExpectedRecord(i, kSeeds[epoch], 0);
+          kernels::lds_exchange::ExpectedRecord(i, kSeeds[epoch]);
       expected_lds[kPayloadOffset + i * 2] = record[0];
       expected_lds[kPayloadOffset + i * 2 + 1] = record[1];
     }
@@ -254,7 +251,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
         kCounts[epoch], kFirstAddends[epoch]};
     const kernels::lds_exchange::Arguments lds_arguments = {
         lds_output->device_address + kPayloadOffset * sizeof(uint32_t),
-        kSeeds[epoch], 0};
+        kSeeds[epoch]};
     const kernels::transform::Arguments last_arguments = {
         lds_output->device_address + kPayloadOffset * sizeof(uint32_t),
         output->device_address + kPayloadOffset * sizeof(uint32_t),
@@ -265,7 +262,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     std::memcpy(expected_arguments.data(), &first_arguments,
                 transform::kKernargByteLength);
     std::memcpy(expected_arguments.data() + kArgumentStride, &lds_arguments,
-                lds::kKernargByteLength);
+                kernels::lds_exchange::kArgumentByteLength);
     std::memcpy(expected_arguments.data() + kArgumentStride * 2,
                 &last_arguments, transform::kKernargByteLength);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),

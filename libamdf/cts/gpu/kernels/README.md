@@ -182,25 +182,27 @@ slot or XCC. [Fixed scratch case](../aql/private_test.cc)
 
 ## LDS exchange images
 
-[lds_exchange.loom](lds_exchange.loom) exchanges independently tagged static
-and dynamic group-memory values between partner lanes in different waves.
+[lds_exchange.loom](lds_exchange.loom) exchanges tagged fixed group-memory
+values between partner lanes in different waves. Each output pair contains the
+exchanged word and a stamp identifying the global workitem position.
 The [AQL](../aql/lds_test.cc) and [PM4](../pm4/lds_test.cc) cases use four
 complete 128-workitem groups and compare every result against the shared
-independent [host oracle](lds_exchange.h). The dynamic cases change stride
-1 → 3 → 1 on the same image and queue; static cases exercise the zero-capacity
-branch. Completion-visible payloads are captured before queue retirement.
+independent [host oracle](lds_exchange.h). Repeated dispatches change the seed
+on the same image and queue. Completion-visible payloads are captured before
+queue retirement.
 
 The two target profiles produce wave64/gfx942 and wave32/gfx1151 kernels, each
-with 512 fixed LDS bytes and no private storage. The source borrows the
-dispatch-sized tail through `kernel.workgroup.storage`; Loom places that tail
-after fixed storage. The launch configuration requests `512 * stride` additional
-bytes. Native callers supply the complete fixed-plus-dynamic byte count through
-the AQL packet or PM4 binding, while compiler descriptors remain immutable.
+with 512 fixed LDS bytes and no private storage. The source uses ordinary
+`buffer.alloca<workgroup>` storage. Native callers supply the compiler-declared
+capacity through the AQL packet or PM4 binding, while compiler descriptors
+remain immutable. These cases qualify fixed storage; changing per-dispatch LDS
+capacity requires a separate fixture.
 The [PM4 group-memory contract](../../../../docs/reference/amd/gpu/pm4/lds.md) describes
 the launch allocation and scheduling fields.
 
-The three semantic arguments occupy 16 bytes: output address at byte 0, seed at
-8 and dynamic stride at 12. The LDS base is a compiler-resolved address, with
+The two semantic arguments occupy 12 bytes of the 16-byte argument segment:
+output address at byte 0 and seed at 8. Callers zero the segment and copy only
+the semantic bytes. The LDS base is a compiler-resolved address, with
 no per-dispatch pointer argument or code patch. Callers validate generated ABI
 metadata, initialize the complete argument slot, and retain the image, data
 and arguments through execution completion and ring retirement. Mixed-resource

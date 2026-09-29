@@ -51,7 +51,6 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   constexpr std::array<uint32_t, 4> kSeeds = {0x13579bdfu, 0x2468ace1u,
                                               0xa5c31f27u, 0x8db462f3u};
   constexpr std::array<uint32_t, 2> kRotations = {1, 7};
-  constexpr std::array<uint32_t, 2> kStrides = {1, 3};
   constexpr aql::FenceScopes kScopes = {aql::FenceScope::kSystem,
                                         aql::FenceScope::kSystem};
   static_assert(private_kernel::kWorkgroupSize == 64);
@@ -65,8 +64,7 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   static_assert(alignof(kernels::private_roundtrip::Arguments) %
                     private_kernel::kKernargAlignment ==
                 0);
-  static_assert(offsetof(kernels::lds_exchange::Arguments, dynamic_stride) +
-                    sizeof(uint32_t) ==
+  static_assert(sizeof(kernels::lds_exchange::Arguments) ==
                 lds_kernel::kKernargByteLength);
   static_assert(alignof(kernels::lds_exchange::Arguments) %
                     lds_kernel::kKernargAlignment ==
@@ -79,16 +77,8 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
-  std::array<uint32_t, 2> group_byte_lengths;
-  for (uint32_t i = 0; i < kStrides.size(); ++i) {
-    const uint64_t group_byte_length =
-        uint64_t{lds_kernel::kGroupSegmentByteLength} +
-        uint64_t{lds_kernel::kWorkgroupSize} * kStrides[i] * sizeof(uint32_t);
-    ASSERT_LE(group_byte_length, UINT32_MAX);
-    ASSERT_LE(group_byte_length,
-              endpoint_info.compute.local_data_share_byte_length);
-    group_byte_lengths[i] = static_cast<uint32_t>(group_byte_length);
-  }
+  ASSERT_LE(lds_kernel::kGroupSegmentByteLength,
+            endpoint_info.compute.local_data_share_byte_length);
 
   GpuMemory* output = nullptr;
   GpuMemory* arguments = nullptr;
@@ -180,7 +170,7 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
                      : lds_kernel::kPrivateSegmentByteLength;
     const uint32_t group_byte_length =
         uses_private ? private_kernel::kGroupSegmentByteLength
-                     : group_byte_lengths[image_epoch];
+                     : lds_kernel::kGroupSegmentByteLength;
     const uint16_t workgroup_size = uses_private
                                         ? private_kernel::kWorkgroupSize
                                         : lds_kernel::kWorkgroupSize;
@@ -210,8 +200,8 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
                   private_kernel::kKernargByteLength);
     } else {
       for (uint32_t workitem = 0; workitem < kGridSize; ++workitem) {
-        const auto record = kernels::lds_exchange::ExpectedRecord(
-            workitem, kSeeds[epoch], kStrides[image_epoch]);
+        const auto record =
+            kernels::lds_exchange::ExpectedRecord(workitem, kSeeds[epoch]);
         std::memcpy(
             expected_output.data() + kGuardWordCount + workitem * record.size(),
             record.data(), sizeof(record));
@@ -219,10 +209,9 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
       const kernels::lds_exchange::Arguments payload = {
           output->device_address + kGuardWordCount * sizeof(uint32_t),
           kSeeds[epoch],
-          kStrides[image_epoch],
       };
       std::memcpy(expected_arguments.data(), &payload,
-                  lds_kernel::kKernargByteLength);
+                  kernels::lds_exchange::kArgumentByteLength);
     }
     observed_output = expected_output;
     for (uint32_t word = 0; word < active_word_count; ++word) {
@@ -293,15 +282,13 @@ TEST_F(AqlDispatchTest, SwitchesBetweenPrivateAndLdsKernels) {
     RecordProperty(prefix + "_packet_index", std::to_string(index - 1));
     if (uses_private) {
       RecordProperty(prefix + "_rotation", kRotations[image_epoch]);
-    } else {
-      RecordProperty(prefix + "_dynamic_stride", kStrides[image_epoch]);
     }
   }
   RecordProperty("aql_resource_transition_completed_epochs", kSeeds.size());
   RecordProperty("aql_resource_transition_private_completed_epochs",
                  kRotations.size());
   RecordProperty("aql_resource_transition_lds_completed_epochs",
-                 kStrides.size());
+                 kSeeds.size() / 2);
   RecordProperty("aql_resource_transition_work_packet_count",
                  std::to_string(index - first_work_packet_index));
   RecordProperty("aql_resource_transition_final_packet_index",

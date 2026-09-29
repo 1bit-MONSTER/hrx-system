@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -28,8 +27,7 @@ static_assert(kernel::kArgumentByteLengths ==
 static_assert(kernel::kArgumentValueKinds ==
               kernels::lds_exchange::kArgumentValueKinds);
 static_assert(alignof(Arguments) % kernel::kKernargAlignment == 0);
-static_assert(offsetof(Arguments, dynamic_stride) + sizeof(uint32_t) ==
-              kernel::kKernargByteLength);
+static_assert(sizeof(Arguments) == kernel::kKernargByteLength);
 static_assert(kernel::kRequiredWorkgroupSize ==
               std::array<uint32_t, 3>{128, 1, 1});
 static_assert(kernel::kWavefrontSize == 32);
@@ -38,19 +36,10 @@ static_assert(kernel::kKernelCodeProperties == 0x408 &&
               kernel::kKernargPreload == 0);
 static_assert((kernel::kComputePgmRsrc2 & 0x1fffu) == 0x84u);
 
-struct LdsEpoch {
-  // Token seed identifying this dispatch's returned payload.
-  uint32_t seed;
-  // Dynamic LDS element spacing, or zero for the static-only branch.
-  uint32_t dynamic_stride;
-};
+using Pm4LdsTest = Pm4DispatchTest;
 
-class Pm4LdsTest : public Pm4DispatchTest {
- protected:
-  void RunExchange(std::initializer_list<LdsEpoch> epochs);
-};
-
-void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
+TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
+  constexpr std::array<uint32_t, 2> kSeeds = {0x13579bdfu, 0xa5c31f27u};
   constexpr uint32_t kGridSize = 512;
   constexpr uint32_t kPayloadWordCount = kGridSize * 2;
   constexpr uint32_t kOutputWordCount = 2048;
@@ -76,15 +65,8 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
   endpoint_info.structure_size = sizeof(endpoint_info);
   ASSERT_EQ(gpu_api_->endpoint_query_info(endpoint_, &endpoint_info),
             AMDF_STATUS_OK);
-  for (const LdsEpoch& parameters : epochs) {
-    const uint64_t group_byte_length =
-        uint64_t{kernel::kGroupSegmentByteLength} +
-        uint64_t{kernel::kWorkgroupSize} * parameters.dynamic_stride *
-            sizeof(uint32_t);
-    ASSERT_LE(group_byte_length, UINT32_MAX);
-    ASSERT_LE(group_byte_length,
-              endpoint_info.compute.local_data_share_byte_length);
-  }
+  ASSERT_LE(kernel::kGroupSegmentByteLength,
+            endpoint_info.compute.local_data_share_byte_length);
 
   GpuMemory* output = nullptr;
   GpuMemory* arguments = nullptr;
@@ -136,7 +118,7 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
       queue->host.ring_byte_length / sizeof(uint32_t);
   // Each 56-word sequence has a complete eight-word NOP. All batches occupy
   // distinct resident ranges; no command crosses ring wrap.
-  ASSERT_GE(ring_capacity, kCommandWordCountPerEpoch * epochs.size());
+  ASSERT_GE(ring_capacity, kCommandWordCountPerEpoch * kSeeds.size());
   Pm4CommandWriter commands(
       reinterpret_cast<uint32_t*>(queue->host.ring_address));
   RecordProperty(
@@ -146,10 +128,8 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                  kernel::kGroupSegmentByteLength);
   // PAL/Mesa's four-wave SIMD destination policy remains fixed across rows.
   RecordProperty("pm4_lds_compute_resource_limits", 0x00400000);
-  RecordProperty("pm4_lds_dynamic_byte_offset",
-                 kernel::kGroupSegmentByteLength);
   RecordProperty("pm4_lds_kernarg_semantic_byte_length",
-                 kernel::kKernargByteLength);
+                 kernels::lds_exchange::kArgumentByteLength);
   RecordProperty("pm4_lds_kernarg_slot_byte_length", sizeof(Arguments));
   RecordProperty("pm4_lds_workgroup_size", kernel::kWorkgroupSize);
   RecordProperty("pm4_lds_wavefront_size", 32);
@@ -172,16 +152,8 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                  std::to_string(commands.word_count()));
   RecordProperty("pm4_lds_ring_capacity_dwords", std::to_string(ring_capacity));
 
-  uint32_t epoch = 0;
-  for (const LdsEpoch& parameters : epochs) {
+  for (uint32_t epoch = 0; epoch < kSeeds.size(); ++epoch) {
     SCOPED_TRACE(epoch);
-    // Capacity and representability were checked before creating any workload.
-    // Compiler resources stay fixed; the writer realizes this total LDS
-    // request.
-    program.group_segment_byte_length =
-        static_cast<uint32_t>(uint64_t{kernel::kGroupSegmentByteLength} +
-                              uint64_t{kernel::kWorkgroupSize} *
-                                  parameters.dynamic_stride * sizeof(uint32_t));
     expected_output.fill(kTailGuard);
     for (uint32_t word = 0; word < kGuardWordCount; ++word) {
       expected_output[word] = kPrefixGuard;
@@ -190,9 +162,9 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
     }
     for (uint32_t workitem = 0; workitem < kGridSize; ++workitem) {
       // Division/remainder, +/-64 and wider arithmetic independently derive
-      // the other wave's tokens and the selected branch's second result.
-      const auto record = kernels::lds_exchange::ExpectedRecord(
-          workitem, parameters.seed, parameters.dynamic_stride);
+      // the other wave's token and the global workitem's position stamp.
+      const auto record =
+          kernels::lds_exchange::ExpectedRecord(workitem, kSeeds[epoch]);
       const uint32_t position = kGuardWordCount + workitem * 2;
       expected_output[position] = record[0];
       expected_output[position + 1] = record[1];
@@ -206,14 +178,13 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                 sizeof(observed_output));
     const Arguments payload = {
         output->device_address + kGuardWordCount * sizeof(uint32_t),
-        parameters.seed,
-        parameters.dynamic_stride,
+        kSeeds[epoch],
     };
     // The full argument page is initialized; only semantic bytes come from
     // typed fields, and all bytes beyond the argument record remain zero.
     expected_arguments.fill(0);
     std::memcpy(expected_arguments.data(), &payload,
-                kernel::kKernargByteLength);
+                kernels::lds_exchange::kArgumentByteLength);
     std::memcpy(arguments->host.pointer, expected_arguments.data(),
                 sizeof(expected_arguments));
     expected_control[kCompletionWordIndex] = epoch + 1;
@@ -261,8 +232,7 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
       return;
     }
     const std::string prefix = "pm4_lds_epoch_" + std::to_string(epoch + 1);
-    RecordProperty(prefix + "_seed", std::to_string(parameters.seed));
-    RecordProperty(prefix + "_dynamic_stride", parameters.dynamic_stride);
+    RecordProperty(prefix + "_seed", std::to_string(kSeeds[epoch]));
     RecordProperty(prefix + "_group_byte_length",
                    program.group_segment_byte_length);
     RecordProperty(prefix + "_bound_compute_pgm_rsrc2",
@@ -270,20 +240,10 @@ void Pm4LdsTest::RunExchange(std::initializer_list<LdsEpoch> epochs) {
                        ((program.group_segment_byte_length / 512u) << 15));
     RecordProperty(prefix + "_producer_index",
                    std::to_string(commands.word_count()));
-    ++epoch;
   }
-  RecordProperty("pm4_lds_completed_epochs", epochs.size());
+  RecordProperty("pm4_lds_completed_epochs", kSeeds.size());
   RecordProperty("pm4_lds_command_word_count",
                  std::to_string(commands.word_count()));
-}
-
-TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
-  ASSERT_NO_FATAL_FAILURE(RunExchange({{0x13579bdfu, 0}, {0xa5c31f27u, 0}}));
-}
-
-TEST_F(Pm4LdsTest, DynamicGroupMemoryExchangesAcrossSizes) {
-  ASSERT_NO_FATAL_FAILURE(
-      RunExchange({{0x13579bdfu, 1}, {0xa5c31f27u, 3}, {0x2468ace1u, 1}}));
 }
 
 }  // namespace
