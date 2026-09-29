@@ -394,7 +394,7 @@ typedef struct loom_vm_call_scratch_t {
 
 // The scheduler retains call sites; module collection retains their signatures.
 // Reserve the canonical offset-zero packet before projecting local storage.
-static iree_status_t loom_vm_function_prepare_calls(
+static iree_status_t loom_vm_function_plan_calls(
     const loom_low_emission_frame_t* frame,
     const loom_vm_program_build_t* functions, iree_arena_allocator_t* arena,
     loom_vm_call_scratch_t* scratch) {
@@ -798,7 +798,7 @@ iree_status_t loom_vm_function_plan_write(
   // initializes its own bank counts; leaves never access the banks.
   loom_vm_call_scratch_t call_scratch;
   IREE_RETURN_IF_ERROR(
-      loom_vm_function_prepare_calls(&frame, functions, arena, &call_scratch));
+      loom_vm_function_plan_calls(&frame, functions, arena, &call_scratch));
   out_row->local_byte_length_u16 =
       call_scratch.local_base + (uint16_t)local_storage.stack_bytes;
   out_row->value_register_count_u16 = (uint16_t)iree_max(

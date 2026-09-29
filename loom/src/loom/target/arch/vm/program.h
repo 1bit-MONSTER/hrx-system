@@ -17,15 +17,15 @@
 extern "C" {
 #endif
 
-// One immutable read-only data block selected by compiler preparation.
+// One immutable read-only data block selected by program planning.
 typedef struct loom_vm_rodata_plan_t {
-  // Borrowed immutable contents retained by the prepared source module.
+  // Borrowed immutable contents retained by the planned source module.
   iree_const_byte_span_t contents;
   // Required power-of-two alignment relative to the rodata section.
   uint32_t alignment;
 } loom_vm_rodata_plan_t;
 
-// Immutable physical VM program produced by compiler preparation.
+// Immutable physical VM program produced by target planning.
 //
 // Every ordinal, row, bytecode displacement, physical extent, and format
 // limit has been finalized. The binary writer performs no target resolution,
@@ -90,7 +90,7 @@ typedef struct loom_vm_program_plan_t {
 } loom_vm_program_plan_t;
 
 // Releases resources retained by |plan|. Arena-owned rows remain owned by the
-// arena supplied during preparation.
+// arena supplied while building the plan.
 void loom_vm_program_plan_deinitialize(loom_vm_program_plan_t* plan);
 
 #ifdef __cplusplus

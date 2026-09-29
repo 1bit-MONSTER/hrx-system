@@ -15,7 +15,7 @@ extern "C" {
 
 // VM target definitions, descriptor tables, and shared-compiler policies.
 // Compose loom_vm_artifact_emitter_provider in compiler tools that produce VM
-// images. Linking this provider alone does not link artifact preparation, the
+// images. Linking this provider alone does not link program planning, the
 // VM runtime, or its text tools.
 extern const loom_target_provider_t loom_vm_target_provider;
 

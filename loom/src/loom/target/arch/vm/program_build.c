@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/tooling/target/vm/program_prepare.h"
+#include "loom/target/arch/vm/program_build.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -338,7 +338,7 @@ static iree_status_t loom_vm_program_resolve_signatures(
   return status;
 }
 
-static iree_status_t loom_vm_program_prepare_metadata(
+static iree_status_t loom_vm_program_build_metadata(
     const loom_module_t* module, iree_arena_allocator_t* plan_arena,
     iree_arena_allocator_t* scratch_arena, loom_vm_program_build_t* program,
     loom_vm_program_plan_t* out_plan) {
@@ -563,7 +563,7 @@ static iree_status_t loom_vm_program_prepare_metadata(
   return iree_ok_status();
 }
 
-static iree_status_t loom_vm_program_prepare_functions(
+static iree_status_t loom_vm_program_build_functions(
     loom_module_t* module,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter,
@@ -639,7 +639,7 @@ static iree_status_t loom_vm_program_prepare_functions(
   return status;
 }
 
-static iree_status_t loom_vm_program_prepare_rodata(
+static iree_status_t loom_vm_program_build_rodata(
     iree_arena_allocator_t* plan_arena, const loom_vm_program_build_t* program,
     loom_vm_program_plan_t* out_plan) {
   loom_vm_rodata_plan_t* rodata = NULL;
@@ -663,7 +663,7 @@ static iree_status_t loom_vm_program_prepare_rodata(
   return iree_ok_status();
 }
 
-iree_status_t loom_vm_program_plan_prepare(
+iree_status_t loom_vm_program_plan_build(
     loom_module_t* module,
     const loom_function_version_list_t* function_versions,
     const loom_low_descriptor_registry_t* descriptor_registry,
@@ -681,18 +681,18 @@ iree_status_t loom_vm_program_plan_prepare(
   iree_status_t status = loom_vm_program_collect(
       module, function_versions, arena, &scratch_arena, &program);
   if (iree_status_is_ok(status)) {
-    status = loom_vm_program_prepare_metadata(module, arena, &scratch_arena,
-                                              &program, out_plan);
+    status = loom_vm_program_build_metadata(module, arena, &scratch_arena,
+                                            &program, out_plan);
   }
   iree_arena_reset(&scratch_arena);
   bool functions_accepted = false;
   if (iree_status_is_ok(status)) {
-    status = loom_vm_program_prepare_functions(
+    status = loom_vm_program_build_functions(
         module, descriptor_registry, diagnostic_emitter, arena, &scratch_arena,
         &program, bytecode_allocator, &functions_accepted, out_plan);
   }
   if (iree_status_is_ok(status) && functions_accepted) {
-    status = loom_vm_program_prepare_rodata(arena, &program, out_plan);
+    status = loom_vm_program_build_rodata(arena, &program, out_plan);
   }
   if (iree_status_is_ok(status) && functions_accepted) {
     *out_accepted = true;

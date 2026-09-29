@@ -16,35 +16,13 @@ package(
 _VM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 loom_cc_library(
-    name = "program_prepare",
-    srcs = ["program_prepare.c"],
-    hdrs = ["program_prepare.h"],
-    visibility = ["//visibility:private"],
-    deps = [
-        "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/error:emitter",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops/global",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/target:function_version",
-        "//loom/src/loom/target/arch/vm:function_plan",
-        "//loom/src/loom/target/arch/vm:program",
-        "//loom/src/loom/target/arch/vm:reference_plan",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/io:stream",
-        "//runtime/src/iree/vm/bytecode:wire",
-    ],
-)
-
-loom_cc_library(
     name = "artifact_emitter",
     srcs = ["artifact_emitter.c"],
     hdrs = ["artifact_emitter.h"],
     visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
     deps = [
-        ":program_prepare",
         "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/arch/vm:program_build",
         "//loom/src/loom/target/arch/vm/ops",
         "//loom/src/loom/target/emit/vm:module_binary",
         "//runtime/src/iree/base",
@@ -189,11 +167,11 @@ loom_cc_test(
         ":artifact_emitter",
         ":emission_test_data",
         ":native_references_bytecode",
-        ":program_prepare",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/func",
         "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/arch/vm:program_build",
         "//loom/src/loom/target/arch/vm:provider",
         "//loom/src/loom/target/emit/vm:module_binary",
         "//loom/src/loom/tooling/compile:pipeline",

@@ -103,6 +103,32 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    program_build
+  HDRS
+    "program_build.h"
+  SRCS
+    "program_build.c"
+  DEPS
+    ::function_plan
+    ::program
+    ::reference_plan
+    iree::base
+    iree::base::internal::arena
+    iree::io::stream
+    iree::vm::bytecode::wire
+    loom::codegen::low::descriptors
+    loom::error::emitter
+    loom::ir
+    loom::ops::global
+    loom::ops::low
+    loom::target::function_version
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     reference_plan_test

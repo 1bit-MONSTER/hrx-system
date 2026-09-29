@@ -20,16 +20,16 @@
 extern "C" {
 #endif
 
-// Exact logical signature retained by program collection for preparation.
+// Exact logical signature retained while building the program plan.
 typedef struct loom_vm_function_signature_t {
-  // Physical argument/result counts. Preparation assigns descriptor_base.
+  // Physical argument/result counts. Program planning assigns descriptor_base.
   iree_vm_bytecode_v0_signature_row_t row;
   // Module-owned argument descriptors followed by result descriptors, in
   // source order. Metadata planning finalizes them before function emission.
   iree_vm_bytecode_v0_signature_descriptor_row_t* fields;
 } loom_vm_function_signature_t;
 
-// Compiler-owned callable binding retained while preparing a VM program.
+// Compiler-owned callable binding retained while building a VM program plan.
 typedef struct loom_vm_program_callable_t {
   // Borrowed function definition or import declaration and signature values.
   loom_func_like_t function;
@@ -60,14 +60,14 @@ typedef struct loom_vm_program_callable_t {
   loom_vm_function_signature_t signature;
 } loom_vm_program_callable_t;
 
-// Compiler-owned state shared across function preparation. This representation
+// Compiler-owned state shared across function planning. This representation
 // never crosses into the target binary writer.
 typedef struct loom_vm_program_build_t {
   // Arena-owned local and imported callable records in source symbol order.
   loom_vm_program_callable_t* values;
   // Direct symbol-indexed bindings for calls within the VM target contract.
   // Open declarations without an executable binding remain NULL until the
-  // selected caller's schedule is validated for artifact preparation.
+  // selected caller's schedule is validated while building the program plan.
   loom_vm_program_callable_t** bindings_by_symbol;
   // Number of records in |values|, bounded by the module symbol ID space.
   uint32_t count;
@@ -90,12 +90,12 @@ typedef struct loom_vm_program_build_t {
   } rodata;
 } loom_vm_program_build_t;
 
-// Schedules and allocates one prepared VM function with the common frame
+// Schedules and allocates one planned VM function with the common frame
 // builder, then appends its final instruction stream to |stream|. |out_row|
 // preserves its caller-initialized callable ordinal and bytecode offset and
 // receives the final byte length and frame high waters. Branches target block
 // markers using signed word offsets patched before this function returns.
-// Constants retain canonical Low form until preparation chooses an equivalent
+// Constants retain canonical Low form until planning chooses an equivalent
 // compact encoding of the complete value cell. Block offsets and byte lengths
 // come from the produced stream, not nominal instruction sizes.
 //

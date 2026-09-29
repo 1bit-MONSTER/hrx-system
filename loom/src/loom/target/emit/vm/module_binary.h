@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// VM module binary emission from a prepared physical program.
+// VM module binary emission from a planned physical program.
 
 #ifndef LOOM_TARGET_EMIT_VM_MODULE_BINARY_H_
 #define LOOM_TARGET_EMIT_VM_MODULE_BINARY_H_
@@ -19,7 +19,7 @@ extern "C" {
 
 // Emits one immutable VM bytecode image from |plan|.
 //
-// Compiler preparation has finalized all semantic and wire-format facts. This
+// Program planning has finalized all semantic and wire-format facts. This
 // function only lays out sections and may fail when output storage cannot be
 // allocated. The result retains the plan's immutable function bytecode between
 // writer-owned prefix and suffix ranges instead of copying it. On success, the

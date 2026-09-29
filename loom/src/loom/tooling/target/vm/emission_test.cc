@@ -13,6 +13,7 @@
 #include "loom/ir/context.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
+#include "loom/target/arch/vm/program_build.h"
 #include "loom/target/arch/vm/provider.h"
 #include "loom/target/emit/vm/module_binary.h"
 #include "loom/tooling/compile/pipeline.h"
@@ -20,7 +21,6 @@
 #include "loom/tooling/target/vm/artifact_emitter.h"
 #include "loom/tooling/target/vm/emission_test_data.h"
 #include "loom/tooling/target/vm/native_references_bytecode.h"
-#include "loom/tooling/target/vm/program_prepare.h"
 #include "loom/transforms/cleanup/configured.h"
 
 namespace {
@@ -187,7 +187,7 @@ class VMEmissionTest : public ::testing::Test {
   loom_context_t context_ = {};
   // Target services retained throughout compilation and emission.
   loom_target_environment_t environment_ = {};
-  // Target-Low descriptors used by preparation and emission.
+  // Target-Low descriptors used by program planning and emission.
   loom_target_low_descriptor_registry_t registry_ = {};
   // Admitted source and its mutable compiler module.
   loom_input_module_t input_ = {};
@@ -231,7 +231,7 @@ TEST_F(VMEmissionTest, AllocationFailuresPreserveScratchAndPublishNoArtifact) {
   }
 }
 
-TEST_F(VMEmissionTest, PreparationFailuresLeaveNoPartialPlan) {
+TEST_F(VMEmissionTest, ProgramPlanningFailuresLeaveNoPartialPlan) {
   const auto* data = loom_vm_emission_test_data_create();
   ASSERT_NO_FATAL_FAILURE(
       Prepare({reinterpret_cast<const char*>(data[0].data), data[0].size}));
@@ -248,7 +248,7 @@ TEST_F(VMEmissionTest, PreparationFailuresLeaveNoPartialPlan) {
 
     loom_vm_program_plan_t plan = {};
     bool accepted = false;
-    iree_status_t status = loom_vm_program_plan_prepare(
+    iree_status_t status = loom_vm_program_plan_build(
         input_.module, &pipeline_.function_versions.list, &registry_.registry,
         {}, &plan_arena, allocations.allocator(), &accepted, &plan);
     const bool succeeded = iree_status_is_ok(status);
@@ -274,11 +274,11 @@ TEST_F(VMEmissionTest, PreparationFailuresLeaveNoPartialPlan) {
       break;
     }
     ASSERT_GT(allocations.attempts, fail_at)
-        << "preparation failed without reaching the injected allocation";
+        << "program planning failed without reaching the injected allocation";
   }
 }
 
-TEST_F(VMEmissionTest, PreparedProgramCanBeEmittedRepeatedly) {
+TEST_F(VMEmissionTest, ProgramPlanCanBeEmittedRepeatedly) {
   const auto* data = loom_vm_emission_test_data_create();
   ASSERT_NO_FATAL_FAILURE(
       Prepare({reinterpret_cast<const char*>(data[0].data), data[0].size}));
@@ -287,7 +287,7 @@ TEST_F(VMEmissionTest, PreparedProgramCanBeEmittedRepeatedly) {
   iree_arena_initialize(&pool_, &arena);
   loom_vm_program_plan_t plan = {};
   bool accepted = false;
-  IREE_ASSERT_OK(loom_vm_program_plan_prepare(
+  IREE_ASSERT_OK(loom_vm_program_plan_build(
       input_.module, &pipeline_.function_versions.list, &registry_.registry, {},
       &arena, iree_allocator_system(), &accepted, &plan));
   ASSERT_TRUE(accepted);

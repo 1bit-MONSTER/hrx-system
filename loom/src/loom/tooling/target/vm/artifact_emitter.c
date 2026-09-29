@@ -7,8 +7,8 @@
 #include "loom/tooling/target/vm/artifact_emitter.h"
 
 #include "loom/target/arch/vm/ops/ops.h"
+#include "loom/target/arch/vm/program_build.h"
 #include "loom/target/emit/vm/module_binary.h"
-#include "loom/tooling/target/vm/program_prepare.h"
 
 static iree_status_t loom_vm_artifact_emit(
     const loom_target_emit_request_t* request, bool* out_emitted,
@@ -20,7 +20,7 @@ static iree_status_t loom_vm_artifact_emit(
       iree_arena_checkpoint_save(request->scratch_arena);
   loom_vm_program_plan_t plan = {0};
   bool accepted = false;
-  iree_status_t status = loom_vm_program_plan_prepare(
+  iree_status_t status = loom_vm_program_plan_build(
       request->module, request->function_versions,
       request->low_descriptor_registry, request->diagnostic_emitter,
       request->scratch_arena, request->allocator, &accepted, &plan);

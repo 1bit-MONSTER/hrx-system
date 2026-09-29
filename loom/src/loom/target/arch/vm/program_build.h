@@ -4,8 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#ifndef LOOM_TOOLING_TARGET_VM_PROGRAM_PREPARE_H_
-#define LOOM_TOOLING_TARGET_VM_PROGRAM_PREPARE_H_
+#ifndef LOOM_TARGET_ARCH_VM_PROGRAM_BUILD_H_
+#define LOOM_TARGET_ARCH_VM_PROGRAM_BUILD_H_
 
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/descriptors.h"
@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-// Prepares one immutable physical VM program from a compiler-owned module.
+// Builds one immutable physical VM program plan from a compiler-owned module.
 //
 // Target selection, signature interning, reference/import/export tables,
 // scheduling, allocation, spill materialization, instruction selection,
@@ -29,7 +29,7 @@ extern "C" {
 // copying. The caller must deinitialize the accepted plan; writing the binary
 // does not consume plan ownership. Any rejection or failure leaves |out_plan|
 // empty.
-iree_status_t loom_vm_program_plan_prepare(
+iree_status_t loom_vm_program_plan_build(
     loom_module_t* module,
     const loom_function_version_list_t* function_versions,
     const loom_low_descriptor_registry_t* descriptor_registry,
@@ -41,4 +41,4 @@ iree_status_t loom_vm_program_plan_prepare(
 }  // extern "C"
 #endif
 
-#endif  // LOOM_TOOLING_TARGET_VM_PROGRAM_PREPARE_H_
+#endif  // LOOM_TARGET_ARCH_VM_PROGRAM_BUILD_H_
