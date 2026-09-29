@@ -1,0 +1,40 @@
+func.def @half_extrema(%lhs: f16, %rhs: f16) -> (f16, f16, f16, f16) {
+  %minimum = scalar.minimumf %lhs, %rhs : f16
+  %maximum = scalar.maximumf %lhs, %rhs : f16
+  %minnum = scalar.minnumf %lhs, %rhs : f16
+  %maxnum = scalar.maxnumf %lhs, %rhs : f16
+  func.return %minimum, %maximum, %minnum, %maxnum : f16, f16, f16, f16
+}
+
+// ====
+
+func.def @half_extrema_uniform(%lhs_bits: i32, %rhs_bits: i32) -> (f16, f16) {
+  %lhs_half = scalar.trunci %lhs_bits : i32 to i16
+  %rhs_half = scalar.trunci %rhs_bits : i32 to i16
+  %lhs = scalar.bitcast %lhs_half : i16 to f16
+  %rhs = scalar.bitcast %rhs_half : i16 to f16
+  %minimum = scalar.minnumf %lhs, %rhs : f16
+  %maximum = scalar.maxnumf %lhs, %rhs : f16
+  func.return %minimum, %maximum : f16, f16
+}
+
+// ====
+
+func.def @half_extrema_bounds(%value: f16) -> (f16, f16) {
+  %bound = scalar.constant 1.0 : f16
+  %minimum = scalar.minnumf %value, %bound : f16
+  %maximum = scalar.maxnumf<nnan> %value, %bound : f16
+  func.return %minimum, %maximum : f16, f16
+}
+
+// ====
+
+func.def @packed_half_extrema(%value: vector<4xf16>, %lower: vector<4xf16>, %upper: vector<4xf16>) -> (vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>) {
+  %minnum = vector.minnumf %value, %lower : vector<4xf16>
+  %maxnum = vector.maxnumf %value, %lower : vector<4xf16>
+  %minimum = vector.minimumf %value, %lower : vector<4xf16>
+  %maximum = vector.maximumf %value, %lower : vector<4xf16>
+  %clamped = vector.clampf<number> %value, %lower, %upper : vector<4xf16>
+  %finite = vector.clampf<number, nnan> %value, %lower, %upper : vector<4xf16>
+  func.return %minnum, %maxnum, %minimum, %maximum, %clamped, %finite : vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>
+}

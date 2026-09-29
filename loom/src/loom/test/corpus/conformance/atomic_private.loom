@@ -369,3 +369,41 @@ check.case public @private_vector_results {
   check.expect.bitwise actual(%accumulated) expected(%expected_accumulated) : tensor<128xi32>
   check.return
 }
+
+// The returned value keeps a signaling NaN payload while number-preferring
+// arithmetic stores the finite operand. The update is an immediate half.
+kernel.def @private_half_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf16>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi16>
+  %bits = view.load %source[0] : view<1xi16> -> i16
+  %initial = scalar.bitcast %bits : i16 to f16
+  %update = scalar.constant 1.0 : f16
+  view.store %initial, %cell[0] : f16, view<1xf16>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : f16, view<1xf16> -> f16
+  %final = view.load %cell[0] : view<1xf16> -> f16
+  %old_bits = scalar.bitcast %old : f16 to i16
+  %final_bits = scalar.bitcast %final : f16 to i16
+  view.store %old_bits, %results[0] : i16, view<2xi16>
+  view.store %final_bits, %results[1] : i16, view<2xi16>
+  kernel.return
+}
+
+check.case public @private_half_number_snan {
+  %input = check.generate.fill value(31745) : tensor<1xi16>
+  %output = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @private_half_number(%input, %output) : (tensor<1xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi16> -> tensor<1xi16>
+  %expected_old = check.generate.fill value(31745) : tensor<1xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi16>
+  %final = check.tensor.view %output offset(2) : tensor<2xi16> -> tensor<1xi16>
+  %expected_final = check.generate.fill value(15360) : tensor<1xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
+  check.return
+}

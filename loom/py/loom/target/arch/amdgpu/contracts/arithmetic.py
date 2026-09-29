@@ -3414,6 +3414,56 @@ def _f32_vector_sub_literal_rules() -> tuple[DescriptorRule, ...]:
     )
 
 
+def _direct_number_extrema_rules(
+    rule: DescriptorRule, ieee_descriptor_key: str
+) -> tuple[DescriptorRule, ...]:
+    # Legacy min/max propagates signaling NaNs in IEEE mode. The newer IEEE
+    # extrema family also supplies number-preferring instructions that ignore
+    # signaling NaNs without first quieting the operands.
+    return tuple(
+        replace(rule, guards=(*rule.guards, semantic_guard))
+        for semantic_guard in (
+            Guard.instance_flags_has_all("fastmath", "nnan"),
+            Guard.descriptor_available(_descriptor(ieee_descriptor_key)),
+        )
+    )
+
+
+def _quiet_number_extrema_rule(
+    rule: DescriptorRule, canonicalize_key: str, operands: tuple[ValueRef, ...]
+) -> DescriptorRule:
+    canonicalize = _descriptor(canonicalize_key)
+    quiet_values = {
+        operand: ValueRef.temporary(operand.field + "_quiet") for operand in operands
+    }
+    return replace(
+        rule,
+        guards=(*rule.guards, Guard.descriptor_available(canonicalize)),
+        emit=(
+            *(
+                EmitDescriptorOp(
+                    descriptor=canonicalize,
+                    operands={"lhs": operand, "rhs": operand},
+                    results={"dst": quiet_values[operand]},
+                    result_types={"dst": ValueRef.result("result")},
+                    form=rule.emit[0].form,
+                )
+                for operand in operands
+            ),
+            *(
+                replace(
+                    emit,
+                    operands={
+                        field: quiet_values.get(value, value)
+                        for field, value in emit.operands.items()
+                    },
+                )
+                for emit in rule.emit
+            ),
+        ),
+    )
+
+
 def _number_extrema_rules(
     type_suffix: str, scalar_type: TypePattern, vector_type: TypePattern
 ) -> tuple[DescriptorRule, ...]:
@@ -3427,111 +3477,100 @@ def _number_extrema_rules(
             (vector_op, vector_type),
         ):
             descriptor_key = f"amdgpu.v_{operation}_{type_suffix}"
-            native_rules = (
-                (
-                    *(
-                        (
-                            _scalar_float_binary_rule(
-                                source_op, _F32, f"amdgpu.s_{operation}_f32"
-                            ),
-                        )
-                        if type_pattern == _F32
-                        else ()
-                    ),
-                    *_commutative_f32_literal_rules(
-                        source_op, type_pattern, descriptor_key + ".lit"
-                    ),
-                    *_commutative_f32_binary_rules(
-                        source_op, type_pattern, descriptor_key
+            vector_rule = _binary_rule(source_op, type_pattern, descriptor_key)
+            if type_suffix == "f16":
+                vector_rule = replace(
+                    vector_rule,
+                    emit=(
+                        replace(
+                            vector_rule.emit[0],
+                            operands={
+                                field: _materialized_operand(
+                                    field, REGISTERS_VGPR_MATERIALIZER
+                                )
+                                for field in ("lhs", "rhs")
+                            },
+                        ),
                     ),
                 )
-                if type_suffix == "f32"
-                else (_binary_rule(source_op, type_pattern, descriptor_key),)
-            )
+            native_rules: list[DescriptorRule] = []
+            if type_pattern in (_F16, _F32):
+                native_rules.append(
+                    _scalar_float_binary_rule(
+                        source_op, type_pattern, f"amdgpu.s_{operation}_{type_suffix}"
+                    )
+                )
+            if type_suffix == "f32":
+                native_rules.extend(
+                    _commutative_f32_literal_rules(
+                        source_op, type_pattern, descriptor_key + ".lit"
+                    )
+                )
+                native_rules.extend(
+                    _commutative_f32_binary_rules(
+                        source_op, type_pattern, descriptor_key
+                    )
+                )
+            else:
+                native_rules.append(vector_rule)
             for native_rule in native_rules:
-                # Legacy min/max propagates signaling NaNs in IEEE mode. The
-                # newer IEEE extrema family provides minimumNumber semantics
-                # directly, including the numeric result for a signaling NaN.
                 rules.extend(
-                    replace(native_rule, guards=(*native_rule.guards, semantic_guard))
-                    for semantic_guard in (
-                        Guard.instance_flags_has_all("fastmath", "nnan"),
-                        Guard.descriptor_available(
-                            _descriptor(f"amdgpu.v_minimum_{type_suffix}")
-                        ),
+                    _direct_number_extrema_rules(
+                        native_rule, f"amdgpu.v_minimum_{type_suffix}"
                     )
                 )
 
-            for register_file in ("s", "v") if type_pattern == _F32 else ("v",):
-                descriptor = _descriptor(
-                    f"amdgpu.{register_file}_{operation}_{type_suffix}"
-                )
-                canonicalize = _descriptor(f"amdgpu.{register_file}_max_{type_suffix}")
-                register_class = f"amdgpu.{register_file}gpr"
-                guards = (_register_class("result", register_class),)
+            for register_file in ("s", "v") if type_pattern in (_F16, _F32) else ("v",):
+                guards = (_register_class("result", f"amdgpu.{register_file}gpr"),)
                 if register_file == "s":
                     guards += tuple(
-                        _register_class(field, register_class)
+                        _register_class(field, "amdgpu.sgpr")
                         for field in ("lhs", "rhs")
                     )
+                base_rule = _binary_rule(
+                    source_op,
+                    type_pattern,
+                    f"amdgpu.{register_file}_{operation}_{type_suffix}",
+                    extra_guards=guards,
+                    f32_operands=register_file == "v" and type_suffix == "f32",
+                )
+                if register_file == "v" and type_suffix == "f16":
+                    base_rule = replace(base_rule, emit=vector_rule.emit)
                 rules.append(
-                    DescriptorRule(
-                        source_op=source_op,
-                        descriptor=descriptor,
-                        guards=(
-                            *_typed_guards(("lhs", "rhs", "result"), type_pattern),
-                            *guards,
-                            Guard.descriptor_available(descriptor),
-                            Guard.descriptor_available(canonicalize),
-                        ),
-                        emit=(
-                            *(
-                                EmitDescriptorOp(
-                                    descriptor=canonicalize,
-                                    operands={
-                                        "lhs": _f32_vgpr_operand(field)
-                                        if register_file == "v" and type_suffix == "f32"
-                                        else ValueRef.operand(field),
-                                        "rhs": _f32_vgpr_operand(field)
-                                        if register_file == "v" and type_suffix == "f32"
-                                        else ValueRef.operand(field),
-                                    },
-                                    results={
-                                        "dst": ValueRef.temporary(field + "_quiet")
-                                    },
-                                    result_types={"dst": ValueRef.result("result")},
-                                    form=_emit_form(type_pattern),
-                                )
-                                for field in ("lhs", "rhs")
-                            ),
-                            EmitDescriptorOp(
-                                descriptor=descriptor,
-                                operands={
-                                    "lhs": ValueRef.temporary("lhs_quiet"),
-                                    "rhs": ValueRef.temporary("rhs_quiet"),
-                                },
-                                results={"dst": ValueRef.result("result")},
-                                form=_emit_form(type_pattern),
-                            ),
-                        ),
+                    _quiet_number_extrema_rule(
+                        base_rule,
+                        f"amdgpu.{register_file}_max_{type_suffix}",
+                        tuple(base_rule.emit[0].operands.values()),
                     )
                 )
     return tuple(rules)
 
 
-def _minmax_family_rules() -> tuple[DescriptorRule, ...]:
+def _packed_number_extrema_rules() -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
-    for source_op, type_pattern, descriptor_operation in (
-        (scalar_arithmetic.scalar_minnumf, _F16, "min"),
-        (scalar_arithmetic.scalar_maxnumf, _F16, "max"),
-        (vector.vector_minnumf, _VEC_F16_PACKED_STORAGE, "min"),
-        (vector.vector_maxnumf, _VEC_F16_PACKED_STORAGE, "max"),
+    for source_op, operation in (
+        (vector.vector_minnumf, "min"),
+        (vector.vector_maxnumf, "max"),
     ):
+        native = _packed_float_binary_rule(
+            source_op,
+            f"amdgpu.v_pk_{operation}num_f16",
+            _VEC_F16_PACKED,
+            _VEC_F16_PACKED_DIAGNOSTIC,
+        )
+        rules.extend(_direct_number_extrema_rules(native, "amdgpu.v_pk_minimum_f16"))
         rules.append(
-            _binary_rule(
-                source_op, type_pattern, f"amdgpu.v_{descriptor_operation}_f16"
+            _quiet_number_extrema_rule(
+                native,
+                "amdgpu.v_pk_maxnum_f16",
+                (ValueRef.operand("lhs"), ValueRef.operand("rhs")),
             )
         )
+    return tuple(rules)
+
+
+def _minmax_family_rules() -> tuple[DescriptorRule, ...]:
+    rules: list[DescriptorRule] = []
     for source_op, descriptor_operation in (
         (scalar_arithmetic.scalar_minimumf, "minimum"),
         (scalar_arithmetic.scalar_maximumf, "maximum"),
@@ -3588,10 +3627,18 @@ def _minmax_family_rules() -> tuple[DescriptorRule, ...]:
         )
     rules.extend(
         (
-            _packed_f16_clampf_rule(
-                "number",
+            *_direct_number_extrema_rules(
+                _packed_f16_clampf_rule(
+                    "number", "amdgpu.v_pk_maxnum_f16", "amdgpu.v_pk_minnum_f16"
+                ),
+                "amdgpu.v_pk_minimum_f16",
+            ),
+            _quiet_number_extrema_rule(
+                _packed_f16_clampf_rule(
+                    "number", "amdgpu.v_pk_maxnum_f16", "amdgpu.v_pk_minnum_f16"
+                ),
                 "amdgpu.v_pk_maxnum_f16",
-                "amdgpu.v_pk_minnum_f16",
+                tuple(ValueRef.operand(field) for field in ("value", "lower", "upper")),
             ),
             _packed_f16_clampf_rule(
                 "ieee",
@@ -3610,11 +3657,7 @@ def _rules() -> tuple[ContractCase, ...]:
             (scalar_arithmetic.scalar_addf, "add"),
             (scalar_arithmetic.scalar_subf, "sub"),
             (scalar_arithmetic.scalar_mulf, "mul"),
-            (scalar_arithmetic.scalar_minnumf, "min"),
-            (scalar_arithmetic.scalar_maxnumf, "max"),
         ):
-            if type_pattern == _F32 and instruction in ("min", "max"):
-                continue
             rules.append(
                 _scalar_float_binary_rule(
                     source_op,
@@ -3724,18 +3767,6 @@ def _rules() -> tuple[ContractCase, ...]:
                 _VEC_F16_PACKED_DIAGNOSTIC,
             ),
             _packed_float_binary_rule(
-                vector.vector_minnumf,
-                "amdgpu.v_pk_minnum_f16",
-                _VEC_F16_PACKED,
-                _VEC_F16_PACKED_DIAGNOSTIC,
-            ),
-            _packed_float_binary_rule(
-                vector.vector_maxnumf,
-                "amdgpu.v_pk_maxnum_f16",
-                _VEC_F16_PACKED,
-                _VEC_F16_PACKED_DIAGNOSTIC,
-            ),
-            _packed_float_binary_rule(
                 vector.vector_minimumf,
                 "amdgpu.v_pk_minimum_f16",
                 _VEC_F16_PACKED,
@@ -3780,7 +3811,9 @@ def _rules() -> tuple[ContractCase, ...]:
             ),
         )
     )
+    rules.extend(_packed_number_extrema_rules())
     rules.extend(_minmax_family_rules())
+    rules.extend(_number_extrema_rules("f16", _F16, _VEC_F16_PACKED_STORAGE))
     rules.extend(_number_extrema_rules("f32", _F32, _VEC_F32_STATIC))
     rules.extend(_number_extrema_rules("f64", _F64, _VEC_F64_STATIC))
     rules.append(_binary_rule(scalar_arithmetic.scalar_addf, _F64, "amdgpu.v_add_f64"))

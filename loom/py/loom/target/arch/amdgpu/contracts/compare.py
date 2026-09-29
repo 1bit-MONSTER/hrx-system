@@ -95,6 +95,7 @@ _FLOAT_COMPARE_MASK_DESCRIPTOR_KEYS = tuple(
     descriptor_key
     for predicate in _CMP_FLOAT_SCALAR_PREDICATES
     for descriptor_key in (
+        f"amdgpu.v_cmp_{predicate}_f16",
         f"amdgpu.v_cmp_{predicate}_f32",
         f"amdgpu.v_cmp_{predicate}_f64",
         f"amdgpu.v_cmp_{predicate}_f32.src0_inline",
@@ -484,19 +485,20 @@ def _float_mask_rules() -> tuple[DescriptorRule, ...]:
         )
         for predicate in _CMP_FLOAT_SCALAR_PREDICATES
     )
-    wide_register_rules = tuple(
+    other_register_rules = tuple(
         _mask_rule(
             scalar.scalar_cmpf,
-            _F64,
+            type_pattern,
             ValueRef.operand("lhs", materializer=REGISTERS_VGPR_MATERIALIZER.name),
             ValueRef.operand("rhs", materializer=REGISTERS_VGPR_MATERIALIZER.name),
             REGISTERS_VGPR_MATERIALIZER.name,
             predicate,
-            _descriptor(f"amdgpu.v_cmp_{predicate}_f64"),
+            _descriptor(f"amdgpu.v_cmp_{predicate}_f{bit_width}"),
         )
+        for type_pattern, bit_width in ((_F16, 16), (_F64, 64))
         for predicate in _CMP_FLOAT_SCALAR_PREDICATES
     )
-    return inline_rules + register_rules + wide_register_rules
+    return inline_rules + register_rules + other_register_rules
 
 
 def _mask_inline_rule(

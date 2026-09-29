@@ -1,0 +1,173 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_half_extrema.loom-test
+// RUN: emit source-low target=amdgpu:gfx942 output=low
+
+func.def @half_extrema(%lhs: f16, %rhs: f16) -> (f16, f16, f16, f16) {
+  %minimum = scalar.minimumf %lhs, %rhs : f16
+  %maximum = scalar.maximumf %lhs, %rhs : f16
+  %minnum = scalar.minnumf %lhs, %rhs : f16
+  %maxnum = scalar.maxnumf %lhs, %rhs : f16
+  func.return %minimum, %maximum, %minnum, %maxnum : f16, f16, f16, f16
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @half_extrema(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %24 = v_max_f16 %lhs, %lhs
+  %25 = v_max_f16 %rhs, %rhs
+  %26 = v_min_f16 %24, %25
+  %27 = v_cmp_u_f16 %lhs, %rhs
+  %28 = v_mov_b32 32767
+  %29 = v_bfe_u32_offset_0_width_16_low16 %26
+  %minimum = v_cndmask_b32 %29, %28, %27
+  %33 = v_max_f16 %24, %25
+  %34 = v_bfe_u32_offset_0_width_16_low16 %33
+  %maximum = v_cndmask_b32 %34, %28, %27
+  return %minimum, %maximum, %29, %34
+}
+
+// ====
+
+func.def @half_extrema_uniform(%lhs_bits: i32, %rhs_bits: i32) -> (f16, f16) {
+  %lhs_half = scalar.trunci %lhs_bits : i32 to i16
+  %rhs_half = scalar.trunci %rhs_bits : i32 to i16
+  %lhs = scalar.bitcast %lhs_half : i16 to f16
+  %rhs = scalar.bitcast %rhs_half : i16 to f16
+  %minimum = scalar.minnumf %lhs, %rhs : f16
+  %maximum = scalar.maxnumf %lhs, %rhs : f16
+  func.return %minimum, %maximum : f16, f16
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @half_extrema_uniform(%lhs_bits: reg<amdgpu.sgpr>, %rhs_bits: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %lhs = v_mov_b32_copy %lhs_bits
+  %rhs = v_mov_b32_copy %rhs_bits
+  %16 = v_max_f16 %lhs, %lhs
+  %17 = v_max_f16 %rhs, %rhs
+  %minimum = v_min_f16 %16, %17
+  %maximum = v_max_f16 %16, %17
+  %22 = v_bfe_u32_offset_0_width_16_low16 %minimum
+  %23 = v_bfe_u32_offset_0_width_16_low16 %maximum
+  return %22, %23
+}
+
+// ====
+
+func.def @half_extrema_bounds(%value: f16) -> (f16, f16) {
+  %bound = scalar.constant 1.0 : f16
+  %minimum = scalar.minnumf %value, %bound : f16
+  %maximum = scalar.maxnumf<nnan> %value, %bound : f16
+  func.return %minimum, %maximum : f16, f16
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @half_extrema_bounds(%value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %bound = v_mov_b32 15360
+  %10 = v_max_f16 %value, %value
+  %11 = v_max_f16 %bound, %bound
+  %minimum = v_min_f16 %10, %11
+  %maximum = v_max_f16 %value, %bound
+  %14 = v_bfe_u32_offset_0_width_16_low16 %minimum
+  %15 = v_bfe_u32_offset_0_width_16_low16 %maximum
+  return %14, %15
+}
+
+// ====
+
+func.def @packed_half_extrema(%value: vector<4xf16>, %lower: vector<4xf16>, %upper: vector<4xf16>) -> (vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>) {
+  %minnum = vector.minnumf %value, %lower : vector<4xf16>
+  %maxnum = vector.maxnumf %value, %lower : vector<4xf16>
+  %minimum = vector.minimumf %value, %lower : vector<4xf16>
+  %maximum = vector.maximumf %value, %lower : vector<4xf16>
+  %clamped = vector.clampf<number> %value, %lower, %upper : vector<4xf16>
+  %finite = vector.clampf<number, nnan> %value, %lower, %upper : vector<4xf16>
+  func.return %minnum, %maxnum, %minimum, %maximum, %clamped, %finite : vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>, vector<4xf16>
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @packed_half_extrema(%value: reg<amdgpu.vgpr x2>, %lower: reg<amdgpu.vgpr x2>, %upper: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %82 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %84 = v_pk_max_f16 %82, %82
+  %85 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %87 = v_pk_max_f16 %85, %85
+  %89 = slice %lower[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %91 = v_pk_max_f16 %89, %89
+  %92 = slice %lower[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %94 = v_pk_max_f16 %92, %92
+  %98 = v_pk_min_f16 %84, %91
+  %101 = v_pk_min_f16 %87, %94
+  %minnum = concat(%98, %101) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %119 = v_pk_max_f16 %84, %91
+  %122 = v_pk_max_f16 %87, %94
+  %maxnum = concat(%119, %122) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %126 = v_max_f16 %82, %82
+  %127 = v_max_f16 %89, %89
+  %128 = v_min_f16 %126, %127
+  %129 = v_cmp_u_f16 %82, %89
+  %130 = v_mov_b32 32767
+  %131 = v_bfe_u32_offset_0_width_16_low16 %128
+  %132 = v_cndmask_b32 %131, %130, %129
+  %134 = v_lshrrev_b32_src0_inline %82, 16
+  %136 = v_lshrrev_b32_src0_inline %89, 16
+  %137 = v_max_f16 %134, %134
+  %138 = v_max_f16 %136, %136
+  %139 = v_min_f16 %137, %138
+  %140 = v_cmp_u_f16 %134, %136
+  %141 = v_bfe_u32_offset_0_width_16_low16 %139
+  %142 = v_cndmask_b32 %141, %130, %140
+  %145 = v_max_f16 %85, %85
+  %146 = v_max_f16 %92, %92
+  %147 = v_min_f16 %145, %146
+  %148 = v_cmp_u_f16 %85, %92
+  %149 = v_bfe_u32_offset_0_width_16_low16 %147
+  %150 = v_cndmask_b32 %149, %130, %148
+  %152 = v_lshrrev_b32_src0_inline %85, 16
+  %154 = v_lshrrev_b32_src0_inline %92, 16
+  %155 = v_max_f16 %152, %152
+  %156 = v_max_f16 %154, %154
+  %157 = v_min_f16 %155, %156
+  %158 = v_cmp_u_f16 %152, %154
+  %159 = v_bfe_u32_offset_0_width_16_low16 %157
+  %160 = v_cndmask_b32 %159, %130, %158
+  %161 = v_and_b32_lit %132, 65535
+  %162 = v_and_b32_lit %142, 65535
+  %163 = v_lshlrev_b32_src0_inline %162, 16
+  %164 = v_or_b32 %161, %163
+  %165 = v_and_b32_lit %150, 65535
+  %166 = v_and_b32_lit %160, 65535
+  %167 = v_lshlrev_b32_src0_inline %166, 16
+  %168 = v_or_b32 %165, %167
+  %minimum = concat(%164, %168) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %172 = v_max_f16 %126, %127
+  %173 = v_bfe_u32_offset_0_width_16_low16 %172
+  %174 = v_cndmask_b32 %173, %130, %129
+  %177 = v_max_f16 %137, %138
+  %178 = v_bfe_u32_offset_0_width_16_low16 %177
+  %179 = v_cndmask_b32 %178, %130, %140
+  %182 = v_max_f16 %145, %146
+  %183 = v_bfe_u32_offset_0_width_16_low16 %182
+  %184 = v_cndmask_b32 %183, %130, %148
+  %187 = v_max_f16 %155, %156
+  %188 = v_bfe_u32_offset_0_width_16_low16 %187
+  %189 = v_cndmask_b32 %188, %130, %158
+  %190 = v_and_b32_lit %174, 65535
+  %191 = v_and_b32_lit %179, 65535
+  %192 = v_lshlrev_b32_src0_inline %191, 16
+  %193 = v_or_b32 %190, %192
+  %194 = v_and_b32_lit %184, 65535
+  %195 = v_and_b32_lit %189, 65535
+  %196 = v_lshlrev_b32_src0_inline %195, 16
+  %197 = v_or_b32 %194, %196
+  %maximum = concat(%193, %197) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %213 = slice %upper[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %215 = v_pk_max_f16 %213, %213
+  %216 = slice %upper[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %218 = v_pk_max_f16 %216, %216
+  %229 = v_pk_min_f16 %119, %215
+  %232 = v_pk_min_f16 %122, %218
+  %clamped = concat(%229, %232) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %236 = v_pk_max_f16 %82, %89
+  %239 = v_pk_max_f16 %85, %92
+  %243 = v_pk_min_f16 %236, %213
+  %246 = v_pk_min_f16 %239, %216
+  %finite = concat(%243, %246) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  return %minnum, %maxnum, %minimum, %maximum, %clamped, %finite
+}

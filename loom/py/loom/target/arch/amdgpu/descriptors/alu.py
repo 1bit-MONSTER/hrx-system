@@ -3029,6 +3029,15 @@ def _v_binary_f16_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         _v_add_f16_overlay(),
         _v_sub_f16_overlay(),
         _v_mul_f16_overlay(),
+        *(
+            _v_commutative_binary_f16_overlay(
+                descriptor_key=f"amdgpu.v_{operation}_f16",
+                instruction_name=f"V_{operation.upper()}_F16",
+                mnemonic=f"v_{operation}_f16",
+                semantic_tag=f"float.{semantic}.f16",
+            )
+            for operation, semantic in (("min", "minnum"), ("max", "maxnum"))
+        ),
     )
 
 
@@ -6219,10 +6228,16 @@ def _v_cmp_float_overlay(
         operands=(
             AmdgpuOperandOverlay("VDST", _sgpr_result("mask", units=2)),
             AmdgpuOperandOverlay(
-                "SRC0", _vgpr_const_operand("lhs", units=bit_width // 32)
+                "SRC0",
+                _f16_vgpr_operand("lhs")
+                if bit_width == 16
+                else _vgpr_const_operand("lhs", units=bit_width // 32),
             ),
             AmdgpuOperandOverlay(
-                "SRC1", _vgpr_const_operand("rhs", units=bit_width // 32)
+                "SRC1",
+                _f16_vgpr_operand("rhs")
+                if bit_width == 16
+                else _vgpr_const_operand("rhs", units=bit_width // 32),
             ),
         ),
         operand_forms=_v_cmp_inline_operand_forms(f"amdgpu.v_cmp_{predicate}_f32")
@@ -6311,17 +6326,18 @@ def _v_cmp_base_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
             for base_builder, _, _, rows in _V_CMP_OVERLAY_FAMILIES
             for predicate, instruction_suffix, semantic_suffix in rows
         )
-        + _v_cmp_f64_overlays()
+        + _v_cmp_float_overlays(16)
+        + _v_cmp_float_overlays(64)
     )
 
 
-def _v_cmp_f64_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
+def _v_cmp_float_overlays(bit_width: int) -> tuple[AmdgpuDescriptorOverlay, ...]:
     return tuple(
         _v_cmp_float_overlay(
             predicate=predicate,
             instruction_suffix=instruction_suffix,
             semantic_suffix=semantic_suffix,
-            bit_width=64,
+            bit_width=bit_width,
         )
         for predicate, instruction_suffix, semantic_suffix in _V_CMP_FLOAT_PREDICATES
     )
@@ -6346,7 +6362,8 @@ def _v_cmp_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
                 ),
             )
         )
-        + _v_cmp_f64_overlays()
+        + _v_cmp_float_overlays(16)
+        + _v_cmp_float_overlays(64)
     )
 
 
