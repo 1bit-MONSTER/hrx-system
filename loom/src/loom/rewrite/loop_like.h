@@ -17,25 +17,38 @@
 extern "C" {
 #endif
 
-// State tuple used to build a replacement for an existing LoopLike operation.
+// State endpoints used to build a replacement for an existing LoopLike op.
 typedef struct loom_loop_like_replacement_state_t {
-  // New initial state values in recurrence order.
+  // New values entering the loop header.
+  //
+  // For counted loops these also correspond positionally to |result_types|.
+  // For condition loops they define the independent before-region tuple.
   loom_value_slice_t initial_values;
 
-  // New recurring result types, one per initial value.
+  // Prefix offsets from each source header-state ordinal to its replacement
+  // range. The array contains source iter_args count + 1 monotonically
+  // increasing entries, begins at zero, and ends at |initial_values.count|.
+  // A source value remains one-to-one when adjacent offsets differ by one. May
+  // be NULL when both source and replacement header state are empty.
+  const uint16_t* source_header_offsets;
+
+  // New result types. These also define the body-region entry tuple.
   //
   // Types may reference sibling replacement result IDs. Callers constructing
-  // such a scheme reserve exactly |initial_values.count| builder results before
+  // such a scheme reserve exactly |result_count| builder results before
   // invoking loom_loop_like_build_replacement, matching generated loop builder
   // semantics.
   const loom_type_t* result_types;
 
-  // Prefix offsets from each source state ordinal to its replacement range.
-  // The array contains source_state_count + 1 monotonically increasing entries,
-  // begins at zero, and ends at initial_values.count. A source state remains
-  // one-to-one when offsets[i + 1] - offsets[i] is one. May be NULL when both
-  // source and replacement state are empty.
-  const uint16_t* source_state_offsets;
+  // Number of new results and body-region entry values.
+  uint16_t result_count;
+
+  // Prefix offsets from each source result/body-state ordinal to its
+  // replacement range. The array contains source result count + 1
+  // monotonically increasing entries, begins at zero, and ends at
+  // |result_count|. May be NULL when both source and replacement result state
+  // are empty.
+  const uint16_t* source_result_offsets;
 } loom_loop_like_replacement_state_t;
 
 // Endpoints of a newly built LoopLike operation.
@@ -64,10 +77,10 @@ typedef struct loom_loop_like_replacement_t {
 // The replacement has the same concrete operation kind. All non-state operand
 // fields, per-instance operand segmentation, attributes, ownership ties,
 // semantic and presentation flags, location, comments, and region/block
-// presentation are preserved through the LoopLike interface. Result and entry
-// argument types instantiate |state.result_types| as one simultaneous recurring
-// tuple at each endpoint. One-to-one source results and region arguments retain
-// their display names.
+// presentation are preserved through the LoopLike interface. Counted loops use
+// one positional state tuple. Condition loops independently map their initial
+// and before-region header state and their body-region and result state.
+// One-to-one source results and region arguments retain their display names.
 //
 // The returned body and condition blocks are empty. The caller interprets the
 // source terminators, populates replacement region operations, and completes

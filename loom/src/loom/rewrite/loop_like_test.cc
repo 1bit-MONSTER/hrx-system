@@ -183,8 +183,10 @@ TEST_F(LoopLikeReplacementTest,
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{target_initial,
                            (uint16_t)IREE_ARRAYSIZE(target_initial)},
+      /*.source_header_offsets=*/source_offsets,
       /*.result_types=*/target_types,
-      /*.source_state_offsets=*/source_offsets,
+      /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_types),
+      /*.source_result_offsets=*/source_offsets,
   };
   loom_loop_like_replacement_t replacement = {};
   IREE_ASSERT_OK(loom_loop_like_build_replacement(
@@ -230,6 +232,43 @@ TEST_F(LoopLikeReplacementTest,
   FinishAndVerify();
 }
 
+TEST_F(LoopLikeReplacementTest, RebuildsStatelessCountedLoop) {
+  const loom_value_id_t lower = BuildIndex(0);
+  const loom_value_id_t upper = BuildIndex(8);
+  const loom_value_id_t step = BuildIndex(1);
+  loom_op_t* source = nullptr;
+  IREE_ASSERT_OK(loom_scf_for_build(
+      &builder_, /*build_flags=*/0, lower, upper, step,
+      /*iter_args=*/nullptr, /*iter_args_count=*/0, /*result_types=*/nullptr,
+      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_VALUE_ID_INVALID,
+      LOOM_VALUE_ID_INVALID, /*unroll_policy=*/0,
+      LOOM_SCF_FOR_UNROLL_SCHEDULE_INTERLEAVED, LOOM_LOCATION_UNKNOWN,
+      &source));
+  BuildScfYield(source, loom_scf_for_body(source), /*values=*/nullptr,
+                /*value_count=*/0);
+
+  loom_builder_set_before(&builder_, source);
+  const loom_loop_like_replacement_state_t target_state = {
+      /*.initial_values=*/{nullptr, 0},
+      /*.source_header_offsets=*/nullptr,
+      /*.result_types=*/nullptr,
+      /*.result_count=*/0,
+      /*.source_result_offsets=*/nullptr,
+  };
+  loom_loop_like_replacement_t replacement = {};
+  IREE_ASSERT_OK(loom_loop_like_build_replacement(
+      &builder_, loom_loop_like_cast(module_, source), &target_state,
+      &scratch_arena_, &replacement));
+
+  EXPECT_EQ(replacement.results.count, 0u);
+  EXPECT_EQ(replacement.body_state.count, 0u);
+  EXPECT_EQ(replacement.body_entry->arg_count, 1u);
+  BuildScfYield(replacement.loop.op, loom_loop_like_body(replacement.loop),
+                /*values=*/nullptr, /*value_count=*/0);
+  Erase(source);
+  FinishAndVerify();
+}
+
 TEST_F(LoopLikeReplacementTest, RemovesSyntheticLoopState) {
   const loom_type_t f32 = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
   const loom_value_id_t lower = BuildIndex(0);
@@ -250,8 +289,10 @@ TEST_F(LoopLikeReplacementTest, RemovesSyntheticLoopState) {
   const uint16_t source_offsets[] = {0, 0};
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{nullptr, 0},
+      /*.source_header_offsets=*/source_offsets,
       /*.result_types=*/nullptr,
-      /*.source_state_offsets=*/source_offsets,
+      /*.result_count=*/0,
+      /*.source_result_offsets=*/source_offsets,
   };
   loom_loop_like_replacement_t replacement = {};
   IREE_ASSERT_OK(loom_loop_like_build_replacement(
@@ -302,8 +343,10 @@ TEST_F(LoopLikeReplacementTest, PreservesSegmentedScfForPolicies) {
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{target_initial,
                            (uint16_t)IREE_ARRAYSIZE(target_initial)},
+      /*.source_header_offsets=*/source_offsets,
       /*.result_types=*/target_types,
-      /*.source_state_offsets=*/source_offsets,
+      /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_types),
+      /*.source_result_offsets=*/source_offsets,
   };
   loom_loop_like_replacement_t replacement = {};
   IREE_ASSERT_OK(loom_loop_like_build_replacement(
@@ -373,6 +416,10 @@ TEST_F(LoopLikeReplacementTest,
       loom_region_entry_block(loom_scf_while_after(source));
   BuildScfYield(source, loom_scf_while_after(source), source_body->arg_ids,
                 source_body->arg_count);
+  Name(loom_block_arg_id(source_condition, 1),
+       IREE_SV("source_header_dependent"));
+  Name(loom_block_arg_id(source_body, 0), IREE_SV("source_body_bank"));
+  Name(loom_op_results(source)[0], IREE_SV("source_result_bank"));
 
   loom_builder_set_before(&builder_, source);
   loom_value_id_t target_initial[] = {first, second, dependent, rows};
@@ -386,12 +433,15 @@ TEST_F(LoopLikeReplacementTest,
                           loom_dim_pack_dynamic(target_results[3]), 0),
       index,
   };
-  const uint16_t source_offsets[] = {0, 2, 3, 4};
+  const uint16_t source_header_offsets[] = {0, 2, 3, 4};
+  const uint16_t source_result_offsets[] = {0, 1, 3, 4};
   const loom_loop_like_replacement_state_t target_state = {
       /*.initial_values=*/{target_initial,
                            (uint16_t)IREE_ARRAYSIZE(target_initial)},
+      /*.source_header_offsets=*/source_header_offsets,
       /*.result_types=*/target_types,
-      /*.source_state_offsets=*/source_offsets,
+      /*.result_count=*/(uint16_t)IREE_ARRAYSIZE(target_types),
+      /*.source_result_offsets=*/source_result_offsets,
   };
   loom_loop_like_replacement_t replacement = {};
   IREE_ASSERT_OK(loom_loop_like_build_replacement(
@@ -415,6 +465,15 @@ TEST_F(LoopLikeReplacementTest,
       loom_type_dim_value_id_at(
           loom_module_value_type(module_, replacement.body_state.values[2]), 0),
       replacement.body_state.values[3]);
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_module_value_name(module_, replacement.condition_state.values[2]),
+      IREE_SV("source_header_dependent")));
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_module_value_name(module_, replacement.body_state.values[0]),
+      IREE_SV("source_body_bank")));
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_module_value_name(module_, replacement.results.values[0]),
+      IREE_SV("source_result_bank")));
 
   saved = loom_builder_enter_region(
       &builder_, replacement.loop.op,

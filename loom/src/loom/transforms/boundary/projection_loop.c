@@ -970,8 +970,10 @@ static iree_status_t loom_boundary_projection_apply_loop(
               .values = initial_values,
               .count = loop->final_state_count,
           },
+      .source_header_offsets = loop->state_offsets,
       .result_types = result_types,
-      .source_state_offsets = loop->state_offsets,
+      .result_count = loop->final_state_count,
+      .source_result_offsets = loop->state_offsets,
   };
   loom_loop_like_replacement_t replacement = {0};
   IREE_RETURN_IF_ERROR(loom_loop_like_build_replacement(
