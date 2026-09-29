@@ -1263,12 +1263,14 @@ _BASE_DESCRIPTOR_SPECS = (
         f"{_TARGET_KEY}.and.bits512",
         "integer.and.bits512",
         "II_VBAND",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VBOR",
         f"{_TARGET_KEY}.or.bits512",
         "integer.or.bits512",
         "II_VBOR",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VBCST_8",

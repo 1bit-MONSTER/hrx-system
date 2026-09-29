@@ -1232,6 +1232,28 @@ def test_state_free_vector_broadcasts_can_rematerialize() -> None:
         assert rematerializable in descriptor.constraints
 
 
+def test_state_free_vector_bitwise_results_can_rematerialize() -> None:
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for operation in ("and", "or"):
+        descriptor = descriptors[f"amd.xdna.aie2p.{operation}.bits512"]
+        assert descriptor.op_kind is DescriptorOpKind.OP
+        assert descriptor.effects == ()
+        assert DescriptorFlag.DEAD_REMOVABLE in descriptor.flags
+        assert [operand.role for operand in descriptor.operands] == [
+            OperandRole.RESULT,
+            OperandRole.OPERAND,
+            OperandRole.OPERAND,
+        ]
+        assert all(
+            OperandFlag.IMPLICIT not in operand.flags for operand in descriptor.operands
+        )
+        assert rematerializable in descriptor.constraints
+
+
 def test_scalar_address_descriptors_expose_fixed_register_state() -> None:
     descriptors = {
         descriptor.key: descriptor
