@@ -6,6 +6,22 @@
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 
+void SdmaCommandWriter::AcquireFromSystem() {
+  words_[word_count_++] = 17u | (1u << 8);
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0xc3c0u << 16;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+}
+
+void SdmaCommandWriter::ReleaseToSystem() {
+  words_[word_count_++] = 17u | (1u << 8);
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0x8040u << 16;
+  words_[word_count_++] = 0;
+  words_[word_count_++] = 0;
+}
+
 void SdmaCommandWriter::Noop() { words_[word_count_++] = 0; }
 
 void SdmaCommandWriter::CopyLinear(uint64_t source, uint64_t target,

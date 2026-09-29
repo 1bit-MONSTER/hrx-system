@@ -19,6 +19,12 @@ class SdmaCommandWriter {
  public:
   SdmaCommandWriter(uint32_t* words, amdf_queue_format_features_t features)
       : words_(words), features_(features) {}
+  // Whole-cache data acquire after dependency waits. Requires USER_GCR;
+  // range, VMID, and instruction-cache operations are outside this recipe.
+  void AcquireFromSystem();
+  // Whole-cache data release after transfers and before completion. Requires
+  // USER_GCR; emitting a completion packet remains the caller's responsibility.
+  void ReleaseToSystem();
   // Emits a one-DWORD NOP. Its pending-transfer ordering contract belongs to
   // the selected native engine; it publishes no completion or cache operation.
   void Noop();

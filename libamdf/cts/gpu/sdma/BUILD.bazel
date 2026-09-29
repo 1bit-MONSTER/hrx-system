@@ -15,6 +15,7 @@ package(
 amdf_cts_test_suite(
     name = "sdma",
     srcs = [
+        "cache_test.cc",
         "copy_test.cc",
         "fill_test.cc",
         "timestamp_test.cc",

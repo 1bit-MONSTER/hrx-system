@@ -21,6 +21,22 @@ constexpr std::array<amdf_queue_format_features_t, 4> kFeatures = {
         AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE,
 };
 
+TEST(SdmaEncodingTest, UserGcrUsesWholeCacheDataAcquireAndRelease) {
+  std::array<uint32_t, 11> words;
+  words.fill(0x9ac7135b);
+  SdmaCommandWriter commands(words.data(),
+                             AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR);
+  commands.AcquireFromSystem();
+  commands.ReleaseToSystem();
+  // ROCr BuildGCRCommand: USER suboperation, zero range/base/limit, GL2/GLK
+  // writeback on both paths, and GL2/GL1/GLV/GLK invalidation on acquire.
+  const std::array<uint32_t, 11> expected = {0x00000111, 0, 0xc3c00000, 0, 0,
+                                             0x00000111, 0, 0x80400000, 0, 0,
+                                             0x9ac7135b};
+  EXPECT_EQ(commands.word_count(), 10u);
+  EXPECT_EQ(words, expected);
+}
+
 TEST(SdmaEncodingTest, LinearByteCountAndUncachedCompletion) {
   std::array<uint32_t, 12> words = {};
   words.back() = 0x24681357;

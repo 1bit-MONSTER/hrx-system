@@ -14,6 +14,7 @@ iree_cc_library(
   NAME
     sdma_cases
   SRCS
+    "cache_test.cc"
     "copy_test.cc"
     "fill_test.cc"
     "timestamp_test.cc"
