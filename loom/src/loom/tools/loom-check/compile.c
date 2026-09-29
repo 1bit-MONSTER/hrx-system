@@ -268,7 +268,7 @@ iree_status_t loom_check_execute_compile(
       for (iree_host_size_t i = 0;
            iree_status_is_ok(status) && i < input.module->symbols.count; ++i) {
         const loom_symbol_t* symbol = &input.module->symbols.entries[i];
-        if (!loom_compile_request_symbol_is_canonical_root(
+        if (!loom_compile_request_default_root_set_contains(
                 input.module, request.product, symbol)) {
           continue;
         }

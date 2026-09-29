@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-// Semantic product inferred from the selected module roots.
+// Artifact product selected for one compilation request.
 typedef enum loom_compile_product_e {
   LOOM_COMPILE_PRODUCT_INVALID = 0,
   LOOM_COMPILE_PRODUCT_KERNEL = 1,
@@ -28,12 +28,13 @@ typedef enum loom_compile_product_e {
 // Returns the stable public name of |product|.
 iree_string_view_t loom_compile_product_name(loom_compile_product_t product);
 
-// Returns true when |symbol| is selected by |product|'s canonical-root policy.
-// Explicit roots are classified independently and need not satisfy this policy.
-// Kernel roots include Low kernel entries and public or retained array programs
-// as well as source kernels and kernel-scoped pipelines. Module roots are
-// public or retained ordinary functions and module-scoped pipelines.
-bool loom_compile_request_symbol_is_canonical_root(
+// Returns true when |symbol| belongs to |product|'s default root set. Explicit
+// roots are classified independently and need not belong to the default set.
+// The kernel set includes Low kernel entries and public or retained array
+// programs as well as source kernels and kernel-scoped pipelines. The module
+// set includes public or retained ordinary functions and module-scoped
+// pipelines.
+bool loom_compile_request_default_root_set_contains(
     const loom_module_t* module, loom_compile_product_t product,
     const loom_symbol_t* symbol);
 
@@ -60,7 +61,7 @@ typedef struct loom_compile_producer_t {
 
 // User constraints applied while resolving one compilation request.
 typedef struct loom_compile_request_options_t {
-  // Explicit root names, or an empty list to use product root policy.
+  // Explicit root names, or an empty list to derive selection from the module.
   iree_string_view_list_t roots;
   // Optional product selection or explicit-root assertion.
   iree_string_view_t product;
@@ -68,8 +69,8 @@ typedef struct loom_compile_request_options_t {
   iree_string_view_t format;
   // Optional family-qualified target profile.
   iree_string_view_t target;
-  // Canonical root names to exclude before specialization and materialization.
-  // Requires an explicit product and cannot be combined with |roots|.
+  // Canonical root names to exclude after product inference and before
+  // specialization and materialization. Cannot be combined with |roots|.
   iree_string_view_list_t excluded_roots;
 } loom_compile_request_options_t;
 
@@ -77,7 +78,8 @@ typedef struct loom_compile_request_options_t {
 typedef struct loom_compile_request_t {
   // Product inferred from selected roots.
   loom_compile_product_t product;
-  // Explicit root names, or an empty list when product root policy applies.
+  // Explicit root names, or an empty list when selection was derived from the
+  // module.
   iree_string_view_list_t roots;
   // Exact public artifact format.
   iree_string_view_t format;
@@ -121,11 +123,13 @@ static inline bool loom_compile_request_is_command(
 // All inputs and outputs are borrowed. Resolution performs no allocation and
 // never probes a producer by compiling. With explicit roots, an explicit
 // product only validates the inferred product and cannot reinterpret them. With
-// no roots, an explicit product selects that product's canonical root policy.
-// Excluded roots require that explicit product and are removed before target
-// specialization and dependency materialization. An omitted format selects the
-// unique configured kernel artifact provider, the selected target family's
-// canonical module emitter, or the target-independent command format.
+// no explicit roots, an explicit command or kernel product selects its complete
+// default root set and an explicit module product selects the whole module.
+// Otherwise the product is inferred from the complete unfiltered command and
+// kernel root sets, falling back to the whole module. Inference precedes
+// exclusions so they cannot silently select another product. An omitted format
+// selects the unique configured kernel artifact provider, the selected target
+// family's canonical module emitter, or the target-independent command format.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_artifact_provider_registry_t* artifact_provider_registry,

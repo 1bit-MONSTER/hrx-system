@@ -58,7 +58,7 @@ typedef enum loom_link_plan_dependency_policy_e {
 typedef enum loom_link_plan_live_reason_e {
   // Selected because merge mode includes every linkable INPUT symbol.
   LOOM_LINK_PLAN_LIVE_MERGE = 0,
-  // Selected because the user or exported-root policy named it as a root.
+  // Selected because the user or export policy included it in the root set.
   LOOM_LINK_PLAN_LIVE_ROOT = 1,
   // Selected because another live symbol references it.
   LOOM_LINK_PLAN_LIVE_DEPENDENCY = 2,
