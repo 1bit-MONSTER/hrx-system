@@ -2210,6 +2210,44 @@ static void loom_aie2p_array_finalize_physical_counts(
   builder->plan->binding_plan_count = builder->binding_plan_cursor;
 }
 
+static void loom_aie2p_array_include_partition_coordinate(
+    loom_xdna_tile_coordinate_t coordinate, uint16_t* column_count) {
+  if (coordinate.column == UINT16_MAX) {
+    return;
+  }
+  *column_count =
+      iree_max(*column_count, (uint16_t)((uint32_t)coordinate.column + 1u));
+}
+
+static uint16_t loom_aie2p_array_measure_partition(
+    const loom_aie2p_array_plan_t* plan) {
+  uint16_t column_count = 0;
+  for (iree_host_size_t i = 0; i < plan->worker_plan_count; ++i) {
+    loom_aie2p_array_include_partition_coordinate(
+        plan->worker_plans[i].coordinate, &column_count);
+  }
+  for (iree_host_size_t i = 0; i < plan->channel_slot_count; ++i) {
+    const loom_aie2p_array_channel_slot_t* slot = &plan->channel_slots[i];
+    loom_aie2p_array_include_partition_coordinate(slot->sender_storage.owner,
+                                                  &column_count);
+    loom_aie2p_array_include_partition_coordinate(slot->receiver_storage.owner,
+                                                  &column_count);
+  }
+  for (iree_host_size_t i = 0; i < plan->lock_count; ++i) {
+    loom_aie2p_array_include_partition_coordinate(plan->locks[i].coordinate,
+                                                  &column_count);
+  }
+  for (iree_host_size_t i = 0; i < plan->dma_channel_count; ++i) {
+    loom_aie2p_array_include_partition_coordinate(
+        plan->dma_channels[i].coordinate, &column_count);
+  }
+  for (iree_host_size_t i = 0; i < plan->route_count; ++i) {
+    loom_aie2p_array_include_partition_coordinate(plan->routes[i].coordinate,
+                                                  &column_count);
+  }
+  return column_count;
+}
+
 iree_status_t loom_aie2p_array_plan_build(
     const loom_module_t* module, const loom_op_t* function_op,
     const loom_aie2p_array_leaf_t* leaves, iree_host_size_t leaf_count,
@@ -2278,6 +2316,7 @@ iree_status_t loom_aie2p_array_plan_build(
   if (builder.valid) {
     loom_aie2p_array_finalize_worker_port_states(&builder);
     loom_aie2p_array_finalize_physical_counts(&builder);
+    plan.partition_column_count = loom_aie2p_array_measure_partition(&plan);
     *out_plan = plan;
     *out_valid = true;
   }

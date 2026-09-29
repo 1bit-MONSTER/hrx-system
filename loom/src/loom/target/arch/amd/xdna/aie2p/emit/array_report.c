@@ -439,15 +439,13 @@ iree_status_t loom_aie2p_array_report_record(
   bool has_local_headroom = false;
   for (iree_host_size_t i = 0; i < plan->worker_count; ++i) {
     const loom_aie2p_array_worker_t* worker = &plan->workers[i];
-    const loom_aie2p_leaf_realization_t* realization =
-        &tiles[i].contribution->realization;
     const loom_xdna_tile_facts_t* tile_facts =
         loom_xdna_array_tile_facts(plan->family, worker->coordinate);
     loom_aie2p_array_report_tile_usage_t usage = {0};
     loom_aie2p_array_report_query_tile_usage(plan, worker->coordinate,
                                              &tile_facts->memory, &usage);
 
-    const uint32_t code_byte_count = (uint32_t)realization->code.byte_length;
+    const uint32_t code_byte_count = (uint32_t)tiles[i].entry_byte_length;
     const uint32_t code_headroom =
         tile_facts->memory.program_capacity - code_byte_count;
     const uint32_t local_headroom =

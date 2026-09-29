@@ -71,97 +71,13 @@ static iree_status_t loom_aie2p_xdna_allocate_bytes(
   return iree_ok_status();
 }
 
-static uint16_t loom_aie2p_xdna_measure_partition(
-    const loom_aie2p_array_plan_t* plan) {
-  uint16_t column_count = 0;
-#define LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(coordinate_value)         \
-  do {                                                                  \
-    const loom_xdna_tile_coordinate_t coordinate_ = (coordinate_value); \
-    const uint16_t end_ = (uint16_t)coordinate_.column + 1u;            \
-    if (end_ > column_count) column_count = end_;                       \
-  } while (0)
-  for (iree_host_size_t i = 0; i < plan->worker_plan_count; ++i) {
-    LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(plan->worker_plans[i].coordinate);
-  }
-  for (iree_host_size_t i = 0; i < plan->channel_slot_count; ++i) {
-    const loom_aie2p_array_channel_slot_t* slot = &plan->channel_slots[i];
-    if (slot->sender_storage.owner.column != UINT16_MAX) {
-      LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(slot->sender_storage.owner);
-    }
-    if (slot->receiver_storage.owner.column != UINT16_MAX) {
-      LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(slot->receiver_storage.owner);
-    }
-  }
-  for (iree_host_size_t i = 0; i < plan->lock_count; ++i) {
-    LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(plan->locks[i].coordinate);
-  }
-  for (iree_host_size_t i = 0; i < plan->dma_channel_count; ++i) {
-    LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(plan->dma_channels[i].coordinate);
-  }
-  for (iree_host_size_t i = 0; i < plan->route_count; ++i) {
-    LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE(plan->routes[i].coordinate);
-  }
-#undef LOOM_AIE2P_XDNA_ACCUMULATE_COORDINATE
-  return column_count;
-}
-
-static iree_xdna_elf_binding_access_t loom_aie2p_xdna_binding_access(
-    loom_aie2p_array_binding_access_t access) {
-  iree_xdna_elf_binding_access_t result = 0;
-  if (access == LOOM_AIE2P_ARRAY_BINDING_ACCESS_READ ||
-      access == LOOM_AIE2P_ARRAY_BINDING_ACCESS_READ_WRITE) {
-    result |= IREE_XDNA_ELF_BINDING_ACCESS_READ;
-  }
-  if (access == LOOM_AIE2P_ARRAY_BINDING_ACCESS_WRITE ||
-      access == LOOM_AIE2P_ARRAY_BINDING_ACCESS_READ_WRITE) {
-    result |= IREE_XDNA_ELF_BINDING_ACCESS_WRITE;
-  }
-  return result;
-}
-
-static void loom_aie2p_xdna_build_binding_records(
-    const loom_aie2p_array_plan_t* plan, uint32_t address_alignment,
-    iree_xdna_elf_binding_record_t* records) {
-  if (plan->binding_slot_count == 0) {
-    return;
-  }
-  memset(records, 0, plan->binding_slot_count * sizeof(*records));
-  for (iree_host_size_t i = 0; i < plan->binding_count; ++i) {
-    const loom_aie2p_array_binding_t* binding = &plan->bindings[i];
-    records[binding->ordinal] = (iree_xdna_elf_binding_record_t){
-        .kind = IREE_XDNA_ELF_BINDING_KIND_BUFFER,
-        .address_space = IREE_XDNA_ELF_BINDING_ADDRESS_SPACE_GLOBAL,
-        .access = loom_aie2p_xdna_binding_access(binding->access),
-        .usage = IREE_XDNA_ELF_BINDING_USAGE_DEVICE_VISIBLE |
-                 IREE_XDNA_ELF_BINDING_USAGE_COHERENT,
-        .minimum_alignment = 1,
-    };
-  }
-  for (iree_host_size_t i = 0; i < plan->binding_plan_count; ++i) {
-    const loom_aie2p_array_binding_plan_t* binding_plan =
-        &plan->binding_plans[i];
-    const uint64_t minimum_byte_length = binding_plan->binding_byte_offset +
-                                         binding_plan->binding_span_byte_length;
-    const uint32_t binding_ordinal =
-        plan->bindings[binding_plan->binding_index].ordinal;
-    iree_xdna_elf_binding_record_t* record = &records[binding_ordinal];
-    record->minimum_byte_length =
-        iree_max(record->minimum_byte_length, minimum_byte_length);
-    record->minimum_alignment = address_alignment;
-  }
-}
-
 static iree_status_t loom_aie2p_xdna_encode_symbol_tables(
     const loom_aie2p_xdna_tile_t* const* tiles, iree_host_size_t tile_count,
     const iree_host_size_t* code_section_indices, iree_arena_allocator_t* arena,
     iree_const_byte_span_t* out_symbols, iree_const_byte_span_t* out_strings) {
   iree_host_size_t string_byte_length = 1;
   for (iree_host_size_t i = 0; i < tile_count; ++i) {
-    const loom_aie2p_leaf_contribution_t* contribution = tiles[i]->contribution;
-    const iree_string_view_t name =
-        contribution->object
-            .symbols[contribution->realization.entry_symbol_index]
-            .name;
+    const iree_string_view_t name = tiles[i]->entry_name;
     iree_host_size_t name_byte_length = 0;
     if (!iree_host_size_checked_add(name.size, 1, &name_byte_length) ||
         !iree_host_size_checked_add(string_byte_length, name_byte_length,
@@ -184,22 +100,21 @@ static iree_status_t loom_aie2p_xdna_encode_symbol_tables(
       arena, (tile_count + 1u) * LOOM_AIE2P_XDNA_ELF32_SYMBOL_SIZE, &symbols));
   iree_host_size_t string_offset = 1;
   for (iree_host_size_t i = 0; i < tile_count; ++i) {
-    const loom_aie2p_leaf_contribution_t* contribution = tiles[i]->contribution;
-    const loom_native_object_symbol_t* entry =
-        &contribution->object
-             .symbols[contribution->realization.entry_symbol_index];
-    if (code_section_indices[i] >= UINT16_MAX || entry->size > UINT32_MAX) {
+    const loom_aie2p_xdna_tile_t* tile = tiles[i];
+    if (code_section_indices[i] >= UINT16_MAX ||
+        tile->entry_byte_length > UINT32_MAX) {
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "AIE2P product symbol exceeds ELF32");
     }
     const uint32_t name_offset = (uint32_t)string_offset;
-    memcpy(strings.data + string_offset, entry->name.data, entry->name.size);
-    string_offset += entry->name.size + 1u;
+    memcpy(strings.data + string_offset, tile->entry_name.data,
+           tile->entry_name.size);
+    string_offset += tile->entry_name.size + 1u;
     uint8_t* record =
         symbols.data + (i + 1u) * LOOM_AIE2P_XDNA_ELF32_SYMBOL_SIZE;
     loom_aie2p_xdna_store_u32(record + 0, name_offset);
-    loom_aie2p_xdna_store_u32(record + 4, tiles[i]->linked_tile->entry_address);
-    loom_aie2p_xdna_store_u32(record + 8, (uint32_t)entry->size);
+    loom_aie2p_xdna_store_u32(record + 4, tile->entry_address);
+    loom_aie2p_xdna_store_u32(record + 8, (uint32_t)tile->entry_byte_length);
     record[12] = 0x02;  // STB_LOCAL | STT_FUNC.
     record[13] = 0;
     loom_aie2p_xdna_store_u16(record + 14,
@@ -351,13 +266,10 @@ static iree_status_t loom_aie2p_xdna_measure_entry(
     const loom_aie2p_program_record_t* record = &program->array_records[i];
     array_bytes += loom_aie2p_xdna_native_record_size(record);
     if (record->type == LOOM_AIE2P_PROGRAM_RECORD_TILE_PROGRAM_LOAD) {
-      const loom_aie2p_linked_tile_t* tile =
-          entry->tiles[record->value.tile_program_load.tile_program_index]
-              .linked_tile;
-      inline_bytes +=
-          iree_host_align(tile->assembly.sections[tile->entry_section_index]
-                              .contents.data_length,
-                          4);
+      const loom_aie2p_xdna_tile_t* tile =
+          &entry->tiles[record->value.tile_program_load.tile_program_index];
+      inline_bytes += iree_host_align(
+          tile->sections[tile->entry_section_index].contents.data_length, 4);
     }
   }
   uint64_t control_bytes = 0;
@@ -426,7 +338,8 @@ static void loom_aie2p_xdna_emit_entry(
     loom_aie2p_xdna_entry_layout_t* layout, loom_native_elf_section_t* sections,
     uint32_t* section_count, loom_native_elf_segment_t* segments,
     uint32_t* segment_count) {
-  const loom_xdna_array_family_t* family = entry->array_plan->family;
+  const loom_xdna_array_family_t* family =
+      loom_xdna_device_profile_array_family(profile);
   const loom_aie2p_array_program_t* program = entry->array_program;
   uint8_t* source = layout->source.data;
   loom_aie2p_xdna_native_header(
@@ -444,8 +357,7 @@ static void loom_aie2p_xdna_emit_entry(
           record->value.tile_program_load.tile_program_index;
       const loom_aie2p_xdna_tile_t* tile = &entry->tiles[tile_index];
       const loom_native_elf_section_t* code =
-          &tile->linked_tile->assembly
-               .sections[tile->linked_tile->entry_section_index];
+          &tile->sections[tile->entry_section_index];
       const uint32_t code_size =
           (uint32_t)iree_host_align(code->contents.data_length, 4);
       const uint32_t address =
@@ -527,7 +439,6 @@ iree_status_t loom_aie2p_xdna_product_write(
                             "XDNA product has too many entries");
   }
   uint32_t program_load_base = 0;
-  uint32_t binding_alignment = 1;
   uint8_t memory_rows = 0;
   for (uint8_t i = 0; i < family->tile_count; ++i) {
     const loom_xdna_tile_facts_t* tile = &family->tiles[i];
@@ -537,9 +448,6 @@ iree_status_t loom_aie2p_xdna_product_write(
         break;
       case LOOM_XDNA_TILE_KIND_MEMORY:
         memory_rows = tile->row_count;
-        break;
-      case LOOM_XDNA_TILE_KIND_SHIM_NOC:
-        binding_alignment = tile->dma.address_alignment;
         break;
       default:
         break;
@@ -563,15 +471,13 @@ iree_status_t loom_aie2p_xdna_product_write(
         .first_relocation = (uint32_t)relocation_count,
     };
     tile_count += entry->tile_count;
-    binding_count += entry->array_plan->binding_slot_count;
+    binding_count += entry->binding_count;
     relocation_count += 2 * entry->array_program->relocation_count;
     name_length += entry->name.size;
     for (iree_host_size_t j = 0; j < entry->tile_count; ++j) {
-      linked_section_count +=
-          entry->tiles[j].linked_tile->assembly.section_count;
+      linked_section_count += entry->tiles[j].section_count;
     }
-    columns =
-        iree_max(columns, loom_aie2p_xdna_measure_partition(entry->array_plan));
+    columns = iree_max(columns, entry->partition_column_count);
     if (tile_count > IREE_XDNA_ELF_MAX_PROGRAM_HEADER_COUNT ||
         linked_section_count > IREE_XDNA_ELF_MAX_SECTION_HEADER_COUNT ||
         binding_count > IREE_XDNA_ELF_MAX_TABLE_RECORD_COUNT ||
@@ -605,21 +511,19 @@ iree_status_t loom_aie2p_xdna_product_write(
     for (iree_host_size_t j = 0; j < entry->tile_count; ++j) {
       const iree_host_size_t index = layouts[i].first_tile + j;
       tiles[index] = &entry->tiles[j];
-      const loom_aie2p_linked_tile_t* linked = tiles[index]->linked_tile;
       code_sections[index] =
           1 + loom_aie2p_xdna_intern_linked_section(
-                  &linked->assembly.sections[linked->entry_section_index],
+                  &tiles[index]->sections[tiles[index]->entry_section_index],
                   unique_sections, &unique_section_count);
     }
   }
   for (iree_host_size_t i = 0; i < tile_count; ++i) {
-    const loom_aie2p_linked_tile_t* linked = tiles[i]->linked_tile;
-    for (iree_host_size_t j = 0; j < linked->assembly.section_count; ++j) {
-      if (j == linked->entry_section_index) {
+    const loom_aie2p_xdna_tile_t* tile = tiles[i];
+    for (iree_host_size_t j = 0; j < tile->section_count; ++j) {
+      if (j == tile->entry_section_index) {
         continue;
       }
-      loom_aie2p_xdna_intern_linked_section(&linked->assembly.sections[j],
-                                            unique_sections,
+      loom_aie2p_xdna_intern_linked_section(&tile->sections[j], unique_sections,
                                             &unique_section_count);
     }
   }
@@ -726,7 +630,7 @@ iree_status_t loom_aie2p_xdna_product_write(
         .first_allocation_use = i,
         .allocation_use_count = 1,
         .first_binding = layout->first_binding,
-        .binding_count = entry->array_plan->binding_slot_count,
+        .binding_count = entry->binding_count,
         .first_static_relocation = layout->first_relocation,
         .first_dynamic_relocation = layout->first_relocation,
         .dynamic_relocation_count =
@@ -740,15 +644,9 @@ iree_status_t loom_aie2p_xdna_product_write(
     memcpy(metadata.data + string_offset + name_offset, entry->name.data,
            entry->name.size);
     name_offset += (uint32_t)entry->name.size;
-    iree_xdna_elf_binding_record_t* bindings = NULL;
-    IREE_RETURN_IF_ERROR(
-        iree_arena_allocate_array(scratch_arena, entry_record.binding_count,
-                                  sizeof(*bindings), (void**)&bindings));
-    loom_aie2p_xdna_build_binding_records(entry->array_plan, binding_alignment,
-                                          bindings);
     for (uint32_t j = 0; j < entry_record.binding_count; ++j) {
       iree_xdna_elf_encode_binding(
-          &bindings[j],
+          &entry->binding_records[j],
           metadata.data + binding_offset +
               (layout->first_binding + j) * IREE_XDNA_ELF_BINDING_RECORD_SIZE);
     }

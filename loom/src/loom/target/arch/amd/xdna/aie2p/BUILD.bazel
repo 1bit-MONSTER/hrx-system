@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_binary",
@@ -240,6 +241,12 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "array_dma",
+    hdrs = ["array/dma.h"],
+    deps = ["//runtime/src/iree/base"],
+)
+
+loom_cc_library(
     name = "array_plan",
     srcs = [
         "array/binding.c",
@@ -258,6 +265,7 @@ loom_cc_library(
     deps = [
         ":array_abi_layout",
         ":array_descriptors",
+        ":array_dma",
         ":array_local_memory",
         "//loom/src/loom/analysis:scc",
         "//loom/src/loom/codegen/low:diagnostics",
@@ -282,11 +290,34 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "array_binding_records",
+    srcs = ["array/binding_records.c"],
+    hdrs = ["array/binding_records.h"],
+    visibility = ["//loom/src/loom/tooling/target/amd/xdna:__pkg__"],
+    deps = [
+        ":array_plan",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/schemas:xdna_executable",
+    ],
+)
+
+loom_cc_library(
+    name = "array_program_types",
+    hdrs = ["array/program_types.h"],
+    deps = [
+        ":array_dma",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "array_program",
     srcs = ["array/program.c"],
     hdrs = ["array/program.h"],
     deps = [
         ":array_plan",
+        ":array_program_types",
         "//loom/src/loom/target/arch/amd/xdna:array_facts",
         "//loom/src/loom/target/arch/amd/xdna:array_registers",
         "//runtime/src/iree/base",
@@ -768,8 +799,7 @@ loom_cc_library(
     srcs = ["emit/xdna_product.c"],
     hdrs = ["emit/xdna_product.h"],
     deps = [
-        ":array_program",
-        ":tile_link",
+        ":array_program_types",
         "//loom/src/loom/target/arch/amd/xdna:device_profile",
         "//loom/src/loom/target/emit/native:elf",
         "//runtime/src/iree/base",
@@ -777,6 +807,18 @@ loom_cc_library(
         "//runtime/src/iree/io:stream",
         "//runtime/src/iree/schemas:xdna_executable",
     ],
+)
+
+iree_assert_dependency_boundary(
+    name = "xdna_product_compiler_boundary",
+    forbidden_subtrees = [
+        "//loom/src/loom/codegen/...",
+        "//loom/src/loom/ir/...",
+        "//loom/src/loom/tooling/...",
+        "//loom/src/loom/tools/...",
+    ],
+    message = "XDNA product construction must consume retained target-native facts instead of compiler, IR, or tooling state",
+    target = ":xdna_product",
 )
 
 loom_cc_library(
@@ -792,6 +834,7 @@ loom_cc_library(
         "//loom/src/loom/tooling/target/amd/xdna:__pkg__",
     ],
     deps = [
+        ":array_binding_records",
         ":array_plan",
         ":array_program",
         ":array_resident",
@@ -827,6 +870,17 @@ loom_cc_test(
     deps = [
         ":provider",
         "//loom/src/loom/target:provider",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "array_binding_records_test",
+    srcs = ["array/binding_records_test.cc"],
+    deps = [
+        ":array_binding_records",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

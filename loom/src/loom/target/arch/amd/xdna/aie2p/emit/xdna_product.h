@@ -12,9 +12,10 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "iree/io/stream.h"
-#include "loom/target/arch/amd/xdna/aie2p/array/program.h"
-#include "loom/target/arch/amd/xdna/aie2p/emit/tile_link.h"
+#include "iree/schemas/xdna_executable.h"
+#include "loom/target/arch/amd/xdna/aie2p/array/program_types.h"
 #include "loom/target/arch/amd/xdna/device/profile.h"
+#include "loom/target/emit/native/elf.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,18 +25,30 @@ extern "C" {
 typedef struct loom_aie2p_xdna_tile_t {
   // Physical compute tile executing the program.
   loom_xdna_tile_coordinate_t coordinate;
-  // Detached contribution from which symbols and sizes are retained.
-  const loom_aie2p_leaf_contribution_t* contribution;
+  // Native entry-point symbol name.
+  iree_string_view_t entry_name;
+  // Native entry-point symbol byte length.
+  uint64_t entry_byte_length;
+  // Final core-visible entry address.
+  uint32_t entry_address;
   // Fully placed and fixed-up native sections.
-  const loom_aie2p_linked_tile_t* linked_tile;
+  const loom_native_elf_section_t* sections;
+  // Number of records in |sections|.
+  iree_host_size_t section_count;
+  // Section containing the entry point.
+  iree_host_size_t entry_section_index;
 } loom_aie2p_xdna_tile_t;
 
 // One independently dispatchable array entry in an XDNA product.
 typedef struct loom_aie2p_xdna_entry_t {
   // Diagnostic and runtime export name.
   iree_string_view_t name;
-  // Exact physical array plan defining bindings and placements.
-  const loom_aie2p_array_plan_t* array_plan;
+  // Width of the occupied physical-column prefix.
+  uint16_t partition_column_count;
+  // Exact runtime binding records in dense entry-relative ordinal order.
+  const iree_xdna_elf_binding_record_t* binding_records;
+  // Number of records in |binding_records|.
+  uint32_t binding_count;
   // Typed array and invocation-control program awaiting final ordinals.
   const loom_aie2p_array_program_t* array_program;
   // Resident tile programs in worker order.
@@ -56,7 +69,7 @@ typedef struct loom_aie2p_xdna_product_t {
 
 // Writes one canonical ELF32LE `.xdna` product.
 //
-// Native commands are emitted directly from compiler-owned array plans. Load
+// Native commands are emitted from target-native array programs. Load
 // ranges splice shared linked code and command fragments into caller-owned
 // backing; identical code and repeat bodies each occupy one file range. Entries
 // without per-invocation control records publish a header-only self-looping

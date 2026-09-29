@@ -298,6 +298,18 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    array_dma
+  HDRS
+    "array/dma.h"
+  DEPS
+    iree::base
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     array_plan
   HDRS
     "array/channel_resources.h"
@@ -314,6 +326,7 @@ loom_cc_library(
   DEPS
     ::array_abi_layout
     ::array_descriptors
+    ::array_dma
     ::array_local_memory
     iree::base
     iree::base::internal::arena
@@ -341,6 +354,36 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    array_binding_records
+  HDRS
+    "array/binding_records.h"
+  SRCS
+    "array/binding_records.c"
+  DEPS
+    ::array_plan
+    iree::base
+    iree::schemas::xdna_executable
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
+    array_program_types
+  HDRS
+    "array/program_types.h"
+  DEPS
+    ::array_dma
+    iree::base
+    loom::target::arch::amd::xdna::array_facts
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     array_program
   HDRS
     "array/program.h"
@@ -348,6 +391,7 @@ loom_cc_library(
     "array/program.c"
   DEPS
     ::array_plan
+    ::array_program_types
     iree::base
     iree::base::internal::arena
     loom::target::arch::amd::xdna::array_facts
@@ -888,8 +932,7 @@ loom_cc_library(
   SRCS
     "emit/xdna_product.c"
   DEPS
-    ::array_program
-    ::tile_link
+    ::array_program_types
     iree::base
     iree::base::internal::arena
     iree::io::stream
@@ -911,6 +954,7 @@ loom_cc_library(
     "emit/array_report.h"
     "emit/artifact.c"
   DEPS
+    ::array_binding_records
     ::array_plan
     ::array_program
     ::array_resident
@@ -952,6 +996,22 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::provider
+  LABELS
+    "iree-build-requirement=loom.target.arch.xdna"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    array_binding_records_test
+  SRCS
+    "array/binding_records_test.cc"
+  DEPS
+    ::array_binding_records
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::arch::amd::xdna::array_facts
   LABELS
     "iree-build-requirement=loom.target.arch.xdna"
 )

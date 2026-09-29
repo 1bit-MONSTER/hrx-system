@@ -14,6 +14,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/target/arch/amd/xdna/aie2p/array/binding_records.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/plan.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/program.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/resident.h"
@@ -335,10 +336,17 @@ static iree_status_t loom_aie2p_xdna_compile_resident_tiles(
         storage_placements, &link_layout));
     IREE_RETURN_IF_ERROR(loom_aie2p_tile_link(
         contribution, &link_layout, request->scratch_arena, &linked_tiles[i]));
+    const loom_native_object_symbol_t* entry_symbol =
+        &contribution->object
+             .symbols[contribution->realization.entry_symbol_index];
     tiles[i] = (loom_aie2p_xdna_tile_t){
         .coordinate = plan->worker_plans[resident->worker_index].coordinate,
-        .contribution = contribution,
-        .linked_tile = &linked_tiles[i],
+        .entry_name = entry_symbol->name,
+        .entry_byte_length = entry_symbol->size,
+        .entry_address = linked_tiles[i].entry_address,
+        .sections = linked_tiles[i].assembly.sections,
+        .section_count = linked_tiles[i].assembly.section_count,
+        .entry_section_index = linked_tiles[i].entry_section_index,
     };
   }
   *out_tiles = tiles;
@@ -475,7 +483,8 @@ iree_status_t loom_aie2p_xdna_artifact_emit(
         &array_plans[i], request->scratch_arena, &array_programs[i]));
     product_entries[i] = (loom_aie2p_xdna_entry_t){
         .name = source_entry->name,
-        .array_plan = &array_plans[i],
+        .partition_column_count = array_plans[i].partition_column_count,
+        .binding_count = array_plans[i].binding_slot_count,
         .array_program = &array_programs[i],
     };
   }
@@ -513,8 +522,14 @@ iree_status_t loom_aie2p_xdna_artifact_emit(
   }
 
   for (iree_host_size_t i = 0; i < entry_count; ++i) {
+    iree_xdna_elf_binding_record_t* binding_records = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        request->scratch_arena, array_plans[i].binding_slot_count,
+        sizeof(*binding_records), (void**)&binding_records));
+    loom_aie2p_array_binding_records_build(&array_plans[i], binding_records);
+    product_entries[i].binding_records = binding_records;
     IREE_RETURN_IF_ERROR(loom_aie2p_array_report_record(
-        request->module, product_entries[i].name, product_entries[i].array_plan,
+        request->module, product_entries[i].name, &array_plans[i],
         product_entries[i].tiles, request->compile_report,
         request->scratch_arena));
   }

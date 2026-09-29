@@ -15,6 +15,7 @@
 #include "loom/error/emitter.h"
 #include "loom/ir/ir.h"
 #include "loom/ops/combining.h"
+#include "loom/target/arch/amd/xdna/aie2p/array/dma.h"
 #include "loom/target/arch/amd/xdna/array/facts.h"
 
 #ifdef __cplusplus
@@ -69,12 +70,6 @@ enum loom_aie2p_array_channel_resource_flag_bits_e {
   // The channel owns one neighbor-visible ring and synchronization pair.
   LOOM_AIE2P_ARRAY_CHANNEL_RESOURCE_FLAG_OWNS_NEIGHBOR_RING = 1u << 4,
 };
-
-// DMA transfer direction relative to local memory.
-typedef enum loom_aie2p_array_dma_direction_e {
-  LOOM_AIE2P_ARRAY_DMA_DIRECTION_MEMORY_TO_STREAM = 1,
-  LOOM_AIE2P_ARRAY_DMA_DIRECTION_STREAM_TO_MEMORY = 2,
-} loom_aie2p_array_dma_direction_t;
 
 typedef uint8_t loom_aie2p_array_dma_flags_t;
 enum loom_aie2p_array_dma_flag_bits_e {
@@ -452,6 +447,8 @@ typedef struct loom_aie2p_array_plan_t {
   const loom_op_t* function_op;
   // Immutable physical family used by the plan.
   const loom_xdna_array_family_t* family;
+  // Width of the occupied physical-column prefix.
+  uint16_t partition_column_count;
   // Logical worker groups in source order.
   const loom_aie2p_array_group_t* groups;
   // Number of logical worker groups.
