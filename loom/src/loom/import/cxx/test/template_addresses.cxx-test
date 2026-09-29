@@ -429,3 +429,44 @@ func.def @add_table(%input: i32) -> (i32) {
   %6 = scalar.addi %input, %first : i32
   func.return %6 : i32
 }
+
+// ====
+// Reference forwarding preserves identity without reading mutable storage.
+extern unsigned left, right, table[3];
+static constexpr const unsigned& forward(const unsigned& value) {
+  return value;
+}
+static constexpr const unsigned* address(const unsigned& value) {
+  return &value;
+}
+template <const unsigned& value>
+unsigned choose(unsigned input) {
+  if constexpr (&value == &left) return input + 3;
+  return input + 7;
+}
+static_assert(&forward(left) == &left);
+static_assert(address(right) == &right);
+static_assert(&forward(table[1]) == &table[1]);
+unsigned entry(unsigned input) {
+  return choose<forward(left)>(input) + choose<forward(right)>(input);
+}
+
+// ----
+func.def public @entry(%input: i32) -> (i32) {
+  %2 = func.call @choose_left(%input) : (i32) -> (i32)
+  %3 = func.call @choose_right(%input) : (i32) -> (i32)
+  %4 = scalar.addi %2, %3 : i32
+  func.return %4 : i32
+}
+
+func.def @choose_left(%input: i32) -> (i32) {
+  %7 = scalar.constant 3 : i32
+  %8 = scalar.addi %input, %7 : i32
+  func.return %8 : i32
+}
+
+func.def @choose_right(%input: i32) -> (i32) {
+  %11 = scalar.constant 7 : i32
+  %12 = scalar.addi %input, %11 : i32
+  func.return %12 : i32
+}

@@ -181,3 +181,51 @@ template <const float& value>
 constexpr float read() { return value; }
 // ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
 static_assert(read<Settings::scale>() == 1.5f);
+
+// ====
+// Binding a reference does not permit a constant read of mutable storage.
+extern unsigned object;
+static constexpr unsigned read(const unsigned& value) { return value; }
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read(object) == 5);
+
+// ====
+// An unreadable reference shadows a readable parameter in an outer call.
+extern unsigned external;
+static constexpr unsigned read(const unsigned& value, unsigned depth) {
+  if (depth) return read(external, 0);
+  return value;
+}
+constexpr unsigned known = 5;
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(read(known, 1) == 5);
+
+// ====
+// An unreadable reference cannot borrow a writable slot from an outer call.
+extern unsigned external;
+static constexpr void mutate(unsigned& value, unsigned depth) {
+  if (depth) {
+    mutate(external, 0);
+    return;
+  }
+  ++value;
+}
+static constexpr unsigned evaluate() {
+  unsigned value = 5;
+  mutate(value, 1);
+  return value;
+}
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(evaluate() == 6);
+
+// ====
+// Forwarding a reference preserves its automatic storage duration.
+static constexpr const unsigned& forward(const unsigned& value) { return value; }
+template <const unsigned& value>
+// REMARK@+1: PARSE/036 "candidate function not viable: substitution failure: template argument does not refer to a permitted static object or function"
+constexpr unsigned choose() { return 3; }
+unsigned entry() {
+  constexpr unsigned local = 5;
+  // ERROR@+1: PARSE/036 "no matching function for call to 'choose'"
+  return choose<forward(local)>();
+}
