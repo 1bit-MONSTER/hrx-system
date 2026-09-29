@@ -342,6 +342,7 @@ BF16_F32_PACKET_RULE_SHAPES = (
         for lane_count in BF16_F32_PACKET_LANE_COUNTS
     ),
     BFloatConversionRuleShape(16, 1, 15),
+    BFloatConversionRuleShape(32, 17, 31),
 )
 
 INTEGER_PACK_CASES = (
@@ -699,6 +700,43 @@ def _f32_to_bf16_vector_rule(
                 result=ValueRef.result("result"),
             ),
         )
+    elif rule_shape.maximum_lane_count < native_lane_count:
+        accumulator_units = []
+        input_emit_list: list[ContractEmit] = []
+        native_source = ValueRef.temporary("source_accumulator")
+        for unit_index in range(2):
+            vector_unit = ValueRef.temporary(f"source_vector_unit_{unit_index}")
+            accumulator_unit = ValueRef.temporary(
+                f"source_accumulator_unit_{unit_index}"
+            )
+            input_emit_list.extend(
+                (
+                    EmitRegisterSlice(
+                        source=ValueRef.operand("input"),
+                        result=vector_unit,
+                        unit_offset=2 * unit_index,
+                        unit_count=2,
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=_descriptor(
+                            "amd.xdna.aie2p.move.vector512.to.accumulator512"
+                        ),
+                        operands={"src": vector_unit},
+                        results={"dst": accumulator_unit},
+                        result_types={"dst": DescriptorResultType()},
+                        form=DescriptorEmitForm.OP,
+                    ),
+                )
+            )
+            accumulator_units.append(accumulator_unit)
+        input_emit_list.append(
+            EmitRegisterConcat(
+                sources=accumulator_units,
+                result=native_source,
+                result_type=_exact_vector("f32", native_lane_count),
+            )
+        )
+        input_emits = tuple(input_emit_list)
     return DescriptorRule(
         source_op=vector.vector_fptrunc,
         descriptor=convert,
@@ -764,6 +802,43 @@ def _bf16_to_f32_vector_rule(
                 form=DescriptorEmitForm.OP,
             ),
         )
+    elif rule_shape.maximum_lane_count < native_lane_count:
+        native_result = ValueRef.temporary("converted_accumulator")
+        result_types = {"dst": DescriptorResultType()}
+        vector_units = []
+        output_emit_list: list[ContractEmit] = []
+        for unit_index in range(2):
+            accumulator_unit = ValueRef.temporary(
+                f"result_accumulator_unit_{unit_index}"
+            )
+            vector_unit = ValueRef.temporary(f"result_vector_unit_{unit_index}")
+            output_emit_list.extend(
+                (
+                    EmitRegisterSlice(
+                        source=native_result,
+                        result=accumulator_unit,
+                        unit_offset=unit_index,
+                        unit_count=1,
+                    ),
+                    EmitDescriptorOp(
+                        descriptor=_descriptor(
+                            "amd.xdna.aie2p.move.accumulator512.to.vector512"
+                        ),
+                        operands={"src": accumulator_unit},
+                        results={"dst": vector_unit},
+                        result_types={"dst": DescriptorResultType()},
+                        form=DescriptorEmitForm.OP,
+                    ),
+                )
+            )
+            vector_units.append(vector_unit)
+        output_emit_list.append(
+            EmitRegisterConcat(
+                sources=vector_units,
+                result=ValueRef.result("result"),
+            )
+        )
+        output_emits = tuple(output_emit_list)
     return DescriptorRule(
         source_op=vector.vector_extf,
         descriptor=convert,

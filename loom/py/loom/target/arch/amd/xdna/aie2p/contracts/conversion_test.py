@@ -583,6 +583,54 @@ def test_native_bfloat16_packet_conversions_preserve_exact_width_and_rounding() 
         "amd.xdna.aie2p.move.accumulator512.to.vector512",
     ]
 
+    partial_wide_narrow = _rule("native_binary32x17-31_to_bfloat16x17-31")
+    assert [type(emit) for emit in partial_wide_narrow.emit] == [
+        EmitRegisterSlice,
+        EmitDescriptorOp,
+        EmitRegisterSlice,
+        EmitDescriptorOp,
+        EmitRegisterConcat,
+        EmitDescriptorOp,
+        EmitDescriptorOp,
+    ]
+    assert [
+        emit.descriptor.key
+        for emit in partial_wide_narrow.emit
+        if isinstance(emit, EmitDescriptorOp)
+    ] == [
+        "amd.xdna.aie2p.move.vector512.to.accumulator512",
+        "amd.xdna.aie2p.move.vector512.to.accumulator512",
+        "amd.xdna.aie2p.state.rounding.immediate",
+        "amd.xdna.aie2p.convert.f32x32.to.bf16x32",
+    ]
+    assert [partial_wide_narrow.emit[index].unit_offset for index in (0, 2)] == [
+        0,
+        2,
+    ]
+
+    partial_wide_widen = _rule("native_bfloat16x17-31_to_binary32x17-31")
+    assert [type(emit) for emit in partial_wide_widen.emit] == [
+        EmitDescriptorOp,
+        EmitRegisterSlice,
+        EmitDescriptorOp,
+        EmitRegisterSlice,
+        EmitDescriptorOp,
+        EmitRegisterConcat,
+    ]
+    assert [
+        emit.descriptor.key
+        for emit in partial_wide_widen.emit
+        if isinstance(emit, EmitDescriptorOp)
+    ] == [
+        "amd.xdna.aie2p.convert.bf16x32.to.f32x32",
+        "amd.xdna.aie2p.move.accumulator512.to.vector512",
+        "amd.xdna.aie2p.move.accumulator512.to.vector512",
+    ]
+    assert [partial_wide_widen.emit[index].unit_offset for index in (1, 3)] == [
+        0,
+        1,
+    ]
+
 
 def test_bfloat16_packet_to_signed_i32_is_exact_over_defined_domain() -> None:
     rule = _rule("exact_bfloat16x16_to_signed_i32x16")
