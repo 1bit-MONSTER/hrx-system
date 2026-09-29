@@ -383,126 +383,6 @@ TEST(LinuxGpuMemoryProfileTest, DeviceWrapperPreservesSelectedSitePolicy) {
   }
 }
 
-class LinuxGpuGfx942SiteTest
-    : public ::testing::TestWithParam<amdf_memory_access_t> {};
-
-TEST_P(LinuxGpuGfx942SiteTest, PreservesPermissionsWithoutClaimingAtomics) {
-  auto device = MakeDiscreteGfx942Device();
-  amdf_gpu_endpoint_profile_t endpoint = {};
-  ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
-  ASSERT_EQ(endpoint.queue_family_count, 2u);
-  ASSERT_EQ(endpoint.queue_families[0].command_type,
-            AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
-  ASSERT_EQ(endpoint.queue_families[1].command_type,
-            AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
-  amdf_memory_site_capabilities_t permissions = 0;
-  if ((GetParam() & AMDF_MEMORY_ACCESS_READ) != 0) {
-    permissions |= AMDF_MEMORY_SITE_CAPABILITY_READ;
-  }
-  if ((GetParam() & AMDF_MEMORY_ACCESS_WRITE) != 0) {
-    permissions |= AMDF_MEMORY_SITE_CAPABILITY_WRITE;
-  }
-  for (uint32_t ordinal : {0u, 1u}) {
-    SCOPED_TRACE(ordinal);
-    const auto profile = QueryProfile(&device, ordinal);
-    ASSERT_NE(profile.visibility.describe_site, nullptr);
-    for (uint32_t i = 0; i < endpoint.queue_family_count; ++i) {
-      const auto& family = endpoint.queue_families[i];
-      SCOPED_TRACE(family.command_type);
-      const amdf_memory_site_query_t query = {
-          .access = GetParam(),
-          .flags = profile.guaranteed_flags,
-          .queue_family_info = &family,
-      };
-      amdf_memory_site_description_t description;
-      std::memset(&description, 0xA5, sizeof(description));
-      ASSERT_EQ(profile.visibility.describe_site(&query, &description),
-                AMDF_STATUS_OK);
-      EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
-      EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
-      EXPECT_FALSE(amdf_memory_compatibility_domain_is_valid(
-          &description.atomic_domain));
-      if (family.command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
-        EXPECT_EQ(description.capabilities,
-                  permissions | AMDF_MEMORY_SITE_CAPABILITY_RELEASE_COST_KNOWN |
-                      AMDF_MEMORY_SITE_CAPABILITY_ACQUIRE_COST_KNOWN);
-        ExpectNoCacheTransitions(description);
-      } else {
-        EXPECT_EQ(description.capabilities, permissions);
-        ExpectGlobalQueueTransitions(description);
-      }
-    }
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(Access, LinuxGpuGfx942SiteTest,
-                         ::testing::Values(AMDF_MEMORY_ACCESS_READ,
-                                           AMDF_MEMORY_ACCESS_WRITE,
-                                           AMDF_MEMORY_ACCESS_READ |
-                                               AMDF_MEMORY_ACCESS_WRITE));
-
-TEST(LinuxGpuMemoryProfileTest, BoundsSdmaNoCacheSitesToNativePolicy) {
-  struct Case {
-    // Native no-cache transfer premise changed on the source device.
-    const char* name;
-    // Changes only native metadata; no device operation is performed.
-    void (*mutate)(amdf_gpu_umd_device_t* device);
-  };
-  const Case cases[] = {
-      {"no_discrete_memory",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.memory_features = 0;
-       }},
-      {"compute_major",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.properties.gfx_ip.major = 10;
-       }},
-      {"compute_minor",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.properties.gfx_ip.minor = 0;
-       }},
-      {"earlier_compute_target",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.properties.gfx_ip.stepping = 1;
-       }},
-      {"later_compute_target",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.properties.gfx_ip.stepping = 3;
-       }},
-      {"inexact_sdma",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.sdma.ip.exact = false;
-       }},
-      {"sdma_major",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.sdma.ip.major = 6;
-       }},
-      {"sdma_minor",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.sdma.ip.minor = 3;
-       }},
-      {"sdma_revision",
-       [](amdf_gpu_umd_device_t* device) {
-         device->topology.sdma.ip.revision = 3;
-       }},
-  };
-  for (const auto& test_case : cases) {
-    SCOPED_TRACE(test_case.name);
-    auto device = MakeDiscreteGfx942Device();
-    test_case.mutate(&device);
-    const uint32_t profile_count =
-        (device.topology.memory_features & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY)
-            ? 2u
-            : 1u;
-    for (uint32_t ordinal = 0; ordinal < profile_count; ++ordinal) {
-      SCOPED_TRACE(ordinal);
-      const auto profile = QueryProfile(&device, ordinal);
-      ExpectSiteUnsupported(profile, kTransferFamily);
-      ExpectGlobalQueueTransitions(profile, kComputeFamily);
-    }
-  }
-}
-
 TEST(LinuxGpuMemoryProfileTest, RequiresExactQueueRolesAndCacheOperations) {
   auto device = MakeDiscreteGfx942Device();
   for (uint32_t ordinal : {0u, 1u}) {
@@ -659,7 +539,7 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupUsesEachConsumersSelectedPolicy) {
   auto qualified = MakeDiscreteGfx942Device();
   auto unqualified = MakeDiscreteGfx942Device();
   unqualified.topology.gpu_id = 73;
-  unqualified.topology.memory_features = 0;
+  unqualified.topology.sdma.ip.exact = false;
   const auto qualified_profile = QueryProfile(&qualified, 0);
   const auto unqualified_profile = QueryProfile(&unqualified, 0);
   auto projected = qualified_profile;
@@ -1055,6 +935,168 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupStoresRemainConsumerSpecific) {
             AMDF_STATUS_OK);
   EXPECT_EQ(description.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
   EXPECT_EQ(description.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+}
+
+static amdf_gpu_umd_device_t MakeLegacySdmaMemoryDevice() {
+  amdf_gpu_umd_device_t device = {};
+  device.native_lifetime = AMDF_NATIVE_LIFETIME_PROCESS;
+  device.page_size = 4096;
+  device.topology.gpu_id = 41;
+  device.topology.sdma.ip = {4, 4, 2, true};
+  device.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
+  device.topology.virtual_address.begin = UINT64_C(0x10000);
+  device.topology.virtual_address.end = UINT64_C(1) << 48;
+  return device;
+}
+
+static constexpr amdf_queue_family_info_t kLegacySdmaFamily = {
+    .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+    .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
+    .roles = AMDF_QUEUE_ROLE_TRANSFER,
+};
+
+TEST(LinuxGpuMemoryProfileTest,
+     LegacySdmaVisibilityUsesNativeEngineAndBacking) {
+  const amdf_memory_access_t accesses[] = {
+      AMDF_MEMORY_ACCESS_READ, AMDF_MEMORY_ACCESS_WRITE,
+      AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE};
+  // Compiler ISA is intentionally absent: it does not select SDMA cache policy.
+  for (uint32_t revision : {2u, 4u, 5u}) {
+    SCOPED_TRACE(revision);
+    auto device = MakeLegacySdmaMemoryDevice();
+    device.topology.sdma.ip.revision = revision;
+    for (amdf_gpu_device_features_t features :
+         {amdf_gpu_device_features_t{0},
+          amdf_gpu_device_features_t{AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY}}) {
+      SCOPED_TRACE(features);
+      device.topology.memory_features = features;
+      const uint32_t count = features == 0 ? 1 : 2;
+      for (uint32_t ordinal = 0; ordinal < count; ++ordinal) {
+        SCOPED_TRACE(ordinal);
+        const auto profile = QueryProfile(&device, ordinal);
+        ASSERT_NE(profile.visibility.describe_site, nullptr);
+        ASSERT_NE(profile.visibility.describe_host, nullptr);
+        for (const auto& family : {kLegacySdmaFamily, kComputeFamily}) {
+          SCOPED_TRACE(family.command_type);
+          for (amdf_memory_access_t access : accesses) {
+            SCOPED_TRACE(access);
+            const amdf_memory_site_query_t query = {
+                .access = access,
+                .flags = profile.guaranteed_flags,
+                .queue_family_info = &family,
+            };
+            amdf_memory_site_description_t description;
+            std::memset(&description, 0xA5, sizeof(description));
+            ASSERT_EQ(profile.visibility.describe_site(&query, &description),
+                      AMDF_STATUS_OK);
+            const amdf_memory_site_capabilities_t permissions =
+                ((access & AMDF_MEMORY_ACCESS_READ) != 0
+                     ? AMDF_MEMORY_SITE_CAPABILITY_READ
+                     : 0) |
+                ((access & AMDF_MEMORY_ACCESS_WRITE) != 0
+                     ? AMDF_MEMORY_SITE_CAPABILITY_WRITE
+                     : 0);
+            if (family.command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
+              EXPECT_EQ(description.capabilities,
+                        permissions |
+                            AMDF_MEMORY_SITE_CAPABILITY_RELEASE_COST_KNOWN |
+                            AMDF_MEMORY_SITE_CAPABILITY_ACQUIRE_COST_KNOWN);
+              ExpectNoCacheTransitions(description);
+            } else {
+              EXPECT_EQ(description.capabilities, permissions);
+              ExpectGlobalQueueTransitions(description);
+            }
+            EXPECT_EQ(description.atomic_reach.scope_32,
+                      AMDF_ATOMIC_SCOPE_NONE);
+            EXPECT_EQ(description.atomic_reach.scope_64,
+                      AMDF_ATOMIC_SCOPE_NONE);
+            EXPECT_FALSE(amdf_memory_compatibility_domain_is_valid(
+                &description.atomic_domain));
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(LinuxGpuMemoryProfileTest, LegacySdmaPolicyExcludesOtherNativeEngines) {
+  const amdf_gpu_kfd_ip_version_t versions[] = {
+      {4, 4, 2, false}, {4, 4, 0, true}, {4, 4, 3, true}, {4, 4, 6, true},
+      {4, 3, 2, true},  {5, 4, 2, true}, {6, 1, 1, true}, {7, 1, 0, true},
+  };
+  for (const auto& ip : versions) {
+    SCOPED_TRACE(::testing::Message() << ip.major << "." << ip.minor << "."
+                                      << ip.revision << " exact=" << ip.exact);
+    auto device = MakeLegacySdmaMemoryDevice();
+    device.topology.sdma.ip = ip;
+    for (uint32_t ordinal : {0u, 1u}) {
+      const auto profile = QueryProfile(&device, ordinal);
+      EXPECT_EQ(profile.visibility.describe_site,
+                amdf_gpu_umd_memory_describe_site);
+    }
+  }
+}
+
+TEST(LinuxGpuMemoryProfileTest,
+     LegacySdmaGroupPolicyPreservesBackingOwnership) {
+  auto source = MakeLegacySdmaMemoryDevice();
+  auto consumer = source;
+  const auto backing = QueryProfile(&source, 1);
+  const auto system = QueryProfile(&consumer, 0);
+  auto projected = system;
+  ASSERT_TRUE(backing.construction.query_access(&backing, &system, &projected));
+  EXPECT_EQ(projected.visibility.describe_site,
+            backing.visibility.describe_site);
+  EXPECT_EQ(projected.visibility.data, &consumer);
+  EXPECT_EQ(projected.construction.data, &consumer.topology);
+
+  consumer.topology.gpu_id = 73;
+  uint32_t source_gpu_id = source.topology.gpu_id;
+  consumer.topology.memory_peers.count = 1;
+  consumer.topology.memory_peers.gpu_ids = &source_gpu_id;
+  ASSERT_TRUE(backing.construction.query_access(&backing, &system, &projected));
+  EXPECT_EQ(projected.visibility.describe_site,
+            system.visibility.describe_site);
+  const amdf_memory_site_query_t query = {
+      .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+      .flags = projected.guaranteed_flags,
+      .queue_family_info = &kLegacySdmaFamily,
+  };
+  amdf_memory_site_description_t description;
+  std::memset(&description, 0xA5, sizeof(description));
+  const auto original = description;
+  EXPECT_EQ(amdf_status_code(
+                projected.visibility.describe_site(&query, &description)),
+            AMDF_STATUS_CODE_UNSUPPORTED);
+  EXPECT_EQ(std::memcmp(&description, &original, sizeof(description)), 0);
+}
+
+TEST(LinuxGpuMemoryProfileTest, LegacySdmaExcludesHostApertureAndRegistration) {
+  auto device = MakeLegacySdmaMemoryDevice();
+  device.topology.memory_features |=
+      AMDF_GPU_DEVICE_FEATURE_HOST_VISIBLE_LOCAL_MEMORY;
+  const auto local = QueryProfile(&device, 1);
+  for (amdf_memory_flags_t flags :
+       {local.guaranteed_flags | AMDF_MEMORY_FLAG_HOST_VISIBLE,
+        local.guaranteed_flags | AMDF_MEMORY_FLAG_HOST_VISIBLE |
+            AMDF_MEMORY_FLAG_HOST_COHERENT,
+        local.guaranteed_flags & ~AMDF_MEMORY_FLAG_DEVICE_LOCAL}) {
+    const amdf_memory_site_query_t query = {
+        .access = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE,
+        .flags = flags,
+        .queue_family_info = &kLegacySdmaFamily,
+    };
+    amdf_memory_site_description_t description;
+    std::memset(&description, 0xA5, sizeof(description));
+    const auto original = description;
+    EXPECT_EQ(
+        amdf_status_code(local.visibility.describe_site(&query, &description)),
+        AMDF_STATUS_CODE_UNSUPPORTED);
+    EXPECT_EQ(std::memcmp(&description, &original, sizeof(description)), 0);
+  }
+  const auto registered = QueryProfile(&device, 2);
+  EXPECT_EQ(registered.visibility.describe_site,
+            amdf_gpu_umd_memory_describe_site);
 }
 
 }  // namespace

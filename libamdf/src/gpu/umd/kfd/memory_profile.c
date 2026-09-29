@@ -38,21 +38,22 @@ static amdf_status_t amdf_gpu_kfd_sdma_describe_site(
   return AMDF_STATUS_OK;
 }
 
-// Discrete gfx942 GTT has UC, CPU-snooped PTEs in the native GMC v9 policy.
-static amdf_status_t amdf_gpu_kfd_gfx942_system_describe_site(
+// Owned coherent GTT follows the selected engine's no-GCR transfer path.
+// This does not imply that compute accesses bypass their own data caches.
+static amdf_status_t amdf_gpu_kfd_sdma_system_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {
-  // Remote LOCAL projection retains this consumer policy but excludes
-  // HOST_COHERENT, so it cannot inherit the owned SYSTEM visibility rule.
+  // A remote LOCAL projection retains consumer policy but cannot inherit
+  // the owned SYSTEM backing's host-coherent construction contract.
   if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
     return amdf_gpu_umd_memory_describe_site(query, out_description);
   }
   return amdf_gpu_kfd_sdma_describe_site(query, out_description);
 }
 
-// Owned same-GPU VRAM needs no SDMA payload cache action. A host-visible
-// aperture needs a separate HDP contract and excludes that SDMA policy.
-static amdf_status_t amdf_gpu_kfd_gfx942_local_describe_site(
+// Same-GPU device-only VRAM excludes host aperture writes and their separate
+// HDP maintenance. Compute queues still require their own payload fences.
+static amdf_status_t amdf_gpu_kfd_sdma_local_describe_site(
     const amdf_memory_site_query_t* query,
     amdf_memory_site_description_t* out_description) {
   if ((query->flags &
@@ -125,17 +126,13 @@ static amdf_status_t amdf_gpu_kfd_gfx1151_system_store_sdma_describe_site(
                                                          out_description);
 }
 
-// LOCAL_MEMORY is a positive discrete-GPU fact in KFD topology. Compiler
-// gfx942 covers native GC9.4.3/4; exact SDMA4.4.2 supplies the transfer path.
-static bool amdf_gpu_kfd_supports_gfx942_staged_visibility(
+// Linux selects sdma_v4_4_2 for these engines; ROCr uses its V4 no-GCR path
+// across CDNA. This is independent of compiler ISA and compute PTE MTYPE.
+static bool amdf_gpu_kfd_supports_legacy_sdma_visibility(
     const amdf_gpu_kfd_topology_t* topology) {
-  return (topology->memory_features & AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) !=
-             0 &&
-         topology->properties.gfx_ip.major == 9 &&
-         topology->properties.gfx_ip.minor == 4 &&
-         topology->properties.gfx_ip.stepping == 2 && topology->sdma.ip.exact &&
-         topology->sdma.ip.major == 4 && topology->sdma.ip.minor == 4 &&
-         topology->sdma.ip.revision == 2;
+  const amdf_gpu_kfd_ip_version_t* ip = &topology->sdma.ip;
+  return ip->exact && ip->major == 4 && ip->minor == 4 &&
+         (ip->revision == 2 || ip->revision == 4 || ip->revision == 5);
 }
 
 static bool amdf_gpu_kfd_supports_gfx1151_system_visibility(
@@ -330,9 +327,8 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
           amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)
               ? amdf_gpu_kfd_gfx1151_system_store_sdma_describe_site
               : amdf_gpu_kfd_gfx1151_system_store_describe_site;
-    } else if (amdf_gpu_kfd_supports_gfx942_staged_visibility(topology)) {
-      profile.visibility.describe_site =
-          amdf_gpu_kfd_gfx942_system_describe_site;
+    } else if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology)) {
+      profile.visibility.describe_site = amdf_gpu_kfd_sdma_system_describe_site;
     } else if (amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)) {
       profile.visibility.describe_site =
           amdf_gpu_kfd_gfx1151_system_describe_site;
@@ -360,9 +356,8 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     if ((profile.roles & AMDF_MEMORY_PROFILE_ROLE_HOST_MAP) != 0) {
       profile.host_mapping = host_mapping;
     }
-    if (amdf_gpu_kfd_supports_gfx942_staged_visibility(topology)) {
-      profile.visibility.describe_site =
-          amdf_gpu_kfd_gfx942_local_describe_site;
+    if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology)) {
+      profile.visibility.describe_site = amdf_gpu_kfd_sdma_local_describe_site;
     }
   } else if (native_lifetime == AMDF_NATIVE_LIFETIME_PROCESS &&
              memory_profile_ordinal == ordinal) {
