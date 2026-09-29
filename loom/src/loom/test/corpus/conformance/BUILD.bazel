@@ -25,6 +25,7 @@ _SCENARIO_CASES = [
     "predicate_logic.loom",
     "predicate_selection.loom",
     "predicate_truncation.loom",
+    "scalar_integer_address.loom",
     "scalar_float_conversion.loom",
     "subgroup_shuffle_participation.loom",
     "subgroup_transport.loom",
@@ -116,6 +117,15 @@ loom_test(
 loom_test(
     name = "predicate_logic_test",
     srcs = ["predicate_logic.loom"],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        WASM_HOSTED_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "scalar_integer_address_test",
+    srcs = ["scalar_integer_address.loom"],
     execution_profiles = [
         AMDGPU_HARDWARE_PROFILE,
         WASM_HOSTED_PROFILE,

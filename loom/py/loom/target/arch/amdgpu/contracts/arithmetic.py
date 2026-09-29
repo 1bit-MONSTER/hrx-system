@@ -2560,11 +2560,6 @@ def _index_madd_power_of_two_rule(
         descriptor=shift,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class(
                 "result",
                 "amdgpu.vgpr",
@@ -2630,11 +2625,6 @@ def _index_madd_power_of_two_lshl_add_rule(
         descriptor=descriptor,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class(
                 "result",
                 "amdgpu.vgpr",
@@ -2680,11 +2670,6 @@ def _index_madd_literal_rule() -> DescriptorRule:
         descriptor=multiply,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class(
                 "result",
                 "amdgpu.vgpr",
@@ -2751,11 +2736,6 @@ def _index_madd_u24_mad_rule(
         descriptor=descriptor,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class(
                 "result",
                 "amdgpu.vgpr",
@@ -2864,11 +2844,6 @@ def _index_madd_u24_mad_literal_rule(
         descriptor=descriptor,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class(
                 "result",
                 "amdgpu.vgpr",
@@ -2910,11 +2885,6 @@ def _index_madd_rule() -> DescriptorRule:
         descriptor=multiply,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), _INDEX),
-            Guard.value_unsigned_bit_count(
-                "result",
-                32,
-                diagnostic=_ADDRESS_U32_DIAGNOSTIC,
-            ),
             Guard.low_value_register_class(
                 "result",
                 "amdgpu.vgpr",
