@@ -286,6 +286,36 @@ CHECK-NOT: *test.fact_range_*
 
 // RUN: with-checks pass canonicalize,dce
 
+// A value loaded on the backedge is not a fixed recurrence. The entry and
+// header guard constrain particular observations, but do not bound the value
+// produced by an arbitrary load on a later iteration.
+func.def @loaded_backedge(%links: view<1xi64>) -> (i64, i64) {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %link_index = index.constant 0 : index
+  cfg.br ^header(%begin: index)
+^header(%counter: index):
+  %lo = test.fact_range_lo %counter : index -> i64
+  %hi = test.fact_range_hi %counter : index -> i64
+  %more = index.cmp slt, %counter, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %loaded = view.load %links[%link_index] : view<1xi64> -> i64
+  %next = index.cast %loaded : i64 to index
+  cfg.br ^header(%next: index)
+^exit:
+  func.return %lo, %hi : i64, i64
+}
+
+// ----
+CHECK: %lo = scalar.constant -9223372036854775808 : i64
+CHECK: %hi = scalar.constant 9223372036854775807 : i64
+CHECK-NOT: *test.fact_range_*
+
+// ====
+
+// RUN: with-checks pass canonicalize,dce
+
 func.def @skipped_update(%choice: i1) -> (i64, i64) {
   %begin = index.constant 0 : index
   %end = index.constant 4 : index
