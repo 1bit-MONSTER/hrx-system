@@ -8,7 +8,11 @@
 # bazel-to-cmake: skip
 
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
-load("//build_tools/bazel:executable.bzl", "iree_executable_test")
+load(
+    "//build_tools/bazel:executable.bzl",
+    "iree_executable_test",
+    "iree_wasi_executable_alias",
+)
 load(":wasm_rules_test.bzl", "wasm_rules_test_suite")
 
 package(default_visibility = ["//visibility:public"])
@@ -42,4 +46,17 @@ iree_executable_test(
         "@platforms//cpu:wasm32",
         "@platforms//os:wasi",
     ],
+)
+
+iree_wasi_executable_alias(
+    name = "hosted_wasi_toolchain_smoke",
+    src = ":wasi_toolchain_smoke",
+    wasm_main = "//build_tools/wasm:wasm_test_main.mjs",
+)
+
+iree_executable_test(
+    name = "hosted_wasi_toolchain_smoke_test",
+    src = ":hosted_wasi_toolchain_smoke",
+    args = ["$(rootpath :wasi_toolchain_smoke.txt)"],
+    data = [":wasi_toolchain_smoke.txt"],
 )

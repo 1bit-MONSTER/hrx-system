@@ -39,6 +39,22 @@ _LAUNCHER_CONFIGURATION = {
     "@rules_cc//:link_extra_libs": "@rules_cc//:empty_lib",
 }
 
+# A host wrapper may be requested from an instrumented native build, but the
+# WASI SDK has its own target feature set and no native sanitizer runtimes.
+# Retain semantic build settings while removing host compiler customization.
+_WASI_CONFIGURATION = {
+    "//build_tools/bazel:sanitizer": False,
+    "//command_line_option:cc_output_directory_tag": "",
+    "//command_line_option:collect_code_coverage": False,
+    "//command_line_option:conlyopt": [],
+    "//command_line_option:copt": [],
+    "//command_line_option:cxxopt": [],
+    "//command_line_option:features": [],
+    "//command_line_option:linkopt": [],
+    "//command_line_option:per_file_copt": [],
+    "//command_line_option:platforms": [Label("//build_tools/wasm:wasm32_wasi")],
+}
+
 def _launcher_transition_impl(_settings, _attr):
     return _LAUNCHER_CONFIGURATION
 
@@ -46,6 +62,15 @@ _launcher_transition = transition(
     implementation = _launcher_transition_impl,
     inputs = [],
     outputs = _LAUNCHER_CONFIGURATION.keys(),
+)
+
+def _wasi_transition_impl(_settings, _attr):
+    return _WASI_CONFIGURATION
+
+_wasi_transition = transition(
+    implementation = _wasi_transition_impl,
+    inputs = [],
+    outputs = _WASI_CONFIGURATION.keys(),
 )
 
 IreeExecutableInfo = provider(
@@ -58,16 +83,26 @@ IreeExecutableInfo = provider(
     },
 )
 
+def _source_target(ctx):
+    source = ctx.attr.src
+    if type(source) == type([]):
+        if len(source) != 1:
+            fail("%s expected one configured source executable" % ctx.label)
+        source = source[0]
+    return source
+
 def _merge_runfiles(ctx):
+    source = _source_target(ctx)
     runfiles = ctx.runfiles(files = ctx.files.data)
     return runfiles.merge_all(
-        [ctx.attr.src[DefaultInfo].default_runfiles] +
+        [source[DefaultInfo].default_runfiles] +
         [target[DefaultInfo].default_runfiles for target in ctx.attr.data],
     )
 
 def _expand_env(ctx):
+    source = _source_target(ctx)
     return {
-        key: ctx.expand_location(value, ctx.attr.data + [ctx.attr.src])
+        key: ctx.expand_location(value, ctx.attr.data + [source])
         for key, value in ctx.attr.env.items()
     }
 
@@ -96,7 +131,7 @@ def _needs_windows_launcher(ctx, output):
     source_output_directory = ctx.executable.src.dirname
     if source_output_directory == output.dirname:
         return False
-    for file in ctx.attr.src[DefaultInfo].default_runfiles.files.to_list():
+    for file in _source_target(ctx)[DefaultInfo].default_runfiles.files.to_list():
         if (
             file.dirname == source_output_directory and
             file.extension.lower() == "dll"
@@ -141,7 +176,7 @@ def _wasm_entry(ctx, allow_default_test_main):
             main = ctx.file.wasm_main,
             srcs = [],
         )
-    entry = discover_wasm_entry([ctx.attr.src])
+    entry = discover_wasm_entry([_source_target(ctx)])
     if entry != None:
         return struct(
             main = entry.main,
@@ -164,7 +199,7 @@ def _wasm_executable_output(ctx, allow_default_test_main):
         ctx = ctx,
         wasm_binary = ctx.executable.src,
         main_js = entry.main,
-        cc_deps = [ctx.attr.src],
+        cc_deps = [_source_target(ctx)],
         bundler = ctx.executable._wasm_bundler,
         main_srcs = entry.srcs,
     )
@@ -195,17 +230,8 @@ def _wasm_executable_output(ctx, allow_default_test_main):
         ]),
     )
 
-def _iree_executable_alias_impl(ctx):
-    if _is_wasm_target(ctx):
-        wasm_output = _wasm_executable_output(ctx, allow_default_test_main = False)
-        output = wasm_output.output
-        runfiles = _merge_runfiles(ctx).merge(wasm_output.runfiles)
-        launch_environment = {}
-    else:
-        native_output = _native_executable_output(ctx)
-        output = native_output.output
-        runfiles = _merge_runfiles(ctx).merge(native_output.runfiles)
-        launch_environment = native_output.launch_environment
+def _executable_alias_providers(ctx, output, runfiles, launch_environment):
+    source = _source_target(ctx)
     providers = [
         DefaultInfo(
             executable = output,
@@ -216,13 +242,13 @@ def _iree_executable_alias_impl(ctx):
             data = depset(ctx.files.data),
             env = {},
             output = output,
-            src = ctx.attr.src.label,
+            src = source.label,
         ),
     ]
     environment = {}
     inherited_environment = []
-    if RunEnvironmentInfo in ctx.attr.src:
-        source_environment = ctx.attr.src[RunEnvironmentInfo]
+    if RunEnvironmentInfo in source:
+        source_environment = source[RunEnvironmentInfo]
         environment.update(source_environment.environment)
         inherited_environment.extend(source_environment.inherited_environment)
     _merge_launch_environment(
@@ -238,15 +264,42 @@ def _iree_executable_alias_impl(ctx):
         ))
     runfiles_arguments = create_runfiles_arguments_info(
         ctx,
-        ctx.attr.data + [ctx.attr.src],
+        ctx.attr.data + [source],
     )
     if runfiles_arguments != None:
         providers.append(runfiles_arguments)
     return inject_execution_requirements(
         ctx,
         providers,
-        ctx.attr.data + [ctx.attr.src],
+        ctx.attr.data + [source],
         output,
+    )
+
+def _iree_executable_alias_impl(ctx):
+    if _is_wasm_target(ctx):
+        wasm_output = _wasm_executable_output(ctx, allow_default_test_main = False)
+        output = wasm_output.output
+        runfiles = _merge_runfiles(ctx).merge(wasm_output.runfiles)
+        launch_environment = {}
+    else:
+        native_output = _native_executable_output(ctx)
+        output = native_output.output
+        runfiles = _merge_runfiles(ctx).merge(native_output.runfiles)
+        launch_environment = native_output.launch_environment
+    return _executable_alias_providers(
+        ctx,
+        output,
+        runfiles,
+        launch_environment,
+    )
+
+def _iree_wasi_executable_alias_impl(ctx):
+    wasm_output = _wasm_executable_output(ctx, allow_default_test_main = False)
+    return _executable_alias_providers(
+        ctx,
+        wasm_output.output,
+        _merge_runfiles(ctx).merge(wasm_output.runfiles),
+        {},
     )
 
 def _iree_executable_test_impl(ctx):
@@ -262,8 +315,9 @@ def _iree_executable_test_impl(ctx):
         launch_environment = native_output.launch_environment
     expanded_env = {}
     inherited_environment = list(ctx.attr.env_inherit)
-    if RunEnvironmentInfo in ctx.attr.src:
-        source_environment = ctx.attr.src[RunEnvironmentInfo]
+    source = _source_target(ctx)
+    if RunEnvironmentInfo in source:
+        source_environment = source[RunEnvironmentInfo]
         expanded_env.update(source_environment.environment)
         inherited_environment.extend(source_environment.inherited_environment)
     expanded_env.update(_expand_env(ctx))
@@ -284,7 +338,7 @@ def _iree_executable_test_impl(ctx):
             data = depset(ctx.files.data),
             env = expanded_env,
             output = output,
-            src = ctx.attr.src.label,
+            src = source.label,
         ),
         testing.TestEnvironment(
             environment = test_environment,
@@ -293,14 +347,14 @@ def _iree_executable_test_impl(ctx):
     ]
     runfiles_arguments = create_runfiles_arguments_info(
         ctx,
-        ctx.attr.data + [ctx.attr.src],
+        ctx.attr.data + [source],
     )
     if runfiles_arguments != None:
         providers.append(runfiles_arguments)
     return inject_execution_requirements(
         ctx,
         providers,
-        ctx.attr.data + [ctx.attr.src],
+        ctx.attr.data + [source],
         output,
     )
 
@@ -353,6 +407,16 @@ _SHARED_ATTRS = {
     ),
 }
 
+_WASI_ALIAS_ATTRS = dict(_SHARED_ATTRS)
+_WASI_ALIAS_ATTRS["src"] = attr.label(
+    allow_files = True,
+    aspects = [collect_wasm_js, collect_execution_requirements],
+    cfg = _wasi_transition,
+    doc = "Executable target cross-compiled to WASI and exposed through a host wrapper.",
+    executable = True,
+    mandatory = True,
+)
+
 _TEST_ATTRS = dict(_SHARED_ATTRS)
 _TEST_ATTRS["env"] = attr.string_dict(
     doc = "Environment variables passed to the wrapped executable. Values may use $(location) for src or data labels.",
@@ -365,6 +429,13 @@ _iree_executable_alias = rule(
     implementation = _iree_executable_alias_impl,
     attrs = _SHARED_ATTRS,
     doc = "Exposes an executable target or file as another executable target.",
+    executable = True,
+)
+
+_iree_wasi_executable_alias = rule(
+    implementation = _iree_wasi_executable_alias_impl,
+    attrs = _WASI_ALIAS_ATTRS,
+    doc = "Cross-compiles an executable to WASI and exposes a host-launchable alias.",
     executable = True,
 )
 
@@ -394,6 +465,20 @@ iree_executable_alias = macro(
     inherit_attrs = _iree_executable_alias,
     attrs = {"windows_launcher": None},
     doc = "Exposes an executable target or file as another executable target.",
+)
+
+def _wasi_executable_alias_macro_impl(name, visibility, **kwargs):
+    _iree_wasi_executable_alias(
+        name = name,
+        visibility = visibility,
+        **kwargs
+    )
+
+iree_wasi_executable_alias = macro(
+    inherit_attrs = _iree_wasi_executable_alias,
+    implementation = _wasi_executable_alias_macro_impl,
+    attrs = {"windows_launcher": None},
+    doc = "Cross-compiles an executable to WASI and exposes a host-launchable alias.",
 )
 
 def _executable_test_macro_impl(name, visibility, tags, resource_group, **kwargs):

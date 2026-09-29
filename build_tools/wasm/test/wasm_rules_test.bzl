@@ -12,6 +12,7 @@ load(
     "//build_tools/bazel:executable.bzl",
     "IreeExecutableInfo",
     "iree_executable_alias",
+    "iree_wasi_executable_alias",
 )
 load(
     "//build_tools/wasm:build_defs.bzl",
@@ -205,6 +206,42 @@ def _test_executable_alias_accepts_explicit_wasm_main_impl(env, target):
     )
     _expect_basename(env, bundle_action.inputs.to_list(), "entry_main.mjs")
 
+def _test_wasi_executable_alias_cross_compiles_source(name, **kwargs):
+    _wasm_fixture_targets(name)
+    iree_wasi_executable_alias(
+        name = name + "_subject",
+        src = ":" + name + "_wasm",
+        tags = ["manual"],
+    )
+    analysis_test(
+        name = name,
+        attr_values = {
+            "timeout": "short",
+        },
+        impl = _test_wasi_executable_alias_cross_compiles_source_impl,
+        target = name + "_subject",
+        **kwargs
+    )
+
+def _test_wasi_executable_alias_cross_compiles_source_impl(env, target):
+    info = target[IreeExecutableInfo]
+    env.expect.that_str(info.output.basename).equals(target.label.name)
+    bundle_action = _find_action_with_mnemonic(
+        env,
+        target[TestingAspectInfo].actions,
+        "IreeWasmBundle",
+    )
+    _expect_basename(
+        env,
+        bundle_action.inputs.to_list(),
+        info.src.name + ".wasm",
+    )
+    _expect_basename(
+        env,
+        target[DefaultInfo].default_runfiles.files.to_list(),
+        target.label.name + ".wasm",
+    )
+
 def wasm_rules_test_suite(name):
     test_suite(
         name = name,
@@ -213,5 +250,6 @@ def wasm_rules_test_suite(name):
             _test_wasm_cc_library_provides_cc_info_and_js_modules,
             _test_wasm_entry_records_main_and_sources,
             _test_executable_alias_bundles_wasm_target,
+            _test_wasi_executable_alias_cross_compiles_source,
         ],
     )
