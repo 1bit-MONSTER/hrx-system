@@ -104,6 +104,7 @@ iree_cc_library(
   HDRS
     "context.h"
     "direct_transfer.h"
+    "event.h"
     "event_timestamp_pool.h"
     "fat_binary.h"
     "graph.h"
