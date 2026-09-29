@@ -39,6 +39,7 @@ python dev.py bazel run //loom/src/loom/tools/loom-opt:loom-opt -- \
 | `global_load_b32`, packed bytes, `q8`, bitfield, unpack | `vector.load`, `vector.bitunpacks<8>`, `scalar.extf`, `vector.dotf` | `q8_block_unroll.loom` |
 | `global_load_b32`, `global_load_b128`, `uint4`, adjacent scalar loads, coalescing | `vector.load -> vector<1xi32>` versus `vector.load -> vector<4xi32>` | `q8_load_width.loom` |
 | `__shared__`, `__syncthreads`, LDS, tile staging, cross-lane exchange | `buffer.alloca ... memory_space = workgroup`, `buffer.view`, `kernel.barrier<workgroup>` | `shared_memory_tile.loom` |
+| `__shared__`, LDS reuse, split barrier, `s_barrier_signal`, `s_barrier_wait` | target-selected `kernel.barrier.arrive`/`kernel.barrier.wait` provider with a complete-barrier fallback | [`split_barrier_reuse.loom`](../../../../tooling/target/amdgpu/test/corpus/split_barrier_reuse.loom) |
 | `__shared__`, `__syncthreads`, LDS, 2D tile, transpose, double buffering | two workgroup `buffer.alloca` tiles, x/y workitem ids, repeated `kernel.barrier<workgroup>` | `shared_memory_transpose.loom` |
 | `__shared__`, `__syncthreads`, LDS, `uint4`, `int4`, `ds_store_b128`, `ds_load_b128` | `vector.load -> vector<4xi32>` staged through workgroup memory | `shared_memory_vector_tile.loom` |
 | `q8`, `q4`, `u8`, `s8`, `u4`, `s4`, `v_dot4_i32_iu8`, `dp4a` | `vector.bitunpacku`, `vector.bitunpacks`, `vector.dot4i<u8s8>` | `q8_q4_signedness.loom` |
@@ -325,6 +326,60 @@ Expected signal: `case_shared_memory_tile_reverse` passes.
 For the 64-element i32 tile, the compile report records `local_memory_bytes` as
 `256`, two local memory instructions, and one barrier. On AMDGPU targets, object
 disassembly should show LDS read/write instructions and a workgroup barrier.
+
+## Split Barrier Tile Reuse
+
+Tags: `__shared__`, `LDS reuse`, `split barrier`, `s_barrier_signal`,
+`s_barrier_wait`, `private work`, `template provider`, `GFX12`, `GFX12.5`.
+
+A complete `__syncthreads()` remains the right translation when publication,
+rendezvous, and reuse happen at one point. When every workitem finishes its
+last shared read before independent register-only work, Loom can state the
+larger scheduling window directly:
+
+```loom
+%observed = view.load %tile[%peer] : view<64xi32> -> i32
+%phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+%updated = func.call pure @private_work(%observed, %sum) : (i32, i32) -> (i32)
+kernel.barrier.wait %phase : kernel.barrier.phase
+// The next loop iteration may now overwrite %tile.
+```
+
+Arrival says that this participant has finished the shared phase. The unique
+wait prevents the next overwrite until every participant has arrived. All
+workitems execute matching dynamic pairs; divergent participation is invalid.
+Only ordinary per-workitem work and pure calls sit between the pair. The
+publication barrier before the shared read remains a separate synchronization
+point.
+
+The [checked source](../../../../tooling/target/amdgpu/test/corpus/split_barrier_reuse.loom)
+wraps this sequence in a targetless template family. GFX12 and GFX12.5 select
+native split providers; CDNA3, GFX11, and SPIR-V select the complete-barrier
+fallback without changing the caller. It repeats the phase four times, includes
+nested control that is subgroup-uniform for the split providers and pure
+helpers, and compares the selected result bitwise with a full-barrier reference.
+
+Proof commands from this directory:
+
+```bash
+source=../../../../tooling/target/amdgpu/test/corpus/split_barrier_reuse.loom
+
+iree-test-loom "${source}" --device=amdgpu
+loom-compile "${source}" --root=@selected_barrier_reuse \
+  --target=amdgpu:gfx1200 --format=amdgpu-hsaco \
+  --output=/tmp/split-barrier.hsaco --compile-report=details \
+  --compile-report-output=/tmp/split-barrier.report.json
+loom-compile-report show /tmp/split-barrier.report.json
+```
+
+Expected report signal: `Barrier realization (compiler analysis)` contains
+complete, arrive, and wait rows with the GFX12 split-barrier plan keys. Native
+output orders LDS read completion, `s_barrier_signal`, useful private
+instructions, and `s_barrier_wait` before the next LDS overwrite. Repeat the
+compile for `amdgpu:gfx1100` to confirm that the same source reports only
+complete barriers. The
+[loop-scheduling workflow](https://rocm.github.io/hrx-system/loom/workflows/tune-loop-schedules/#overlap-private-work-with-shared-tile-release)
+owns the full comparison and cost checklist.
 
 ## Shared Memory Transpose
 

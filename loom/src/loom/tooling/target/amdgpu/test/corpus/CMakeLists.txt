@@ -84,22 +84,22 @@ loom_check_compile_tests(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_GFX12_GENERIC_CORE OR LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_RDNA4_CORE))
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
 loom_test_module(
   NAME
-    gfx12_split_barrier_reuse_test_module
+    split_barrier_provider_test_module
   SRCS
-    "gfx12/split_barrier_reuse.loom"
+    "split_barrier_reuse.loom"
 )
 endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_GFX12_GENERIC_CORE OR LOOM_TARGET_AMDGPU_IREE_HAL_DESCRIPTOR_SET_RDNA4_CORE))
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    gfx12_split_barrier_reuse_test_execute_amdgpu_hardware_test
+    split_barrier_provider_test_execute_amdgpu_hardware_test
   MODULE
-    "::gfx12_split_barrier_reuse_test_module"
+    "::split_barrier_provider_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS
@@ -121,9 +121,9 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
 loom_execution_test(
   NAME
-    gfx12_split_barrier_reuse_test_execute_amdgpu_access_test
+    split_barrier_provider_test_execute_amdgpu_access_test
   MODULE
-    "::gfx12_split_barrier_reuse_test_module"
+    "::split_barrier_provider_test_module"
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
@@ -146,12 +146,15 @@ endif()
 
 loom_check_compile_tests(
   NAME
-    "gfx12_split_barrier_reuse_test"
+    "split_barrier_provider_test"
   SRC
-    "::gfx12_split_barrier_reuse_test_module"
+    "::split_barrier_provider_test_module"
   TARGETS
+    loom::target::amdgpu::gfx1100
     loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1201
+    loom::target::amdgpu::gfx1250
+    loom::target::amdgpu::gfx942
+    loom::target::spirv::vulkan1.3+bda
 )
 endif()
 

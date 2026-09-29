@@ -375,6 +375,19 @@ order without memory waits. Compare native waits and register use along with
 AMDGPU and x86 enforce the contract, while intermediate representations reject
 it when they cannot guarantee final instruction order.
 
+Repeated shared-memory reuse has a separate authoring choice. A full
+`kernel.barrier` keeps rendezvous at one source point; a matching
+`kernel.barrier.arrive` and `kernel.barrier.wait` pair can expose independent
+private work after the last shared read and before the next overwrite. Keep the
+portable algorithm behind one template contract, select a split provider only
+for targets with a native realization, and retain a complete-barrier fallback.
+The [checked split-barrier workflow](tune-loop-schedules.md#overlap-private-work-with-shared-tile-release)
+shows the source shape. In `loom-compile-report show`, confirm the complete,
+arrive, and wait plan keys and their dynamic counts. In native output, confirm
+read completion, signal, useful work, wait, and overwrite in that order, then
+compare registers, spills, residency, code size, and measured runtime with the
+full-barrier control.
+
 ## Ask the compiler before asking the GPU
 
 The baseline and candidate compile under the same root, workload,
