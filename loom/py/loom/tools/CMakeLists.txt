@@ -98,12 +98,14 @@ iree_py_test(
     "compile_report_test.py"
     "loom_opt_test.py"
     "pytest_style_runner.py"
+    "pytest_style_runner_test.py"
     "source_lint_test.py"
     "source_surface_test.py"
   ARGS
     "loom.tools.amdgpu_asm_test"
     "loom.tools.compile_report_test"
     "loom.tools.loom_opt_test"
+    "loom.tools.pytest_style_runner_test"
     "loom.tools.source_surface_test"
     "loom.tools.source_lint_test"
   DEPS
