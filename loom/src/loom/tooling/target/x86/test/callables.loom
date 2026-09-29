@@ -1,0 +1,116 @@
+// Ordinary functions compiled into an ELF object and linked by the C toolchain.
+// High source exercises lowering; authored Low covers fixed-register transport.
+
+x86.target<scalar> @target
+
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) export("loom_test_native_arithmetic") @arithmetic(%value: i64, %scale: i64, %bias: i64) -> (i64) {
+  %shifted = scalar.addi %value, %bias : i64
+  %scaled = scalar.muli %shifted, %scale : i64
+  %result = scalar.addi %scaled, %value : i64
+  func.return %result : i64
+}
+
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_copy_bytes(%source: buffer, %source_offset: offset, %target: buffer, %target_offset: offset, %length: offset) {
+  buffer.copy %source[%source_offset], %target[%target_offset], %length
+  func.return
+}
+
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_select_pointer(%condition: i32, %first: buffer, %second: buffer) -> (buffer) {
+  %c0 = scalar.constant 0 : i32
+  %predicate = scalar.cmpi ne, %condition, %c0 : i32
+  %selected = scf.select %predicate, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_shift_mix(%value: reg<x86.gpr32>, %count: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %left_input = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %left_count = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
+  %left = shl.cl.gpr32 %left_input, %left_count
+  %logical_input = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %logical_count = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
+  %logical = shr.cl.gpr32 %logical_input, %logical_count
+  %signed_input = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %signed_count = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
+  %signed = sar.cl.gpr32 %signed_input, %signed_count
+  %directions = xor.gpr32 %left, %logical
+  %combined = xor.gpr32 %directions, %signed
+  %with_count = add.gpr32 %combined, %count
+  %result = xor.gpr32 %with_count, %value
+  return %result
+}
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_sixth_argument(%a: reg<x86.gpr64>, %b: reg<x86.gpr64>, %c: reg<x86.gpr64>, %d: reg<x86.gpr64>, %e: reg<x86.gpr64>, %f: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  return %f
+}
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_constant() -> (reg<x86.gpr64>) asm {
+  %value = mov.imm64 81985529216486895
+  return %value
+}
+
+// A GPR64 branch must examine the high half as well as the low half. Both
+// return sites use the same callable epilogue.
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_branch(%condition: reg<x86.gpr64>, %first: reg<x86.gpr64>, %second: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  low.cond_br %condition, ^first, ^second : reg<x86.gpr64>
+^first:
+  return %first
+^second:
+  return %second
+}
+
+// Both products clobber RAX/RDX. Preserve the factor arriving in RDX and the
+// first high half until the second multiply has finished.
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_high_products(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>, %multiplier: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %factor = copy %multiplier : reg<x86.gpr64> -> reg<x86.gpr64>
+  %first_accumulator = copy %first : reg<x86.gpr64> -> reg<x86.rax>
+  %first_high = mul.high.gpr64 %first_accumulator, %factor
+  %preserved = copy %first_high : reg<x86.rdx> -> reg<x86.gpr64>
+  %second_accumulator = copy %second : reg<x86.gpr64> -> reg<x86.rax>
+  %second_high = mul.high.gpr64 %second_accumulator, %factor
+  %second_result = copy %second_high : reg<x86.rdx> -> reg<x86.gpr64>
+  %result = add.gpr64 %preserved, %second_result
+  return %result
+}
+
+// The condition selects a pointer and its matching byte origin. Only the low
+// byte of replacement is stored; the previous unsigned byte is returned.
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_exchange(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>, %first_origin: reg<x86.gpr64>, %second_origin: reg<x86.gpr64>, %condition: reg<x86.gpr32>, %replacement: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %selected_seed = copy %second : reg<x86.gpr64> -> reg<x86.gpr64>
+  %selected = select.gpr64 %condition, %first, %selected_seed
+  %origin_seed = copy %second_origin : reg<x86.gpr64> -> reg<x86.gpr64>
+  %origin = select.gpr64 %condition, %first_origin, %origin_seed
+  %value = movzx.load.indexed.u8.gpr32 %selected, %origin {disp32 = 0, scale = 1}
+  mov.store.indexed.u8.gpr32 %replacement, %selected, %origin {disp32 = 0, scale = 1}
+  return %value
+}
+
+// Unaligned byte/word accesses with both static and scaled address forms.
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_narrow_memory(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %index: reg<x86.gpr64>) asm {
+  %byte = movzx.load.u8.gpr32 %input {disp32 = 3}
+  %word = movzx.load.indexed.u16.gpr32 %input, %index {disp32 = 3, scale = 2}
+  mov.store.indexed.u8.gpr32 %byte, %output, %index {disp32 = 1, scale = 1}
+  mov.store.u16.gpr32 %word, %output {disp32 = 5}
+  return
+}
+
+// Distinct 64-bit counts reuse RCX while both source counts stay live.
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @loom_test_native_wide_shifts(%value: reg<x86.gpr64>, %left_count: reg<x86.gpr64>, %right_count: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %left_input = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %left_register = copy %left_count : reg<x86.gpr64> -> reg<x86.rcx>
+  %left = shl.cl.gpr64 %left_input, %left_register
+  %logical_input = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %right_register = copy %right_count : reg<x86.gpr64> -> reg<x86.rcx>
+  %logical = shr.cl.gpr64 %logical_input, %right_register
+  %signed_input = copy %left : reg<x86.gpr64> -> reg<x86.gpr64>
+  %signed_register = copy %left_count : reg<x86.gpr64> -> reg<x86.rcx>
+  %signed = sar.cl.gpr64 %signed_input, %signed_register
+  %directions_input = copy %logical : reg<x86.gpr64> -> reg<x86.gpr64>
+  %directions = xor.gpr64 %directions_input, %signed
+  %left_sum_input = copy %directions : reg<x86.gpr64> -> reg<x86.gpr64>
+  %with_left_count = add.gpr64 %left_sum_input, %left_count
+  %right_sum_input = copy %with_left_count : reg<x86.gpr64> -> reg<x86.gpr64>
+  %with_counts = add.gpr64 %right_sum_input, %right_count
+  %result_input = copy %with_counts : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = xor.gpr64 %result_input, %value
+  return %result
+}

@@ -22,8 +22,6 @@ _NATIVE_XDNA_VISIBILITY = ["//loom/src/loom/target/arch/amd/xdna:__subpackages__
 
 _NATIVE_AIE2P_VISIBILITY = ["//loom/src/loom/target/arch/amd/xdna/aie2p:__pkg__"]
 
-_NATIVE_X86_VISIBILITY = ["//loom/src/loom/target/emit/native/x86:__pkg__"]
-
 #===------------------------------------------------------------------------===#
 # Native assembly fragments
 #===------------------------------------------------------------------------===#
@@ -32,7 +30,7 @@ loom_cc_library(
     name = "assembly",
     srcs = ["assembly.c"],
     hdrs = ["assembly.h"],
-    visibility = _NATIVE_AMDGPU_VISIBILITY + _NATIVE_X86_VISIBILITY,
+    visibility = _NATIVE_AMDGPU_VISIBILITY,
     deps = [
         "//loom/src/loom/codegen/low:packet",
         "//loom/src/loom/ir",
@@ -47,9 +45,10 @@ loom_cc_library(
     name = "elf",
     srcs = ["elf.c"],
     hdrs = ["elf.h"],
-    visibility = _NATIVE_AMDGPU_VISIBILITY + _NATIVE_XDNA_VISIBILITY,
+    visibility = _NATIVE_AMDGPU_VISIBILITY + _NATIVE_XDNA_VISIBILITY + [
+        "//loom/src/loom/tooling/target/x86:__pkg__",
+    ],
     deps = [
-        ":contribution",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/io:stream",
@@ -57,10 +56,26 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "elf_sections",
+    srcs = ["elf_sections.c"],
+    hdrs = ["elf_sections.h"],
+    visibility = _NATIVE_AIE2P_VISIBILITY + [
+        "//loom/src/loom/tooling/target/x86:__pkg__",
+    ],
+    deps = [
+        ":contribution",
+        ":elf",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "contribution",
     srcs = ["contribution.c"],
     hdrs = ["contribution.h"],
-    visibility = _NATIVE_AIE2P_VISIBILITY,
+    visibility = _NATIVE_AIE2P_VISIBILITY + [
+        "//loom/src/loom/tooling/target/x86:__pkg__",
+    ],
     deps = [
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -75,6 +90,19 @@ loom_cc_library(
     deps = [
         ":contribution",
         "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "elf_sections_test",
+    srcs = ["elf_sections_test.cc"],
+    deps = [
+        ":contribution",
+        ":elf",
+        ":elf_sections",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 

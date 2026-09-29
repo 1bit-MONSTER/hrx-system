@@ -113,7 +113,9 @@ loom_check_test_suite(
   NAME
     loom_check_file_test
   SRCS
+    "test/immediates.loom-test"
     "test/register_classes.loom-test"
+    "test/rematerialization.loom-test"
     "test/source_low/allocation.loom-test"
     "test/source_low/buffer_bulk.loom-test"
     "test/source_low/buffer_raw.loom-test"

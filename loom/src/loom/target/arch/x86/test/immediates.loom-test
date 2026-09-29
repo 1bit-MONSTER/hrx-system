@@ -1,0 +1,20 @@
+// Immediate-form limits are verified on the instruction that owns them.
+// RUN: verify
+
+low.func.def target<x86.scalar.core> @immediate_count_too_wide(%value: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  // ERROR@+1: STRUCTURE/014
+  %result = shr.imm.gpr64 %value {shift = 64}
+  return %result
+}
+
+// ====
+
+// RUN: verify
+
+x86.target<avx2> @target
+
+low.func.def target<x86.avx2.core>(@target) @shift_invalid(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  // ERROR@+1: STRUCTURE/014
+  %result = vpsllq.xmm %input, 256
+  return %result
+}

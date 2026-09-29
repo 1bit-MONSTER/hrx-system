@@ -100,11 +100,15 @@ option(LOOM_EMIT_WASM
 option(LOOM_EMIT_XDNA
   "Enables the AMD XDNA Loom artifact emitter slice."
   OFF)
+option(LOOM_EMIT_X86
+  "Enables the x86 native Loom artifact emitter slice."
+  OFF)
 mark_as_advanced(
   LOOM_EMIT_AMDGPU
   LOOM_EMIT_SPIRV
   LOOM_EMIT_WASM
   LOOM_EMIT_XDNA
+  LOOM_EMIT_X86
 )
 
 if(LOOM_TARGET_AMDGPU)
@@ -128,6 +132,7 @@ if(LOOM_TARGET_XDNA)
 endif()
 if(LOOM_TARGET_X86)
   set(LOOM_TARGET_ARCH_X86 ON)
+  set(LOOM_EMIT_X86 ON)
 endif()
 
 if(LOOM_TARGET_ARCH_AMDGPU)
@@ -170,6 +175,11 @@ endif()
 if(LOOM_EMIT_XDNA AND NOT LOOM_TARGET_ARCH_XDNA)
   message(FATAL_ERROR
     "LOOM_EMIT_XDNA=ON requires LOOM_TARGET_ARCH_XDNA=ON.")
+endif()
+
+if(LOOM_EMIT_X86 AND NOT LOOM_TARGET_ARCH_X86)
+  message(FATAL_ERROR
+    "LOOM_EMIT_X86=ON requires LOOM_TARGET_ARCH_X86=ON.")
 endif()
 
 function(loom_configure_project)

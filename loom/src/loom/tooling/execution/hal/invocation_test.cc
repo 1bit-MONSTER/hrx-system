@@ -384,6 +384,7 @@ TEST_F(HalInvocationTest,
       /*.export_symbol=*/{},
       /*.abi_kind=*/LOOM_TARGET_ABI_HAL_KERNEL,
       /*.linkage=*/{},
+      /*.calling_convention=*/{},
       /*.hal_kernel=*/
       {
           /*.required_workgroup_size=*/{/*.x=*/0, /*.y=*/0, /*.z=*/0},

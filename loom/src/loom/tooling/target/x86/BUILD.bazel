@@ -1,0 +1,102 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "loom_cc_library",
+    "loom_cc_test",
+    "loom_config_compatible_with",
+    "loom_generated_file",
+)
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],
+)
+
+loom_cc_library(
+    name = "prepare",
+    srcs = ["prepare.c"],
+    hdrs = ["prepare.h"],
+    deps = [
+        "//loom/src/loom/codegen/low:frame",
+        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/target:entry_selection",
+        "//loom/src/loom/target:registers",
+        "//loom/src/loom/target/arch/x86:register_classes",
+        "//loom/src/loom/target/emit/native:contribution",
+        "//loom/src/loom/target/emit/native/x86:encoding",
+        "//loom/src/loom/target/emit/native/x86:function_body",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "artifact_emitter",
+    srcs = ["artifact_emitter.c"],
+    hdrs = ["artifact_emitter.h"],
+    visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
+    deps = [
+        ":prepare",
+        "//loom/src/loom/target:entry_selection",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/arch/x86/ops",
+        "//loom/src/loom/target/emit/native:elf",
+        "//loom/src/loom/target/emit/native:elf_sections",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/io:stream",
+    ],
+)
+
+loom_cc_library(
+    name = "loom_check",
+    srcs = ["check/loom_check.c"],
+    hdrs = ["check/loom_check.h"],
+    visibility = ["//loom/src/loom/target/arch/x86/check:__pkg__"],
+    deps = [
+        ":prepare",
+        "//loom/src/loom/target/arch/x86/ops",
+        "//loom/src/loom/tools/loom-check:execute",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_generated_file(
+    name = "native_interop_object",
+    testonly = True,
+    args = [
+        "$(location //loom/src/loom/tooling/target/x86/test:callables.loom)",
+        "--format=x86-elf",
+    ],
+    generator = "//loom/src/loom/tools/loom-compile",
+    inputs = ["//loom/src/loom/tooling/target/x86/test:callables.loom"],
+    output = "native_interop.o",
+    output_flag = "--output=",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target:x86_artifacts",
+    ]),
+)
+
+loom_cc_test(
+    name = "native_interop_test",
+    srcs = [
+        "native_interop.o",
+        "native_interop_test.cc",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target:x86_artifacts",
+    ]) + [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    deps = [
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

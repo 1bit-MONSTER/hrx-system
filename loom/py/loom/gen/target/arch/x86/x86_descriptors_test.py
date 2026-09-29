@@ -20,7 +20,7 @@ from loom.target.arch.x86.target_info import (
     x86_descriptor_set_info_by_generator_target,
     x86_descriptor_set_ordinal,
 )
-from loom.target.low_descriptors import Constraint, ConstraintKind, ImmediateKind, OperandFlag, OperandRole, RegClassFlag
+from loom.target.low_descriptors import Constraint, ConstraintKind, ImmediateKind, OperandAddressMapKind, OperandFlag, OperandRole, RegClassFlag
 
 
 class _RaisesValueError:
@@ -146,6 +146,21 @@ def test_bitwise_immediate_forms_are_shared_by_scalar_profiles() -> None:
                 assert immediate.bit_width == 32
                 assert immediate.signed_min == -(2**31)
                 assert immediate.unsigned_max == 2**31 - 1
+
+
+def test_vex_operands_retain_sixteen_register_limit_in_composite_views() -> None:
+    # An AVX-512 view exposes 32 registers, but inherited VEX instructions can
+    # still encode only 16. The shared addressability validator owns rejection
+    # of an out-of-window assignment; these rows own the architectural window.
+    spec = x86_descriptor_data.X86_AVX512_PACKED_DOT_DESCRIPTOR_SET
+    for family in ("avx2", "avx_vnni", "avx_vnni_int8", "avx_vnni_int16"):
+        descriptors = [d for d in spec.descriptors if d.key.startswith(f"x86.{family}.")]
+        assert descriptors
+        for descriptor in descriptors:
+            for operand in descriptor.operands:
+                if any(a.reg_class in ("x86.xmm", "x86.ymm") for a in operand.reg_alts):
+                    assert operand.address_map_kind == OperandAddressMapKind.LOW_SUBSET
+                    assert operand.addressable_unit_count == 16
 
 
 def test_storage_generation_emits_current_public_views() -> None:

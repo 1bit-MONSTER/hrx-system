@@ -18,6 +18,7 @@ SUPPORTED_VALUES = [
     "spirv",
     "wasm",
     "xdna",
+    "x86",
 ]
 
 iree_string_list_flag(
@@ -49,5 +50,6 @@ iree_string_list_flag(
         "spirv",
         "wasm",
         "xdna",
+        "x86",
     ]
 ]

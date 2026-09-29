@@ -1,0 +1,33 @@
+// The instruction-set profile cannot silently select a platform convention.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+// ERROR@+1: TARGET/032 "native x86 functions require abi(object_function"
+low.func.def public target<x86.scalar.core>(@target) abi(object_function) @unspecified() asm {
+  return
+}
+
+// ====
+
+// Reject the original narrow boundary before lowering erases it to GPR32.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+// ERROR@+1: TARGET/033 "native callable argument"
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @narrow(%value: i8) {
+  func.return
+}
+
+// ====
+
+// An external symbol must fit the native object string-table representation.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+// ERROR@+1: TARGET/032 "native symbol names cannot contain NUL"
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) export("prefix\u0000suffix") @embedded_nul() {
+  func.return
+}

@@ -39,7 +39,9 @@ loom_generated_cc_library(
     ],
     generator = "//loom/py/loom/gen/ops:c_tables_x86_generator",
     textual_hdrs = ["ops.inc"],
-    visibility = _X86_ROOT_VISIBILITY,
+    visibility = _X86_ROOT_VISIBILITY + [
+        "//loom/src/loom/tooling/target/x86:__pkg__",
+    ],
     deps = [
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",

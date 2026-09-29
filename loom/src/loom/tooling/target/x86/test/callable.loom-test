@@ -1,0 +1,135 @@
+// The original input stays live after destructive arithmetic; only one copy survives.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @arithmetic(%value: i64, %scale: i64, %bias: i64) -> (i64) {
+  %shifted = scalar.addi %value, %bias : i64
+  %scaled = scalar.muli %shifted, %scale : i64
+  %result = scalar.addi %scaled, %value : i64
+  func.return %result : i64
+}
+
+// ----
+arithmetic:
+  48 8b c7 48 01 d0 48 0f af c6 48 01 f8 c3
+
+// ====
+
+// The loop uses RBX/RBP and has matching saves/restores around every exit.
+// The back edge and forward exit use rel32 displacements within the body.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @copy_bytes(%source: buffer, %source_offset: offset, %target: buffer, %target_offset: offset, %length: offset) {
+  buffer.copy %source[%source_offset], %target[%target_offset], %length
+  func.return
+}
+
+// ----
+copy_bytes:
+  53 55 b8 00 00 00 00 4c 39 c0 0f 92 c3 0f b6 db
+  85 db 0f 84 18 00 00 00 48 8d 1c 06 0f b6 1c 1f
+  48 8d 2c 01 88 1c 2a 48 8d 40 01 e9 d7 ff ff ff
+  5d 5b c3
+
+// ====
+
+// A source pointer result uses RAX; the internal predicate is canonical GPR32.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+func.def public target(@target) abi(object_function, {calling_convention = "sysv"}) @select_pointer(%condition: i32, %first: buffer, %second: buffer) -> (buffer) {
+  %c0 = scalar.constant 0 : i32
+  %predicate = scalar.cmpi ne, %condition, %c0 : i32
+  %selected = scf.select %predicate, %first, %second : buffer
+  func.return %selected : buffer
+}
+
+// ----
+select_pointer:
+  81 ff 00 00 00 00 0f 95 c0 0f b6 c0 85 c0 48 0f
+  45 d6 48 8b c2 c3
+
+// ====
+
+// CL-count transport preserves the input and callee-saved RBX.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @shift_mix(%value: reg<x86.gpr32>, %count: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %left_input = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %left_count = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
+  %left = shl.cl.gpr32 %left_input, %left_count
+  %logical_input = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %logical_count = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
+  %logical = shr.cl.gpr32 %logical_input, %logical_count
+  %signed_input = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %signed_count = copy %count : reg<x86.gpr32> -> reg<x86.ecx>
+  %signed = sar.cl.gpr32 %signed_input, %signed_count
+  %directions = xor.gpr32 %left, %logical
+  %combined = xor.gpr32 %directions, %signed
+  %with_count = add.gpr32 %combined, %count
+  %result = xor.gpr32 %with_count, %value
+  return %result
+}
+
+// ----
+shift_mix:
+  53 8b c7 8b ce d3 e0 8b d7 8b ce d3 ea 8b df 8b
+  ce d3 fb 31 d0 31 d8 01 f0 31 f8 5b c3
+
+// ====
+
+// Unused arguments keep their ABI positions: the sixth argument still arrives in R9.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @sixth_argument(%a: reg<x86.gpr64>, %b: reg<x86.gpr64>, %c: reg<x86.gpr64>, %d: reg<x86.gpr64>, %e: reg<x86.gpr64>, %f: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  return %f
+}
+
+// ----
+sixth_argument:
+  49 8b c1 c3
+
+// ====
+
+// A full-width constant needs movabs; no save area is needed.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @constant() -> (reg<x86.gpr64>) asm {
+  %value = mov.imm64 81985529216486895
+  return %value
+}
+
+// ----
+constant:
+  48 b8 ef cd ab 89 67 45 23 01 c3
+
+// ====
+
+// The predicate occupies a full GPR64. Both exits transfer to RAX and share
+// the epilogue; the first return cannot fall through into the second block.
+// RUN: emit x86-code
+
+x86.target<scalar> @target
+
+low.func.def public target<x86.scalar.core>(@target) abi(object_function, {calling_convention = "sysv"}) @branch(%condition: reg<x86.gpr64>, %first: reg<x86.gpr64>, %second: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  low.cond_br %condition, ^first, ^second : reg<x86.gpr64>
+^first:
+  return %first
+^second:
+  return %second
+}
+
+// ----
+branch:
+  48 85 ff 0f 84 08 00 00 00 48 8b c6 e9 03 00 00
+  00 48 8b c2 c3

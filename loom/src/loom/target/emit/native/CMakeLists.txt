@@ -34,10 +34,23 @@ loom_cc_library(
   SRCS
     "elf.c"
   DEPS
-    ::contribution
     iree::base
     iree::base::internal::arena
     iree::io::stream
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    elf_sections
+  HDRS
+    "elf_sections.h"
+  SRCS
+    "elf_sections.c"
+  DEPS
+    ::contribution
+    ::elf
+    iree::base
   PUBLIC
 )
 
@@ -65,6 +78,20 @@ loom_cc_library(
     ::contribution
     iree::base
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    elf_sections_test
+  SRCS
+    "elf_sections_test.cc"
+  DEPS
+    ::contribution
+    ::elf
+    ::elf_sections
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 loom_cc_test(

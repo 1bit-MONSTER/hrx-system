@@ -87,3 +87,11 @@ selects.config_setting_group(
         "//loom/config/emit:wasm",
     ],
 )
+
+selects.config_setting_group(
+    name = "x86_artifacts",
+    match_all = [
+        "//loom/config/target/arch:x86",
+        "//loom/config/emit:x86",
+    ],
+)

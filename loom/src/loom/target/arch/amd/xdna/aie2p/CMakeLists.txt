@@ -896,6 +896,7 @@ loom_cc_library(
     iree::schemas::xdna_executable
     loom::target::arch::amd::xdna::device_profile
     loom::target::emit::native::elf
+    loom::target::emit::native::elf_sections
   PUBLIC
 )
 endif()

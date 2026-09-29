@@ -9,31 +9,6 @@
 #include <inttypes.h>
 #include <string.h>
 
-loom_native_elf_section_t loom_native_elf_section_from_native(
-    const loom_native_section_t* section) {
-  uint64_t flags = 0;
-  if (section->access != LOOM_NATIVE_SECTION_ACCESS_NONE) {
-    flags |= LOOM_NATIVE_ELF_SECTION_FLAG_ALLOC;
-  }
-  if (iree_any_bit_set(section->access, LOOM_NATIVE_SECTION_ACCESS_WRITE)) {
-    flags |= LOOM_NATIVE_ELF_SECTION_FLAG_WRITE;
-  }
-  if (iree_any_bit_set(section->access, LOOM_NATIVE_SECTION_ACCESS_EXECUTE)) {
-    flags |= LOOM_NATIVE_ELF_SECTION_FLAG_EXECINSTR;
-  }
-  return (loom_native_elf_section_t){
-      .name = section->name,
-      .type = section->storage == LOOM_NATIVE_SECTION_STORAGE_RESERVATION
-                  ? LOOM_NATIVE_ELF_SECTION_TYPE_NOBITS
-                  : LOOM_NATIVE_ELF_SECTION_TYPE_PROGBITS,
-      .flags = flags,
-      .address = section->address,
-      .alignment = section->alignment,
-      .contents = section->contents,
-      .zero_fill_length = section->reservation_length,
-  };
-}
-
 //===----------------------------------------------------------------------===//
 // ELF little-endian format records
 //===----------------------------------------------------------------------===//

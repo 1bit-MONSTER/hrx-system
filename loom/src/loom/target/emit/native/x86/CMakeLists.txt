@@ -12,61 +12,52 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_X86)
 loom_cc_library(
   NAME
-    assembly
+    encoding
   HDRS
-    "assembly.h"
+    "encoding.h"
   SRCS
-    "assembly.c"
+    "encoding.c"
   DEPS
     iree::base
-    iree::base::internal::arena
-    loom::codegen::low::allocation
-    loom::codegen::low::packet
-    loom::codegen::low::schedule
-    loom::ir
-    loom::ops::low
-    loom::target::arch::x86::descriptors::avx2_descriptors_ids
-    loom::target::arch::x86::descriptors::avx512_descriptors_ids
-    loom::target::arch::x86::descriptors::avx512_packed_dot_descriptors_ids
-    loom::target::arch::x86::descriptors::packed_dot_descriptors_ids
-    loom::target::arch::x86::descriptors::scalar_descriptors_ids
-    loom::target::arch::x86::descriptors::simd128_descriptors_ids
-    loom::target::arch::x86::register_classes
-    loom::target::emit::native::assembly
   PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86)
+loom_cc_test(
+  NAME
+    encoding_test
+  SRCS
+    "encoding_test.cc"
+  DEPS
+    ::encoding
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.x86"
 )
 endif()
 
 if(LOOM_TARGET_ARCH_X86)
 loom_cc_library(
   NAME
-    loom_check
+    function_body
   HDRS
-    "check/loom_check.h"
+    "function_body.h"
   SRCS
-    "check/loom_check.c"
+    "function_body.c"
   DEPS
-    ::assembly
+    ::encoding
     iree::base
-    loom::tools::loom-check::execute
+    iree::base::internal
+    iree::base::internal::arena
+    iree::io::stream
+    loom::codegen::low::frame
+    loom::codegen::low::packet
+    loom::ir
+    loom::ops::low
+    loom::target::arch::x86::register_classes
   PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_X86)
-loom_check_test_suite(
-  NAME
-    loom_check_file_test
-  SRCS
-    "test/assembly.loom-test"
-    "test/buffer_selection.loom-test"
-    "test/copies.loom-test"
-    "test/high_product.loom-test"
-    "test/lanes.loom-test"
-    "test/memory.loom-test"
-    "test/schedule_scopes.loom-test"
-    "test/selects.loom-test"
-    "test/shifts.loom-test"
 )
 endif()
 

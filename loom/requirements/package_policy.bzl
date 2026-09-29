@@ -118,6 +118,10 @@ PACKAGE_POLICIES = [
         build_requirements = [TARGET_ARCH_WASM, EMIT_WASM],
     ),
     package_policy(
+        packages = ["loom/src/loom/tooling/target/x86/..."],
+        build_requirements = [TARGET_ARCH_X86],
+    ),
+    package_policy(
         packages = ["loom/py/loom/importers/mlir/..."],
         build_requirements = [IMPORT_MLIR],
     ),

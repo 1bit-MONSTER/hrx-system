@@ -82,6 +82,7 @@ _LOOM_CONFIG_CMAKE_OPTIONS = {
     "//loom/config/target:spirv_vulkan_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN",
     "//loom/config/target:wasm_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM",
     "//loom/config/target:xdna_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA",
+    "//loom/config/target:x86_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_X86 AND LOOM_EMIT_X86",
 }
 
 

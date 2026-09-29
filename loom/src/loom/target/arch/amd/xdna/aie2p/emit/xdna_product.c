@@ -10,6 +10,7 @@
 
 #include "iree/schemas/xdna_executable.h"
 #include "loom/target/emit/native/elf.h"
+#include "loom/target/emit/native/elf_sections.h"
 
 enum {
   LOOM_AIE2P_XDNA_ELF32_SYMBOL_SIZE = 16,

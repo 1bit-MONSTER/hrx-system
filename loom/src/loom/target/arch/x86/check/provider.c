@@ -7,10 +7,10 @@
 #include "loom/target/arch/x86/check/provider.h"
 
 #include "loom/target/arch/x86/provider.h"
-#include "loom/target/emit/native/x86/check/loom_check.h"
+#include "loom/tooling/target/x86/check/loom_check.h"
 
 static const loom_check_emit_provider_t* const kLoomX86CheckEmitProviders[] = {
-    &loom_x86_native_loom_check_emit_provider,
+    &loom_x86_callable_check_emit_provider,
 };
 
 const loom_check_provider_t loom_x86_check_provider = {

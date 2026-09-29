@@ -1,0 +1,52 @@
+// RUN: with-low-asm pass low-materialize-allocation{budgets=x86.gpr32=2}
+x86.target<scalar> @x86_target
+
+// Both registers hold arguments until the first add. Recreate the constant
+// afterward so the function needs no spill storage.
+low.func.def target<x86.scalar.core>(@x86_target) @x86_rematerialize_constant_gpr32(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %constant = mov.imm32 7
+  %lhs_copy = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %sum = add.gpr32 %lhs_copy, %rhs
+  %sum_copy = copy %sum : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.gpr32 %sum_copy, %constant
+  return %result
+}
+
+// ----
+x86.target<scalar> @x86_target
+
+low.func.def target<x86.scalar.core>(@x86_target) @x86_rematerialize_constant_gpr32(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %lhs_copy = copy %lhs : reg<x86.gpr32> -> reg<x86.gpr32>
+  %sum = add.gpr32 %lhs_copy, %rhs
+  %sum_copy = copy %sum : reg<x86.gpr32> -> reg<x86.gpr32>
+  %constant_remat = mov.imm32 7
+  %result = add.gpr32 %sum_copy, %constant_remat
+  return %result
+}
+
+// ====
+
+// RUN: with-low-asm pass low-materialize-allocation{budgets=x86.gpr64=2}
+x86.target<avx512> @x86_target
+
+// Composite descriptor views retain the scalar constant's eligibility.
+low.func.def target<x86.avx512.core>(@x86_target) @x86_rematerialize_constant_gpr64(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %constant = mov.imm64 7
+  %lhs_copy = copy %lhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %sum = add.gpr64 %lhs_copy, %rhs
+  %sum_copy = copy %sum : reg<x86.gpr64> -> reg<x86.gpr64>
+  %result = add.gpr64 %sum_copy, %constant
+  return %result
+}
+
+// ----
+x86.target<avx512> @x86_target
+
+low.func.def target<x86.avx512.core>(@x86_target) @x86_rematerialize_constant_gpr64(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %lhs_copy = copy %lhs : reg<x86.gpr64> -> reg<x86.gpr64>
+  %sum = add.gpr64 %lhs_copy, %rhs
+  %sum_copy = copy %sum : reg<x86.gpr64> -> reg<x86.gpr64>
+  %constant_remat = mov.imm64 7
+  %result = add.gpr64 %sum_copy, %constant_remat
+  return %result
+}
