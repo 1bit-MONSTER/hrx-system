@@ -823,6 +823,8 @@ enum loom_low_lower_emit_kind_e {
   LOOM_LOW_LOWER_EMIT_REGISTER_CONCAT = 8,
   // Copies a register value into a compatible register class with low.copy.
   LOOM_LOW_LOWER_EMIT_REGISTER_COPY = 9,
+  // Transfers a temporary register value to a fresh identity with low.move.
+  LOOM_LOW_LOWER_EMIT_REGISTER_MOVE = 10,
   // Maximum emit kind plus one.
   LOOM_LOW_LOWER_EMIT_COUNT_,
 };

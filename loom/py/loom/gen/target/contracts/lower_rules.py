@@ -53,6 +53,7 @@ _STRUCTURAL_EMIT_KINDS = (
     LowerEmitKind.REGISTER_SLICE,
     LowerEmitKind.REGISTER_CONCAT,
     LowerEmitKind.REGISTER_COPY,
+    LowerEmitKind.REGISTER_MOVE,
 )
 
 

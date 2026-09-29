@@ -19,6 +19,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.conversion import (
     emit_f32_to_f16,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
+    F32_ACCUMULATOR_ADD_CONTROL,
     vector_data_path_control,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.f32 import emit_f32_multiply
@@ -73,13 +74,6 @@ _BF16_DOT2_DEINTERLEAVE_CONTROLS = (2, 3)
 
 _BF16_OUTER_PRODUCT_SHUFFLE_CONTROLS = (52, 53)
 _BF16_OUTER_PRODUCT_MULTIPLY_CONTROL = _BF16_ELEMENTWISE_MULTIPLY_CONTROL
-_F32_ACCUMULATOR_ADD_CONTROL = vector_data_path_control(
-    sign_x=False,
-    sign_y=False,
-    accumulator_mode=2,
-    multiplication_mode=3,
-    compute_mode=1,
-)
 
 
 def _descriptor(key: str) -> Descriptor:
@@ -549,7 +543,7 @@ def _float_matrix_accumulator_add_rule() -> DescriptorRule:
             _constant_emit(
                 config_constant,
                 ValueRef.temporary("add_control"),
-                _F32_ACCUMULATOR_ADD_CONTROL,
+                F32_ACCUMULATOR_ADD_CONTROL,
             ),
             _op_emit(
                 add,
@@ -628,7 +622,7 @@ def _float_accumulator_binary_emits(
             _constant_emit(
                 config_constant,
                 temporary("arithmetic_control"),
-                _F32_ACCUMULATOR_ADD_CONTROL,
+                F32_ACCUMULATOR_ADD_CONTROL,
             ),
             _op_emit(
                 operation,

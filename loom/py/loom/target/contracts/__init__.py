@@ -48,6 +48,7 @@ from loom.target.contracts.emits import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
     ResultTypeBinding,
 )
@@ -175,6 +176,7 @@ __all__ = [
     "EmitDescriptorOp",
     "EmitRegisterConcat",
     "EmitRegisterCopy",
+    "EmitRegisterMove",
     "EmitRegisterSlice",
     "ResultTypeBinding",
     "Guard",

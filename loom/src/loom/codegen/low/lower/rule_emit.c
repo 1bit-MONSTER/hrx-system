@@ -1018,12 +1018,26 @@ static iree_status_t loom_low_lower_rule_build_result_types(
     } else {
       const uint16_t value_ref_index =
           (uint16_t)(emit->result_type.value_ref_start + i);
-      loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-          context->module, rule_set, state, value_ref_index);
-      IREE_RETURN_IF_ERROR(loom_low_lower_rule_map_result_type(
-          context,
-          loom_low_lower_rule_emit_source_op(rule_set, state, value_ref_index),
-          source_value_id, &result_types[i]));
+      const loom_low_lower_value_ref_t* value_ref =
+          &rule_set->value_refs[value_ref_index];
+      if (value_ref->kind == LOOM_LOW_LOWER_VALUE_REF_TEMPORARY) {
+        IREE_ASSERT_LT(value_ref->index, state->temporary_count);
+        IREE_ASSERT(state->temporaries != NULL);
+        const loom_value_id_t low_value_id =
+            state->temporaries[value_ref->index];
+        IREE_ASSERT_NE(low_value_id, LOOM_VALUE_ID_INVALID);
+        result_types[i] = loom_module_value_type(context->module, low_value_id);
+        IREE_ASSERT(loom_low_type_is_register(result_types[i]));
+      } else {
+        const loom_value_id_t source_value_id =
+            loom_low_lower_rule_emit_source_value(context->module, rule_set,
+                                                  state, value_ref_index);
+        IREE_RETURN_IF_ERROR(loom_low_lower_rule_map_result_type(
+            context,
+            loom_low_lower_rule_emit_source_op(rule_set, state,
+                                               value_ref_index),
+            source_value_id, &result_types[i]));
+      }
     }
   }
   *out_result_types = result_types;
@@ -1333,6 +1347,32 @@ static iree_status_t loom_low_lower_rule_emit_register_copy(
       loom_low_lower_context_builder(context), low_operands[0], false,
       result_types[0], source_op->location, &copy_op));
   const loom_value_id_t low_result = loom_low_copy_result(copy_op);
+  return loom_low_lower_rule_bind_results(context, rule_set, source_op, state,
+                                          emit, &low_result);
+}
+
+static iree_status_t loom_low_lower_rule_emit_register_move(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    loom_low_lower_rule_emit_state_t* state,
+    const loom_low_lower_resolved_emit_t* resolved_emit) {
+  const loom_low_lower_emit_t* emit = resolved_emit->emit;
+  IREE_ASSERT_EQ(emit->descriptor_ref, LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE);
+  IREE_ASSERT_EQ(emit->operand_ref_count, 1);
+  IREE_ASSERT_EQ(emit->result_ref_count, 1);
+
+  loom_value_id_t* low_operands = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_build_low_operands(
+      context, rule_set, source_op, state, emit, NULL, NULL, &low_operands));
+  loom_type_t* result_types = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_build_result_types(
+      context, rule_set, source_op, state, resolved_emit, &result_types));
+
+  loom_op_t* move_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_move_build(
+      loom_low_lower_context_builder(context), low_operands[0], false,
+      result_types[0], source_op->location, &move_op));
+  const loom_value_id_t low_result = loom_low_move_result(move_op);
   return loom_low_lower_rule_bind_results(context, rule_set, source_op, state,
                                           emit, &low_result);
 }
@@ -2099,6 +2139,11 @@ iree_status_t loom_low_lower_rule_set_emit_rule(
       }
       case LOOM_LOW_LOWER_EMIT_REGISTER_COPY: {
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_emit_register_copy(
+            context, rule_set, source_op, &state, resolved_emit));
+        break;
+      }
+      case LOOM_LOW_LOWER_EMIT_REGISTER_MOVE: {
+        IREE_RETURN_IF_ERROR(loom_low_lower_rule_emit_register_move(
             context, rule_set, source_op, &state, resolved_emit));
         break;
       }

@@ -179,6 +179,46 @@ class EmitRegisterCopy:
 
 
 @dataclass(frozen=True, slots=True)
+class EmitRegisterMove:
+    """Transfers one temporary register value to a fresh identity."""
+
+    source: ValueRef
+    result: ValueRef
+    result_type: ResultTypeBinding | None = None
+
+    def validate(
+        self,
+        source_op: Op,
+        descriptor_set: DescriptorSet,
+        defined_temporaries: set[str],
+        *,
+        source_ops: Mapping[str, Op] | None = None,
+    ) -> tuple[str, ...]:
+        del descriptor_set
+        if self.source.kind is not SourceValueKind.TEMPORARY:
+            raise ValueError(
+                f"{source_op.name}: register move source must bind a temporary"
+            )
+        _validate_structural_source(
+            source_op,
+            self.source,
+            "register move source",
+            defined_temporaries,
+            source_ops,
+        )
+        produced_temporaries = _validate_structural_result(
+            source_op,
+            self.result,
+            self.result_type,
+            "register move result",
+            defined_temporaries,
+            source_ops=source_ops,
+        )
+        defined_temporaries.remove(self.source.field)
+        return produced_temporaries
+
+
+@dataclass(frozen=True, slots=True)
 class EmitRegisterConcat:
     """Concatenates register-unit sources into one aggregate value."""
 
@@ -227,7 +267,11 @@ class EmitRegisterConcat:
 
 
 type ContractEmit = (
-    EmitDescriptorOp | EmitRegisterCopy | EmitRegisterSlice | EmitRegisterConcat
+    EmitDescriptorOp
+    | EmitRegisterCopy
+    | EmitRegisterMove
+    | EmitRegisterSlice
+    | EmitRegisterConcat
 )
 
 
@@ -769,10 +813,6 @@ def _validate_structural_result(
         ):
             raise ValueError(
                 f"{source_op.name}: {subject} type cannot bind source memory"
-            )
-        if result_type.kind == SourceValueKind.TEMPORARY:
-            raise ValueError(
-                f"{source_op.name}: {subject} type cannot bind a temporary"
             )
         _validate_value_ref(
             source_op,

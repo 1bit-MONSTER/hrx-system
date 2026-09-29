@@ -1592,6 +1592,25 @@ def test_vector_multiply_descriptors_own_configuration_state() -> None:
     ]
     assert [operand.unit_count for operand in f32_add.operands[:4]] == [4, 4, 4, 1]
 
+    accumulator_shuffle = descriptors[
+        "amd.xdna.aie2p.shuffle.x.to.accumulator512.configured"
+    ]
+    assert [operand.field_name for operand in accumulator_shuffle.operands[:4]] == [
+        "dst",
+        "s1",
+        "s2",
+        "mod",
+    ]
+    assert [
+        operand.reg_alts[0].reg_class for operand in accumulator_shuffle.operands[:4]
+    ] == ["aie2p.mbmsm", "aie2p.vec256", "aie2p.vec256", "aie2p.er"]
+    assert [operand.unit_count for operand in accumulator_shuffle.operands[:4]] == [
+        1,
+        2,
+        2,
+        1,
+    ]
+
     bf16_broadcast = descriptors["amd.xdna.aie2p.broadcast.bf16x8.to.bf16x32"]
     assert [operand.reg_alts[0].reg_class for operand in bf16_broadcast.operands] == [
         "aie2p.vec256",

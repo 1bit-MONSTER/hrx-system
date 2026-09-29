@@ -134,4 +134,4 @@ low.func.def target<amd.xdna.aie2p.core> @multiply_special_values(%left_magnitud
 }
 
 // ----
-CHECK: *"register_class_id":33},"peak_live_units":1,"peak_live_values":1,*
+CHECK: *"register_class_id":34},"peak_live_units":1,"peak_live_values":1,*

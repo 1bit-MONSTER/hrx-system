@@ -46,6 +46,7 @@ class LowerEmitKind(Enum):
     REGISTER_SLICE = "register_slice"
     REGISTER_CONCAT = "register_concat"
     REGISTER_COPY = "register_copy"
+    REGISTER_MOVE = "register_move"
 
 
 @unique

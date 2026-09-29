@@ -22,6 +22,7 @@ from loom.target.contracts import (
     EmitDescriptorOp,
     EmitRegisterConcat,
     EmitRegisterCopy,
+    EmitRegisterMove,
     EmitRegisterSlice,
     Guard,
     OrdinalValueAliasRule,
@@ -346,6 +347,78 @@ def test_structural_register_emits_validate_program_shape() -> None:
                         EmitRegisterCopy(
                             source=ValueRef.operand("values"),
                             result=ValueRef.temporary("copy"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    fragment = ContractFragment(
+        name="register.copy.temporary-type",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(
+            DescriptorRule(
+                source_op=scalar_analysis.scalar_assume,
+                emit=(
+                    EmitRegisterCopy(
+                        source=ValueRef.operand("values"),
+                        result=ValueRef.temporary("carrier"),
+                        result_type=Scalar("i32"),
+                    ),
+                    EmitRegisterMove(
+                        source=ValueRef.temporary("carrier"),
+                        result=ValueRef.temporary("reclassified"),
+                        result_type=ValueRef.temporary("carrier"),
+                    ),
+                ),
+            ),
+        ),
+    )
+    assert len(fragment.cases[0].emit) == 2
+
+    with pytest.raises(ValueError, match="register move source must bind a temporary"):
+        ContractFragment(
+            name="register.move.source-operand",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(
+                DescriptorRule(
+                    source_op=scalar_analysis.scalar_assume,
+                    emit=(
+                        EmitRegisterMove(
+                            source=ValueRef.operand("values"),
+                            result=ValueRef.temporary("moved"),
+                            result_type=Scalar("i32"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="register copy source temporary 'carrier' is not defined",
+    ):
+        ContractFragment(
+            name="register.move.consumed-source",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(
+                DescriptorRule(
+                    source_op=scalar_analysis.scalar_assume,
+                    emit=(
+                        EmitRegisterCopy(
+                            source=ValueRef.operand("values"),
+                            result=ValueRef.temporary("carrier"),
+                            result_type=Scalar("i32"),
+                        ),
+                        EmitRegisterMove(
+                            source=ValueRef.temporary("carrier"),
+                            result=ValueRef.temporary("moved"),
+                            result_type=ValueRef.temporary("carrier"),
+                        ),
+                        EmitRegisterCopy(
+                            source=ValueRef.temporary("carrier"),
+                            result=ValueRef.temporary("invalid"),
+                            result_type=Scalar("i32"),
                         ),
                     ),
                 ),
