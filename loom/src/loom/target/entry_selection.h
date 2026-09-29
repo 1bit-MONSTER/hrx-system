@@ -71,7 +71,7 @@ typedef struct loom_target_entry_list_t {
   // Arena-owned entry descriptors in module order.
   loom_target_entry_t* values;
   // Number of entries in |values|.
-  uint16_t count;
+  iree_host_size_t count;
 } loom_target_entry_list_t;
 
 typedef struct loom_target_entry_diagnostic_emitter_t {
@@ -152,8 +152,9 @@ iree_status_t loom_target_entry_select_entry(
     iree_string_view_t entry_kind, iree_arena_allocator_t* arena,
     bool* out_selected, loom_target_entry_t* out_entry);
 
-// Selects every exported compatible func entry according to |predicate| in
-// top-level module operation order.
+// Selects every public or retained compatible func entry according to
+// |predicate| in top-level module operation order. Retention may come from the
+// source symbol or a concrete compiler function version.
 iree_status_t loom_target_entry_select_all_entries(
     const loom_module_t* module, const loom_target_entry_options_t* options,
     loom_target_entry_predicate_t predicate,

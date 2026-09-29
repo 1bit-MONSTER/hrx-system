@@ -343,7 +343,7 @@ static iree_status_t loom_target_entry_try_entry(
     const loom_target_function_version_snapshot_t* function_versions,
     loom_symbol_id_t symbol_id, loom_target_entry_predicate_t predicate,
     loom_target_entry_diagnostic_emitter_t* diagnostic_emitter,
-    iree_string_view_t pipeline_name, bool require_export,
+    iree_string_view_t pipeline_name, bool require_artifact_root,
     bool require_compatible, bool* out_compatible,
     loom_target_entry_t* out_entry) {
   *out_compatible = false;
@@ -362,11 +362,17 @@ static iree_status_t loom_target_entry_try_entry(
         (int)pipeline_name.size, pipeline_name.data, (int)symbol_name.size,
         symbol_name.data);
   }
-  if (require_export && !func_facts->exports) {
-    return iree_ok_status();
-  }
   const loom_target_function_version_t* function_version =
       loom_target_function_version_snapshot_at(function_versions, symbol_id);
+  const loom_symbol_t* symbol = &module->symbols.entries[symbol_id];
+  const bool retained =
+      iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_RETAIN) ||
+      (function_version != NULL &&
+       iree_any_bit_set(function_version->base.flags,
+                        LOOM_FUNCTION_VERSION_FLAG_RETAIN));
+  if (require_artifact_root && !func_facts->exports && !retained) {
+    return iree_ok_status();
+  }
   if (function_version == NULL &&
       !loom_symbol_ref_is_valid(func_facts->target_symbol)) {
     if (!require_compatible) {
@@ -427,7 +433,7 @@ static iree_status_t loom_target_entry_select_named_entry(
   bool compatible = false;
   IREE_RETURN_IF_ERROR(loom_target_entry_try_entry(
       module, fact_table, function_versions, symbol_id, predicate,
-      diagnostic_emitter, pipeline_name, /*require_export=*/false,
+      diagnostic_emitter, pipeline_name, /*require_artifact_root=*/false,
       /*require_compatible=*/true, &compatible, out_entry));
   *out_selected = compatible;
   return iree_ok_status();
@@ -447,7 +453,7 @@ static iree_status_t loom_target_entry_select_single_entry(
     loom_target_entry_t candidate = {0};
     IREE_RETURN_IF_ERROR(loom_target_entry_try_entry(
         module, fact_table, function_versions, (loom_symbol_id_t)i, predicate,
-        diagnostic_emitter, pipeline_name, /*require_export=*/false,
+        diagnostic_emitter, pipeline_name, /*require_artifact_root=*/false,
         /*require_compatible=*/false, &compatible, &candidate));
     if (!compatible) {
       continue;
@@ -521,7 +527,7 @@ iree_status_t loom_target_entry_select_all_entries(
       module, options ? options->function_versions : NULL, arena,
       &function_versions));
 
-  uint16_t entry_count = 0;
+  iree_host_size_t entry_count = 0;
   const loom_block_t* module_block =
       loom_region_const_entry_block(module->body);
   const loom_op_t* op = NULL;
@@ -535,16 +541,10 @@ iree_status_t loom_target_entry_select_all_entries(
     loom_target_entry_t candidate = {0};
     IREE_RETURN_IF_ERROR(loom_target_entry_try_entry(
         module, &fact_table, &function_versions, symbol_id, predicate,
-        diagnostic_emitter, entry_kind, /*require_export=*/true,
+        diagnostic_emitter, entry_kind, /*require_artifact_root=*/true,
         /*require_compatible=*/false, &compatible, &candidate));
     if (!compatible) {
       continue;
-    }
-    if (entry_count == UINT16_MAX) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "target pipeline '%.*s' has too many "
-                              "exported compatible entries",
-                              (int)entry_kind.size, entry_kind.data);
     }
     entries[entry_count++] = candidate;
   }

@@ -143,6 +143,28 @@ class TargetEntrySelectionTest : public ::testing::Test {
     return entry;
   }
 
+  loom_target_entry_list_t SelectAllEntries(
+      loom_module_t* module,
+      const loom_function_version_list_t* function_versions) {
+    const loom_target_entry_options_t options = {
+        /*.entry_symbol=*/{},
+        /*.function_versions=*/function_versions,
+    };
+    loom_target_entry_diagnostic_emitter_t diagnostic_emitter = {};
+    loom_target_entry_diagnostic_emitter_initialize(
+        module, &options, LOOM_EMITTER_VERIFIER, &diagnostic_emitter);
+    const loom_target_entry_predicate_t predicate = {
+        /*.fn=*/AcceptEntry,
+    };
+    bool selected = false;
+    loom_target_entry_list_t entries = {};
+    IREE_CHECK_OK(loom_target_entry_select_all_entries(
+        module, &options, predicate, &diagnostic_emitter, IREE_SV("test"),
+        &analysis_arena_, &selected, &entries));
+    IREE_ASSERT(selected);
+    return entries;
+  }
+
   iree_arena_block_pool_t block_pool_;
   loom_context_t context_;
   iree_arena_allocator_t analysis_arena_;
@@ -275,6 +297,58 @@ func.def public @targetless() {
   EXPECT_TRUE(iree_string_view_equal(
       loom_target_entry_bundle(&entry)->export_plan->name,
       IREE_SV("targetless")));
+}
+
+TEST_F(TargetEntrySelectionTest, AllEntriesIncludeEveryArtifactRoot) {
+  ModulePtr module = ParseModule(R"(
+test.target<low_core> @generic
+
+func.def public target(@generic) @public_entry() {
+  func.return
+}
+
+func.def retain target(@generic) @source_retained_entry() {
+  func.return
+}
+
+func.def target(@generic) @version_retained_entry() {
+  func.return
+}
+
+func.def target(@generic) @private_helper() {
+  func.return
+}
+)");
+
+  loom_symbol_fact_table_t symbol_facts = {};
+  loom_symbol_fact_table_initialize(&symbol_facts, &analysis_arena_);
+  const loom_func_symbol_facts_t* function_facts = LookupFunctionFacts(
+      module.get(), IREE_SV("version_retained_entry"), &symbol_facts);
+  const loom_target_facts_t* function_target_facts = RefineFunctionFacts(
+      module.get(), function_facts, LOOM_TEST_TARGET_KIND_LOW_CORE);
+  loom_target_function_version_t function_version = {};
+  function_version.base.type = &loom_target_function_version_type;
+  function_version.base.function =
+      FindFunction(module.get(), IREE_SV("version_retained_entry"));
+  function_version.base.flags = LOOM_FUNCTION_VERSION_FLAG_RETAIN;
+  function_version.function_target_facts = function_target_facts;
+  loom_function_version_t* version_values[] = {
+      &function_version.base,
+  };
+  const loom_function_version_list_t function_versions = {
+      /*.values=*/version_values,
+      /*.count=*/IREE_ARRAYSIZE(version_values),
+  };
+
+  const loom_target_entry_list_t entries =
+      SelectAllEntries(module.get(), &function_versions);
+  ASSERT_EQ(entries.count, 3u);
+  EXPECT_TRUE(iree_string_view_equal(entries.values[0].func_name,
+                                     IREE_SV("public_entry")));
+  EXPECT_TRUE(iree_string_view_equal(entries.values[1].func_name,
+                                     IREE_SV("source_retained_entry")));
+  EXPECT_TRUE(iree_string_view_equal(entries.values[2].func_name,
+                                     IREE_SV("version_retained_entry")));
 }
 
 }  // namespace
