@@ -50,8 +50,8 @@ typedef enum loom_low_placement_cause_bits_e {
   LOOM_LOW_PLACEMENT_CAUSE_LOW_SCF_CONDITION = 9,
   // Scheduled target-packet pair location affinity.
   LOOM_LOW_PLACEMENT_CAUSE_SCHEDULE_PAIR_AFFINITY = 10,
-  // Target descriptor constraint coupling physical-register candidate
-  // ordinals without aliasing their storage.
+  // Target instruction constraint on locations, without transferring ownership
+  // or permitting independently live values to alias storage.
   LOOM_LOW_PLACEMENT_CAUSE_DESCRIPTOR_CONSTRAINT = 11,
 } loom_low_placement_cause_bits_t;
 typedef uint8_t loom_low_placement_cause_t;
@@ -156,6 +156,16 @@ typedef struct loom_low_placement_relation_t {
   // LOOM_LOW_PLACEMENT_SOURCE_OPERAND_NONE when the source is not an operand.
   uint16_t source_operand_index;
 } loom_low_placement_relation_t;
+
+// Hard location constraints restrict candidate selection without merging value
+// lifetimes. Ownership ties instead establish shared storage components.
+static inline bool loom_low_placement_relation_is_hard_location(
+    const loom_low_placement_relation_t* relation) {
+  const loom_low_placement_relation_flags_t mask =
+      LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD |
+      LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE;
+  return (relation->flags & mask) == LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD;
+}
 
 #if UINTPTR_MAX == UINT64_MAX
 static_assert(sizeof(loom_low_placement_relation_t) == 40,

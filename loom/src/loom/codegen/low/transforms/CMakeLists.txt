@@ -107,6 +107,33 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    register_constraints
+  HDRS
+    "register_constraints.h"
+  SRCS
+    "register_constraints.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::builder
+    loom::codegen::low::diagnostics
+    loom::codegen::low::function
+    loom::codegen::low::memory_access
+    loom::codegen::low::pipeline::pass_environment
+    loom::codegen::low::representation_binding
+    loom::codegen::low::target_binding
+    loom::error::error_defs
+    loom::ir
+    loom::ops::low
+    loom::pass::types
+    loom::pass::value_facts
+    loom::rewrite::rewriter
+    loom::target::function_version
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     operand_forms
   HDRS
     "operand_forms.h"

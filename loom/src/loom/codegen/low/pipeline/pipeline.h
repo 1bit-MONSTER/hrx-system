@@ -19,8 +19,8 @@
 extern "C" {
 #endif
 
-// Appends the common low cleanup and operand-form selection sequence used
-// before target-low packetization.
+// Appends common Low cleanup, operand-form selection, and materialization of
+// independent instruction register ties before target-low packetization.
 iree_status_t loom_low_pipeline_build_packetization_preparation(
     loom_builder_t* builder);
 

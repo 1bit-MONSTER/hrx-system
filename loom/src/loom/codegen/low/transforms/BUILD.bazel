@@ -104,6 +104,30 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "register_constraints",
+    srcs = ["register_constraints.c"],
+    hdrs = ["register_constraints.h"],
+    deps = [
+        "//loom/src/loom/codegen/low:builder",
+        "//loom/src/loom/codegen/low:diagnostics",
+        "//loom/src/loom/codegen/low:function",
+        "//loom/src/loom/codegen/low:memory_access",
+        "//loom/src/loom/codegen/low:representation_binding",
+        "//loom/src/loom/codegen/low:target_binding",
+        "//loom/src/loom/codegen/low/pipeline:pass_environment",
+        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/pass:types",
+        "//loom/src/loom/pass:value_facts",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:function_version",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "operand_forms",
     srcs = ["operand_forms.c"],
     hdrs = ["operand_forms.h"],

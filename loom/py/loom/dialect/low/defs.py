@@ -1234,7 +1234,9 @@ low_copy = Op(
         "Explicit virtual-register copy used by lowering and allocation. Each "
         "copy produces a fresh virtual-register identity and may constrain the "
         "result to a different target register class with the same unit count "
-        "and semantic value type."
+        "and semantic value type. A same-type copy preserves the source's "
+        "defined register parts; a class-changing copy requires a fully "
+        "defined source."
     ),
     operands=[Operand("source", REGISTER)],
     attrs=[

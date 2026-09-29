@@ -69,7 +69,7 @@ TEST_F(LowPipelineTest, BuildsPacketizationPreparationFragment) {
   loom_block_t* pipeline_body =
       loom_region_entry_block(loom_pass_pipeline_body(pipeline_op));
   ASSERT_NE(pipeline_body, nullptr);
-  ASSERT_EQ(pipeline_body->op_count, 5u);
+  ASSERT_EQ(pipeline_body->op_count, 6u);
 
   loom_op_t* canonicalize_run = pipeline_body->first_op;
   ASSERT_TRUE(loom_pass_run_isa(canonicalize_run));
@@ -86,7 +86,13 @@ TEST_F(LowPipelineTest, BuildsPacketizationPreparationFragment) {
   EXPECT_TRUE(iree_string_view_equal(RunKey(module.get(), operand_forms_run),
                                      IREE_SV("low-select-operand-forms")));
 
-  loom_op_t* dce_run = operand_forms_run->next_op;
+  loom_op_t* constraints_run = operand_forms_run->next_op;
+  ASSERT_TRUE(loom_pass_run_isa(constraints_run));
+  EXPECT_TRUE(
+      iree_string_view_equal(RunKey(module.get(), constraints_run),
+                             IREE_SV("low-materialize-register-constraints")));
+
+  loom_op_t* dce_run = constraints_run->next_op;
   ASSERT_TRUE(loom_pass_run_isa(dce_run));
   EXPECT_TRUE(iree_string_view_equal(RunKey(module.get(), dce_run),
                                      IREE_SV("low-dce")));

@@ -304,6 +304,7 @@ loom_cc_library(
     loom::codegen::low::transforms::operand_forms
     loom::codegen::low::transforms::pipeline::source_to_low
     loom::codegen::low::transforms::pipeline::target_legalize
+    loom::codegen::low::transforms::register_constraints
     loom::sanitizer::materialize_assertions
     loom::sanitizer::pipeline_passes
     loom::sanitizer::race_insertion

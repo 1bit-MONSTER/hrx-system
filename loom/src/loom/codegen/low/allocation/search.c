@@ -279,9 +279,7 @@ static bool loom_low_allocation_search_hard_relation_conflicts(
     const loom_low_placement_relation_t* relation,
     const loom_low_allocation_assignment_t* candidate,
     bool candidate_is_result) {
-  if (relation->kind != LOOM_LOW_PLACEMENT_RELATION_SAME_REGISTER_ORDINAL ||
-      !iree_any_bit_set(relation->flags,
-                        LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD)) {
+  if (!loom_low_placement_relation_is_hard_location(relation)) {
     return false;
   }
   const loom_value_ordinal_t counterpart_ordinal =

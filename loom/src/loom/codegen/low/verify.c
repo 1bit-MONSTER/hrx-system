@@ -1571,6 +1571,21 @@ static iree_status_t loom_low_verify_define_full_register_results(
 static iree_status_t loom_low_verify_structural_register_parts(
     loom_low_function_verify_state_t* function_state, const loom_op_t* op) {
   const loom_module_t* module = function_state->state->module;
+  if (loom_low_copy_isa(op)) {
+    const loom_value_id_t source = loom_low_copy_source(op);
+    const loom_value_id_t result = loom_low_copy_result(op);
+    const loom_type_t source_type = loom_module_value_type(module, source);
+    const loom_type_t result_type = loom_module_value_type(module, result);
+    if (loom_type_equal(source_type, result_type)) {
+      // Transport preserves defined parts; copying does not read or initialize
+      // the remaining parts. A class-changing copy below requires a full value
+      // because register-part masks are local to each register class.
+      return loom_low_register_parts_continue(
+          &function_state->register_parts, result, source, 0,
+          loom_low_verify_register_full_mask_for_type(function_state,
+                                                      result_type));
+    }
+  }
   const iree_string_view_t op_name = loom_op_name(module, op);
   const loom_value_id_t* operands = loom_op_const_operands(op);
   for (uint16_t i = 0; i < op->operand_count; ++i) {

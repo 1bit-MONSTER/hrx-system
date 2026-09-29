@@ -1550,6 +1550,8 @@ def validate_descriptor_constraints(
     """Validates constraints and returns rematerializable result indices."""
 
     rematerializable_results: set[int] = set()
+    tied_results: set[int] = set()
+    tied_operands: set[int] = set()
     for constraint_index, constraint in enumerate(descriptor.constraints):
         lhs_operand_index = constraint.lhs_operand_index
         rhs_operand_index = constraint.rhs_operand_index
@@ -1575,6 +1577,11 @@ def validate_descriptor_constraints(
             rhs = descriptor.operands[rhs_operand_index]
             if lhs.role is not OperandRole.RESULT or not operand_role_is_packet_input(rhs.role):
                 raise ValueError(f"descriptor '{descriptor.key}' {constraint_name} constraint requires a result lhs and packet operand rhs")
+            if constraint.kind is ConstraintKind.TIED:
+                if lhs_operand_index in tied_results or rhs_operand_index in tied_operands:
+                    raise ValueError(f"{description} tied constraints require distinct results and operands")
+                tied_results.add(lhs_operand_index)
+                tied_operands.add(rhs_operand_index)
         elif constraint.kind is ConstraintKind.COMMUTABLE:
             rhs_operand_index = _validate_binary_constraint(
                 descriptor,

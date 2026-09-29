@@ -1249,18 +1249,18 @@ ERR_BACKEND_049 = ErrorDef(
     fix_hint="Give required tied values the same fixed location",
 )
 
-# ERR_BACKEND_050: Fixed allocation conflicts with occupied storage.
+# ERR_BACKEND_050: Fixed allocation conflicts with storage or instructions.
 ERR_BACKEND_050 = ErrorDef(
     domain=ErrorDomain.BACKEND,
     code=50,
     severity=Severity.ERROR,
-    summary="Fixed allocation conflicts with occupied storage.",
+    summary="Fixed allocation conflicts with storage or instructions.",
     message=(
         "target '{target_key}' export '{export_name}' config '{config_key}' "
         "cannot bind '%{value_name}' in '@{function_name}' to "
         "{location_kind} {location_base} with {location_count} unit(s): "
-        "the required storage overlaps a live value, pending lease, reserved "
-        "range, or implicit physical write"
+        "the required location conflicts with a live value, pending lease, "
+        "reserved range, implicit physical write, or instruction constraint"
     ),
     params=(
         ErrorParam("target_key", ParamKind.STRING),

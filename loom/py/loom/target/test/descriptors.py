@@ -883,6 +883,25 @@ TEST_LOW_TIED_ANY_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_TIED_PAIR_I32_DESCRIPTOR = Descriptor(
+    key="test.tied_pair.i32",
+    mnemonic="test.tied_pair.i32",
+    semantic_tag="test.tied_pair.i32",
+    operands=(
+        _i32_result("first"),
+        _i32_result("second"),
+        _i32_operand("lhs"),
+        _i32_operand("rhs"),
+    ),
+    constraints=(
+        Constraint(ConstraintKind.TIED, 0, 2),
+        Constraint(ConstraintKind.TIED, 1, 3),
+    ),
+    asm_forms=_asm(results=("first", "second"), operands=("lhs", "rhs")),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
 TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR = Descriptor(
     key="test.same.register.value.types",
     mnemonic="test.same.register.value.types",
@@ -2389,6 +2408,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_AMBIGUOUS_DESCRIPTOR,
         TEST_LOW_PASS_ANY_DESCRIPTOR,
         TEST_LOW_TIED_ANY_DESCRIPTOR,
+        TEST_LOW_TIED_PAIR_I32_DESCRIPTOR,
         TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR,
         TEST_LOW_COINDEXED_RESULTS_DESCRIPTOR,
         TEST_LOW_READ_LOW16_I32_DESCRIPTOR,

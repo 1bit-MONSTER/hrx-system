@@ -421,7 +421,7 @@ iree_status_t loom_low_const_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_LOW_COPY: Explicit virtual-register copy used by lowering and allocation. Each copy produces a fresh virtual-register identity and may constrain the result to a different target register class with the same unit count and semantic value type.
+// LOOM_OP_LOW_COPY: Explicit virtual-register copy used by lowering and allocation. Each copy produces a fresh virtual-register identity and may constrain the result to a different target register class with the same unit count and semantic value type. A same-type copy preserves the source's defined register parts; a class-changing copy requires a fully defined source.
 // %copy = low.copy %value : reg<amdgpu.vgpr x1> -> reg<amdgpu.vgpr x1>
 LOOM_DEFINE_ISA(loom_low_copy_isa, LOOM_OP_LOW_COPY)
 LOOM_DEFINE_OPERAND(loom_low_copy_source, 0)

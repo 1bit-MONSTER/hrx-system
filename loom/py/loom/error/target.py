@@ -1572,6 +1572,32 @@ ERR_TARGET_091 = ErrorDef(
     fix_hint="Convert returning values to a representation supported on every path.",
 )
 
+# ERR_TARGET_092: Authored storage tie conflicts with an instruction constraint.
+ERR_TARGET_092 = ErrorDef(
+    domain=ErrorDomain.TARGET,
+    code=92,
+    severity=Severity.ERROR,
+    summary="Authored storage tie conflicts with an instruction constraint.",
+    message=(
+        "low function '@{function_name}' op '{op_name}' ties result "
+        "{authored_result_index} to operand {authored_operand_index}, but its "
+        "instruction requires result {required_result_index} tied to operand "
+        "{required_operand_index}"
+    ),
+    params=(
+        ErrorParam("function_name", ParamKind.STRING),
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("authored_result_index", ParamKind.U32),
+        ErrorParam("authored_operand_index", ParamKind.U32),
+        ErrorParam("required_result_index", ParamKind.U32),
+        ErrorParam("required_operand_index", ParamKind.U32),
+    ),
+    fix_hint=(
+        "Use an independent result or tie it to the required operand. "
+        "Independent results receive a copy during instruction preparation."
+    ),
+)
+
 ALL_TARGET_ERRORS = (
     ERR_TARGET_001,
     ERR_TARGET_002,
@@ -1648,4 +1674,5 @@ ALL_TARGET_ERRORS = (
     ERR_TARGET_089,
     ERR_TARGET_090,
     ERR_TARGET_091,
+    ERR_TARGET_092,
 )

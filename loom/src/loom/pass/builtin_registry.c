@@ -17,6 +17,7 @@
 #include "loom/codegen/low/transforms/operand_forms.h"
 #include "loom/codegen/low/transforms/pipeline/source_to_low.h"
 #include "loom/codegen/low/transforms/pipeline/target_legalize.h"
+#include "loom/codegen/low/transforms/register_constraints.h"
 #include "loom/sanitizer/materialize_assertions.h"
 #include "loom/sanitizer/pipeline_passes.h"
 #include "loom/sanitizer/race_insertion.h"
@@ -487,6 +488,13 @@ static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
         .option_schema = kLowMaterializeAllocationOptionSchema,
         .option_schema_count =
             IREE_ARRAYSIZE(kLowMaterializeAllocationOptionSchema),
+        .requirement_defs = kLowDescriptorRegistryRequirements,
+        .requirement_count = IREE_ARRAYSIZE(kLowDescriptorRegistryRequirements),
+    },
+    {
+        .key = IREE_SVL("low-materialize-register-constraints"),
+        .info = loom_low_materialize_register_constraints_pass_info,
+        .function_run = loom_low_materialize_register_constraints_run,
         .requirement_defs = kLowDescriptorRegistryRequirements,
         .requirement_count = IREE_ARRAYSIZE(kLowDescriptorRegistryRequirements),
     },

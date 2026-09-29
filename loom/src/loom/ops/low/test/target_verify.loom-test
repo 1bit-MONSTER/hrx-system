@@ -73,6 +73,28 @@ low.func.def target<test.low.core>(@test_target) @partial_register_structural_us
 
 test.target<low_core> @test_target
 
+low.func.def target<test.low.core>(@test_target) @partial_register_copy(%address: reg<test.ptr>) -> (reg<test.i32>) asm {
+  %low = test.write.low16.i32 %address
+  %copied = copy %low : reg<test.i32> -> reg<test.i32>
+  %full = test.write.high16.i32 %copied, %address
+  return %full
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @partial_copy_does_not_define_missing_parts(%address: reg<test.ptr>) -> (reg<test.i32>) asm {
+  %low = test.write.low16.i32 %address
+  %copied = copy %low : reg<test.i32> -> reg<test.i32>
+  // ERROR@+1: DOMINANCE/011 {op_name="low.return", field_name="operand"}
+  return %copied
+}
+
+// ====
+
+test.target<low_core> @test_target
+
 low.func.def target<test.low.core>(@test_target) @concat(%lo: reg<test.i32>, %hi: reg<test.i32>) -> (reg<test.i32 x2>) asm {
   %pair = concat(%lo, %hi) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
   %lane = slice %pair[1] : reg<test.i32 x2> -> reg<test.i32>

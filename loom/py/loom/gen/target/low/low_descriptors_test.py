@@ -86,6 +86,7 @@ from loom.target.test.descriptors import (
     TEST_LOW_STATE_ADD_I32_DESCRIPTOR,
     TEST_LOW_STATE_ADD_I32_RHS_ZERO_DESCRIPTOR,
     TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
+    TEST_LOW_TIED_PAIR_I32_DESCRIPTOR,
     TEST_LOW_WRITE_HIGH16_I32_DESCRIPTOR,
     TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR,
 )
@@ -1052,6 +1053,24 @@ def test_compiler_derives_tied_operand_projection_flags() -> None:
     assert OperandFlag.TIED in compiled.descriptors[0].operands[0].flags
     assert OperandFlag.TIED in compiled.descriptors[0].operands[1].flags
     assert OperandFlag.TIED not in compiled.descriptors[0].operands[2].flags
+
+
+@pytest.mark.parametrize(
+    "constraints",
+    [
+        (Constraint(ConstraintKind.TIED, 0, 2), Constraint(ConstraintKind.TIED, 0, 3)),
+        (Constraint(ConstraintKind.TIED, 0, 2), Constraint(ConstraintKind.TIED, 1, 2)),
+    ],
+)
+def test_compiler_rejects_overlapping_tied_constraints(
+    constraints: tuple[Constraint, ...],
+) -> None:
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(replace(TEST_LOW_TIED_PAIR_I32_DESCRIPTOR, constraints=constraints),),
+    )
+    with pytest.raises(ValueError, match="tied constraints require distinct results and operands"):
+        compiler.compile_descriptor_set(descriptor_set)
 
 
 def _storage_continuation_descriptor() -> Descriptor:

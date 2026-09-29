@@ -1,0 +1,201 @@
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// A physical two-address constraint preserves an independently live source.
+low.func.def target<test.low.core>(@target) @independent_source(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %result = test.tied.any %source : reg<test.i32>
+  return %result, %source
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @independent_source(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %4 = copy %source : reg<test.i32> -> reg<test.i32>
+  %result = test.tied.any %4
+  return %result, %source
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// Repeated values remain distinct operands after the accumulator is copied.
+low.func.def target<test.low.core>(@target) @repeated_operand(%value: reg<test.i32 x8>) -> (reg<test.i32 x8>) asm {
+  %result = test.accumulate.v8i32 %value, %value, %value : reg<test.i32 x8>
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @repeated_operand(%value: reg<test.i32 x8>) -> (reg<test.i32 x8>) asm {
+  %3 = copy %value : reg<test.i32 x8> -> reg<test.i32 x8>
+  %result = test.accumulate.v8i32 %value, %value, %3
+  return %result
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// Source lowering already supplies the matching ownership contract.
+low.func.def target<test.low.core>(@target) @prepared_source(%source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = test.tied.any %source
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @prepared_source(%source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = test.tied.any %source
+  return %result
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// An authored tie on a three-address instruction remains untouched.
+low.func.def target<test.low.core>(@target) @authored_storage(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = test.add.i32 %lhs, %rhs : %rhs as reg<test.i32>
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @authored_storage(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = test.add.i32 %lhs, %rhs : %rhs as reg<test.i32>
+  return %result
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @conflicting_storage(%lhs: reg<test.i32 x8>, %rhs: reg<test.i32 x8>, %accumulator: reg<test.i32 x8>) -> (reg<test.i32 x8>) asm {
+  // ERROR@+1: TARGET/092 {op_name="test.accumulate.v8i32", authored_result_index="0", authored_operand_index="0", required_result_index="0", required_operand_index="2"}
+  %result = test.accumulate.v8i32 %lhs, %rhs, %accumulator : %lhs as reg<test.i32 x8>
+  return %result
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// Copying an independent partial register preserves its defined source parts.
+low.func.def target<test.low.core>(@target) @partial_source(%address: reg<test.ptr>) -> (reg<test.i32>) asm {
+  %low = test.write.low16.i32 %address
+  %full = test.write.high16.i32 %low, %address : reg<test.i32>
+  return %full
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @partial_source(%address: reg<test.ptr>) -> (reg<test.i32>) asm {
+  %low = test.write.low16.i32 %address
+  %4 = copy %low : reg<test.i32> -> reg<test.i32>
+  %full = test.write.high16.i32 %4, %address
+  return %full
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// Nested control keeps each destructive copy local to its executing branch.
+low.func.def target<test.low.core>(@target) @nested_source(%condition: reg<test.i32>, %source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %result = low.scf.if %condition -> (reg<test.i32>) {
+    %changed = test.tied.any %source : reg<test.i32>
+    low.scf.yield %changed : reg<test.i32>
+  } else {
+    low.scf.yield %source : reg<test.i32>
+  }
+  return %result, %source
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @nested_source(%condition: reg<test.i32>, %source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %result = low.scf.if %condition -> (reg<test.i32>) {
+    %6 = copy %source : reg<test.i32> -> reg<test.i32>
+    %changed = test.tied.any %6
+    low.scf.yield %changed : reg<test.i32>
+  } else {
+    low.scf.yield %source : reg<test.i32>
+  }
+  return %result, %source
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// Each result receives its own copy; both original inputs remain live.
+low.func.def target<test.low.core>(@target) @independent_pair(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %first, %second = test.tied_pair.i32 %lhs, %rhs : reg<test.i32>, reg<test.i32>
+  return %first, %second, %lhs, %rhs
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @independent_pair(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %8 = copy %lhs : reg<test.i32> -> reg<test.i32>
+  %9 = copy %rhs : reg<test.i32> -> reg<test.i32>
+  %first, %second = test.tied_pair.i32 %8, %9
+  return %first, %second, %lhs, %rhs
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// An explicit tie on one result does not consume the independent source.
+low.func.def target<test.low.core>(@target) @mixed_pair(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %first, %second = test.tied_pair.i32 %lhs, %rhs : reg<test.i32>, %rhs as reg<test.i32>
+  return %first, %second, %lhs
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @mixed_pair(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %7 = copy %lhs : reg<test.i32> -> reg<test.i32>
+  %first, %second = test.tied_pair.i32 %7, %rhs
+  return %first, %second, %lhs
+}
+
+// ====
+
+// RUN: pass low-materialize-register-constraints
+
+test.target<low_core> @target
+
+// One authored tie cannot reserve the operand required by another result.
+low.func.def target<test.low.core>(@target) @conflicting_pair(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  // ERROR@+1: TARGET/092 {op_name="test.tied_pair.i32", authored_result_index="1", authored_operand_index="0", required_result_index="0", required_operand_index="0"}
+  %first, %second = test.tied_pair.i32 %lhs, %rhs : reg<test.i32>, %lhs as reg<test.i32>
+  return %first, %second
+}

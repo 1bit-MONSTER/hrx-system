@@ -229,10 +229,10 @@ static iree_status_t loom_low_placement_collect_relation(
   }
   if (relation->kind == LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION ||
       relation->kind == LOOM_LOW_PLACEMENT_RELATION_DISJOINT_STORAGE ||
-      relation->kind == LOOM_LOW_PLACEMENT_RELATION_SAME_REGISTER_ORDINAL) {
+      relation->kind == LOOM_LOW_PLACEMENT_RELATION_SAME_REGISTER_ORDINAL ||
+      loom_low_placement_relation_is_hard_location(collected_relation)) {
     ++state->location_relation_count;
-    if (iree_any_bit_set(relation->flags,
-                         LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD)) {
+    if (loom_low_placement_relation_is_hard_location(collected_relation)) {
       ++state->hard_location_relation_count;
     }
   }
@@ -495,8 +495,28 @@ static iree_status_t loom_low_placement_collect_op_relations(
     const loom_low_constraint_t* constraint =
         &state->descriptor_set
              ->constraints[descriptor->constraint_start + (uint32_t)i];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL) {
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
       continue;
+    }
+    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+      // Matching ownership ties already supplied a hard storage relation.
+      // Independently owned results still require the instruction's physical
+      // register equality. Preparation normally makes these satisfiable by
+      // copying live inputs; a custom pipeline cannot silently drop them.
+      const uint16_t result_index =
+          descriptor_operands[constraint->lhs_operand_index].source_value_index;
+      const uint16_t operand_index =
+          descriptor_operands[constraint->rhs_operand_index].source_value_index;
+      bool has_storage_relation = false;
+      const loom_tied_result_t* ties = loom_op_tied_results(op);
+      for (uint16_t j = 0; j < op->tied_result_count; ++j) {
+        has_storage_relation |= ties[j].result_index == result_index &&
+                                ties[j].operand_index == operand_index;
+      }
+      if (has_storage_relation) {
+        continue;
+      }
     }
     const loom_value_id_t result_value_id =
         loom_low_placement_descriptor_operand_value_id(
@@ -507,16 +527,23 @@ static iree_status_t loom_low_placement_collect_op_relations(
     if (result_value_id == source_value_id) {
       continue;
     }
+    const loom_value_ordinal_t result_ordinal =
+        loom_low_placement_value_ordinal(state, result_value_id);
     const loom_low_placement_relation_t placement_relation = {
         .op = op,
-        .result_ordinal =
-            loom_low_placement_value_ordinal(state, result_value_id),
+        .result_ordinal = result_ordinal,
         .source_ordinal =
             loom_low_placement_value_ordinal(state, source_value_id),
         .result_unit_offset = 0,
         .source_unit_offset = 0,
-        .unit_count = 1,
-        .kind = LOOM_LOW_PLACEMENT_RELATION_SAME_REGISTER_ORDINAL,
+        .unit_count =
+            constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED
+                ? loom_low_placement_interval_for_ordinal(state, result_ordinal)
+                      ->unit_count
+                : 1,
+        .kind = constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED
+                    ? LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE
+                    : LOOM_LOW_PLACEMENT_RELATION_SAME_REGISTER_ORDINAL,
         .cause = LOOM_LOW_PLACEMENT_CAUSE_DESCRIPTOR_CONSTRAINT,
         .flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD,
         .priority = 1,
