@@ -121,7 +121,8 @@ bool loom_amdgpu_atomic_orderings_supported(
                                                source->atomic.failure_ordering);
 }
 
-static bool loom_amdgpu_atomic_append_wait_counter_mask(
+// Keep wait selection shared across release and acquire packet sequences.
+IREE_ATTRIBUTE_NOINLINE static bool loom_amdgpu_atomic_append_wait_counter_mask(
     const loom_low_descriptor_set_t* descriptor_set, uint32_t counter_mask,
     loom_amdgpu_atomic_explicit_packet_selection_t* waits,
     iree_host_size_t wait_capacity, iree_host_size_t* inout_wait_count) {
@@ -230,6 +231,42 @@ static bool loom_amdgpu_atomic_select_global_acquire_cache_controls(
   return true;
 }
 
+static bool loom_amdgpu_atomic_select_workgroup_ordering(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_amdgpu_memory_coherence_rule_t* rule,
+    const loom_low_source_memory_access_plan_t* source,
+    loom_amdgpu_atomic_ordering_selection_t* ordering) {
+  if (loom_amdgpu_atomic_source_has_release_ordering(source)) {
+    for (uint8_t i = 0; i < rule->workgroup.release_wait_count; ++i) {
+      if (!loom_amdgpu_atomic_append_wait_counter_mask(
+              descriptor_set, rule->workgroup.release_wait_masks[i],
+              ordering->pre_atomic_packets,
+              IREE_ARRAYSIZE(ordering->pre_atomic_packets),
+              &ordering->pre_atomic_packet_count)) {
+        return false;
+      }
+    }
+  }
+  if (loom_amdgpu_atomic_source_has_acquire_ordering(source)) {
+    // LDS orders its own accesses, but a following global access must wait
+    // for the observation even when it does not consume the returned value.
+    if (!loom_amdgpu_atomic_append_wait_counter_mask(
+            descriptor_set, LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS,
+            ordering->post_atomic_waits,
+            IREE_ARRAYSIZE(ordering->post_atomic_waits),
+            &ordering->post_atomic_wait_count)) {
+      return false;
+    }
+    if (rule->workgroup.invalidate) {
+      ordering->post_atomic_visibility_packets[0] =
+          loom_amdgpu_atomic_select_cache_packet(
+              rule, rule->workgroup.invalidate, LOOM_CACHE_SCOPE_SE);
+      ordering->post_atomic_visibility_packet_count = 1;
+    }
+  }
+  return true;
+}
+
 bool loom_amdgpu_atomic_select_ordering(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_source_memory_access_plan_t* source,
@@ -238,14 +275,16 @@ bool loom_amdgpu_atomic_select_ordering(
   *ordering = (loom_amdgpu_atomic_ordering_selection_t){0};
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
-  if (!loom_amdgpu_atomic_memory_space_is_device_visible(
-          source->memory_space) ||
-      (!loom_amdgpu_atomic_source_has_release_ordering(source) &&
-       !loom_amdgpu_atomic_source_has_acquire_ordering(source))) {
+  if (!loom_amdgpu_atomic_source_has_release_ordering(source) &&
+      !loom_amdgpu_atomic_source_has_acquire_ordering(source)) {
     return true;
   }
   if (rule == NULL) {
     return false;
+  }
+  if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+    return loom_amdgpu_atomic_select_workgroup_ordering(descriptor_set, rule,
+                                                        source, ordering);
   }
 
   if (loom_amdgpu_atomic_source_has_release_ordering(source)) {

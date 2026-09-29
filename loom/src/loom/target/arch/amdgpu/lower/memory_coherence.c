@@ -27,6 +27,18 @@ static const loom_amdgpu_memory_coherence_rule_t kMemoryCoherenceRules[] = {
             .invalidates = {LOOM_AMDGPU_DESCRIPTOR_REF_BUFFER_GL1_INV,
                             LOOM_AMDGPU_DESCRIPTOR_REF_BUFFER_GL0_INV},
             .invalidate_count = 2,
+            // WGP waves can use different GL0 caches. Complete both memory
+            // paths before publication and invalidate GL0 after acquisition.
+            .workgroup =
+                {
+                    .release_wait_masks =
+                        {LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD |
+                             LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS |
+                             LOOM_AMDGPU_WAIT_COUNTER_MASK_SMEM,
+                         LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE},
+                    .release_wait_count = 2,
+                    .invalidate = LOOM_AMDGPU_DESCRIPTOR_REF_BUFFER_GL0_INV,
+                },
         },
     [LOOM_AMDGPU_MEMORY_ORDERING_MODEL_GFX12] =
         {
@@ -46,6 +58,15 @@ static const loom_amdgpu_memory_coherence_rule_t kMemoryCoherenceRules[] = {
             .writeback_wait_mask = LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE,
             .invalidates = {LOOM_AMDGPU_DESCRIPTOR_REF_GLOBAL_INV},
             .invalidate_count = 1,
+            .workgroup =
+                {
+                    .release_wait_masks =
+                        {LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD,
+                         LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE,
+                         LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS},
+                    .release_wait_count = 3,
+                    .invalidate = LOOM_AMDGPU_DESCRIPTOR_REF_GLOBAL_INV,
+                },
         },
     [LOOM_AMDGPU_MEMORY_ORDERING_MODEL_GFX125] =
         {
@@ -66,6 +87,15 @@ static const loom_amdgpu_memory_coherence_rule_t kMemoryCoherenceRules[] = {
             .invalidates = {LOOM_AMDGPU_DESCRIPTOR_REF_GLOBAL_INV},
             .invalidate_count = 1,
             .invalidate_wait_mask = LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD,
+            // The CU cache is shared, but its ports do not order one another.
+            .workgroup =
+                {
+                    .release_wait_masks =
+                        {LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_LOAD,
+                         LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE,
+                         LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS},
+                    .release_wait_count = 3,
+                },
         },
     [LOOM_AMDGPU_MEMORY_ORDERING_MODEL_CDNA] =
         {
@@ -92,6 +122,13 @@ static const loom_amdgpu_memory_coherence_rule_t kMemoryCoherenceRules[] = {
             .writeback_wait_mask = LOOM_AMDGPU_WAIT_COUNTER_MASK_VMEM_STORE,
             .invalidates = {LOOM_AMDGPU_DESCRIPTOR_REF_BUFFER_INV},
             .invalidate_count = 1,
+            // With TgSplit disabled the workgroup shares an ordered L1.
+            .workgroup =
+                {
+                    .release_wait_masks = {LOOM_AMDGPU_WAIT_COUNTER_MASK_LDS |
+                                           LOOM_AMDGPU_WAIT_COUNTER_MASK_SMEM},
+                    .release_wait_count = 1,
+                },
         },
 };
 
