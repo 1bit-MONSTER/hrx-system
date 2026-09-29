@@ -17,6 +17,7 @@
 #include "loom/ir/ir.h"
 #include "loom/target/emit/spirv/module_builder.h"
 #include "loom/target/facts.h"
+#include "loom/target/provider.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,6 +51,9 @@ iree_status_t loom_spirv_compile_module_binary(
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
     const loom_spirv_compile_options_t* options, iree_allocator_t allocator,
     bool* out_emitted, loom_spirv_module_binary_t* out_module);
+
+// Optional SPIR-V binary module emission for a target environment.
+extern const loom_target_provider_t loom_spirv_module_provider;
 
 #ifdef __cplusplus
 }  // extern "C"

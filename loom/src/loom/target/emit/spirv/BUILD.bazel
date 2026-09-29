@@ -233,6 +233,7 @@ loom_cc_library(
         "//loom/src/loom/ir",
         "//loom/src/loom/target:facts",
         "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/target:types",
         "//loom/src/loom/target/arch/spirv:module_contract",
         "//loom/src/loom/target/arch/spirv/descriptors",

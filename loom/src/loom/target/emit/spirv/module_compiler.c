@@ -289,3 +289,53 @@ iree_status_t loom_spirv_compile_module_binary(
   *out_emitted = true;
   return iree_ok_status();
 }
+
+static iree_status_t loom_spirv_module_emit(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
+  *out_emitted = false;
+  *out_artifact = (loom_target_emit_artifact_t){0};
+
+  loom_spirv_compile_options_t options = {0};
+  options.function_versions = request->function_versions;
+  loom_spirv_module_binary_t binary = {0};
+  bool module_emitted = false;
+  iree_status_t status = loom_spirv_compile_module_binary(
+      request->module, request->low_descriptor_registry,
+      request->diagnostic_emitter, request->scratch_arena, &options,
+      request->allocator, &module_emitted, &binary);
+  if (iree_status_is_ok(status) && module_emitted) {
+    iree_byte_span_t contents =
+        iree_make_byte_span(binary.words, binary.word_count * sizeof(uint32_t));
+    status = iree_byte_sequence_create_from_span_move(
+        &contents, request->allocator, &out_artifact->contents);
+    if (iree_status_is_ok(status)) {
+      binary.words = NULL;
+      binary.word_count = 0;
+      out_artifact->target_artifact_format =
+          LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY;
+      *out_emitted = true;
+    }
+  }
+
+  loom_spirv_module_binary_deinitialize(&binary, request->allocator);
+  return status;
+}
+
+static const loom_target_emitter_t loom_spirv_module_emitter = {
+    .name = IREE_SVL("spirv"),
+    .public_artifact_format = IREE_SVL("spirv"),
+    .default_identifier = IREE_SVL("module.spv"),
+    .target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY,
+    .emit = loom_spirv_module_emit,
+};
+
+const loom_target_provider_t loom_spirv_module_provider = {
+    .emitter_list =
+        {
+            .values =
+                (const loom_target_emitter_t* const[]){
+                    &loom_spirv_module_emitter},
+            .count = 1,
+        },
+};

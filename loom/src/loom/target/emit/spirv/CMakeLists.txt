@@ -241,6 +241,7 @@ loom_cc_library(
     loom::target::arch::spirv::module_contract
     loom::target::facts
     loom::target::function_version
+    loom::target::provider
     loom::target::types
   PUBLIC
 )
