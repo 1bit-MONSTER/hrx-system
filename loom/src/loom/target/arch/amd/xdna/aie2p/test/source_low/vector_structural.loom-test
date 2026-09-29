@@ -20,6 +20,22 @@ low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @i8x64_de
 
 aie2p.target<core> @target
 
+func.def target(@target) @interleave_i8x4(%even: vector<4xi8>, %odd: vector<4xi8>) -> (vector<8xi8>) {
+  %result = vector.interleave<0> %even, %odd : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  func.return %result : vector<8xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8x4(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %7 = mova.i32 20
+  %result = vshuffle %even, %odd, %7
+  return %result
+}
+
+// ====
+
+aie2p.target<core> @target
+
 // Models the integer contraction boundary shared by adjacent Q5_K groups.
 // Narrow operands are joined into one logical dot, then its partial sums are
 // split back into group-local reductions without scalar lane traffic.

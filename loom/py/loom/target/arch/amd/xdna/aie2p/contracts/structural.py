@@ -159,6 +159,9 @@ _WIDE_VECTOR_EXTRACT_SPECS = (
 # carrier, with the remaining lanes outside the source vector's value domain.
 _I8_DEINTERLEAVE_CONTROLS = (0, 1)
 
+# T8_2x64_lo interleaves the low thirty-two byte lanes of two X carriers.
+_I8_INTERLEAVE_CONTROL = 20
+
 # T16_2x32_lo interleaves the low sixteen 16-bit lanes of two X carriers.
 _I16_INTERLEAVE_CONTROL = 18
 
@@ -449,11 +452,13 @@ def _vector_deinterleave_i8x64_rule() -> DescriptorRule:
     )
 
 
-def _vector_interleave_16bit_rule() -> DescriptorRule:
+def _vector_interleave_rule(
+    input_type: TypePattern,
+    result_type: TypePattern,
+    control_value: int,
+) -> DescriptorRule:
     constant = _descriptor("amd.xdna.aie2p.constant.i32.mova")
     shuffle = _descriptor("amd.xdna.aie2p.shuffle.x.configured")
-    input_type = Vector(("i16", "f16", "bf16"), lanes=16)
-    result_type = Vector(("i16", "f16", "bf16"), lanes=32)
     control = ValueRef.temporary("control")
     return DescriptorRule(
         source_op=vector.vector_interleave,
@@ -469,7 +474,7 @@ def _vector_interleave_16bit_rule() -> DescriptorRule:
                 descriptor=constant,
                 results={"dst": control},
                 result_types={"dst": DescriptorResultType()},
-                immediates={"i": _I16_INTERLEAVE_CONTROL},
+                immediates={"i": control_value},
                 form=DescriptorEmitForm.CONST,
             ),
             EmitDescriptorOp(
@@ -1494,7 +1499,24 @@ AIE2P_STRUCTURAL_RULES = (
         )
     ),
     _vector_deinterleave_i8x64_rule(),
-    _vector_interleave_16bit_rule(),
+    _vector_interleave_rule(
+        Vector(
+            ("i8", "f8E4M3", "f8E5M2"),
+            minimum_lanes=1,
+            maximum_lanes=32,
+        ),
+        Vector(
+            ("i8", "f8E4M3", "f8E5M2"),
+            minimum_lanes=2,
+            maximum_lanes=64,
+        ),
+        _I8_INTERLEAVE_CONTROL,
+    ),
+    _vector_interleave_rule(
+        Vector(("i16", "f16", "bf16"), lanes=16),
+        Vector(("i16", "f16", "bf16"), lanes=32),
+        _I16_INTERLEAVE_CONTROL,
+    ),
     _vector_transpose_i32_f32_4x4_rule(),
     _vector_transpose_16bit_8x8_rule(),
     *(
