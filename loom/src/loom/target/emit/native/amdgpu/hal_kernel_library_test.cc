@@ -1522,7 +1522,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
 }
 
 TEST_F(AmdgpuHalKernelLibraryTest,
-       EmitsGfx1250CallerDataSymbolsAndRel32AddressMaterialization) {
+       EmitsGfx1250GlobalRodataAndRel32AddressMaterialization) {
   static constexpr char kSiteSymbolName[] = "loom_sanitizer_sites";
   static const uint8_t kSiteRecords[] = {
       0x00, 0x02, 0x03, 0x02, 0x01, 0x01, 0x00, 0x00,
@@ -1531,7 +1531,8 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   static const char kSource[] =
       "amdgpu.target<gfx1250> @gfx_target\n"
       "global.rodata.decl @iree_feedback_config\n"
-      "global.rodata.decl @loom_sanitizer_sites\n"
+      "global.rodata.def @loom_sanitizer_sites = "
+      "align(16) bytes(\"00020302010100000001010601010000\")\n"
       "low.kernel.def target<amdgpu.gfx12_5.generic.core>(@gfx_target) "
       "workgroup_size(64, 1, 1) "
       "@loom_kernel() {\n"
@@ -1556,18 +1557,9 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   ASSERT_NO_FATAL_FAILURE(
       ParseSource(iree_make_cstring_view(kSource), &module));
 
-  const loom_amdgpu_hsaco_data_symbol_t site_symbol = {
-      /*.name=*/IREE_SV(kSiteSymbolName),
-      /*.initial_contents=*/
-      iree_make_const_byte_span(kSiteRecords, sizeof(kSiteRecords)),
-      /*.byte_length=*/sizeof(kSiteRecords),
-      /*.alignment=*/16,
-  };
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.data_symbols = &site_symbol;
-  options.data_symbol_count = 1;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;

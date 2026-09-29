@@ -18,7 +18,6 @@
 #include "loom/error/diagnostic.h"
 #include "loom/error/source.h"
 #include "loom/ir/ir.h"
-#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
 #include "loom/target/provider.h"
 #include "loom/target/reporting/artifact_manifest_collect.h"
 #include "loom/target/reporting/report.h"
@@ -32,10 +31,6 @@ typedef struct loom_amdgpu_hal_kernel_library_options_t {
   // Optional concrete compiler function versions participating in this
   // emission. The list and its version objects are borrowed for the call.
   const loom_function_version_list_t* function_versions;
-  // Optional caller-owned code-object data symbols emitted into the HSACO.
-  const loom_amdgpu_hsaco_data_symbol_t* data_symbols;
-  // Number of entries in |data_symbols|.
-  iree_host_size_t data_symbol_count;
   // Diagnostic sink used for verification, materialization, scheduling, and
   // allocation diagnostics. A NULL callback still counts diagnostics.
   loom_diagnostic_sink_t diagnostic_sink;

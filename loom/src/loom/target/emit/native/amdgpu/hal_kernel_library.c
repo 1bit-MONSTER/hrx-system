@@ -816,8 +816,6 @@ static iree_status_t loom_amdgpu_hal_kernel_library_collect_rodata_symbols(
 
 static iree_status_t loom_amdgpu_hal_kernel_library_compose_data_symbols(
     loom_amdgpu_runtime_global_flags_t runtime_globals,
-    const loom_amdgpu_hsaco_data_symbol_t* data_symbols,
-    iree_host_size_t data_symbol_count,
     const loom_amdgpu_hsaco_data_symbol_t* rodata_symbols,
     iree_host_size_t rodata_symbol_count, iree_arena_allocator_t* arena,
     const loom_amdgpu_hsaco_data_symbol_t** out_data_symbols,
@@ -827,26 +825,9 @@ static iree_status_t loom_amdgpu_hal_kernel_library_compose_data_symbols(
 
   const iree_host_size_t runtime_global_symbol_count =
       loom_amdgpu_runtime_global_count(runtime_globals);
-  if (data_symbol_count != 0 && data_symbols == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AMDGPU HAL kernel-library data symbols are "
-                            "required when data_symbol_count is non-zero");
-  }
-  if (rodata_symbol_count != 0 && rodata_symbols == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AMDGPU HAL kernel-library rodata symbols are "
-                            "required when rodata_symbol_count is non-zero");
-  }
 
-  iree_host_size_t total_symbol_count = 0;
-  if (!iree_host_size_checked_add(runtime_global_symbol_count,
-                                  data_symbol_count, &total_symbol_count) ||
-      !iree_host_size_checked_add(total_symbol_count, rodata_symbol_count,
-                                  &total_symbol_count)) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "AMDGPU HAL kernel-library data symbol count overflow");
-  }
+  const iree_host_size_t total_symbol_count =
+      runtime_global_symbol_count + rodata_symbol_count;
   if (total_symbol_count == 0) {
     return iree_ok_status();
   }
@@ -859,11 +840,6 @@ static iree_status_t loom_amdgpu_hal_kernel_library_compose_data_symbols(
   loom_amdgpu_runtime_global_symbols(runtime_globals, composed_symbols,
                                      &composed_symbol_count);
   IREE_ASSERT_EQ(composed_symbol_count, runtime_global_symbol_count);
-  if (data_symbol_count != 0) {
-    memcpy(composed_symbols + composed_symbol_count, data_symbols,
-           data_symbol_count * sizeof(*data_symbols));
-    composed_symbol_count += data_symbol_count;
-  }
   if (rodata_symbol_count != 0) {
     memcpy(composed_symbols + composed_symbol_count, rodata_symbols,
            rodata_symbol_count * sizeof(*rodata_symbols));
@@ -893,10 +869,6 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
       options ? options->capture_target_listing : false;
   const loom_amdgpu_runtime_global_flags_t runtime_globals =
       loom_amdgpu_hal_kernel_library_runtime_globals(module);
-  const loom_amdgpu_hsaco_data_symbol_t* data_symbols =
-      options ? options->data_symbols : NULL;
-  const iree_host_size_t data_symbol_count =
-      options ? options->data_symbol_count : 0;
   const loom_amdgpu_hsaco_data_symbol_t* rodata_symbols = NULL;
   iree_host_size_t rodata_symbol_count = 0;
   IREE_RETURN_IF_ERROR(loom_amdgpu_hal_kernel_library_collect_rodata_symbols(
@@ -1014,9 +986,8 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
     const loom_amdgpu_hsaco_data_symbol_t* code_object_data_symbols = NULL;
     iree_host_size_t code_object_data_symbol_count = 0;
     status = loom_amdgpu_hal_kernel_library_compose_data_symbols(
-        runtime_globals, data_symbols, data_symbol_count, rodata_symbols,
-        rodata_symbol_count, table_arena, &code_object_data_symbols,
-        &code_object_data_symbol_count);
+        runtime_globals, rodata_symbols, rodata_symbol_count, table_arena,
+        &code_object_data_symbols, &code_object_data_symbol_count);
     IREE_ASSERT(code_object_identity != NULL);
     if (iree_status_is_ok(status)) {
       status = loom_amdgpu_artifact_key_format_arena(
