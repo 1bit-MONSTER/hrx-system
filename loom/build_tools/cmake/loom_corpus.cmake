@@ -247,6 +247,11 @@ function(_loom_declare_corpus_build ID)
     get_target_property(_XFAIL_PROFILES
       "${_XFAIL_TARGET}" LOOM_TARGET_PROFILES)
     foreach(_PROFILE IN LISTS _XFAIL_PROFILES)
+      get_target_property(_PROFILE_AVAILABLE
+        "${_PROFILE}" LOOM_PROFILE_AVAILABLE)
+      if(NOT _PROFILE_AVAILABLE)
+        continue()
+      endif()
       if(NOT _PROFILE IN_LIST _PROFILES)
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) has an xfail for unselected profile ${_PROFILE}")
@@ -301,6 +306,11 @@ function(_loom_declare_corpus_build ID)
     get_target_property(_EXCLUDE_PROFILES
       "${_EXCLUDE_TARGET}" LOOM_TARGET_PROFILES)
     foreach(_PROFILE IN LISTS _EXCLUDE_PROFILES)
+      get_target_property(_PROFILE_AVAILABLE
+        "${_PROFILE}" LOOM_PROFILE_AVAILABLE)
+      if(NOT _PROFILE_AVAILABLE)
+        continue()
+      endif()
       if(NOT _PROFILE IN_LIST _PROFILES)
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) excludes unselected profile ${_PROFILE}")
