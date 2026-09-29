@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:executable.bzl", "iree_executable_alias")
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
@@ -154,6 +155,22 @@ loom_cc_binary(
         "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
     ] + _IREE_TEST_LOOM_TARGET_DEPS,
+)
+
+# Hosts the ordinary CLI as a WASI module. The outer wrapper selects the
+# JavaScript entry point; the C program never discovers or launches its host.
+iree_executable_alias(
+    name = "iree-test-loom-wasi",
+    src = ":iree-test-loom",
+    tags = [
+        "manual",
+        "skip-bazel_to_cmake",
+    ],
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+    wasm_main = "//build_tools/wasm:wasm_test_main.mjs",
 )
 
 loom_cc_binary(
