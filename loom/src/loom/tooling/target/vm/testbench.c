@@ -875,8 +875,10 @@ loom_testbench_invocation_provider_t loom_vm_testbench_invocation_provider(
 }
 
 loom_testbench_execution_profile_t loom_vm_testbench_execution_profile(
-    void* user_data, const loom_source_table_resolver_t* sources,
+    void* user_data, const loom_target_profile_t* target_profile,
+    const loom_source_table_resolver_t* sources,
     const loom_tooling_config_set_t* config_set) {
+  (void)target_profile;
   loom_vm_testbench_t* testbench = user_data;
   loom_vm_testbench_bind_compilation_inputs(testbench, sources, config_set);
   return (loom_testbench_execution_profile_t){

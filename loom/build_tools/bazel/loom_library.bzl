@@ -69,6 +69,7 @@ def loom_execution_profile(
         build_requirements = [],
         run_requirements = [],
         resource_group = None,
+        env_inherit = [],
         tags = []):
     """Defines immutable policy for Loom test execution.
 
@@ -82,6 +83,7 @@ def loom_execution_profile(
       build_requirements: Build requirements needed by the execution runners.
       run_requirements: Runtime resources needed to execute the test.
       resource_group: Optional local resource group serializing competing tests.
+      env_inherit: Environment variables inherited by the execution test.
       tags: Additional stable tags applied to generated tests.
 
     Returns:
@@ -119,6 +121,7 @@ def loom_execution_profile(
             requirement_ids[requirement.id] = True
     return struct(
         build_requirements = build_requirements,
+        env_inherit = env_inherit,
         executor = executor,
         kind = "loom_execution_profile",
         name = name,
@@ -555,6 +558,7 @@ def _declare_execution_test(
         workload_args = []):
     test_kwargs = apply_test_requirements(
         {
+            "env_inherit": profile.env_inherit,
             "size": size,
             "tags": tags + profile.tags + _execution_profile_tags(profile),
         },

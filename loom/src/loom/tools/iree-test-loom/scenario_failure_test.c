@@ -195,8 +195,10 @@ static iree_status_t iree_test_loom_scenario_failure_prepare(
 
 static loom_testbench_execution_profile_t
 iree_test_loom_scenario_failure_bind_profile(
-    void* user_data, const loom_source_table_resolver_t* sources,
+    void* user_data, const loom_target_profile_t* target_profile,
+    const loom_source_table_resolver_t* sources,
     const loom_tooling_config_set_t* config_set) {
+  (void)target_profile;
   (void)sources;
   (void)config_set;
   iree_test_loom_scenario_failure_profile_t* profile =
@@ -233,7 +235,7 @@ int main(int argc, char** argv) {
               &environment),
       .target_environment =
           loom_run_execution_environment_target_environment(&environment),
-      .scenario_target_profile =
+      .scenario_default_target_profile =
           {
               .fn = iree_test_loom_scenario_failure_bind_profile,
               .user_data = &target,

@@ -71,6 +71,35 @@ endif()
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_cc_library(
   NAME
+    testbench
+  HDRS
+    "testbench.h"
+  SRCS
+    "testbench.c"
+  DEPS
+    ::evaluator
+    ::prepare
+    iree::base
+    iree::base::internal::arena
+    iree::hal
+    loom::error::source
+    loom::link::linker
+    loom::ops::op_defs
+    loom::target::arch::wasm::provider
+    loom::target::entry_selection
+    loom::target::provider
+    loom::tooling::compile::pipeline
+    loom::tooling::compile::preparation
+    loom::tooling::compile::request
+    loom::tooling::config
+    loom::tooling::testbench::scenario::executor
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_library(
+  NAME
     artifact_emitter
   HDRS
     "artifact_emitter.h"

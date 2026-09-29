@@ -8,6 +8,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "loom/tooling/execution/execution_provider.h"
 #include "loom/tooling/input/configured.h"
@@ -23,10 +24,13 @@
 #ifndef IREE_TEST_LOOM_HAVE_VM
 #define IREE_TEST_LOOM_HAVE_VM 0
 #endif  // IREE_TEST_LOOM_HAVE_VM
+#ifndef IREE_TEST_LOOM_HAVE_WASM
+#define IREE_TEST_LOOM_HAVE_WASM 0
+#endif  // IREE_TEST_LOOM_HAVE_WASM
 
 #define IREE_TEST_LOOM_HAVE_ANY_PROVIDER                      \
   (IREE_TEST_LOOM_HAVE_AMDGPU || IREE_TEST_LOOM_HAVE_SPIRV || \
-   IREE_TEST_LOOM_HAVE_VM)
+   IREE_TEST_LOOM_HAVE_VM || IREE_TEST_LOOM_HAVE_WASM)
 #define IREE_TEST_LOOM_HAVE_ANY_DEVICE_PROVIDER \
   (IREE_TEST_LOOM_HAVE_AMDGPU || IREE_TEST_LOOM_HAVE_SPIRV)
 
@@ -49,6 +53,15 @@ static const loom_run_execution_provider_t kIreeTestLoomVmProvider = {
     .target_provider = &loom_vm_target_provider,
 };
 #endif  // IREE_TEST_LOOM_HAVE_VM
+#if IREE_TEST_LOOM_HAVE_WASM
+#include "loom/target/arch/wasm/provider.h"
+#include "loom/tooling/target/wasm/testbench.h"
+
+static const loom_run_execution_provider_t kIreeTestLoomWasmProvider = {
+    .name = IREE_SVL("wasm"),
+    .target_provider = &loom_wasm_target_provider,
+};
+#endif  // IREE_TEST_LOOM_HAVE_WASM
 
 #if IREE_TEST_LOOM_HAVE_AMDGPU
 static const loom_run_execution_provider_t kIreeTestLoomAmdgpuProvider = {
@@ -75,6 +88,9 @@ static const loom_run_execution_provider_t* const kIreeTestLoomProviders[] = {
 #if IREE_TEST_LOOM_HAVE_SPIRV
     &kIreeTestLoomSpirvProvider,
 #endif  // IREE_TEST_LOOM_HAVE_SPIRV
+#if IREE_TEST_LOOM_HAVE_WASM
+    &kIreeTestLoomWasmProvider,
+#endif  // IREE_TEST_LOOM_HAVE_WASM
 };
 #endif  // IREE_TEST_LOOM_HAVE_ANY_PROVIDER
 
@@ -191,6 +207,10 @@ int main(int argc, char** argv) {
           loom_run_execution_environment_low_descriptor_registry_callback(
               &environment),
   };
+  iree_test_loom_scenario_profile_binding_t
+      scenario_target_profiles[IREE_TEST_LOOM_HAVE_VM +
+                               IREE_TEST_LOOM_HAVE_WASM + 1];
+  iree_host_size_t scenario_target_profile_count = 0;
 #if IREE_TEST_LOOM_HAVE_VM
   loom_vm_testbench_t vm_testbench;
   loom_vm_testbench_initialize(configuration.target_environment,
@@ -199,14 +219,54 @@ int main(int argc, char** argv) {
   configuration.function_call_provider.fn =
       loom_vm_testbench_invocation_provider;
   configuration.function_call_provider.user_data = &vm_testbench;
-  configuration.scenario_target_profile.fn =
+  configuration.scenario_default_target_profile.fn =
       loom_vm_testbench_execution_profile;
-  configuration.scenario_target_profile.user_data = &vm_testbench;
+  configuration.scenario_default_target_profile.user_data = &vm_testbench;
+  scenario_target_profiles[scenario_target_profile_count++] =
+      (iree_test_loom_scenario_profile_binding_t){
+          .profile_type = loom_vm_target_provider.profile_type,
+          .callback =
+              {
+                  .fn = loom_vm_testbench_execution_profile,
+                  .user_data = &vm_testbench,
+              },
+      };
   configuration.scenario_oracle_profile.fn =
       loom_vm_testbench_execution_profile;
   configuration.scenario_oracle_profile.user_data = &vm_testbench;
 #endif  // IREE_TEST_LOOM_HAVE_VM
+#if IREE_TEST_LOOM_HAVE_WASM
+  const char* node_path = getenv("IREE_WASM_NODE");
+  const iree_string_view_t node_executable =
+      node_path != NULL && node_path[0] != '\0'
+          ? iree_make_cstring_view(node_path)
+          : IREE_SV("node");
+  loom_wasm_testbench_t wasm_testbench;
+  loom_wasm_testbench_initialize(configuration.target_environment,
+                                 configuration.cleanup_pattern_provider_set,
+                                 node_executable, iree_allocator_system(),
+                                 &wasm_testbench);
+  scenario_target_profiles[scenario_target_profile_count++] =
+      (iree_test_loom_scenario_profile_binding_t){
+          .profile_type = loom_wasm_target_provider.profile_type,
+          .callback =
+              {
+                  .fn = loom_wasm_testbench_execution_profile,
+                  .user_data = &wasm_testbench,
+              },
+      };
+#endif  // IREE_TEST_LOOM_HAVE_WASM
+  configuration.scenario_target_profiles = scenario_target_profiles;
+  configuration.scenario_target_profile_count = scenario_target_profile_count;
   int exit_code = iree_test_loom_main(argc, argv, &configuration);
+#if IREE_TEST_LOOM_HAVE_WASM
+  status = loom_wasm_testbench_deinitialize(&wasm_testbench);
+  if (!iree_status_is_ok(status)) {
+    iree_status_fprint(stderr, status);
+    iree_status_free(status);
+    exit_code = 1;
+  }
+#endif  // IREE_TEST_LOOM_HAVE_WASM
 #if IREE_TEST_LOOM_HAVE_VM
   loom_vm_testbench_deinitialize(&vm_testbench);
 #endif  // IREE_TEST_LOOM_HAVE_VM

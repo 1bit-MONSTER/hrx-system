@@ -44,7 +44,8 @@ typedef struct iree_test_loom_populate_requirement_providers_callback_t {
 // and its compile-time configuration.
 typedef loom_testbench_execution_profile_t (
     *iree_test_loom_bind_scenario_profile_fn_t)(
-    void* user_data, const loom_source_table_resolver_t* sources,
+    void* user_data, const loom_target_profile_t* target_profile,
+    const loom_source_table_resolver_t* sources,
     const loom_tooling_config_set_t* config_set);
 
 typedef struct iree_test_loom_bind_scenario_profile_callback_t {
@@ -53,6 +54,14 @@ typedef struct iree_test_loom_bind_scenario_profile_callback_t {
   // Caller-owned profile state passed to |fn|.
   void* user_data;
 } iree_test_loom_bind_scenario_profile_callback_t;
+
+// Associates a target family with its scenario execution profile binding.
+typedef struct iree_test_loom_scenario_profile_binding_t {
+  // Target profile type selecting |callback|.
+  const loom_target_profile_type_t* profile_type;
+  // Binding callback for profiles of |profile_type|.
+  iree_test_loom_bind_scenario_profile_callback_t callback;
+} iree_test_loom_scenario_profile_binding_t;
 
 typedef struct iree_test_loom_configuration_t {
   // Borrowed optional source importers selected by the final application.
@@ -69,8 +78,13 @@ typedef struct iree_test_loom_configuration_t {
   const loom_device_provider_registry_t* device_provider_registry;
   // Binds ordinary function calls once for all cases in the parsed module.
   loom_testbench_function_call_provider_callback_t function_call_provider;
-  // Binds the product under test for check.scenario actions.
-  iree_test_loom_bind_scenario_profile_callback_t scenario_target_profile;
+  // Binds the product under test when no explicit target is selected.
+  iree_test_loom_bind_scenario_profile_callback_t
+      scenario_default_target_profile;
+  // Target-family bindings available for explicitly targeted scenarios.
+  const iree_test_loom_scenario_profile_binding_t* scenario_target_profiles;
+  // Number of entries in |scenario_target_profiles|.
+  iree_host_size_t scenario_target_profile_count;
   // Binds the independent oracle for check.compare actions.
   iree_test_loom_bind_scenario_profile_callback_t scenario_oracle_profile;
   // Appends target-specific requirement providers linked into this runner.

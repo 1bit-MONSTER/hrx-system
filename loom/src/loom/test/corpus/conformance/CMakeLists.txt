@@ -379,6 +379,25 @@ loom_execution_test(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_execution_test(
+  NAME
+    numeric_vector_f32_test_execute_wasm_node_test
+  MODULE
+    "::numeric_vector_f32_test_module"
+  RUNNER_ARGS
+    "--target=wasm:simd128"
+  LABELS
+    "hostonly"
+    "iree-build-requirement=loom.target.arch.wasm"
+    "iree-build-requirement=loom.emit.wasm"
+    "loom-execution-profile=wasm_node"
+    "loom-target-family=wasm"
+    "loom-target-class=cpu"
+    "loom-executor=node"
+)
+endif()
+
 loom_test_module(
   NAME
     vector_i64_bitwise_test_module
@@ -415,6 +434,7 @@ loom_test_module(
     predicate_logic_test_module
   SRCS
     "predicate_logic.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/predicate_select_values.loom"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
@@ -438,6 +458,25 @@ loom_execution_test(
     "loom-executor=hardware"
   RESOURCE_GROUP
     "gpu-device"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_execution_test(
+  NAME
+    predicate_logic_test_execute_wasm_node_test
+  MODULE
+    "::predicate_logic_test_module"
+  RUNNER_ARGS
+    "--target=wasm:simd128"
+  LABELS
+    "hostonly"
+    "iree-build-requirement=loom.target.arch.wasm"
+    "iree-build-requirement=loom.emit.wasm"
+    "loom-execution-profile=wasm_node"
+    "loom-target-family=wasm"
+    "loom-target-class=cpu"
+    "loom-executor=node"
 )
 endif()
 

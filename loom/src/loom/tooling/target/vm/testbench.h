@@ -89,7 +89,8 @@ loom_testbench_invocation_provider_t loom_vm_testbench_invocation_provider(
 // Product preparation finishes before any trial-local values are materialized;
 // product execution only marshals batches through that prepared process.
 loom_testbench_execution_profile_t loom_vm_testbench_execution_profile(
-    void* user_data, const loom_source_table_resolver_t* sources,
+    void* user_data, const loom_target_profile_t* target_profile,
+    const loom_source_table_resolver_t* sources,
     const loom_tooling_config_set_t* config_set);
 
 #ifdef __cplusplus

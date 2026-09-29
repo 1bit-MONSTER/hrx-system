@@ -13,6 +13,8 @@ load(
     "loom_cc_test",
     "loom_config_compatible_with",
 )
+load("//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("//loom/target/wasm:execution_profiles.bzl", "WASM_NODE_PROFILE")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -65,12 +67,33 @@ _VM_TARGET_DEPS = iree_select({
     "//conditions:default": [],
 })
 
+_WASM_TARGET_COPTS = iree_select({
+    "//loom/config/target:wasm_artifacts": [
+        "-DIREE_TEST_LOOM_HAVE_WASM=1",
+    ],
+    "//conditions:default": [],
+})
+
+_WASM_TARGET_DEPS = iree_select({
+    "//loom/config/target:wasm_artifacts": [
+        "//loom/src/loom/target/arch/wasm:provider",
+        "//loom/src/loom/tooling/target/wasm:testbench",
+    ],
+    "//conditions:default": [],
+})
+
 _IREE_TEST_LOOM_TARGET_COPTS = (
-    _AMDGPU_TARGET_COPTS + _SPIRV_VULKAN_TARGET_COPTS + _VM_TARGET_COPTS
+    _AMDGPU_TARGET_COPTS +
+    _SPIRV_VULKAN_TARGET_COPTS +
+    _VM_TARGET_COPTS +
+    _WASM_TARGET_COPTS
 )
 
 _IREE_TEST_LOOM_TARGET_DEPS = (
-    _AMDGPU_TARGET_DEPS + _SPIRV_VULKAN_TARGET_DEPS + _VM_TARGET_DEPS
+    _AMDGPU_TARGET_DEPS +
+    _SPIRV_VULKAN_TARGET_DEPS +
+    _VM_TARGET_DEPS +
+    _WASM_TARGET_DEPS
 )
 
 loom_cc_library(
@@ -115,6 +138,7 @@ loom_cc_library(
         ":library_linker",
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:provider",
+        "//loom/src/loom/target:selection",
         "//loom/src/loom/tooling/cli:help",
         "//loom/src/loom/tooling/config",
         "//loom/src/loom/tooling/context",
@@ -196,6 +220,12 @@ iree_execution_test_suite(
     tools = {
         "iree-test-loom": ":iree-test-loom",
     },
+)
+
+loom_test(
+    name = "wasm_scenario_product_test",
+    srcs = ["testdata/scenario_cases.loom"],
+    execution_profiles = [WASM_NODE_PROFILE],
 )
 
 iree_execution_test_suite(

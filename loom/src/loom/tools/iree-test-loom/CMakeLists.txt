@@ -59,6 +59,7 @@ loom_cc_library(
     iree::io::stream
     loom::sanitizer::options
     loom::target::provider
+    loom::target::selection
     loom::tooling::cli::help
     loom::tooling::config
     loom::tooling::context
@@ -93,6 +94,9 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
   list(APPEND _iree_test_loom_platform_copts "-DIREE_TEST_LOOM_HAVE_VM=1")
 endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+  list(APPEND _iree_test_loom_platform_copts "-DIREE_TEST_LOOM_HAVE_WASM=1")
+endif()
 set(_iree_test_loom_platform_deps "")
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
   list(APPEND _iree_test_loom_platform_deps loom::target::arch::amdgpu::provider)
@@ -107,6 +111,10 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
   list(APPEND _iree_test_loom_platform_deps loom::target::arch::vm::provider)
   list(APPEND _iree_test_loom_platform_deps loom::tooling::target::vm::testbench)
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+  list(APPEND _iree_test_loom_platform_deps loom::target::arch::wasm::provider)
+  list(APPEND _iree_test_loom_platform_deps loom::tooling::target::wasm::testbench)
 endif()
 loom_cc_binary(
   NAME
@@ -169,6 +177,32 @@ iree_execution_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/scenario_cases.loom"
   LABELS
     "hostonly"
+)
+endif()
+
+loom_test_module(
+  NAME
+    wasm_scenario_product_test_module
+  SRCS
+    "testdata/scenario_cases.loom"
+)
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_execution_test(
+  NAME
+    wasm_scenario_product_test_execute_wasm_node_test
+  MODULE
+    "::wasm_scenario_product_test_module"
+  RUNNER_ARGS
+    "--target=wasm:simd128"
+  LABELS
+    "hostonly"
+    "iree-build-requirement=loom.target.arch.wasm"
+    "iree-build-requirement=loom.emit.wasm"
+    "loom-execution-profile=wasm_node"
+    "loom-target-family=wasm"
+    "loom-target-class=cpu"
+    "loom-executor=node"
 )
 endif()
 

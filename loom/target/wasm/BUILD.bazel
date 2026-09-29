@@ -13,6 +13,8 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["execution_profiles.bzl"])
+
 _WASM_ARTIFACTS_COMPATIBLE_WITH = loom_config_compatible_with([
     "//loom/config/target:wasm_artifacts",
 ])

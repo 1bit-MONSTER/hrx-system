@@ -431,6 +431,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         build_requirements=None,
         run_requirements=None,
         resource_group=None,
+        env_inherit=None,
         tags=None,
     ):
         self._reject_workload_args(name, runner_args)
@@ -440,6 +441,9 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             "target_family": target_family,
             "target_class": target_class,
             "executor": executor,
+            # CTest inherits its invoking environment. Bazel tests declare the
+            # equivalent allowlist explicitly on sh_test.
+            "env_inherit": env_inherit or [],
             "runner_args": runner_args,
             "build_requirements": build_requirements or [],
             "run_requirements": run_requirements or [],

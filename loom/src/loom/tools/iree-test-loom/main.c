@@ -16,6 +16,7 @@
 #include "iree/base/tooling/flags.h"
 #include "iree/io/stdio_stream.h"
 #include "loom/sanitizer/options.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/config/config.h"
 #include "loom/tooling/context/context.h"
@@ -52,9 +53,9 @@ IREE_FLAG(string, pipeline, "default",
           "transformations and requires emission-ready input. Use '@symbol' "
           "or a comma-separated pass list for an explicit pipeline.");
 IREE_FLAG(string, target, "",
-          "Optional compiler target as `family:selector` for every HAL kernel "
-          "launch. The selected device must be able to load the target. Empty "
-          "selects a compatible target from the device and authored kernel.");
+          "Optional compiler target as `family:selector`. HAL execution "
+          "requires the selected device to load the target. Empty selects a "
+          "compatible device target or the runner's default host profile.");
 IREE_FLAG_LIST(
     string, config,
     "Compile-time config binding for kernel and function compilation. "
@@ -692,6 +693,59 @@ static void iree_test_loom_print_agents_markdown(FILE* stream) {
       "process fail after the JSON report is written.\n");
 }
 
+static iree_status_t iree_test_loom_bind_scenario_target_profile(
+    const iree_test_loom_configuration_t* configuration,
+    iree_string_view_t target, const loom_source_table_resolver_t* sources,
+    const loom_tooling_config_set_t* config_set,
+    loom_testbench_execution_profile_t* out_profile) {
+  *out_profile = (loom_testbench_execution_profile_t){0};
+  iree_test_loom_bind_scenario_profile_callback_t callback =
+      configuration->scenario_default_target_profile;
+  const loom_target_profile_t* target_profile = NULL;
+  if (!iree_string_view_is_empty(target)) {
+    loom_target_specification_t specification = {0};
+    IREE_RETURN_IF_ERROR(
+        loom_target_specification_parse(target, &specification));
+    IREE_RETURN_IF_ERROR(loom_target_environment_select_profile(
+        configuration->target_environment, &specification, &target_profile));
+    callback = (iree_test_loom_bind_scenario_profile_callback_t){0};
+    for (iree_host_size_t i = 0;
+         i < configuration->scenario_target_profile_count; ++i) {
+      const iree_test_loom_scenario_profile_binding_t* binding =
+          &configuration->scenario_target_profiles[i];
+      if (binding->profile_type != target_profile->type) {
+        continue;
+      }
+      if (callback.fn != NULL) {
+        return iree_make_status(
+            IREE_STATUS_FAILED_PRECONDITION,
+            "scenario target family '%.*s' has multiple execution profiles",
+            (int)target_profile->type->name.size,
+            target_profile->type->name.data);
+      }
+      callback = binding->callback;
+    }
+  }
+  if (callback.fn == NULL) {
+    const iree_string_view_t family = target_profile != NULL
+                                          ? target_profile->type->name
+                                          : IREE_SV("default");
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "scenario target family '%.*s' has no execution profile",
+        (int)family.size, family.data);
+  }
+  *out_profile =
+      callback.fn(callback.user_data, target_profile, sources, config_set);
+  if (out_profile->prepare == NULL) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "scenario target profile '%.*s' has no product preparation callback",
+        (int)out_profile->name.size, out_profile->name.data);
+  }
+  return iree_ok_status();
+}
+
 int iree_test_loom_main(int argc, char** argv,
                         const iree_test_loom_configuration_t* configuration) {
   iree_flags_set_usage(
@@ -906,17 +960,12 @@ int iree_test_loom_main(int argc, char** argv,
                 configuration->function_call_provider.user_data, selected,
                 &run_module.sources.table, &config_set);
       }
-      if (configuration->scenario_target_profile.fn != NULL) {
-        scenario_execution_options.target =
-            configuration->scenario_target_profile.fn(
-                configuration->scenario_target_profile.user_data,
-                &run_module.sources.table, &config_set);
-      }
       if (configuration->scenario_oracle_profile.fn != NULL) {
         scenario_execution_options.oracle =
             configuration->scenario_oracle_profile.fn(
                 configuration->scenario_oracle_profile.user_data,
-                &run_module.sources.table, &config_set);
+                /*target_profile=*/NULL, &run_module.sources.table,
+                &config_set);
       }
     }
     execution_options.materializer.host_allocator = allocator;
@@ -974,6 +1023,11 @@ int iree_test_loom_main(int argc, char** argv,
             loom_run_hal_testbench_scenario_execution_profile(
                 &hal_scenario_profile);
       }
+    } else if (iree_status_is_ok(status) && selected_scenario_count != 0) {
+      status = iree_test_loom_bind_scenario_target_profile(
+          configuration, iree_make_cstring_view(FLAG_target),
+          &run_module.sources.table, &config_set,
+          &scenario_execution_options.target);
     }
     if (iree_status_is_ok(status) && selected_scenario_count != 0 &&
         execution_options.materializer.device_allocator == NULL) {
