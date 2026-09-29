@@ -641,7 +641,9 @@ def amdgpu_build_and_test_steps(
 ) -> list[CiStep]:
     config_name = f" / {config.upper()}" if config is not None else ""
     scoped_targets = targets + ci_config.AMDGPU_BAZEL_TARGET_EXCLUDES
-    bazel_options = amdgpu_bazel_options(target_selector)
+    bazel_options = (
+        amdgpu_bazel_options(target_selector) + ci_config.AMDGPU_BAZEL_OPTIONS
+    )
     host_sanitizer_tag_filters = (
         (f"-{ci_config.HOST_TSAN_INCOMPATIBLE_TEST_LABEL}",) if config == "tsan" else ()
     )
@@ -858,7 +860,7 @@ def cmake_amdgpu_steps(
         xfail_regex = ci_config.AMDGPU_SANITIZERS_CTEST_EXCLUDE_REGEX
     else:
         xfail_regex = ci_config.AMDGPU_CTEST_EXCLUDE_REGEX
-    build_targets = ci_config.AMDGPU_CMAKE_DRIVER_TARGETS
+    build_targets = ci_config.AMDGPU_CMAKE_BUILD_TARGETS
     steps = [
         cmake_configure_step(
             command_name,
@@ -866,6 +868,13 @@ def cmake_amdgpu_steps(
             enabled_loom_targets=("amdgpu", "vm"),
             amdgpu_target_selector=target_selector,
             sanitizer=sanitizer,
+            extra_options=(
+                "-DAMDF_BUILD=ON",
+                "-DAMDF_FAMILY_RDNA=ON",
+                "-DAMDF_FAMILY_CDNA=ON",
+                "-DAMDF_FAMILY_XDNA=OFF",
+                "-DLOOM_BUILD=ON",
+            ),
         ),
         cmake_build_step(
             command_name,
@@ -1176,6 +1185,8 @@ def _steps_from_args(args: argparse.Namespace) -> list[CiStep]:
             return [bazel_configure_step(), *cpu_config_steps(targets, sanitizer)]
         return cpu_steps(targets)
     if bazel_target == "amdgpu":
+        if not args.target:
+            targets += ci_config.AMDF_BAZEL_TARGETS
         if sanitizer is not None:
             return [
                 bazel_configure_step(

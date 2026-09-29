@@ -80,9 +80,11 @@ python build_tools/devtools/ci.py iree-bazel-xdna-asan
 python build_tools/devtools/ci.py iree-cmake-xdna-asan
 ```
 
-The client configurations compile RDNA and XDNA together while selecting host
-and XDNA execution. They cover `//libamdf/...` and `//experimental/xdna/...`
-without enabling the legacy AMDGPU HAL:
+The client configurations compile RDNA and XDNA together, including both Loom
+emitters for authored fixtures. Linux selects host and XDNA execution; Windows
+also admits native GPU, Vulkan and D3D12 resources. The jobs cover
+`//libamdf/...` and `//experimental/xdna/...` without enabling the legacy AMDGPU
+HAL:
 
 ```sh
 # Linux client configuration.
@@ -97,6 +99,24 @@ platform setup and hardware assignment. Compile-time family enablement does
 not declare a native device available. Linux XDNA needs access to the
 `amdxdna` driver and `/dev/accel`; `/dev/kfd` and `/dev/dri` access alone supplies
 no NPU execution interface.
+
+The ordinary Linux AMDGPU jobs build and run the GPU-only libamdf slice
+alongside the AMDGPU HAL. They enable RDNA/CDNA families, the authored GPU
+fixtures and `libamdf.resource.amd_gpu`, with XDNA and external-API suites
+excluded by their separate requirements:
+
+```sh
+python build_tools/devtools/ci.py iree-bazel-amdgpu --amdgpu-target "${GPU_TARGET}"
+python build_tools/devtools/ci.py iree-cmake-amdgpu --amdgpu-target "${GPU_TARGET}"
+```
+
+The runner target controls HAL compilation; the command corpora retain the
+physical-target kernel catalog and select the discovered device. Bazel's
+explicit `--target` override preserves a narrower package selection. CMake
+builds `libamdf/all` and includes its GPU resource labels in hardware execution.
+Manual lifecycle cases remain outside these ordinary jobs. Resource admission
+permits execution; required-case arguments below establish which individual
+behaviors a deployment must actually run.
 
 ## Required cases and result records
 
