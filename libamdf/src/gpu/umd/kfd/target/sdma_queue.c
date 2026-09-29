@@ -14,11 +14,45 @@ enum {
   AMDF_GPU_KFD_SDMA_DOORBELL_MAPPING_BYTE_LENGTH = 8192,
 };
 
+// Linux's discovery selects these exact SDMA implementations independently
+// of compute IP. ROCr's fence/scope builders define their user packet fields.
+static bool amdf_gpu_kfd_sdma_format_features(
+    const amdf_gpu_kfd_ip_version_t* ip,
+    amdf_queue_format_features_t* out_features) {
+  if (!ip->exact) {
+    return false;
+  }
+  if (ip->major == 4 && ip->minor == 4 &&
+      (ip->revision == 2 || ip->revision == 4 || ip->revision == 5)) {
+    *out_features = 0;
+    return true;
+  }
+  if (ip->major == 6 && ((ip->minor == 0 && ip->revision <= 3) ||
+                         (ip->minor == 1 && ip->revision <= 4) ||
+                         (ip->minor == 4 && ip->revision == 0))) {
+    *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE;
+    return true;
+  }
+  if (ip->major == 7 && ip->minor == 0 && ip->revision <= 1) {
+    *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM;
+    return true;
+  }
+  if (ip->major == 7 && ip->minor == 1 && ip->revision == 0) {
+    *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
+    return true;
+  }
+  return false;
+}
+
 bool amdf_gpu_kfd_sdma_queue_plan(const amdf_gpu_kfd_topology_t* topology,
                                   size_t page_size, uint32_t cache_line_size,
-                                  amdf_queue_format_features_t format_features,
                                   amdf_gpu_kfd_user_queue_plan_t* out_plan) {
-  if (topology == NULL || page_size != AMDF_GPU_KFD_SDMA_PAGE_SIZE ||
+  amdf_queue_format_features_t format_features = 0;
+  if (topology == NULL ||
+      !amdf_gpu_kfd_sdma_format_features(&topology->sdma.ip,
+                                         &format_features) ||
+      page_size != AMDF_GPU_KFD_SDMA_PAGE_SIZE ||
       cache_line_size < sizeof(uint64_t) ||
       (cache_line_size & (cache_line_size - 1)) != 0 ||
       cache_line_size > page_size / 2 || topology->sdma.engine_count == 0 ||

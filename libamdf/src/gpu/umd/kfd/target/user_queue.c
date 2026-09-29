@@ -46,18 +46,9 @@ void amdf_gpu_kfd_target_user_queue_plans_initialize(
     plans.values[plans.count++] = plan;
   }
   // SDMA is a separate engine: its ring ABI does not depend on compute IP or
-  // the number of compute XCCs. SDMA4.4.2 and SDMA6.0/6.1 share the native
-  // storage layout but have distinct fence encodings.
-  const bool is_sdma442 = topology->sdma.ip.major == 4 &&
-                          topology->sdma.ip.minor == 4 &&
-                          topology->sdma.ip.revision == 2;
-  const bool is_sdma6 =
-      topology->sdma.ip.major == 6 && topology->sdma.ip.minor <= 1;
-  const amdf_queue_format_features_t sdma_features =
-      is_sdma6 ? AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE : 0;
-  if (topology->sdma.ip.exact && (is_sdma442 || is_sdma6) &&
-      amdf_gpu_kfd_sdma_queue_plan(topology, page_size, cache_line_size,
-                                   sdma_features, &plan)) {
+  // the number of compute XCCs. Its plan owns exact engine/format selection.
+  if (amdf_gpu_kfd_sdma_queue_plan(topology, page_size, cache_line_size,
+                                   &plan)) {
     plans.values[plans.count++] = plan;
   }
   *out_plans = plans;
