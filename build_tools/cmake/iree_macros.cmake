@@ -696,11 +696,32 @@ endfunction()
 # iree_make_empty_file
 #-------------------------------------------------------------------------------
 
-# Creates an empty file by copying an in-tree empty file. Unlike `file(WRITE)`
-# or `file(TOUCH)`, this does not update the timestamp every time CMake is run,
-# avoiding unnecessary rebuilds when the empty file is used as a rule input.
+# Creates an empty file without updating its timestamp on later CMake runs.
 function(iree_make_empty_file _FILENAME)
-  configure_file("${PROJECT_SOURCE_DIR}/build_tools/cmake/empty_file" "${_FILENAME}" COPYONLY)
+  set(_FILE_SIZE -1)
+  if(EXISTS "${_FILENAME}")
+    file(SIZE "${_FILENAME}" _FILE_SIZE)
+  endif()
+  if(NOT EXISTS "${_FILENAME}" OR NOT _FILE_SIZE EQUAL 0)
+    file(WRITE "${_FILENAME}" "")
+  endif()
+endfunction()
+
+#-------------------------------------------------------------------------------
+# iree_add_empty_object
+#-------------------------------------------------------------------------------
+
+# Adds one shared empty object to an executable that obtains all implementation
+# and entry-point code from linked libraries. Reusing the object avoids one
+# compile per source-less executable and keeps generated object paths independent
+# of potentially long target names.
+function(iree_add_empty_object _TARGET)
+  if(NOT TARGET iree_cmake_empty_object)
+    set(_EMPTY_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/iree_empty_source.cc")
+    iree_make_empty_file("${_EMPTY_SOURCE}")
+    add_library(iree_cmake_empty_object OBJECT "${_EMPTY_SOURCE}")
+  endif()
+  target_sources(${_TARGET} PRIVATE $<TARGET_OBJECTS:iree_cmake_empty_object>)
 endfunction()
 
 #-------------------------------------------------------------------------------
