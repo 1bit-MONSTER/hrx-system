@@ -6,8 +6,8 @@
 
 // Generic WASI entry point for bundled wasm tests.
 
-import {readFileSync} from 'node:fs';
-import {dirname, resolve} from 'node:path';
+import {readFileSync, statSync} from 'node:fs';
+import {dirname, isAbsolute, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {WASI} from 'node:wasi';
 
@@ -21,6 +21,29 @@ if (process.env.TEST_TMPDIR) {
 if (process.env.XML_OUTPUT_FILE) {
   const xmlDirectory = dirname(process.env.XML_OUTPUT_FILE);
   preopens[xmlDirectory] = xmlDirectory;
+}
+// Grant the guest access only to directories containing existing path
+// arguments. Relative paths share the process working directory; absolute
+// paths retain their spelling so the guest can consume argv unchanged.
+for (const argument of process.argv.slice(2)) {
+  const separator = argument.indexOf('=');
+  let candidate = separator >= 0 ? argument.slice(separator + 1) : argument;
+  if (candidate.startsWith('@')) candidate = candidate.slice(1);
+  if (!candidate || candidate === '-') continue;
+
+  const hostPath = resolve(candidate);
+  let pathInfo;
+  try {
+    pathInfo = statSync(hostPath);
+  } catch {
+    continue;
+  }
+  if (isAbsolute(candidate)) {
+    const hostDirectory = pathInfo.isDirectory() ? hostPath : dirname(hostPath);
+    preopens[hostDirectory] = hostDirectory;
+  } else {
+    preopens['.'] = process.cwd();
+  }
 }
 
 const wasi = new WASI({

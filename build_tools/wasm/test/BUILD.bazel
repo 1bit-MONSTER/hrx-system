@@ -36,6 +36,8 @@ cc_binary(
 iree_executable_test(
     name = "wasi_toolchain_smoke_test",
     src = ":wasi_toolchain_smoke",
+    args = ["$(rootpath :wasi_toolchain_smoke.txt)"],
+    data = [":wasi_toolchain_smoke.txt"],
     target_compatible_with = [
         "@platforms//cpu:wasm32",
         "@platforms//os:wasi",
