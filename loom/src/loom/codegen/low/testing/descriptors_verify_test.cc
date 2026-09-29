@@ -1854,9 +1854,6 @@ TEST(LowDescriptorsTest, HidesSharedExtensionAsmFormsFromBaseView) {
   InitializeTestTables(&tables);
   AddAsmForms(&tables);
   tables.set.descriptor_count = 1;
-  tables.descriptor_refs[0].key_string_ref = TEST_STRING_REF(descriptor_const);
-  tables.descriptor_refs[0].descriptor_ordinal = 0;
-  tables.set.descriptor_ref_count = 1;
 
   IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
 
@@ -1880,6 +1877,15 @@ TEST(LowDescriptorsTest, HidesSharedExtensionAsmFormsFromBaseView) {
             1u);
   EXPECT_EQ(loom_low_descriptor_set_lookup_canonical_asm_form(&tables.set, 1),
             LOOM_LOW_ASM_FORM_ORDINAL_NONE);
+}
+
+TEST(LowDescriptorsTest, RejectsDescriptorReferenceOutsideBackingStorage) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.descriptor_refs[0].descriptor_ordinal = 2;
+
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        loom_low_descriptor_set_verify(&tables.set));
 }
 
 TEST(LowDescriptorsTest, RejectsUnsortedAsmForms) {

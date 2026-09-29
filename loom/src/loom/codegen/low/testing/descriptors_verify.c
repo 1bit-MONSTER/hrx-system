@@ -270,15 +270,15 @@ static iree_status_t loom_low_verify_tables_present(
 
 static iree_status_t loom_low_verify_descriptor_refs(
     const loom_low_descriptor_set_t* descriptor_set) {
-  if (descriptor_set->descriptor_ref_count !=
-      descriptor_set->descriptor_count) {
+  if (descriptor_set->descriptor_ref_count < descriptor_set->descriptor_count) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "low descriptor reference map count %" PRIu32
-                            " does not match descriptor count %" PRIu32,
+                            " is smaller than descriptor count %" PRIu32,
                             descriptor_set->descriptor_ref_count,
                             descriptor_set->descriptor_count);
   }
   iree_string_view_t previous_key = iree_string_view_empty();
+  uint32_t visible_ref_count = 0;
   for (uint32_t i = 0; i < descriptor_set->descriptor_ref_count; ++i) {
     const loom_low_descriptor_ref_t* descriptor_ref =
         &descriptor_set->descriptor_refs[i];
@@ -293,13 +293,13 @@ static iree_status_t loom_low_verify_descriptor_refs(
           (int)ref_key.size, ref_key.data);
     }
     if (descriptor_ref->descriptor_ordinal >=
-        descriptor_set->descriptor_count) {
+        descriptor_set->descriptor_ref_count) {
       return iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,
           "low descriptor reference '%.*s' points at descriptor ordinal "
-          "%" PRIu32 " but only %" PRIu32 " descriptors exist",
+          "%" PRIu32 " but backing storage has only %" PRIu32 " descriptors",
           (int)ref_key.size, ref_key.data, descriptor_ref->descriptor_ordinal,
-          descriptor_set->descriptor_count);
+          descriptor_set->descriptor_ref_count);
     }
     iree_string_view_t descriptor_key = iree_string_view_empty();
     IREE_RETURN_IF_ERROR(loom_low_descriptor_set_string_impl(
@@ -315,7 +315,16 @@ static iree_status_t loom_low_verify_descriptor_refs(
                               descriptor_ref->descriptor_ordinal,
                               (int)descriptor_key.size, descriptor_key.data);
     }
+    visible_ref_count +=
+        descriptor_ref->descriptor_ordinal < descriptor_set->descriptor_count;
     previous_key = ref_key;
+  }
+  if (visible_ref_count != descriptor_set->descriptor_count) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "low descriptor reference map exposes %" PRIu32
+                            " of %" PRIu32 " visible descriptors",
+                            visible_ref_count,
+                            descriptor_set->descriptor_count);
   }
   return iree_ok_status();
 }

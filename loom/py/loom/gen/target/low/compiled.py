@@ -221,6 +221,8 @@ class DescriptorSetView:
     uses_storage_descriptor_tables: bool
     # View-owned descriptor rows are a prefix of the storage table.
     uses_storage_descriptor_view_tables: bool
+    # Descriptor-key references address the shared storage descriptor prefix.
+    uses_storage_descriptor_ref_tables: bool
     uses_storage_asm_form_tables: bool
     uses_storage_operand_form_tables: bool
     uses_storage_schedule_alternative_tables: bool
