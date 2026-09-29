@@ -4,9 +4,4 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-package(
-    default_visibility = ["//visibility:public"],
-    licenses = ["notice"],
-)
-
-exports_files(["pipelined_address_domains.loom"])
+iree_add_all_subdirs()

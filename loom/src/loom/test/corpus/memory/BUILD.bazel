@@ -4,16 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
-
 package(
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
 
-loom_test(
-    name = "word_test",
-    srcs = ["word.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
+exports_files(["word.loom"])
