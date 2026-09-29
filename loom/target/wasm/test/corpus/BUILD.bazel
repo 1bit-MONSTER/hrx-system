@@ -303,3 +303,33 @@ loom_test(
     srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],
 )
+
+loom_test(
+    name = "buffer_selection_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:buffer/selection.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "integer_widening_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:integer/widening.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "predicate_lanes_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/lanes.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "scalar_f32_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:float/scalar_f32.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "tiled_channel_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:address/tiled_channel.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)

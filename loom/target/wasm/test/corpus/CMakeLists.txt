@@ -908,4 +908,49 @@ loom_test_module(
 
 # vector_integer_bitwise_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
 
+loom_test_module(
+  NAME
+    buffer_selection_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/buffer/selection.loom"
+)
+
+# buffer_selection_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    integer_widening_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/widening.loom"
+)
+
+# integer_widening_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    predicate_lanes_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/lanes.loom"
+)
+
+# predicate_lanes_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    scalar_f32_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/scalar_f32.loom"
+)
+
+# scalar_f32_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    tiled_channel_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/address/tiled_channel.loom"
+)
+
+# tiled_channel_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
