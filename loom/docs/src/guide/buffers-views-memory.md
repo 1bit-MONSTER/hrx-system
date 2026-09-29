@@ -266,6 +266,33 @@ for participating invocations plus a fence for the named memory space.
 Asynchronous transfers use `kernel.async.group` and `kernel.async.wait` for
 completion; a barrier is added only when invocations also need to rendezvous.
 
+A split barrier exposes useful per-invocation work between finishing one
+shared-memory phase and waiting for every other participant to finish it:
+
+```loom
+%observed = view.load %tile[%peer] : view<64xi32> -> i32
+%phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+%updated = func.call pure @private_work(%observed, %sum) : (i32, i32) -> (i32)
+kernel.barrier.wait %phase : kernel.barrier.phase
+// The next shared-memory overwrite is now safe.
+```
+
+[`kernel.barrier.arrive`](../reference/dialects/kernel/ops/barrier-arrive.md)
+applies the release portion of the pair and returns an opaque phase identity.
+The unique
+[`kernel.barrier.wait`](../reference/dialects/kernel/ops/barrier-wait.md)
+consumes that identity, waits for every participant, and completes the acquire
+portion before later memory access. Every invocation in the execution scope
+executes matching dynamic arrive and wait instances. The open interval contains
+ordinary per-invocation work and pure calls; convergent operations, another
+barrier, and impure calls remain outside it.
+
+This pair states an authored scheduling contract. A target may legalize it to
+native split-barrier packets or reject it. A reusable motif can select a native
+provider on capable targets and retain a complete-barrier fallback elsewhere.
+The [loop-scheduling workflow](../workflows/tune-loop-schedules.md#overlap-private-work-with-shared-tile-release)
+shows that composition and the corresponding compile-report evidence.
+
 Atomic view operations similarly require an explicit scope and ordering. A
 plain store does not become atomic because several invocations may reach it,
 and a barrier does not resolve conflicting writes.

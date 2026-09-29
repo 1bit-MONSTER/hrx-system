@@ -45,6 +45,8 @@ cp -- "${repo_root}/loom/src/loom/test/corpus/checked_benchmarks/sparse_token_at
   "${output_dir}/sparse-token-attention.loom"
 cp -- "${repo_root}/loom/src/loom/test/corpus/checked_benchmarks/grouped_paged_attention_f32.loom" \
   "${output_dir}/grouped-paged-attention.loom"
+cp -- "${repo_root}/loom/src/loom/tooling/target/amdgpu/test/corpus/split_barrier_reuse.loom" \
+  "${output_dir}/split-barrier-reuse.loom"
 
 cd -- "${output_dir}"
 "${loom_format}" --check guarded-read-ahead.loom
@@ -106,6 +108,30 @@ for depth in 1 3; do
     --config="read_ahead.depth=${depth}" --config=read_ahead.unroll=4 \
     --dry-run --output="sum-rows-d${depth}.plan.json"
 done
+
+# Keep target-provider selection and barrier realization tied to the checked
+# shared-storage reuse source.
+for target in gfx1100 gfx1200; do
+  "${loom_compile}" split-barrier-reuse.loom \
+    --root=@selected_barrier_reuse \
+    --target="amdgpu:${target}" --format=amdgpu-hsaco \
+    --output="split-barrier-${target}.hsaco" --compile-report=details \
+    --compile-report-output="split-barrier-${target}.report.json"
+  "${loom_report}" show "split-barrier-${target}.report.json" \
+    >"split-barrier-${target}.show.txt"
+  sed -n '/^Barrier realization (compiler analysis)$/,/^$/p' \
+    "split-barrier-${target}.show.txt" >"split-barrier-${target}.txt"
+done
+grep -Fq 'plan=amdgpu.kernel_barrier.strategy.split_barrier.arrive' \
+  split-barrier-gfx1200.txt
+grep -Fq 'plan=amdgpu.kernel_barrier.strategy.split_barrier.wait' \
+  split-barrier-gfx1200.txt
+grep -Fq 'plan=amdgpu.kernel_barrier.strategy.s_barrier.workgroup_rendezvous' \
+  split-barrier-gfx1100.txt
+if grep -Fq 'kernel.barrier.arrive' split-barrier-gfx1100.txt; then
+  echo 'gfx1100 unexpectedly selected the split-barrier provider' >&2
+  exit 1
+fi
 
 "${loom_report}" suggest sum-rows-d3.report.json >sum-rows-d3.suggest.txt
 "${loom_report}" diff sum-rows-d1.report.json sum-rows-d3.report.json \

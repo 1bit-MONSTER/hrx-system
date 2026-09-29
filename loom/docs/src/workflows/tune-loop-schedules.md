@@ -83,6 +83,85 @@ work, alongside registers, spills, and device time. A source queue alone does
 not establish hardware overlap: reusing the registers that hold a pending
 load's address can force an early completion wait.
 
+## Overlap private work with shared-tile release
+
+Loop pipelining and split barriers expose different intervals. An
+`scf.for pipeline(%depth)` advances future global reads while the current
+iteration consumes a tile. It preserves the workgroup stores, publication
+barrier, shared reads, and barrier before tile reuse in source order. It does
+not turn that final barrier into a split operation.
+
+When every workitem has finished reading the current tile before performing
+independent private work, an authored split barrier can release the tile at
+that earlier point. The private work runs after arrival, and the matching wait
+remains immediately before the next iteration can overwrite the tile. Every
+participant must execute the same dynamic arrive/wait instances. Only ordinary
+per-invocation work and pure calls belong inside the interval.
+
+A targetless library can hide that target choice behind one template contract:
+
+```loom
+amdgpu.target<gfx12-generic> @gfx12
+
+template.decl @finish_shared_read(%value: i32, %sum: i32) -> (i32)
+
+template.def<@finish_shared_read> target(@gfx12) priority(20) @finish_shared_read_gfx12(%value: i32, %sum: i32) -> (i32) {
+  %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
+  %updated = func.call pure @private_work(%value, %sum) : (i32, i32) -> (i32)
+  kernel.barrier.wait %phase : kernel.barrier.phase
+  template.return %updated : i32
+}
+
+template.def<@finish_shared_read> priority(1) @finish_shared_read_fallback(%value: i32, %sum: i32) -> (i32) {
+  %updated = func.call pure @private_work(%value, %sum) : (i32, i32) -> (i32)
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  template.return %updated : i32
+}
+```
+
+The [checked provider/fallback example](../generated/examples/guide/functions-and-control/split-barrier-reuse.loom)
+also covers GFX12.5, nested control that is subgroup-uniform for both split
+providers, pure helper calls, four reuse phases, and a bitwise comparison with
+a full-barrier reference. The same source compiles through complete barriers
+for CDNA3, GFX11, and SPIR-V.
+
+Save the checked source as `split-barrier-reuse.loom`, then compile the split
+and fallback realizations from the same input:
+
+```shell
+for target in gfx1100 gfx1200; do
+  loom-compile split-barrier-reuse.loom \
+    --root=@selected_barrier_reuse \
+    --target="amdgpu:${target}" --format=amdgpu-hsaco \
+    --output="split-barrier-${target}.hsaco" --compile-report=details \
+    --compile-report-output="split-barrier-${target}.report.json"
+  loom-compile-report show "split-barrier-${target}.report.json"
+done
+```
+
+Compile reports make the selected realization explicit. These excerpts are
+generated from the checked example during the documentation build. GFX12 uses
+separate complete, arrive, and wait plans:
+
+```text
+--8<-- "generated/examples/guide/functions-and-control/split-barrier-gfx1200.txt"
+```
+
+GFX11 selects the complete-barrier fallback:
+
+```text
+--8<-- "generated/examples/guide/functions-and-control/split-barrier-gfx1100.txt"
+```
+
+The report establishes which source contract reached the target and how many
+Low operations it emitted. Native output establishes the overlap window. On
+GFX12, confirm the final LDS read completes before `s_barrier_signal`, useful
+private instructions remain between signal and `s_barrier_wait`, and the wait
+precedes the next LDS overwrite. Compare registers, spills, modeled residency,
+code size, and runtime against the complete-barrier implementation. The split
+form is an explicit experiment, not an automatic claim that the larger live
+interval is profitable.
+
 ## Give each motif its own schedule
 
 This motif sums four adjacent values per row for each work-item. Its template
