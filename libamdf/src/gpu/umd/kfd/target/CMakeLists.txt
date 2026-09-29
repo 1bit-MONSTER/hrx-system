@@ -12,10 +12,45 @@ iree_add_all_subdirs()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    compute_storage
+  HDRS
+    "compute_storage.h"
+  SRCS
+    "compute_storage.c"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    amdf::headers
+    libamdf::src::gpu::umd::kfd::buffer
+    libamdf::src::gpu::umd::kfd::topology
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_test(
+  NAME
+    compute_storage_test
+  SRCS
+    "compute_storage_test.cc"
+  DEPS
+    ::compute_storage
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     queue_plan
   HDRS
     "queue_plan.h"
   DEPS
+    ::compute_storage
     amdf::headers
     libamdf::src::gpu::endpoint_profile
     libamdf::src::gpu::umd::kfd::buffer
@@ -33,6 +68,7 @@ iree_cc_library(
     "aql_queue.c"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::compute_storage
     ::queue_plan
     amdf::headers
     libamdf::src::gpu::umd::kfd::aql
@@ -51,6 +87,7 @@ iree_cc_library(
     "pm4_queue.c"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::compute_storage
     ::queue_plan
     amdf::headers
     libamdf::src::gpu::umd::kfd::topology

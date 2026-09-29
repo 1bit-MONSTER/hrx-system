@@ -573,9 +573,9 @@ TEST_F(KfdUserQueueTest, ComputeStorageUsesReportedTopologyAcrossGfx11) {
       reinterpret_cast<const struct kfd_context_save_area_header*>(
           native_state_.buffers[3].storage.data());
   EXPECT_EQ(header->debug_offset, 16384u);
-  // Three CUs with 17 waves each need 1632 bytes, rounded to the native
-  // 64-byte debugger alignment. The whole allocation remains page aligned.
-  EXPECT_EQ(header->debug_size, 1664u);
+  // The GFX11 save protocol reserves 32 waves per CU independently of the
+  // reported resident limit. The whole allocation remains page aligned.
+  EXPECT_EQ(header->debug_size, 3072u);
   EXPECT_EQ(native_state_.buffers[3].byte_length, 20480u);
 }
 

@@ -12,6 +12,7 @@
 
 #include "libamdf/src/gpu/endpoint_profile.h"
 #include "libamdf/src/gpu/umd/kfd/buffer.h"
+#include "libamdf/src/gpu/umd/kfd/target/compute_storage.h"
 
 // Complete target-qualified construction plan for one KFD user queue.
 typedef struct amdf_gpu_kfd_user_queue_plan_t {
@@ -50,22 +51,7 @@ typedef struct amdf_gpu_kfd_user_queue_plan_t {
     uint64_t read_index_mask;
   } control;
   // Side storage required only by KFD compute queues.
-  struct {
-    // Device-local end-of-pipe ring allocation, or zero when absent.
-    amdf_gpu_kfd_buffer_create_info_t end_of_pipe_storage;
-    // Host-mapped context-save, control-stack, and debug allocation.
-    amdf_gpu_kfd_buffer_create_info_t context_storage;
-    // Context-save/restore bytes reported to KFD.
-    uint32_t context_save_restore_byte_length;
-    // Control-stack bytes reported to KFD.
-    uint32_t control_stack_byte_length;
-    // Number of independently addressed context-save headers, or zero.
-    uint32_t context_count;
-    // Debug-state byte offset within `context_storage`.
-    uint32_t debug_byte_offset;
-    // Debug-state byte length required by the active compute units.
-    uint32_t debug_byte_length;
-  } compute;
+  amdf_gpu_kfd_compute_storage_plan_t compute;
   // AMD AQL descriptor and fixed-scratch encoding, absent when xcc_count is
   // zero.
   struct {

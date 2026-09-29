@@ -38,43 +38,11 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
     return false;
   }
 
-  // GFX9's control stack has eight bytes per wave and two terminal dwords.
-  // Its save protocol reserves at most 40 waves/CU and 512 waves/SE. The CU
-  // save area contains 512 KiB VGPR/AGPR, 16 KiB SGPR, LDS, and 4 KiB HW state.
-  // These are storage ABI bounds, independent of current resident occupancy.
-  uint64_t saved_wave_count = (uint64_t)compute_units_per_xcc * 40;
-  const uint64_t stack_wave_limit = (uint64_t)shader_engine_count * 512;
-  if (saved_wave_count > stack_wave_limit) {
-    saved_wave_count = stack_wave_limit;
-  }
-  uint64_t control_stack_byte_length = topology->control_stack_byte_length;
-  uint64_t context_byte_length = topology->context_save_restore_byte_length;
-  if (context_byte_length == 0 && control_stack_byte_length == 0) {
-    control_stack_byte_length = (sizeof(struct kfd_context_save_area_header) +
-                                 saved_wave_count * 8 + 8 + page_size - 1) &
-                                ~(uint64_t)(page_size - 1);
-    const uint64_t compute_unit_byte_length =
-        UINT64_C(0x80000) + 0x4000 +
-        properties->compute.local_data_share_byte_length + 0x1000;
-    if (compute_unit_byte_length > UINT32_MAX / compute_units_per_xcc) {
-      return false;
-    }
-    context_byte_length =
-        control_stack_byte_length +
-        ((compute_unit_byte_length * compute_units_per_xcc + page_size - 1) &
-         ~(uint64_t)(page_size - 1));
-  }
-  const uint64_t debug_byte_length =
-      ((saved_wave_count * 32 + 63) & ~UINT64_C(63)) * xcc_count;
-  if (context_byte_length == 0 || control_stack_byte_length == 0 ||
-      control_stack_byte_length > context_byte_length ||
-      control_stack_byte_length % page_size != 0 ||
-      context_byte_length % page_size != 0 ||
-      context_byte_length > UINT32_MAX / xcc_count ||
-      debug_byte_length > UINT32_MAX) {
+  amdf_gpu_kfd_compute_storage_plan_t compute;
+  if (!amdf_gpu_kfd_compute_storage_plan(
+          topology, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL, page_size, &compute)) {
     return false;
   }
-  const uint64_t all_contexts_byte_length = context_byte_length * xcc_count;
   const uint32_t host_storage_flags =
       KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
@@ -117,15 +85,7 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .index_bit_count = 64,
               .read_index_mask = UINT64_MAX,
           },
-      .compute =
-          {
-              .context_storage = host_page,
-              .context_save_restore_byte_length = (uint32_t)context_byte_length,
-              .control_stack_byte_length = (uint32_t)control_stack_byte_length,
-              .context_count = xcc_count,
-              .debug_byte_offset = (uint32_t)all_contexts_byte_length,
-              .debug_byte_length = (uint32_t)debug_byte_length,
-          },
+      .compute = compute,
       .aql =
           {
               .xcc_count = xcc_count,
@@ -140,9 +100,6 @@ bool amdf_gpu_kfd_aql_queue_plan(const amdf_gpu_kfd_topology_t* topology,
       .doorbell = {.mapping_byte_length = 8192, .bit_count = 64},
   };
   plan.control.storage.native_flags |= KFD_IOC_ALLOC_MEM_FLAGS_UNCACHED;
-  plan.compute.context_storage.byte_length =
-      (size_t)((all_contexts_byte_length + debug_byte_length + page_size - 1) &
-               ~(uint64_t)(page_size - 1));
   plan.retirement.flush_trigger_storage.host_access =
       AMDF_GPU_KFD_BUFFER_HOST_ACCESS_NONE;
   *out_plan = plan;
