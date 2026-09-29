@@ -571,10 +571,10 @@ static iree_status_t loom_testbench_compare_buffer_reference_equal(
   }
   return iree_string_builder_append_format(
       detail_builder,
-      "actual buffer reference (allocation=%u, offset=%" PRIu64
-      ", length=%" PRIu64
-      ") does not match expected (allocation=%u, offset=%" PRIu64
-      ", length=%" PRIu64 ")",
+      "actual buffer reference (allocation=%u, offset=%" PRIdsz
+      ", length=%" PRIdsz
+      ") does not match expected (allocation=%u, offset=%" PRIdsz
+      ", length=%" PRIdsz ")",
       (unsigned)actual_reference->allocation_value_id,
       actual_reference->byte_offset, actual_reference->byte_length,
       (unsigned)expected_reference->allocation_value_id,
