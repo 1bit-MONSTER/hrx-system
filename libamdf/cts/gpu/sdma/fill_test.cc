@@ -21,24 +21,6 @@ class SdmaFillTest : public GpuCommandTest {
             .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
                                  AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
         }) {}
-
-  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
-                                 bool* out_matches) override {
-    bool matches = false;
-    const amdf_status_t status =
-        GpuCommandTest::MatchGpuEndpoint(endpoint, &matches);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    // This fixed fill layout excludes newer fence and scope encodings before
-    // device activation. Native SDMA selection belongs to the family provider.
-    constexpr amdf_queue_format_features_t kExcludedFeatures =
-        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
-    *out_matches =
-        matches && (family_.format_features & kExcludedFeatures) == 0;
-    return AMDF_STATUS_OK;
-  }
 };
 
 TEST_F(SdmaFillTest, ConstantFillCompletesBeforeFence) {

@@ -23,19 +23,20 @@ class SdmaCommandWriter {
   // the selected native engine; it publishes no completion or cache operation.
   void Noop();
   // A nonempty range within caller-owned allocations and the admitted limit.
+  // Scope follows the family; NPD remains clear independently of that layout.
   void CopyLinear(uint64_t source, uint64_t target, uint32_t byte_length);
   // Repeats a DWORD pattern over a nonempty DWORD-aligned owned range. The
-  // unscoped layout uses a byte length at most 0x3ffffc, below the conservative
-  // 22-bit count bound; callers exclude FENCE_SYSTEM and MEMORY_SCOPE families.
+  // byte length is at most 0x3ffffc, below the conservative 22-bit count bound.
+  // Scope follows the family; fill's separate NPD field remains clear.
   void Fill32(uint64_t target, uint32_t pattern, uint32_t byte_length);
   // Writes an aligned coherent completion word after preceding transfers.
   void Fence32(uint64_t address, uint32_t value);
   // Waits for an aligned coherent word using full-width equality. This
-  // unscoped POLL_REGMEM requires a family without MEMORY_SCOPE; the native
-  // retry-forever value leaves valid asynchronous work without a deadline.
+  // POLL_REGMEM scope follows the family. The native retry-forever value leaves
+  // valid asynchronous work without a deadline.
   void WaitMemory32(uint64_t address, uint32_t value);
   // Writes the raw 64-bit global timestamp after earlier commands complete.
-  // Uses the unscoped packet and a 32-byte-aligned caller-owned destination.
+  // Scope follows the family, with a 32-byte-aligned caller-owned destination.
   // Clock conversion and timestamp-write completion are separate contracts.
   void WriteGlobalTimestamp(uint64_t address);
   size_t word_count() const { return word_count_; }

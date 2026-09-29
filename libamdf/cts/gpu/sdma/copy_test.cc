@@ -131,46 +131,7 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
 }
 
-class SdmaDependencyTest : public GpuCommandTest {
- protected:
-  SdmaDependencyTest()
-      : GpuCommandTest({
-            .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
-            .roles = AMDF_QUEUE_ROLE_TRANSFER,
-            .format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
-            .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
-                                 AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
-        }) {}
-
-  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
-                                 bool* out_matches) override {
-    amdf_gpu_endpoint_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
-    info.structure_size = sizeof(info);
-    amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
-        info.gfx_ip.stepping != 1) {
-      *out_matches = false;
-      return AMDF_STATUS_OK;
-    }
-    bool matches = false;
-    status = GpuCommandTest::MatchGpuEndpoint(endpoint, &matches);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    // Native engine selection belongs to the provider. This case uses the
-    // unscoped layout and classic fence MTYPE on the admitted target.
-    constexpr amdf_queue_format_features_t kExcludedFeatures =
-        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
-    *out_matches =
-        matches && (family_.format_features & kExcludedFeatures) == 0;
-    return AMDF_STATUS_OK;
-  }
-};
+class SdmaDependencyTest : public SdmaCopyTest {};
 
 TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
   constexpr size_t kDataLength = 8192;

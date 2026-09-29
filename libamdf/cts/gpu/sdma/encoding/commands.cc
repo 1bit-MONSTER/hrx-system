@@ -12,7 +12,9 @@ void SdmaCommandWriter::CopyLinear(uint64_t source, uint64_t target,
                                    uint32_t byte_length) {
   const bool scoped =
       (features_ & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
-  words_[word_count_++] = 1 | (scoped ? 1u << 28 : 0);
+  // Scope selection does not imply no-prior-dependency (NPD). Keep NPD clear
+  // for streams containing dependent transfers.
+  words_[word_count_++] = 1;
   words_[word_count_++] = byte_length - 1;
   words_[word_count_++] = scoped ? (3u << 18) | (3u << 26) : 0;
   words_[word_count_++] = static_cast<uint32_t>(source);
@@ -23,7 +25,9 @@ void SdmaCommandWriter::CopyLinear(uint64_t source, uint64_t target,
 
 void SdmaCommandWriter::Fill32(uint64_t target, uint32_t pattern,
                                uint32_t byte_length) {
-  words_[word_count_++] = 11u | (2u << 30);
+  const bool scoped =
+      (features_ & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
+  words_[word_count_++] = 11u | (2u << 30) | (scoped ? 3u << 24 : 0);
   words_[word_count_++] = static_cast<uint32_t>(target);
   words_[word_count_++] = static_cast<uint32_t>(target >> 32);
   words_[word_count_++] = pattern;
@@ -49,7 +53,9 @@ void SdmaCommandWriter::Fence32(uint64_t address, uint32_t value) {
 }
 
 void SdmaCommandWriter::WriteGlobalTimestamp(uint64_t address) {
-  words_[word_count_++] = 13 | (2u << 8);
+  const bool scoped =
+      (features_ & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
+  words_[word_count_++] = 13 | (2u << 8) | (scoped ? 3u << 24 : 0);
   words_[word_count_++] = static_cast<uint32_t>(address);
   words_[word_count_++] = static_cast<uint32_t>(address >> 32);
 }
@@ -60,5 +66,7 @@ void SdmaCommandWriter::WaitMemory32(uint64_t address, uint32_t value) {
   words_[word_count_++] = static_cast<uint32_t>(address >> 32);
   words_[word_count_++] = value;
   words_[word_count_++] = UINT32_MAX;
-  words_[word_count_++] = (0xfffu << 16) | 4;
+  const bool scoped =
+      (features_ & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
+  words_[word_count_++] = (0xfffu << 16) | 4 | (scoped ? 3u << 28 : 0);
 }

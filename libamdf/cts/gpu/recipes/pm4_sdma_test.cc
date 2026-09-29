@@ -105,7 +105,6 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     const GpuQueueRequirements requirements = {
         .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
         .roles = AMDF_QUEUE_ROLE_TRANSFER,
-        .format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
         .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER |
                              AMDF_QUEUE_PUBLICATION_MODE_KERNEL,
     };
@@ -116,9 +115,7 @@ class Pm4SdmaRecipeTest : public Pm4DispatchTest {
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    if (!matches || (sdma_family.format_features &
-                     (AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-                      AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE)) != 0) {
+    if (!matches) {
       *out_matches = false;
       return AMDF_STATUS_OK;
     }

@@ -25,7 +25,7 @@ EncodedUserQueueStream EncodeCopyStream(
 constexpr UserQueueMemoryCommands kCommands = {
     .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
     .format_version = AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1,
-    .required_format_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
+    .required_format_features = 0,
     .required_roles = AMDF_QUEUE_ROLE_TRANSFER,
     .required_cache_operations = 0,
     .required_cache_transition_kinds = 0,
@@ -35,34 +35,6 @@ constexpr UserQueueMemoryCommands kCommands = {
 class SdmaDeviceLifetimeTest : public UserQueueMemoryTest {
  protected:
   SdmaDeviceLifetimeTest() : UserQueueMemoryTest(kCommands) {}
-
-  amdf_status_t MatchGpuEndpoint(amdf_endpoint_t* endpoint,
-                                 bool* out_matches) override {
-    amdf_gpu_endpoint_info_t info = {};
-    info.type = AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO;
-    info.structure_size = sizeof(info);
-    amdf_status_t status = gpu_api_->endpoint_query_info(endpoint, &info);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    if (info.gfx_ip.major != 11 || info.gfx_ip.minor != 5 ||
-        info.gfx_ip.stepping != 1) {
-      *out_matches = false;
-      return AMDF_STATUS_OK;
-    }
-    bool matches = false;
-    status = UserQueueMemoryTest::MatchGpuEndpoint(endpoint, &matches);
-    if (!amdf_status_is_ok(status)) {
-      return status;
-    }
-    // The coherent-memory recipe uses the unscoped classic fence layout.
-    constexpr amdf_queue_format_features_t kExcludedFeatures =
-        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
-    *out_matches =
-        matches && (family_.format_features & kExcludedFeatures) == 0;
-    return AMDF_STATUS_OK;
-  }
 };
 
 TEST_F(SdmaDeviceLifetimeTest, CopiesBetweenExactAccessAttachments) {

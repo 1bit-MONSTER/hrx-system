@@ -27,10 +27,6 @@ class SdmaTimestampTest : public GpuCommandTest {
 };
 
 TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
-  if ((family_.format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) !=
-      0) {
-    GTEST_SKIP() << "Scoped timestamp fields require separate admission";
-  }
   constexpr uint64_t kByteLength = 65536;
   constexpr uint64_t kWordCount = kByteLength / sizeof(uint32_t);
   constexpr uint64_t kGuard = UINT64_C(0x76543210fedcba98);
