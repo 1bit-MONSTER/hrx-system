@@ -1298,12 +1298,10 @@ static iree_status_t loom_wasm_emit_low_scf_while(loom_wasm_emit_state_t* state,
   const loom_value_slice_t yielded = loom_low_scf_yield_values(yield);
   IREE_ASSERT_EQ(before_block->arg_count, iter_args.count,
                  "verified Wasm while condition args must match iter args");
-  IREE_ASSERT_EQ(after_block->arg_count, iter_args.count,
-                 "verified Wasm while body args must match iter args");
-  IREE_ASSERT_EQ(results.count, iter_args.count,
-                 "verified Wasm while results must match iter args");
-  IREE_ASSERT_EQ(forwarded.count, iter_args.count,
-                 "verified Wasm while condition payload must match iter args");
+  IREE_ASSERT_EQ(after_block->arg_count, results.count,
+                 "verified Wasm while body args must match results");
+  IREE_ASSERT_EQ(forwarded.count, results.count,
+                 "verified Wasm while condition payload must match results");
   IREE_ASSERT_EQ(yielded.count, iter_args.count,
                  "verified Wasm while yield must match iter args");
 

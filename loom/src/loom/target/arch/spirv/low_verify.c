@@ -995,14 +995,8 @@ static iree_status_t loom_spirv_low_verify_scf_while(
     const loom_op_t* op) {
   const loom_block_t* before_block =
       loom_region_const_entry_block(loom_low_scf_while_before(op));
-  const loom_block_t* after_block =
-      loom_region_const_entry_block(loom_low_scf_while_after(op));
   const loom_value_slice_t iter_args = loom_low_scf_while_iter_args(op);
-  const loom_value_slice_t results = loom_low_scf_while_results(op);
-  if (before_block == NULL || after_block == NULL ||
-      before_block->arg_count != iter_args.count ||
-      after_block->arg_count != iter_args.count ||
-      results.count != iter_args.count) {
+  if (before_block == NULL || before_block->arg_count != iter_args.count) {
     return iree_ok_status();
   }
   for (uint16_t i = 0; i < iter_args.count; ++i) {
@@ -1014,12 +1008,6 @@ static iree_status_t loom_spirv_low_verify_scf_while(
     IREE_RETURN_IF_ERROR(loom_spirv_low_define_or_verify_value_type(
         context, state, op, iter_args.values[i],
         loom_block_arg_id(before_block, i), iter_arg_type));
-    IREE_RETURN_IF_ERROR(loom_spirv_low_define_or_verify_value_type(
-        context, state, op, iter_args.values[i],
-        loom_block_arg_id(after_block, i), iter_arg_type));
-    IREE_RETURN_IF_ERROR(loom_spirv_low_define_or_verify_value_type(
-        context, state, op, iter_args.values[i], results.values[i],
-        iter_arg_type));
   }
   return iree_ok_status();
 }

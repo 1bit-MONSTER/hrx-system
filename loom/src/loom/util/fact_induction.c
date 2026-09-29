@@ -198,8 +198,9 @@ loom_value_fact_induction_t loom_value_fact_condition_loop_induction(
   const loom_op_t* condition = before->last_op;
   const loom_op_t* yield = body->last_op;
   const loom_value_slice_t initial = loom_loop_like_iter_args(loop);
+  const uint16_t result_count = loop.op->result_count;
   // Rewriter builders publish the shell before its terminators are complete.
-  if (!condition || condition->operand_count != initial.count + 1 || !yield ||
+  if (!condition || condition->operand_count != result_count + 1 || !yield ||
       yield->operand_count != initial.count) {
     return unknown;
   }
