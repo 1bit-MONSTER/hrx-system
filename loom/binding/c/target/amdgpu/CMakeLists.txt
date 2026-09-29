@@ -16,7 +16,6 @@ loom_cc_library(
   HDRS
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/amdgpu.h"
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/amdgpu/base.h"
-    "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/amdgpu/emit.h"
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/amdgpu/profile.h"
   SRCS
     "amdgpu.c"

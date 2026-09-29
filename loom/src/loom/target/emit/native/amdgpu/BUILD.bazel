@@ -532,7 +532,6 @@ loom_cc_library(
     name = "runtime_globals",
     srcs = ["runtime_globals.c"],
     hdrs = ["runtime_globals.h"],
-    visibility = _AMDGPU_TOOLING_VISIBILITY,
     deps = [
         ":hsaco_prepare",
         "//loom/src/loom/target/arch/amdgpu/abi:asan",
@@ -582,6 +581,9 @@ loom_cc_library(
         "//loom/src/loom/target/arch/amdgpu:facts",
         "//loom/src/loom/target/arch/amdgpu:provider",
         "//loom/src/loom/target/arch/amdgpu:target_info",
+        "//loom/src/loom/target/arch/amdgpu/abi:asan",
+        "//loom/src/loom/target/arch/amdgpu/abi:feedback",
+        "//loom/src/loom/target/arch/amdgpu/abi:tsan",
         "//loom/src/loom/target/arch/amdgpu/hal:kernel_abi",
         "//loom/src/loom/target/arch/amdgpu/matrix:contract",
         "//loom/src/loom/target/arch/amdgpu/planning:descriptor_semantics",

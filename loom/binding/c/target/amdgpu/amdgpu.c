@@ -174,17 +174,6 @@ typedef struct loomc_amdgpu_emit_artifact_storage_t {
   loom_target_emit_sidecar_artifact_t artifact_manifest;
 } loomc_amdgpu_emit_artifact_storage_t;
 
-typedef struct loomc_amdgpu_emit_option_prefix_t {
-  // Structure type identifying the descriptor.
-  loomc_structure_type_t type;
-
-  // Size of this structure in bytes.
-  loomc_host_size_t structure_size;
-
-  // Next descriptor in the option extension chain.
-  const void* next;
-} loomc_amdgpu_emit_option_prefix_t;
-
 static void loomc_amdgpu_emit_artifact_storage_release(void* storage) {
   loomc_amdgpu_emit_artifact_storage_t* artifact_storage =
       (loomc_amdgpu_emit_artifact_storage_t*)storage;
@@ -205,84 +194,12 @@ static iree_status_t loomc_amdgpu_forward_diagnostic(
   return iree_diagnostic_emit(*emitter, &emission);
 }
 
-static iree_status_t loomc_amdgpu_emit_validate_runtime_globals(
-    loomc_amdgpu_runtime_global_flags_t flags) {
-  if ((flags & ~LOOMC_AMDGPU_RUNTIME_GLOBALS_KNOWN) != 0) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "AMDGPU emit options contain unknown runtime global bits");
-  }
-  return iree_ok_status();
-}
-
-static loom_amdgpu_runtime_global_flags_t loomc_amdgpu_emit_map_runtime_globals(
-    loomc_amdgpu_runtime_global_flags_t flags) {
-  loom_amdgpu_runtime_global_flags_t runtime_globals =
-      LOOM_AMDGPU_RUNTIME_GLOBAL_NONE;
-  if (iree_any_bit_set(flags, LOOMC_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG)) {
-    runtime_globals |= LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
-  }
-  if (iree_any_bit_set(flags, LOOMC_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG)) {
-    runtime_globals |= LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG;
-  }
-  return runtime_globals;
-}
-
-static iree_status_t loomc_amdgpu_emit_resolve_runtime_globals(
-    const void* option_chain,
-    loom_amdgpu_runtime_global_flags_t* out_runtime_globals) {
-  *out_runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_NONE;
-  const void* node = option_chain;
-  bool has_amdgpu_options = false;
-  while (node != NULL) {
-    const loomc_amdgpu_emit_option_prefix_t* prefix =
-        (const loomc_amdgpu_emit_option_prefix_t*)node;
-    if (prefix->type != LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS) {
-      if (prefix->structure_size != 0 &&
-          prefix->structure_size < sizeof(*prefix)) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "AMDGPU emit option extension structure_size is too small");
-      }
-      node = prefix->next;
-      continue;
-    }
-    if (has_amdgpu_options) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "AMDGPU emit option chain contains duplicate AMDGPU emit options");
-    }
-    if (prefix->structure_size != 0 &&
-        prefix->structure_size < sizeof(loomc_amdgpu_emit_options_t)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "AMDGPU emit options structure_size is too small");
-    }
-
-    const loomc_amdgpu_emit_options_t* options =
-        (const loomc_amdgpu_emit_options_t*)node;
-    const loomc_amdgpu_runtime_global_flags_t runtime_globals =
-        options->runtime_globals;
-    IREE_RETURN_IF_ERROR(
-        loomc_amdgpu_emit_validate_runtime_globals(runtime_globals));
-    *out_runtime_globals =
-        loomc_amdgpu_emit_map_runtime_globals(runtime_globals);
-    has_amdgpu_options = true;
-    node = options->next;
-  }
-  return iree_ok_status();
-}
-
 static iree_status_t loomc_amdgpu_emit_module_artifact(
     const loom_target_emit_request_t* request, bool* out_emitted,
     loom_target_emit_artifact_t* out_artifact) {
   *out_emitted = false;
   *out_artifact = (loom_target_emit_artifact_t){0};
 
-  loom_amdgpu_runtime_global_flags_t runtime_globals =
-      LOOM_AMDGPU_RUNTIME_GLOBAL_NONE;
-  IREE_RETURN_IF_ERROR(loomc_amdgpu_emit_resolve_runtime_globals(
-      request->option_chain, &runtime_globals));
   if (request->compile_report != NULL) {
     request->compile_report->target_family_name =
         loom_amdgpu_target_profile_type.name;
@@ -290,7 +207,6 @@ static iree_status_t loomc_amdgpu_emit_module_artifact(
   iree_diagnostic_emitter_t diagnostic_emitter = request->diagnostic_emitter;
   const loom_amdgpu_hal_kernel_library_options_t library_options = {
       .function_versions = request->function_versions,
-      .runtime_globals = runtime_globals,
       .diagnostic_sink =
           {
               .fn = loomc_amdgpu_forward_diagnostic,

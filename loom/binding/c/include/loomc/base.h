@@ -263,9 +263,6 @@ typedef enum loomc_structure_type_e {
   /// `loomc_amdgpu_profile_options_t`.
   LOOMC_STRUCTURE_TYPE_AMDGPU_PROFILE_OPTIONS = 28,
 
-  /// `loomc_amdgpu_emit_options_t`.
-  LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS = 29,
-
   /// `loomc_artifact_manifest_options_t`.
   LOOMC_STRUCTURE_TYPE_ARTIFACT_MANIFEST_OPTIONS = 30,
 

@@ -47,6 +47,34 @@
 
 #define LOOM_AMDGPU_HAL_KERNEL_LIBRARY_DEFAULT_MAX_ERRORS 20u
 
+static bool loom_amdgpu_hal_kernel_library_has_symbol(
+    const loom_module_t* module, iree_string_view_t name) {
+  const loom_string_id_t name_id = loom_module_lookup_string(module, name);
+  return name_id != LOOM_STRING_ID_INVALID &&
+         loom_module_find_symbol(module, name_id) != LOOM_SYMBOL_ID_INVALID;
+}
+
+// Derives runtime support globals from the canonical target-low declarations
+// left by lowering. The emitter owns this target-specific interpretation;
+// callers cannot request globals that the compiled module does not reference.
+static loom_amdgpu_runtime_global_flags_t
+loom_amdgpu_hal_kernel_library_runtime_globals(const loom_module_t* module) {
+  loom_amdgpu_runtime_global_flags_t flags = LOOM_AMDGPU_RUNTIME_GLOBAL_NONE;
+  if (loom_amdgpu_hal_kernel_library_has_symbol(
+          module, IREE_SV(LOOM_AMDGPU_FEEDBACK_CONFIG_GLOBAL_NAME))) {
+    flags |= LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
+  }
+  if (loom_amdgpu_hal_kernel_library_has_symbol(
+          module, IREE_SV(LOOM_AMDGPU_ASAN_CONFIG_GLOBAL_NAME))) {
+    flags |= LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG;
+  }
+  if (loom_amdgpu_hal_kernel_library_has_symbol(
+          module, IREE_SV(LOOM_AMDGPU_TSAN_CONFIG_GLOBAL_NAME))) {
+    flags |= LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG;
+  }
+  return flags;
+}
+
 static bool loom_amdgpu_hal_kernel_library_bundle_is_compatible(
     void* user_data, const loom_target_entry_t* entry) {
   if (!loom_low_kernel_def_isa(entry->func.op)) {
@@ -864,7 +892,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_entries(
   const bool capture_target_listing =
       options ? options->capture_target_listing : false;
   const loom_amdgpu_runtime_global_flags_t runtime_globals =
-      options ? options->runtime_globals : LOOM_AMDGPU_RUNTIME_GLOBAL_NONE;
+      loom_amdgpu_hal_kernel_library_runtime_globals(module);
   const loom_amdgpu_hsaco_data_symbol_t* data_symbols =
       options ? options->data_symbols : NULL;
   const iree_host_size_t data_symbol_count =
@@ -1092,10 +1120,6 @@ iree_status_t loom_amdgpu_emit_hal_kernel_library(
     loom_amdgpu_hal_kernel_library_t* out_library) {
   *out_emitted = false;
   *out_library = (loom_amdgpu_hal_kernel_library_t){0};
-  const loom_amdgpu_runtime_global_flags_t runtime_globals =
-      options ? options->runtime_globals : LOOM_AMDGPU_RUNTIME_GLOBAL_NONE;
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_runtime_global_flags_validate(runtime_globals));
   loom_target_compile_report_t* report = options ? options->report : NULL;
   if (report != NULL) {
     loom_target_compile_report_initialize_if_empty(report, allocator);

@@ -326,41 +326,6 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_library(
   NAME
-    runtime_requirements
-  HDRS
-    "runtime_requirements.h"
-  SRCS
-    "runtime_requirements.c"
-  DEPS
-    iree::base
-    loom::ir
-    loom::target::arch::amdgpu::abi::asan
-    loom::target::arch::amdgpu::abi::feedback
-    loom::target::arch::amdgpu::abi::tsan
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU)
-loom_cc_test(
-  NAME
-    runtime_requirements_test
-  SRCS
-    "runtime_requirements_test.cc"
-  DEPS
-    ::runtime_requirements
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::ir
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU)
-loom_cc_library(
-  NAME
     legalization
   HDRS
     "legalization.h"

@@ -28,7 +28,6 @@ loom_cc_library(
     hdrs = [
         "//loom/binding/c:include/loomc/target/amdgpu.h",
         "//loom/binding/c:include/loomc/target/amdgpu/base.h",
-        "//loom/binding/c:include/loomc/target/amdgpu/emit.h",
         "//loom/binding/c:include/loomc/target/amdgpu/profile.h",
     ],
     linkstatic = True,

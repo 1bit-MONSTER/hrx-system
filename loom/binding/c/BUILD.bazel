@@ -63,7 +63,6 @@ LOOMC_TARGET_SPIRV_PUBLIC_HDRS = [
 LOOMC_TARGET_AMDGPU_PUBLIC_HDRS = [
     "include/loomc/target/amdgpu.h",
     "include/loomc/target/amdgpu/base.h",
-    "include/loomc/target/amdgpu/emit.h",
     "include/loomc/target/amdgpu/profile.h",
 ]
 

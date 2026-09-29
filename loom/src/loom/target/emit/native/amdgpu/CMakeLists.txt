@@ -663,6 +663,9 @@ loom_cc_library(
     loom::ir
     loom::ops::global
     loom::ops::low
+    loom::target::arch::amdgpu::abi::asan
+    loom::target::arch::amdgpu::abi::feedback
+    loom::target::arch::amdgpu::abi::tsan
     loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::artifact_key
     loom::target::arch::amdgpu::error_defs

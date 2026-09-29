@@ -1411,16 +1411,53 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   loom_module_free(module);
 }
 
-TEST_F(AmdgpuHalKernelLibraryTest, EmitsRequestedRuntimeGlobals) {
+TEST_F(AmdgpuHalKernelLibraryTest,
+       OmitsRuntimeGlobalsAbsentFromTargetLowModule) {
   loom_module_t* module = nullptr;
   ASSERT_NO_FATAL_FAILURE(ParseGfx11Kernel(&module));
 
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG |
-                            LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG |
-                            LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
+  options.diagnostic_sink = capture.sink();
+  options.max_errors = 20;
+  bool emitted = false;
+  IREE_ASSERT_OK(loom_amdgpu_emit_hal_kernel_library(
+      module, &options, iree_allocator_system(), &emitted, &library));
+
+  EXPECT_TRUE(emitted);
+  EXPECT_TRUE(capture.diagnostics.empty());
+  ASSERT_NE(library.hsaco_data, nullptr);
+  std::string hsaco;
+  IREE_ASSERT_OK(CloneByteSequenceToString(library.hsaco_data, &hsaco));
+  EXPECT_EQ(hsaco.find(LOOM_AMDGPU_ASAN_CONFIG_GLOBAL_NAME), std::string::npos);
+  EXPECT_EQ(hsaco.find(LOOM_AMDGPU_TSAN_CONFIG_GLOBAL_NAME), std::string::npos);
+  EXPECT_EQ(hsaco.find(LOOM_AMDGPU_FEEDBACK_CONFIG_GLOBAL_NAME),
+            std::string::npos);
+
+  loom_amdgpu_hal_kernel_library_deinitialize(&library,
+                                              iree_allocator_system());
+  loom_module_free(module);
+}
+
+TEST_F(AmdgpuHalKernelLibraryTest,
+       EmitsRuntimeGlobalsDeclaredByTargetLowModule) {
+  static const char kSource[] =
+      "global.rodata.decl @iree_asan_config\n"
+      "global.rodata.decl @iree_tsan_config\n"
+      "global.rodata.decl @iree_feedback_config\n"
+      "amdgpu.target<gfx1100> @gfx_target\n"
+      "low.kernel.def target<amdgpu.rdna3.core>(@gfx_target) "
+      "workgroup_size(64, 1, 1) @loom_kernel() {\n"
+      "  low.return\n"
+      "}\n";
+  loom_module_t* module = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      ParseSource(iree_make_cstring_view(kSource), &module));
+
+  DiagnosticCapture capture;
+  loom_amdgpu_hal_kernel_library_t library = {};
+  loom_amdgpu_hal_kernel_library_options_t options = {};
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
@@ -1493,6 +1530,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   };
   static const char kSource[] =
       "amdgpu.target<gfx1250> @gfx_target\n"
+      "global.rodata.decl @iree_feedback_config\n"
       "global.rodata.decl @loom_sanitizer_sites\n"
       "low.kernel.def target<amdgpu.gfx12_5.generic.core>(@gfx_target) "
       "workgroup_size(64, 1, 1) "
@@ -1528,7 +1566,6 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.data_symbols = &site_symbol;
   options.data_symbol_count = 1;
   options.diagnostic_sink = capture.sink();
@@ -1604,7 +1641,6 @@ TEST_F(AmdgpuHalKernelLibraryTest, RejectsRel32AddWithoutPcProvenance) {
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
@@ -1628,6 +1664,7 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   static const char kSource[] =
       "global.rodata.def @loom_sanitizer_sites = "
       "align(16) bytes(\"00020302010100000001010601010000\")\n"
+      "global.rodata.decl @iree_feedback_config\n"
       "amdgpu.target<gfx1100> @gfx_target\n"
       "low.kernel.def target<amdgpu.rdna3.core>(@gfx_target) "
       "workgroup_size(64, 1, 1) "
@@ -1656,7 +1693,6 @@ TEST_F(AmdgpuHalKernelLibraryTest,
   DiagnosticCapture capture;
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;
@@ -1719,8 +1755,6 @@ TEST_F(AmdgpuHalKernelLibraryTest, EmitsSourceLoweredSanitizerSiteTableRodata) {
 
   loom_amdgpu_hal_kernel_library_t library = {};
   loom_amdgpu_hal_kernel_library_options_t options = {};
-  options.runtime_globals = LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG |
-                            LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG;
   options.diagnostic_sink = capture.sink();
   options.max_errors = 20;
   bool emitted = false;

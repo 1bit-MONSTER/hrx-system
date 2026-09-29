@@ -8,7 +8,6 @@
 #define LOOMC_TARGET_AMDGPU_H_
 
 #include "loomc/target/amdgpu/base.h"
-#include "loomc/target/amdgpu/emit.h"
 #include "loomc/target/amdgpu/profile.h"
 
 /// @file

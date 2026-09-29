@@ -177,16 +177,10 @@ loomc_status_t EmitAmdgpuModule(loomc_target_environment_t* target_environment,
                                 loomc_string_view_t artifact_format,
                                 loomc_string_view_t artifact_identifier,
                                 loomc_result_t** out_result) {
-  const loomc_amdgpu_emit_options_t amdgpu_options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS,
-      /*.structure_size=*/sizeof(amdgpu_options),
-      /*.next=*/nullptr,
-      /*.runtime_globals=*/LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE,
-  };
   const loomc_emit_options_t emit_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
       /*.structure_size=*/sizeof(emit_options),
-      /*.next=*/&amdgpu_options,
+      /*.next=*/nullptr,
       /*.artifact_format=*/artifact_format,
       /*.identifier=*/artifact_identifier,
       /*.artifact_flags=*/LOOMC_EMIT_ARTIFACT_FLAG_PRIMARY,
