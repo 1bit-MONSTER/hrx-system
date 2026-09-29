@@ -13,10 +13,19 @@ exports_files(
     [
         "wasi_sdk_repo.bzl",
         "wasi_sdk_version.bzl",
+        "wasi_toolchain.bzl",
         "wasm_node_test_runner.sh",
         "wasm_test_main.mjs",
     ],
     visibility = ["//visibility:public"],
+)
+
+platform(
+    name = "wasm32_wasi",
+    constraint_values = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
 )
 
 py_binary(

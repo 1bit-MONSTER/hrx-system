@@ -7,6 +7,8 @@
 # Bazel rule and toolchain tests have no CMake surface.
 # bazel-to-cmake: skip
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load(":wasm_rules_test.bzl", "wasm_rules_test_suite")
 
 package(default_visibility = ["//visibility:public"])
@@ -17,3 +19,25 @@ platform(
 )
 
 wasm_rules_test_suite(name = "wasm_tests")
+
+cc_binary(
+    name = "wasi_toolchain_smoke",
+    srcs = [
+        "wasi_toolchain_smoke.c",
+        "wasi_toolchain_smoke.cc",
+    ],
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+)
+
+iree_executable_test(
+    name = "wasi_toolchain_smoke_test",
+    src = ":wasi_toolchain_smoke",
+    target_compatible_with = [
+        "@platforms//cpu:wasm32",
+        "@platforms//os:wasi",
+    ],
+)
