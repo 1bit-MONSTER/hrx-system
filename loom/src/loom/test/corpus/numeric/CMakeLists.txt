@@ -15,7 +15,32 @@ loom_corpus_sources(
   MANIFEST
     "numeric"
   SRCS
+    "bitfield.loom"
+    "boolean_logic.loom"
+    "constants.loom"
+    "conversion.loom"
+    "conversion_paths.loom"
+    "division.loom"
+    "exponential.loom"
     "extrema.loom"
+    "float_comparison.loom"
+    "float_selectors.loom"
+    "floating.loom"
+    "integer.loom"
+    "integer_boundaries.loom"
+    "integer_comparison.loom"
+    "logarithm.loom"
+    "narrow.loom"
+    "narrow_arithmetic.loom"
+    "roots.loom"
+    "rounding.loom"
+    "selection.loom"
+    "turns.loom"
+    "vector_fields.loom"
+    "vector_floating.loom"
+    "vector_indexing.loom"
+    "vector_reductions.loom"
+    "vector_selection.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

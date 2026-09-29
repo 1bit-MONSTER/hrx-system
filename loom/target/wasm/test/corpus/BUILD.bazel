@@ -12,5 +12,36 @@ package(default_visibility = ["//visibility:public"])
 loom_corpus_build(
     name = "all",
     catalog = LOOM_CORPUS,
+    excludes = {
+        "//loom/target/wasm:simd128": {
+            "numeric/conversion.loom": "Every exported root requires unavailable narrow, floating-point, or integer conversion lowering.",
+            "numeric/conversion_paths.loom": "Every exported root requires unavailable narrow-float or integer conversion lowering.",
+            "numeric/exponential.loom": "Every exported root requires unavailable exponential or integer-to-float lowering.",
+            "numeric/float_comparison.loom": "Neither floating-point comparison root satisfies the current Wasm target contract.",
+            "numeric/float_selectors.loom": "Every exported root requires unavailable selector, comparison, FMA, or sign lowering.",
+            "numeric/integer.loom": "Every exported root requires unavailable rotate or integer unary lowering.",
+            "numeric/logarithm.loom": "Every exported root requires unavailable logarithm lowering.",
+            "numeric/narrow.loom": "Every exported root requires unavailable narrow scalar types or conversion lowering.",
+            "numeric/narrow_arithmetic.loom": "Both narrow arithmetic roots require an unavailable f64 reference path.",
+            "numeric/roots.loom": "Every exported root requires unavailable reciprocal-square-root lowering.",
+            "numeric/turns.loom": "The exported root requires unavailable turn-domain trigonometric lowering.",
+        },
+    },
     profiles = ["//loom/target/wasm:all"],
+    xfails = {
+        "//loom/target/wasm:simd128": {
+            "numeric/bitfield.loom:@bitfield_narrow": "WASM/001",
+            "numeric/bitfield.loom:@bitfield_predicate": "WASM/001",
+            "numeric/bitfield.loom:@bitfield_widen": "WASM/001",
+            "numeric/constants.loom:@integer_constants_narrow": "WASM/001",
+            "numeric/floating.loom:@float_arithmetic_f32": "TARGET/001",
+            "numeric/floating.loom:@float_arithmetic_f64": "LOWERING/036",
+            "numeric/integer_boundaries.loom:@shift_boundaries_i32": "TARGET/001",
+            "numeric/integer_boundaries.loom:@shift_boundaries_i64": "TARGET/001",
+            "numeric/rounding.loom:@round_away_f32": "LOWERING/036",
+            "numeric/rounding.loom:@round_away_f64": "LOWERING/036",
+            "numeric/rounding.loom:@rounding_f64": "LOWERING/036",
+            "numeric/vector_fields.loom:@vector_fields": "WASM/005",
+        },
+    },
 )
