@@ -102,6 +102,7 @@ hrx_cc_library(
     ],
     hdrs = [
         "context.h",
+        "device.h",
         "direct_transfer.h",
         "event.h",
         "event_timestamp_pool.h",

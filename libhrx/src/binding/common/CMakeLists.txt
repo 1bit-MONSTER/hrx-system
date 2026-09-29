@@ -103,6 +103,7 @@ iree_cc_library(
     common
   HDRS
     "context.h"
+    "device.h"
     "direct_transfer.h"
     "event.h"
     "event_timestamp_pool.h"
