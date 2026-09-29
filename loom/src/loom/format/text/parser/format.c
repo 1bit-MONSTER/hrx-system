@@ -826,52 +826,46 @@ static iree_status_t loom_parse_format_bind_function_low_repr(
   return iree_ok_status();
 }
 
-// Resolves a loop entry's types before its region consumes the pending
-// arguments. A counted induction variable uses the lower bound's address
-// domain; carried values instantiate the declared result tuple at the entry.
+// Resolves a counted loop entry's types before its region consumes pending
+// arguments. The induction variable uses the lower bound's address domain and
+// carried values instantiate the declared result tuple at the body entry.
+// Condition-loop headers spell their independent type scheme in BindingList.
 static iree_status_t loom_parse_format_resolve_loop_entry_types(
     loom_parser_t* parser, const loom_op_vtable_t* vtable,
     const loom_parsed_op_t* parsed, uint8_t region_index) {
   const loom_loop_like_vtable_t* loop_like = vtable->loop_like;
-  if (!loop_like) {
+  if (!loop_like ||
+      loop_like->iv_block_arg_index == LOOM_BLOCK_ARG_INDEX_NONE) {
     return iree_ok_status();
   }
-  const bool counted =
-      loop_like->iv_block_arg_index != LOOM_BLOCK_ARG_INDEX_NONE;
-  const uint8_t entry_index = counted ? loop_like->body_region_index
-                                      : loop_like->condition_region_index;
-  if (region_index != entry_index) {
+  if (region_index != loop_like->body_region_index) {
     return iree_ok_status();
   }
-  const uint16_t offset = counted ? 1 : 0;
+  const uint16_t offset = 1;
 
-  if (counted) {
-    IREE_ASSERT(loop_like->iv_block_arg_index <
-                parser->pending_block_args.count);
-    uint16_t lower_bound_operand_index = loop_like->lower_bound_operand_index;
-    if (loop_like->segmented_operands) {
-      IREE_ASSERT(lower_bound_operand_index < parsed->operand_segment_count);
-      uint16_t flat_operand_index = 0;
-      for (uint8_t i = 0; i < lower_bound_operand_index; ++i) {
-        flat_operand_index += parsed->operand_segment_counts[i];
-      }
-      IREE_ASSERT(parsed->operand_segment_counts[lower_bound_operand_index] ==
-                  1);
-      lower_bound_operand_index = flat_operand_index;
+  IREE_ASSERT(loop_like->iv_block_arg_index < parser->pending_block_args.count);
+  uint16_t lower_bound_operand_index = loop_like->lower_bound_operand_index;
+  if (loop_like->segmented_operands) {
+    IREE_ASSERT(lower_bound_operand_index < parsed->operand_segment_count);
+    uint16_t flat_operand_index = 0;
+    for (uint8_t i = 0; i < lower_bound_operand_index; ++i) {
+      flat_operand_index += parsed->operand_segment_counts[i];
     }
-    IREE_ASSERT(lower_bound_operand_index < parsed->operand_count);
+    IREE_ASSERT(parsed->operand_segment_counts[lower_bound_operand_index] == 1);
+    lower_bound_operand_index = flat_operand_index;
+  }
+  IREE_ASSERT(lower_bound_operand_index < parsed->operand_count);
 
-    const loom_value_id_t iv_value_id =
-        parser->pending_block_args.entries[loop_like->iv_block_arg_index]
-            .value_id;
-    if (loom_type_kind(loom_module_value_type(parser->module, iv_value_id)) ==
-        LOOM_TYPE_NONE) {
-      const loom_value_id_t lower_bound_value_id =
-          parsed->operand_ids[lower_bound_operand_index];
-      IREE_RETURN_IF_ERROR(loom_module_set_value_type(
-          parser->module, iv_value_id,
-          loom_module_value_type(parser->module, lower_bound_value_id)));
-    }
+  const loom_value_id_t iv_value_id =
+      parser->pending_block_args.entries[loop_like->iv_block_arg_index]
+          .value_id;
+  if (loom_type_kind(loom_module_value_type(parser->module, iv_value_id)) ==
+      LOOM_TYPE_NONE) {
+    const loom_value_id_t lower_bound_value_id =
+        parsed->operand_ids[lower_bound_operand_index];
+    IREE_RETURN_IF_ERROR(loom_module_set_value_type(
+        parser->module, iv_value_id,
+        loom_module_value_type(parser->module, lower_bound_value_id)));
   }
 
   // Result declarations describe the recurring tuple. Their distinct SSA

@@ -187,18 +187,23 @@ CHECK: spills: 0
 
 test.target<low_core> @target
 
-// Forwarding an invariant through condition must not let the after region
-// overwrite it before the next condition evaluation. The unused before-region
-// argument requires no placement relation or storage.
-low.func.def target<test.low.core>(@target) @while_condition_capture(%condition: reg<test.i32>, %captured: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
-  %result = low.scf.while(%before = %seed : reg<test.i32>) -> (reg<test.i32>) {
-    // REMARK@+2: BACKEND/043 {source_value_name="captured", result_value_name="body", decision="rejected"}
-    // REMARK@+1: BACKEND/043 {source_value_name="captured", result_value_name="result", decision="rejected"}
-    low.scf.condition %condition, %captured : reg<test.i32>, reg<test.i32>
-  } do(%body: reg<test.i32>) {
-    low.scf.yield %body : reg<test.i32>
+// Condition payloads have independent result/body storage. Forwarding a
+// captured value must preserve it across the body while the separate state
+// payload returns to the single header slot.
+low.func.def target<test.low.core>(@target) @while_condition_capture(%condition: reg<test.i32>, %captured: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="seed", result_value_name="before", decision="accepted"}
+  %result_capture, %result_state = low.scf.while(%before = %seed : reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) {
+    // REMARK@+4: BACKEND/043 {source_value_name="captured", result_value_name="body_capture", decision="rejected"}
+    // REMARK@+3: BACKEND/043 {source_value_name="captured", result_value_name="result_capture", decision="rejected"}
+    // REMARK@+2: BACKEND/043 {source_value_name="before", result_value_name="body_state", decision="accepted"}
+    // REMARK@+1: BACKEND/043 {source_value_name="before", result_value_name="result_state", decision="rejected"}
+    low.scf.condition %condition, %captured, %before : reg<test.i32>, reg<test.i32>, reg<test.i32>
+  } do(%body_capture: reg<test.i32>, %body_state: reg<test.i32>) {
+    %next = test.add.i32 %body_capture, %body_state
+    // REMARK@+1: BACKEND/043 {source_value_name="next", result_value_name="before", decision="accepted"}
+    low.scf.yield %next : reg<test.i32>
   }
-  return %result
+  return %result_capture, %result_state
 }
 
 // ----

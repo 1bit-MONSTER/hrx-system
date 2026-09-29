@@ -267,9 +267,19 @@ def translate_format_elements(op: Op, format_elements: tuple[FormatElement, ...]
                     payload = str(sta_index) if glue else f"LOOM_FORMAT_INDEX_LIST_DATA({sta_index}, false)"
                     elements.append(("LOOM_FORMAT_KIND_INDEX_LIST", dyn_index, payload))
 
-                case BindingList(field=name, kind=binding_kind):
+                case BindingList(
+                    field=name,
+                    kind=binding_kind,
+                    type_source=type_source,
+                ):
                     _field_kind, index = resolve_field(name)
-                    binding_kind_name = "LOOM_BINDING_ELEMENT" if binding_kind == "element" else "LOOM_BINDING_CAPTURE"
+                    binding_kind_name = "LOOM_BINDING_LIST_ELEMENT" if binding_kind == "element" else "LOOM_BINDING_LIST_CAPTURE"
+                    if type_source == "block_arg":
+                        binding_kind_name += " | LOOM_BINDING_LIST_ANNOTATES_BLOCK_ARGS"
+                    elif type_source != "operand":
+                        raise ValueError(f"Op '{op.name}': BindingList type_source '{type_source}' must be 'operand' or 'block_arg'")
+                    if binding_kind == "element" and type_source == "block_arg":
+                        raise ValueError(f"Op '{op.name}': element BindingList annotations must describe operand types")
                     elements.append(("LOOM_FORMAT_KIND_BINDING_LIST", index, binding_kind_name))
 
                 case BlockArgs(

@@ -137,28 +137,35 @@ TEST_F(ValueRelationTest, CountedLoopSeparatesEntryBypassAndYieldEdges) {
 TEST_F(ValueRelationTest, ConditionLoopPreservesDistinctStateEdges) {
   const loom_type_t i1_type = loom_type_scalar(LOOM_SCALAR_TYPE_I1);
   const loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+  const loom_type_t i64_type = loom_type_scalar(LOOM_SCALAR_TYPE_I64);
   const loom_value_id_t condition = BuildConstant(i1_type, 1);
   const loom_value_id_t initial = BuildConstant(i32_type, 20);
-  const loom_value_id_t forwarded = BuildConstant(i32_type, 21);
+  const loom_value_id_t forwarded[] = {
+      BuildConstant(i32_type, 21),
+      BuildConstant(i64_type, 22),
+  };
   const loom_value_id_t yielded = BuildConstant(i32_type, 22);
+  const loom_type_t result_types[] = {i32_type, i64_type};
 
   loom_op_t* loop = nullptr;
   IREE_ASSERT_OK(loom_scf_while_build(
-      &builder_, &initial, 1, /*result_types=*/nullptr,
-      /*tied_results=*/nullptr,
+      &builder_, &initial, 1, /*iter_args_types=*/nullptr, result_types,
+      IREE_ARRAYSIZE(result_types), /*tied_results=*/nullptr,
       /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &loop));
   const loom_value_id_t before_argument =
       loom_region_entry_arg_id(loom_scf_while_before(loop), 0);
-  const loom_value_id_t body_argument =
-      loom_region_entry_arg_id(loom_scf_while_after(loop), 0);
-  const loom_value_id_t result = loom_scf_while_results(loop).values[0];
+  const loom_value_id_t body_arguments[] = {
+      loom_region_entry_arg_id(loom_scf_while_after(loop), 0),
+      loom_region_entry_arg_id(loom_scf_while_after(loop), 1),
+  };
+  const loom_value_slice_t results = loom_scf_while_results(loop);
 
   loom_builder_ip_t saved =
       loom_builder_enter_region(&builder_, loop, loom_scf_while_before(loop));
   loom_op_t* condition_op = nullptr;
-  IREE_ASSERT_OK(loom_scf_condition_build(&builder_, condition, &forwarded, 1,
-                                          LOOM_LOCATION_UNKNOWN,
-                                          &condition_op));
+  IREE_ASSERT_OK(loom_scf_condition_build(
+      &builder_, condition, forwarded, IREE_ARRAYSIZE(forwarded),
+      LOOM_LOCATION_UNKNOWN, &condition_op));
   loom_builder_restore(&builder_, saved);
   saved =
       loom_builder_enter_region(&builder_, loop, loom_scf_while_after(loop));
@@ -175,11 +182,15 @@ TEST_F(ValueRelationTest, ConditionLoopPreservesDistinctStateEdges) {
 
   const std::vector<loom_value_relation_t> condition_relations =
       Collect(condition_op);
-  ASSERT_EQ(condition_relations.size(), 2u);
-  EXPECT_EQ(condition_relations[0].source_value_id, forwarded);
-  EXPECT_EQ(condition_relations[0].destination_value_id, body_argument);
-  EXPECT_EQ(condition_relations[1].source_value_id, forwarded);
-  EXPECT_EQ(condition_relations[1].destination_value_id, result);
+  ASSERT_EQ(condition_relations.size(), 4u);
+  for (uint16_t i = 0; i < IREE_ARRAYSIZE(forwarded); ++i) {
+    EXPECT_EQ(condition_relations[2 * i].source_value_id, forwarded[i]);
+    EXPECT_EQ(condition_relations[2 * i].destination_value_id,
+              body_arguments[i]);
+    EXPECT_EQ(condition_relations[2 * i + 1].source_value_id, forwarded[i]);
+    EXPECT_EQ(condition_relations[2 * i + 1].destination_value_id,
+              results.values[i]);
+  }
 
   const std::vector<loom_value_relation_t> yield_relations = Collect(yield);
   ASSERT_EQ(yield_relations.size(), 1u);

@@ -104,6 +104,8 @@ __all__ = [
     # Binding kinds.
     "BINDING_CAPTURE",
     "BINDING_ELEMENT",
+    "BINDING_TYPE_OPERAND",
+    "BINDING_TYPE_BLOCK_ARG",
     # Common keywords.
     "COMMA",
     "COLON",
@@ -522,11 +524,21 @@ class BindingList:
     For custom types, the type extraction is driven by the type's
     TypeDef — custom types can define how "element" extraction works.
 
+    The `type_source` parameter selects what the annotation describes:
+
+      type_source="operand" — the existing operand type. This is the compact
+        spelling used by ordinary captures and element bindings.
+
+      type_source="block_arg" — the projected region argument type. This
+        spelling can refer to peer bindings and represents an independent
+        dependent-type scheme at the region boundary.
+
     For builders: maps to a list of (name, value) pairs.
     """
 
     field: str
     kind: str = "capture"  # "capture" or "element"
+    type_source: str = "operand"  # "operand" or "block_arg"
 
 
 @dataclass(frozen=True, slots=True)
@@ -924,6 +936,8 @@ class Param:
 # Binding kind constants for BindingList.
 BINDING_CAPTURE = "capture"
 BINDING_ELEMENT = "element"
+BINDING_TYPE_OPERAND = "operand"
+BINDING_TYPE_BLOCK_ARG = "block_arg"
 
 
 # ============================================================================

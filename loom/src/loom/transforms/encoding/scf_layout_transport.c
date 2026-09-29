@@ -242,15 +242,63 @@ static bool loom_scf_layout_describe(
   return out_candidate->dynamic_count != 0;
 }
 
-static iree_status_t loom_scf_layout_add_candidate(
-    loom_scf_layout_transport_plan_t* plan, loom_op_t* op,
+static bool loom_scf_layout_result_is_candidate(
+    const loom_scf_layout_transport_plan_t* plan, const loom_op_t* op,
     uint16_t result_index) {
   const loom_value_id_t result = loom_op_results(op)[result_index];
   const loom_type_t type = loom_module_value_type(plan->module, result);
-  if (!loom_type_is_encoding(type) ||
-      loom_type_encoding_role(type) != LOOM_ENCODING_ROLE_ADDRESS_LAYOUT) {
+  return loom_type_is_encoding(type) &&
+         loom_type_encoding_role(type) == LOOM_ENCODING_ROLE_ADDRESS_LAYOUT;
+}
+
+// The specialized transport represents a condition loop as one positional
+// recurrence tuple. General condition loops own independent header (A) and
+// body/result (B) schemes and are handled by boundary projection instead. Keep
+// this while-only classification out of the ordinary per-op collection path.
+IREE_ATTRIBUTE_NOINLINE IREE_ATTRIBUTE_COLD static bool
+loom_scf_layout_while_is_supported(const loom_scf_layout_transport_plan_t* plan,
+                                   const loom_op_t* op) {
+  bool has_layout_result = false;
+  for (uint16_t i = 0; i < op->result_count; ++i) {
+    has_layout_result |= loom_scf_layout_result_is_candidate(plan, op, i);
+  }
+  if (!has_layout_result) {
+    return true;
+  }
+
+  const loom_block_t* before =
+      loom_region_const_entry_block(loom_scf_while_before(op));
+  if (before == NULL || before->arg_count != op->result_count) {
+    return false;
+  }
+
+  const loom_type_value_remap_t remap = {
+      .source_values = before->arg_ids,
+      .target_values = loom_op_const_results(op),
+      .count = op->result_count,
+      .flags = LOOM_TYPE_VALUE_REMAP_FLAG_SOURCE_DEFINITION_SLICE,
+  };
+  for (uint16_t i = 0; i < op->result_count; ++i) {
+    const loom_type_t header_type =
+        loom_block_arg_type(plan->module, before, i);
+    const loom_type_t result_type =
+        loom_module_value_type(plan->module, loom_op_const_results(op)[i]);
+    if (!loom_type_equal_after_value_remap(plan->module, header_type,
+                                           result_type, &remap)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static iree_status_t loom_scf_layout_add_candidate(
+    loom_scf_layout_transport_plan_t* plan, loom_op_t* op,
+    uint16_t result_index) {
+  if (!loom_scf_layout_result_is_candidate(plan, op, result_index)) {
     return iree_ok_status();
   }
+  const loom_value_id_t result = loom_op_results(op)[result_index];
+  const loom_type_t type = loom_module_value_type(plan->module, result);
   if (plan->candidate_count == plan->candidate_capacity) {
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
         plan->arena, plan->candidate_count, plan->candidate_count + 1,
@@ -319,6 +367,9 @@ static iree_status_t loom_scf_layout_collect(void* user_data, loom_op_t* op,
   loom_scf_layout_transport_plan_t* plan = user_data;
   *out_result = LOOM_WALK_CONTINUE;
   if (!loom_scf_layout_is_supported_operation(op)) {
+    return iree_ok_status();
+  }
+  if (loom_scf_while_isa(op) && !loom_scf_layout_while_is_supported(plan, op)) {
     return iree_ok_status();
   }
   for (uint16_t i = 0; i < op->result_count; ++i) {
@@ -1499,7 +1550,8 @@ static iree_status_t loom_scf_layout_rebuild_while(
   loom_builder_set_before(&plan->rewriter->builder, old_op);
   loom_op_t* new_loop = NULL;
   iree_status_t status = loom_scf_while_build(
-      &plan->rewriter->builder, initial_values, result_count, result_types,
+      &plan->rewriter->builder, initial_values, result_count,
+      /*iter_args_types=*/result_types, result_types, result_count,
       tied_results, old_op->tied_result_count, old_op->location, &new_loop);
   if (iree_status_is_ok(status)) {
     new_loop->instance_flags = old_op->instance_flags;

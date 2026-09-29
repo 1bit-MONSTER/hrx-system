@@ -332,7 +332,7 @@ std::optional<Value> ViewIntrinsic::call(std::span<const Value> arguments,
       }
 
       loom_value_id_t result_id;
-      check(loom_builder_reserve_results(builder, 1, &result_id));
+      check(loom_builder_reserve_values(builder, 1, &result_id));
       components[component_count++] = result_id;
       std::vector<loom_type_t> result_types;
       types.append_bound(result_source_type_, owner,

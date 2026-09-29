@@ -504,9 +504,9 @@ CHECK: test.use %view, * : view<[%rows]x4xi32, %layout>, vector<4xf32>
 // ====
 // RUN: pass sroa-vector-banks
 
-// Condition-controlled loops project the before, after, and result endpoints
-// through one shared bank schema. Inserts in either region forward unchanged
-// slots directly and replace only the addressed payload.
+// Condition-controlled loops project the header and body/result domains while
+// preserving the current matching signatures. Inserts in either region
+// forward unchanged slots directly and replace only the addressed payload.
 func.def @condition_bank(%initial: vector<2xi32>, %keep_going: i1) -> (i32, i32) {
   %result = scf.while(%before_bank = %initial : vector<2xi32>) -> (vector<2xi32>) {
     %head = vector.extract %before_bank[0] : vector<2xi32> -> i32
@@ -540,6 +540,44 @@ func.def @condition_bank(%initial: vector<2xi32>, %keep_going: i1) -> (i32, i32)
 }
 
 // ====
+// RUN: pass sroa-vector-banks
+
+// Bank transport follows the authored SSA edges rather than pairing condition
+// and backedge operands by ordinal.
+func.def @condition_banks_follow_ssa_edges(%first_initial: vector<2xi32>, %second_initial: vector<2xi32>, %keep_going: i1) -> (i32, i32) {
+  %first_result, %second_result = scf.while(%first_before = %first_initial : vector<2xi32>, %second_before = %second_initial : vector<2xi32>) -> (vector<2xi32>, vector<2xi32>) {
+    %first_head = vector.extract %first_before[0] : vector<2xi32> -> i32
+    %first_updated = vector.insert %first_head into %first_before[1] : i32, vector<2xi32>
+    %second_head = vector.extract %second_before[0] : vector<2xi32> -> i32
+    %second_updated = vector.insert %second_head into %second_before[1] : i32, vector<2xi32>
+    scf.condition %keep_going, %second_updated, %first_updated : i1, vector<2xi32>, vector<2xi32>
+  } do(%first_body: vector<2xi32>, %second_body: vector<2xi32>) {
+    %first_tail = vector.extract %first_body[1] : vector<2xi32> -> i32
+    %first_next = vector.insert %first_tail into %first_body[0] : i32, vector<2xi32>
+    %second_tail = vector.extract %second_body[1] : vector<2xi32> -> i32
+    %second_next = vector.insert %second_tail into %second_body[0] : i32, vector<2xi32>
+    scf.yield %second_next, %first_next : vector<2xi32>, vector<2xi32>
+  }
+  %first = vector.extract %first_result[0] : vector<2xi32> -> i32
+  %second = vector.extract %second_result[1] : vector<2xi32> -> i32
+  func.return %first, %second : i32, i32
+}
+
+// ----
+func.def @condition_banks_follow_ssa_edges(%first_initial: vector<2xi32>, %second_initial: vector<2xi32>, %keep_going: i1) -> (i32, i32) {
+  %first_initial_slot_0 = vector.extract %first_initial[0] : vector<2xi32> -> i32
+  %first_initial_slot_1 = vector.extract %first_initial[1] : vector<2xi32> -> i32
+  %second_initial_slot_0 = vector.extract %second_initial[0] : vector<2xi32> -> i32
+  %second_initial_slot_1 = vector.extract %second_initial[1] : vector<2xi32> -> i32
+  %first_result_slot_0, %first_result_slot_1, %second_result_slot_0, %second_result_slot_1 = scf.while(%first_before_slot_0 = %first_initial_slot_0 : i32, %first_before_slot_1 = %first_initial_slot_1 : i32, %second_before_slot_0 = %second_initial_slot_0 : i32, %second_before_slot_1 = %second_initial_slot_1 : i32) -> (i32, i32, i32, i32) {
+    scf.condition %keep_going, %second_before_slot_0, %second_before_slot_0, %first_before_slot_0, %first_before_slot_0 : i1, i32, i32, i32, i32
+  } do(%first_body_slot_0: i32, %first_body_slot_1: i32, %second_body_slot_0: i32, %second_body_slot_1: i32) {
+    scf.yield %second_body_slot_1, %second_body_slot_1, %first_body_slot_1, %first_body_slot_1 : i32, i32, i32, i32
+  }
+  func.return %first_result_slot_0, %second_result_slot_1 : i32, i32
+}
+
+// ====
 // RUN: with-checks pass-report sroa-vector-banks
 
 // The report retains the established SROA accounting while the shared boundary
@@ -560,7 +598,7 @@ func.def @reports_condition_bank(%initial: vector<2xi32>, %keep_going: i1) -> (i
 
 // ----
 CHECK: *"changed":true,*
-CHECK: *"statistics":{"loops-checked":1,"loops-scalarized":1,"banks-scalarized":1,"slots-materialized":2,"extracts-eliminated":3,"inserts-eliminated":2}*
+CHECK: *"statistics":{"loops-checked":1,"loops-scalarized":1,"banks-scalarized":2,"slots-materialized":4,"extracts-eliminated":3,"inserts-eliminated":2}*
 
 // ====
 // RUN: pass sroa-vector-banks

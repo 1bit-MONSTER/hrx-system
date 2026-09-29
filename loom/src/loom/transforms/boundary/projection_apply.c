@@ -112,7 +112,7 @@ static iree_status_t loom_boundary_projection_reconstruct_block_candidate(
   loom_builder_t* builder = &plan->rewriter.builder;
   IREE_ASSERT(candidate->realization_anchor != NULL);
   loom_builder_set_before(builder, candidate->realization_anchor);
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(
       builder, 1, &candidate->replacement_value_id));
   IREE_RETURN_IF_ERROR(loom_module_set_value_type(
       plan->module, candidate->replacement_value_id, logical_type));

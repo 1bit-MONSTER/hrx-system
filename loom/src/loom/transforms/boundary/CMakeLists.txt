@@ -93,7 +93,7 @@ loom_cc_library(
     iree::base
     loom::pass::types
     loom::target::pass_environment
-    loom::transforms::encoding::cfg_layout_projection
+    loom::transforms::encoding::layout_projection
     loom::transforms::view::boundary_projection
   PUBLIC
 )

@@ -659,27 +659,41 @@ TEST_F(LoopBoundaryProjectionTest, RebuildsConditionLoopEndpoints) {
   const loom_type_t i1 = loom_type_scalar(LOOM_SCALAR_TYPE_I1);
   loom_func_like_t function = BuildFunction(IREE_SV("condition"), &index, 1);
   loom_builder_t builder = FunctionBuilder(function);
-  const loom_value_id_t initial = Index(&builder, 0);
+  const loom_value_id_t initial[] = {
+      Index(&builder, 0),
+      Index(&builder, 1),
+  };
+  const loom_type_t result_types[] = {index, index};
   const loom_value_id_t condition =
       Constant(&builder, loom_attr_bool(true), i1);
   loom_op_t* source_loop = nullptr;
   IREE_ASSERT_OK(loom_scf_while_build(
-      &builder, &initial, 1, &index, /*tied_results=*/nullptr,
+      &builder, initial, IREE_ARRAYSIZE(initial), result_types, result_types,
+      IREE_ARRAYSIZE(result_types), /*tied_results=*/nullptr,
       /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &source_loop));
   loom_block_t* before =
       loom_region_entry_block(loom_scf_while_before(source_loop));
   loom_builder_ip_t saved = loom_builder_enter_region(
       &builder, source_loop, loom_scf_while_before(source_loop));
+  const loom_value_id_t condition_forwarded[] = {
+      loom_block_arg_id(before, 1),
+      loom_block_arg_id(before, 0),
+  };
   loom_op_t* condition_op = nullptr;
-  IREE_ASSERT_OK(loom_scf_condition_build(
-      &builder, condition, before->arg_ids, before->arg_count,
-      LOOM_LOCATION_UNKNOWN, &condition_op));
+  IREE_ASSERT_OK(
+      loom_scf_condition_build(&builder, condition, condition_forwarded,
+                               IREE_ARRAYSIZE(condition_forwarded),
+                               LOOM_LOCATION_UNKNOWN, &condition_op));
   loom_builder_restore(&builder, saved);
   loom_block_t* after =
       loom_region_entry_block(loom_scf_while_after(source_loop));
   saved = loom_builder_enter_region(&builder, source_loop,
                                     loom_scf_while_after(source_loop));
-  ScfYield(&builder, after->arg_ids, after->arg_count);
+  const loom_value_id_t backedge[] = {
+      loom_block_arg_id(after, 1),
+      loom_block_arg_id(after, 0),
+  };
+  ScfYield(&builder, backedge, IREE_ARRAYSIZE(backedge));
   loom_builder_restore(&builder, saved);
   const loom_value_id_t source_result = loom_op_results(source_loop)[0];
   loom_op_t* return_op = nullptr;
@@ -694,16 +708,24 @@ TEST_F(LoopBoundaryProjectionTest, RebuildsConditionLoopEndpoints) {
   ASSERT_EQ(loops.size(), 1u);
   loom_op_t* target_loop = loops[0];
   ASSERT_TRUE(loom_scf_while_isa(target_loop));
-  EXPECT_EQ(target_loop->result_count, 2u);
+  EXPECT_EQ(target_loop->result_count, 4u);
   loom_block_t* target_before =
       loom_region_entry_block(loom_scf_while_before(target_loop));
   loom_block_t* target_after =
       loom_region_entry_block(loom_scf_while_after(target_loop));
-  EXPECT_EQ(target_before->arg_count, 2u);
-  EXPECT_EQ(target_after->arg_count, 2u);
+  ASSERT_EQ(target_before->arg_count, 4u);
+  ASSERT_EQ(target_after->arg_count, 4u);
   ASSERT_TRUE(loom_scf_condition_isa(target_before->last_op));
-  EXPECT_EQ(loom_scf_condition_forwarded(target_before->last_op).count, 2u);
-  EXPECT_EQ(loom_scf_yield_values(target_after->last_op).count, 2u);
+  const loom_value_slice_t target_forwarded =
+      loom_scf_condition_forwarded(target_before->last_op);
+  ASSERT_EQ(target_forwarded.count, 4u);
+  EXPECT_EQ(target_forwarded.values[0], loom_block_arg_id(target_before, 2));
+  EXPECT_EQ(target_forwarded.values[2], loom_block_arg_id(target_before, 0));
+  const loom_value_slice_t target_backedge =
+      loom_scf_yield_values(target_after->last_op);
+  ASSERT_EQ(target_backedge.count, 4u);
+  EXPECT_EQ(target_backedge.values[0], loom_block_arg_id(target_after, 2));
+  EXPECT_EQ(target_backedge.values[2], loom_block_arg_id(target_after, 0));
   EXPECT_EQ(loom_op_const_operands(return_op)[0],
             loom_op_results(target_loop)[0]);
   EXPECT_EQ(statistics.loops_rewritten, 1);
@@ -937,20 +959,27 @@ TEST_F(LoopBoundaryProjectionTest, PreservesDependentRecurringTypeScheme) {
   const loom_value_id_t condition =
       Constant(&builder, loom_attr_bool(true), i1);
   const loom_value_id_t initial[] = {scalar, dependent, rows};
-  loom_value_id_t reserved[IREE_ARRAYSIZE(initial)] = {};
-  IREE_ASSERT_OK(loom_builder_reserve_results(
-      &builder, IREE_ARRAYSIZE(reserved), reserved));
-  const loom_type_t result_types[] = {
+  loom_value_id_t reserved[2 * IREE_ARRAYSIZE(initial)] = {};
+  IREE_ASSERT_OK(loom_builder_reserve_values(&builder, IREE_ARRAYSIZE(reserved),
+                                             reserved));
+  const loom_type_t header_types[] = {
       f32,
       loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
                           loom_dim_pack_dynamic(reserved[2]), 0),
       index,
   };
+  const loom_value_id_t* reserved_results = reserved + IREE_ARRAYSIZE(initial);
+  const loom_type_t result_types[] = {
+      f32,
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
+                          loom_dim_pack_dynamic(reserved_results[2]), 0),
+      index,
+  };
   loom_op_t* source_loop = nullptr;
   IREE_ASSERT_OK(loom_scf_while_build(
-      &builder, initial, IREE_ARRAYSIZE(initial), result_types,
-      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
-      &source_loop));
+      &builder, initial, IREE_ARRAYSIZE(initial), header_types, result_types,
+      IREE_ARRAYSIZE(result_types), /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &source_loop));
   loom_block_t* before =
       loom_region_entry_block(loom_scf_while_before(source_loop));
   loom_builder_ip_t saved = loom_builder_enter_region(
@@ -1007,19 +1036,25 @@ TEST_F(LoopBoundaryProjectionTest, RejectsProviderOfRecurringType) {
   const loom_value_id_t condition =
       Constant(&builder, loom_attr_bool(true), i1);
   const loom_value_id_t initial[] = {dependent, rows};
-  loom_value_id_t reserved[IREE_ARRAYSIZE(initial)] = {};
-  IREE_ASSERT_OK(loom_builder_reserve_results(
-      &builder, IREE_ARRAYSIZE(reserved), reserved));
-  const loom_type_t result_types[] = {
+  loom_value_id_t reserved[2 * IREE_ARRAYSIZE(initial)] = {};
+  IREE_ASSERT_OK(loom_builder_reserve_values(&builder, IREE_ARRAYSIZE(reserved),
+                                             reserved));
+  const loom_type_t header_types[] = {
       loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
                           loom_dim_pack_dynamic(reserved[1]), 0),
       index,
   };
+  const loom_value_id_t* reserved_results = reserved + IREE_ARRAYSIZE(initial);
+  const loom_type_t result_types[] = {
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32,
+                          loom_dim_pack_dynamic(reserved_results[1]), 0),
+      index,
+  };
   loom_op_t* source_loop = nullptr;
   IREE_ASSERT_OK(loom_scf_while_build(
-      &builder, initial, IREE_ARRAYSIZE(initial), result_types,
-      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
-      &source_loop));
+      &builder, initial, IREE_ARRAYSIZE(initial), header_types, result_types,
+      IREE_ARRAYSIZE(result_types), /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &source_loop));
   loom_block_t* before =
       loom_region_entry_block(loom_scf_while_before(source_loop));
   loom_builder_ip_t saved = loom_builder_enter_region(

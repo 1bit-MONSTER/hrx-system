@@ -340,6 +340,8 @@ class ModuleVerifier:
 
         resolved = resolve_fields(self.registry.layout(op_decl), operation, self.module)
         result_ids = operation.results
+        iter_arg_ids = resolved.value_ids(loop_like.iter_args)
+        condition_loop = loop_like.condition_region is not None
         entry_ids_by_region: dict[str, list[int]] = {}
         entry_types_valid = True
         for region_name in (loop_like.body, loop_like.condition_region):
@@ -350,7 +352,10 @@ class ModuleVerifier:
                 return
             entry_ids = region.blocks[0].arg_ids
             offset = 1 if region_name == loop_like.body and loop_like.iv else 0
-            expected_count = len(result_ids) + offset
+            scheme_ids = result_ids
+            if condition_loop and region_name == loop_like.condition_region:
+                scheme_ids = iter_arg_ids
+            expected_count = len(scheme_ids) + offset
             if len(entry_ids) != expected_count:
                 self.diagnostics.error(
                     "loop region entry argument count mismatch",
@@ -381,8 +386,12 @@ class ModuleVerifier:
 
             carried_ids = entry_ids[offset:]
             entry_ids_by_region[region_name] = carried_ids
+            if condition_loop and region_name == loop_like.condition_region:
+                # Header types are an authored scheme. Its incoming edge is
+                # checked below after every header identity is available.
+                continue
             if self._verify_remapped_type_tuple(
-                result_ids,
+                scheme_ids,
                 carried_ids,
                 path=path,
                 relation=f"region '{region_name}' entry",
@@ -398,9 +407,12 @@ class ModuleVerifier:
         if not entry_types_valid:
             return
 
-        iter_arg_ids = resolved.value_ids(loop_like.iter_args)
+        initial_scheme_ids = result_ids
+        if condition_loop:
+            assert loop_like.condition_region is not None
+            initial_scheme_ids = entry_ids_by_region[loop_like.condition_region]
         if not self._verify_remapped_type_tuple(
-            result_ids,
+            initial_scheme_ids,
             iter_arg_ids,
             path=path,
             relation="initial loop-carried state",
@@ -411,8 +423,12 @@ class ModuleVerifier:
         body = resolved.region(loop_like.body)
         assert body is not None and body.blocks and body.blocks[0].ops
         yielded_ids = body.blocks[0].ops[-1].operands
+        yield_scheme_ids = result_ids
+        if condition_loop:
+            assert loop_like.condition_region is not None
+            yield_scheme_ids = entry_ids_by_region[loop_like.condition_region]
         if not self._verify_remapped_type_tuple(
-            result_ids,
+            yield_scheme_ids,
             yielded_ids,
             path=path,
             relation="yielded loop-carried state",
@@ -420,8 +436,9 @@ class ModuleVerifier:
         ):
             return
 
-        if loop_like.condition_region is None:
+        if not condition_loop:
             return
+        assert loop_like.condition_region is not None
         condition = resolved.region(loop_like.condition_region)
         assert condition is not None and condition.blocks and condition.blocks[0].ops
         forwarded_ids = condition.blocks[0].ops[-1].operands[1:]

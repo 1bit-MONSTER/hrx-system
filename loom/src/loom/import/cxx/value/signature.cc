@@ -29,8 +29,8 @@ BoundSignature bind_signature(Types& types,
   }
 
   result.identities.resize(component_count);
-  check(loom_builder_reserve_results(builder, result.identities.size(),
-                                     result.identities.data()));
+  check(loom_builder_reserve_values(builder, result.identities.size(),
+                                    result.identities.data()));
   size_t component_offset = 0;
   for (const auto* source : sources) {
     auto count = types.partition(source, owner).component_count;

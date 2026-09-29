@@ -684,8 +684,10 @@ loom_low_allocation_unit_liveness_note_low_scf_loop_backedge_uses(
       is_for ? loom_low_scf_for_iter_args(loop_op)
              : loom_low_scf_while_iter_args(loop_op);
   const uint16_t implicit_arg_count = is_for ? 1 : 0;
-  IREE_ASSERT_EQ(body_block->arg_count, iter_args.count + implicit_arg_count,
-                 "verified structured loop body args must match iter args");
+  const uint16_t body_state_count =
+      is_for ? iter_args.count : loop_op->result_count;
+  IREE_ASSERT_EQ(body_block->arg_count, body_state_count + implicit_arg_count,
+                 "verified structured loop body args must match result state");
 
   // Structured loop lowering reuses captures, control values, and loop-carried
   // body arguments after the body has executed to start the next iteration or

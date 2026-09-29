@@ -254,7 +254,7 @@ typedef enum loom_region_syntax_e {
 //   ATTR_TABLE:     i64 array attr field index storing row keys.
 //   REGION_TABLE:   packed keys attr index and fixed default region index.
 //   REGION:         loom_region_syntax_t parser/printer selector.
-//   BINDING_LIST:   binding kind (CAPTURE=0, ELEMENT=1).
+//   BINDING_LIST:   loom_binding_list_flag_bits_e.
 //   FUNC_ARGS:      packed optional start/end i64 attribute indices.
 //   OPTIONAL_GROUP: (skip_count << 2) | anchor_category.
 typedef struct loom_format_element_t {
@@ -268,6 +268,18 @@ typedef struct loom_format_element_t {
 
 static_assert(sizeof(loom_format_element_t) == 4,
               "loom_format_element_t must be exactly 4 bytes");
+
+// Data field flags for BINDING_LIST elements. Stored in the element's data
+// field.
+enum loom_binding_list_flag_bits_e {
+  // Block arguments have the same types as their captured operands.
+  LOOM_BINDING_LIST_CAPTURE = 0u,
+  // Block arguments have the element types of their captured operands.
+  LOOM_BINDING_LIST_ELEMENT = 1u << 0,
+  // Type annotations describe block arguments and may reference peer block
+  // arguments. Otherwise annotations describe the captured operands.
+  LOOM_BINDING_LIST_ANNOTATES_BLOCK_ARGS = 1u << 1,
+};
 
 // Data field flags for RESULT_TYPE_LIST elements. Stored in the
 // element's data field.

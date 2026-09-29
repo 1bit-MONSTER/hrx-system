@@ -26,7 +26,7 @@
 //     SameType, SameElementType, SameEncoding, SameShape, RanksMatch,
 //     OffsetCountMatchesRank, DimIndexInBounds, AllShapesMatch,
 //     BlockArgCount, BlockArgsMatchElementTypes,
-//     YieldCountMatchesResults, YieldTypesMatchResults.
+//     YieldCountMatches, YieldTypesMatch.
 //     Checked by a single interpreter walking per-op constraint tables.
 //
 //   SSA dominance

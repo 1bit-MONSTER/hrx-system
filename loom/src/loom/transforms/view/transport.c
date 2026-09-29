@@ -331,33 +331,47 @@ static iree_status_t loom_view_transport_add_operand(
 static iree_status_t loom_view_transport_plan_loop(
     loom_view_transport_plan_t* plan, loom_loop_like_t loop) {
   const loom_value_slice_t initial = loom_loop_like_iter_args(loop);
-  if (initial.count == 0) {
-    return iree_ok_status();
-  }
   loom_block_t* body = loom_region_entry_block(loom_loop_like_body(loop));
   loom_region_t* condition = loom_loop_like_condition_region(loop);
-  loom_block_t* entry = condition ? loom_region_entry_block(condition) : body;
+  if (initial.count == 0 && (!condition || loop.op->result_count == 0)) {
+    return iree_ok_status();
+  }
+  const uint16_t initial_offset =
+      initial.count == 0
+          ? 0
+          : (uint16_t)(initial.values - loom_op_const_operands(loop.op));
+  if (condition) {
+    loom_block_t* header = loom_region_entry_block(condition);
+    loom_op_t* condition_op = header->last_op;
+    loom_op_t* yield = body->last_op;
+    for (uint16_t i = 0; i < initial.count; ++i) {
+      const loom_value_id_t header_value = loom_block_arg_id(header, i);
+      IREE_RETURN_IF_ERROR(loom_view_transport_add_operand(
+          plan, loop.op, initial_offset + i, header_value));
+      IREE_RETURN_IF_ERROR(
+          loom_view_transport_add_operand(plan, yield, i, header_value));
+    }
+    for (uint16_t i = 0; i < loop.op->result_count; ++i) {
+      const loom_value_id_t body_value = loom_block_arg_id(body, i);
+      IREE_RETURN_IF_ERROR(loom_view_transport_link_signature(
+          plan, body_value, loom_op_results(loop.op)[i]));
+      IREE_RETURN_IF_ERROR(loom_view_transport_add_operand(
+          plan, condition_op, (uint16_t)(i + 1), body_value));
+    }
+    return iree_ok_status();
+  }
+
   const uint16_t argument_offset =
       loom_loop_like_iv(loop) == LOOM_VALUE_ID_INVALID ? 0 : 1;
-  const uint16_t initial_offset =
-      (uint16_t)(initial.values - loom_op_const_operands(loop.op));
   for (uint16_t i = 0; i < initial.count; ++i) {
-    const loom_value_id_t entry_value =
-        loom_block_arg_id(entry, i + argument_offset);
     const loom_value_id_t body_value =
         loom_block_arg_id(body, i + argument_offset);
     IREE_RETURN_IF_ERROR(loom_view_transport_link_signature(
-        plan, entry_value, loom_op_results(loop.op)[i]));
-    IREE_RETURN_IF_ERROR(
-        loom_view_transport_link_signature(plan, entry_value, body_value));
+        plan, body_value, loom_op_results(loop.op)[i]));
     IREE_RETURN_IF_ERROR(loom_view_transport_add_operand(
-        plan, loop.op, initial_offset + i, entry_value));
+        plan, loop.op, initial_offset + i, body_value));
     IREE_RETURN_IF_ERROR(
-        loom_view_transport_add_operand(plan, body->last_op, i, entry_value));
-    if (condition) {
-      IREE_RETURN_IF_ERROR(loom_view_transport_add_operand(plan, entry->last_op,
-                                                           i + 1, body_value));
-    }
+        loom_view_transport_add_operand(plan, body->last_op, i, body_value));
   }
   return iree_ok_status();
 }
@@ -473,7 +487,7 @@ static iree_status_t loom_view_transport_reconstruct(
   // move with operand uses. The original value then becomes the offset operand
   // of the reconstructed view, without a self-replacement exception.
   loom_value_id_t replacement;
-  IREE_RETURN_IF_ERROR(loom_builder_reserve_results(builder, 1, &replacement));
+  IREE_RETURN_IF_ERROR(loom_builder_reserve_values(builder, 1, &replacement));
   IREE_RETURN_IF_ERROR(
       loom_module_set_value_type(rewriter->module, replacement, value->type));
   IREE_RETURN_IF_ERROR(

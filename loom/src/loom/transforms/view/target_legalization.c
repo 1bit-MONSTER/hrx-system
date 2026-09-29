@@ -159,7 +159,9 @@ iree_status_t loom_view_target_legalize_atomic_float_reference(
   loom_op_t* loop = NULL;
   IREE_RETURN_IF_ERROR(
       loom_scf_while_build(&rewriter->builder, &initial_expected, 1,
-                           /*result_types=*/NULL, /*tied_results=*/NULL,
+                           /*iter_args_types=*/NULL,
+                           /*result_types=*/NULL, /*result_count=*/1,
+                           /*tied_results=*/NULL,
                            /*tied_result_count=*/0, op->location, &loop));
 
   loom_builder_ip_t saved_ip = loom_builder_enter_region(

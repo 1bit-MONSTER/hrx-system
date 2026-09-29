@@ -232,6 +232,34 @@ func.def @lowers_while(%cond: i1, %seed: i32, %x: i32) -> (i32) {
 
 // ====
 
+func.def @lowers_while_condition_payload(%cond: i1, %seed: i32, %x: i32) -> (i32, i32) {
+  %state, %payload = scf.while(%before = %seed : i32) -> (i32, i32) {
+    %forwarded = test.addi %before, %x : i32
+    scf.condition %cond, %before, %forwarded : i1, i32, i32
+  } do(%body_state: i32, %body_payload: i32) {
+    %next = test.addi %body_state, %body_payload : i32
+    scf.yield %next : i32
+  }
+  func.return %state, %payload : i32, i32
+}
+
+// ----
+func.def @lowers_while_condition_payload(%cond: i1, %seed: i32, %x: i32) -> (i32, i32) {
+  cfg.br ^_bb1(%seed: i32)
+^_bb1(%before: i32):
+  %forwarded = test.addi %before, %x : i32
+  cfg.cond_br %cond, ^_bb2, ^_bb3
+^_bb2:
+  %next = test.addi %before, %forwarded : i32
+  cfg.br ^_bb1(%next: i32)
+^_bb3:
+  cfg.br ^_bb4(%before: i32, %forwarded: i32)
+^_bb4(%state: i32, %payload: i32):
+  func.return %state, %payload : i32, i32
+}
+
+// ====
+
 func.def @lowers_switch(%selector: index, %a: i32, %b: i32) -> (i32) {
   %result = scf.switch %selector -> (i32) {
     case 0 {

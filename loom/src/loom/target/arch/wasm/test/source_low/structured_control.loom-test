@@ -125,27 +125,29 @@ low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @nested_if_in
 
 wasm.target<simd128> @target
 
-func.def target(@target) @while_with_iter_arg(%limit: i32, %step: i32, %seed: i32) -> (i32) {
-  %result = scf.while(%before = %seed : i32) -> (i32) {
+func.def target(@target) @while_with_condition_payload(%limit: i32, %step: i32, %seed: i32, %bias: i32) -> (i32, i32) {
+  %result_state, %result_payload = scf.while(%before = %seed : i32) -> (i32, i32) {
     %keep_going = scalar.cmpi ult, %before, %limit : i32
-    scf.condition %keep_going, %before : i1, i32
-  } do(%body: i32) {
-    %next = scalar.addi %body, %step : i32
+    %payload = scalar.addi %before, %bias : i32
+    scf.condition %keep_going, %before, %payload : i1, i32, i32
+  } do(%body_state: i32, %body_payload: i32) {
+    %next = scalar.addi %body_payload, %step : i32
     scf.yield %next : i32
   }
-  func.return %result : i32
+  func.return %result_state, %result_payload : i32, i32
 }
 
 // ----
-low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @while_with_iter_arg(%limit: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %result = low.scf.while(%before = %seed : reg<wasm.i32>) -> (reg<wasm.i32>) {
+low.func.def target<wasm.core.simd128>(@target) abi(wasm_function) @while_with_condition_payload(%limit: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>, %bias: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
+  %result_state, %result_payload = low.scf.while(%before = %seed : reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) {
     %keep_going = i32.lt_u %before, %limit
-    low.scf.condition %keep_going, %before : reg<wasm.i32>, reg<wasm.i32>
-  } do(%body: reg<wasm.i32>) {
-    %next = i32.add %body, %step
+    %payload = i32.add %before, %bias
+    low.scf.condition %keep_going, %before, %payload : reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>
+  } do(%body_state: reg<wasm.i32>, %body_payload: reg<wasm.i32>) {
+    %next = i32.add %body_payload, %step
     low.scf.yield %next : reg<wasm.i32>
   }
-  return %result
+  return %result_state, %result_payload
 }
 
 // ====

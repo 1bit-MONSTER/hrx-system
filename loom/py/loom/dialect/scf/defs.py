@@ -24,6 +24,7 @@ terminator; the parser materializes the terminator again on read.
 
 from loom.assembly import (
     ARROW,
+    BINDING_TYPE_BLOCK_ARG,
     COLON,
     COMMA,
     EQUALS,
@@ -75,8 +76,8 @@ from loom.dsl import (
     RegionDef,
     Result,
     SameType,
-    YieldCountMatchesResults,
-    YieldTypesMatchResults,
+    YieldCountMatches,
+    YieldTypesMatch,
 )
 
 # ============================================================================
@@ -400,6 +401,7 @@ scf_for = Op(
         LoopLikeInterface(
             body="body",
             iter_args="iter_args",
+            results="results",
             iv="iv",
             lower_bound="lower_bound",
             upper_bound="upper_bound",
@@ -409,8 +411,8 @@ scf_for = Op(
     constraints=[
         SameType("lower_bound", "upper_bound", "step"),
         IterArgsMatchResults("iter_args", "results"),
-        YieldCountMatchesResults("body", "results"),
-        YieldTypesMatchResults("body", "results"),
+        YieldCountMatches("body", "results"),
+        YieldTypesMatch("body", "results"),
     ],
     traits=[ImplicitTerminator("scf.yield")],
     format=[
@@ -466,11 +468,12 @@ scf_for = Op(
 # ============================================================================
 #
 # Runs the `before` region, branches on its scf.condition result, then runs the
-# `after` region when the condition is true. Loop-carried values are named in
-# both regions explicitly. The before region uses BindingList because each
-# block argument is bound to an initial/current operand. The after region uses
-# BlockArgs because the values arrive from scf.condition, not directly from the
-# while op surface syntax.
+# `after` region when the condition is true. The two regions have independent
+# state tuples. Initial operands and scf.yield define the before-region header
+# tuple; scf.condition defines the after-region and result tuple. The before
+# region uses BindingList because each block argument is bound to an
+# initial/current operand. The after region uses BlockArgs because its values
+# arrive from scf.condition, not directly from the while op surface syntax.
 
 scf_while = Op(
     "scf.while",
@@ -483,6 +486,14 @@ scf_while = Op(
         "body iteration and again after each iteration, including the final "
         "false condition. Values forwarded by that false condition become the "
         "loop results.\n\n"
+        "The header and condition payloads are independent tuples. Initial "
+        "operands enter the before-region block arguments, and scf.yield "
+        "supplies their next values. scf.condition may forward a different "
+        "number or type of values: those values enter the after-region block "
+        "arguments on the true edge and define the loop results on the false "
+        "edge. This lets the condition expose a loaded payload, decoded tag, "
+        "or other per-iteration value without carrying it around the backedge. "
+        "Either tuple may be empty.\n\n"
         "When the initial value, invariant bound, and positive increment are "
         "known exactly, Loom can infer separate counter ranges for the "
         "condition region, body, and exit. The proof requires that the terminal "
@@ -492,21 +503,35 @@ scf_while = Op(
         "body iterations has N + 1 condition-region executions, even when "
         "N is zero. Unsupported recurrences keep unknown bounds and counts."
     ),
-    operands=[Operand("iter_args", ANY, variadic=True)],
-    results=[Result("results", ANY, variadic=True)],
+    operands=[
+        Operand(
+            "iter_args",
+            ANY,
+            variadic=True,
+            doc="Initial values for the before-region header tuple.",
+        )
+    ],
+    results=[
+        Result(
+            "results",
+            ANY,
+            variadic=True,
+            doc="Values forwarded by the final false scf.condition edge.",
+        )
+    ],
     regions=[
         RegionDef(
             "before",
-            doc="Runs before each condition check. Terminated by scf.condition.",
+            doc=("Runs before each condition check. Its arguments are initialized by iter_args and updated by scf.yield. Terminated by scf.condition."),
             single_block=True,
             terminator="scf.condition",
         ),
         RegionDef(
             "after",
-            doc="Runs when the condition is true. Terminated by scf.yield.",
+            doc=("Runs when the condition is true. Its arguments are the values forwarded by scf.condition. Terminated by scf.yield, whose values update the before-region arguments."),
             single_block=True,
             terminator="scf.yield",
-            arg_source="iter_args",
+            arg_source="results",
         ),
     ],
     interfaces=[
@@ -514,18 +539,23 @@ scf_while = Op(
             body="after",
             condition_region="before",
             iter_args="iter_args",
+            results="results",
         ),
     ],
     constraints=[
-        IterArgsMatchResults("iter_args", "results"),
         ConditionForwardedCountMatchesBlockArgs("before", "after", "results"),
         ConditionForwardedTypesMatchBlockArgs("before", "after", "results"),
-        YieldCountMatchesResults("after", "results"),
-        YieldTypesMatchResults("after", "results"),
+        YieldCountMatches("after", "before"),
+        YieldTypesMatch("after", "before"),
     ],
     format=[
         OptionalGroup(
-            [BindingList("iter_args")],
+            [
+                BindingList(
+                    "iter_args",
+                    type_source=BINDING_TYPE_BLOCK_ARG,
+                )
+            ],
             anchor="iter_args",
         ),
         OptionalGroup(
@@ -536,14 +566,14 @@ scf_while = Op(
         kw("do"),
         OptionalGroup(
             [BlockArgs("after")],
-            anchor="iter_args",
+            anchor="results",
         ),
         Region("after"),
     ],
     examples=[
         "scf.while {\n  scf.condition %cond : i1\n} do {\n  scf.yield\n}",
         "%begin = index.constant 0 : index\n%end = index.constant 4 : index\n%step = index.constant 1 : index\n%terminal = scf.while(%before = %begin : index) -> (index) {\n  %more = index.cmp slt, %before, %end : index\n  scf.condition %more, %before : i1, index\n} do(%position: index) {\n  %value = index.cast %position : index to i32\n  view.store %value, %output[%position] : i32, view<4xi32>\n  %next = index.add %position, %step : index\n  scf.yield %next : index\n}",
-        "%result = scf.while(%before = %init : index) -> (index) {\n  scf.condition %keep_going, %before : i1, index\n} do(%body: index) {\n  %next = index.add %body, %one : index\n  scf.yield %next : index\n}",
+        "%terminal, %candidate = scf.while(%before = %init : index) -> (index, index) {\n  %next = index.add %before, %one : index\n  %keep_going = index.cmp ult, %next, %end : index\n  scf.condition %keep_going, %before, %next : i1, index, index\n} do(%body_state: index, %body_candidate: index) {\n  scf.yield %body_candidate : index\n}",
     ],
 )
 
@@ -582,10 +612,10 @@ scf_if = Op(
         RegionBranchInterface(selector="condition"),
     ],
     constraints=[
-        YieldCountMatchesResults("then_region", "results"),
-        YieldTypesMatchResults("then_region", "results"),
-        YieldCountMatchesResults("else_region", "results"),
-        YieldTypesMatchResults("else_region", "results"),
+        YieldCountMatches("then_region", "results"),
+        YieldTypesMatch("then_region", "results"),
+        YieldCountMatches("else_region", "results"),
+        YieldTypesMatch("else_region", "results"),
     ],
     traits=[ImplicitTerminator("scf.yield")],
     format=[
