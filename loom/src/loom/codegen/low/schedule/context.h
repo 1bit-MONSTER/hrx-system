@@ -165,6 +165,14 @@ enum loom_low_schedule_value_flag_bits_e {
 };
 typedef uint16_t loom_low_schedule_value_flags_t;
 
+// Selected local exit for one value in a bounded unspillable pressure domain.
+typedef struct loom_low_schedule_unspillable_completion_path_t {
+  // Additional live units needed to reach the exit from the value producer.
+  uint32_t activation_units;
+  // Exit node, or LOOM_LOW_SCHEDULE_NODE_NONE when no local exit is reachable.
+  uint32_t sink;
+} loom_low_schedule_unspillable_completion_path_t;
+
 typedef struct loom_low_schedule_value_record_t {
   // Module value represented by this local record.
   loom_value_id_t value_id;
@@ -178,6 +186,8 @@ typedef struct loom_low_schedule_value_record_t {
   uint32_t live_unit_count;
   // Remaining operand uses in the current simulated block schedule.
   uint32_t remaining_use_count;
+  // Least expensive local exit for a compiler-produced unspillable value.
+  loom_low_schedule_unspillable_completion_path_t unspillable_completion;
   // Descriptor-set-local register class, or LOOM_LOW_REG_CLASS_NONE.
   uint16_t register_class_id;
   // Mutable per-schedule flags.

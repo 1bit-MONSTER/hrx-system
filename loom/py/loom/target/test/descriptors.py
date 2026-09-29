@@ -1034,6 +1034,30 @@ TEST_LOW_FIXED_UPDATE_I32_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_EXPLICIT_EXPAND_I32_DESCRIPTOR = Descriptor(
+    key="test.explicit.expand.i32",
+    mnemonic="test.explicit.expand.i32",
+    semantic_tag="test.explicit.expand.i32",
+    operands=(
+        Operand("dst", OperandRole.RESULT, _EXPLICIT32_ALT, unit_count=2),
+        _explicit32_operand("state"),
+        _v4i32_operand("delta"),
+    ),
+    asm_forms=_asm(results=("dst",), operands=("state", "delta")),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_EXPLICIT_RELEASE_V4I32_DESCRIPTOR = Descriptor(
+    key="test.explicit.release.v4i32",
+    mnemonic="test.explicit.release.v4i32",
+    semantic_tag="test.explicit.release.v4i32",
+    operands=(_v4i32_result(), _explicit32_operand("src")),
+    asm_forms=_asm(results=("dst",), operands=("src",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
 TEST_LOW_ADD_V4I32_DESCRIPTOR = Descriptor(
     key="test.add.v4i32",
     mnemonic="test.add.v4i32",
@@ -2421,6 +2445,8 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_SELECT_I32_DESCRIPTOR,
         TEST_LOW_FIXED_SELECT_I32_DESCRIPTOR,
         TEST_LOW_FIXED_UPDATE_I32_DESCRIPTOR,
+        TEST_LOW_EXPLICIT_EXPAND_I32_DESCRIPTOR,
+        TEST_LOW_EXPLICIT_RELEASE_V4I32_DESCRIPTOR,
         TEST_LOW_ADD_V4I32_DESCRIPTOR,
         TEST_LOW_EARLY_CLOBBER_V4I32_DESCRIPTOR,
         TEST_LOW_MIXED_EARLY_CLOBBER_V4I32_DESCRIPTOR,

@@ -500,6 +500,32 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_advances_exact_
 CHECK: *"scheduled_node_indices":[0,1,3,4,2,5]*
 
 // ====
+// RUN: with-checks emit low-schedule-json @resource_stall_finishes_nested_unspillable_release strategy=resource-stall test.i32=12
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @resource_stall_finishes_nested_unspillable_release(%pad0: reg<test.explicit32>, %pad1: reg<test.explicit32>, %state_source: reg<test.i32>, %other_source: reg<test.i32>, %setup_lhs: reg<test.i32 x4>, %setup_rhs: reg<test.i32 x4>) -> (reg<test.explicit32>, reg<test.explicit32>, reg<test.i32 x4>, reg<test.i32 x2>) asm {
+  %other = copy %other_source : reg<test.i32> -> reg<test.explicit32>
+  // Consume the first fanout before the boundary so %other's retained sink is
+  // complete while its final release remains inside %state's transaction.
+  %first = test.explicit.release.v4i32 %other
+  %state = copy %state_source : reg<test.i32> -> reg<test.explicit32>
+  low.schedule.fence
+  // Both ready candidates advance the pinned %state transaction while all
+  // four explicit registers are live. Finish %other's exact release before
+  // opening the sibling setup needed by the same downstream update.
+  %setup = test.add.v4i32 %setup_lhs, %setup_rhs
+  %released = test.explicit.release.v4i32 %other
+  %delta = test.add.v4i32 %released, %setup
+  %updated = test.explicit.expand.i32 %state, %delta
+  %result = copy %updated : reg<test.explicit32 x2> -> reg<test.i32 x2>
+  return %pad0, %pad1, %first, %result
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[*,3,5,4,*
+
+// ====
 // RUN: with-checks emit low-schedule-json @resource_stall_accounts_for_future_unspillable_activation strategy=resource-stall
 
 test.target<low_core> @test_target

@@ -368,6 +368,52 @@ static uint32_t loom_low_schedule_compute_downstream_activation_units(
   return loom_low_schedule_saturate_u64_to_u32(activation_units);
 }
 
+// Retains the least expensive concrete exit for a value. Maximum downstream
+// activation remains node-owned; this pair identifies one transaction that can
+// release the value with the least additional storage. Node order breaks an
+// otherwise identical pressure tie.
+static void loom_low_schedule_update_unspillable_completion_path(
+    uint32_t activation_units, uint32_t sink,
+    loom_low_schedule_unspillable_completion_path_t* inout_path) {
+  if (sink == LOOM_LOW_SCHEDULE_NODE_NONE ||
+      activation_units > inout_path->activation_units ||
+      (activation_units == inout_path->activation_units &&
+       inout_path->sink != LOOM_LOW_SCHEDULE_NODE_NONE &&
+       sink >= inout_path->sink)) {
+    return;
+  }
+  inout_path->activation_units = activation_units;
+  inout_path->sink = sink;
+}
+
+// Selects the least expensive retained completion among a node's result
+// values. Reverse analysis has already populated every same-block result path
+// before visiting its producers.
+static loom_low_schedule_unspillable_completion_path_t
+loom_low_schedule_select_unspillable_result_completion(
+    const loom_low_schedule_build_state_t* state,
+    const loom_low_schedule_node_t* node, uint16_t completion_domain_id) {
+  loom_low_schedule_unspillable_completion_path_t selected = {
+      .activation_units = UINT32_MAX,
+      .sink = LOOM_LOW_SCHEDULE_NODE_NONE,
+  };
+  const loom_value_ordinal_t* result_ordinals =
+      loom_low_schedule_node_const_result_ordinals(node);
+  for (uint16_t result_index = 0; result_index < node->result_count;
+       ++result_index) {
+    const loom_low_schedule_value_record_t* value =
+        &state->values[result_ordinals[result_index]];
+    if (loom_low_schedule_unspillable_completion_domain_id(
+            state, value->register_class_id) != completion_domain_id) {
+      continue;
+    }
+    loom_low_schedule_update_unspillable_completion_path(
+        value->unspillable_completion.activation_units,
+        value->unspillable_completion.sink, &selected);
+  }
+  return selected;
+}
+
 // Returns the first node in the independently reorderable source range ending
 // at |range_last_node|. Reverse priority analysis enters each range at its last
 // node, so every node is visited at most twice without retaining another table.
@@ -564,6 +610,43 @@ void loom_low_schedule_pressure_compute_node_priorities(
               unspillable_activation_units[completion_domain_id] =
                   iree_max(unspillable_activation_units[completion_domain_id],
                            activation_units);
+              if (dependency->value_operand_index >= consumer->operand_count) {
+                continue;
+              }
+              const loom_value_ordinal_t value_ordinal =
+                  loom_low_schedule_node_const_operand_ordinals(
+                      consumer)[dependency->value_operand_index];
+              loom_low_schedule_value_record_t* value =
+                  &state->values[value_ordinal];
+              if (value->producer_node != node_index ||
+                  loom_low_schedule_unspillable_completion_domain_id(
+                      state, value->register_class_id) !=
+                      completion_domain_id) {
+                continue;
+              }
+              loom_low_schedule_unspillable_completion_path_t consumer_path =
+                  loom_low_schedule_select_unspillable_result_completion(
+                      state, consumer, completion_domain_id);
+              if (consumer_result_units == 0 &&
+                  !loom_low_schedule_node_retains_aggregate_packing_from_class(
+                      state, dependency->consumer_node,
+                      value->register_class_id)) {
+                consumer_path =
+                    (loom_low_schedule_unspillable_completion_path_t){
+                        .activation_units = 0,
+                        .sink = dependency->consumer_node,
+                    };
+              }
+              if (consumer_path.sink != LOOM_LOW_SCHEDULE_NODE_NONE) {
+                loom_low_schedule_update_unspillable_completion_path(
+                    loom_low_schedule_compute_downstream_activation_units(
+                        node_result_units, consumer_operand_units,
+                        consumer_result_units, consumer_path.activation_units,
+                        iree_any_bit_set(
+                            consumer->flags,
+                            LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER)),
+                    consumer_path.sink, &value->unspillable_completion);
+              }
             }
           }
           if (register_packing_activation_units != NULL) {

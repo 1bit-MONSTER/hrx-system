@@ -280,9 +280,12 @@ typedef struct loom_low_schedule_candidate_score_t {
   // Required physical units before the next cliff when no cliff was crossed,
   // or LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE.
   uint32_t units_until_pressure_cliff;
-  // Smallest full unspillable capacity whose selected completion chain the
+  // Smallest hard unspillable capacity whose selected completion chain the
   // candidate advances, or UINT32_MAX when it advances none.
   uint32_t active_unspillable_completion_capacity;
+  // Smallest hard capacity whose transaction-local final the candidate
+  // advances, or UINT32_MAX when it advances none.
+  uint32_t active_unspillable_transaction_final_capacity;
   // Smallest full unspillable capacity whose exact next-consumer handoff the
   // candidate opens, or UINT32_MAX when it opens none.
   uint32_t opened_unspillable_completion_capacity;

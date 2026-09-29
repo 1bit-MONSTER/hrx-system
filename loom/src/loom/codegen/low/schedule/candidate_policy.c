@@ -94,6 +94,7 @@ static bool loom_low_schedule_candidate_defers_rematerializable_leaf(
   }
   const uint16_t actionable_flags =
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_STORAGE |
+      LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION |
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXACT_PACKING_COMPLETION;
   return score->produced_live_value_count != 0 &&
          score->killed_live_units == 0 &&
@@ -280,6 +281,11 @@ static bool loom_low_schedule_candidate_score_less(
   // other chains consume the temporary storage that completion still needs.
   if (state->options->strategy == LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL &&
       compare_mode != LOOM_LOW_SCHEDULE_CANDIDATE_COMPARE_DEFAULT) {
+    if (lhs->active_unspillable_transaction_final_capacity !=
+        rhs->active_unspillable_transaction_final_capacity) {
+      return lhs->active_unspillable_transaction_final_capacity <
+             rhs->active_unspillable_transaction_final_capacity;
+    }
     const uint32_t lhs_completion_capacity =
         loom_low_schedule_candidate_unspillable_completion_capacity(lhs);
     const uint32_t rhs_completion_capacity =

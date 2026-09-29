@@ -60,6 +60,11 @@ static iree_status_t loom_low_schedule_initialize_value_records(
                             LOOM_LOW_SCHEDULE_DEPENDENCY_ATTACHMENT_NONE,
                     },
             },
+        .unspillable_completion =
+            {
+                .activation_units = UINT32_MAX,
+                .sink = LOOM_LOW_SCHEDULE_NODE_NONE,
+            },
         .register_class_id = LOOM_LOW_REG_CLASS_NONE,
     };
     const loom_type_t type = loom_module_value_type(state->module, value_id);

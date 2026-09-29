@@ -62,6 +62,12 @@ uint64_t loom_low_schedule_node_register_packing_result_units(
     const loom_low_schedule_build_state_t* state, uint32_t node_index,
     uint16_t resource_id);
 
+// Returns whether |node_index| carries storage from |reg_class_id| into a
+// result class sharing the same indivisible register-packing resource.
+bool loom_low_schedule_node_retains_aggregate_packing_from_class(
+    const loom_low_schedule_build_state_t* state, uint32_t node_index,
+    uint16_t reg_class_id);
+
 // Resets live packing-resource completion state for |block_record|.
 void loom_low_schedule_target_pressure_reset_packing_completions(
     const loom_low_schedule_build_state_t* state,
@@ -95,15 +101,6 @@ uint32_t loom_low_schedule_target_pressure_full_unspillable_completion_capacity(
 uint32_t loom_low_schedule_target_pressure_active_packing_completion_capacity(
     const loom_low_schedule_build_state_t* state,
     const loom_low_schedule_pressure_state_t* pressure_state,
-    uint32_t candidate_node);
-
-// Returns the smallest full hard capacity whose selected live-value
-// completion path includes |candidate_node|. Smaller capacities represent
-// fewer legal interleavings and therefore stronger completion urgency.
-uint32_t
-loom_low_schedule_target_pressure_active_unspillable_completion_capacity(
-    const loom_low_schedule_build_state_t* state,
-    loom_low_schedule_pressure_state_t* pressure_state,
     uint32_t candidate_node);
 
 // Scores all target-authored pressure cliffs, limits, and derived resources
