@@ -4,12 +4,34 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import importlib.util
 import os
 import re
 
 import bazel_to_cmake_config
 import bazel_to_cmake_converter
 import bazel_to_cmake_requirements
+
+
+def _load_loom_corpus_build_file_functions():
+    module_path = os.path.join(
+        os.path.dirname(__file__),
+        "build_tools",
+        "bazel_to_cmake",
+        "loom_corpus.py",
+    )
+    spec = importlib.util.spec_from_file_location(
+        "loom_bazel_to_cmake_corpus",
+        module_path,
+    )
+    if not spec or not spec.loader:
+        raise RuntimeError(f"could not load Loom corpus converter from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.LoomCorpusBuildFileFunctions
+
+
+LoomCorpusBuildFileFunctions = _load_loom_corpus_build_file_functions()
 
 
 def _load_generated_amdgpu_target_config():
@@ -81,10 +103,15 @@ _GENERATED_ROOTPATH_PATTERN = re.compile(r"\$\(rootpath ([^)]+)\)")
 _GENERATED_LOCATION_PATTERN = re.compile(r"\$\(location ([^)]+)\)")
 
 
-class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
+class LoomBuildFileFunctions(
+    LoomCorpusBuildFileFunctions,
+    bazel_to_cmake_converter.BuildFileFunctions,
+):
     def _declarative_load_bindings(self):
         return {
             **super()._declarative_load_bindings(),
+            "loom_corpus_catalog": self.loom_corpus_catalog,
+            "loom_corpus_manifest": self.loom_corpus_manifest,
             "loom_execution_profile": self.loom_execution_profile,
         }
 
@@ -208,81 +235,20 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             + ")\n\n"
         )
 
-    def loom_target_set(self, name, targets, **kwargs):
+    def loom_target_set(self, name, targets, allow_empty=False, **kwargs):
         self._check_no_unhandled_kwargs("loom_target_set", kwargs)
-        self._converter.body += (
-            "loom_target_set(\n"
-            + self._convert_string_arg_block("NAME", name)
-            + self._convert_target_list_block("TARGETS", targets)
-            + ")\n\n"
+        targets_block, variable_block = self._convert_platform_select_deps(
+            name,
+            targets,
+            "TARGETS",
+            target_transform=self._loom_target_identity_label,
         )
-
-    def loom_corpus(
-        self,
-        name,
-        srcs,
-        targets,
-        products,
-        xfails=None,
-        excludes=None,
-        tags=None,
-        **kwargs,
-    ):
-        if self._should_skip_target(tags=tags):
-            return
-        self._check_no_unhandled_kwargs("loom_corpus", kwargs)
-
-        product_values = []
-        for source in sorted(products):
-            product_values.extend([source, products[source]])
-
-        xfail_values = []
-        for profile in sorted(xfails or {}):
-            converted_profiles = self._convert_target(profile)
-            if len(converted_profiles) != 1:
-                raise NotImplementedError(f"loom_corpus xfail profile: {profile}")
-            for identity in sorted(xfails[profile]):
-                source, separator, root = identity.partition(":@")
-                if not separator:
-                    raise ValueError(
-                        "loom_corpus xfail identity must use '<source>:@<root>': "
-                        f"{identity}"
-                    )
-                xfail_values.extend(
-                    [
-                        converted_profiles[0],
-                        source,
-                        "@" + root,
-                        xfails[profile][identity],
-                    ]
-                )
-
-        exclude_values = []
-        for profile in sorted(excludes or {}):
-            converted_profiles = self._convert_target(profile)
-            if len(converted_profiles) != 1:
-                raise NotImplementedError(f"loom_corpus exclude profile: {profile}")
-            for source in sorted(excludes[profile]):
-                exclude_values.extend(
-                    [
-                        converted_profiles[0],
-                        source,
-                        excludes[profile][source],
-                    ]
-                )
-
         self._converter.body += (
-            "loom_corpus(\n"
+            variable_block
+            + "loom_target_set(\n"
             + self._convert_string_arg_block("NAME", name)
-            + self._convert_string_list_block("SRCS", srcs, sort=False)
-            + self._convert_target_list_block("TARGETS", targets)
-            + self._convert_string_list_block("PRODUCTS", product_values, sort=False)
-            + self._convert_string_list_block(
-                "XFAILS", xfail_values or None, sort=False
-            )
-            + self._convert_string_list_block(
-                "EXCLUDES", exclude_values or None, sort=False
-            )
+            + ("  ALLOW_EMPTY\n" if allow_empty else "")
+            + targets_block
             + ")\n\n"
         )
 
@@ -528,6 +494,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         variants=None,
         execution_profiles=None,
         compile_targets=None,
+        benchmark_smoke=True,
         tags=None,
         target_compatible_with=None,
         **kwargs,
@@ -592,6 +559,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
                     self._convert_single_target(module),
                     profile,
                     args,
+                    benchmark_smoke,
                     tags,
                     workload_args,
                 )
@@ -607,7 +575,9 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
             )
         self._emit_platform_guard_end(target_compatible_with)
 
-    def _loom_execution_test(self, name, module, profile, args, tags, workload_args):
+    def _loom_execution_test(
+        self, name, module, profile, args, benchmark_smoke, tags, workload_args
+    ):
         policy = bazel_to_cmake_requirements.CollectedPackagePolicy(
             build_requirements=profile["build_requirements"],
             run_requirements=profile["run_requirements"],
@@ -625,6 +595,7 @@ class LoomBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         )
         blocks = [
             self._convert_string_arg_block("NAME", name, quote=False),
+            "  CORRECTNESS_ONLY\n" if not benchmark_smoke else "",
             self._convert_string_arg_block("MODULE", module),
             self._convert_string_list_block(
                 "ARGS", self._convert_test_location_args(args), sort=False

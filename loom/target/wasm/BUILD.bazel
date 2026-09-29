@@ -26,5 +26,9 @@ loom_target_profile(
 
 loom_target_set(
     name = "all",
-    targets = [":simd128"],
+    allow_empty = True,
+    targets = select({
+        "//loom/config/target:wasm_artifacts": [":simd128"],
+        "//conditions:default": [],
+    }),
 )

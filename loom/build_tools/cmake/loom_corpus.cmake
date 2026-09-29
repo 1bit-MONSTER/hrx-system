@@ -4,25 +4,20 @@
 # See https://llvm.org/licenses/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-# Build-only qualification for tested Loom corpus programs.
-function(loom_corpus)
-  cmake_parse_arguments(
-    _RULE
-    ""
-    "NAME"
-    "SRCS;TARGETS;PRODUCTS;XFAILS;EXCLUDES"
-    ${ARGN}
-  )
+# Checks one semantic package's authored source inventory.
+function(loom_corpus_sources)
+  cmake_parse_arguments(_RULE "" "NAME;MANIFEST" "SRCS" ${ARGN})
   if(NOT _RULE_NAME)
-    message(FATAL_ERROR "loom_corpus requires NAME")
+    message(FATAL_ERROR "loom_corpus_sources requires NAME")
+  endif()
+  if(NOT _RULE_MANIFEST)
+    message(FATAL_ERROR
+      "loom_corpus_sources(${_RULE_NAME}) requires MANIFEST")
   endif()
   if(NOT _RULE_SRCS)
-    message(FATAL_ERROR "loom_corpus(${_RULE_NAME}) requires SRCS")
+    message(FATAL_ERROR
+      "loom_corpus_sources(${_RULE_NAME}) requires SRCS")
   endif()
-  if(NOT _RULE_TARGETS)
-    message(FATAL_ERROR "loom_corpus(${_RULE_NAME}) requires TARGETS")
-  endif()
-
   file(GLOB _INVENTORY
     CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -33,236 +28,395 @@ function(loom_corpus)
   list(SORT _DECLARED_SRCS)
   if(NOT "${_INVENTORY}" STREQUAL "${_DECLARED_SRCS}")
     message(FATAL_ERROR
-      "loom_corpus(${_RULE_NAME}) sources do not match the package inventory; "
+      "loom_corpus_sources(${_RULE_NAME}) sources do not match the package inventory; "
       "declared '${_DECLARED_SRCS}', found '${_INVENTORY}'")
   endif()
 
-  list(LENGTH _RULE_PRODUCTS _PRODUCT_VALUE_COUNT)
-  list(LENGTH _RULE_SRCS _SOURCE_COUNT)
-  math(EXPR _EXPECTED_PRODUCT_VALUE_COUNT "${_SOURCE_COUNT} * 2")
-  if(NOT _PRODUCT_VALUE_COUNT EQUAL _EXPECTED_PRODUCT_VALUE_COUNT)
+  set(_MANIFEST_PROPERTY "LOOM_CORPUS_MANIFEST_${_RULE_MANIFEST}")
+  get_property(_REGISTERED GLOBAL PROPERTY "${_MANIFEST_PROPERTY}_SOURCE_IDS" SET)
+  if(_REGISTERED)
     message(FATAL_ERROR
-      "loom_corpus(${_RULE_NAME}) PRODUCTS must pair every source with one product")
+      "loom_corpus_sources repeats manifest ${_RULE_MANIFEST}")
   endif()
-  set(_PRODUCT_SOURCES)
-  set(_PRODUCT_KINDS)
-  set(_INDEX 0)
-  while(_INDEX LESS _PRODUCT_VALUE_COUNT)
-    list(GET _RULE_PRODUCTS ${_INDEX} _SOURCE)
-    math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _RULE_PRODUCTS ${_INDEX} _PRODUCT)
-    math(EXPR _INDEX "${_INDEX} + 1")
-    if(NOT _SOURCE IN_LIST _RULE_SRCS)
-      message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) product names unknown source ${_SOURCE}")
+  set(_SOURCE_IDS)
+  set(_SOURCE_PATHS)
+  foreach(_SOURCE IN LISTS _RULE_SRCS)
+    list(APPEND _SOURCE_IDS "${_RULE_MANIFEST}/${_SOURCE}")
+    list(APPEND _SOURCE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/${_SOURCE}")
+  endforeach()
+  set_property(GLOBAL PROPERTY
+    "${_MANIFEST_PROPERTY}_SOURCE_IDS" "${_SOURCE_IDS}")
+  set_property(GLOBAL PROPERTY
+    "${_MANIFEST_PROPERTY}_SOURCE_PATHS" "${_SOURCE_PATHS}")
+endfunction()
+
+# Resolves registered semantic manifests after the source tree is available.
+function(_loom_corpus_resolve_manifests OUTPUT_SOURCE_IDS OUTPUT_SOURCE_PATHS)
+  set(_SOURCE_IDS)
+  set(_SOURCE_PATHS)
+  foreach(_MANIFEST IN LISTS ARGN)
+    set(_MANIFEST_PROPERTY "LOOM_CORPUS_MANIFEST_${_MANIFEST}")
+    get_property(_REGISTERED GLOBAL
+      PROPERTY "${_MANIFEST_PROPERTY}_SOURCE_IDS" SET)
+    if(NOT _REGISTERED)
+      message(FATAL_ERROR "unknown Loom corpus manifest ${_MANIFEST}")
     endif()
-    if(_SOURCE IN_LIST _PRODUCT_SOURCES)
-      message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) repeats product source ${_SOURCE}")
-    endif()
-    if(NOT _PRODUCT STREQUAL "module")
-      message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) has unsupported product '${_PRODUCT}'; "
-        "only 'module' is supported")
-    endif()
-    list(APPEND _PRODUCT_SOURCES "${_SOURCE}")
-    list(APPEND _PRODUCT_KINDS "${_PRODUCT}")
-  endwhile()
+    get_property(_MANIFEST_SOURCE_IDS GLOBAL
+      PROPERTY "${_MANIFEST_PROPERTY}_SOURCE_IDS")
+    get_property(_MANIFEST_SOURCE_PATHS GLOBAL
+      PROPERTY "${_MANIFEST_PROPERTY}_SOURCE_PATHS")
+    list(APPEND _SOURCE_IDS ${_MANIFEST_SOURCE_IDS})
+    list(APPEND _SOURCE_PATHS ${_MANIFEST_SOURCE_PATHS})
+  endforeach()
+  set(_UNIQUE_SOURCE_IDS ${_SOURCE_IDS})
+  list(REMOVE_DUPLICATES _UNIQUE_SOURCE_IDS)
+  list(LENGTH _SOURCE_IDS _SOURCE_ID_COUNT)
+  list(LENGTH _UNIQUE_SOURCE_IDS _UNIQUE_SOURCE_ID_COUNT)
+  if(NOT _SOURCE_ID_COUNT EQUAL _UNIQUE_SOURCE_ID_COUNT)
+    message(FATAL_ERROR "Loom corpus manifests contain duplicate source identities")
+  endif()
+  set(${OUTPUT_SOURCE_IDS} ${_SOURCE_IDS} PARENT_SCOPE)
+  set(${OUTPUT_SOURCE_PATHS} ${_SOURCE_PATHS} PARENT_SCOPE)
+endfunction()
+
+# Registers target-owned corpus declarations until every target profile exists.
+function(loom_corpus_build)
+  cmake_parse_arguments(_RULE "" "NAME" "" ${ARGN})
+  if(NOT _RULE_NAME)
+    message(FATAL_ERROR "loom_corpus_build requires NAME")
+  endif()
+  iree_package_name(_PACKAGE_NAME)
+  set(_ID "${_PACKAGE_NAME}_${_RULE_NAME}")
+  set_property(GLOBAL APPEND PROPERTY LOOM_CORPUS_BUILDS "${_ID}")
+  set_property(GLOBAL PROPERTY "${_ID}_ARGUMENTS" "${ARGN}")
+  iree_package_path(_PACKAGE_PATH)
+  set_property(GLOBAL PROPERTY "${_ID}_PACKAGE_PATH" "${_PACKAGE_PATH}")
+  foreach(_VARIABLE
+      CMAKE_CURRENT_LIST_DIR CMAKE_CURRENT_SOURCE_DIR CMAKE_CURRENT_BINARY_DIR
+      IREE_IDE_FOLDER)
+    set_property(GLOBAL PROPERTY "${_ID}_${_VARIABLE}" "${${_VARIABLE}}")
+  endforeach()
+endfunction()
+
+# Registers target-owned correctness declarations until all sources exist.
+function(loom_corpus_test)
+  if(NOT IREE_BUILD_TESTS)
+    return()
+  endif()
+  cmake_parse_arguments(_RULE "" "NAME;PROFILE" "" ${ARGN})
+  if(NOT _RULE_NAME)
+    message(FATAL_ERROR "loom_corpus_test requires NAME")
+  endif()
+  if(NOT _RULE_PROFILE)
+    message(FATAL_ERROR
+      "loom_corpus_test(${_RULE_NAME}) requires PROFILE")
+  endif()
+  set(_PROFILE_STEM "${_RULE_PROFILE}")
+  if(_PROFILE_STEM MATCHES ":")
+    string(REGEX REPLACE "^.*:" "" _PROFILE_STEM "${_PROFILE_STEM}")
+  elseif(_PROFILE_STEM MATCHES "/")
+    string(REGEX REPLACE "^.*/" "" _PROFILE_STEM "${_PROFILE_STEM}")
+  endif()
+  string(REGEX REPLACE "[-.+]" "_" _PROFILE_STEM "${_PROFILE_STEM}")
+  iree_package_name(_PACKAGE_NAME)
+  set(_ID "${_PACKAGE_NAME}_${_RULE_NAME}_${_PROFILE_STEM}")
+  get_property(_REGISTERED GLOBAL PROPERTY "${_ID}_ARGUMENTS" SET)
+  if(_REGISTERED)
+    message(FATAL_ERROR
+      "loom_corpus_test(${_RULE_NAME}) repeats profile ${_RULE_PROFILE}")
+  endif()
+  set_property(GLOBAL APPEND PROPERTY LOOM_CORPUS_TESTS "${_ID}")
+  set_property(GLOBAL PROPERTY "${_ID}_ARGUMENTS" "${ARGN}")
+  iree_package_path(_PACKAGE_PATH)
+  set_property(GLOBAL PROPERTY "${_ID}_PACKAGE_PATH" "${_PACKAGE_PATH}")
+  foreach(_VARIABLE
+      CMAKE_CURRENT_LIST_DIR CMAKE_CURRENT_SOURCE_DIR CMAKE_CURRENT_BINARY_DIR
+      IREE_IDE_FOLDER)
+    set_property(GLOBAL PROPERTY "${_ID}_${_VARIABLE}" "${${_VARIABLE}}")
+  endforeach()
+endfunction()
+
+# Declares one registered corpus after the complete target tree is available.
+function(_loom_declare_corpus_build ID)
+  foreach(_VARIABLE
+      CMAKE_CURRENT_LIST_DIR CMAKE_CURRENT_SOURCE_DIR CMAKE_CURRENT_BINARY_DIR
+      IREE_IDE_FOLDER)
+    get_property("${_VARIABLE}" GLOBAL PROPERTY "${ID}_${_VARIABLE}")
+  endforeach()
+  set(IREE_PACKAGE_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}")
+  get_property(IREE_PACKAGE_ROOT_PREFIX GLOBAL PROPERTY "${ID}_PACKAGE_PATH")
+  get_property(_ARGUMENTS GLOBAL PROPERTY "${ID}_ARGUMENTS")
+  cmake_parse_arguments(
+    _RULE
+    ""
+    "NAME"
+    "MANIFESTS;PROFILES;XFAILS;EXCLUDES"
+    ${_ARGUMENTS}
+  )
+  if(NOT _RULE_NAME)
+    message(FATAL_ERROR "loom_corpus_build requires NAME")
+  endif()
+  if(NOT _RULE_MANIFESTS)
+    message(FATAL_ERROR
+      "loom_corpus_build(${_RULE_NAME}) requires MANIFESTS")
+  endif()
+  if(NOT _RULE_PROFILES)
+    message(FATAL_ERROR
+      "loom_corpus_build(${_RULE_NAME}) requires PROFILES")
+  endif()
+  _loom_corpus_resolve_manifests(
+    _SOURCE_IDS _SOURCES ${_RULE_MANIFESTS})
+  list(LENGTH _SOURCE_IDS _SOURCE_ID_COUNT)
+  list(LENGTH _SOURCES _SOURCE_COUNT)
+  if(NOT _SOURCE_ID_COUNT EQUAL _SOURCE_COUNT)
+    message(FATAL_ERROR
+      "loom_corpus_build(${_RULE_NAME}) SOURCE_IDS and SRCS must correspond")
+  endif()
 
   set(_PROFILES)
-  foreach(_TARGET_REF IN LISTS _RULE_TARGETS)
-    iree_package_target_name(_TARGET "${_TARGET_REF}")
-    if(NOT TARGET "${_TARGET}")
+  foreach(_PROFILE_REF IN LISTS _RULE_PROFILES)
+    iree_package_target_name(_PROFILE_TARGET "${_PROFILE_REF}")
+    if(NOT TARGET "${_PROFILE_TARGET}")
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) names unknown target ${_TARGET_REF}")
+        "loom_corpus_build(${_RULE_NAME}) names unknown profile ${_PROFILE_REF}")
     endif()
-    get_target_property(_TARGET_PROFILES "${_TARGET}" LOOM_TARGET_PROFILES)
-    if(NOT _TARGET_PROFILES)
+    get_property(_IS_PROFILE_SET
+      TARGET "${_PROFILE_TARGET}" PROPERTY LOOM_TARGET_PROFILES SET)
+    if(NOT _IS_PROFILE_SET)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) target ${_TARGET_REF} is not a Loom profile or set")
+        "loom_corpus_build(${_RULE_NAME}) profile ${_PROFILE_REF} is not a Loom profile or set")
     endif()
+    get_target_property(_TARGET_PROFILES
+      "${_PROFILE_TARGET}" LOOM_TARGET_PROFILES)
     list(APPEND _PROFILES ${_TARGET_PROFILES})
   endforeach()
   list(REMOVE_DUPLICATES _PROFILES)
   set(_PROFILE_STEMS)
   foreach(_PROFILE IN LISTS _PROFILES)
     get_target_property(_COMPILER_TARGET "${_PROFILE}" LOOM_COMPILER_TARGET)
-    string(REGEX REPLACE "[:/+.]+" "-" _PROFILE_STEM "${_COMPILER_TARGET}")
+    string(REGEX REPLACE "[:/+.]" "-" _PROFILE_STEM "${_COMPILER_TARGET}")
     if(_PROFILE_STEM IN_LIST _PROFILE_STEMS)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) target profiles collide at output identity "
+        "loom_corpus_build(${_RULE_NAME}) target profiles collide at output identity "
         "${_PROFILE_STEM}")
     endif()
     list(APPEND _PROFILE_STEMS "${_PROFILE_STEM}")
   endforeach()
 
-  list(LENGTH _RULE_XFAILS _XFAIL_VALUE_COUNT)
-  math(EXPR _XFAIL_REMAINDER "${_XFAIL_VALUE_COUNT} % 4")
+  list(LENGTH _RULE_XFAILS _RULE_XFAIL_VALUE_COUNT)
+  math(EXPR _XFAIL_REMAINDER "${_RULE_XFAIL_VALUE_COUNT} % 4")
   if(NOT _XFAIL_REMAINDER EQUAL 0)
     message(FATAL_ERROR
-      "loom_corpus(${_RULE_NAME}) XFAILS must contain profile/source/root/diagnostic groups")
+      "loom_corpus_build(${_RULE_NAME}) XFAILS must contain target/source/root/diagnostic groups")
   endif()
+  set(_XFAILS)
+  set(_XFAIL_IDENTITIES)
   set(_INDEX 0)
-  while(_INDEX LESS _XFAIL_VALUE_COUNT)
-    list(GET _RULE_XFAILS ${_INDEX} _PROFILE_REF)
+  while(_INDEX LESS _RULE_XFAIL_VALUE_COUNT)
+    list(GET _RULE_XFAILS ${_INDEX} _TARGET_REF)
     math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _RULE_XFAILS ${_INDEX} _SOURCE)
+    list(GET _RULE_XFAILS ${_INDEX} _SOURCE_ID)
     math(EXPR _INDEX "${_INDEX} + 1")
     list(GET _RULE_XFAILS ${_INDEX} _ROOT)
     math(EXPR _INDEX "${_INDEX} + 1")
     list(GET _RULE_XFAILS ${_INDEX} _DIAGNOSTIC)
     math(EXPR _INDEX "${_INDEX} + 1")
-    iree_package_target_name(_PROFILE "${_PROFILE_REF}")
-    if(NOT _PROFILE IN_LIST _PROFILES)
+    iree_package_target_name(_XFAIL_TARGET "${_TARGET_REF}")
+    if(NOT TARGET "${_XFAIL_TARGET}")
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) has an xfail for unselected profile ${_PROFILE_REF}")
+        "loom_corpus_build(${_RULE_NAME}) names unknown xfail target ${_TARGET_REF}")
     endif()
-    get_property(_IS_PROFILE TARGET "${_PROFILE}" PROPERTY LOOM_COMPILER_TARGET SET)
-    if(NOT _IS_PROFILE)
+    get_property(_IS_PROFILE_SET
+      TARGET "${_XFAIL_TARGET}" PROPERTY LOOM_TARGET_PROFILES SET)
+    if(NOT _IS_PROFILE_SET)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) xfail key ${_PROFILE_REF} is not a concrete profile")
+        "loom_corpus_build(${_RULE_NAME}) xfail key ${_TARGET_REF} is not a Loom profile or set")
     endif()
-    if(NOT _SOURCE IN_LIST _RULE_SRCS)
+    if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) xfail names unknown source ${_SOURCE}")
+        "loom_corpus_build(${_RULE_NAME}) xfail names unknown source ${_SOURCE_ID}")
     endif()
     if(NOT _ROOT MATCHES "^@")
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) xfail root ${_ROOT} must begin with '@'")
+        "loom_corpus_build(${_RULE_NAME}) xfail root ${_ROOT} must begin with '@'")
     endif()
     if(NOT _DIAGNOSTIC)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) xfail for ${_ROOT} requires a diagnostic")
+        "loom_corpus_build(${_RULE_NAME}) xfail for ${_ROOT} requires a diagnostic")
     endif()
+    get_target_property(_XFAIL_PROFILES
+      "${_XFAIL_TARGET}" LOOM_TARGET_PROFILES)
+    foreach(_PROFILE IN LISTS _XFAIL_PROFILES)
+      if(NOT _PROFILE IN_LIST _PROFILES)
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) has an xfail for unselected profile ${_PROFILE}")
+      endif()
+      set(_IDENTITY "${_PROFILE}|${_SOURCE_ID}|${_ROOT}")
+      if(_IDENTITY IN_LIST _XFAIL_IDENTITIES)
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) repeats xfail ${_ROOT} for ${_PROFILE}")
+      endif()
+      list(APPEND _XFAIL_IDENTITIES "${_IDENTITY}")
+      list(APPEND _XFAILS
+        "${_PROFILE}" "${_SOURCE_ID}" "${_ROOT}" "${_DIAGNOSTIC}")
+    endforeach()
   endwhile()
+  list(LENGTH _XFAILS _XFAIL_VALUE_COUNT)
 
-  list(LENGTH _RULE_EXCLUDES _EXCLUDE_VALUE_COUNT)
-  math(EXPR _EXCLUDE_REMAINDER "${_EXCLUDE_VALUE_COUNT} % 3")
+  list(LENGTH _RULE_EXCLUDES _RULE_EXCLUDE_VALUE_COUNT)
+  math(EXPR _EXCLUDE_REMAINDER "${_RULE_EXCLUDE_VALUE_COUNT} % 3")
   if(NOT _EXCLUDE_REMAINDER EQUAL 0)
     message(FATAL_ERROR
-      "loom_corpus(${_RULE_NAME}) EXCLUDES must contain profile/source/reason groups")
+      "loom_corpus_build(${_RULE_NAME}) EXCLUDES must contain target/source/reason groups")
   endif()
+  set(_EXCLUDES)
+  set(_EXCLUDE_IDENTITIES)
   set(_INDEX 0)
-  while(_INDEX LESS _EXCLUDE_VALUE_COUNT)
-    list(GET _RULE_EXCLUDES ${_INDEX} _PROFILE_REF)
+  while(_INDEX LESS _RULE_EXCLUDE_VALUE_COUNT)
+    list(GET _RULE_EXCLUDES ${_INDEX} _TARGET_REF)
     math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _RULE_EXCLUDES ${_INDEX} _SOURCE)
+    list(GET _RULE_EXCLUDES ${_INDEX} _SOURCE_ID)
     math(EXPR _INDEX "${_INDEX} + 1")
     list(GET _RULE_EXCLUDES ${_INDEX} _REASON)
     math(EXPR _INDEX "${_INDEX} + 1")
-    iree_package_target_name(_PROFILE "${_PROFILE_REF}")
-    if(NOT _PROFILE IN_LIST _PROFILES)
+    iree_package_target_name(_EXCLUDE_TARGET "${_TARGET_REF}")
+    if(NOT TARGET "${_EXCLUDE_TARGET}")
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) excludes unselected profile ${_PROFILE_REF}")
+        "loom_corpus_build(${_RULE_NAME}) names unknown exclusion target ${_TARGET_REF}")
     endif()
-    get_property(_IS_PROFILE TARGET "${_PROFILE}" PROPERTY LOOM_COMPILER_TARGET SET)
-    if(NOT _IS_PROFILE)
+    get_property(_IS_PROFILE_SET
+      TARGET "${_EXCLUDE_TARGET}" PROPERTY LOOM_TARGET_PROFILES SET)
+    if(NOT _IS_PROFILE_SET)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) exclude key ${_PROFILE_REF} is not a concrete profile")
+        "loom_corpus_build(${_RULE_NAME}) exclusion key ${_TARGET_REF} is not a Loom profile or set")
     endif()
-    if(NOT _SOURCE IN_LIST _RULE_SRCS)
+    if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) exclude names unknown source ${_SOURCE}")
+        "loom_corpus_build(${_RULE_NAME}) exclusion names unknown source ${_SOURCE_ID}")
     endif()
     if(NOT _REASON)
       message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) exclude for ${_SOURCE} requires a reason")
+        "loom_corpus_build(${_RULE_NAME}) exclusion for ${_SOURCE_ID} requires a reason")
     endif()
+    get_target_property(_EXCLUDE_PROFILES
+      "${_EXCLUDE_TARGET}" LOOM_TARGET_PROFILES)
+    foreach(_PROFILE IN LISTS _EXCLUDE_PROFILES)
+      if(NOT _PROFILE IN_LIST _PROFILES)
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) excludes unselected profile ${_PROFILE}")
+      endif()
+      set(_IDENTITY "${_PROFILE}|${_SOURCE_ID}")
+      if(_IDENTITY IN_LIST _EXCLUDE_IDENTITIES)
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) repeats exclusion for ${_SOURCE_ID} on ${_PROFILE}")
+      endif()
+      list(APPEND _EXCLUDE_IDENTITIES "${_IDENTITY}")
+      list(APPEND _EXCLUDES "${_PROFILE}" "${_SOURCE_ID}" "${_REASON}")
+    endforeach()
   endwhile()
+  list(LENGTH _EXCLUDES _EXCLUDE_VALUE_COUNT)
 
   set(_INDEX 0)
   while(_INDEX LESS _XFAIL_VALUE_COUNT)
-    list(GET _RULE_XFAILS ${_INDEX} _XFAIL_PROFILE_REF)
+    list(GET _XFAILS ${_INDEX} _XFAIL_PROFILE)
     math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _RULE_XFAILS ${_INDEX} _XFAIL_SOURCE)
+    list(GET _XFAILS ${_INDEX} _XFAIL_SOURCE_ID)
     math(EXPR _INDEX "${_INDEX} + 3")
-    iree_package_target_name(_XFAIL_PROFILE "${_XFAIL_PROFILE_REF}")
     set(_EXCLUDE_INDEX 0)
     while(_EXCLUDE_INDEX LESS _EXCLUDE_VALUE_COUNT)
-      list(GET _RULE_EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_PROFILE_REF)
+      list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_PROFILE)
       math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 1")
-      list(GET _RULE_EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_SOURCE)
+      list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_SOURCE_ID)
       math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 2")
-      iree_package_target_name(_EXCLUDE_PROFILE "${_EXCLUDE_PROFILE_REF}")
       if(_XFAIL_PROFILE STREQUAL _EXCLUDE_PROFILE AND
-         _XFAIL_SOURCE STREQUAL _EXCLUDE_SOURCE)
+         _XFAIL_SOURCE_ID STREQUAL _EXCLUDE_SOURCE_ID)
         message(FATAL_ERROR
-          "loom_corpus(${_RULE_NAME}) cannot both exclude and xfail "
-          "${_XFAIL_SOURCE} for ${_XFAIL_PROFILE_REF}")
+          "loom_corpus_build(${_RULE_NAME}) cannot both exclude and xfail "
+          "${_XFAIL_SOURCE_ID} for ${_XFAIL_PROFILE}")
       endif()
     endwhile()
   endwhile()
 
   iree_package_name(_PACKAGE_NAME)
-  set(_CORPUS_TARGET "${_PACKAGE_NAME}_${_RULE_NAME}")
   set(_PROGRAM_TARGETS)
+  set(_SEMANTIC_NAMES)
   set(_ALL_ARTIFACTS)
   set(_ALL_REPORTS)
   set(_ALL_XFAIL_RESULTS)
-  foreach(_SOURCE IN LISTS _RULE_SRCS)
-    list(FIND _PRODUCT_SOURCES "${_SOURCE}" _PRODUCT_INDEX)
-    list(GET _PRODUCT_KINDS ${_PRODUCT_INDEX} _PRODUCT)
-    string(REGEX REPLACE "\\.loom$" "" _SOURCE_STEM "${_SOURCE}")
-    string(REGEX REPLACE "[/\\.]" "_" _SOURCE_STEM "${_SOURCE_STEM}")
-    set(_PROGRAM_TARGET "${_CORPUS_TARGET}_${_SOURCE_STEM}")
+  math(EXPR _LAST_SOURCE_INDEX "${_SOURCE_COUNT} - 1")
+  foreach(_SOURCE_INDEX RANGE ${_LAST_SOURCE_INDEX})
+    list(GET _SOURCE_IDS ${_SOURCE_INDEX} _SOURCE_ID)
+    list(GET _SOURCES ${_SOURCE_INDEX} _SOURCE)
+    if(NOT _SOURCE_ID MATCHES "^([^/]+)/.+\\.loom$")
+      message(FATAL_ERROR
+        "loom_corpus_build(${_RULE_NAME}) has invalid source identity ${_SOURCE_ID}")
+    endif()
+    set(_SEMANTIC_NAME "${CMAKE_MATCH_1}")
+    list(APPEND _SEMANTIC_NAMES "${_SEMANTIC_NAME}")
+    string(REGEX REPLACE "\\.loom$" "" _PROGRAM_STEM "${_SOURCE_ID}")
+    string(REGEX REPLACE "[/\\.+-]" "_" _PROGRAM_STEM "${_PROGRAM_STEM}")
+    set(_PROGRAM_TARGET "${_PACKAGE_NAME}_${_PROGRAM_STEM}")
     set(_PROGRAM_OUTPUTS)
     set(_PROGRAM_ARTIFACTS)
     set(_PROGRAM_REPORTS)
     set(_PROGRAM_XFAIL_RESULTS)
-    set(_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_RULE_NAME}_${_SOURCE_STEM}")
-    set(_SUBJECT_MODULE_NAME "${_RULE_NAME}_${_SOURCE_STEM}_subjects")
-    loom_module(
-      NAME "${_SUBJECT_MODULE_NAME}"
-      SRCS "${_SOURCE}"
-      MODE link
-      OUTPUT_FORMAT bc
-      INCLUDE_INPUT_TESTS
-      STRIP_CHECK
-    )
-    iree_package_target_name(_SUBJECT_MODULE_TARGET "::${_SUBJECT_MODULE_NAME}")
-    get_target_property(_SUBJECT_MODULE "${_SUBJECT_MODULE_TARGET}" LOOM_MODULE_FILE)
-    set(_AVAILABLE_PROFILE_COUNT 0)
+    set(_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_PROGRAM_STEM}")
+
+    set(_ACTIVE_PROFILES)
     foreach(_PROFILE IN LISTS _PROFILES)
       get_target_property(_AVAILABLE "${_PROFILE}" LOOM_PROFILE_AVAILABLE)
       if(NOT _AVAILABLE)
         continue()
       endif()
-      math(EXPR _AVAILABLE_PROFILE_COUNT "${_AVAILABLE_PROFILE_COUNT} + 1")
-      get_target_property(_COMPILER_TARGET "${_PROFILE}" LOOM_COMPILER_TARGET)
-      string(REGEX REPLACE "[:/+.]+" "-" _PROFILE_STEM "${_COMPILER_TARGET}")
-
       set(_IS_EXCLUDED FALSE)
       set(_EXCLUDE_INDEX 0)
       while(_EXCLUDE_INDEX LESS _EXCLUDE_VALUE_COUNT)
-        list(GET _RULE_EXCLUDES ${_EXCLUDE_INDEX} _PROFILE_REF)
+        list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_PROFILE)
         math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 1")
-        list(GET _RULE_EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_SOURCE)
+        list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_SOURCE_ID)
         math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 2")
-        iree_package_target_name(_EXCLUDE_PROFILE "${_PROFILE_REF}")
         if(_PROFILE STREQUAL _EXCLUDE_PROFILE AND
-           _SOURCE STREQUAL _EXCLUDE_SOURCE)
+           _SOURCE_ID STREQUAL _EXCLUDE_SOURCE_ID)
           set(_IS_EXCLUDED TRUE)
         endif()
       endwhile()
-      if(_IS_EXCLUDED)
-        continue()
+      if(NOT _IS_EXCLUDED)
+        list(APPEND _ACTIVE_PROFILES "${_PROFILE}")
       endif()
+    endforeach()
 
+    if(_ACTIVE_PROFILES)
+      set(_SUBJECT_MODULE_NAME "${_PROGRAM_STEM}_subjects")
+      loom_module(
+        NAME "${_SUBJECT_MODULE_NAME}"
+        SRCS "${_SOURCE}"
+        MODE link
+        OUTPUT_FORMAT bc
+        INCLUDE_INPUT_TESTS
+        STRIP_CHECK
+      )
+      iree_package_target_name(_SUBJECT_MODULE_TARGET "::${_SUBJECT_MODULE_NAME}")
+      get_target_property(_SUBJECT_MODULE
+        "${_SUBJECT_MODULE_TARGET}" LOOM_MODULE_FILE)
+    endif()
+
+    foreach(_PROFILE IN LISTS _ACTIVE_PROFILES)
+      get_target_property(_COMPILER_TARGET "${_PROFILE}" LOOM_COMPILER_TARGET)
+      string(REGEX REPLACE "[:/+.]" "-" _PROFILE_STEM "${_COMPILER_TARGET}")
       set(_XFAIL_ROOTS)
       set(_XFAIL_DIAGNOSTICS)
       set(_XFAIL_INDEX 0)
       while(_XFAIL_INDEX LESS _XFAIL_VALUE_COUNT)
-        list(GET _RULE_XFAILS ${_XFAIL_INDEX} _PROFILE_REF)
+        list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_PROFILE)
         math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        list(GET _RULE_XFAILS ${_XFAIL_INDEX} _XFAIL_SOURCE)
+        list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_SOURCE_ID)
         math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        list(GET _RULE_XFAILS ${_XFAIL_INDEX} _ROOT)
+        list(GET _XFAILS ${_XFAIL_INDEX} _ROOT)
         math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        list(GET _RULE_XFAILS ${_XFAIL_INDEX} _DIAGNOSTIC)
+        list(GET _XFAILS ${_XFAIL_INDEX} _DIAGNOSTIC)
         math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        iree_package_target_name(_XFAIL_PROFILE "${_PROFILE_REF}")
         if(_PROFILE STREQUAL _XFAIL_PROFILE AND
-           _SOURCE STREQUAL _XFAIL_SOURCE)
+           _SOURCE_ID STREQUAL _XFAIL_SOURCE_ID)
           list(APPEND _XFAIL_ROOTS "${_ROOT}")
           list(APPEND _XFAIL_DIAGNOSTICS "${_DIAGNOSTIC}")
         endif()
@@ -279,14 +433,13 @@ function(loom_corpus)
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_OUTPUT_DIR}"
         COMMAND "$<TARGET_FILE:loom::tools::loom-compile>"
           "${_SUBJECT_MODULE}"
-          "--product=${_PRODUCT}"
           "--target=${_COMPILER_TARGET}"
           ${_EXCLUDE_ARGS}
           "--output=${_ARTIFACT}"
           "--compile-report=details"
           "--compile-report-output=${_REPORT}"
         DEPENDS loom::tools::loom-compile "${_SUBJECT_MODULE}"
-        COMMENT "Compiling corpus program ${_SOURCE} for ${_COMPILER_TARGET}"
+        COMMENT "Compiling corpus program ${_SOURCE_ID} for ${_COMPILER_TARGET}"
         VERBATIM
       )
       list(APPEND _PROGRAM_OUTPUTS "${_ARTIFACT}" "${_REPORT}")
@@ -315,13 +468,12 @@ function(loom_corpus)
             "--stamp-output=${_XFAIL_RESULT}"
             ${_XFAIL_ARGS}
             "${_SUBJECT_MODULE}"
-            "--product=${_PRODUCT}"
             "--target=${_COMPILER_TARGET}"
           DEPENDS
             loom::build_tools::corpus::loom-corpus-compile-xfails
             loom::tools::loom-compile
             "${_SUBJECT_MODULE}"
-          COMMENT "Probing corpus diagnostic xfails in ${_SOURCE} for ${_COMPILER_TARGET}"
+          COMMENT "Probing corpus diagnostic xfails in ${_SOURCE_ID} for ${_COMPILER_TARGET}"
           VERBATIM
         )
         list(APPEND _PROGRAM_OUTPUTS "${_XFAIL_RESULT}")
@@ -329,26 +481,156 @@ function(loom_corpus)
       endif()
     endforeach()
 
-    if(_AVAILABLE_PROFILE_COUNT GREATER 0 AND NOT _PROGRAM_OUTPUTS)
-      message(FATAL_ERROR
-        "loom_corpus(${_RULE_NAME}) excludes every available profile for ${_SOURCE}")
-    endif()
     add_custom_target("${_PROGRAM_TARGET}" DEPENDS ${_PROGRAM_OUTPUTS})
     set_target_properties("${_PROGRAM_TARGET}" PROPERTIES
       LOOM_CORPUS_ARTIFACTS "${_PROGRAM_ARTIFACTS}"
       LOOM_CORPUS_COMPILE_REPORTS "${_PROGRAM_REPORTS}"
       LOOM_CORPUS_XFAIL_RESULTS "${_PROGRAM_XFAIL_RESULTS}"
+      LOOM_CORPUS_SOURCE_ID "${_SOURCE_ID}"
     )
     list(APPEND _PROGRAM_TARGETS "${_PROGRAM_TARGET}")
+    list(APPEND "_SEMANTIC_PROGRAMS_${_SEMANTIC_NAME}" "${_PROGRAM_TARGET}")
+    list(APPEND "_SEMANTIC_ARTIFACTS_${_SEMANTIC_NAME}" ${_PROGRAM_ARTIFACTS})
+    list(APPEND "_SEMANTIC_REPORTS_${_SEMANTIC_NAME}" ${_PROGRAM_REPORTS})
+    list(APPEND "_SEMANTIC_XFAIL_RESULTS_${_SEMANTIC_NAME}"
+      ${_PROGRAM_XFAIL_RESULTS})
     list(APPEND _ALL_ARTIFACTS ${_PROGRAM_ARTIFACTS})
     list(APPEND _ALL_REPORTS ${_PROGRAM_REPORTS})
     list(APPEND _ALL_XFAIL_RESULTS ${_PROGRAM_XFAIL_RESULTS})
   endforeach()
 
+  list(REMOVE_DUPLICATES _SEMANTIC_NAMES)
+  foreach(_SEMANTIC_NAME IN LISTS _SEMANTIC_NAMES)
+    set(_SEMANTIC_TARGET "${_PACKAGE_NAME}_${_SEMANTIC_NAME}")
+    add_custom_target("${_SEMANTIC_TARGET}"
+      DEPENDS ${_SEMANTIC_PROGRAMS_${_SEMANTIC_NAME}})
+    set_target_properties("${_SEMANTIC_TARGET}" PROPERTIES
+      LOOM_CORPUS_ARTIFACTS "${_SEMANTIC_ARTIFACTS_${_SEMANTIC_NAME}}"
+      LOOM_CORPUS_COMPILE_REPORTS "${_SEMANTIC_REPORTS_${_SEMANTIC_NAME}}"
+      LOOM_CORPUS_XFAIL_RESULTS "${_SEMANTIC_XFAIL_RESULTS_${_SEMANTIC_NAME}}"
+    )
+  endforeach()
+
+  set(_CORPUS_TARGET "${_PACKAGE_NAME}_${_RULE_NAME}")
   add_custom_target("${_CORPUS_TARGET}" DEPENDS ${_PROGRAM_TARGETS})
   set_target_properties("${_CORPUS_TARGET}" PROPERTIES
     LOOM_CORPUS_ARTIFACTS "${_ALL_ARTIFACTS}"
     LOOM_CORPUS_COMPILE_REPORTS "${_ALL_REPORTS}"
     LOOM_CORPUS_XFAIL_RESULTS "${_ALL_XFAIL_RESULTS}"
   )
+endfunction()
+
+# Declares one registered correctness profile after semantic sources exist.
+function(_loom_declare_corpus_test ID)
+  foreach(_VARIABLE
+      CMAKE_CURRENT_LIST_DIR CMAKE_CURRENT_SOURCE_DIR CMAKE_CURRENT_BINARY_DIR
+      IREE_IDE_FOLDER)
+    get_property("${_VARIABLE}" GLOBAL PROPERTY "${ID}_${_VARIABLE}")
+  endforeach()
+  set(IREE_PACKAGE_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}")
+  get_property(IREE_PACKAGE_ROOT_PREFIX GLOBAL PROPERTY "${ID}_PACKAGE_PATH")
+  get_property(_ARGUMENTS GLOBAL PROPERTY "${ID}_ARGUMENTS")
+  cmake_parse_arguments(
+    _RULE
+    ""
+    "NAME;PROFILE;RESOURCE_GROUP;REQUIRES"
+    "MANIFESTS;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
+    ${_ARGUMENTS}
+  )
+  if(_RULE_UNPARSED_ARGUMENTS)
+    message(FATAL_ERROR
+      "Unknown loom_corpus_test arguments: ${_RULE_UNPARSED_ARGUMENTS}")
+  endif()
+  if(NOT _RULE_MANIFESTS)
+    message(FATAL_ERROR
+      "loom_corpus_test(${_RULE_NAME}) requires MANIFESTS")
+  endif()
+  if(_RULE_REQUIRES AND NOT (${_RULE_REQUIRES}))
+    return()
+  endif()
+
+  _loom_corpus_resolve_manifests(
+    _SOURCE_IDS _SOURCES ${_RULE_MANIFESTS})
+  list(LENGTH _SOURCE_IDS _SOURCE_ID_COUNT)
+  list(LENGTH _SOURCES _SOURCE_COUNT)
+  if(NOT _SOURCE_ID_COUNT EQUAL _SOURCE_COUNT)
+    message(FATAL_ERROR
+      "loom_corpus_test(${_RULE_NAME}) source identities and paths must correspond")
+  endif()
+
+  list(LENGTH _RULE_EXCLUDES _EXCLUDE_VALUE_COUNT)
+  math(EXPR _EXCLUDE_REMAINDER "${_EXCLUDE_VALUE_COUNT} % 2")
+  if(NOT _EXCLUDE_REMAINDER EQUAL 0)
+    message(FATAL_ERROR
+      "loom_corpus_test(${_RULE_NAME}) EXCLUDES must contain source/reason pairs")
+  endif()
+  set(_EXCLUDED_SOURCES)
+  set(_INDEX 0)
+  while(_INDEX LESS _EXCLUDE_VALUE_COUNT)
+    list(GET _RULE_EXCLUDES ${_INDEX} _SOURCE_ID)
+    math(EXPR _INDEX "${_INDEX} + 1")
+    list(GET _RULE_EXCLUDES ${_INDEX} _REASON)
+    math(EXPR _INDEX "${_INDEX} + 1")
+    if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) excludes unknown source ${_SOURCE_ID}")
+    endif()
+    if(NOT _REASON)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) exclusion for ${_SOURCE_ID} requires a reason")
+    endif()
+    if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) repeats exclusion for ${_SOURCE_ID}")
+    endif()
+    list(APPEND _EXCLUDED_SOURCES "${_SOURCE_ID}")
+  endwhile()
+
+  set(_PROFILE_STEM "${_RULE_PROFILE}")
+  if(_PROFILE_STEM MATCHES ":")
+    string(REGEX REPLACE "^.*:" "" _PROFILE_STEM "${_PROFILE_STEM}")
+  elseif(_PROFILE_STEM MATCHES "/")
+    string(REGEX REPLACE "^.*/" "" _PROFILE_STEM "${_PROFILE_STEM}")
+  endif()
+  string(REGEX REPLACE "[-.+]" "_" _PROFILE_STEM "${_PROFILE_STEM}")
+
+  math(EXPR _LAST_SOURCE_INDEX "${_SOURCE_COUNT} - 1")
+  foreach(_SOURCE_INDEX RANGE ${_LAST_SOURCE_INDEX})
+    list(GET _SOURCE_IDS ${_SOURCE_INDEX} _SOURCE_ID)
+    if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
+      continue()
+    endif()
+    list(GET _SOURCES ${_SOURCE_INDEX} _SOURCE)
+    string(REGEX REPLACE "\\.loom$" "" _PROGRAM_STEM "${_SOURCE_ID}")
+    string(REGEX REPLACE "[/\\.+-]" "_" _PROGRAM_STEM "${_PROGRAM_STEM}")
+    set(_MODULE_NAME "${_PROGRAM_STEM}_test_module")
+    iree_package_target_name(_MODULE_TARGET "::${_MODULE_NAME}")
+    if(NOT TARGET "${_MODULE_TARGET}")
+      loom_test_module(
+        NAME "${_MODULE_NAME}"
+        SRCS "${_SOURCE}"
+      )
+    endif()
+    loom_execution_test(
+      NAME "${_PROGRAM_STEM}_test_execute_${_PROFILE_STEM}_test"
+      CORRECTNESS_ONLY
+      MODULE "::${_MODULE_NAME}"
+      ARGS ${_RULE_ARGS}
+      RUNNER_ARGS ${_RULE_RUNNER_ARGS}
+      LABELS ${_RULE_LABELS}
+      RESOURCE_GROUP "${_RULE_RESOURCE_GROUP}"
+    )
+  endforeach()
+endfunction()
+
+# Expands target-owned corpus declarations after the complete tree is known.
+function(loom_finalize_corpus)
+  get_property(_BUILDS GLOBAL PROPERTY LOOM_CORPUS_BUILDS)
+  foreach(_BUILD IN LISTS _BUILDS)
+    _loom_declare_corpus_build("${_BUILD}")
+  endforeach()
+  get_property(_TESTS GLOBAL PROPERTY LOOM_CORPUS_TESTS)
+  foreach(_TEST IN LISTS _TESTS)
+    _loom_declare_corpus_test("${_TEST}")
+  endforeach()
 endfunction()

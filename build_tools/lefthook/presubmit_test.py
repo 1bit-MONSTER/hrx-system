@@ -645,6 +645,11 @@ class PresubmitTest(unittest.TestCase):
                 "loom/build_tools/amdgpu/target_config.bzl"
             )
         )
+        self.assertTrue(
+            presubmit.is_bazel_to_cmake_global_trigger(
+                "loom/build_tools/bazel_to_cmake/loom_corpus.py"
+            )
+        )
 
     def test_bazel_to_cmake_skips_unrelated_paths(self):
         with (

@@ -40,7 +40,7 @@ function(loom_test_module)
   set_property(TARGET "${_MODULE_TARGET}" PROPERTY LOOM_TEST_DATA "${_RULE_DATA}")
 endfunction()
 
-# RUNNER_ARGS reaches correctness and benchmark smoke; ARGS is correctness-only.
+# RUNNER_ARGS reaches every selected runner; ARGS is correctness-only.
 function(loom_execution_test)
   if(NOT IREE_BUILD_TESTS)
     return()
@@ -73,7 +73,7 @@ function(_loom_declare_execution_test ID)
   get_property(IREE_PACKAGE_ROOT_PREFIX GLOBAL PROPERTY "${ID}_PACKAGE_PATH")
   get_property(_ARGUMENTS GLOBAL PROPERTY "${ID}_ARGUMENTS")
   cmake_parse_arguments(
-    _RULE "" "NAME;MODULE;RESOURCE_GROUP" "ARGS;RUNNER_ARGS;LABELS" ${_ARGUMENTS}
+    _RULE "CORRECTNESS_ONLY" "NAME;MODULE;RESOURCE_GROUP" "ARGS;RUNNER_ARGS;LABELS" ${_ARGUMENTS}
   )
   if(_RULE_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "Unknown loom_execution_test arguments: ${_RULE_UNPARSED_ARGUMENTS}")
@@ -89,22 +89,28 @@ function(_loom_declare_execution_test ID)
     LABELS ${_RULE_LABELS}
     RESOURCE_GROUP "${_RULE_RESOURCE_GROUP}"
   )
-  iree_native_test(
-    NAME "${_RULE_NAME}_benchmark"
-    SRC loom::tools::iree-benchmark-loom
-    ARGS "{{${_MODULE}}}" ${_RULE_RUNNER_ARGS} --iterations=1 --warmup-iterations=0
-      --output-format=jsonl --compile-report=none
-    DATA ${_DATA}
-    LABELS ${_RULE_LABELS}
-    RESOURCE_GROUP "${_RULE_RESOURCE_GROUP}"
-  )
+  if(NOT _RULE_CORRECTNESS_ONLY)
+    iree_native_test(
+      NAME "${_RULE_NAME}_benchmark"
+      SRC loom::tools::iree-benchmark-loom
+      ARGS "{{${_MODULE}}}" ${_RULE_RUNNER_ARGS} --iterations=1 --warmup-iterations=0
+        --output-format=jsonl --compile-report=none
+      DATA ${_DATA}
+      LABELS ${_RULE_LABELS}
+      RESOURCE_GROUP "${_RULE_RESOURCE_GROUP}"
+    )
+  endif()
   iree_package_name(_PACKAGE_NAME)
-  foreach(_SUFFIX "" "_benchmark")
+  iree_register_target_dependency(
+    TARGET "${_PACKAGE_NAME}_${_RULE_NAME}_test_deps"
+    DEPENDENCY "${_MODULE_TARGET}"
+  )
+  if(NOT _RULE_CORRECTNESS_ONLY)
     iree_register_target_dependency(
-      TARGET "${_PACKAGE_NAME}_${_RULE_NAME}${_SUFFIX}_test_deps"
+      TARGET "${_PACKAGE_NAME}_${_RULE_NAME}_benchmark_test_deps"
       DEPENDENCY "${_MODULE_TARGET}"
     )
-  endforeach()
+  endif()
 endfunction()
 
 function(loom_finalize_execution_tests)

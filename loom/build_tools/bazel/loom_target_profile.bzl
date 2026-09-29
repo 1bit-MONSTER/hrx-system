@@ -88,13 +88,16 @@ def _loom_target_set_impl(ctx):
             if label not in seen_labels:
                 seen_labels[label] = None
                 profiles.append(profile)
-    if not profiles:
+    if not profiles and not ctx.attr.allow_empty:
         fail("%s must contain at least one target profile" % ctx.label)
     return [LoomTargetSetInfo(profiles = profiles)]
 
 _loom_target_set = rule(
     implementation = _loom_target_set_impl,
     attrs = {
+        "allow_empty": attr.bool(
+            doc = "Whether configuration may select no target profiles.",
+        ),
         "targets": attr.label_list(
             mandatory = True,
             providers = [
@@ -107,7 +110,7 @@ _loom_target_set = rule(
     doc = "Collects immutable target profiles for exhaustive build fanout.",
 )
 
-def loom_target_set(name, targets, **kwargs):
+def loom_target_set(name, targets, allow_empty = False, **kwargs):
     """Declares an ordered set of target profiles.
 
     Nested target sets are flattened and duplicate profiles retain their first
@@ -117,12 +120,14 @@ def loom_target_set(name, targets, **kwargs):
     Args:
       name: Bazel target name.
       targets: Target profile or target set labels.
+      allow_empty: Whether configuration may select no target profiles.
       **kwargs: Common rule attributes forwarded to the target-set rule.
     """
-    if not targets:
+    if not targets and not allow_empty:
         fail("Loom target set must contain at least one target")
     _loom_target_set(
         name = name,
+        allow_empty = allow_empty,
         targets = targets,
         **kwargs
     )

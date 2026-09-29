@@ -362,20 +362,31 @@ class BuildFileFunctions(object):
             self._converter.body = self._converter.body.rstrip("\n") + "\n"
             self._converter.body += "endif()\n\n"
 
-    def _convert_platform_select_deps(self, name, deps, block_name="DEPS"):
+    def _convert_platform_select_deps(
+        self, name, deps, block_name="DEPS", target_transform=None
+    ):
         """Handles target lists that may contain ConditionSelect entries.
 
         If deps is a plain list, returns (converted_target_block, "").
         If deps is a MixedDeps or ConditionSelect, emits a CMake variable
         with if/elseif/else blocks before the target and returns
         (converted_target_block_with_variable, variable_block).
+
+        target_transform canonicalizes labels whose rule contract distinguishes
+        target identities from package-relative file labels.
         """
+
+        def transform(target):
+            return target_transform(target) if target_transform else target
+
         if deps is None:
             return self._convert_target_list_block(block_name, None), ""
         if isinstance(deps, ConditionSelect):
             deps = MixedDeps(unconditional=[], selects=[deps])
         if not isinstance(deps, MixedDeps):
-            return self._convert_target_list_block(block_name, deps), ""
+            return self._convert_target_list_block(
+                block_name, [transform(target) for target in deps]
+            ), ""
 
         # Preserve the established dependency variable name while giving other
         # target blocks independent storage when one rule contains both.
@@ -398,7 +409,7 @@ class BuildFileFunctions(object):
                 var_block += f"{keyword}({cond})\n"
                 cmake_targets = []
                 for t in values:
-                    cmake_targets.extend(self._convert_target(t))
+                    cmake_targets.extend(self._convert_target(transform(t)))
                 for ct in sorted(cmake_targets):
                     var_block += f"  list(APPEND {var_name} {ct})\n"
                 first = False
@@ -408,13 +419,15 @@ class BuildFileFunctions(object):
                 var_block += "else()\n"
                 cmake_targets = []
                 for t in default_values:
-                    cmake_targets.extend(self._convert_target(t))
+                    cmake_targets.extend(self._convert_target(transform(t)))
                 for ct in sorted(cmake_targets):
                     var_block += f"  list(APPEND {var_name} {ct})\n"
             var_block += "endif()\n"
 
         # Build the target block: unconditional targets + the variable reference.
-        deps_block = self._convert_target_list_block(block_name, deps.unconditional)
+        deps_block = self._convert_target_list_block(
+            block_name, [transform(target) for target in deps.unconditional]
+        )
         # Append the variable reference to the deps block.
         if deps_block:
             # Append the variable reference to the existing target block.

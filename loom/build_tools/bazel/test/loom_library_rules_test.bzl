@@ -326,6 +326,31 @@ def _test_execution_profile_contract_impl(env, target):
         if expected_tag not in tags:
             env.fail("expected %r in test tags %r" % (expected_tag, tags))
 
+def _test_correctness_only_profile_omits_benchmark_runner(name, **kwargs):
+    analysis_test(
+        name = name,
+        impl = _test_correctness_only_profile_omits_benchmark_runner_impl,
+        target = ":correctness_only_test_execute_reference_test_launcher",
+        **kwargs
+    )
+
+def _test_correctness_only_profile_omits_benchmark_runner_impl(env, target):
+    info = target[LoomExecutionTestInfo]
+    if info.benchmark_runner != None:
+        env.fail("correctness-only execution retained benchmark runner %r" % info.benchmark_runner)
+    if info.benchmark_runner_args:
+        env.fail("correctness-only execution retained benchmark arguments %r" % info.benchmark_runner_args)
+    if info.test_runner_args != [
+        "--max-samples-per-case=1",
+        "--case=benchmark_case",
+    ]:
+        env.fail("unexpected correctness runner args %r" % info.test_runner_args)
+    runfiles = target[DefaultInfo].default_runfiles.files.to_list()
+    _expect_basename(env, runfiles, info.test_runner.basename)
+    for file in runfiles:
+        if file.basename.startswith("iree-benchmark-loom"):
+            env.fail("correctness-only execution retained benchmark runfile %r" % file)
+
 def _test_resource_profile_preserves_direct_execution(name, **kwargs):
     analysis_test(
         name = name,
@@ -415,6 +440,7 @@ def loom_library_rules_test_suite(name):
     test_suite(
         name = name,
         tests = [
+            _test_correctness_only_profile_omits_benchmark_runner,
             _test_deps_only_library_propagates_dependencies,
             _test_execution_module_links_root_tests,
             _test_execution_profile_contract,

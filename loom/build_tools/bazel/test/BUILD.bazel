@@ -67,6 +67,12 @@ loom_target_set(
     ],
 )
 
+loom_target_set(
+    name = "test_empty_target_set",
+    allow_empty = True,
+    targets = [],
+)
+
 loom_kernel_library(
     name = "public_kernel_library",
     srcs = [
@@ -177,6 +183,15 @@ loom_test(
         "all": {"case": ""},
         "selected": {},
     },
+)
+
+loom_test(
+    name = "correctness_only_test",
+    benchmark_smoke = False,
+    case = "benchmark_case",
+    execution_profiles = [REFERENCE_PROFILE],
+    module = ":profiled_module",
+    tags = ["manual"],
 )
 
 loom_check_test(

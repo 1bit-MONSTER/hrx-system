@@ -27,7 +27,7 @@ endfunction()
 
 # Ordered target collections projected from Bazel target-set declarations.
 function(loom_target_set)
-  cmake_parse_arguments(_RULE "" "NAME" "TARGETS" ${ARGN})
+  cmake_parse_arguments(_RULE "ALLOW_EMPTY" "NAME" "TARGETS" ${ARGN})
   iree_package_name(_PACKAGE_NAME)
   iree_package_ns(_PACKAGE_NS)
   set(_TARGET "${_PACKAGE_NAME}_${_RULE_NAME}")
@@ -39,17 +39,21 @@ function(loom_target_set)
         "loom_target_set(${_RULE_NAME}): unknown target ${_MEMBER}")
       continue()
     endif()
-    get_target_property(_MEMBER_PROFILES
-      "${_MEMBER_TARGET}" LOOM_TARGET_PROFILES)
-    if(NOT _MEMBER_PROFILES)
+    get_property(_IS_TARGET_SET
+      TARGET "${_MEMBER_TARGET}" PROPERTY LOOM_TARGET_PROFILES SET)
+    if(NOT _IS_TARGET_SET)
       message(SEND_ERROR
         "loom_target_set(${_RULE_NAME}): ${_MEMBER} is not a Loom target profile or set")
       continue()
     endif()
-    list(APPEND _PROFILES ${_MEMBER_PROFILES})
+    get_target_property(_MEMBER_PROFILES
+      "${_MEMBER_TARGET}" LOOM_TARGET_PROFILES)
+    if(_MEMBER_PROFILES)
+      list(APPEND _PROFILES ${_MEMBER_PROFILES})
+    endif()
   endforeach()
   list(REMOVE_DUPLICATES _PROFILES)
-  if(NOT _PROFILES)
+  if(NOT _PROFILES AND NOT _RULE_ALLOW_EMPTY)
     message(SEND_ERROR
       "loom_target_set(${_RULE_NAME}) must contain at least one target profile")
   endif()
