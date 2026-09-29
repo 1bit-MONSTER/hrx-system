@@ -932,10 +932,28 @@ loom_cc_library(
   SRCS
     "emit/xdna_product.c"
   DEPS
-    ::array_program_types
     iree::base
     iree::base::internal::arena
     iree::io::stream
+    iree::schemas::xdna_executable
+    loom::target::emit::native::elf
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
+    xdna_product_prepare
+  HDRS
+    "emit/xdna_product_prepare.h"
+  SRCS
+    "emit/xdna_product_prepare.c"
+  DEPS
+    ::array_program_types
+    ::xdna_product
+    iree::base
+    iree::base::internal::arena
     iree::schemas::xdna_executable
     loom::target::arch::amd::xdna::device_profile
     loom::target::emit::native::elf
@@ -962,6 +980,7 @@ loom_cc_library(
     ::target_facts
     ::tile_link
     ::xdna_product
+    ::xdna_product_prepare
     iree::base
     iree::base::internal::arena
     iree::io::stream

@@ -21,7 +21,7 @@
 #include "loom/target/arch/amd/xdna/aie2p/emit/array_report.h"
 #include "loom/target/arch/amd/xdna/aie2p/emit/leaf_compile.h"
 #include "loom/target/arch/amd/xdna/aie2p/emit/tile_link.h"
-#include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product.h"
+#include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product_prepare.h"
 #include "loom/target/arch/amd/xdna/aie2p/facts.h"
 #include "loom/target/arch/amd/xdna/device/profile.h"
 #include "loom/target/function_version.h"
@@ -539,6 +539,9 @@ iree_status_t loom_aie2p_xdna_artifact_emit(
       .entries = product_entries,
       .entry_count = entry_count,
   };
+  loom_aie2p_xdna_product_plan_t product_plan = {0};
+  IREE_RETURN_IF_ERROR(loom_aie2p_xdna_product_prepare(&product, &product_plan,
+                                                       request->scratch_arena));
 
   iree_io_stream_t* stream = NULL;
   status = iree_io_vec_stream_create(IREE_IO_STREAM_MODE_READABLE |
@@ -546,8 +549,8 @@ iree_status_t loom_aie2p_xdna_artifact_emit(
                                          IREE_IO_STREAM_MODE_SEEKABLE,
                                      4096, request->allocator, &stream);
   if (iree_status_is_ok(status)) {
-    status =
-        loom_aie2p_xdna_product_write(&product, stream, request->scratch_arena);
+    status = loom_aie2p_xdna_product_write_plan(&product_plan, stream,
+                                                request->scratch_arena);
   }
   const iree_io_stream_pos_t stream_length =
       stream != NULL ? iree_io_stream_length(stream) : 0;

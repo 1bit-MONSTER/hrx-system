@@ -13,7 +13,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/ir/ir.h"
 #include "loom/target/arch/amd/xdna/aie2p/array/plan.h"
-#include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product.h"
+#include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product_prepare.h"
 #include "loom/target/reporting/report.h"
 
 #ifdef __cplusplus
