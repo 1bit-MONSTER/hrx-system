@@ -11,8 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import product
 
+from loom.dialect.encoding import defs as encoding
 from loom.dialect.vector import defs as vector
-from loom.dsl import Op
+from loom.dsl import EncodingOperandSummaryDef, Op
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
     BF16_CONVERSION_ROUNDING,
     I8_INTERLEAVE_CONTROL,
@@ -274,6 +275,20 @@ class Float8PacketFormat:
         """Largest magnitude produced by finite-source rounding."""
 
         return self.special_payload if self.has_infinity else self.nan_payload - 1
+
+
+@dataclass(frozen=True, slots=True)
+class _Float8WidenProgram:
+    """Reusable values emitted while widening one FP8 packet."""
+
+    # Widened BF16 packet.
+    result: ValueRef
+    # Canonical BF16 NaN packet.
+    canonical_nan: ValueRef
+    # E4M3FN NaN predicate, or None for formats with infinity encodings.
+    is_nan: ValueRef | None
+    # Ordered descriptor program defining the reusable values.
+    emits: tuple[ContractEmit, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -625,10 +640,9 @@ _FLOAT8_NARROW_F32_RULE_SHAPES = (
     FloatPacketRuleShape(32, 32, 32),
 )
 
-FLOAT8_PACKET_FORMATS = (
-    Float8PacketFormat("f8E4M3", 3, 7, False),
-    Float8PacketFormat("f8E5M2", 2, 15, True),
-)
+_F8E4M3_PACKET_FORMAT = Float8PacketFormat("f8E4M3", 3, 7, False)
+_F8E5M2_PACKET_FORMAT = Float8PacketFormat("f8E5M2", 2, 15, True)
+FLOAT8_PACKET_FORMATS = (_F8E4M3_PACKET_FORMAT, _F8E5M2_PACKET_FORMAT)
 
 FLOAT_PACKET_SOURCE_FORMATS = (
     FloatPacketSourceFormat("f16", 10, 15, 5),
@@ -639,6 +653,18 @@ FLOAT_PACKET_SOURCE_FORMATS = (
 _FP8_PAYLOAD_AND_SIGN_MASK = 0x807F
 _FP8_SUBNORMAL_THRESHOLD = 0x0080
 _CANONICAL_BF16_NAN = 0x7FC0
+
+MXFP8_E4M3FN_E8M0_X8_SCHEMA = EncodingOperandSummaryDef(
+    element_format=encoding.enum_fact(encoding.NumericFormat, "f8e4m3fn"),
+    scale_format=encoding.enum_fact(encoding.NumericFormat, "e8m0"),
+    payload_packing=encoding.enum_fact(encoding.PayloadPacking, "dense_lanes"),
+    scale_topology=encoding.enum_fact(encoding.ScaleTopology, "block_1d"),
+    affine_policy=encoding.enum_fact(encoding.AffinePolicy, "scale_only"),
+    payload_element_count=8,
+    scale_group_element_count=8,
+    scale_group_shape=(8,),
+    scale_operand_count=1,
+)
 
 _I32_TO_I16_W_PACK = IntegerPackInstruction("i32", 16, "i16", None)
 _I32_TO_I16_X_PACK = IntegerPackInstruction("i32", 32, "i16", None)
@@ -737,6 +763,9 @@ class _PacketProgram:
         name: str | None,
         descriptor_key: str,
         result_field: str,
+        *,
+        immediates: dict[str, int] | None = None,
+        copy_operands: tuple[str, ...] = (),
         **operands: ValueRef,
     ) -> ValueRef:
         result = ValueRef.result("result") if name is None else self.temporary(name)
@@ -748,10 +777,25 @@ class _PacketProgram:
                 result_types=(
                     None if name is None else {result_field: DescriptorResultType()}
                 ),
+                immediates={} if immediates is None else immediates,
                 form=DescriptorEmitForm.OP,
+                copy_operands=copy_operands,
             )
         )
         return result
+
+    def state(self, descriptor_key: str, value: int) -> None:
+        """Sets one instruction-state field consumed by later descriptors."""
+
+        self.emits.append(
+            EmitDescriptorOp(
+                descriptor=_descriptor(
+                    f"amd.xdna.aie2p.state.{descriptor_key}.immediate"
+                ),
+                immediates={"i": value},
+                form=DescriptorEmitForm.OP,
+            )
+        )
 
     def splat(
         self,
@@ -1407,11 +1451,13 @@ def _fp8_to_bf16_emits(
     fp8_format: Float8PacketFormat,
     *,
     result_name: str | None,
-) -> tuple[ValueRef, tuple[ContractEmit, ...]]:
+    source: ValueRef | None = None,
+) -> _Float8WidenProgram:
     """Widens up to thirty-two FP8 lanes into exact BF16 bit patterns."""
 
     program = _PacketProgram(16, "fp8_")
-    source = ValueRef.operand("input")
+    if source is None:
+        source = ValueRef.operand("input")
     zero = program.operation("zero", "sub.i8x64", "d", s1=source, s2=source)
     interleave_control = program.constant(
         "interleave_control",
@@ -1512,6 +1558,7 @@ def _fp8_to_bf16_emits(
     finite = program.binary("finite", "or.bits512", finite_unsigned, sign)
     canonical_nan = program.splat("canonical_nan", _CANONICAL_BF16_NAN)
 
+    is_nan = None
     if fp8_format.has_infinity:
         special_payload = program.splat("special_payload", fp8_format.special_payload)
         is_finite = program.compare_unsigned_less_than(
@@ -1533,22 +1580,405 @@ def _fp8_to_bf16_emits(
         is_nan = program.compare_zero("is_nan", nan_delta)
         result = program.select(result_name, canonical_nan, finite, is_nan)
 
-    return result, tuple(program.emits)
+    return _Float8WidenProgram(
+        result=result,
+        canonical_nan=canonical_nan,
+        is_nan=is_nan,
+        emits=tuple(program.emits),
+    )
+
+
+def _mxfp8_e4m3fn_e8m0_x8_to_bf16_rule() -> DescriptorRule:
+    """Decodes one MXFP8 block without scalarizing its payload lanes."""
+
+    payload_program = _fp8_to_bf16_emits(
+        _F8E4M3_PACKET_FORMAT,
+        result_name="payload_bf16",
+        source=ValueRef.operand("payload"),
+    )
+    if payload_program.is_nan is None:
+        raise ValueError("MXFP8 E4M3FN widening must produce a NaN predicate")
+    payload_bf16 = payload_program.result
+    program = _PacketProgram(16, "mxfp8_")
+    scale = ValueRef.operand("auxiliary", element=0)
+
+    scale_word = program.operation(
+        "scale_word",
+        "extract.i32.immediate",
+        "dst",
+        immediates={"idx": 0},
+        s1=scale,
+    )
+    byte_mask = program.constant("byte_mask", 0xFF)
+    scale_byte = program.operation(
+        "scale_byte", "and.i32", "d0", s0=scale_word, s1=byte_mask
+    )
+    zero_scalar = program.constant("zero", 0)
+    one_scalar = program.constant("one", 1)
+    two_scalar = program.constant("two", 2)
+    three_scalar = program.constant("three", 3)
+    seven_scalar = program.constant("seven", 7)
+    nine_scalar = program.constant("nine", 9)
+    exponent_bias = program.constant("exponent_bias", 127)
+    normal_origin = program.constant("normal_origin", 128)
+    overflow_origin = program.constant("overflow_origin", 382)
+
+    sign_mask = program.splat("sign_mask", 0x8000)
+    absolute_mask = program.splat("absolute_mask", 0x7FFF)
+    infinity = program.splat("infinity", 0x7F80)
+    sign = program.binary("sign", "and.bits512", payload_bf16, sign_mask)
+    magnitude = program.binary("magnitude", "and.bits512", payload_bf16, absolute_mask)
+
+    exponent_delta = program.operation(
+        "exponent_delta",
+        "sub.i32",
+        "d0",
+        s0=scale_byte,
+        s1=exponent_bias,
+    )
+    bit_delta = program.operation(
+        "bit_delta", "lshl.i32", "d0", s0=exponent_delta, s1=seven_scalar
+    )
+    bit_delta_vector = program.operation(
+        "bit_delta_vector", "splat.i16x32", "dst", src=bit_delta
+    )
+    adjusted_magnitude = program.binary(
+        "adjusted_magnitude", "add.i16x32", magnitude, bit_delta_vector
+    )
+
+    normal_threshold_exponent = program.operation(
+        "normal_threshold_exponent",
+        "sub.i32",
+        "d0",
+        s0=normal_origin,
+        s1=scale_byte,
+    )
+    normal_threshold_is_negative = program.operation(
+        "normal_threshold_is_negative",
+        "cmp.slt.i32",
+        "d0",
+        s0=normal_threshold_exponent,
+        s1=zero_scalar,
+    )
+    normal_threshold_clamped = program.operation(
+        "normal_threshold_clamped",
+        "select.nonzero.i32",
+        "d0",
+        copy_operands=("s2",),
+        s0=zero_scalar,
+        s1=normal_threshold_exponent,
+        s2=normal_threshold_is_negative,
+    )
+    normal_threshold_bits = program.operation(
+        "normal_threshold_bits",
+        "lshl.i32",
+        "d0",
+        s0=normal_threshold_clamped,
+        s1=seven_scalar,
+    )
+    normal_threshold = program.operation(
+        "normal_threshold", "splat.i16x32", "dst", src=normal_threshold_bits
+    )
+    has_normal = program.compare_unsigned_greater_equal(
+        "has_normal", magnitude, normal_threshold
+    )
+
+    overflow_threshold_exponent = program.operation(
+        "overflow_threshold_exponent",
+        "sub.i32",
+        "d0",
+        s0=overflow_origin,
+        s1=scale_byte,
+    )
+    overflow_threshold_above_limit = program.operation(
+        "overflow_threshold_above_limit",
+        "cmp.ult.i32",
+        "d0",
+        s0=byte_mask,
+        s1=overflow_threshold_exponent,
+    )
+    overflow_threshold_clamped = program.operation(
+        "overflow_threshold_clamped",
+        "select.nonzero.i32",
+        "d0",
+        copy_operands=("s2",),
+        s0=byte_mask,
+        s1=overflow_threshold_exponent,
+        s2=overflow_threshold_above_limit,
+    )
+    overflow_threshold_bits = program.operation(
+        "overflow_threshold_bits",
+        "lshl.i32",
+        "d0",
+        s0=overflow_threshold_clamped,
+        s1=seven_scalar,
+    )
+    overflow_threshold = program.operation(
+        "overflow_threshold", "splat.i16x32", "dst", src=overflow_threshold_bits
+    )
+    is_overflow = program.compare_unsigned_greater_equal(
+        "is_overflow", magnitude, overflow_threshold
+    )
+
+    magnitude_low = program.temporary("magnitude_low")
+    program.emits.append(
+        EmitRegisterSlice(
+            source=magnitude,
+            result=magnitude_low,
+            unit_count=1,
+        )
+    )
+    subnormal_units_i32 = program.operation(
+        "subnormal_units_i32",
+        "convert.floor.bf16x16.to.i32x16",
+        "dst",
+        src=magnitude_low,
+        shft=program.shift(9),
+    )
+    subnormal_units_accumulator = program.operation(
+        "subnormal_units_accumulator",
+        "move.vector512.to.accumulator512",
+        "dst",
+        src=subnormal_units_i32,
+    )
+    shift_zero = program.shift(0)
+    shift_one = program.shift(1)
+    shift_two = program.shift(2)
+    shift_three = program.shift(3)
+    program.state("rounding", 12)
+    program.state("srs-mode", 0)
+    program.state("saturation", 0)
+    units_low = program.operation(
+        "units_low",
+        "narrow.2x.b-to-w.unsigned.configured",
+        "dst",
+        src=subnormal_units_accumulator,
+        su=shift_zero,
+    )
+    scale_two_low = program.operation(
+        "scale_two_low",
+        "narrow.2x.b-to-w.unsigned.configured",
+        "dst",
+        src=subnormal_units_accumulator,
+        su=shift_one,
+    )
+    scale_one_low = program.operation(
+        "scale_one_low",
+        "narrow.2x.b-to-w.unsigned.configured",
+        "dst",
+        src=subnormal_units_accumulator,
+        su=shift_two,
+    )
+    scale_zero_low = program.operation(
+        "scale_zero_low",
+        "narrow.2x.b-to-w.unsigned.configured",
+        "dst",
+        src=subnormal_units_accumulator,
+        su=shift_three,
+    )
+    unused_high = program.temporary("unused_high")
+    program.emits.append(
+        EmitRegisterSlice(
+            source=payload_bf16,
+            result=unused_high,
+            unit_offset=1,
+            unit_count=1,
+        )
+    )
+
+    def concat_low(name: str, low: ValueRef) -> ValueRef:
+        result = program.temporary(name)
+        program.emits.append(
+            EmitRegisterConcat(
+                sources=(low, unused_high),
+                result=result,
+                result_type=_exact_vector("i16", 32),
+            )
+        )
+        return result
+
+    units = concat_low("units", units_low)
+    scale_two = concat_low("scale_two", scale_two_low)
+    scale_one = concat_low("scale_one", scale_one_low)
+    scale_zero = concat_low("scale_zero", scale_zero_low)
+
+    scale_below_three = program.operation(
+        "scale_below_three",
+        "cmp.ult.i32",
+        "d0",
+        s0=scale_byte,
+        s1=three_scalar,
+    )
+    scale_at_least_three = program.operation(
+        "scale_at_least_three",
+        "select.nonzero.i32",
+        "d0",
+        copy_operands=("s2",),
+        s0=three_scalar,
+        s1=scale_byte,
+        s2=scale_below_three,
+    )
+    scale_above_nine = program.operation(
+        "scale_above_nine",
+        "cmp.ult.i32",
+        "d0",
+        s0=nine_scalar,
+        s1=scale_at_least_three,
+    )
+    scale_clamped = program.operation(
+        "scale_clamped",
+        "select.nonzero.i32",
+        "d0",
+        copy_operands=("s2",),
+        s0=nine_scalar,
+        s1=scale_at_least_three,
+        s2=scale_above_nine,
+    )
+    factor_shift = program.operation(
+        "factor_shift",
+        "sub.i32",
+        "d0",
+        s0=scale_clamped,
+        s1=three_scalar,
+    )
+    factor = program.operation(
+        "factor", "lshl.i32", "d0", s0=one_scalar, s1=factor_shift
+    )
+    factor_vector = program.operation(
+        "factor_vector", "splat.i16x32", "dst", src=factor
+    )
+    multiply_control = program.constant(
+        "multiply_control",
+        858,
+        descriptor_key="amd.xdna.aie2p.constant.i32.mova",
+    )
+    scaled_units_accumulator = program.operation(
+        "scaled_units_accumulator",
+        "multiply.i16x32.configured",
+        "dst",
+        s1=units,
+        s2=factor_vector,
+        acc=multiply_control,
+    )
+    program.state("rounding", 0)
+    program.state("srs-mode", 1)
+    program.state("saturation", 0)
+    scaled_units = program.operation(
+        "scaled_units",
+        "narrow.trunc.signed.i16x32",
+        "dst",
+        src=scaled_units_accumulator,
+        su=shift_zero,
+    )
+
+    def scalar_mask(name: str, condition: ValueRef) -> ValueRef:
+        return program.operation(
+            name,
+            "select.mask.i32",
+            "d0",
+            immediates={"imm": -1},
+            s0=condition,
+        )
+
+    scale_is_two = program.operation(
+        "scale_is_two", "cmp.eq.i32", "d0", s0=scale_byte, s1=two_scalar
+    )
+    through_two = program.operation(
+        "through_two",
+        "select.i32x16",
+        "d",
+        s1=scale_two,
+        s2=scaled_units,
+        sel=scalar_mask("scale_two_mask", scale_is_two),
+    )
+    scale_is_one = program.operation(
+        "scale_is_one", "cmp.eq.i32", "d0", s0=scale_byte, s1=one_scalar
+    )
+    through_one = program.operation(
+        "through_one",
+        "select.i32x16",
+        "d",
+        s1=scale_one,
+        s2=through_two,
+        sel=scalar_mask("scale_one_mask", scale_is_one),
+    )
+    scale_is_zero = program.operation(
+        "scale_is_zero", "cmp.eqz.i32", "d0", s0=scale_byte
+    )
+    subnormal_magnitude = program.operation(
+        "subnormal_magnitude",
+        "select.i32x16",
+        "d",
+        s1=scale_zero,
+        s2=through_one,
+        sel=scalar_mask("scale_zero_mask", scale_is_zero),
+    )
+
+    finite_result_magnitude = program.select(
+        "finite_result_magnitude",
+        adjusted_magnitude,
+        subnormal_magnitude,
+        has_normal,
+    )
+    bounded_result_magnitude = program.select(
+        "bounded_result_magnitude",
+        infinity,
+        finite_result_magnitude,
+        is_overflow,
+    )
+    signed_result = program.binary(
+        "signed_result", "or.bits512", bounded_result_magnitude, sign
+    )
+    payload_is_zero = program.compare_zero("payload_is_zero", magnitude)
+    zero_fixed_result = program.select(
+        "zero_fixed_result", sign, signed_result, payload_is_zero
+    )
+    payload_fixed_result = program.select(
+        "payload_fixed_result",
+        payload_program.canonical_nan,
+        zero_fixed_result,
+        payload_program.is_nan,
+    )
+    scale_is_nan = program.operation(
+        "scale_is_nan", "cmp.eq.i32", "d0", s0=scale_byte, s1=byte_mask
+    )
+    program.operation(
+        None,
+        "select.i32x16",
+        "d",
+        s1=payload_program.canonical_nan,
+        s2=payload_fixed_result,
+        sel=scalar_mask("scale_nan_mask", scale_is_nan),
+    )
+
+    return DescriptorRule(
+        source_op=vector.vector_decode,
+        descriptor=program.emits[-1].descriptor,
+        guards=(
+            Guard.value_type("payload", _exact_vector("f8E4M3", 8)),
+            Guard.value_storage_operand_schema("schema", MXFP8_E4M3FN_E8M0_X8_SCHEMA),
+            Guard.operand_segment_count("auxiliary", 1),
+            Guard.value_type("auxiliary", _exact_vector("i32", 1), element=0),
+            Guard.value_type("result", _exact_vector("bf16", 8)),
+        ),
+        emit=(*payload_program.emits, *program.emits),
+        report_key="native_mxfp8_e4m3fn_e8m0x8_to_bfloat16x8",
+    )
 
 
 def _fp8_to_bf16_vector_rule(
     fp8_format: Float8PacketFormat,
     rule_shape: FloatPacketRuleShape,
 ) -> DescriptorRule:
-    _, emits = _fp8_to_bf16_emits(fp8_format, result_name=None)
+    program = _fp8_to_bf16_emits(fp8_format, result_name=None)
     return DescriptorRule(
         source_op=vector.vector_extf,
-        descriptor=emits[-1].descriptor,
+        descriptor=program.emits[-1].descriptor,
         guards=(
             Guard.value_type("input", rule_shape.vector_type(fp8_format.element)),
             Guard.value_type("result", rule_shape.vector_type("bf16")),
         ),
-        emit=emits,
+        emit=program.emits,
         report_key=(
             f"native_{fp8_format.report_name}x{rule_shape.report_lane_range}_to_"
             f"bfloat16x{rule_shape.report_lane_range}"
@@ -1560,8 +1990,10 @@ def _fp8_to_f32_vector_rule(
     fp8_format: Float8PacketFormat,
     rule_shape: FloatPacketRuleShape,
 ) -> DescriptorRule:
-    bf16, packet_emits = _fp8_to_bf16_emits(fp8_format, result_name="decoded_bf16")
-    convert_emits = _bf16_to_f32_emits(rule_shape, bf16, temporary_prefix="fp8_widen_")
+    program = _fp8_to_bf16_emits(fp8_format, result_name="decoded_bf16")
+    convert_emits = _bf16_to_f32_emits(
+        rule_shape, program.result, temporary_prefix="fp8_widen_"
+    )
     return DescriptorRule(
         source_op=vector.vector_extf,
         descriptor=_descriptor(
@@ -1572,7 +2004,7 @@ def _fp8_to_f32_vector_rule(
             Guard.value_type("input", rule_shape.vector_type(fp8_format.element)),
             Guard.value_type("result", rule_shape.vector_type("f32")),
         ),
-        emit=(*packet_emits, *convert_emits),
+        emit=(*program.emits, *convert_emits),
         report_key=(
             f"native_{fp8_format.report_name}x{rule_shape.report_lane_range}_to_"
             f"binary32x{rule_shape.report_lane_range}"
@@ -2211,6 +2643,7 @@ def _saturating_i4_pack_rule(
 
 
 AIE2P_PACKET_CONVERSION_RULES = (
+    _mxfp8_e4m3fn_e8m0_x8_to_bf16_rule(),
     *(
         _saturating_i4_pack_rule(instruction, outer_op, inner_op, value_fields)
         for instruction in INTEGER_PACK_INSTRUCTIONS
