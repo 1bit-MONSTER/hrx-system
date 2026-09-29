@@ -553,6 +553,7 @@ loom_check_test_suite(
     "test/source_low/semantic_assertions.loom-test"
     "test/source_low/source_low.loom-test"
     "test/source_low/source_low_diagnostics.loom-test"
+    "test/source_low/split_barrier.loom-test"
     "test/source_low/structural_value_types_bytecode.loom-test"
     "test/source_low/structured_control.loom-test"
     "test/source_low/subgroup_ballot.loom-test"

@@ -416,6 +416,15 @@ static iree_status_t loom_amdgpu_select_kernel_barrier_dispatch(
   return loom_amdgpu_select_kernel_barrier_plan(context, source_op, out_plan);
 }
 
+static iree_status_t loom_amdgpu_select_kernel_split_barrier_dispatch(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_lower_dispatch_row_t* row,
+    loom_low_lower_plan_t* out_plan) {
+  (void)row;
+  return loom_amdgpu_select_kernel_split_barrier_plan(context, source_op,
+                                                      out_plan);
+}
+
 static iree_status_t loom_amdgpu_select_memory_fence_dispatch(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_lower_dispatch_row_t* row,
@@ -433,6 +442,15 @@ static iree_status_t loom_amdgpu_emit_kernel_barrier_dispatch(
     const loom_amdgpu_lower_dispatch_row_t* row, loom_low_lower_plan_t plan) {
   (void)row;
   return loom_amdgpu_lower_kernel_barrier(
+      context, source_op,
+      (const loom_amdgpu_kernel_barrier_plan_t*)plan.target_data);
+}
+
+static iree_status_t loom_amdgpu_emit_kernel_split_barrier_dispatch(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_lower_dispatch_row_t* row, loom_low_lower_plan_t plan) {
+  (void)row;
+  return loom_amdgpu_lower_kernel_split_barrier(
       context, source_op,
       (const loom_amdgpu_kernel_barrier_plan_t*)plan.target_data);
 }
@@ -1515,6 +1533,10 @@ static iree_string_view_t loom_amdgpu_kernel_barrier_plan_key(
     case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_BARRIER:
       return IREE_SV(
           "amdgpu.kernel_barrier.strategy.split_barrier.workgroup_rendezvous");
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_ARRIVE:
+      return IREE_SV("amdgpu.kernel_barrier.strategy.split_barrier.arrive");
+    case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_WAIT:
+      return IREE_SV("amdgpu.kernel_barrier.strategy.split_barrier.wait");
     case LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_NONE:
       return iree_string_view_empty();
   }

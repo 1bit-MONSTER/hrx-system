@@ -44,8 +44,25 @@ iree_status_t loom_amdgpu_lower_kernel_barrier(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_kernel_barrier_plan_t* plan);
 
+// Selects one target packet for kernel.barrier.arrive or
+// kernel.barrier.wait.
+iree_status_t loom_amdgpu_select_kernel_split_barrier_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_plan_t* out_plan);
+
+// Lowers one half of an authored split-barrier phase.
+iree_status_t loom_amdgpu_lower_kernel_split_barrier(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_kernel_barrier_plan_t* plan);
+
 // Verifies source kernel.barrier legality for AMDGPU target-low selection.
 iree_status_t loom_amdgpu_low_legality_verify_kernel_barrier(
+    const loom_target_low_legality_provider_t* provider,
+    loom_target_low_legality_context_t* context, const loom_op_t* op,
+    bool* out_handled);
+
+// Verifies AMDGPU support for an authored split-barrier phase operation.
+iree_status_t loom_amdgpu_low_legality_verify_kernel_split_barrier(
     const loom_target_low_legality_provider_t* provider,
     loom_target_low_legality_context_t* context, const loom_op_t* op,
     bool* out_handled);

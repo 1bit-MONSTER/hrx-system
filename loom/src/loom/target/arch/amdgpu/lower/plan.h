@@ -1220,16 +1220,20 @@ typedef enum loom_amdgpu_kernel_barrier_lowering_kind_e {
   // Converged wave execution supplies the rendezvous; memory ordering is
   // separate.
   LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_CONVERGED_SUBGROUP = 4,
+  // Emit the arrival packet for an authored split-barrier phase.
+  LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_ARRIVE = 5,
+  // Emit the wait packet for an authored split-barrier phase.
+  LOOM_AMDGPU_KERNEL_BARRIER_LOWERING_KIND_SPLIT_WAIT = 6,
 } loom_amdgpu_kernel_barrier_lowering_kind_t;
 
 typedef struct loom_amdgpu_kernel_barrier_plan_t {
-  // Concrete synchronization packet path selected for kernel.barrier.
+  // Concrete synchronization packet path selected for a kernel barrier op.
   loom_amdgpu_kernel_barrier_lowering_kind_t kind;
   // Explicit wait packet selected when |kind| is LDS_WAIT.
   loom_amdgpu_explicit_packet_plan_t wait;
-  // Explicit signal packet selected when |kind| is SPLIT_BARRIER.
+  // Explicit signal packet selected for SPLIT_BARRIER or SPLIT_ARRIVE.
   loom_amdgpu_explicit_packet_plan_t split_signal;
-  // Explicit wait packet selected when |kind| is SPLIT_BARRIER.
+  // Explicit wait packet selected for SPLIT_BARRIER or SPLIT_WAIT.
   loom_amdgpu_explicit_packet_plan_t split_wait;
 } loom_amdgpu_kernel_barrier_plan_t;
 

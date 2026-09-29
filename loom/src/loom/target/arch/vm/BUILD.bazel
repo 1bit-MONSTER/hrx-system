@@ -165,6 +165,7 @@ loom_check_test_suite(
         "test/source_low/semantic_assertions.loom-test",
         "test/source_low/shared_conditional_values.loom-test",
         "test/source_low/source_low_diagnostics.loom-test",
+        "test/source_low/split_barrier.loom-test",
         "test/source_low/uniform_predicate_control.loom-test",
         "test/source_low/vector_large_insert.loom-test",
         "test/source_low/vector_selection.loom-test",

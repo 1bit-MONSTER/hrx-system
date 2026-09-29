@@ -69,6 +69,7 @@ loom_cc_library(
     loom::analysis::contract_vector
     loom::analysis::control_uniformity
     loom::analysis::kernel_async_legality
+    loom::analysis::kernel_barrier_lifetime
     loom::analysis::native_layout
     loom::analysis::symbol_facts
     loom::analysis::symbolic_expr

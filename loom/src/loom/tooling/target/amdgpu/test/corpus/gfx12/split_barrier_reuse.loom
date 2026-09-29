@@ -11,18 +11,7 @@
 // next generation's overwrite.
 amdgpu.target<gfx12-generic> @target
 
-low.func.def target<amdgpu.gfx12.generic.core>(@target) @split_arrive() asm {
-  s_wait_dscnt {dscnt = 0}
-  s_barrier_signal_all
-  return
-}
-
-low.func.def target<amdgpu.gfx12.generic.core>(@target) @split_wait() asm {
-  s_barrier_wait_all
-  return
-}
-
-low.func.def target<amdgpu.gfx12.generic.core>(@target) @long_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+low.func.def pure target<amdgpu.gfx12.generic.core>(@target) @long_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
   %sum0 = v_add_u32 %sum, %value
   %sum1 = v_add_u32_src0_inline %sum0, 1
   %sum2 = v_add_u32_src0_inline %sum1, 1
@@ -43,7 +32,7 @@ low.func.def target<amdgpu.gfx12.generic.core>(@target) @long_accumulate(%value:
   return %sum16
 }
 
-low.func.def target<amdgpu.gfx12.generic.core>(@target) @short_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+low.func.def pure target<amdgpu.gfx12.generic.core>(@target) @short_accumulate(%value: reg<amdgpu.vgpr>, %sum: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
   %sum0 = v_add_u32 %sum, %value
   %sum16 = v_add_u32_src0_inline %sum0, 16
   return %sum16
@@ -75,15 +64,15 @@ kernel.def target(@target) @split_barrier_reuse() {
     vector.store %current, %tile[%lane] : vector<1xi32>, view<64xi32>
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
     %observed = vector.load %tile[%peer] : view<64xi32> -> vector<1xi32>
-    low.invoke @split_arrive() : ()
+    %phase = kernel.barrier.arrive<workgroup> scope(workgroup) ordering(acq_rel) -> kernel.barrier.phase
     %updated = scf.if %is_first_subgroup -> (vector<1xi32>) {
-      %long = low.invoke @long_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      %long = low.invoke pure @long_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
       scf.yield %long : vector<1xi32>
     } else {
-      %short = low.invoke @short_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      %short = low.invoke pure @short_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
       scf.yield %short : vector<1xi32>
     }
-    low.invoke @split_wait() : ()
+    kernel.barrier.wait %phase : kernel.barrier.phase
     scf.yield %updated : vector<1xi32>
   }
   vector.store %total, %destination[%lane] : vector<1xi32>, view<64xi32>
@@ -117,10 +106,10 @@ kernel.def target(@target) @full_barrier_reuse() {
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
     %observed = vector.load %tile[%peer] : view<64xi32> -> vector<1xi32>
     %updated = scf.if %is_first_subgroup -> (vector<1xi32>) {
-      %long = low.invoke @long_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      %long = low.invoke pure @long_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
       scf.yield %long : vector<1xi32>
     } else {
-      %short = low.invoke @short_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
+      %short = low.invoke pure @short_accumulate(%observed, %sum) : (vector<1xi32>, vector<1xi32>) -> (vector<1xi32>)
       scf.yield %short : vector<1xi32>
     }
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
