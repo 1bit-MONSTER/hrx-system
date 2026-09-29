@@ -41,6 +41,18 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    atomics_disabled_test
+  SRCS
+    "atomics_disabled_test.c"
+  DEFINES
+    "IREE_SYNCHRONIZATION_DISABLE_UNSAFE=1"
+  DEPS
+    ::internal
+    iree::base
+)
+
+iree_cc_test(
+  NAME
     math_test
   SRCS
     "math_test.cc"
