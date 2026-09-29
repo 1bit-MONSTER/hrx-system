@@ -2811,6 +2811,11 @@ class BuildFileFunctions(object):
     def iree_executable_test(self, src, **kwargs):
         self.native_test(src=src, **kwargs)
 
+    def iree_executable_alias(self, name, tags=None, **kwargs):
+        if self._should_skip_target(tags=tags, **kwargs):
+            return
+        raise NotImplementedError(f"iree_executable_alias: {name}")
+
     def cc_binary_benchmark(
         self,
         name,
