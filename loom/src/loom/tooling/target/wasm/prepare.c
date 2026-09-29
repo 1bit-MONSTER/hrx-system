@@ -603,6 +603,7 @@ iree_status_t loom_wasm_compile_module_binary(
     loom_module_t* module,
     const loom_low_descriptor_registry_t* descriptor_registry,
     iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
+    const loom_wasm_module_binary_options_t* options,
     iree_allocator_t allocator, bool* out_emitted,
     loom_wasm_module_binary_t* out_module) {
   IREE_ASSERT_ARGUMENT(out_emitted);
@@ -619,7 +620,153 @@ iree_status_t loom_wasm_compile_module_binary(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(
-      loom_wasm_program_emit_binary(&plan, allocator, out_module));
+      loom_wasm_program_emit_binary(&plan, options, allocator, out_module));
   *out_emitted = true;
   return iree_ok_status();
+}
+
+void loom_wasm_callable_module_deinitialize(loom_wasm_callable_module_t* module,
+                                            iree_allocator_t allocator) {
+  if (module == NULL) {
+    return;
+  }
+  iree_allocator_free(allocator, module->metadata_storage);
+  loom_wasm_module_binary_deinitialize(&module->module, allocator);
+  *module = (loom_wasm_callable_module_t){0};
+}
+
+static iree_status_t loom_wasm_callable_module_copy_metadata(
+    const loom_wasm_function_plan_t* function,
+    iree_string_view_t memory_export_name, iree_allocator_t allocator,
+    loom_wasm_callable_module_t* module) {
+  iree_host_size_t type_count = 0;
+  if (!iree_host_size_checked_add(function->type.parameter_count,
+                                  function->type.result_count, &type_count)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "Wasm callable signature size overflow");
+  }
+  iree_host_size_t type_storage_size = 0;
+  if (!iree_host_size_checked_mul(type_count, sizeof(loom_wasm_value_type_t),
+                                  &type_storage_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "Wasm callable signature storage overflow");
+  }
+  iree_host_size_t metadata_storage_size = 0;
+  if (!iree_host_size_checked_add(type_storage_size, function->export_name.size,
+                                  &metadata_storage_size) ||
+      !iree_host_size_checked_add(metadata_storage_size,
+                                  memory_export_name.size,
+                                  &metadata_storage_size)) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "Wasm callable metadata storage overflow");
+  }
+
+  uint8_t* metadata_storage = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
+      allocator, metadata_storage_size, (void**)&metadata_storage));
+  loom_wasm_value_type_t* types = (loom_wasm_value_type_t*)metadata_storage;
+  if (function->type.parameter_count != 0) {
+    memcpy(types, function->type.parameters,
+           function->type.parameter_count * sizeof(*types));
+  }
+  if (function->type.result_count != 0) {
+    memcpy(types + function->type.parameter_count, function->type.results,
+           function->type.result_count * sizeof(*types));
+  }
+  char* function_export_name = (char*)(metadata_storage + type_storage_size);
+  memcpy(function_export_name, function->export_name.data,
+         function->export_name.size);
+  char* copied_memory_export_name =
+      function_export_name + function->export_name.size;
+  if (!iree_string_view_is_empty(memory_export_name)) {
+    memcpy(copied_memory_export_name, memory_export_name.data,
+           memory_export_name.size);
+  }
+
+  module->function_export_name =
+      iree_make_string_view(function_export_name, function->export_name.size);
+  module->memory_export_name =
+      iree_make_string_view(copied_memory_export_name, memory_export_name.size);
+  module->function_type = (loom_wasm_function_type_t){
+      .parameters = types,
+      .parameter_count = function->type.parameter_count,
+      .results = types + function->type.parameter_count,
+      .result_count = function->type.result_count,
+  };
+  module->metadata_storage = metadata_storage;
+  return iree_ok_status();
+}
+
+iree_status_t loom_wasm_compile_callable_module(
+    loom_module_t* module,
+    const loom_low_descriptor_registry_t* descriptor_registry,
+    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
+    const loom_wasm_callable_module_options_t* options,
+    iree_allocator_t allocator, bool* out_emitted,
+    loom_wasm_callable_module_t* out_module) {
+  IREE_ASSERT_ARGUMENT(options);
+  IREE_ASSERT_ARGUMENT(out_emitted);
+  IREE_ASSERT_ARGUMENT(out_module);
+  *out_emitted = false;
+  *out_module = (loom_wasm_callable_module_t){0};
+  if (iree_string_view_is_empty(options->function_name)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "Wasm callable function name is required");
+  }
+
+  loom_wasm_program_plan_t plan = {0};
+  bool accepted = false;
+  IREE_RETURN_IF_ERROR(loom_wasm_program_plan_prepare(
+      module, descriptor_registry, diagnostic_emitter, arena, &accepted,
+      &plan));
+  if (!accepted) {
+    return iree_ok_status();
+  }
+
+  const loom_string_id_t function_name_id =
+      loom_module_lookup_string(module, options->function_name);
+  const loom_symbol_id_t function_symbol_id =
+      function_name_id == LOOM_STRING_ID_INVALID
+          ? LOOM_SYMBOL_ID_INVALID
+          : loom_module_find_symbol(module, function_name_id);
+  const uint32_t function_index =
+      function_symbol_id == LOOM_SYMBOL_ID_INVALID
+          ? LOOM_WASM_PROGRAM_INDEX_NONE
+          : plan.function_indices_by_symbol[function_symbol_id];
+  if (function_index == LOOM_WASM_PROGRAM_INDEX_NONE) {
+    return iree_make_status(
+        IREE_STATUS_NOT_FOUND, "Wasm callable function '%.*s' was not prepared",
+        (int)options->function_name.size, options->function_name.data);
+  }
+  const loom_wasm_function_plan_t* function = &plan.functions[function_index];
+  if (iree_string_view_is_empty(function->export_name)) {
+    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                            "Wasm callable function '%.*s' is not exported",
+                            (int)options->function_name.size,
+                            options->function_name.data);
+  }
+
+  const loom_wasm_module_binary_options_t binary_options = {
+      .memory_export_name = options->memory_export_name,
+  };
+  loom_wasm_callable_module_t callable_module = {0};
+  iree_status_t status = loom_wasm_program_emit_binary(
+      &plan, &binary_options, allocator, &callable_module.module);
+  iree_string_view_t emitted_memory_export_name = iree_string_view_empty();
+  if (iree_status_is_ok(status) &&
+      iree_any_bit_set(callable_module.module.flags,
+                       LOOM_WASM_MODULE_BINARY_FLAG_EXPORTS_MEMORY)) {
+    emitted_memory_export_name = options->memory_export_name;
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_wasm_callable_module_copy_metadata(
+        function, emitted_memory_export_name, allocator, &callable_module);
+  }
+  if (iree_status_is_ok(status)) {
+    *out_module = callable_module;
+    *out_emitted = true;
+  } else {
+    loom_wasm_callable_module_deinitialize(&callable_module, allocator);
+  }
+  return status;
 }

@@ -216,7 +216,8 @@ static iree_status_t loom_wasm_loom_check_emit_provider_execute(
   bool module_emitted = false;
   iree_status_t status = loom_wasm_compile_module_binary(
       request->module, &request->low_registry->registry, diagnostic_emitter,
-      request->case_arena, request->host_allocator, &module_emitted, &module);
+      request->case_arena, /*options=*/NULL, request->host_allocator,
+      &module_emitted, &module);
 
   loom_wasm_toolchain_t toolchain;
   loom_wasm_toolchain_initialize_from_environment(&toolchain);

@@ -23,6 +23,7 @@ enum {
 
 enum {
   LOOM_WASM_EXPORT_KIND_FUNCTION = 0,
+  LOOM_WASM_EXPORT_KIND_MEMORY = 2,
 };
 
 enum {
@@ -48,6 +49,8 @@ typedef struct loom_wasm_module_layout_t {
   iree_host_size_t type_count;
   // Number of prepared function exports.
   iree_host_size_t export_count;
+  // Export name for memory index zero, or empty when memory remains private.
+  iree_string_view_t memory_export_name;
   // Allocator-owned encoded function bodies.
   loom_wasm_function_body_t* bodies;
   // Structural facts represented in the emitted module binary.
@@ -96,8 +99,9 @@ static void loom_wasm_module_layout_deinitialize(
 }
 
 static iree_status_t loom_wasm_module_layout_initialize(
-    const loom_wasm_program_plan_t* plan, iree_allocator_t allocator,
-    loom_wasm_module_layout_t* out_layout) {
+    const loom_wasm_program_plan_t* plan,
+    const loom_wasm_module_binary_options_t* options,
+    iree_allocator_t allocator, loom_wasm_module_layout_t* out_layout) {
   *out_layout = (loom_wasm_module_layout_t){
       .functions = plan->functions,
       .function_count = plan->function_count,
@@ -126,6 +130,20 @@ static iree_status_t loom_wasm_module_layout_initialize(
         iree_any_bit_set(out_layout->bodies[i].flags,
                          LOOM_WASM_FUNCTION_BODY_FLAG_USES_MEMORY)) {
       out_layout->flags |= LOOM_WASM_MODULE_BINARY_FLAG_DEFINES_MEMORY;
+    }
+  }
+  if (iree_status_is_ok(status) &&
+      iree_any_bit_set(out_layout->flags,
+                       LOOM_WASM_MODULE_BINARY_FLAG_DEFINES_MEMORY) &&
+      options != NULL &&
+      !iree_string_view_is_empty(options->memory_export_name)) {
+    if (!iree_host_size_checked_add(out_layout->export_count, 1,
+                                    &out_layout->export_count)) {
+      status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                "Wasm export count overflow");
+    } else {
+      out_layout->memory_export_name = options->memory_export_name;
+      out_layout->flags |= LOOM_WASM_MODULE_BINARY_FLAG_EXPORTS_MEMORY;
     }
   }
   if (!iree_status_is_ok(status)) {
@@ -247,12 +265,27 @@ static iree_status_t loom_wasm_module_write_export_section_payload(
     if (iree_string_view_is_empty(function->export_name)) {
       continue;
     }
+    if (!iree_string_view_is_empty(layout->memory_export_name) &&
+        iree_string_view_equal(function->export_name,
+                               layout->memory_export_name)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Wasm function and memory exports share name '%.*s'",
+          (int)function->export_name.size, function->export_name.data);
+    }
     IREE_RETURN_IF_ERROR(
         loom_wasm_module_write_name(payload_writer, function->export_name));
     IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u8(
         payload_writer, LOOM_WASM_EXPORT_KIND_FUNCTION));
     IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u32_leb(
         payload_writer, function->function_index));
+  }
+  if (!iree_string_view_is_empty(layout->memory_export_name)) {
+    IREE_RETURN_IF_ERROR(loom_wasm_module_write_name(
+        payload_writer, layout->memory_export_name));
+    IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u8(
+        payload_writer, LOOM_WASM_EXPORT_KIND_MEMORY));
+    IREE_RETURN_IF_ERROR(loom_wasm_binary_write_u32_leb(payload_writer, 0));
   }
   return iree_ok_status();
 }
@@ -388,15 +421,16 @@ void loom_wasm_module_binary_deinitialize(loom_wasm_module_binary_t* module,
 }
 
 iree_status_t loom_wasm_program_emit_binary(
-    const loom_wasm_program_plan_t* plan, iree_allocator_t allocator,
-    loom_wasm_module_binary_t* out_module) {
+    const loom_wasm_program_plan_t* plan,
+    const loom_wasm_module_binary_options_t* options,
+    iree_allocator_t allocator, loom_wasm_module_binary_t* out_module) {
   IREE_ASSERT_ARGUMENT(plan);
   IREE_ASSERT_ARGUMENT(out_module);
   *out_module = (loom_wasm_module_binary_t){0};
 
   loom_wasm_module_layout_t layout = {0};
   iree_status_t status =
-      loom_wasm_module_layout_initialize(plan, allocator, &layout);
+      loom_wasm_module_layout_initialize(plan, options, allocator, &layout);
 
   loom_wasm_binary_writer_t module_writer;
   loom_wasm_binary_writer_initialize(allocator, &module_writer);

@@ -24,6 +24,8 @@ extern "C" {
 typedef enum loom_wasm_module_binary_flag_bits_e {
   // Module defines one default linear memory section.
   LOOM_WASM_MODULE_BINARY_FLAG_DEFINES_MEMORY = 1u << 0,
+  // Module exports its default linear memory section.
+  LOOM_WASM_MODULE_BINARY_FLAG_EXPORTS_MEMORY = 1u << 1,
 } loom_wasm_module_binary_flag_bits_t;
 
 // Bitset of loom_wasm_module_binary_flag_bits_t values.
@@ -38,6 +40,14 @@ typedef struct loom_wasm_module_binary_t {
   loom_wasm_module_binary_flags_t flags;
 } loom_wasm_module_binary_t;
 
+// Optional WebAssembly binary emission policy.
+typedef struct loom_wasm_module_binary_options_t {
+  // Export name for memory index zero when the program defines linear memory.
+  // Empty leaves defined memory private. Programs without memory emit no
+  // memory export regardless of this value.
+  iree_string_view_t memory_export_name;
+} loom_wasm_module_binary_options_t;
+
 // Releases storage owned by |module|. Safe to call on a zero-initialized
 // module object.
 void loom_wasm_module_binary_deinitialize(loom_wasm_module_binary_t* module,
@@ -49,8 +59,9 @@ void loom_wasm_module_binary_deinitialize(loom_wasm_module_binary_t* module,
 // diagnostics, and semantic rejection belong to program preparation and are
 // not accepted by this interface.
 iree_status_t loom_wasm_program_emit_binary(
-    const loom_wasm_program_plan_t* plan, iree_allocator_t allocator,
-    loom_wasm_module_binary_t* out_module);
+    const loom_wasm_program_plan_t* plan,
+    const loom_wasm_module_binary_options_t* options,
+    iree_allocator_t allocator, loom_wasm_module_binary_t* out_module);
 
 #ifdef __cplusplus
 }  // extern "C"

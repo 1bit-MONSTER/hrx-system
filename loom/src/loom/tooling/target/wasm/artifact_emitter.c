@@ -25,8 +25,8 @@ static iree_status_t loom_wasm_artifact_emit(
   bool module_emitted = false;
   IREE_RETURN_IF_ERROR(loom_wasm_compile_module_binary(
       request->module, request->low_descriptor_registry,
-      request->diagnostic_emitter, request->scratch_arena, request->allocator,
-      &module_emitted, &module));
+      request->diagnostic_emitter, request->scratch_arena, /*options=*/NULL,
+      request->allocator, &module_emitted, &module));
   if (!module_emitted) {
     return iree_ok_status();
   }
