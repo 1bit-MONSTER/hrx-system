@@ -21,9 +21,7 @@ loom_cc_library(
     "amdgpu.c"
   DEPS
     iree::base
-    iree::base::internal::arena
     loom::binding::c::loomc
-    loom::error::emitter
     loom::ir
     loom::ops::kernel
     loom::ops::op_defs

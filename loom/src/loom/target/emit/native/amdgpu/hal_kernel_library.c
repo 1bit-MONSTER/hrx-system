@@ -32,6 +32,7 @@
 #include "loom/target/arch/amdgpu/planning/occupancy.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/target/arch/amdgpu/planning/vopd_plan.h"
+#include "loom/target/arch/amdgpu/profile.h"
 #include "loom/target/arch/amdgpu/provider.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 #include "loom/target/arch/amdgpu/target_info.h"
@@ -1096,6 +1097,7 @@ iree_status_t loom_amdgpu_compile_hal_kernel_library(
     loom_target_compile_report_initialize_if_empty(report, allocator);
     report->artifact_kind =
         LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_KERNEL_LIBRARY;
+    report->target_family_name = loom_amdgpu_target_profile_type.name;
   }
   const loom_target_entry_options_t target_options = {
       .function_versions = options ? options->function_versions : NULL,
@@ -1167,3 +1169,120 @@ iree_status_t loom_amdgpu_compile_hal_kernel_library(
   loom_target_environment_deinitialize(&target_environment);
   return status;
 }
+
+typedef struct loom_amdgpu_hal_kernel_library_artifact_storage_t {
+  // Allocator owning this storage.
+  iree_allocator_t allocator;
+
+  // Artifact manifest sidecar descriptor.
+  loom_target_emit_sidecar_artifact_t artifact_manifest;
+} loom_amdgpu_hal_kernel_library_artifact_storage_t;
+
+static void loom_amdgpu_hal_kernel_library_artifact_storage_release(
+    void* storage) {
+  loom_amdgpu_hal_kernel_library_artifact_storage_t* artifact_storage =
+      (loom_amdgpu_hal_kernel_library_artifact_storage_t*)storage;
+  iree_allocator_free(artifact_storage->allocator, artifact_storage);
+}
+
+static iree_status_t loom_amdgpu_hal_kernel_library_forward_diagnostic(
+    void* user_data, const loom_diagnostic_t* diagnostic) {
+  const iree_diagnostic_emitter_t* emitter =
+      (const iree_diagnostic_emitter_t*)user_data;
+  const loom_diagnostic_emission_t emission = {
+      .error = diagnostic->error,
+      .params = diagnostic->params,
+      .param_count = diagnostic->param_count,
+  };
+  return iree_diagnostic_emit(*emitter, &emission);
+}
+
+static iree_status_t loom_amdgpu_hal_kernel_library_emit(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
+  *out_emitted = false;
+  *out_artifact = (loom_target_emit_artifact_t){0};
+
+  iree_diagnostic_emitter_t diagnostic_emitter = request->diagnostic_emitter;
+  const loom_amdgpu_hal_kernel_library_options_t library_options = {
+      .function_versions = request->function_versions,
+      .diagnostic_sink =
+          {
+              .fn = loom_amdgpu_hal_kernel_library_forward_diagnostic,
+              .user_data = &diagnostic_emitter,
+          },
+      .max_errors = 20,
+      .report = request->compile_report,
+      .artifact_name = request->identifier,
+      .artifact_manifest_identifier = request->artifact_manifest.identifier,
+      .artifact_manifest =
+          {
+              .mode = request->artifact_manifest.mode,
+          },
+  };
+  bool emitted = false;
+  loom_amdgpu_hal_kernel_library_t library = {0};
+  iree_status_t status = loom_amdgpu_compile_hal_kernel_library(
+      request->module, &library_options, request->allocator, &emitted,
+      &library);
+  if (iree_status_is_ok(status) && emitted && request->compile_report != NULL) {
+    // The library owns its exact artifact key. Report serialization happens
+    // after library release but before the caller resets invocation scratch.
+    char* target_key = NULL;
+    status = iree_arena_allocate(request->scratch_arena,
+                                 library.target_key.size, (void**)&target_key);
+    if (iree_status_is_ok(status)) {
+      memcpy(target_key, library.target_key.data, library.target_key.size);
+      request->compile_report->target_key =
+          iree_make_string_view(target_key, library.target_key.size);
+    }
+  }
+  if (iree_status_is_ok(status) && emitted &&
+      library.artifact_manifest.contents == NULL) {
+    out_artifact->target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_ELF;
+    out_artifact->contents = library.hsaco_data;
+    library.hsaco_data = NULL;
+  } else if (iree_status_is_ok(status) && emitted) {
+    loom_amdgpu_hal_kernel_library_artifact_storage_t* storage = NULL;
+    status = iree_allocator_malloc(request->allocator, sizeof(*storage),
+                                   (void**)&storage);
+    if (iree_status_is_ok(status)) {
+      *storage = (loom_amdgpu_hal_kernel_library_artifact_storage_t){
+          .allocator = request->allocator,
+          .artifact_manifest = library.artifact_manifest,
+      };
+      out_artifact->target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_ELF;
+      out_artifact->contents = library.hsaco_data;
+      out_artifact->sidecars = &storage->artifact_manifest;
+      out_artifact->sidecar_count = 1;
+      out_artifact->storage = storage;
+      out_artifact->release_storage =
+          loom_amdgpu_hal_kernel_library_artifact_storage_release;
+      library.hsaco_data = NULL;
+      library.artifact_manifest = (loom_target_emit_sidecar_artifact_t){0};
+    }
+  }
+  if (iree_status_is_ok(status) && emitted) {
+    *out_emitted = true;
+  }
+  loom_amdgpu_hal_kernel_library_deinitialize(&library, request->allocator);
+  return status;
+}
+
+static const loom_target_emitter_t loom_amdgpu_hal_kernel_library_emitter = {
+    .name = IREE_SVL("amdgpu-hsaco"),
+    .public_artifact_format = IREE_SVL("amdgpu-hsaco"),
+    .default_identifier = IREE_SVL("module.hsaco"),
+    .target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_ELF,
+    .emit = loom_amdgpu_hal_kernel_library_emit,
+};
+
+const loom_target_provider_t loom_amdgpu_hal_kernel_library_provider = {
+    .emitter_list =
+        {
+            .values =
+                (const loom_target_emitter_t* const[]){
+                    &loom_amdgpu_hal_kernel_library_emitter},
+            .count = 1,
+        },
+};

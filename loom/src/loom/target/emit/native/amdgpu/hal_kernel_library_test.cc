@@ -777,6 +777,8 @@ TEST_F(AmdgpuHalKernelLibraryTest,
 
   EXPECT_TRUE(emitted) << DiagnosticSummary(capture);
   EXPECT_TRUE(capture.diagnostics.empty()) << DiagnosticSummary(capture);
+  EXPECT_TRUE(
+      iree_string_view_equal(report.target_family_name, IREE_SV("amdgpu")));
   char expected_target_key_storage[128] = {};
   iree_string_view_t expected_target_key = iree_string_view_empty();
   IREE_ASSERT_OK(loom_amdgpu_artifact_key_format(

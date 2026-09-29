@@ -91,6 +91,9 @@ iree_status_t loom_amdgpu_compile_hal_kernel_library(
     iree_allocator_t allocator, bool* out_emitted,
     loom_amdgpu_hal_kernel_library_t* out_library);
 
+// Optional AMDGPU HAL kernel-library emission for a target environment.
+extern const loom_target_provider_t loom_amdgpu_hal_kernel_library_provider;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

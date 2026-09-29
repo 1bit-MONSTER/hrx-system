@@ -659,6 +659,7 @@ loom_cc_library(
     loom::codegen::low::frame
     loom::codegen::low::target_binding
     loom::error::diagnostic
+    loom::error::emitter
     loom::error::source
     loom::ir
     loom::ops::global
@@ -676,6 +677,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::planning::occupancy
     loom::target::arch::amdgpu::planning::storage_lease
     loom::target::arch::amdgpu::planning::vopd_plan
+    loom::target::arch::amdgpu::profile
     loom::target::arch::amdgpu::provider
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
