@@ -6,7 +6,6 @@
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:defs.bzl", "loom_test")
-load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
 package(
@@ -14,10 +13,6 @@ package(
     features = ["layering_check"],
     licenses = ["notice"],  # Apache 2.0
 )
-
-_CONFIGURED_CASES = [
-    "pipelined_guarded_recurrence.loom",
-]
 
 _SCENARIO_CASES = [
     "atomic_float64.loom",
@@ -27,10 +22,10 @@ _SCENARIO_CASES = [
 
 _CASES = glob(
     ["*.loom"],
-    exclude = _CONFIGURED_CASES + _SCENARIO_CASES,
+    exclude = _SCENARIO_CASES,
 )
 
-exports_files(_CASES + _CONFIGURED_CASES + _SCENARIO_CASES)
+exports_files(_CASES + _SCENARIO_CASES)
 
 loom_test(
     name = "atomic_float64_test",
@@ -60,40 +55,6 @@ loom_test(
         AMDGPU_ACCESS_PROFILE,
     ],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
-)
-
-loom_test(
-    name = "pipelined_guarded_recurrence_test",
-    srcs = [
-        "pipelined_guarded_recurrence.loom",
-        "//loom/binding/c/benchmark/kernels:synthetic/segmented_guarded_read_ahead.loom",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1250",
-        "//loom/target/spirv:vulkan1.3+bda",
-    ],
-    configs = {
-        "benchmark.loop_count": "8",
-        "test.factor": "1",
-    },
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-    variants = {
-        "depth_three": {"configs": {
-            "benchmark.pipeline_depth": "3",
-            "test.depth": "3",
-        }},
-        "serial": {"configs": {
-            "benchmark.pipeline_depth": "1",
-            "test.depth": "1",
-        }},
-        "unrolled": {"configs": {
-            "benchmark.pipeline_depth": "4",
-            "test.depth": "4",
-            "test.factor": "2",
-        }},
-    },
 )
 
 loom_test(

@@ -30,6 +30,7 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "loop/vector_recurrence.loom",
         "loop/wide_index_recurrence.loom",
         "schedule/address_domains.loom",
+        "schedule/guarded_recurrence.loom",
         "schedule/ordered_read_ahead.loom",
         "schedule/unroll_scope.loom",
     ],
