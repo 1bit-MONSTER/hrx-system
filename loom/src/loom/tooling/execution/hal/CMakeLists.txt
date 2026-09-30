@@ -276,6 +276,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::ops::special_values
     loom::ops::target
+    loom::pass::pipeline_snapshot
     loom::sanitizer::options
     loom::target::function_version
     loom::target::provider
@@ -354,6 +355,7 @@ loom_cc_library(
     iree::base
     iree::base::core_headers
     iree::base::internal::arena
+    loom::pass::pipeline_snapshot
     loom::target::entry_selection
     loom::tooling::compile::pipeline
     loom::tooling::compile::report_capture
@@ -401,6 +403,7 @@ loom_cc_test(
     loom::target::test::target_record_table
     loom::tooling::compile::options
     loom::tooling::execution::session
+    loom::transforms::cleanup::configured
 )
 endif()
 

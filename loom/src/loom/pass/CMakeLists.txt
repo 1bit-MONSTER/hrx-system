@@ -67,6 +67,37 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    pipeline_snapshot
+  HDRS
+    "pipeline_snapshot.h"
+  SRCS
+    "pipeline_snapshot.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::link::linker
+    loom::ops::pass
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    pipeline_snapshot_test
+  SRCS
+    "pipeline_snapshot_test.cc"
+  DEPS
+    ::pipeline_snapshot
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::pass
+    loom::pass::test::harness
+)
+
+loom_cc_library(
+  NAME
     builder
   HDRS
     "builder.h"

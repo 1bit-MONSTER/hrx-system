@@ -75,6 +75,11 @@ bool loom_compile_pipeline_is_default(iree_string_view_t pipeline) {
          iree_string_view_equal(pipeline, IREE_SV("default"));
 }
 
+bool loom_compile_pipeline_is_named(iree_string_view_t pipeline) {
+  pipeline = iree_string_view_trim(pipeline);
+  return iree_string_view_starts_with_char(pipeline, '@');
+}
+
 static iree_status_t loom_compile_pipeline_registry_initialize(
     const loom_target_environment_t* target_environment,
     loom_pass_registry_storage_t* out_storage,
@@ -150,7 +155,7 @@ static iree_string_view_t loom_compile_pipeline_stage_name(
   if (loom_compile_pipeline_is_default(pipeline)) {
     return loom_compile_default_pipeline_stage_name(options->default_pipeline);
   }
-  if (iree_string_view_starts_with_char(pipeline, '@')) {
+  if (loom_compile_pipeline_is_named(pipeline)) {
     return IREE_SV("module-pipeline");
   }
   return IREE_SV("command-line");
@@ -195,6 +200,14 @@ iree_status_t loom_compile_run_pipeline(
                                          &out_result->function_versions);
 
   iree_string_view_t pipeline = iree_string_view_trim(options->pipeline);
+  if (loom_compile_pipeline_is_named(pipeline) &&
+      (options->named_pipeline.module == NULL ||
+       options->named_pipeline.pipeline_op == NULL)) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "named compile pipelines must be selected before subject "
+        "materialization");
+  }
   if (options->target_environment == NULL &&
       (options->target_specializations.count != 0 ||
        !loom_compile_pipeline_is_disabled(pipeline))) {
@@ -367,9 +380,10 @@ iree_status_t loom_compile_run_pipeline(
     status = loom_compile_run_default_pipeline(module, options, &run_options,
                                                &out_result->pass);
   } else if (iree_status_is_ok(status) &&
-             iree_string_view_starts_with_char(pipeline, '@')) {
-    status = loom_pass_tool_run_pipeline_symbol(module, pipeline, &run_options,
-                                                &out_result->pass);
+             loom_compile_pipeline_is_named(pipeline)) {
+    status = loom_pass_tool_run_pipeline_module_op(
+        module, options->named_pipeline.module,
+        options->named_pipeline.pipeline_op, &run_options, &out_result->pass);
   } else if (iree_status_is_ok(status)) {
     status = loom_pass_tool_run_flat_pipeline(module, pipeline, &run_options,
                                               &out_result->pass);

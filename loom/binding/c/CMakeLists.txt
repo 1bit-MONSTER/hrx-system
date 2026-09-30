@@ -122,7 +122,6 @@ loom_cc_library(
     loom::link::dependency_analysis
     loom::link::dependency_report
     loom::link::index_materializer
-    loom::link::linker
     loom::link::materialization_environment
     loom::link::module_index
     loom::ops::func
@@ -135,6 +134,7 @@ loom_cc_library(
     loom::pass::builtin_registry
     loom::pass::environment
     loom::pass::interpreter
+    loom::pass::pipeline_snapshot
     loom::pass::program
     loom::pass::registry
     loom::pass::tooling

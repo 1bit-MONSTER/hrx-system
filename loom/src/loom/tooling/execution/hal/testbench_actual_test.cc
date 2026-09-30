@@ -376,6 +376,9 @@ check.case @entry_case {
   kernel.launch @entry() : ()
   check.return
 }
+
+pass.pipeline<module> @debug pipeline {
+}
 )";
   loom_run_module_t run_module = {};
   loom_testbench_module_plan_t module_plan = {};
@@ -407,7 +410,7 @@ check.case @entry_case {
   options.session = &session_;
   options.target_environment = &target_environment;
   options.run_module = &run_module;
-  options.pipeline = IREE_SV("none");
+  options.pipeline = IREE_SV("@debug");
   options.target = target;
   options.kernel_launch = kernel_launch;
   loom_run_hal_testbench_actual_provider_t provider = {};

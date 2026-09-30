@@ -16,6 +16,7 @@
 #include "loom/error/diagnostic.h"
 #include "loom/format/text/printer.h"
 #include "loom/ir/module.h"
+#include "loom/pass/pipeline_snapshot.h"
 #include "loom/sanitizer/options.h"
 #include "loom/target/arch/cmd/artifact_set.h"
 #include "loom/target/entry_selection.h"
@@ -424,6 +425,7 @@ static iree_status_t loom_compile_artifact_manifest_options_initialize(
 static iree_status_t loom_compile_run_pass_pipeline(
     const loom_target_environment_t* target_environment,
     loom_run_session_t* session, loom_run_module_t* run_module,
+    const loom_pass_pipeline_snapshot_t* pipeline_snapshot,
     loom_compile_default_pipeline_t default_pipeline,
     const loom_compile_request_t* request,
     const loom_compile_options_t* compile_options,
@@ -433,6 +435,11 @@ static iree_status_t loom_compile_run_pass_pipeline(
   loom_compile_pipeline_options_t pipeline_options = {0};
   loom_compile_pipeline_options_initialize(&pipeline_options);
   pipeline_options.pipeline = iree_make_cstring_view(FLAG_pipeline);
+  if (pipeline_snapshot != NULL) {
+    pipeline_options.named_pipeline.module = pipeline_snapshot->module;
+    pipeline_options.named_pipeline.pipeline_op =
+        pipeline_snapshot->pipeline_op;
+  }
   pipeline_options.default_pipeline = default_pipeline;
   pipeline_options.target_pipeline_options =
       compile_options->target_pipeline_options;
@@ -1014,6 +1021,7 @@ int main(int argc, char** argv) {
   loom_compile_report_capture_t compile_report_capture = {0};
   loom_tooling_pass_trace_t pass_trace = {0};
   loom_compile_request_t request = {0};
+  loom_pass_pipeline_snapshot_t pipeline_snapshot = {0};
   loom_compile_artifact_manifest_options_t artifact_manifest_options = {0};
   iree_string_view_t artifact_manifest_output_path = iree_string_view_empty();
   char* artifact_manifest_output_path_storage = NULL;
@@ -1068,11 +1076,17 @@ int main(int argc, char** argv) {
       status = loom_compile_validate_request_flags(&request);
     }
   }
+  const iree_string_view_t pipeline = iree_make_cstring_view(FLAG_pipeline);
+  const bool has_named_pipeline = loom_compile_pipeline_is_named(pipeline);
+  if (iree_status_is_ok(status) && has_named_pipeline) {
+    status = loom_pass_pipeline_snapshot_initialize(
+        run_module.module, pipeline, IREE_SV("__loom_compile_pipeline"),
+        loom_run_session_block_pool(&session), allocator, &pipeline_snapshot);
+  }
   // Default command planning selectively materializes from the indexed source.
   // Explicit pipelines still run over the selected linked closure.
-  const bool run_eager_pipeline =
-      !loom_compile_request_is_command(&request) ||
-      !loom_compile_pipeline_is_default(iree_make_cstring_view(FLAG_pipeline));
+  const bool run_eager_pipeline = !loom_compile_request_is_command(&request) ||
+                                  !loom_compile_pipeline_is_default(pipeline);
   if (iree_status_is_ok(status) && run_eager_pipeline) {
     status = loom_compile_materialize_module(
         compile_environment->target_environment, &session, &run_module,
@@ -1155,6 +1169,7 @@ int main(int argc, char** argv) {
     if (run_eager_pipeline) {
       status = loom_compile_run_pass_pipeline(
           compile_environment->target_environment, &session, &run_module,
+          has_named_pipeline ? &pipeline_snapshot : NULL,
           LOOM_COMPILE_DEFAULT_PIPELINE_PREPARED_LOW, &request,
           &compile_options, &compile_report_capture,
           loom_tooling_pass_trace_options(&pass_trace), &pipeline_result);
@@ -1229,6 +1244,7 @@ int main(int argc, char** argv) {
   }
 
   loom_compile_pipeline_result_deinitialize(&pipeline_result);
+  loom_pass_pipeline_snapshot_deinitialize(&pipeline_snapshot);
   loom_compile_report_capture_deinitialize(&compile_report_capture);
   loom_run_module_deinitialize(&run_module);
   iree_allocator_free(allocator, input_filename_storage);

@@ -303,6 +303,56 @@
       ]
     },
     {
+      "name": "runs a named pipeline over a selected command root",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--root=@increment_then_double",
+          "--pipeline=@debug",
+          "--output={tmp}/named-pipeline-manifest.json",
+          "--emit-command-artifacts={tmp}/named-pipeline-commands"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/named-pipeline-commands/program-0.loomcmd",
+          "non_empty": true
+        },
+        {
+          "path": "{tmp}/named-pipeline-commands/program-1.loomcmd",
+          "exists": false
+        }
+      ]
+    },
+    {
+      "name": "runs a flat pipeline over a selected command root",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--root=@increment_then_double",
+          "--pipeline=canonicalize",
+          "--output={tmp}/flat-pipeline-manifest.json",
+          "--emit-command-artifacts={tmp}/flat-pipeline-commands"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/flat-pipeline-commands/program-0.loomcmd",
+          "non_empty": true
+        },
+        {
+          "path": "{tmp}/flat-pipeline-commands/program-1.loomcmd",
+          "exists": false
+        }
+      ]
+    },
+    {
       "name": "rejects an unknown explicit command pipeline",
       "run": {
         "tool": "loom-compile",

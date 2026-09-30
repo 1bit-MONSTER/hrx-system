@@ -72,6 +72,7 @@ loom_cc_binary(
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/format/text:printer",
         "//loom/src/loom/ir",
+        "//loom/src/loom/pass:pipeline_snapshot",
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:low_descriptor_registry",
