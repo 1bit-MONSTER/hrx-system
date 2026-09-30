@@ -260,10 +260,15 @@ AMDGPU_SANITIZERS_XFAILS = ()
 AMDGPU_TSAN_XFAILS = ()
 AMDGPU_BAZEL_XFAILS_BY_TARGET_SELECTOR = {
     # gfx1151 currently hangs while waiting for manually instrumented ASAN
-    # feedback. Keep the ordinary ASAN executable coverage active.
+    # feedback. The uniform i64 corpus execution also wedges the device before
+    # reporting a result. Keep the remaining gfx1151 coverage active.
     "gfx1151": (
         bazel_xfail(
             "//runtime/src/iree/hal/drivers/amdgpu/cts:manual_asan_executable_tests"
+        ),
+        bazel_xfail(
+            "//loom/target/amdgpu/test/corpus:"
+            "numeric_integer_wide_uniform_test_execute_amdgpu_hardware_test"
         ),
     ),
     # gfx120X currently hangs while initializing or executing device-side TSAN.
