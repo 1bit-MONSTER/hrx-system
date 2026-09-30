@@ -15,18 +15,18 @@ loom_corpus_sources(
   MANIFEST
     "function"
   SRCS
-    "buffer_arguments.loom"
-    "buffer_call_overflow.loom"
-    "buffer_calls.loom"
-    "call_overflow.loom"
-    "calls.loom"
-    "direct_call.loom"
+    "buffer/arguments.loom"
+    "buffer/call_overflow.loom"
+    "buffer/calls.loom"
+    "call/calls.loom"
+    "call/direct.loom"
+    "call/overflow.loom"
+    "call/spill.loom"
     "rodata.loom"
-    "spill.loom"
-    "template_expansion.loom"
-    "template_library.loom"
-    "template_motion.loom"
-    "template_relations.loom"
+    "template/expansion.loom"
+    "template/library.loom"
+    "template/motion.loom"
+    "template/relations.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

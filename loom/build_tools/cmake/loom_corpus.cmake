@@ -18,7 +18,7 @@ function(loom_corpus_sources)
     message(FATAL_ERROR
       "loom_corpus_sources(${_RULE_NAME}) requires SRCS")
   endif()
-  file(GLOB _INVENTORY
+  file(GLOB_RECURSE _INVENTORY
     CONFIGURE_DEPENDS
     RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/*.loom"
@@ -209,8 +209,9 @@ function(_loom_declare_corpus_build ID)
     message(FATAL_ERROR
       "loom_corpus_build(${_RULE_NAME}) XFAILS must contain target/source/root/diagnostic groups")
   endif()
-  set(_XFAILS)
-  set(_XFAIL_IDENTITIES)
+  # Target sets expand qualification entries across every selected profile.
+  # Index entries by profile and source so generating the source/profile product
+  # does not rescan the expanded exception lists for every output.
   set(_INDEX 0)
   while(_INDEX LESS _RULE_XFAIL_VALUE_COUNT)
     list(GET _RULE_XFAILS ${_INDEX} _TARGET_REF)
@@ -256,17 +257,24 @@ function(_loom_declare_corpus_build ID)
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) has an xfail for unselected profile ${_PROFILE}")
       endif()
-      set(_IDENTITY "${_PROFILE}|${_SOURCE_ID}|${_ROOT}")
-      if(_IDENTITY IN_LIST _XFAIL_IDENTITIES)
+      string(SHA256 _PROFILE_SOURCE_KEY "${_PROFILE}|${_SOURCE_ID}")
+      string(SHA256 _XFAIL_IDENTITY_KEY
+        "${_PROFILE}|${_SOURCE_ID}|${_ROOT}")
+      set(_XFAIL_IDENTITY_VARIABLE
+        "_LOOM_CORPUS_XFAIL_IDENTITY_${_XFAIL_IDENTITY_KEY}")
+      if(DEFINED ${_XFAIL_IDENTITY_VARIABLE})
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) repeats xfail ${_ROOT} for ${_PROFILE}")
       endif()
-      list(APPEND _XFAIL_IDENTITIES "${_IDENTITY}")
-      list(APPEND _XFAILS
-        "${_PROFILE}" "${_SOURCE_ID}" "${_ROOT}" "${_DIAGNOSTIC}")
+      set(${_XFAIL_IDENTITY_VARIABLE} TRUE)
+      set(_XFAIL_ROOTS_VARIABLE
+        "_LOOM_CORPUS_XFAIL_ROOTS_${_PROFILE_SOURCE_KEY}")
+      set(_XFAIL_DIAGNOSTICS_VARIABLE
+        "_LOOM_CORPUS_XFAIL_DIAGNOSTICS_${_PROFILE_SOURCE_KEY}")
+      list(APPEND ${_XFAIL_ROOTS_VARIABLE} "${_ROOT}")
+      list(APPEND ${_XFAIL_DIAGNOSTICS_VARIABLE} "${_DIAGNOSTIC}")
     endforeach()
   endwhile()
-  list(LENGTH _XFAILS _XFAIL_VALUE_COUNT)
 
   list(LENGTH _RULE_ALL_ROOTS_XFAIL _RULE_ALL_ROOTS_XFAIL_VALUE_COUNT)
   math(EXPR _ALL_ROOTS_XFAIL_REMAINDER
@@ -275,8 +283,6 @@ function(_loom_declare_corpus_build ID)
     message(FATAL_ERROR
       "loom_corpus_build(${_RULE_NAME}) ALL_ROOTS_XFAIL must contain target/source pairs")
   endif()
-  set(_ALL_ROOTS_XFAILS)
-  set(_ALL_ROOTS_XFAIL_IDENTITIES)
   set(_INDEX 0)
   while(_INDEX LESS _RULE_ALL_ROOTS_XFAIL_VALUE_COUNT)
     list(GET _RULE_ALL_ROOTS_XFAIL ${_INDEX} _TARGET_REF)
@@ -310,16 +316,22 @@ function(_loom_declare_corpus_build ID)
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) marks all roots xfail for unselected profile ${_PROFILE}")
       endif()
-      set(_IDENTITY "${_PROFILE}|${_SOURCE_ID}")
-      if(_IDENTITY IN_LIST _ALL_ROOTS_XFAIL_IDENTITIES)
+      string(SHA256 _PROFILE_SOURCE_KEY "${_PROFILE}|${_SOURCE_ID}")
+      set(_ALL_ROOTS_XFAIL_VARIABLE
+        "_LOOM_CORPUS_ALL_ROOTS_XFAIL_${_PROFILE_SOURCE_KEY}")
+      if(DEFINED ${_ALL_ROOTS_XFAIL_VARIABLE})
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) repeats all-roots xfail for ${_SOURCE_ID} on ${_PROFILE}")
       endif()
-      list(APPEND _ALL_ROOTS_XFAIL_IDENTITIES "${_IDENTITY}")
-      list(APPEND _ALL_ROOTS_XFAILS "${_PROFILE}" "${_SOURCE_ID}")
+      set(_XFAIL_ROOTS_VARIABLE
+        "_LOOM_CORPUS_XFAIL_ROOTS_${_PROFILE_SOURCE_KEY}")
+      if(NOT DEFINED ${_XFAIL_ROOTS_VARIABLE})
+        message(FATAL_ERROR
+          "loom_corpus_build(${_RULE_NAME}) marks all roots xfail for ${_SOURCE_ID} on ${_PROFILE} without diagnostic xfails")
+      endif()
+      set(${_ALL_ROOTS_XFAIL_VARIABLE} TRUE)
     endforeach()
   endwhile()
-  list(LENGTH _ALL_ROOTS_XFAILS _ALL_ROOTS_XFAIL_VALUE_COUNT)
 
   list(LENGTH _RULE_EXCLUDES _RULE_EXCLUDE_VALUE_COUNT)
   math(EXPR _EXCLUDE_REMAINDER "${_RULE_EXCLUDE_VALUE_COUNT} % 3")
@@ -327,8 +339,6 @@ function(_loom_declare_corpus_build ID)
     message(FATAL_ERROR
       "loom_corpus_build(${_RULE_NAME}) EXCLUDES must contain target/source/reason groups")
   endif()
-  set(_EXCLUDES)
-  set(_EXCLUDE_IDENTITIES)
   set(_INDEX 0)
   while(_INDEX LESS _RULE_EXCLUDE_VALUE_COUNT)
     list(GET _RULE_EXCLUDES ${_INDEX} _TARGET_REF)
@@ -368,60 +378,22 @@ function(_loom_declare_corpus_build ID)
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) excludes unselected profile ${_PROFILE}")
       endif()
-      set(_IDENTITY "${_PROFILE}|${_SOURCE_ID}")
-      if(_IDENTITY IN_LIST _EXCLUDE_IDENTITIES)
+      string(SHA256 _PROFILE_SOURCE_KEY "${_PROFILE}|${_SOURCE_ID}")
+      set(_EXCLUDE_VARIABLE
+        "_LOOM_CORPUS_EXCLUDE_${_PROFILE_SOURCE_KEY}")
+      if(DEFINED ${_EXCLUDE_VARIABLE})
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) repeats exclusion for ${_SOURCE_ID} on ${_PROFILE}")
       endif()
-      list(APPEND _EXCLUDE_IDENTITIES "${_IDENTITY}")
-      list(APPEND _EXCLUDES "${_PROFILE}" "${_SOURCE_ID}" "${_REASON}")
-    endforeach()
-  endwhile()
-  list(LENGTH _EXCLUDES _EXCLUDE_VALUE_COUNT)
-
-  set(_INDEX 0)
-  while(_INDEX LESS _XFAIL_VALUE_COUNT)
-    list(GET _XFAILS ${_INDEX} _XFAIL_PROFILE)
-    math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _XFAILS ${_INDEX} _XFAIL_SOURCE_ID)
-    math(EXPR _INDEX "${_INDEX} + 3")
-    set(_EXCLUDE_INDEX 0)
-    while(_EXCLUDE_INDEX LESS _EXCLUDE_VALUE_COUNT)
-      list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_PROFILE)
-      math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 1")
-      list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_SOURCE_ID)
-      math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 2")
-      if(_XFAIL_PROFILE STREQUAL _EXCLUDE_PROFILE AND
-         _XFAIL_SOURCE_ID STREQUAL _EXCLUDE_SOURCE_ID)
+      set(_XFAIL_ROOTS_VARIABLE
+        "_LOOM_CORPUS_XFAIL_ROOTS_${_PROFILE_SOURCE_KEY}")
+      if(DEFINED ${_XFAIL_ROOTS_VARIABLE})
         message(FATAL_ERROR
           "loom_corpus_build(${_RULE_NAME}) cannot both exclude and xfail "
-          "${_XFAIL_SOURCE_ID} for ${_XFAIL_PROFILE}")
+          "${_SOURCE_ID} for ${_PROFILE}")
       endif()
-    endwhile()
-  endwhile()
-
-  set(_ALL_ROOTS_XFAIL_INDEX 0)
-  while(_ALL_ROOTS_XFAIL_INDEX LESS _ALL_ROOTS_XFAIL_VALUE_COUNT)
-    list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX} _PROFILE)
-    math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
-    list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX} _SOURCE_ID)
-    math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
-    set(_HAS_XFAIL FALSE)
-    set(_XFAIL_INDEX 0)
-    while(_XFAIL_INDEX LESS _XFAIL_VALUE_COUNT)
-      list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_PROFILE)
-      math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-      list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_SOURCE_ID)
-      math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 3")
-      if(_PROFILE STREQUAL _XFAIL_PROFILE AND
-         _SOURCE_ID STREQUAL _XFAIL_SOURCE_ID)
-        set(_HAS_XFAIL TRUE)
-      endif()
-    endwhile()
-    if(NOT _HAS_XFAIL)
-      message(FATAL_ERROR
-        "loom_corpus_build(${_RULE_NAME}) marks all roots xfail for ${_SOURCE_ID} on ${_PROFILE} without diagnostic xfails")
-    endif()
+      set(${_EXCLUDE_VARIABLE} TRUE)
+    endforeach()
   endwhile()
 
   iree_package_name(_PACKAGE_NAME)
@@ -455,19 +427,10 @@ function(_loom_declare_corpus_build ID)
       if(NOT _AVAILABLE)
         continue()
       endif()
-      set(_IS_EXCLUDED FALSE)
-      set(_EXCLUDE_INDEX 0)
-      while(_EXCLUDE_INDEX LESS _EXCLUDE_VALUE_COUNT)
-        list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_PROFILE)
-        math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 1")
-        list(GET _EXCLUDES ${_EXCLUDE_INDEX} _EXCLUDE_SOURCE_ID)
-        math(EXPR _EXCLUDE_INDEX "${_EXCLUDE_INDEX} + 2")
-        if(_PROFILE STREQUAL _EXCLUDE_PROFILE AND
-           _SOURCE_ID STREQUAL _EXCLUDE_SOURCE_ID)
-          set(_IS_EXCLUDED TRUE)
-        endif()
-      endwhile()
-      if(NOT _IS_EXCLUDED)
+      string(SHA256 _PROFILE_SOURCE_KEY "${_PROFILE}|${_SOURCE_ID}")
+      set(_EXCLUDE_VARIABLE
+        "_LOOM_CORPUS_EXCLUDE_${_PROFILE_SOURCE_KEY}")
+      if(NOT DEFINED ${_EXCLUDE_VARIABLE})
         list(APPEND _ACTIVE_PROFILES "${_PROFILE}")
       endif()
     endforeach()
@@ -490,39 +453,20 @@ function(_loom_declare_corpus_build ID)
     foreach(_PROFILE IN LISTS _ACTIVE_PROFILES)
       get_target_property(_COMPILER_TARGET "${_PROFILE}" LOOM_COMPILER_TARGET)
       string(REGEX REPLACE "[:/+.]" "-" _PROFILE_STEM "${_COMPILER_TARGET}")
-      set(_XFAIL_ROOTS)
-      set(_XFAIL_DIAGNOSTICS)
-      set(_XFAIL_INDEX 0)
-      while(_XFAIL_INDEX LESS _XFAIL_VALUE_COUNT)
-        list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_PROFILE)
-        math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        list(GET _XFAILS ${_XFAIL_INDEX} _XFAIL_SOURCE_ID)
-        math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        list(GET _XFAILS ${_XFAIL_INDEX} _ROOT)
-        math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        list(GET _XFAILS ${_XFAIL_INDEX} _DIAGNOSTIC)
-        math(EXPR _XFAIL_INDEX "${_XFAIL_INDEX} + 1")
-        if(_PROFILE STREQUAL _XFAIL_PROFILE AND
-           _SOURCE_ID STREQUAL _XFAIL_SOURCE_ID)
-          list(APPEND _XFAIL_ROOTS "${_ROOT}")
-          list(APPEND _XFAIL_DIAGNOSTICS "${_DIAGNOSTIC}")
-        endif()
-      endwhile()
-
-      set(_REQUIRE_ALL_ROOTS FALSE)
-      set(_ALL_ROOTS_XFAIL_INDEX 0)
-      while(_ALL_ROOTS_XFAIL_INDEX LESS _ALL_ROOTS_XFAIL_VALUE_COUNT)
-        list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX}
-          _ALL_ROOTS_XFAIL_PROFILE)
-        math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
-        list(GET _ALL_ROOTS_XFAILS ${_ALL_ROOTS_XFAIL_INDEX}
-          _ALL_ROOTS_XFAIL_SOURCE_ID)
-        math(EXPR _ALL_ROOTS_XFAIL_INDEX "${_ALL_ROOTS_XFAIL_INDEX} + 1")
-        if(_PROFILE STREQUAL _ALL_ROOTS_XFAIL_PROFILE AND
-           _SOURCE_ID STREQUAL _ALL_ROOTS_XFAIL_SOURCE_ID)
-          set(_REQUIRE_ALL_ROOTS TRUE)
-        endif()
-      endwhile()
+      string(SHA256 _PROFILE_SOURCE_KEY "${_PROFILE}|${_SOURCE_ID}")
+      set(_XFAIL_ROOTS_VARIABLE
+        "_LOOM_CORPUS_XFAIL_ROOTS_${_PROFILE_SOURCE_KEY}")
+      set(_XFAIL_DIAGNOSTICS_VARIABLE
+        "_LOOM_CORPUS_XFAIL_DIAGNOSTICS_${_PROFILE_SOURCE_KEY}")
+      set(_XFAIL_ROOTS "${${_XFAIL_ROOTS_VARIABLE}}")
+      set(_XFAIL_DIAGNOSTICS "${${_XFAIL_DIAGNOSTICS_VARIABLE}}")
+      set(_ALL_ROOTS_XFAIL_VARIABLE
+        "_LOOM_CORPUS_ALL_ROOTS_XFAIL_${_PROFILE_SOURCE_KEY}")
+      if(DEFINED ${_ALL_ROOTS_XFAIL_VARIABLE})
+        set(_REQUIRE_ALL_ROOTS TRUE)
+      else()
+        set(_REQUIRE_ALL_ROOTS FALSE)
+      endif()
 
       if(NOT _REQUIRE_ALL_ROOTS)
         set(_ARTIFACT "${_OUTPUT_DIR}/${_PROFILE_STEM}.artifact")
@@ -641,7 +585,7 @@ function(_loom_declare_corpus_test ID)
     _RULE
     ""
     "NAME;PROFILE;RESOURCE_GROUP;REQUIRES"
-    "MANIFESTS;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
+    "MANIFESTS;XFAILS;ALLOWED_FAILURES;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
     ${_ARGUMENTS}
   )
   if(_RULE_UNPARSED_ARGUMENTS)
@@ -693,6 +637,56 @@ function(_loom_declare_corpus_test ID)
     list(APPEND _EXCLUDED_SOURCES "${_SOURCE_ID}")
   endwhile()
 
+  set(_FAILURE_QUALIFICATION_KEYS)
+  foreach(_QUALIFICATION_KIND XFAIL ALLOWED_FAILURE)
+    set(_QUALIFICATION_ARGUMENT "${_QUALIFICATION_KIND}S")
+    set(_QUALIFICATION_VALUES_VARIABLE "_RULE_${_QUALIFICATION_ARGUMENT}")
+    set(_QUALIFICATION_VALUES ${${_QUALIFICATION_VALUES_VARIABLE}})
+    if(_QUALIFICATION_KIND STREQUAL "XFAIL")
+      set(_QUALIFICATION_NAME "xfail")
+      set(_QUALIFICATION_FLAG "--xfail")
+    else()
+      set(_QUALIFICATION_NAME "allowed failure")
+      set(_QUALIFICATION_FLAG "--allow-failure")
+    endif()
+    list(LENGTH _QUALIFICATION_VALUES _QUALIFICATION_VALUE_COUNT)
+    math(EXPR _QUALIFICATION_REMAINDER "${_QUALIFICATION_VALUE_COUNT} % 3")
+    if(NOT _QUALIFICATION_REMAINDER EQUAL 0)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) ${_QUALIFICATION_ARGUMENT} must contain source/record/diagnostic triples")
+    endif()
+    set(_INDEX 0)
+    while(_INDEX LESS _QUALIFICATION_VALUE_COUNT)
+      list(GET _QUALIFICATION_VALUES ${_INDEX} _SOURCE_ID)
+      math(EXPR _INDEX "${_INDEX} + 1")
+      list(GET _QUALIFICATION_VALUES ${_INDEX} _RECORD)
+      math(EXPR _INDEX "${_INDEX} + 1")
+      list(GET _QUALIFICATION_VALUES ${_INDEX} _DIAGNOSTIC)
+      math(EXPR _INDEX "${_INDEX} + 1")
+      if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) ${_QUALIFICATION_NAME} names unknown source ${_SOURCE_ID}")
+      endif()
+      if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) source ${_SOURCE_ID} cannot be both excluded and qualified by ${_QUALIFICATION_NAME}")
+      endif()
+      if(NOT _RECORD MATCHES "^@" OR NOT _DIAGNOSTIC)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) has malformed ${_QUALIFICATION_NAME} for ${_SOURCE_ID}")
+      endif()
+      set(_QUALIFICATION_KEY "${_SOURCE_ID}=${_RECORD}")
+      if(_QUALIFICATION_KEY IN_LIST _FAILURE_QUALIFICATION_KEYS)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) repeats failure qualification ${_RECORD} for ${_SOURCE_ID}")
+      endif()
+      list(APPEND _FAILURE_QUALIFICATION_KEYS "${_QUALIFICATION_KEY}")
+      set_property(GLOBAL APPEND PROPERTY
+        "${ID}_FAILURE_QUALIFICATION_${_SOURCE_ID}"
+        "${_QUALIFICATION_FLAG}=${_RECORD}=${_DIAGNOSTIC}")
+    endwhile()
+  endforeach()
+
   set(_PROFILE_STEM "${_RULE_PROFILE}")
   if(_PROFILE_STEM MATCHES ":")
     string(REGEX REPLACE "^.*:" "" _PROFILE_STEM "${_PROFILE_STEM}")
@@ -707,6 +701,8 @@ function(_loom_declare_corpus_test ID)
     if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
       continue()
     endif()
+    get_property(_SOURCE_FAILURE_QUALIFICATION_ARGS GLOBAL PROPERTY
+      "${ID}_FAILURE_QUALIFICATION_${_SOURCE_ID}")
     list(GET _SOURCES ${_SOURCE_INDEX} _SOURCE)
     string(REGEX REPLACE "\\.loom$" "" _PROGRAM_STEM "${_SOURCE_ID}")
     string(REGEX REPLACE "[/\\.+-]" "_" _PROGRAM_STEM "${_PROGRAM_STEM}")
@@ -722,7 +718,7 @@ function(_loom_declare_corpus_test ID)
       NAME "${_PROGRAM_STEM}_test_execute_${_PROFILE_STEM}_test"
       CORRECTNESS_ONLY
       MODULE "::${_MODULE_NAME}"
-      ARGS ${_RULE_ARGS}
+      ARGS ${_RULE_ARGS} ${_SOURCE_FAILURE_QUALIFICATION_ARGS}
       RUNNER_ARGS ${_RULE_RUNNER_ARGS}
       LABELS ${_RULE_LABELS}
       RESOURCE_GROUP "${_RULE_RESOURCE_GROUP}"

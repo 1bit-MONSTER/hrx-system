@@ -1,0 +1,44 @@
+// Storage correspondence follows CFG execution, independently of block order.
+kernel.def @reordered_storage_cfg() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input_a: buffer, %input_b: buffer) {
+  %a = buffer.assume.alignment %input_a {minimum_alignment = 16} : buffer
+  %b = buffer.assume.alignment %input_b {minimum_alignment = 16} : buffer
+  %start = index.constant 0 : index
+  %end = index.constant 3 : index
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %c1 = scalar.constant 1 : i32
+  cfg.br ^header(%start: index)
+^header(%i: index):
+  %continue = index.cmp slt, %i, %end : index
+  cfg.cond_br %continue, ^body, ^exit
+^body:
+  %middle = index.cmp eq, %i, %step : index
+  %read_buffer = scf.select %middle, %b, %a : buffer
+  %write_buffer = scf.select %middle, %a, %b : buffer
+  %read_unique, %write_unique = buffer.assume.noalias %read_buffer, %write_buffer : buffer, buffer
+  %source = buffer.view %read_unique[%base] : buffer -> view<1xi32>
+  %dest = buffer.view %write_unique[%base] : buffer -> view<1xi32>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %next = scalar.addi %value, %c1 : i32
+  view.store %next, %dest[0] : i32, view<1xi32>
+  cfg.br ^latch(%i: index)
+^latch(%latch_i: index):
+  %next_i = index.add %latch_i, %step : index
+  cfg.br ^header(%next_i: index)
+^exit:
+  kernel.return
+}
+
+check.case public @reordered_storage_cfg_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  kernel.launch @reordered_storage_cfg(%a, %b) : (tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  check.return
+}

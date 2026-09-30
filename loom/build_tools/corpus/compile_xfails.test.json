@@ -81,6 +81,30 @@
       ]
     },
     {
+      "name": "accepts one of several declared diagnostics",
+      "run": {
+        "tool": "loom-corpus-compile-xfails",
+        "args": [
+          "--compiler={tool:loom-compile}",
+          "--expected-root=@unsupported_vector_one",
+          "--expected-diagnostic=TYPE/001,TARGET/033",
+          "--stamp-output={tmp}/alternatives.stamp",
+          "{srcdir}/testdata/diagnostic_xfails.loom",
+          "--target=vm:core"
+        ]
+      },
+      "stdout": {"empty": true},
+      "stderr": {"empty": true},
+      "files": [
+        {
+          "path": "{tmp}/alternatives.stamp",
+          "contains": [
+            "@unsupported_vector_one TYPE/001,TARGET/033"
+          ]
+        }
+      ]
+    },
+    {
       "name": "rejects the wrong diagnostic",
       "run": {
         "tool": "loom-corpus-compile-xfails",

@@ -1,0 +1,80 @@
+// A byte load preserves its unsigned byte value in an i32 result.
+kernel.def @aligned_byte_increment() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %aligned_input, %aligned_output = buffer.assume.alignment %input, %output {minimum_alignment = 4} : buffer, buffer
+  %source, %destination = buffer.assume.noalias %aligned_input, %aligned_output : buffer, buffer
+  %base = index.constant 0 : offset
+  %c1 = scalar.constant 1 : i32
+  %byte = buffer.load.i8.u %source[%base]
+  %next = scalar.addi %byte, %c1 : i32
+  %output_view = buffer.view %destination[%base] : buffer -> view<1xi32>
+  view.store %next, %output_view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// An immutable byte input chooses the storage read on each iteration.
+kernel.def @byte_selected_storage() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input_a: buffer, %input_b: buffer, %control: buffer) {
+  %a = buffer.assume.alignment %input_a {minimum_alignment = 16} : buffer
+  %b = buffer.assume.alignment %input_b {minimum_alignment = 16} : buffer
+  %start = index.constant 0 : index
+  %end = index.constant 3 : index
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %c1 = scalar.constant 1 : i32
+  %control_unique = buffer.assume.noalias %control : buffer
+  scf.for %i = [%start to %end step %step] {
+    %choice = buffer.load.i8.u %control_unique[%base]
+    %middle = scalar.cmpi eq, %choice, %c1 : i32
+    %read_buffer = scf.select %middle, %b, %a : buffer
+    %write_buffer = scf.select %middle, %a, %b : buffer
+    %read_unique, %write_unique = buffer.assume.noalias %read_buffer, %write_buffer : buffer, buffer
+    %source = buffer.view %read_unique[%base] : buffer -> view<1xi32>
+    %dest = buffer.view %write_unique[%base] : buffer -> view<1xi32>
+    %value = view.load %source[0] : view<1xi32> -> i32
+    %next = scalar.addi %value, %c1 : i32
+    view.store %next, %dest[0] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
+check.case public @aligned_byte_increment_result {
+  %input = check.generate.fill value(-1) : tensor<4xi8>
+  %output = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @aligned_byte_increment(%input, %output) : (tensor<4xi8>, tensor<1xi32>)
+  %expected = check.generate.fill value(256) : tensor<1xi32>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.case public @byte_selected_storage_reads_first {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @byte_selected_storage(%a, %b, %control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @byte_selected_storage_reads_second {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  kernel.launch @byte_selected_storage(%a, %b, %control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  check.return
+}

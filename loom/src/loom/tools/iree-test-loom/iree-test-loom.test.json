@@ -153,6 +153,164 @@
       }
     },
     {
+      "name": "fails an expected rejection that unexpectedly passes",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/scalar_cases.loom",
+          "--case=@sampled_choice",
+          "--sample=1",
+          "--xfail=@sampled_choice=TARGET/003"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xpass_count\":1",
+          "\"record\":\"@sampled_choice\",\"diagnostic\":\"TARGET/003\",\"outcome\":\"xpass\""
+        ]
+      }
+    },
+    {
+      "name": "reports an unknown expected diagnostic as a mismatch",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--xfail=@equal_mismatch=EXPECT/999"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xfail_mismatch_count\":1",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/999\",\"outcome\":\"diagnostic_mismatch\",\"observed_diagnostic\":\"EXPECT/001\""
+        ]
+      }
+    },
+    {
+      "name": "accepts an expected runtime check failure",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--xfail=@equal_mismatch=EXPECT/001"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"failed_sample_count\":1",
+          "\"xfail_count\":1",
+          "\"xpass_count\":0",
+          "\"xfail_mismatch_count\":0",
+          "\"diagnostic\":\"EXPECT/001\"",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/001\",\"outcome\":\"xfail\""
+        ]
+      }
+    },
+    {
+      "name": "accepts any named expected diagnostic",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--xfail=@equal_mismatch=EXPECT/002,EXPECT/001"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":1",
+          "\"xpass_count\":0",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/002,EXPECT/001\",\"outcome\":\"xfail\",\"policy\":\"strict\""
+        ]
+      }
+    },
+    {
+      "name": "allows a qualified record to pass",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/scalar_cases.loom",
+          "--case=@sampled_choice",
+          "--sample=1",
+          "--allow-failure=@sampled_choice=TARGET/003"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xpass_count\":0",
+          "\"xfail_mismatch_count\":0",
+          "\"record\":\"@sampled_choice\",\"diagnostic\":\"TARGET/003\",\"outcome\":\"pass\",\"policy\":\"allow_failure\""
+        ]
+      }
+    },
+    {
+      "name": "accepts an allowed failure with its named diagnostic",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--allow-failure=@equal_mismatch=EXPECT/001"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"failed_sample_count\":1",
+          "\"xfail_count\":1",
+          "\"xpass_count\":0",
+          "\"xfail_mismatch_count\":0",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/001\",\"outcome\":\"xfail\",\"policy\":\"allow_failure\""
+        ]
+      }
+    },
+    {
+      "name": "fails when an allowed failure diagnostic drifts",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--allow-failure=@equal_mismatch=EXPECT/002"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xfail_mismatch_count\":1",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/002\",\"outcome\":\"diagnostic_mismatch\",\"observed_diagnostic\":\"EXPECT/001\",\"policy\":\"allow_failure\""
+        ]
+      }
+    },
+    {
+      "name": "fails when a runtime check diagnostic drifts",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--xfail=@equal_mismatch=EXPECT/002"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xfail_mismatch_count\":1",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/002\",\"outcome\":\"diagnostic_mismatch\",\"observed_diagnostic\":\"EXPECT/001\""
+        ]
+      }
+    },
+    {
       "name": "links explicit bytecode library into authored input",
       "steps": [
         {

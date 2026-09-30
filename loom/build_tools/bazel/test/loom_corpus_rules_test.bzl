@@ -11,6 +11,7 @@ load("@rules_testing//lib:util.bzl", "TestingAspectInfo")
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "LoomCorpusBuildInfo",
+    "LoomExecutionTestInfo",
 )
 
 _FIXTURE = "//loom/build_tools/bazel/test/testdata/corpus/target"
@@ -35,7 +36,7 @@ def _test_program_fans_out_by_profile(name, **kwargs):
     analysis_test(
         name = name,
         impl = _test_program_fans_out_by_profile_impl,
-        target = _FIXTURE + ":sample_fixture",
+        target = _FIXTURE + ":sample_nested_fixture",
         **kwargs
     )
 
@@ -84,7 +85,7 @@ def _test_program_exposes_outputs_and_batched_xfails(name, **kwargs):
     analysis_test(
         name = name,
         impl = _test_program_exposes_outputs_and_batched_xfails_impl,
-        target = _FIXTURE + ":sample_fixture",
+        target = _FIXTURE + ":sample_nested_fixture",
         **kwargs
     )
 
@@ -188,7 +189,7 @@ def _test_aggregate_collects_program_outputs_impl(env, target):
         env.fail("expected three catalog sources, got %r" % corpus.sources.to_list())
     if sorted(corpus.source_identities.to_list()) != [
         "sample/excluded.loom",
-        "sample/fixture.loom",
+        "sample/nested/fixture.loom",
         "sample/other.loom",
     ]:
         env.fail("unexpected source identities %r" % corpus.source_identities.to_list())
@@ -221,11 +222,47 @@ def _test_program_allows_explicit_full_exclusion_impl(env, target):
     if target[DefaultInfo].files.to_list():
         env.fail("a fully excluded source must not claim qualification outputs")
 
+def _test_execution_partitions_profiles_and_xfails(name, **kwargs):
+    analysis_test(
+        name = name,
+        impl = _test_execution_partitions_profiles_and_xfails_impl,
+        target = ":sample_nested_fixture_test_execute_reference_test_launcher",
+        **kwargs
+    )
+
+def _test_execution_partitions_profiles_and_xfails_impl(env, target):
+    info = target[LoomExecutionTestInfo]
+    if info.test_runner_args != [
+        "--max-samples-per-case=1",
+        "--xfail=@fixture_cases=TARGET/003,EXPECT/003",
+    ]:
+        env.fail("unexpected corpus correctness arguments %r" % info.test_runner_args)
+    if info.benchmark_runner != None or info.benchmark_runner_args:
+        env.fail("corpus execution must remain correctness-only")
+
+def _test_execution_carries_allowed_failures(name, **kwargs):
+    analysis_test(
+        name = name,
+        impl = _test_execution_carries_allowed_failures_impl,
+        target = ":sample_other_test_execute_reference_test_launcher",
+        **kwargs
+    )
+
+def _test_execution_carries_allowed_failures_impl(env, target):
+    info = target[LoomExecutionTestInfo]
+    if info.test_runner_args != [
+        "--max-samples-per-case=1",
+        "--allow-failure=@other_case=TARGET/003,EXPECT/003",
+    ]:
+        env.fail("unexpected corpus correctness arguments %r" % info.test_runner_args)
+
 def loom_corpus_rules_test_suite(name):
     test_suite(
         name = name,
         tests = [
             _test_aggregate_collects_program_outputs,
+            _test_execution_carries_allowed_failures,
+            _test_execution_partitions_profiles_and_xfails,
             _test_program_allows_explicit_full_exclusion,
             _test_program_exposes_outputs_and_batched_xfails,
             _test_program_fans_out_by_profile,

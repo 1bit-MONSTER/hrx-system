@@ -14,6 +14,7 @@
 #define LOOM_TOOLING_TESTBENCH_EXPECTATION_H_
 
 #include "iree/base/api.h"
+#include "loom/error/error_defs.h"
 #include "loom/tooling/testbench/device_event.h"
 #include "loom/tooling/testbench/value_materializer.h"
 #include "loom/util/stream.h"
@@ -49,6 +50,8 @@ typedef struct loom_testbench_expectation_failure_t {
   const loom_testbench_expectation_plan_t* expectation;
   // Kind copied from |expectation| for report consumers.
   loom_testbench_expectation_kind_t kind;
+  // Stable EXPECT-domain diagnostic identity for this mismatch kind.
+  loom_error_ref_t diagnostic_ref;
   // Actual value ID compared by the expectation.
   loom_value_id_t actual_value_id;
   // Expected value ID, or INVALID when not applicable.

@@ -15,9 +15,27 @@ loom_corpus_sources(
   MANIFEST
     "control"
   SRCS
-    "pipelined_address_domains.loom"
-    "structured_control.loom"
-    "vector_recurrence.loom"
+    "branch/cfg.loom"
+    "branch/effects.loom"
+    "branch/guards.loom"
+    "branch/results.loom"
+    "branch/structured.loom"
+    "branch/uniform_predicate.loom"
+    "loop/callable.loom"
+    "loop/carried_lane_liveness.loom"
+    "loop/condition.loom"
+    "loop/count.loom"
+    "loop/rotation/offsets.loom"
+    "loop/rotation/values.loom"
+    "loop/rotation/views.loom"
+    "loop/sequential_slices.loom"
+    "loop/termination.loom"
+    "loop/vector_recurrence.loom"
+    "loop/wide_index_recurrence.loom"
+    "schedule/address_domains.loom"
+    "schedule/guarded_recurrence.loom"
+    "schedule/ordered_read_ahead.loom"
+    "schedule/unroll_scope.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

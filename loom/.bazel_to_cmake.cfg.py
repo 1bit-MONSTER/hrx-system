@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import dataclasses
 import importlib.util
 import os
 import re
@@ -33,6 +34,21 @@ def _load_loom_corpus_build_file_functions():
 
 
 LoomCorpusBuildFileFunctions = _load_loom_corpus_build_file_functions()
+
+
+@dataclasses.dataclass(frozen=True)
+class _LoomExecutionProfile:
+    kind: str
+    name: str
+    target_family: str
+    target_class: str
+    executor: str
+    runner: str | None
+    runner_args: list[str] | None
+    build_requirements: list
+    run_requirements: list
+    resource_group: str | None
+    tags: list[str]
 
 
 def _load_generated_amdgpu_target_config():
@@ -397,19 +413,19 @@ class LoomBuildFileFunctions(
         tags=None,
     ):
         self._reject_workload_args(name, runner_args)
-        return {
-            "kind": "loom_execution_profile",
-            "name": name,
-            "target_family": target_family,
-            "target_class": target_class,
-            "executor": executor,
-            "runner": runner,
-            "runner_args": runner_args,
-            "build_requirements": build_requirements or [],
-            "run_requirements": run_requirements or [],
-            "resource_group": resource_group,
-            "tags": tags or [],
-        }
+        return _LoomExecutionProfile(
+            kind="loom_execution_profile",
+            name=name,
+            target_family=target_family,
+            target_class=target_class,
+            executor=executor,
+            runner=runner,
+            runner_args=runner_args,
+            build_requirements=build_requirements or [],
+            run_requirements=run_requirements or [],
+            resource_group=resource_group,
+            tags=tags or [],
+        )
 
     @staticmethod
     def _loom_test_name_suffix(value):
@@ -541,15 +557,15 @@ class LoomBuildFileFunctions(
             )
             execution_names = set()
             for profile in execution_profiles or []:
-                if profile.get("kind") != "loom_execution_profile":
+                if profile.kind != "loom_execution_profile":
                     raise ValueError(
                         f"{name} execution profile was not created by loom_execution_profile"
                     )
-                suffix = self._loom_test_name_suffix(profile["name"])
+                suffix = self._loom_test_name_suffix(profile.name)
                 execution_name = f"{workload_name}_execute_{suffix}_test"
                 if execution_name in execution_names:
                     raise ValueError(
-                        f"{name} has colliding execution profiles: {profile['name']}"
+                        f"{name} has colliding execution profiles: {profile.name}"
                     )
                 execution_names.add(execution_name)
                 self._loom_execution_test(
@@ -576,25 +592,25 @@ class LoomBuildFileFunctions(
     def _loom_execution_test(
         self, name, module, profile, args, benchmark_smoke, tags, workload_args
     ):
-        if profile["runner"]:
+        if profile.runner:
             self._converter.body += (
-                f"# {name} uses the Bazel execution runner {profile['runner']}; "
+                f"# {name} uses the Bazel execution runner {profile.runner}; "
                 "no CMake execution target is available.\n\n"
             )
             return
         policy = bazel_to_cmake_requirements.CollectedPackagePolicy(
-            build_requirements=profile["build_requirements"],
-            run_requirements=profile["run_requirements"],
-            resource_group=profile["resource_group"],
+            build_requirements=profile.build_requirements,
+            run_requirements=profile.run_requirements,
+            resource_group=profile.resource_group,
         )
-        labels = list(tags or []) + profile["tags"]
+        labels = list(tags or []) + profile.tags
         labels.extend(policy.tags(include_run_requirements=True))
         labels.extend(
             [
-                "loom-execution-profile=" + profile["name"],
-                "loom-target-family=" + profile["target_family"],
-                "loom-target-class=" + profile["target_class"],
-                "loom-executor=" + profile["executor"],
+                "loom-execution-profile=" + profile.name,
+                "loom-target-family=" + profile.target_family,
+                "loom-target-class=" + profile.target_class,
+                "loom-executor=" + profile.executor,
             ]
         )
         blocks = [
@@ -607,7 +623,7 @@ class LoomBuildFileFunctions(
             self._convert_string_list_block(
                 "RUNNER_ARGS",
                 self._convert_test_location_args(
-                    (profile["runner_args"] or []) + workload_args or None
+                    (profile.runner_args or []) + workload_args or None
                 ),
                 sort=False,
             ),

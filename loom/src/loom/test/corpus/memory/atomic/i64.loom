@@ -1,0 +1,517 @@
+// Each update crosses a 32-bit boundary. The same operations use bounded
+// global addresses and generic pointers, retaining both words of old values.
+kernel.def @integer_atomic_i64() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%global_storage: buffer, %generic_storage: buffer, %output: buffer, %value: i64, %initial: i64) {
+  %base = index.constant 8 : offset
+  %output_base = index.constant 16 : offset
+  %global = buffer.assume.memory_space<global> %global_storage : buffer
+  %generic = buffer.assume.memory_space<generic> %generic_storage : buffer
+  %global_whole = buffer.view %global[%base] : buffer -> view<14xi64>
+  %generic_whole = buffer.view %generic[%base] : buffer -> view<14xi64>
+  %global_view = view.subview %global_whole[1] : view<14xi64> -> view<12xi64>
+  %generic_view = view.subview %generic_whole[1] : view<14xi64> -> view<12xi64>
+  %results = buffer.view %output[%output_base] : buffer -> view<2x12xi64>
+  view.atomic.reduce<addi> %value, %global_view[0] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_addi = view.atomic.rmw<addi> %value, %global_view[0] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_addi, %results[0, 0] : i64, view<2x12xi64>
+  view.atomic.reduce<subi> %value, %global_view[1] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_subi = view.atomic.rmw<subi> %value, %global_view[1] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_subi, %results[0, 1] : i64, view<2x12xi64>
+  view.atomic.reduce<minsi> %value, %global_view[2] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_minsi = view.atomic.rmw<minsi> %value, %global_view[2] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_minsi, %results[0, 2] : i64, view<2x12xi64>
+  view.atomic.reduce<maxsi> %value, %global_view[3] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_maxsi = view.atomic.rmw<maxsi> %value, %global_view[3] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_maxsi, %results[0, 3] : i64, view<2x12xi64>
+  view.atomic.reduce<minui> %value, %global_view[4] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_minui = view.atomic.rmw<minui> %value, %global_view[4] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_minui, %results[0, 4] : i64, view<2x12xi64>
+  view.atomic.reduce<maxui> %value, %global_view[5] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_maxui = view.atomic.rmw<maxui> %value, %global_view[5] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_maxui, %results[0, 5] : i64, view<2x12xi64>
+  view.atomic.reduce<andi> %value, %global_view[6] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_andi = view.atomic.rmw<andi> %value, %global_view[6] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_andi, %results[0, 6] : i64, view<2x12xi64>
+  view.atomic.reduce<ori> %value, %global_view[7] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_ori = view.atomic.rmw<ori> %value, %global_view[7] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_ori, %results[0, 7] : i64, view<2x12xi64>
+  view.atomic.reduce<xori> %value, %global_view[8] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %global_xori = view.atomic.rmw<xori> %value, %global_view[8] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_xori, %results[0, 8] : i64, view<2x12xi64>
+  %global_swap = view.atomic.rmw<xchgi> %value, %global_view[9] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %global_swap, %results[0, 9] : i64, view<2x12xi64>
+  %global_cas_10 = view.atomic.cmpxchg %initial, %value, %global_view[10] {failure_ordering = relaxed, scope = device, success_ordering = relaxed} : i64, view<12xi64> -> i64
+  view.store %global_cas_10, %results[0, 10] : i64, view<2x12xi64>
+  %global_cas_11 = view.atomic.cmpxchg %value, %value, %global_view[11] {failure_ordering = relaxed, scope = device, success_ordering = relaxed} : i64, view<12xi64> -> i64
+  view.store %global_cas_11, %results[0, 11] : i64, view<2x12xi64>
+  view.atomic.reduce<addi> %value, %generic_view[0] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_addi = view.atomic.rmw<addi> %value, %generic_view[0] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_addi, %results[1, 0] : i64, view<2x12xi64>
+  view.atomic.reduce<subi> %value, %generic_view[1] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_subi = view.atomic.rmw<subi> %value, %generic_view[1] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_subi, %results[1, 1] : i64, view<2x12xi64>
+  view.atomic.reduce<minsi> %value, %generic_view[2] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_minsi = view.atomic.rmw<minsi> %value, %generic_view[2] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_minsi, %results[1, 2] : i64, view<2x12xi64>
+  view.atomic.reduce<maxsi> %value, %generic_view[3] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_maxsi = view.atomic.rmw<maxsi> %value, %generic_view[3] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_maxsi, %results[1, 3] : i64, view<2x12xi64>
+  view.atomic.reduce<minui> %value, %generic_view[4] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_minui = view.atomic.rmw<minui> %value, %generic_view[4] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_minui, %results[1, 4] : i64, view<2x12xi64>
+  view.atomic.reduce<maxui> %value, %generic_view[5] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_maxui = view.atomic.rmw<maxui> %value, %generic_view[5] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_maxui, %results[1, 5] : i64, view<2x12xi64>
+  view.atomic.reduce<andi> %value, %generic_view[6] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_andi = view.atomic.rmw<andi> %value, %generic_view[6] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_andi, %results[1, 6] : i64, view<2x12xi64>
+  view.atomic.reduce<ori> %value, %generic_view[7] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_ori = view.atomic.rmw<ori> %value, %generic_view[7] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_ori, %results[1, 7] : i64, view<2x12xi64>
+  view.atomic.reduce<xori> %value, %generic_view[8] {ordering = relaxed, scope = device} : i64, view<12xi64>
+  %generic_xori = view.atomic.rmw<xori> %value, %generic_view[8] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_xori, %results[1, 8] : i64, view<2x12xi64>
+  %generic_swap = view.atomic.rmw<xchgi> %value, %generic_view[9] {ordering = relaxed, scope = device} : i64, view<12xi64> -> i64
+  view.store %generic_swap, %results[1, 9] : i64, view<2x12xi64>
+  %generic_cas_10 = view.atomic.cmpxchg %initial, %value, %generic_view[10] {failure_ordering = relaxed, scope = device, success_ordering = relaxed} : i64, view<12xi64> -> i64
+  view.store %generic_cas_10, %results[1, 10] : i64, view<2x12xi64>
+  %generic_cas_11 = view.atomic.cmpxchg %value, %value, %generic_view[11] {failure_ordering = relaxed, scope = device, success_ordering = relaxed} : i64, view<12xi64> -> i64
+  view.store %generic_cas_11, %results[1, 11] : i64, view<2x12xi64>
+  kernel.return
+}
+
+// ====
+// LDS reductions and returning updates preserve both words, signed ordering,
+// and neighboring cells. Each operation starts from the same source value.
+kernel.def @workgroup_integer_atomic_i64() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer, %value: i64, %initial: i64) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 88 : offset
+  %storage = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %whole = buffer.view %storage[%base] : buffer -> view<11xi64>
+  %cells = view.subview %whole[1] : view<11xi64> -> view<9xi64>
+  %results = buffer.view %output[%base] : buffer -> view<20xi64>
+  view.store %initial, %whole[0] : i64, view<11xi64>
+  view.store %initial, %whole[10] : i64, view<11xi64>
+  view.store %initial, %cells[0] : i64, view<9xi64>
+  view.atomic.reduce<addi> %value, %cells[0] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %addi_old = view.atomic.rmw<addi> %value, %cells[0] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %addi_final = view.load %cells[0] : view<9xi64> -> i64
+  view.store %addi_old, %results[0] : i64, view<20xi64>
+  view.store %addi_final, %results[9] : i64, view<20xi64>
+  view.store %initial, %cells[1] : i64, view<9xi64>
+  view.atomic.reduce<subi> %value, %cells[1] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %subi_old = view.atomic.rmw<subi> %value, %cells[1] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %subi_final = view.load %cells[1] : view<9xi64> -> i64
+  view.store %subi_old, %results[1] : i64, view<20xi64>
+  view.store %subi_final, %results[10] : i64, view<20xi64>
+  view.store %initial, %cells[2] : i64, view<9xi64>
+  view.atomic.reduce<minsi> %value, %cells[2] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %minsi_old = view.atomic.rmw<minsi> %value, %cells[2] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %minsi_final = view.load %cells[2] : view<9xi64> -> i64
+  view.store %minsi_old, %results[2] : i64, view<20xi64>
+  view.store %minsi_final, %results[11] : i64, view<20xi64>
+  view.store %initial, %cells[3] : i64, view<9xi64>
+  view.atomic.reduce<maxsi> %value, %cells[3] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %maxsi_old = view.atomic.rmw<maxsi> %value, %cells[3] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %maxsi_final = view.load %cells[3] : view<9xi64> -> i64
+  view.store %maxsi_old, %results[3] : i64, view<20xi64>
+  view.store %maxsi_final, %results[12] : i64, view<20xi64>
+  view.store %initial, %cells[4] : i64, view<9xi64>
+  view.atomic.reduce<minui> %value, %cells[4] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %minui_old = view.atomic.rmw<minui> %value, %cells[4] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %minui_final = view.load %cells[4] : view<9xi64> -> i64
+  view.store %minui_old, %results[4] : i64, view<20xi64>
+  view.store %minui_final, %results[13] : i64, view<20xi64>
+  view.store %initial, %cells[5] : i64, view<9xi64>
+  view.atomic.reduce<maxui> %value, %cells[5] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %maxui_old = view.atomic.rmw<maxui> %value, %cells[5] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %maxui_final = view.load %cells[5] : view<9xi64> -> i64
+  view.store %maxui_old, %results[5] : i64, view<20xi64>
+  view.store %maxui_final, %results[14] : i64, view<20xi64>
+  view.store %initial, %cells[6] : i64, view<9xi64>
+  view.atomic.reduce<andi> %value, %cells[6] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %andi_old = view.atomic.rmw<andi> %value, %cells[6] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %andi_final = view.load %cells[6] : view<9xi64> -> i64
+  view.store %andi_old, %results[6] : i64, view<20xi64>
+  view.store %andi_final, %results[15] : i64, view<20xi64>
+  view.store %initial, %cells[7] : i64, view<9xi64>
+  view.atomic.reduce<ori> %value, %cells[7] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %ori_old = view.atomic.rmw<ori> %value, %cells[7] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %ori_final = view.load %cells[7] : view<9xi64> -> i64
+  view.store %ori_old, %results[7] : i64, view<20xi64>
+  view.store %ori_final, %results[16] : i64, view<20xi64>
+  view.store %initial, %cells[8] : i64, view<9xi64>
+  view.atomic.reduce<xori> %value, %cells[8] {ordering = relaxed, scope = workgroup} : i64, view<9xi64>
+  %xori_old = view.atomic.rmw<xori> %value, %cells[8] {ordering = relaxed, scope = workgroup} : i64, view<9xi64> -> i64
+  %xori_final = view.load %cells[8] : view<9xi64> -> i64
+  view.store %xori_old, %results[8] : i64, view<20xi64>
+  view.store %xori_final, %results[17] : i64, view<20xi64>
+  %before = view.load %whole[0] : view<11xi64> -> i64
+  %after = view.load %whole[10] : view<11xi64> -> i64
+  view.store %before, %results[18] : i64, view<20xi64>
+  view.store %after, %results[19] : i64, view<20xi64>
+  kernel.return
+}
+
+// Returned values, final memory, and untouched boundary guards are checked
+// independently across all three memory spaces.
+check.case public @integer_atomic_i64_values {
+  %initial = check.literal value(-4294967297) : i64
+  %value = check.literal value(4294967299) : i64
+  %global = check.generate.fill value(-4294967297) : tensor<16xi64>
+  %generic = check.generate.fill value(-4294967297) : tensor<16xi64>
+  %output = check.generate.fill value(37) : tensor<28xi64>
+  %workgroup_output = check.generate.fill value(37) : tensor<20xi64>
+  kernel.launch @workgroup_integer_atomic_i64(%workgroup_output, %value, %initial) : (tensor<20xi64>, i64, i64)
+  kernel.launch @integer_atomic_i64(%global, %generic, %output, %value, %initial) : (tensor<16xi64>, tensor<16xi64>, tensor<28xi64>, i64, i64)
+  %old_0 = check.generate.fill value(2) : tensor<1xi64>
+  %final_0 = check.generate.fill value(4294967301) : tensor<1xi64>
+  %workgroup_old_0 = check.tensor.view %workgroup_output offset(0) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_0 = check.tensor.view %workgroup_output offset(72) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_0) expected(%old_0) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_0) expected(%final_0) : tensor<1xi64>
+  %global_old_0 = check.tensor.view %output offset(16) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_0 = check.tensor.view %global offset(16) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_0) expected(%old_0) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_0) expected(%final_0) : tensor<1xi64>
+  %generic_old_0 = check.tensor.view %output offset(112) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_0 = check.tensor.view %generic offset(16) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_0) expected(%old_0) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_0) expected(%final_0) : tensor<1xi64>
+  %old_1 = check.generate.fill value(-8589934596) : tensor<1xi64>
+  %final_1 = check.generate.fill value(-12884901895) : tensor<1xi64>
+  %workgroup_old_1 = check.tensor.view %workgroup_output offset(8) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_1 = check.tensor.view %workgroup_output offset(80) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_1) expected(%old_1) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_1) expected(%final_1) : tensor<1xi64>
+  %global_old_1 = check.tensor.view %output offset(24) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_1 = check.tensor.view %global offset(24) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_1) expected(%old_1) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_1) expected(%final_1) : tensor<1xi64>
+  %generic_old_1 = check.tensor.view %output offset(120) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_1 = check.tensor.view %generic offset(24) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_1) expected(%old_1) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_1) expected(%final_1) : tensor<1xi64>
+  %old_2 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %final_2 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %workgroup_old_2 = check.tensor.view %workgroup_output offset(16) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_2 = check.tensor.view %workgroup_output offset(88) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_2) expected(%old_2) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_2) expected(%final_2) : tensor<1xi64>
+  %global_old_2 = check.tensor.view %output offset(32) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_2 = check.tensor.view %global offset(32) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_2) expected(%old_2) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_2) expected(%final_2) : tensor<1xi64>
+  %generic_old_2 = check.tensor.view %output offset(128) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_2 = check.tensor.view %generic offset(32) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_2) expected(%old_2) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_2) expected(%final_2) : tensor<1xi64>
+  %old_3 = check.generate.fill value(4294967299) : tensor<1xi64>
+  %final_3 = check.generate.fill value(4294967299) : tensor<1xi64>
+  %workgroup_old_3 = check.tensor.view %workgroup_output offset(24) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_3 = check.tensor.view %workgroup_output offset(96) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_3) expected(%old_3) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_3) expected(%final_3) : tensor<1xi64>
+  %global_old_3 = check.tensor.view %output offset(40) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_3 = check.tensor.view %global offset(40) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_3) expected(%old_3) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_3) expected(%final_3) : tensor<1xi64>
+  %generic_old_3 = check.tensor.view %output offset(136) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_3 = check.tensor.view %generic offset(40) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_3) expected(%old_3) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_3) expected(%final_3) : tensor<1xi64>
+  %old_4 = check.generate.fill value(4294967299) : tensor<1xi64>
+  %final_4 = check.generate.fill value(4294967299) : tensor<1xi64>
+  %workgroup_old_4 = check.tensor.view %workgroup_output offset(32) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_4 = check.tensor.view %workgroup_output offset(104) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_4) expected(%old_4) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_4) expected(%final_4) : tensor<1xi64>
+  %global_old_4 = check.tensor.view %output offset(48) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_4 = check.tensor.view %global offset(48) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_4) expected(%old_4) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_4) expected(%final_4) : tensor<1xi64>
+  %generic_old_4 = check.tensor.view %output offset(144) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_4 = check.tensor.view %generic offset(48) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_4) expected(%old_4) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_4) expected(%final_4) : tensor<1xi64>
+  %old_5 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %final_5 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %workgroup_old_5 = check.tensor.view %workgroup_output offset(40) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_5 = check.tensor.view %workgroup_output offset(112) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_5) expected(%old_5) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_5) expected(%final_5) : tensor<1xi64>
+  %global_old_5 = check.tensor.view %output offset(56) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_5 = check.tensor.view %global offset(56) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_5) expected(%old_5) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_5) expected(%final_5) : tensor<1xi64>
+  %generic_old_5 = check.tensor.view %output offset(152) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_5 = check.tensor.view %generic offset(56) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_5) expected(%old_5) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_5) expected(%final_5) : tensor<1xi64>
+  %old_6 = check.generate.fill value(3) : tensor<1xi64>
+  %final_6 = check.generate.fill value(3) : tensor<1xi64>
+  %workgroup_old_6 = check.tensor.view %workgroup_output offset(48) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_6 = check.tensor.view %workgroup_output offset(120) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_6) expected(%old_6) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_6) expected(%final_6) : tensor<1xi64>
+  %global_old_6 = check.tensor.view %output offset(64) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_6 = check.tensor.view %global offset(64) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_6) expected(%old_6) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_6) expected(%final_6) : tensor<1xi64>
+  %generic_old_6 = check.tensor.view %output offset(160) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_6 = check.tensor.view %generic offset(64) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_6) expected(%old_6) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_6) expected(%final_6) : tensor<1xi64>
+  %old_7 = check.generate.fill value(-1) : tensor<1xi64>
+  %final_7 = check.generate.fill value(-1) : tensor<1xi64>
+  %workgroup_old_7 = check.tensor.view %workgroup_output offset(56) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_7 = check.tensor.view %workgroup_output offset(128) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_7) expected(%old_7) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_7) expected(%final_7) : tensor<1xi64>
+  %global_old_7 = check.tensor.view %output offset(72) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_7 = check.tensor.view %global offset(72) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_7) expected(%old_7) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_7) expected(%final_7) : tensor<1xi64>
+  %generic_old_7 = check.tensor.view %output offset(168) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_7 = check.tensor.view %generic offset(72) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_7) expected(%old_7) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_7) expected(%final_7) : tensor<1xi64>
+  %old_8 = check.generate.fill value(-4) : tensor<1xi64>
+  %final_8 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %workgroup_old_8 = check.tensor.view %workgroup_output offset(64) : tensor<20xi64> -> tensor<1xi64>
+  %workgroup_final_8 = check.tensor.view %workgroup_output offset(136) : tensor<20xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_old_8) expected(%old_8) : tensor<1xi64>
+  check.expect.bitwise actual(%workgroup_final_8) expected(%final_8) : tensor<1xi64>
+  %global_old_8 = check.tensor.view %output offset(80) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_8 = check.tensor.view %global offset(80) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_8) expected(%old_8) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_8) expected(%final_8) : tensor<1xi64>
+  %generic_old_8 = check.tensor.view %output offset(176) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_8 = check.tensor.view %generic offset(80) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_8) expected(%old_8) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_8) expected(%final_8) : tensor<1xi64>
+  %old_9 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %final_9 = check.generate.fill value(4294967299) : tensor<1xi64>
+  %global_old_9 = check.tensor.view %output offset(88) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_9 = check.tensor.view %global offset(88) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_9) expected(%old_9) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_9) expected(%final_9) : tensor<1xi64>
+  %generic_old_9 = check.tensor.view %output offset(184) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_9 = check.tensor.view %generic offset(88) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_9) expected(%old_9) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_9) expected(%final_9) : tensor<1xi64>
+  %old_10 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %final_10 = check.generate.fill value(4294967299) : tensor<1xi64>
+  %global_old_10 = check.tensor.view %output offset(96) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_10 = check.tensor.view %global offset(96) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_10) expected(%old_10) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_10) expected(%final_10) : tensor<1xi64>
+  %generic_old_10 = check.tensor.view %output offset(192) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_10 = check.tensor.view %generic offset(96) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_10) expected(%old_10) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_10) expected(%final_10) : tensor<1xi64>
+  %old_11 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %final_11 = check.generate.fill value(-4294967297) : tensor<1xi64>
+  %global_old_11 = check.tensor.view %output offset(104) : tensor<28xi64> -> tensor<1xi64>
+  %global_final_11 = check.tensor.view %global offset(104) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_old_11) expected(%old_11) : tensor<1xi64>
+  check.expect.bitwise actual(%global_final_11) expected(%final_11) : tensor<1xi64>
+  %generic_old_11 = check.tensor.view %output offset(200) : tensor<28xi64> -> tensor<1xi64>
+  %generic_final_11 = check.tensor.view %generic offset(104) : tensor<16xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%generic_old_11) expected(%old_11) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_final_11) expected(%final_11) : tensor<1xi64>
+  %storage_guard = check.generate.fill value(-4294967297) : tensor<2xi64>
+  %workgroup_guard = check.tensor.view %workgroup_output offset(144) : tensor<20xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%workgroup_guard) expected(%storage_guard) : tensor<2xi64>
+  %output_guard = check.generate.fill value(37) : tensor<2xi64>
+  %global_before = check.tensor.view %global offset(0) : tensor<16xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%global_before) expected(%storage_guard) : tensor<2xi64>
+  %global_after = check.tensor.view %global offset(112) : tensor<16xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%global_after) expected(%storage_guard) : tensor<2xi64>
+  %generic_before = check.tensor.view %generic offset(0) : tensor<16xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%generic_before) expected(%storage_guard) : tensor<2xi64>
+  %generic_after = check.tensor.view %generic offset(112) : tensor<16xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%generic_after) expected(%storage_guard) : tensor<2xi64>
+  %output_before = check.tensor.view %output offset(0) : tensor<28xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%output_before) expected(%output_guard) : tensor<2xi64>
+  %output_after = check.tensor.view %output offset(208) : tensor<28xi64> -> tensor<2xi64>
+  check.expect.bitwise actual(%output_after) expected(%output_guard) : tensor<2xi64>
+  check.return
+}
+
+// Four workgroups allocate unique descending tickets across a low-word borrow.
+// Only 17 lanes in each workgroup participate; the remaining lanes leave both
+// the counters and high-word bit sets untouched.
+kernel.def @contended_atomic_i64() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 4 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%global_storage: buffer, %generic_storage: buffer, %global_output: buffer, %generic_output: buffer, %initial: i64, %decrement: i64) {
+  %lane = kernel.workitem.id<x> : index
+  %active_count = index.constant 17 : index
+  %active = index.cmp ult, %lane, %active_count : index
+  %base = index.constant 8 : offset
+  %global = buffer.assume.memory_space<global> %global_storage : buffer
+  %generic = buffer.assume.memory_space<generic> %generic_storage : buffer
+  %global_cells = buffer.view %global[%base] : buffer -> view<2xi64>
+  %generic_cells = buffer.view %generic[%base] : buffer -> view<2xi64>
+  %global_slots = buffer.view %global_output[%base] : buffer -> view<68xi64>
+  %generic_slots = buffer.view %generic_output[%base] : buffer -> view<68xi64>
+  scf.if %active {
+    %lane_wide = index.cast %lane : index to i64
+    %high_word = scalar.constant 32 : i64
+    %bit = scalar.addi %lane_wide, %high_word : i64
+    %unit_wide = scalar.constant 1 : i64
+    %contribution = scalar.shli %unit_wide, %bit : i64
+    view.atomic.reduce<ori> %contribution, %global_cells[1] {ordering = relaxed, scope = device} : i64, view<2xi64>
+    view.atomic.reduce<ori> %contribution, %generic_cells[1] {ordering = relaxed, scope = device} : i64, view<2xi64>
+    %global_old = view.atomic.rmw<subi> %decrement, %global_cells[0] {ordering = relaxed, scope = device} : i64, view<2xi64> -> i64
+    %generic_old = view.atomic.rmw<subi> %decrement, %generic_cells[0] {ordering = relaxed, scope = device} : i64, view<2xi64> -> i64
+    %global_distance = scalar.subi %initial, %global_old : i64
+    %generic_distance = scalar.subi %initial, %generic_old : i64
+    // The initialized counters assign exactly 68 unique in-range tickets.
+    %global_bounded = scalar.assume %global_distance [range(%global_distance, 0, 67)] : i64
+    %generic_bounded = scalar.assume %generic_distance [range(%generic_distance, 0, 67)] : i64
+    %global_slot = index.cast %global_bounded : i64 to index
+    %generic_slot = index.cast %generic_bounded : i64 to index
+    view.store %global_old, %global_slots[%global_slot] : i64, view<68xi64>
+    view.store %generic_old, %generic_slots[%generic_slot] : i64, view<68xi64>
+  }
+  kernel.return
+}
+
+check.case public @contended_atomic_i64_values {
+  %initial = check.literal value(4294967330) : i64
+  %decrement = check.literal value(1) : i64
+  %global = check.generate.fill value(4294967330) : tensor<4xi64>
+  %generic = check.generate.fill value(4294967330) : tensor<4xi64>
+  %global_output = check.generate.fill value(-1) : tensor<70xi64>
+  %generic_output = check.generate.fill value(-1) : tensor<70xi64>
+  kernel.launch @contended_atomic_i64(%global, %generic, %global_output, %generic_output, %initial, %decrement) : (tensor<4xi64>, tensor<4xi64>, tensor<70xi64>, tensor<70xi64>, i64, i64)
+  %expected_tickets = check.generate.iota offset(4294967330) step(-1) : tensor<68xi64>
+  %expected_counter = check.generate.fill value(4294967262) : tensor<1xi64>
+  %expected_bits = check.generate.fill value(562945658454050) : tensor<1xi64>
+  %storage_guard = check.generate.fill value(4294967330) : tensor<1xi64>
+  %output_guard = check.generate.fill value(-1) : tensor<1xi64>
+  %global_tickets = check.tensor.view %global_output offset(8) : tensor<70xi64> -> tensor<68xi64>
+  %generic_tickets = check.tensor.view %generic_output offset(8) : tensor<70xi64> -> tensor<68xi64>
+  check.expect.bitwise actual(%global_tickets) expected(%expected_tickets) : tensor<68xi64>
+  check.expect.bitwise actual(%generic_tickets) expected(%expected_tickets) : tensor<68xi64>
+  %global_counter = check.tensor.view %global offset(8) : tensor<4xi64> -> tensor<1xi64>
+  %generic_counter = check.tensor.view %generic offset(8) : tensor<4xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_counter) expected(%expected_counter) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_counter) expected(%expected_counter) : tensor<1xi64>
+  %global_bits = check.tensor.view %global offset(16) : tensor<4xi64> -> tensor<1xi64>
+  %generic_bits = check.tensor.view %generic offset(16) : tensor<4xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_bits) expected(%expected_bits) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_bits) expected(%expected_bits) : tensor<1xi64>
+  %global_before = check.tensor.view %global offset(0) : tensor<4xi64> -> tensor<1xi64>
+  %generic_before = check.tensor.view %generic offset(0) : tensor<4xi64> -> tensor<1xi64>
+  %global_after = check.tensor.view %global offset(24) : tensor<4xi64> -> tensor<1xi64>
+  %generic_after = check.tensor.view %generic offset(24) : tensor<4xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_before) expected(%storage_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_before) expected(%storage_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%global_after) expected(%storage_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_after) expected(%storage_guard) : tensor<1xi64>
+  %global_output_before = check.tensor.view %global_output offset(0) : tensor<70xi64> -> tensor<1xi64>
+  %generic_output_before = check.tensor.view %generic_output offset(0) : tensor<70xi64> -> tensor<1xi64>
+  %global_output_after = check.tensor.view %global_output offset(552) : tensor<70xi64> -> tensor<1xi64>
+  %generic_output_after = check.tensor.view %generic_output offset(552) : tensor<70xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%global_output_before) expected(%output_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_output_before) expected(%output_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%global_output_after) expected(%output_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%generic_output_after) expected(%output_guard) : tensor<1xi64>
+  check.return
+}
+
+// Sixty-five lanes span wave32 and wave64 boundaries. Each workgroup owns
+// an independent counter; both cross a low-word borrow under contention.
+kernel.def @contended_workgroup_atomic_i64() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %summary: buffer, %initial: i64) {
+  %lane = kernel.workitem.id<x> : index
+  %group = kernel.workgroup.id<x> : index
+  %origin = index.constant 0 : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 32 : offset
+  %storage = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %cells = buffer.view %storage[%base] : buffer -> view<4xi64>
+  %tickets = buffer.view %output[%base] : buffer -> view<2x65xi64>
+  %summaries = buffer.view %summary[%base] : buffer -> view<2x4xi64>
+  %leader = index.cmp eq, %lane, %origin : index
+  %empty = scalar.constant 0 : i64
+  scf.if %leader {
+    view.store %initial, %cells[0] : i64, view<4xi64>
+    view.store %initial, %cells[1] : i64, view<4xi64>
+    view.store %empty, %cells[2] : i64, view<4xi64>
+    view.store %initial, %cells[3] : i64, view<4xi64>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %active_count = index.constant 65 : index
+  %active = index.cmp ult, %lane, %active_count : index
+  scf.if %active {
+    %lane_wide = index.cast %lane : index to i64
+    %low_bits = scalar.constant 31 : i64
+    %bit_index = scalar.andi %lane_wide, %low_bits : i64
+    %high_word = scalar.constant 32 : i64
+    %bit = scalar.addi %bit_index, %high_word : i64
+    %increment = scalar.constant 1 : i64
+    %contribution = scalar.shli %increment, %bit : i64
+    view.atomic.reduce<ori> %contribution, %cells[2] {ordering = relaxed, scope = workgroup} : i64, view<4xi64>
+    %old = view.atomic.rmw<subi> %increment, %cells[1] {ordering = relaxed, scope = workgroup} : i64, view<4xi64> -> i64
+    %distance = scalar.subi %initial, %old : i64
+    %bounded = scalar.assume %distance [range(%distance, 0, 64)] : i64
+    %slot = index.cast %bounded : i64 to index
+    view.store %old, %tickets[%group, %slot] : i64, view<2x65xi64>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  scf.if %leader {
+    %before = view.load %cells[0] : view<4xi64> -> i64
+    %counter = view.load %cells[1] : view<4xi64> -> i64
+    %bits = view.load %cells[2] : view<4xi64> -> i64
+    %after = view.load %cells[3] : view<4xi64> -> i64
+    view.store %before, %summaries[%group, 0] : i64, view<2x4xi64>
+    view.store %counter, %summaries[%group, 1] : i64, view<2x4xi64>
+    view.store %bits, %summaries[%group, 2] : i64, view<2x4xi64>
+    view.store %after, %summaries[%group, 3] : i64, view<2x4xi64>
+  }
+  kernel.return
+}
+
+check.case public @contended_workgroup_atomic_i64_values {
+  %initial = check.literal value(4294967330) : i64
+  %output = check.generate.fill value(-1) : tensor<2x65xi64>
+  %summary = check.generate.fill value(-1) : tensor<8xi64>
+  kernel.launch @contended_workgroup_atomic_i64(%output, %summary, %initial) : (tensor<2x65xi64>, tensor<8xi64>, i64)
+  %expected_tickets = check.generate.iota offset(4294967330) step(-1) period(65) : tensor<2x65xi64>
+  check.expect.bitwise actual(%output) expected(%expected_tickets) : tensor<2x65xi64>
+  %expected_counter = check.generate.fill value(4294967265) : tensor<1xi64>
+  %expected_bits = check.generate.fill value(-4294967296) : tensor<1xi64>
+  %expected_guard = check.generate.fill value(4294967330) : tensor<1xi64>
+  %before_0 = check.tensor.view %summary offset(0) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%before_0) expected(%expected_guard) : tensor<1xi64>
+  %counter_0 = check.tensor.view %summary offset(8) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%counter_0) expected(%expected_counter) : tensor<1xi64>
+  %bits_0 = check.tensor.view %summary offset(16) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%bits_0) expected(%expected_bits) : tensor<1xi64>
+  %after_0 = check.tensor.view %summary offset(24) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%after_0) expected(%expected_guard) : tensor<1xi64>
+  %before_1 = check.tensor.view %summary offset(32) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%before_1) expected(%expected_guard) : tensor<1xi64>
+  %counter_1 = check.tensor.view %summary offset(40) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%counter_1) expected(%expected_counter) : tensor<1xi64>
+  %bits_1 = check.tensor.view %summary offset(48) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%bits_1) expected(%expected_bits) : tensor<1xi64>
+  %after_1 = check.tensor.view %summary offset(56) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%after_1) expected(%expected_guard) : tensor<1xi64>
+  check.return
+}

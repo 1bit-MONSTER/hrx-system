@@ -28,6 +28,7 @@ void loom_vm_testbench_initialize(
   *out_testbench = (loom_vm_testbench_t){
       .target_environment = target_environment,
       .cleanup_pattern_provider_set = cleanup_pattern_provider_set,
+      .diagnostic_sink = {.fn = loom_diagnostic_stderr_sink},
       .host_allocator = host_allocator,
   };
 }
@@ -214,7 +215,7 @@ static iree_status_t loom_vm_testbench_compile(
   options.cleanup_pattern_provider_set =
       testbench->cleanup_pattern_provider_set;
   loom_vm_testbench_pipeline_diagnostic_capture_t pipeline_diagnostic = {
-      .downstream = options.diagnostic_sink,
+      .downstream = testbench->diagnostic_sink,
   };
   options.diagnostic_sink = (loom_diagnostic_sink_t){
       .fn = loom_vm_testbench_capture_pipeline_diagnostic,
@@ -828,6 +829,7 @@ static iree_status_t loom_vm_testbench_product_prepare(
                                host_allocator, product);
   product->sources = parent->sources;
   product->config_set = parent->config_set;
+  product->diagnostic_sink = parent->diagnostic_sink;
   iree_status_t status =
       loom_vm_testbench_prepare(product, invocation->module, invocation);
   if (iree_status_is_ok(status) && product->compile_rejected) {
@@ -876,9 +878,11 @@ loom_testbench_invocation_provider_t loom_vm_testbench_invocation_provider(
 
 loom_testbench_execution_profile_t loom_vm_testbench_execution_profile(
     void* user_data, const loom_source_table_resolver_t* sources,
-    const loom_tooling_config_set_t* config_set) {
+    const loom_tooling_config_set_t* config_set,
+    loom_diagnostic_sink_t diagnostic_sink) {
   loom_vm_testbench_t* testbench = user_data;
   loom_vm_testbench_bind_compilation_inputs(testbench, sources, config_set);
+  testbench->diagnostic_sink = diagnostic_sink;
   return (loom_testbench_execution_profile_t){
       .name = IREE_SV("vm:core"),
       .prepare = loom_vm_testbench_product_prepare,

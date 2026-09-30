@@ -61,15 +61,15 @@ loom_corpus_build(
     loom::build_tools::bazel::test::testdata::corpus::target::all_profiles
   XFAILS
     "loom::build_tools::bazel::test::testdata::corpus::target::primary_profiles"
-    "sample/fixture.loom"
+    "sample/nested/fixture.loom"
     "@unsupported_common"
     "TYPE/002"
     "loom::build_tools::bazel::test::testdata::corpus::target::profile_b"
-    "sample/fixture.loom"
+    "sample/nested/fixture.loom"
     "@unsupported"
     "TARGET/072"
     "loom::build_tools::bazel::test::testdata::corpus::target::profile_b"
-    "sample/fixture.loom"
+    "sample/nested/fixture.loom"
     "@unsupported_other"
     "TYPE/001"
     "loom::build_tools::bazel::test::testdata::corpus::target::profile_b"
@@ -84,7 +84,7 @@ loom_corpus_build(
     "sample/excluded.loom"
     "This fixture proves explicit whole-source exclusion."
     "loom::build_tools::bazel::test::testdata::corpus::target::profile_c"
-    "sample/fixture.loom"
+    "sample/nested/fixture.loom"
     "Profile C deliberately exercises whole-file exclusion."
     "loom::build_tools::bazel::test::testdata::corpus::target::profile_c"
     "sample/other.loom"
@@ -101,11 +101,39 @@ loom_corpus_test(
   EXCLUDES
     "sample/excluded.loom"
     "This fixture is excluded from execution as well as compilation."
+  XFAILS
+    "sample/nested/fixture.loom"
+    "@fixture_cases"
+    "TARGET/003,EXPECT/003"
+  ALLOWED_FAILURES
+    "sample/other.loom"
+    "@other_case"
+    "TARGET/003,EXPECT/003"
   RUNNER_ARGS
     "--max-samples-per-case=1"
   LABELS
     "manual"
     "loom-execution-profile=reference"
+    "loom-target-family=test"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+
+loom_corpus_test(
+  NAME
+    "execution"
+  PROFILE
+    "selected_reference"
+  MANIFESTS
+    "sample"
+  EXCLUDES
+    "sample/excluded.loom"
+    "The execution profile does not select this source."
+    "sample/nested/fixture.loom"
+    "The execution profile does not select this source."
+  LABELS
+    "manual"
+    "loom-execution-profile=selected_reference"
     "loom-target-family=test"
     "loom-target-class=cpu"
     "loom-executor=reference"

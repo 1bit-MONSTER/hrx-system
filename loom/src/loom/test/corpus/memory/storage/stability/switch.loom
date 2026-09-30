@@ -1,0 +1,186 @@
+// An immutable multi-way selector fixes the chosen buffer pair.
+kernel.def @immutable_storage_switch() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input_a: buffer, %input_b: buffer, %control: buffer, %scratch: buffer) {
+  %a = buffer.assume.alignment %input_a {minimum_alignment = 16} : buffer
+  %b = buffer.assume.alignment %input_b {minimum_alignment = 16} : buffer
+  %start = index.constant 0 : index
+  %end = index.constant 3 : index
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %c1 = scalar.constant 1 : i32
+  %control_unique = buffer.assume.noalias %control : buffer
+  %control_view = buffer.view %control_unique[%base] : buffer -> view<1xi32>
+  %scratch_unique = buffer.assume.noalias %scratch : buffer
+  %scratch_view = buffer.view %scratch_unique[%base] : buffer -> view<1xi32>
+  scf.for %i = [%start to %end step %step] {
+    %choice = view.load %control_view[0] : view<1xi32> -> i32
+    %selector = index.cast %choice : i32 to index
+    %read_buffer, %write_buffer = scf.switch %selector -> (buffer, buffer) {
+      case 0 {
+        view.store %c1, %scratch_view[0] : i32, view<1xi32>
+        scf.yield %a, %b : buffer, buffer
+      }
+      case 1 {
+        view.store %choice, %scratch_view[0] : i32, view<1xi32>
+        scf.yield %b, %a : buffer, buffer
+      }
+      default {
+        view.store %choice, %scratch_view[0] : i32, view<1xi32>
+        scf.yield %a, %b : buffer, buffer
+      }
+    }
+    %read_unique, %write_unique = buffer.assume.noalias %read_buffer, %write_buffer : buffer, buffer
+    %source = buffer.view %read_unique[%base] : buffer -> view<1xi32>
+    %dest = buffer.view %write_unique[%base] : buffer -> view<1xi32>
+    %value = view.load %source[0] : view<1xi32> -> i32
+    %next = scalar.addi %value, %c1 : i32
+    view.store %next, %dest[0] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
+check.case public @immutable_storage_switch_0 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @immutable_storage_switch(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(5) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(6) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @immutable_storage_switch_1 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @immutable_storage_switch(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(21) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(20) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @immutable_storage_switch_2 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(2) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @immutable_storage_switch(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(5) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(6) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+// A multi-way iteration-dependent choice rotates storage across executions.
+kernel.def @varying_storage_switch() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input_a: buffer, %input_b: buffer, %control: buffer, %scratch: buffer) {
+  %a = buffer.assume.alignment %input_a {minimum_alignment = 16} : buffer
+  %b = buffer.assume.alignment %input_b {minimum_alignment = 16} : buffer
+  %start = index.constant 0 : index
+  %end = index.constant 3 : index
+  %step = index.constant 1 : index
+  %base = index.constant 0 : offset
+  %c1 = scalar.constant 1 : i32
+  %control_unique = buffer.assume.noalias %control : buffer
+  %control_view = buffer.view %control_unique[%base] : buffer -> view<1xi32>
+  %scratch_unique = buffer.assume.noalias %scratch : buffer
+  %scratch_view = buffer.view %scratch_unique[%base] : buffer -> view<1xi32>
+  scf.for %i = [%start to %end step %step] {
+    %choice = view.load %control_view[0] : view<1xi32> -> i32
+    %read_buffer, %write_buffer = scf.switch %i -> (buffer, buffer) {
+      case 0 {
+        view.store %c1, %scratch_view[0] : i32, view<1xi32>
+        scf.yield %a, %b : buffer, buffer
+      }
+      case 1 {
+        view.store %choice, %scratch_view[0] : i32, view<1xi32>
+        scf.yield %b, %a : buffer, buffer
+      }
+      default {
+        view.store %choice, %scratch_view[0] : i32, view<1xi32>
+        scf.yield %a, %b : buffer, buffer
+      }
+    }
+    %read_unique, %write_unique = buffer.assume.noalias %read_buffer, %write_buffer : buffer, buffer
+    %source = buffer.view %read_unique[%base] : buffer -> view<1xi32>
+    %dest = buffer.view %write_unique[%base] : buffer -> view<1xi32>
+    %value = view.load %source[0] : view<1xi32> -> i32
+    %next = scalar.addi %value, %c1 : i32
+    view.store %next, %dest[0] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
+check.case public @varying_storage_switch_0 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @varying_storage_switch(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(7) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(8) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @varying_storage_switch_1 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @varying_storage_switch(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(7) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(8) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @varying_storage_switch_2 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(2) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @varying_storage_switch(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(7) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(8) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}

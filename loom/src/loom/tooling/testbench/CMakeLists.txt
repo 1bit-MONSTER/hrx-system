@@ -153,6 +153,7 @@ loom_cc_library(
     iree::base::internal
     iree::hal
     iree::tooling::buffer_view_matchers
+    loom::error::error_defs
     loom::ir
     loom::util::json
     loom::util::stream

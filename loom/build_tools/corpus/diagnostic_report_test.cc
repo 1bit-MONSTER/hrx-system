@@ -17,11 +17,6 @@ namespace {
 
 using ::testing::HasSubstr;
 
-static const loom_corpus_diagnostic_id_t kTarget072 = {
-    /*.domain=*/LOOM_ERROR_DOMAIN_TARGET,
-    /*.code=*/72,
-};
-
 static std::string TakeStatusString(iree_status_t status) {
   std::string text = iree::Status::ToString(status);
   iree_status_free(status);
@@ -46,8 +41,26 @@ TEST(DiagnosticIdTest, RejectsNonCanonicalIdentity) {
       loom_corpus_diagnostic_id_parse(IREE_SV("UNKNOWN/001"), &diagnostic_id));
 }
 
+TEST(DiagnosticIdListTest, AcceptsDistinctCanonicalIdentities) {
+  IREE_EXPECT_OK(loom_corpus_diagnostic_id_list_validate(
+      IREE_SV("TARGET/003,TARGET/050")));
+}
+
+TEST(DiagnosticIdListTest, RejectsMalformedOrDuplicateIdentities) {
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      loom_corpus_diagnostic_id_list_validate(iree_string_view_empty()));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_corpus_diagnostic_id_list_validate(
+                            IREE_SV("TARGET/003,,TARGET/050")));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_corpus_diagnostic_id_list_validate(
+                            IREE_SV("TARGET/003,TARGET/003")));
+}
+
 TEST(DiagnosticReportTest, AcceptsOnlyExpectedErrorDiagnostics) {
-  IREE_EXPECT_OK(loom_corpus_compile_report_expect_diagnostic(1, IREE_SV(R"({
+  IREE_EXPECT_OK(
+      loom_corpus_compile_report_expect_diagnostics(1, IREE_SV(R"({
         "kind": "loom.compile_report",
         "mode": "details",
         "diagnostics": [
@@ -56,11 +69,12 @@ TEST(DiagnosticReportTest, AcceptsOnlyExpectedErrorDiagnostics) {
           {"severity": "error", "domain": "TARGET", "code": 72}
         ]
       })"),
-                                                              kTarget072));
+                                                    IREE_SV("TARGET/072")));
 }
 
 TEST(DiagnosticReportTest, AcceptsExpectedDiagnosticAlongsideOtherErrors) {
-  IREE_EXPECT_OK(loom_corpus_compile_report_expect_diagnostic(1, IREE_SV(R"({
+  IREE_EXPECT_OK(
+      loom_corpus_compile_report_expect_diagnostics(1, IREE_SV(R"({
         "kind": "loom.compile_report",
         "mode": "details",
         "diagnostics": [
@@ -68,26 +82,38 @@ TEST(DiagnosticReportTest, AcceptsExpectedDiagnosticAlongsideOtherErrors) {
           {"severity": "error", "domain": "TYPE", "code": 1}
         ]
       })"),
-                                                              kTarget072));
+                                                    IREE_SV("TARGET/072")));
+}
+
+TEST(DiagnosticReportTest, AcceptsAnyDeclaredDiagnostic) {
+  IREE_EXPECT_OK(loom_corpus_compile_report_expect_diagnostics(
+      1, IREE_SV(R"({
+        "kind": "loom.compile_report",
+        "mode": "details",
+        "diagnostics": [
+          {"severity": "error", "domain": "TARGET", "code": 50}
+        ]
+      })"),
+      IREE_SV("TARGET/003,TARGET/050")));
 }
 
 TEST(DiagnosticReportTest, DetectsXpass) {
-  iree_status_t status = loom_corpus_compile_report_expect_diagnostic(
-      0, iree_string_view_empty(), kTarget072);
+  iree_status_t status = loom_corpus_compile_report_expect_diagnostics(
+      0, iree_string_view_empty(), IREE_SV("TARGET/072"));
   EXPECT_EQ(iree_status_code(status), IREE_STATUS_FAILED_PRECONDITION);
   EXPECT_THAT(TakeStatusString(status), HasSubstr("XPASS"));
 }
 
 TEST(DiagnosticReportTest, DetectsWrongDiagnostic) {
   iree_status_t status =
-      loom_corpus_compile_report_expect_diagnostic(1, IREE_SV(R"({
+      loom_corpus_compile_report_expect_diagnostics(1, IREE_SV(R"({
         "kind": "loom.compile_report",
         "mode": "details",
         "diagnostics": [
           {"severity": "error", "domain": "TYPE", "code": 1}
         ]
       })"),
-                                                   kTarget072);
+                                                    IREE_SV("TARGET/072"));
   EXPECT_EQ(iree_status_code(status), IREE_STATUS_FAILED_PRECONDITION);
   const std::string message = TakeStatusString(status);
   EXPECT_THAT(message, HasSubstr("wrong diagnostic"));
@@ -96,18 +122,18 @@ TEST(DiagnosticReportTest, DetectsWrongDiagnostic) {
 
 TEST(DiagnosticReportTest, DetectsMissingDiagnostic) {
   iree_status_t status =
-      loom_corpus_compile_report_expect_diagnostic(1, IREE_SV(R"({
+      loom_corpus_compile_report_expect_diagnostics(1, IREE_SV(R"({
         "kind": "loom.compile_report",
         "mode": "details"
       })"),
-                                                   kTarget072);
+                                                    IREE_SV("TARGET/072"));
   EXPECT_EQ(iree_status_code(status), IREE_STATUS_FAILED_PRECONDITION);
   EXPECT_THAT(TakeStatusString(status), HasSubstr("missing diagnostic"));
 }
 
 TEST(DiagnosticReportTest, DetectsMissingStructuredReport) {
-  iree_status_t status = loom_corpus_compile_report_expect_diagnostic(
-      1, iree_string_view_empty(), kTarget072);
+  iree_status_t status = loom_corpus_compile_report_expect_diagnostics(
+      1, iree_string_view_empty(), IREE_SV("TARGET/072"));
   EXPECT_EQ(iree_status_code(status), IREE_STATUS_FAILED_PRECONDITION);
   EXPECT_THAT(TakeStatusString(status),
               HasSubstr("without a structured compile report"));

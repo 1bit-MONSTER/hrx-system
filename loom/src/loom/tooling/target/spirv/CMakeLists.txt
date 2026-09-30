@@ -481,10 +481,6 @@ loom_test_module(
     "test/spirv_vulkan_vector_float.loom"
     "test/spirv_vulkan_workgroup_offsets.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/checked_benchmarks/moe_routed_combine_loop_f32.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/conformance/atomic_add_f32_subnormals.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/conformance/global_atomic_add_f32.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/conformance/loop_rotating_values.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/conformance/loop_rotating_views.loom"
 )
 endif()
 

@@ -13,7 +13,7 @@ SAMPLE_CORPUS = loom_corpus_manifest(
     package = "//loom/build_tools/bazel/test/testdata/corpus/source",
     srcs = [
         "excluded.loom",
-        "fixture.loom",
+        "nested/fixture.loom",
         "other.loom",
     ],
 )

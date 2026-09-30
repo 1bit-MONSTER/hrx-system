@@ -211,7 +211,6 @@ loom_module(
     "loom::test::corpus::authoring::authoring_cases"
     "loom::test::corpus::authoring::hip::portable_cases"
     "loom::test::corpus::checked_benchmarks::checked_benchmark_cases"
-    "loom::test::corpus::conformance::conformance_cases"
     "loom::test::corpus::encoding::numeric_conversion_cases"
     "${_GLOB_GENERIC_X_LOOM}"
   MODE
@@ -297,28 +296,6 @@ loom_module(
     "gfx11_loop_entry_module.loombc"
   OUTPUT_FORMAT
     "bc"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-iree_native_test(
-  NAME
-    "loop_count_access_test"
-  ARGS
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/conformance/loop_count.loom}}"
-    "--device=amdgpu"
-    "--sanitizer=access"
-  SRC
-    loom::tools::iree-test-loom
-  DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/conformance/loop_count.loom"
-  LABELS
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "requires-gpu-amd"
-    "runtime-resource=amd-gpu"
-    "notsan"
-  RESOURCE_GROUP
-    gpu-device
 )
 endif()
 

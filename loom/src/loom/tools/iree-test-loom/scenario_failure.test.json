@@ -52,6 +52,48 @@
       }
     },
     {
+      "name": "accepts an expected scenario check failure",
+      "run": {
+        "tool": "scenario-failure-test",
+        "args": [
+          "{srcdir}/testdata/scenario_failures.loom",
+          "--case=@wrong_post_state",
+          "--xfail=@wrong_post_state=EXPECT/002"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"failed_trial_count\":1",
+          "\"xfail_count\":1",
+          "\"xpass_count\":0",
+          "\"xfail_mismatch_count\":0",
+          "\"diagnostic\":\"EXPECT/002\"",
+          "\"record\":\"@wrong_post_state\",\"diagnostic\":\"EXPECT/002\",\"outcome\":\"xfail\""
+        ]
+      }
+    },
+    {
+      "name": "fails when a scenario check diagnostic drifts",
+      "run": {
+        "tool": "scenario-failure-test",
+        "args": [
+          "{srcdir}/testdata/scenario_failures.loom",
+          "--case=@wrong_post_state",
+          "--xfail=@wrong_post_state=EXPECT/001"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stdout": {
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xfail_mismatch_count\":1",
+          "\"record\":\"@wrong_post_state\",\"diagnostic\":\"EXPECT/001\",\"outcome\":\"diagnostic_mismatch\",\"observed_diagnostic\":\"EXPECT/002\""
+        ]
+      }
+    },
+    {
       "name": "attributes guard corruption to its replayable trial",
       "run": {
         "tool": "scenario-failure-test",

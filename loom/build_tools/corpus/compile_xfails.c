@@ -101,9 +101,8 @@ static iree_status_t loom_corpus_validate_expectations(
                               "expected root '%.*s' must begin with '@'",
                               (int)root.size, root.data);
     }
-    loom_corpus_diagnostic_id_t diagnostic = {0};
-    IREE_RETURN_IF_ERROR(loom_corpus_diagnostic_id_parse(
-        expected_diagnostics.values[i], &diagnostic));
+    IREE_RETURN_IF_ERROR(loom_corpus_diagnostic_id_list_validate(
+        expected_diagnostics.values[i]));
   }
   return iree_ok_status();
 }
@@ -209,8 +208,6 @@ static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
        i < expected_roots.count && iree_status_is_ok(status); ++i) {
     const iree_string_view_t root = expected_roots.values[i];
     const iree_string_view_t diagnostic_text = expected_diagnostics.values[i];
-    loom_corpus_diagnostic_id_t diagnostic = {0};
-    status = loom_corpus_diagnostic_id_parse(diagnostic_text, &diagnostic);
 
     char* root_argument = NULL;
     if (iree_status_is_ok(status)) {
@@ -231,8 +228,8 @@ static iree_status_t loom_corpus_compile_xfails(int argc, char** argv) {
     if (iree_status_is_ok(status)) {
       const iree_string_view_t compile_report_json = iree_make_string_view(
           result.stdout_bytes.data, result.stdout_bytes.length);
-      status = loom_corpus_compile_report_expect_diagnostic(
-          result.exit_code, compile_report_json, diagnostic);
+      status = loom_corpus_compile_report_expect_diagnostics(
+          result.exit_code, compile_report_json, diagnostic_text);
       if (!iree_status_is_ok(status)) {
         loom_corpus_print_compiler_stderr(&result.stderr_bytes);
         status = iree_status_annotate_f(status, "corpus xfail root %.*s",
