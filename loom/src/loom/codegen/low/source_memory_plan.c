@@ -1093,8 +1093,15 @@ static bool loom_low_source_memory_access_add_view_base_byte_offset(
 
   plan->memory_space = view_region->memory_space;
   plan->root_value_id = view_region->root_value_id;
-  plan->root_uniform_scope = loom_value_facts_uniform_scope(
-      loom_value_fact_table_lookup(fact_table, view_region->root_value_id));
+  const loom_value_facts_t root_facts =
+      loom_value_fact_table_lookup(fact_table, view_region->root_value_id);
+  plan->root_uniform_scope = loom_value_facts_uniform_scope(root_facts);
+  loom_value_fact_buffer_reference_t root_reference = {0};
+  if (loom_value_facts_query_buffer_reference(&fact_table->context, root_facts,
+                                              &root_reference) &&
+      root_reference.has_root_symbol) {
+    plan->root_symbol = root_reference.root_symbol;
+  }
   if (view_region->origin.kind == LOOM_VALUE_FACT_REFERENCE_ORIGIN_ALLOCATION &&
       view_region->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     plan->root_uniform_scope = LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP;
@@ -1200,6 +1207,7 @@ static bool loom_low_source_memory_access_plan_from_components(
   out_plan->view_value_id = view_value_id;
   out_plan->base_view_value_id = view_value_id;
   out_plan->root_value_id = LOOM_VALUE_ID_INVALID;
+  out_plan->root_symbol = loom_symbol_ref_null();
   out_plan->root_minimum_alignment = 1;
   out_plan->alias_scope_id = LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE;
   out_plan->dynamic_view_base_value_id = LOOM_VALUE_ID_INVALID;
@@ -1687,6 +1695,8 @@ static bool loom_low_source_memory_access_plan_build_byte_offset_impl(
       .address_layout = LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR,
       .root_value_id = loom_value_fact_buffer_reference_resolve_root_value(
           reference, memory_value_id),
+      .root_symbol = reference.has_root_symbol ? reference.root_symbol
+                                               : loom_symbol_ref_null(),
       .root_minimum_alignment =
           loom_low_source_memory_clamp_alignment(reference.minimum_alignment),
       .alias_scope_id = reference.alias_scope_id,

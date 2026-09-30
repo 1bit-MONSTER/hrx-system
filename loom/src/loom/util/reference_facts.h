@@ -91,6 +91,12 @@ typedef struct loom_value_fact_buffer_reference_t {
   // value carrying these facts is itself the dynamic storage root.
   loom_value_id_t root_value_id;
 
+  // Producer-retained module symbol that materializes the storage root.
+  loom_symbol_ref_t root_symbol;
+
+  // Whether root_symbol names the storage root.
+  bool has_root_symbol;
+
   // Comparable alias scope for disjointness proofs, or NONE.
   loom_value_fact_alias_scope_id_t alias_scope_id;
 

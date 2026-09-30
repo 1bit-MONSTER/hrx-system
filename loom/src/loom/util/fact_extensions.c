@@ -126,6 +126,12 @@ static uint32_t loom_value_fact_hash_buffer_reference(
   hash = loom_structural_hash_mix_u64(hash, reference.minimum_alignment);
   hash = loom_structural_hash_mix_u32(hash, (uint32_t)reference.memory_space);
   hash = loom_structural_hash_mix_u32(hash, reference.root_value_id);
+  hash = loom_structural_hash_mix_u32(hash, reference.has_root_symbol);
+  if (reference.has_root_symbol) {
+    hash = loom_structural_hash_mix_u32(
+        hash, reference.root_symbol.module_id |
+                  ((uint32_t)reference.root_symbol.symbol_id << 16));
+  }
   hash = loom_structural_hash_mix_u32(hash, reference.alias_scope_id);
   hash = loom_structural_hash_mix_u32(hash, reference.nullability);
   return loom_value_fact_hash_reference_origin(reference.origin, hash);
@@ -162,6 +168,10 @@ static bool loom_value_fact_buffer_reference_equal(
          lhs.minimum_alignment == rhs.minimum_alignment &&
          lhs.memory_space == rhs.memory_space &&
          lhs.root_value_id == rhs.root_value_id &&
+         lhs.has_root_symbol == rhs.has_root_symbol &&
+         (!lhs.has_root_symbol ||
+          (lhs.root_symbol.module_id == rhs.root_symbol.module_id &&
+           lhs.root_symbol.symbol_id == rhs.root_symbol.symbol_id)) &&
          lhs.alias_scope_id == rhs.alias_scope_id &&
          lhs.nullability == rhs.nullability &&
          loom_value_fact_reference_origin_equal(lhs.origin, rhs.origin);
@@ -653,6 +663,10 @@ static bool loom_value_fact_table_buffer_reference_equal(
          lhs.minimum_alignment == rhs.minimum_alignment &&
          lhs.memory_space == rhs.memory_space &&
          lhs.root_value_id == rhs.root_value_id &&
+         lhs.has_root_symbol == rhs.has_root_symbol &&
+         (!lhs.has_root_symbol ||
+          (lhs.root_symbol.module_id == rhs.root_symbol.module_id &&
+           lhs.root_symbol.symbol_id == rhs.root_symbol.symbol_id)) &&
          lhs.alias_scope_id == rhs.alias_scope_id &&
          lhs.nullability == rhs.nullability &&
          loom_value_fact_reference_origin_equal(lhs.origin, rhs.origin);
@@ -1063,6 +1077,9 @@ bool loom_value_facts_query_encoding_summary(
 iree_status_t loom_value_facts_make_buffer_reference(
     loom_fact_context_t* context, loom_value_fact_buffer_reference_t reference,
     loom_value_facts_t* out) {
+  if (!reference.has_root_symbol) {
+    reference.root_symbol = loom_symbol_ref_null();
+  }
   loom_value_fact_extension_entry_t entry = {0};
   entry.kind = LOOM_VALUE_FACT_EXTENSION_BUFFER_REFERENCE;
   entry.payload.buffer_reference = reference;

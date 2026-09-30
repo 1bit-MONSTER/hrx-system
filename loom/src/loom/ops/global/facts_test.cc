@@ -135,6 +135,12 @@ test.func @load_message() -> (buffer) {
   EXPECT_EQ(facts.reference.memory_space,
             LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT);
   EXPECT_EQ(facts.reference.root_value_id, facts.result_id);
+  EXPECT_TRUE(facts.reference.has_root_symbol);
+  EXPECT_EQ(facts.reference.root_symbol.module_id, 0u);
+  EXPECT_EQ(facts.reference.root_symbol.symbol_id,
+            loom_module_find_symbol(
+                module.get(),
+                loom_module_lookup_string(module.get(), IREE_SV("message"))));
   EXPECT_EQ(facts.reference.alias_scope_id,
             LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE);
   EXPECT_EQ(facts.reference.nullability,
@@ -159,6 +165,7 @@ test.func @load_message() -> (buffer) {
   EXPECT_EQ(facts.reference.memory_space,
             LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT);
   EXPECT_EQ(facts.reference.root_value_id, facts.result_id);
+  EXPECT_TRUE(facts.reference.has_root_symbol);
   EXPECT_EQ(facts.reference.alias_scope_id,
             LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE);
   EXPECT_EQ(facts.reference.nullability,
@@ -187,6 +194,7 @@ global.rodata.def @message = align(32) bytes("6c6f6f6d")
   EXPECT_EQ(facts.reference.memory_space,
             LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT);
   EXPECT_EQ(facts.reference.root_value_id, facts.result_id);
+  EXPECT_TRUE(facts.reference.has_root_symbol);
   EXPECT_EQ(facts.reference.alias_scope_id,
             LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE);
   EXPECT_EQ(facts.reference.nullability,
