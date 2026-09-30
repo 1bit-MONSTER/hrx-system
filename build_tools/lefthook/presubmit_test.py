@@ -1673,8 +1673,7 @@ class PresubmitTest(unittest.TestCase):
     def test_vulkan_environment_tests_follow_changed_inputs_on_linux(self):
         for path in (
             ".github/scripts/check_vulkan_hardware_environment.sh",
-            ".github/workflows/ci_iree_bazel.yml",
-            ".github/workflows/ci_iree_cmake.yml",
+            ".github/workflows/ci_iree.yml",
             "build_tools/ci/vulkan_environment.py",
             "build_tools/ci/vulkan_environment_test.py",
             "build_tools/ci/BUILD.bazel",
@@ -1694,7 +1693,7 @@ class PresubmitTest(unittest.TestCase):
             ("build_tools/ci/change_scope_test.py", True),
             ("build_tools/ci/BUILD.bazel", True),
             ("build_tools/ci/windows_diagnostics.py", False),
-            (".github/workflows/ci_iree_bazel.yml", False),
+            (".github/workflows/docs.yml", False),
         )
         for path, owns_test in cases:
             for host_platform in ("linux", "win32", "darwin"):
