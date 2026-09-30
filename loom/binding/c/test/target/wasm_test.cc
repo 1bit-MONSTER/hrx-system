@@ -1,0 +1,154 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+#include "loomc/target/wasm.h"
+
+#include <cstring>
+#include <memory>
+#include <string>
+
+#include "iree/testing/gtest.h"
+#include "loomc/loomc.h"
+#include "test/util.h"
+
+namespace {
+
+using loomc::testing::HandlePtr;
+
+using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
+using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
+using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
+using PassProgramPtr =
+    HandlePtr<loomc_pass_program_t, loomc_pass_program_release>;
+using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
+using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
+using TargetEnvironmentPtr =
+    HandlePtr<loomc_target_environment_t, loomc_target_environment_release>;
+using WorkspacePtr = HandlePtr<loomc_workspace_t, loomc_workspace_release>;
+
+constexpr char kSource[] = R"(
+wasm.target<simd128> @wasm
+
+low.func.def public target<wasm.core.simd128>(@wasm) abi(wasm_function) @identity(%value: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  return %value
+}
+)";
+
+std::string ToString(loomc_string_view_t value) {
+  return value.data ? std::string(value.data, value.size) : std::string();
+}
+
+::testing::AssertionResult Succeeded(const loomc_result_t* result) {
+  if (result != nullptr && loomc_result_succeeded(result)) {
+    return ::testing::AssertionSuccess();
+  }
+  auto failure = ::testing::AssertionFailure();
+  if (result == nullptr) {
+    return failure << "operation did not return a result";
+  }
+  for (loomc_host_size_t i = 0; i < loomc_result_diagnostic_count(result);
+       ++i) {
+    const loomc_diagnostic_t* diagnostic =
+        loomc_result_diagnostic_at(result, i);
+    failure << ToString(diagnostic->message);
+  }
+  return failure;
+}
+
+TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
+  loomc_target_environment_t* raw_target_environment = nullptr;
+  LOOMC_ASSERT_OK(loomc_target_environment_create_wasm(
+      loomc_allocator_system(), &raw_target_environment));
+  TargetEnvironmentPtr target_environment(raw_target_environment);
+
+  loomc_context_target_options_t target_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS,
+      /*.structure_size=*/sizeof(target_options),
+      /*.next=*/nullptr,
+      /*.target_environment=*/target_environment.get(),
+  };
+  loomc_context_options_t context_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_CONTEXT_OPTIONS,
+      /*.structure_size=*/sizeof(context_options),
+      /*.next=*/&target_options,
+  };
+  loomc_context_t* raw_context = nullptr;
+  LOOMC_ASSERT_OK(loomc_context_create(&context_options,
+                                       loomc_allocator_system(), &raw_context));
+  ContextPtr context(raw_context);
+
+  loomc_workspace_t* raw_workspace = nullptr;
+  LOOMC_ASSERT_OK(loomc_workspace_create(nullptr, loomc_allocator_system(),
+                                         &raw_workspace));
+  WorkspacePtr workspace(raw_workspace);
+
+  loomc_source_options_t source_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_SOURCE_OPTIONS,
+      /*.structure_size=*/sizeof(source_options),
+      /*.next=*/nullptr,
+      /*.format=*/LOOMC_SOURCE_FORMAT_TEXT,
+      /*.identifier=*/loomc_make_cstring_view("identity.loom"),
+      /*.contents=*/loomc_make_byte_span(kSource, sizeof(kSource) - 1),
+      /*.storage=*/LOOMC_SOURCE_STORAGE_COPY,
+  };
+  loomc_source_t* raw_source = nullptr;
+  LOOMC_ASSERT_OK(loomc_source_create(&source_options, loomc_allocator_system(),
+                                      &raw_source));
+  SourcePtr source(raw_source);
+
+  loomc_module_t* raw_module = nullptr;
+  loomc_result_t* raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_deserialize_from_source(
+      context.get(), workspace.get(), source.get(), nullptr,
+      loomc_allocator_system(), &raw_module, &raw_result));
+  ModulePtr module(raw_module);
+  ResultPtr result(raw_result);
+  ASSERT_TRUE(Succeeded(result.get()));
+
+  loomc_pass_program_t* raw_pass_program = nullptr;
+  raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_pass_program_create_from_target_pipeline(
+      context.get(), nullptr, loomc_allocator_system(), &raw_pass_program,
+      &raw_result));
+  PassProgramPtr pass_program(raw_pass_program);
+  result.reset(raw_result);
+  ASSERT_TRUE(Succeeded(result.get()));
+
+  loomc_compiler_t* raw_compiler = nullptr;
+  LOOMC_ASSERT_OK(loomc_compiler_create(
+      context.get(), nullptr, loomc_allocator_system(), &raw_compiler));
+  CompilerPtr compiler(raw_compiler);
+  raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      nullptr, loomc_allocator_system(), &raw_result));
+  result.reset(raw_result);
+  ASSERT_TRUE(Succeeded(result.get()));
+
+  raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_emit_module(target_environment.get(), workspace.get(),
+                                    module.get(), nullptr,
+                                    loomc_allocator_system(), &raw_result));
+  result.reset(raw_result);
+  ASSERT_TRUE(Succeeded(result.get()));
+  ASSERT_EQ(loomc_result_artifact_count(result.get()), 1u);
+
+  const loomc_artifact_t* artifact = loomc_result_artifact_at(result.get(), 0);
+  ASSERT_NE(artifact, nullptr);
+  EXPECT_EQ(artifact->kind, LOOMC_ARTIFACT_KIND_EXECUTABLE);
+  EXPECT_EQ(ToString(artifact->format), LOOMC_ARTIFACT_FORMAT_WASM_BINARY);
+  EXPECT_EQ(ToString(artifact->identifier), "module.wasm");
+  loomc_byte_span_t contents = loomc_byte_span_empty();
+  LOOMC_ASSERT_OK(loomc_byte_sequence_clone(
+      artifact->contents, loomc_allocator_system(), &contents));
+  constexpr uint8_t kWasmHeader[] = {0x00, 0x61, 0x73, 0x6D,
+                                     0x01, 0x00, 0x00, 0x00};
+  ASSERT_GE(contents.data_length, sizeof(kWasmHeader));
+  EXPECT_EQ(memcmp(contents.data, kWasmHeader, sizeof(kWasmHeader)), 0);
+  loomc_allocator_free(loomc_allocator_system(), (void*)contents.data);
+}
+
+}  // namespace

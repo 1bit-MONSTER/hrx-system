@@ -105,6 +105,7 @@ loom_cc_library(
     srcs = ["module_compiler.c"],
     hdrs = ["module_compiler.h"],
     visibility = [
+        "//loom/binding/c/target/wasm:__pkg__",
         "//loom/src/loom/tooling/compile:__pkg__",
         "//loom/src/loom/tooling/target/wasm:__pkg__",
     ],
