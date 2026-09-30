@@ -447,7 +447,7 @@ logical coordinates and one semantic layout value instead of reproducing each
 candidate as flattened address arithmetic.
 
 The [checked strided-layout
-case](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/conformance/strided_layout_recurrence.loom)
+case](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/memory/view/strided_recurrence.loom)
 selects between two runtime pitches, rotates them through counted and condition
 loops, and verifies the resulting addresses through a nonzero buffer origin.
 When a carried view's type refers to the layout, carry the layout beside the
@@ -480,7 +480,7 @@ keeps an initial or body-local identity on the wrong edge is rejected instead
 of being treated as a static annotation.
 
 The [checked shrinking-view
-case](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/conformance/shrinking_view.loom)
+case](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/memory/view/shrinking.loom)
 changes the row extent while carrying its strided layout, consumes the view in
 the loop body, and checks the final view after zero, one, and three iterations
 on AMDGPU and Vulkan. Pipelining, unrolling, fusion, and other loop

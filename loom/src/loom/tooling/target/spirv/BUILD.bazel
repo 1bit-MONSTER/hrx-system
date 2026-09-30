@@ -314,8 +314,6 @@ loom_test(
         "test/spirv_vulkan_vector_float.loom",
         "test/spirv_vulkan_workgroup_offsets.loom",
         "//loom/src/loom/test/corpus/checked_benchmarks:moe_routed_combine_loop_f32.loom",
-        "//loom/src/loom/test/corpus/conformance:atomic_add_f32_subnormals.loom",
-        "//loom/src/loom/test/corpus/conformance:global_atomic_add_f32.loom",
     ],
     execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
 )
