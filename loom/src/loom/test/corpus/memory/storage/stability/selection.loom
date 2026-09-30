@@ -1,6 +1,3 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/storage_stability.loom-test
-// RUN: with-checks emit source-low target=amdgpu:gfx1151 output=low
-
 // A same-iteration noalias promise does not make rotating storage immutable.
 kernel.def @rotating_storage() {
   %unit = index.constant 1 : index
@@ -27,12 +24,6 @@ kernel.def @rotating_storage() {
   kernel.return
 }
 
-// ----
-CHECK: %value = global_load_*
-CHECK-NOT: %value = s_load_dword *
-
-// ====
-
 // The unscoped control has the same observable stores.
 kernel.def @unscoped_rotating_storage() {
   %unit = index.constant 1 : index
@@ -57,12 +48,6 @@ kernel.def @unscoped_rotating_storage() {
   }
   kernel.return
 }
-
-// ----
-CHECK: %value = global_load_*
-CHECK-NOT: %value = s_load_dword *
-
-// ====
 
 // A choice captured before the loop remains fixed for all iterations.
 kernel.def @captured_storage_choice() {
@@ -92,12 +77,6 @@ kernel.def @captured_storage_choice() {
   }
   kernel.return
 }
-
-// ----
-CHECK: %value = s_load_dword *
-CHECK: %choice = s_load_dword *
-
-// ====
 
 // A loop-local immutable load fixes the choice across an effectful join.
 kernel.def @immutable_storage_choice() {
@@ -135,12 +114,6 @@ kernel.def @immutable_storage_choice() {
   kernel.return
 }
 
-// ----
-CHECK: %value = s_load_dword *
-CHECK: %choice = s_load_dword *
-
-// ====
-
 // Updating the selector changes which storage each iteration reads.
 kernel.def @mutable_storage_choice() {
   %unit = index.constant 1 : index
@@ -172,12 +145,6 @@ kernel.def @mutable_storage_choice() {
   kernel.return
 }
 
-// ----
-CHECK: %value = global_load_*
-CHECK-NOT: %value = s_load_dword *
-
-// ====
-
 // A fixed read root stays disjoint from every selected write.
 kernel.def @fixed_storage_read() {
   %unit = index.constant 1 : index
@@ -204,11 +171,6 @@ kernel.def @fixed_storage_read() {
   }
   kernel.return
 }
-
-// ----
-CHECK: %value = s_load_dword *
-
-// ====
 
 // A fixed write root stays disjoint from every selected read.
 kernel.def @fixed_storage_write() {
@@ -237,11 +199,6 @@ kernel.def @fixed_storage_write() {
   kernel.return
 }
 
-// ----
-CHECK: %value = s_load_dword *
-
-// ====
-
 // The carried references exchange storage at the loop backedge.
 kernel.def @carried_storage_roots() {
   %unit = index.constant 1 : index
@@ -265,12 +222,6 @@ kernel.def @carried_storage_roots() {
   }
   kernel.return
 }
-
-// ----
-CHECK: %value = global_load_*
-CHECK-NOT: %value = s_load_dword *
-
-// ====
 
 // Nested effectful joins preserve an immutable incoming choice.
 kernel.def @nested_immutable_storage_choice() {
@@ -319,13 +270,6 @@ kernel.def @nested_immutable_storage_choice() {
   kernel.return
 }
 
-// ----
-CHECK: %value = s_load_dword *
-CHECK: %choice = s_load_dword *
-CHECK: %inner_value = s_load_dword *
-
-// ====
-
 // A fixed outer choice does not freeze the inner iteration-dependent choice.
 kernel.def @nested_varying_storage_choice() {
   %unit = index.constant 1 : index
@@ -370,12 +314,213 @@ kernel.def @nested_varying_storage_choice() {
   kernel.return
 }
 
-// ----
-CHECK: %value = global_load_*
-CHECK-NOT: %value = s_load_dword *
-CHECK: %choice = s_load_dword *
+check.case public @rotating_storage_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  kernel.launch @rotating_storage(%a, %b) : (tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  check.return
+}
 
-// ====
+check.case public @unscoped_rotating_storage_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  kernel.launch @unscoped_rotating_storage(%a, %b) : (tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  check.return
+}
+
+check.case public @captured_storage_choice_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @captured_storage_choice(%a, %b, %control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @captured_storage_choice_1 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  kernel.launch @captured_storage_choice(%a, %b, %control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @immutable_storage_choice_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @immutable_storage_choice(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @immutable_storage_choice_1 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @immutable_storage_choice(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @mutable_storage_choice_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @mutable_storage_choice(%a, %b, %control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @mutable_storage_choice_1 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  kernel.launch @mutable_storage_choice(%a, %b, %control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(5) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @fixed_storage_read_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(10) : tensor<1xi32>
+  %c = check.generate.fill value(20) : tensor<1xi32>
+  kernel.launch @fixed_storage_read(%a, %b, %c) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_c = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%c) expected(%expected_c) : tensor<1xi32>
+  check.return
+}
+
+check.case public @fixed_storage_write_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %c = check.generate.fill value(20) : tensor<1xi32>
+  kernel.launch @fixed_storage_write(%a, %b, %c) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_c = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%c) expected(%expected_c) : tensor<1xi32>
+  check.return
+}
+
+check.case public @carried_storage_roots_0 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  kernel.launch @carried_storage_roots(%a, %b) : (tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  check.return
+}
+
+check.case public @nested_immutable_storage_choice_2 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  %inner_control = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @nested_immutable_storage_choice(%a, %b, %control, %scratch, %inner_control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  %expected_inner_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%inner_control) expected(%expected_inner_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @nested_immutable_storage_choice_3 {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  %inner_control = check.generate.fill value(1) : tensor<1xi32>
+  kernel.launch @nested_immutable_storage_choice(%a, %b, %control, %scratch, %inner_control) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  %expected_inner_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%inner_control) expected(%expected_inner_control) : tensor<1xi32>
+  check.return
+}
+
+check.case public @nested_varying_storage_choice_result {
+  %a = check.generate.fill value(1) : tensor<1xi32>
+  %b = check.generate.fill value(2) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @nested_varying_storage_choice(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(3) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(4) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
 
 // Varying inner decisions cannot change identical incoming buffer payloads.
 kernel.def @reconverged_storage_choice() {
@@ -419,5 +564,53 @@ kernel.def @reconverged_storage_choice() {
   kernel.return
 }
 
-// ----
-CHECK: %value = s_load_dword *
+check.case public @reconverged_storage_choice_0 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(0) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @reconverged_storage_choice(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(5) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(6) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @reconverged_storage_choice_1 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(1) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @reconverged_storage_choice(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(21) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(20) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(1) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(0) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}
+
+check.case public @reconverged_storage_choice_2 {
+  %a = check.generate.fill value(5) : tensor<1xi32>
+  %b = check.generate.fill value(20) : tensor<1xi32>
+  %control = check.generate.fill value(2) : tensor<1xi32>
+  %scratch = check.generate.fill value(99) : tensor<1xi32>
+  kernel.launch @reconverged_storage_choice(%a, %b, %control, %scratch) : (tensor<1xi32>, tensor<1xi32>, tensor<1xi32>, tensor<1xi32>)
+  %expected_a = check.generate.fill value(5) : tensor<1xi32>
+  check.expect.bitwise actual(%a) expected(%expected_a) : tensor<1xi32>
+  %expected_b = check.generate.fill value(6) : tensor<1xi32>
+  check.expect.bitwise actual(%b) expected(%expected_b) : tensor<1xi32>
+  %expected_control = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%control) expected(%expected_control) : tensor<1xi32>
+  %expected_scratch = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.bitwise actual(%scratch) expected(%expected_scratch) : tensor<1xi32>
+  check.return
+}

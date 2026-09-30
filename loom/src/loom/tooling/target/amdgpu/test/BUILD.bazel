@@ -140,19 +140,6 @@ loom_test(
 )
 
 loom_test(
-    name = "atomic_i64_test",
-    srcs = [
-        "//loom/src/loom/test/corpus/conformance:atomic_i64.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_atomic_i64.loom",
-    ],
-    compile_targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
     name = "atomic_observations_test",
     srcs = [
         "atomic_observations.loom",

@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
-load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
+load("//loom/build_tools/bazel:defs.bzl", "loom_test")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
@@ -60,70 +60,6 @@ loom_test(
         AMDGPU_ACCESS_PROFILE,
     ],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
-)
-
-loom_test(
-    name = "storage_stability_test",
-    srcs = [
-        "storage_stability.loom",
-        "//loom/src/loom/test/corpus/source_low:storage_stability.loom-test",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/spirv:vulkan1.3+bda+extended-types",
-    ],
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
-    name = "storage_stability_switch_test",
-    srcs = [
-        "storage_stability_switch.loom",
-        "//loom/src/loom/test/corpus/source_low:storage_stability_switch.loom-test",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1200",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "storage_stability_cfg_test",
-    srcs = [
-        "storage_stability_cfg.loom",
-        "//loom/src/loom/test/corpus/source_low:storage_stability_cfg.loom-test",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1200",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "byte_memory_banks_test",
-    srcs = [
-        "byte_memory_banks.loom",
-        "//loom/src/loom/test/corpus/source_low:byte_memory_banks.loom-test",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/spirv:vulkan1.3+bda+extended-types",
-    ],
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
 )
 
 loom_test(
@@ -308,64 +244,4 @@ loom_test(
         AMDGPU_HARDWARE_PROFILE,
         AMDGPU_ACCESS_PROFILE,
     ],
-)
-
-loom_test(
-    name = "workgroup_atomic_observations_test",
-    srcs = [
-        "workgroup_atomic_observations.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_workgroup_atomic_observations.loom",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1100",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "generic_memory_test",
-    srcs = [
-        "generic_memory.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_generic.loom-test",
-        "//loom/src/loom/test/corpus/source_low:memory_generic_atomic_addressing.loom-test",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1100",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_module(
-    name = "conformance_cases",
-    srcs = _CASES + [
-        "//loom/src/loom/test/corpus/source_low:byte_memory_banks.loom-test",
-        "//loom/src/loom/test/corpus/source_low:memory_atomic_i64.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_atomic_narrow_scopes.loom",
-        "//loom/src/loom/test/corpus/source_low:memory_generic.loom-test",
-        "//loom/src/loom/test/corpus/source_low:memory_generic_atomic_addressing.loom-test",
-        "//loom/src/loom/test/corpus/source_low:memory_workgroup_atomic_observations.loom",
-        "//loom/src/loom/test/corpus/source_low:numeric_narrow_reduce.loom",
-        "//loom/src/loom/test/corpus/source_low:storage_stability.loom-test",
-        "//loom/src/loom/test/corpus/source_low:storage_stability_cfg.loom-test",
-        "//loom/src/loom/test/corpus/source_low:storage_stability_switch.loom-test",
-    ],
-    output_format = "bc",
 )

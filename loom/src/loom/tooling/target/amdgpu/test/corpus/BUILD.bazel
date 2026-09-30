@@ -127,7 +127,6 @@ loom_module(
         "//loom/src/loom/test/corpus/authoring:authoring_cases",
         "//loom/src/loom/test/corpus/authoring/hip:portable_cases",
         "//loom/src/loom/test/corpus/checked_benchmarks:checked_benchmark_cases",
-        "//loom/src/loom/test/corpus/conformance:conformance_cases",
         "//loom/src/loom/test/corpus/encoding:numeric_conversion_cases",
     ] + glob(["generic/*.loom"]),
     output_format = "bc",

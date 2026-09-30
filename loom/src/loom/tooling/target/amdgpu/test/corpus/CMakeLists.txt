@@ -211,7 +211,6 @@ loom_module(
     "loom::test::corpus::authoring::authoring_cases"
     "loom::test::corpus::authoring::hip::portable_cases"
     "loom::test::corpus::checked_benchmarks::checked_benchmark_cases"
-    "loom::test::corpus::conformance::conformance_cases"
     "loom::test::corpus::encoding::numeric_conversion_cases"
     "${_GLOB_GENERIC_X_LOOM}"
   MODE
