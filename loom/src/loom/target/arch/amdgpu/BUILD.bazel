@@ -23,11 +23,6 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-exports_files(
-    ["test/source_low/source_low_memory_global_atomic_gfx9_4_generic.loom-test"],
-    visibility = ["//loom/src/loom/tooling/target/amdgpu/test:__pkg__"],
-)
-
 _AMDGPU_CHECK_VISIBILITY = ["//loom/src/loom/target/arch/amdgpu/check:__pkg__"]
 
 _AMDGPU_ANALYSIS_VISIBILITY = ["//loom/src/loom/target/arch/amdgpu/analysis:__pkg__"]
@@ -617,11 +612,6 @@ loom_check_test_suite(
             "//loom/target/amdgpu:gfx12-5-generic",
         ],
         "test/source_low/source_low_memory_atomic_scopes_gfx9_4_generic.loom-test": [
-            "//loom/target/amdgpu:gfx9-4-generic",
-            "//loom/target/amdgpu:gfx942",
-            "//loom/target/amdgpu:gfx950",
-        ],
-        "test/source_low/source_low_memory_global_atomic_gfx9_4_generic.loom-test": [
             "//loom/target/amdgpu:gfx9-4-generic",
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",

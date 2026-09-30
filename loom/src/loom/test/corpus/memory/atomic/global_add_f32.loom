@@ -3,8 +3,9 @@
 // one legalize it to a bitwise compare-exchange loop.
 kernel.def @global_atomic_reduce_add_f32() {
   %unit = index.constant 1 : index
+  %workgroup_count = index.constant 2 : index
   %workgroup_size = index.constant 4 : index
-  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+  kernel.launch.config workgroups(%workgroup_count, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
 } launch(%output: buffer) {
   %base = index.constant 0 : offset
   %output_index = index.constant 0 : index
@@ -16,12 +17,13 @@ kernel.def @global_atomic_reduce_add_f32() {
   kernel.return
 }
 
-// The old values returned by four unit increments of an accumulator initialized
-// to one are a permutation of [1, 2, 3, 4], whose sum is always ten.
+// The old values returned by eight unit increments of an accumulator initialized
+// to one are a permutation of [1, 2, ..., 8], whose sum is always 36.
 kernel.def @global_atomic_rmw_add_f32() {
   %unit = index.constant 1 : index
+  %workgroup_count = index.constant 2 : index
   %workgroup_size = index.constant 4 : index
-  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
+  kernel.launch.config workgroups(%workgroup_count, %unit, %unit) workgroup_size(%workgroup_size, %unit, %unit) : index
 } launch(%accumulator: buffer, %old_sum: buffer) {
   %base = index.constant 0 : offset
   %result_index = index.constant 0 : index
@@ -61,7 +63,7 @@ kernel.def @global_atomic_cmpxchg_i64() {
 
 check.case public @global_atomic_reduce_add_f32_case {
   %output = check.generate.fill value(1.0) : tensor<1xf32>
-  %expected = check.generate.fill value(5.0) : tensor<1xf32>
+  %expected = check.generate.fill value(9.0) : tensor<1xf32>
   kernel.launch @global_atomic_reduce_add_f32(%output) : (tensor<1xf32>)
   check.expect.bitwise actual(%output) expected(%expected) : tensor<1xf32>
   check.return
@@ -70,8 +72,8 @@ check.case public @global_atomic_reduce_add_f32_case {
 check.case public @global_atomic_rmw_add_f32_case {
   %accumulator = check.generate.fill value(1.0) : tensor<1xf32>
   %old_sum = check.generate.fill value(0.0) : tensor<1xf32>
-  %expected_accumulator = check.generate.fill value(5.0) : tensor<1xf32>
-  %expected_old_sum = check.generate.fill value(10.0) : tensor<1xf32>
+  %expected_accumulator = check.generate.fill value(9.0) : tensor<1xf32>
+  %expected_old_sum = check.generate.fill value(36.0) : tensor<1xf32>
   kernel.launch @global_atomic_rmw_add_f32(%accumulator, %old_sum) : (tensor<1xf32>, tensor<1xf32>)
   check.expect.bitwise actual(%accumulator) expected(%expected_accumulator) : tensor<1xf32>
   check.expect.bitwise actual(%old_sum) expected(%expected_old_sum) : tensor<1xf32>
