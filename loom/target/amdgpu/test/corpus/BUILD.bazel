@@ -151,6 +151,7 @@ _ACCESS_SOURCES = [
     "memory/storage/stability/cfg.loom",
     "memory/storage/stability/selection.loom",
     "memory/storage/stability/switch.loom",
+    "memory/storage/workgroup.loom",
     "memory/view/shrinking.loom",
     "memory/view/strided_recurrence.loom",
     "memory/view/subview.loom",

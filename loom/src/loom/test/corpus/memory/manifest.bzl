@@ -65,6 +65,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "storage/stability/selection.loom",
         "storage/stability/switch.loom",
         "storage/word.loom",
+        "storage/workgroup.loom",
         "view/access.loom",
         "view/boundary_transport.loom",
         "view/nested_selection.loom",
