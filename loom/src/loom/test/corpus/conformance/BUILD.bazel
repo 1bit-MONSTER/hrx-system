@@ -469,19 +469,6 @@ loom_test(
 )
 
 loom_test(
-    name = "wide_index_recurrence_test",
-    srcs = ["wide_index_recurrence.loom"],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
     name = "float_extrema_test",
     srcs = ["float_extrema.loom"],
     compile_targets = [
@@ -597,17 +584,6 @@ loom_test(
 )
 
 loom_test(
-    name = "condition_loops_test",
-    srcs = ["condition_loops.loom"],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/spirv:vulkan1.3+bda",
-    ],
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
     name = "load_extract_snapshot_test",
     srcs = ["load_extract_snapshot.loom"],
     compile_targets = [
@@ -648,12 +624,6 @@ loom_test(
         "//loom/target/amdgpu:gfx1151",
         "//loom/target/spirv:vulkan1.3+bda+extended-types",
     ],
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
-    name = "loop_termination_test",
-    srcs = ["loop_termination.loom"],
     execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
 )
 

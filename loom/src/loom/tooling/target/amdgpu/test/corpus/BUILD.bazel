@@ -183,20 +183,6 @@ loom_module(
 )
 
 iree_executable_test(
-    name = "loop_count_access_test",
-    src = "//loom/src/loom/tools/iree-test-loom",
-    args = [
-        "$(rootpath //loom/src/loom/test/corpus/conformance:loop_count.loom)",
-        "--device=amdgpu",
-        "--sanitizer=access",
-    ],
-    data = ["//loom/src/loom/test/corpus/conformance:loop_count.loom"],
-    resource_group = GPU_DEVICE_RESOURCE_GROUP,
-    tags = _EXECUTION_TAGS + ["notsan"],
-    target_compatible_with = _GENERIC_COMPATIBLE_WITH,
-)
-
-iree_executable_test(
     name = "gfx11_loop_entry_access_test",
     src = "//loom/src/loom/tools/iree-test-loom",
     args = [

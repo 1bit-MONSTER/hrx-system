@@ -10,18 +10,38 @@ load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
 
+_KERNEL_SOURCES = [
+    "control/branch/cfg.loom",
+    "control/branch/effects.loom",
+    "control/branch/guards.loom",
+    "control/branch/results.loom",
+    "control/branch/uniform_predicate.loom",
+    "control/loop/callable.loom",
+    "control/loop/carried_lane_liveness.loom",
+    "control/loop/condition.loom",
+    "control/loop/count.loom",
+    "control/loop/rotation/offsets.loom",
+    "control/loop/rotation/values.loom",
+    "control/loop/rotation/views.loom",
+    "control/loop/sequential_slices.loom",
+    "control/loop/termination.loom",
+    "control/loop/wide_index_recurrence.loom",
+    "control/schedule/ordered_read_ahead.loom",
+    "control/schedule/unroll_scope.loom",
+    "kernel/subgroup/active_predicate.loom",
+    "kernel/subgroup/ballot.loom",
+    "kernel/subgroup/shuffle_dynamic.loom",
+    "kernel/subgroup/shuffle_participation.loom",
+    "kernel/subgroup/transport.loom",
+    "kernel/subgroup/transport_carrier.loom",
+    "kernel/workgroup/loop_state.loom",
+    "kernel/workgroup/reduce_partial.loom",
+    "kernel/workgroup/reduce_tree.loom",
+]
+
 _NO_KERNEL_ARTIFACT_EXCLUDES = {
-    "control/schedule/ordered_read_ahead.loom": "VM has no kernel artifact format.",
-    "control/schedule/unroll_scope.loom": "VM has no kernel artifact format.",
-    "kernel/subgroup/active_predicate.loom": "VM has no kernel artifact format.",
-    "kernel/subgroup/ballot.loom": "VM has no kernel artifact format.",
-    "kernel/subgroup/shuffle_dynamic.loom": "VM has no kernel artifact format.",
-    "kernel/subgroup/shuffle_participation.loom": "VM has no kernel artifact format.",
-    "kernel/subgroup/transport.loom": "VM has no kernel artifact format.",
-    "kernel/subgroup/transport_carrier.loom": "VM has no kernel artifact format.",
-    "kernel/workgroup/loop_state.loom": "VM has no kernel artifact format.",
-    "kernel/workgroup/reduce_partial.loom": "VM has no kernel artifact format.",
-    "kernel/workgroup/reduce_tree.loom": "VM has no kernel artifact format.",
+    source: "VM has no kernel artifact format."
+    for source in _KERNEL_SOURCES
 }
 
 loom_corpus_build(

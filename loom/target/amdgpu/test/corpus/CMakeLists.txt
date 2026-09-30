@@ -9,19 +9,332 @@
 
 iree_add_all_subdirs()
 
-loom_test_module(
+loom_corpus_build(
   NAME
-    pipelined_address_domains_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/schedule/address_domains.loom"
+    "all"
+  MANIFESTS
+    "numeric"
+    "control"
+    "memory"
+    "kernel"
+    "function"
+  PROFILES
+    loom::target::amdgpu::all
+  EXCLUDES
+    "loom::target::amdgpu::all"
+    "control/branch/structured.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "control/loop/vector_recurrence.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "control/schedule/address_domains.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/buffer/arguments.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/buffer/call_overflow.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/buffer/calls.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/call/calls.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/call/direct.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/call/overflow.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/call/spill.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/rodata.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/template/expansion.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/template/library.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/template/motion.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "function/template/relations.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/address/address.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/atomic/operations.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/buffer/allocation_freshness.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/buffer/boundaries.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/buffer/buffer_access.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/buffer/buffers.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/buffer/masked_memory.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/storage/word.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/access.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/boundary_transport.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/nested_selection.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/offset_recurrence.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/rotation.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/selected_crops.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "memory/view/selection.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/conversion/conversion.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/conversion/narrow.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/conversion/narrow_arithmetic.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/conversion/paths.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/conversion/scalar_float.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/arithmetic.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/comparison.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/exponential.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/logarithm.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/roots.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/rounding.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/selection.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/selectors.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/float/turns.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/arithmetic.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/bitfield.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/boundaries.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/comparison.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/constants.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/division.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/extrema.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/integer/scalar_observations.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/predicate/scalar_logic.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/predicate/selection.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/predicate/truncation.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/predicate/vector_logic.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/f32.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/fields.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/floating.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/indexing.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/integer_bitwise.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/packed_selection.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/reductions.loom"
+    "AMDGPU has no module artifact format."
+    "loom::target::amdgpu::all"
+    "numeric/vector/selection.loom"
+    "AMDGPU has no module artifact format."
 )
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
+loom_corpus_test(
   NAME
-    pipelined_address_domains_test_execute_amdgpu_hardware_test
-  MODULE
-    "::pipelined_address_domains_test_module"
+    "execution"
+  PROFILE
+    "amdgpu_hardware"
+  MANIFESTS
+    "numeric"
+    "control"
+    "memory"
+    "kernel"
+    "function"
+  EXCLUDES
+    "control/branch/structured.loom"
+    "The source has no AMDGPU device subject."
+    "control/loop/vector_recurrence.loom"
+    "The source has no AMDGPU device subject."
+    "function/buffer/arguments.loom"
+    "The source has no AMDGPU device subject."
+    "function/buffer/call_overflow.loom"
+    "The source has no AMDGPU device subject."
+    "function/buffer/calls.loom"
+    "The source has no AMDGPU device subject."
+    "function/call/calls.loom"
+    "The source has no AMDGPU device subject."
+    "function/call/direct.loom"
+    "The source has no AMDGPU device subject."
+    "function/call/overflow.loom"
+    "The source has no AMDGPU device subject."
+    "function/call/spill.loom"
+    "The source has no AMDGPU device subject."
+    "function/rodata.loom"
+    "The source has no AMDGPU device subject."
+    "function/template/expansion.loom"
+    "The source has no AMDGPU device subject."
+    "function/template/library.loom"
+    "The source has no AMDGPU device subject."
+    "function/template/motion.loom"
+    "The source has no AMDGPU device subject."
+    "function/template/relations.loom"
+    "The source has no AMDGPU device subject."
+    "memory/address/address.loom"
+    "The source has no AMDGPU device subject."
+    "memory/atomic/operations.loom"
+    "The source has no AMDGPU device subject."
+    "memory/buffer/allocation_freshness.loom"
+    "The source has no AMDGPU device subject."
+    "memory/buffer/boundaries.loom"
+    "The source has no AMDGPU device subject."
+    "memory/buffer/buffer_access.loom"
+    "The source has no AMDGPU device subject."
+    "memory/buffer/buffers.loom"
+    "The source has no AMDGPU device subject."
+    "memory/buffer/masked_memory.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/access.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/boundary_transport.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/nested_selection.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/offset_recurrence.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/rotation.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/selected_crops.loom"
+    "The source has no AMDGPU device subject."
+    "memory/view/selection.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/conversion/conversion.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/conversion/narrow.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/conversion/narrow_arithmetic.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/conversion/paths.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/arithmetic.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/comparison.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/exponential.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/logarithm.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/roots.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/rounding.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/selection.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/selectors.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/float/turns.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/arithmetic.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/bitfield.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/boundaries.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/comparison.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/constants.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/division.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/integer/extrema.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/predicate/scalar_logic.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/vector/fields.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/vector/floating.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/vector/indexing.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/vector/reductions.loom"
+    "The source has no AMDGPU device subject."
+    "numeric/vector/selection.loom"
+    "The source has no AMDGPU device subject."
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS
@@ -37,15 +350,172 @@ loom_execution_test(
     "loom-executor=hardware"
   RESOURCE_GROUP
     "gpu-device"
+  REQUIRES
+    "LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU"
 )
-endif()
 
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
+loom_corpus_test(
   NAME
-    pipelined_address_domains_test_execute_amdgpu_access_test
-  MODULE
-    "::pipelined_address_domains_test_module"
+    "execution"
+  PROFILE
+    "amdgpu_access"
+  MANIFESTS
+    "numeric"
+    "control"
+    "memory"
+    "kernel"
+    "function"
+  EXCLUDES
+    "control/branch/cfg.loom"
+    "The execution profile does not select this source."
+    "control/branch/structured.loom"
+    "The execution profile does not select this source."
+    "control/loop/callable.loom"
+    "The execution profile does not select this source."
+    "control/loop/carried_lane_liveness.loom"
+    "The execution profile does not select this source."
+    "control/loop/rotation/offsets.loom"
+    "The execution profile does not select this source."
+    "control/loop/rotation/values.loom"
+    "The execution profile does not select this source."
+    "control/loop/rotation/views.loom"
+    "The execution profile does not select this source."
+    "control/loop/sequential_slices.loom"
+    "The execution profile does not select this source."
+    "control/loop/vector_recurrence.loom"
+    "The execution profile does not select this source."
+    "function/buffer/arguments.loom"
+    "The execution profile does not select this source."
+    "function/buffer/call_overflow.loom"
+    "The execution profile does not select this source."
+    "function/buffer/calls.loom"
+    "The execution profile does not select this source."
+    "function/call/calls.loom"
+    "The execution profile does not select this source."
+    "function/call/direct.loom"
+    "The execution profile does not select this source."
+    "function/call/overflow.loom"
+    "The execution profile does not select this source."
+    "function/call/spill.loom"
+    "The execution profile does not select this source."
+    "function/rodata.loom"
+    "The execution profile does not select this source."
+    "function/template/expansion.loom"
+    "The execution profile does not select this source."
+    "function/template/library.loom"
+    "The execution profile does not select this source."
+    "function/template/motion.loom"
+    "The execution profile does not select this source."
+    "function/template/relations.loom"
+    "The execution profile does not select this source."
+    "kernel/subgroup/shuffle_dynamic.loom"
+    "The execution profile does not select this source."
+    "kernel/subgroup/shuffle_participation.loom"
+    "The execution profile does not select this source."
+    "kernel/subgroup/transport.loom"
+    "The execution profile does not select this source."
+    "kernel/subgroup/transport_carrier.loom"
+    "The execution profile does not select this source."
+    "kernel/workgroup/reduce_partial.loom"
+    "The execution profile does not select this source."
+    "kernel/workgroup/reduce_tree.loom"
+    "The execution profile does not select this source."
+    "memory/address/address.loom"
+    "The execution profile does not select this source."
+    "memory/atomic/operations.loom"
+    "The execution profile does not select this source."
+    "memory/buffer/allocation_freshness.loom"
+    "The execution profile does not select this source."
+    "memory/buffer/boundaries.loom"
+    "The execution profile does not select this source."
+    "memory/buffer/buffer_access.loom"
+    "The execution profile does not select this source."
+    "memory/buffer/buffers.loom"
+    "The execution profile does not select this source."
+    "memory/buffer/masked_memory.loom"
+    "The execution profile does not select this source."
+    "memory/storage/word.loom"
+    "The execution profile does not select this source."
+    "memory/view/access.loom"
+    "The execution profile does not select this source."
+    "memory/view/boundary_transport.loom"
+    "The execution profile does not select this source."
+    "memory/view/nested_selection.loom"
+    "The execution profile does not select this source."
+    "memory/view/offset_recurrence.loom"
+    "The execution profile does not select this source."
+    "memory/view/rotation.loom"
+    "The execution profile does not select this source."
+    "memory/view/selected_crops.loom"
+    "The execution profile does not select this source."
+    "memory/view/selection.loom"
+    "The execution profile does not select this source."
+    "numeric/conversion/conversion.loom"
+    "The execution profile does not select this source."
+    "numeric/conversion/narrow.loom"
+    "The execution profile does not select this source."
+    "numeric/conversion/narrow_arithmetic.loom"
+    "The execution profile does not select this source."
+    "numeric/conversion/paths.loom"
+    "The execution profile does not select this source."
+    "numeric/conversion/scalar_float.loom"
+    "The execution profile does not select this source."
+    "numeric/float/arithmetic.loom"
+    "The execution profile does not select this source."
+    "numeric/float/comparison.loom"
+    "The execution profile does not select this source."
+    "numeric/float/exponential.loom"
+    "The execution profile does not select this source."
+    "numeric/float/logarithm.loom"
+    "The execution profile does not select this source."
+    "numeric/float/roots.loom"
+    "The execution profile does not select this source."
+    "numeric/float/rounding.loom"
+    "The execution profile does not select this source."
+    "numeric/float/selection.loom"
+    "The execution profile does not select this source."
+    "numeric/float/selectors.loom"
+    "The execution profile does not select this source."
+    "numeric/float/turns.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/arithmetic.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/bitfield.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/boundaries.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/comparison.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/constants.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/division.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/extrema.loom"
+    "The execution profile does not select this source."
+    "numeric/integer/scalar_observations.loom"
+    "The execution profile does not select this source."
+    "numeric/predicate/scalar_logic.loom"
+    "The execution profile does not select this source."
+    "numeric/predicate/selection.loom"
+    "The execution profile does not select this source."
+    "numeric/predicate/vector_logic.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/f32.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/fields.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/floating.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/indexing.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/integer_bitwise.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/packed_selection.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/reductions.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/selection.loom"
+    "The execution profile does not select this source."
   RUNNER_ARGS
     "--device=amdgpu"
     "--sanitizer=access"
@@ -63,876 +533,8 @@ loom_execution_test(
     "loom-executor=hardware"
   RESOURCE_GROUP
     "gpu-device"
+  REQUIRES
+    "LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU"
 )
-endif()
-
-loom_test_module(
-  NAME
-    ordered_read_ahead_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/schedule/ordered_read_ahead.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    ordered_read_ahead_test_execute_amdgpu_hardware_test
-  MODULE
-    "::ordered_read_ahead_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    ordered_read_ahead_test_execute_amdgpu_access_test
-  MODULE
-    "::ordered_read_ahead_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "ordered_read_ahead_test"
-  SRC
-    "::ordered_read_ahead_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx942
-)
-
-loom_test_module(
-  NAME
-    scheduled_unroll_scope_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/schedule/unroll_scope.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    scheduled_unroll_scope_test_execute_amdgpu_hardware_test
-  MODULE
-    "::scheduled_unroll_scope_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    scheduled_unroll_scope_test_execute_amdgpu_access_test
-  MODULE
-    "::scheduled_unroll_scope_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "scheduled_unroll_scope_test"
-  SRC
-    "::scheduled_unroll_scope_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx942
-)
-
-loom_test_module(
-  NAME
-    word_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/storage/word.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    word_test_execute_amdgpu_hardware_test
-  MODULE
-    "::word_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    numeric_vector_f32_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/f32.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    numeric_vector_f32_test_execute_amdgpu_hardware_test
-  MODULE
-    "::numeric_vector_f32_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    packed_vector_select_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/packed_selection.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    packed_vector_select_test_execute_amdgpu_hardware_test
-  MODULE
-    "::packed_vector_select_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    predicate_logic_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/vector_logic.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_logic_test_execute_amdgpu_hardware_test
-  MODULE
-    "::predicate_logic_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    predicate_selection_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/selection.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_selection_test_execute_amdgpu_hardware_test
-  MODULE
-    "::predicate_selection_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    predicate_truncation_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/truncation.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_truncation_test_execute_amdgpu_hardware_test
-  MODULE
-    "::predicate_truncation_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    predicate_truncation_test_execute_amdgpu_access_test
-  MODULE
-    "::predicate_truncation_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    scalar_float_conversion_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/conversion/scalar_float.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    scalar_float_conversion_test_execute_amdgpu_hardware_test
-  MODULE
-    "::scalar_float_conversion_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    scalar_integer_address_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/scalar_observations.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    scalar_integer_address_test_execute_amdgpu_hardware_test
-  MODULE
-    "::scalar_integer_address_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    vector_integer_bitwise_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/integer_bitwise.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    vector_integer_bitwise_test_execute_amdgpu_hardware_test
-  MODULE
-    "::vector_integer_bitwise_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    subgroup_active_predicate_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/subgroup/active_predicate.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_active_predicate_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_active_predicate_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_active_predicate_test_execute_amdgpu_access_test
-  MODULE
-    "::subgroup_active_predicate_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_active_predicate_test"
-  SRC
-    "::subgroup_active_predicate_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_test_module(
-  NAME
-    subgroup_ballot_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/subgroup/ballot.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_ballot_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_ballot_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_ballot_test_execute_amdgpu_access_test
-  MODULE
-    "::subgroup_ballot_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_ballot_test"
-  SRC
-    "::subgroup_ballot_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_test_module(
-  NAME
-    subgroup_shuffle_dynamic_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/subgroup/shuffle_dynamic.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_shuffle_dynamic_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_shuffle_dynamic_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    subgroup_shuffle_participation_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/subgroup/shuffle_participation.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_shuffle_participation_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_shuffle_participation_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_shuffle_participation_test"
-  SRC
-    "::subgroup_shuffle_participation_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1100
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_test_module(
-  NAME
-    subgroup_transport_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/subgroup/transport.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_transport_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_transport_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_transport_test"
-  SRC
-    "::subgroup_transport_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1100
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_test_module(
-  NAME
-    subgroup_transport_carrier_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/subgroup/transport_carrier.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_transport_carrier_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_transport_carrier_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_transport_carrier_test"
-  SRC
-    "::subgroup_transport_carrier_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1100
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_test_module(
-  NAME
-    workgroup_loop_state_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/workgroup/loop_state.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    workgroup_loop_state_test_execute_amdgpu_hardware_test
-  MODULE
-    "::workgroup_loop_state_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    workgroup_loop_state_test_execute_amdgpu_access_test
-  MODULE
-    "::workgroup_loop_state_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    workgroup_reduce_partial_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/workgroup/reduce_partial.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    workgroup_reduce_partial_test_execute_amdgpu_hardware_test
-  MODULE
-    "::workgroup_reduce_partial_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_test_module(
-  NAME
-    workgroup_reduce_tree_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/kernel/workgroup/reduce_tree.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    workgroup_reduce_tree_test_execute_amdgpu_hardware_test
-  MODULE
-    "::workgroup_reduce_tree_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

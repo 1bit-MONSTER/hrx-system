@@ -304,51 +304,6 @@ loom_test(
 )
 
 loom_test(
-    name = "loop_count_access_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:loop_count.loom"],
-    execution_profiles = [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
-    name = "sequential_loops_hardware_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:sequential_loop_slices.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
-
-loom_test(
-    name = "conditional_guards_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:conditional_guards.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "conditional_effects_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:conditional_effects.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "conditional_results_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:conditional_results.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "uniform_predicate_control_access_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:uniform_predicate_control.loom"],
-    execution_profiles = [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
     name = "asan_test",
     srcs = ["//loom/src/loom/test/corpus/sanitizer:amdgpu_asan_actual.loom"],
     configs = {"asan_launch_bound.tile_capacity": "1"},
