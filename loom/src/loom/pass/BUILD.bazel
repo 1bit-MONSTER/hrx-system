@@ -58,6 +58,33 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "pipeline_snapshot",
+    srcs = ["pipeline_snapshot.c"],
+    hdrs = ["pipeline_snapshot.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/link:linker",
+        "//loom/src/loom/ops/pass",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "pipeline_snapshot_test",
+    srcs = ["pipeline_snapshot_test.cc"],
+    deps = [
+        ":pipeline_snapshot",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/pass",
+        "//loom/src/loom/pass/test:harness",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "builder",
     srcs = ["builder.c"],
     hdrs = ["builder.h"],
