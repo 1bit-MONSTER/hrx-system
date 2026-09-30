@@ -118,6 +118,12 @@ TEST_P(MemoryGroupTest, NativeGroupUsesOneOwnerWithoutExternalTransport) {
   devices[1].profile.allocation.maximum_byte_length = 8192;
   devices[1].profile.registration.maximum_byte_length = 8192;
   devices[1].profile.device_address.address_domain_ordinal = 7;
+  // Only the backing owner has native state, but each consumer keeps its
+  // resolved visibility contract independently of that ownership choice.
+  devices[1].profile.visibility.describe_site =
+      [](const amdf_memory_site_query_t*, amdf_memory_site_description_t*) {
+        return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+      };
   amdf_memory_profile_t profile = {};
   profile.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE;
   profile.structure_size = sizeof(profile);
@@ -149,6 +155,9 @@ TEST_P(MemoryGroupTest, NativeGroupUsesOneOwnerWithoutExternalTransport) {
   EXPECT_EQ(memory->accesses[1].native, nullptr);
   EXPECT_EQ(memory->accesses[1].info.ordinal, 1u);
   EXPECT_EQ(memory->accesses[1].info.address_domain_ordinal, 7u);
+  EXPECT_EQ(memory->accesses[0].describe_site, nullptr);
+  EXPECT_EQ(memory->accesses[1].describe_site,
+            devices[1].profile.visibility.describe_site);
   EXPECT_EQ(memory->accesses[0].addresses[AMDF_MEMORY_ADDRESS_GPU],
             memory->accesses[1].addresses[AMDF_MEMORY_ADDRESS_GPU]);
   EXPECT_EQ(amdf_memory_destroy(memory), AMDF_STATUS_OK);
@@ -396,6 +405,53 @@ TEST_F(MemoryConstructionTest, LiveProfilePreservesBackingPayloadGeometry) {
     EXPECT_EQ(device.create_call_count, 0u);
     EXPECT_EQ(device.import_call_count, 0u);
   }
+}
+
+TEST_F(MemoryConstructionTest, HostOnlyPairDoesNotQueryDeviceAtomicReach) {
+  FakeDevice device;
+  InitializeFakeDevice(1, &instance_, &device);
+  amdf_memory_host_description_t host = {};
+  host.cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK;
+  host.flush.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  host.invalidate.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  device.profile.visibility.data = &host;
+  device.profile.visibility.describe_host =
+      [](const void* data, amdf_external_memory_type_t, amdf_memory_flags_t) {
+        return *static_cast<const amdf_memory_host_description_t*>(data);
+      };
+  device.profile.visibility.describe_site =
+      [](const amdf_memory_site_query_t*, amdf_memory_site_description_t*) {
+        ADD_FAILURE() << "A host-only pair must not describe a mapped device";
+        return amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+      };
+  amdf_memory_profile_pair_query_t query = {};
+  query.type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE_PAIR_QUERY;
+  query.structure_size = sizeof(query);
+  query.access_count = 1;
+  query.accesses = &device.request;
+  query.required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE;
+  query.producer.kind = AMDF_MEMORY_SITE_KIND_HOST;
+  query.producer.value.host_access = AMDF_MEMORY_MAP_FLAG_WRITE;
+  query.consumer.kind = AMDF_MEMORY_SITE_KIND_HOST;
+  query.consumer.value.host_access = AMDF_MEMORY_MAP_FLAG_READ;
+  amdf_memory_pair_info_t pair = {};
+  pair.type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO;
+  pair.structure_size = sizeof(pair);
+  ASSERT_EQ(amdf_memory_scope_query_pair_info(&instance_.system_memory_scope,
+                                              &query, &pair),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(pair.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(pair.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(pair.release.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
+  EXPECT_EQ(pair.acquire.kind, AMDF_CACHE_TRANSITION_KIND_NONE);
+  EXPECT_EQ(device.create_call_count, 0u);
+  EXPECT_EQ(device.import_call_count, 0u);
+  const amdf_memory_pair_info_t original = pair;
+  query.producer.value.host_access = AMDF_MEMORY_MAP_FLAG_READ;
+  EXPECT_EQ(amdf_status_code(amdf_memory_scope_query_pair_info(
+                &instance_.system_memory_scope, &query, &pair)),
+            AMDF_STATUS_CODE_UNSUPPORTED);
+  EXPECT_EQ(std::memcmp(&pair, &original, sizeof(pair)), 0);
 }
 
 TEST_F(MemoryConstructionTest, LiveProfileFailurePublishesNoPartialOutputs) {

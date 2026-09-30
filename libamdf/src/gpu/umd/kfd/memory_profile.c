@@ -6,7 +6,84 @@
 
 #include "libamdf/src/gpu/umd/kfd/memory_profile.h"
 
+#include "amdf/gpu.h"
+#include "libamdf/src/gpu/umd/memory.h"
 #include "libamdf/src/platform/linux/dma_buf.h"
+
+// Selected backing policies need no SDMA payload cache operation. Explicit
+// transfer completion and dependency ordering remain caller obligations.
+static amdf_status_t amdf_gpu_kfd_sdma_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  const amdf_queue_family_info_t* family = query->queue_family_info;
+  if (family->command_type != AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA ||
+      family->format_version != AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1 ||
+      (family->roles & AMDF_QUEUE_ROLE_TRANSFER) == 0) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  amdf_memory_site_description_t description = {0};
+  if ((query->access & AMDF_MEMORY_ACCESS_READ) != 0) {
+    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_READ;
+  }
+  if ((query->access & AMDF_MEMORY_ACCESS_WRITE) != 0) {
+    description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_WRITE;
+  }
+  description.release.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  description.acquire.kind = AMDF_CACHE_TRANSITION_KIND_NONE;
+  description.capabilities |= AMDF_MEMORY_SITE_CAPABILITY_RELEASE_COST_KNOWN |
+                              AMDF_MEMORY_SITE_CAPABILITY_ACQUIRE_COST_KNOWN;
+  *out_description = description;
+  return AMDF_STATUS_OK;
+}
+
+// Owned coherent GTT follows the selected engine's no-GCR transfer path.
+// This does not imply that compute accesses bypass their own data caches.
+static amdf_status_t amdf_gpu_kfd_sdma_system_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  if (query->queue_family_info->command_type !=
+      AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {
+    return amdf_gpu_umd_memory_describe_system_store_site(query,
+                                                          out_description);
+  }
+  // A remote LOCAL projection retains consumer policy but cannot inherit
+  // the owned SYSTEM backing's host-coherent construction contract.
+  if ((query->flags & AMDF_MEMORY_FLAG_HOST_COHERENT) == 0) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  return amdf_gpu_kfd_sdma_describe_site(query, out_description);
+}
+
+// Same-GPU device-only VRAM excludes host aperture writes and their separate
+// HDP maintenance. Compute queues still require their own payload fences.
+static amdf_status_t amdf_gpu_kfd_sdma_local_describe_site(
+    const amdf_memory_site_query_t* query,
+    amdf_memory_site_description_t* out_description) {
+  if ((query->flags &
+       (AMDF_MEMORY_FLAG_DEVICE_LOCAL | AMDF_MEMORY_FLAG_HOST_VISIBLE)) !=
+      AMDF_MEMORY_FLAG_DEVICE_LOCAL) {
+    return amdf_gpu_umd_memory_describe_site(query, out_description);
+  }
+  return amdf_gpu_kfd_sdma_describe_site(query, out_description);
+}
+
+// Linux selects sdma_v4_4_2 for these engines; ROCr uses its V4 no-GCR path
+// across CDNA. This is independent of compiler ISA and compute PTE MTYPE.
+static bool amdf_gpu_kfd_supports_legacy_sdma_visibility(
+    const amdf_gpu_kfd_topology_t* topology) {
+  const amdf_gpu_kfd_ip_version_t* ip = &topology->sdma.ip;
+  return ip->exact && ip->major == 4 && ip->minor == 4 &&
+         (ip->revision == 2 || ip->revision == 4 || ip->revision == 5);
+}
+
+static bool amdf_gpu_kfd_supports_gfx1151_system_visibility(
+    const amdf_gpu_kfd_topology_t* topology) {
+  return topology->properties.gfx_ip.major == 11 &&
+         topology->properties.gfx_ip.minor == 5 &&
+         topology->properties.gfx_ip.stepping == 1 && topology->sdma.ip.exact &&
+         topology->sdma.ip.major == 6 && topology->sdma.ip.minor == 1 &&
+         topology->sdma.ip.revision == 1;
+}
 
 // KFD maps a fixed consumer set into the backing owner's native allocation.
 // Local placement is directional: the consumer must reach the selected source,
@@ -47,6 +124,11 @@ static bool amdf_gpu_kfd_query_group_access(
   profile.allocation = candidate->allocation;
   profile.construction = candidate->construction;
   profile.visibility = candidate->visibility;
+  if (source->gpu_id == consumer->gpu_id) {
+    // A second handle for this GPU keeps the backing's LOCAL site policy;
+    // its construction, address and host-policy facts remain consumer-owned.
+    profile.visibility.describe_site = backing->visibility.describe_site;
+  }
   // The backing determines VRAM cache semantics. In particular, a consumer's
   // GTT profile must not add HOST_COHERENT to an access of local memory.
   *out_profile = profile;
@@ -90,6 +172,7 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
   amdf_memory_native_profile_t profile = {
       .ordinal = memory_profile_ordinal,
       .address_kinds = UINT64_C(1) << AMDF_MEMORY_ADDRESS_GPU,
+      .visibility = {.describe_site = amdf_gpu_umd_memory_describe_site},
       .construction =
           {
               .query_access = amdf_gpu_kfd_query_group_access,
@@ -166,6 +249,23 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
             AMDF_LINUX_DMA_BUF_DIRECT_HOST_PROVENANCE;
     profile.external_memory_support[1].flags &=
         ~AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_FOREIGN_API;
+    // GMC11 maps coherent pinned GTT as UC. Native CPU route widths supply
+    // the independent AtomicOps requirement; compiler target spelling and
+    // allocation visibility do not establish that route.
+    if (topology->gc_ip.exact && topology->gc_ip.major == 11) {
+      if (topology->host_atomics.supports_32) {
+        profile.atomic_operations_32 = AMDF_ATOMIC_OPERATION_STORE;
+      }
+      if (topology->host_atomics.supports_64) {
+        profile.atomic_operations_64 = AMDF_ATOMIC_OPERATION_STORE;
+      }
+    }
+    profile.visibility.describe_site =
+        amdf_gpu_umd_memory_describe_system_store_site;
+    if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology) ||
+        amdf_gpu_kfd_supports_gfx1151_system_visibility(topology)) {
+      profile.visibility.describe_site = amdf_gpu_kfd_sdma_system_describe_site;
+    }
   } else if ((topology->memory_features &
               AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY) != 0 &&
              memory_profile_ordinal == ordinal++) {
@@ -188,6 +288,9 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
     profile.allocation = allocation;
     if ((profile.roles & AMDF_MEMORY_PROFILE_ROLE_HOST_MAP) != 0) {
       profile.host_mapping = host_mapping;
+    }
+    if (amdf_gpu_kfd_supports_legacy_sdma_visibility(topology)) {
+      profile.visibility.describe_site = amdf_gpu_kfd_sdma_local_describe_site;
     }
   } else if (native_lifetime == AMDF_NATIVE_LIFETIME_PROCESS &&
              memory_profile_ordinal == ordinal) {

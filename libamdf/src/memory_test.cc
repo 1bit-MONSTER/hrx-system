@@ -83,7 +83,7 @@ TEST_F(MemoryTest, HostSitesUseTheSelectedPeerAndPreserveNativeApiOperations) {
               AMDF_STATUS_OK);
     EXPECT_EQ(pair.acquire.kind, i == 0 ? AMDF_CACHE_TRANSITION_KIND_RANGE
                                         : AMDF_CACHE_TRANSITION_KIND_NONE);
-    EXPECT_EQ(pair.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+    EXPECT_EQ(pair.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_SYSTEM);
     EXPECT_EQ(pair.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
   }
   amdf_memory_site_t coherent = MakeMemorySite(memory, 3);
@@ -146,6 +146,153 @@ TEST_F(MemoryTest, HostSitesUseTheSelectedPeerAndPreserveNativeApiOperations) {
                 amdf_memory_query_pair_info(&coherent, &coherent, &pair)),
             AMDF_STATUS_CODE_OUT_OF_RANGE);
   EXPECT_EQ(std::memcmp(&pair, &original, sizeof(pair)), 0);
+  EXPECT_EQ(amdf_memory_destroy(memory), AMDF_STATUS_OK);
+}
+
+TEST_F(MemoryTest, HostAtomicReachUsesOnlyTheExactPeersSystemWidths) {
+  FakeDevice devices[2];
+  amdf_memory_device_access_t accesses[2];
+  for (uint32_t i = 0; i < 2; ++i) {
+    InitializeFakeDevice(i + 1, &instance_, &devices[i]);
+    accesses[i] = devices[i].request;
+  }
+  amdf_memory_create_info_t create_info = MakeMemoryCreateInfo(devices[0]);
+  create_info.access_count = 2;
+  create_info.accesses = accesses;
+  amdf_memory_t* memory = nullptr;
+  ASSERT_EQ(
+      amdf_memory_create(&instance_.system_memory_scope, &create_info, &memory),
+      AMDF_STATUS_OK);
+  auto* unrelated = static_cast<FakeMemory*>(memory->accesses[0].native);
+  unrelated->site_status = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  auto* native = static_cast<FakeMemory*>(memory->accesses[1].native);
+
+  amdf_host_mapping_t mapping = {};
+  mapping.memory = memory;
+  mapping.info.flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
+  mapping.info.flush.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
+  mapping.info.flush.executor = AMDF_CACHE_TRANSITION_EXECUTOR_HOST_API;
+  mapping.info.flush.host_operation = AMDF_HOST_CACHE_OPERATION_FLUSH;
+  mapping.info.invalidate = mapping.info.flush;
+  mapping.info.invalidate.host_operation = AMDF_HOST_CACHE_OPERATION_INVALIDATE;
+  amdf_memory_site_t host = {};
+  host.type = AMDF_STRUCTURE_TYPE_MEMORY_SITE;
+  host.structure_size = sizeof(host);
+  host.kind = AMDF_MEMORY_SITE_KIND_HOST;
+  host.value.host_mapping = &mapping;
+  amdf_memory_site_t device = MakeMemorySite(memory, 3);
+  device.value.device.access_ordinal = 1;
+  amdf_memory_pair_info_t pair = {};
+  pair.type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO;
+  pair.structure_size = sizeof(pair);
+
+  struct Case {
+    // Native host cache class established for the view.
+    amdf_host_cacheability_t cacheability;
+    // Qualified device domain; zero denotes no established atomic domain.
+    amdf_memory_compatibility_domain_t domain;
+    // Independently qualified device widths against this backing.
+    amdf_atomic_reach_t device_reach;
+    // Widths that the CPU and selected device can use together.
+    amdf_atomic_reach_t expected_reach;
+  };
+  const Case cases[] = {
+      {AMDF_HOST_CACHEABILITY_WRITE_BACK,
+       {{7, 11}},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_SYSTEM},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_SYSTEM}},
+      {AMDF_HOST_CACHEABILITY_WRITE_BACK,
+       {{0, 11}},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_DEVICE},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_NONE}},
+      {AMDF_HOST_CACHEABILITY_WRITE_BACK,
+       {{7, 0}},
+       {AMDF_ATOMIC_SCOPE_FABRIC, AMDF_ATOMIC_SCOPE_SYSTEM},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_SYSTEM}},
+      {AMDF_HOST_CACHEABILITY_WRITE_BACK,
+       {{7, 11}},
+       {AMDF_ATOMIC_SCOPE_DEVICE, AMDF_ATOMIC_SCOPE_FABRIC},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE}},
+      {AMDF_HOST_CACHEABILITY_WRITE_BACK,
+       {{7, 11}},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE}},
+      {AMDF_HOST_CACHEABILITY_WRITE_BACK,
+       {{0, 0}},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_SYSTEM},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE}},
+      {AMDF_HOST_CACHEABILITY_UNKNOWN,
+       {{7, 11}},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_SYSTEM},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE}},
+      {AMDF_HOST_CACHEABILITY_WRITE_COMBINED,
+       {{7, 11}},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_SYSTEM},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE}},
+      {AMDF_HOST_CACHEABILITY_UNCACHED,
+       {{7, 11}},
+       {AMDF_ATOMIC_SCOPE_SYSTEM, AMDF_ATOMIC_SCOPE_SYSTEM},
+       {AMDF_ATOMIC_SCOPE_NONE, AMDF_ATOMIC_SCOPE_NONE}},
+  };
+  for (const Case& test_case : cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << "cache=" << test_case.cacheability
+                 << " scope32=" << test_case.device_reach.scope_32
+                 << " scope64=" << test_case.device_reach.scope_64);
+    mapping.info.cacheability = test_case.cacheability;
+    native->site_description.atomic_domain = test_case.domain;
+    native->site_description.atomic_reach = test_case.device_reach;
+    for (bool host_producer : {false, true}) {
+      const uint32_t prior_count = native->site_description_count;
+      EXPECT_EQ(
+          amdf_memory_query_pair_info(host_producer ? &host : &device,
+                                      host_producer ? &device : &host, &pair),
+          AMDF_STATUS_OK);
+      EXPECT_EQ(native->site_description_count, prior_count + 1);
+      EXPECT_EQ(native->last_queue_family_ordinal, 3u);
+      EXPECT_EQ(unrelated->site_description_count, 0u);
+      EXPECT_EQ(pair.atomic_reach.scope_32, test_case.expected_reach.scope_32);
+      EXPECT_EQ(pair.atomic_reach.scope_64, test_case.expected_reach.scope_64);
+      ExpectCacheTransitionEqual(
+          host_producer ? pair.release : pair.acquire,
+          host_producer ? mapping.info.flush : mapping.info.invalidate);
+      ExpectCacheTransitionEqual(host_producer ? pair.acquire : pair.release,
+                                 host_producer
+                                     ? native->site_description.acquire
+                                     : native->site_description.release);
+    }
+  }
+
+  mapping.info.cacheability = AMDF_HOST_CACHEABILITY_WRITE_BACK;
+  EXPECT_EQ(amdf_memory_query_pair_info(&host, &host, &pair), AMDF_STATUS_OK);
+  EXPECT_EQ(pair.atomic_reach.scope_32, AMDF_ATOMIC_SCOPE_NONE);
+  EXPECT_EQ(pair.atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
+  const amdf_memory_pair_info_t original = pair;
+  const auto expect_rejection = [&](const amdf_memory_site_t* producer,
+                                    const amdf_memory_site_t* consumer,
+                                    amdf_status_code_t expected) {
+    EXPECT_EQ(amdf_status_code(
+                  amdf_memory_query_pair_info(producer, consumer, &pair)),
+              expected);
+    EXPECT_EQ(std::memcmp(&pair, &original, sizeof(pair)), 0);
+  };
+  // A positive SYSTEM fact cannot supply missing host permissions or repair
+  // an unqualified host visibility operation.
+  mapping.info.flags = AMDF_MEMORY_MAP_FLAG_READ;
+  expect_rejection(&host, &device, AMDF_STATUS_CODE_UNSUPPORTED);
+  mapping.info.flags = AMDF_MEMORY_MAP_FLAG_WRITE;
+  expect_rejection(&device, &host, AMDF_STATUS_CODE_UNSUPPORTED);
+  mapping.info.flags = AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
+  mapping.info.flush.kind = AMDF_CACHE_TRANSITION_KIND_UNKNOWN;
+  expect_rejection(&host, &device, AMDF_STATUS_CODE_UNSUPPORTED);
+  mapping.info.flush.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
+  mapping.info.invalidate.kind = AMDF_CACHE_TRANSITION_KIND_UNKNOWN;
+  expect_rejection(&device, &host, AMDF_STATUS_CODE_UNSUPPORTED);
+  mapping.info.invalidate.kind = AMDF_CACHE_TRANSITION_KIND_GLOBAL;
+  native->site_status = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  expect_rejection(&host, &device, AMDF_STATUS_CODE_DEVICE_LOST);
+  expect_rejection(&device, &host, AMDF_STATUS_CODE_DEVICE_LOST);
+  EXPECT_EQ(unrelated->site_description_count, 0u);
   EXPECT_EQ(amdf_memory_destroy(memory), AMDF_STATUS_OK);
 }
 

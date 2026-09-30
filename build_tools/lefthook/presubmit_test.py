@@ -303,6 +303,9 @@ class PresubmitTest(unittest.TestCase):
             "docs/reference/amd/README.md",
             "docs/reference/amd/gpu/pm4/dispatch.md",
             "docs/reference/amd/xdna/execution.rst",
+            "libamdf/docs/memory.md",
+            "libamdf/docs/experimental/README.md",
+            "libamdf/README.md",
         ):
             with self.subTest(path=path):
                 self.assertTrue(presubmit.is_semgrep_candidate_file(path))
@@ -310,9 +313,6 @@ class PresubmitTest(unittest.TestCase):
         for path in (
             "docs/reference/amd-other/README.md",
             "docs/README.md",
-            "libamdf/docs/memory.md",
-            "libamdf/docs/experimental/README.md",
-            "libamdf/README.md",
             "libamdf/README.extra.md",
             "libamdf/docs-other/README.md",
             "libamdf/cts/README.md",
@@ -1575,7 +1575,7 @@ class PresubmitTest(unittest.TestCase):
             )
         run.assert_not_called()
         self.assertEqual(
-            scan.call_args.args[0], [presubmit.semgrep_scan_command(paths[:1])]
+            scan.call_args.args[0], [presubmit.semgrep_scan_command(paths[:2])]
         )
 
     def test_workflows_and_requirements_trigger_devtools_tests(self):

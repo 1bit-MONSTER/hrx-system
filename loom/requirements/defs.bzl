@@ -15,7 +15,7 @@ EMIT_AMDGPU = build_requirement(
     id = "loom.emit.amdgpu",
     label = Label("//loom/requirements:emit_amdgpu"),
     enabled_by = Label("//loom/config/emit:amdgpu"),
-    cmake_condition = "LOOM_EMIT_AMDGPU",
+    cmake_condition = "LOOM_BUILD AND LOOM_EMIT_AMDGPU",
 )
 
 EMIT_SPIRV = build_requirement(
@@ -30,6 +30,13 @@ EMIT_WASM = build_requirement(
     label = Label("//loom/requirements:emit_wasm"),
     enabled_by = Label("//loom/config/emit:wasm"),
     cmake_condition = "LOOM_EMIT_WASM",
+)
+
+EMIT_XDNA = build_requirement(
+    id = "loom.emit.xdna",
+    label = Label("//loom/requirements:emit_xdna"),
+    enabled_by = Label("//loom/config/emit:xdna"),
+    cmake_condition = "LOOM_BUILD AND LOOM_EMIT_XDNA",
 )
 
 EXECUTE_IREE_HAL = build_requirement(
@@ -106,6 +113,7 @@ REQUIREMENTS = [
     EMIT_AMDGPU,
     EMIT_SPIRV,
     EMIT_WASM,
+    EMIT_XDNA,
     EXECUTE_IREE_HAL,
     IMPORT_CXX,
     IMPORT_MLIR,

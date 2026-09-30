@@ -28,26 +28,6 @@ amdf_cc_library(
     ],
 )
 
-amdf_cc_library(
-    name = "pm4_commands",
-    testonly = True,
-    srcs = ["pm4_commands.cc"],
-    hdrs = ["pm4_commands.h"],
-    visibility = ["//libamdf/cts/interop/gpu:__subpackages__"],
-)
-
-amdf_cc_library(
-    name = "user_queue_memory",
-    testonly = True,
-    srcs = ["user_queue_memory.cc"],
-    hdrs = ["user_queue_memory.h"],
-    target_compatible_with = ["@platforms//cpu:x86_64"],
-    deps = [
-        ":gpu_device_fixture",
-        "//third_party:google_test",
-    ],
-)
-
 [amdf_cts_test_suite(
     name = name,
     srcs = [name + "_test.cc"],
@@ -70,24 +50,6 @@ amdf_cc_library(
     "memory_interop",
 ]]
 
-[amdf_cts_test_suite(
-    name = name,
-    srcs = [name + "_test.cc"],
-    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
-    visibility = ["//visibility:public"],
-    deps = [
-        ":user_queue_memory",
-        "//third_party:google_test",
-    ] + ([":pm4_commands"] if name == "pm4_queue" else []),
-) for name in [
-    "pm4_queue",
-    "sdma_queue",
-]]
-
 test_suite(
     name = "gpu",
     tests = [
@@ -95,9 +57,14 @@ test_suite(
         ":kernel_queue",
         ":memory_group",
         ":memory_interop",
-        ":pm4_queue",
-        ":sdma_queue",
+        "//libamdf/cts/gpu/aql",
+        "//libamdf/cts/gpu/aql/encoding:packets_test",
         "//libamdf/cts/gpu/linux:memory",
+        "//libamdf/cts/gpu/pm4",
+        "//libamdf/cts/gpu/pm4/encoding:commands_test",
+        "//libamdf/cts/gpu/recipes",
+        "//libamdf/cts/gpu/sdma",
+        "//libamdf/cts/gpu/sdma/encoding:commands_test",
         "//libamdf/cts/gpu/windows:memory",
     ],
     visibility = ["//visibility:public"],

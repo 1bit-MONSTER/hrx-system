@@ -49,8 +49,12 @@ static inline bool amdf_memory_compatibility_domain_is_equal(
 typedef struct amdf_memory_site_query_t {
   // Exact permissions established for the selected device access.
   amdf_memory_access_t access;
-  // Access properties established by the native construction contract.
+  // Backing and access properties established by native construction.
   amdf_memory_flags_t flags;
+  // Native target operations established for naturally aligned 32-bit words.
+  amdf_atomic_operations_t atomic_operations_32;
+  // Native target operations established for naturally aligned 64-bit words.
+  amdf_atomic_operations_t atomic_operations_64;
   // Borrowed immutable properties of the exact local queue family.
   const amdf_queue_family_info_t* queue_family_info;
 } amdf_memory_site_query_t;
@@ -93,10 +97,12 @@ extern "C" {
 
 // Describes a host view against one peer's coherence contract. Native API
 // publication and unqualified operations cannot become no-ops through
-// coherence.
+// coherence. An already-described device peer can qualify SYSTEM atomic widths
+// for a write-back view of the same backing; device_peer is NULL for host-only
+// pairs.
 amdf_memory_site_description_t amdf_memory_describe_host_site(
     const amdf_memory_host_description_t* host, amdf_memory_map_flags_t access,
-    bool coherent);
+    bool coherent, const amdf_memory_site_description_t* device_peer);
 
 // Composes two local descriptions of already-established shared backing reach.
 // The caller validates output storage; failure leaves it unchanged. Unsupported

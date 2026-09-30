@@ -808,4 +808,38 @@ TEST_P(WindowsGpuImportFailureTest, RetainsProgressForOrderedRollback) {
   }
 }
 
+TEST_F(WindowsGpuMemoryTest, SystemStoresRequireFineGrainAndNativeCpuRoute) {
+  for (uint32_t major : {9u, 11u, 12u}) {
+    device_.properties.gfx_ip_major = major;
+    for (uint32_t discrete : {0u, 1u}) {
+      device_.properties.is_discrete = discrete;
+      for (uint32_t platform_atomics : {0u, 1u}) {
+        device_.properties.supports_platform_atomics = platform_atomics;
+        for (uint32_t coherent : {0u, 1u}) {
+          device_.memory_capabilities.cache_coherent_memory_supported =
+              coherent;
+          for (uint32_t ordinal = 0; ordinal < 4; ++ordinal) {
+            SCOPED_TRACE(::testing::Message()
+                         << "major=" << major << " discrete=" << discrete
+                         << " platform=" << platform_atomics
+                         << " coherent=" << coherent << " profile=" << ordinal);
+            amdf_memory_native_profile_t profile = {};
+            ASSERT_EQ(amdf_gpu_umd_device_query_memory_profile(
+                          &device_, ordinal, &profile),
+                      AMDF_STATUS_OK);
+            const bool supported = ordinal == 0 && major == 11 && coherent &&
+                                   (!discrete || platform_atomics);
+            EXPECT_EQ(profile.atomic_operations_32,
+                      supported ? AMDF_ATOMIC_OPERATION_STORE : 0u);
+            EXPECT_EQ(profile.atomic_operations_64,
+                      supported ? AMDF_ATOMIC_OPERATION_STORE : 0u);
+            EXPECT_NE(profile.visibility.describe_site, nullptr);
+          }
+        }
+      }
+    }
+  }
+  EXPECT_TRUE(state_.operations.empty());
+}
+
 }  // namespace

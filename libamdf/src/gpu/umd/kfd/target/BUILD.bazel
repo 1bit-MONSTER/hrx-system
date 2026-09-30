@@ -18,11 +18,36 @@ KFD_COMPATIBILITY = [
 ]
 
 amdf_cc_library(
+    name = "compute_storage",
+    srcs = ["compute_storage.c"],
+    hdrs = ["compute_storage.h"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    visibility = ["//libamdf/src/gpu/umd/kfd:__subpackages__"],
+    deps = [
+        "//libamdf/src/gpu/umd/kfd:buffer",
+        "//libamdf/src/gpu/umd/kfd:topology",
+        "//third_party:linux_kfd_uapi",
+    ],
+)
+
+amdf_cc_test(
+    name = "compute_storage_test",
+    srcs = ["compute_storage_test.cc"],
+    target_compatible_with = KFD_COMPATIBILITY,
+    deps = [
+        ":compute_storage",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
     name = "queue_plan",
     hdrs = ["queue_plan.h"],
     target_compatible_with = KFD_COMPATIBILITY,
     visibility = ["//libamdf/src/gpu/umd/kfd:__subpackages__"],
     deps = [
+        ":compute_storage",
         "//libamdf/src/gpu:endpoint_profile",
         "//libamdf/src/gpu/umd/kfd:buffer",
     ],
@@ -37,8 +62,9 @@ amdf_cc_library(
         ":queue_plan",
         "//libamdf/src/gpu/umd/kfd:topology",
         "//third_party:linux_kfd_uapi",
-    ],
+    ] + ([":compute_storage"] if name != "sdma_queue" else []) + (["//libamdf/src/gpu/umd/kfd:aql"] if name == "aql_queue" else []),
 ) for name in [
+    "aql_queue",
     "pm4_queue",
     "sdma_queue",
 ]]
@@ -50,6 +76,7 @@ amdf_cc_library(
     target_compatible_with = KFD_COMPATIBILITY,
     visibility = ["//libamdf/src/gpu/umd/kfd:__pkg__"],
     deps = [
+        ":aql_queue",
         ":pm4_queue",
         ":queue_plan",
         ":sdma_queue",

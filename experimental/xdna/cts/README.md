@@ -4,6 +4,76 @@
 queue submission, readback and resource retirement through libamdf. They select
 the appropriate image for the available device family.
 
+## Execution ownership and invocation
+
+The [library execution guide](../../../libamdf/docs/xdna.md) describes public
+ownership and submission. The [native reference](../../../docs/reference/amd/xdna/execution.md)
+describes placement, native results and program quiescence.
+
+The adapter tests use real image parsing and caller-owned storage without a
+fake native provider. CLI tests exercise host argument and file ownership
+without creating a device.
+
+The native consumer tests in this directory select the matching canonical compiler
+image, allocate data and instruction backing through the public memory scopes,
+and execute three different inputs through one retained native allocation. They
+check all 48 integer products, immutable command bytes, native retirement and
+caller-ordered teardown. A second case alternates two retained contexts across
+three producer/consumer pairs with changing inputs, then releases the producer
+and continues using shared data in the consumer. Providers advertising fixed
+full-array backing are checked to place both contexts on the same physical
+array. Each output is poisoned before its submission so missing writes cannot
+pass. Both process- and instance-scoped native lifetimes use the shared CTS
+device owner.
+
+A full-width interleave prepares two contexts once and alternates three
+producer/consumer pairs. The consumer reads the producer's shared-DRAM result
+without a host payload operation between them. Changed inputs, poisoned output,
+exact products, guard checks, and immutable instruction bytes establish that
+independent commands work even when another context uses the entire array.
+
+```sh
+iree-bazel-test --config=asan //experimental/xdna/cts/...
+iree-cmake-test -R '^iree/experimental/xdna/cts/'
+```
+
+These tests carry the XDNA hardware requirement and share the AMDGPU resource
+group with native and interop CTS. The same sources run on Linux and Windows;
+hosts without an XDNA endpoint or a matching compiler fixture report a skip.
+
+The named execution cases make the composition boundary explicit:
+
+| Case | Contract exercised |
+| --- | --- |
+| `XdnaExecutionTest.ReusesImmutableInstructionsWithChangingInputs` | Complete establishing instruction reuse with changing arithmetic inputs. |
+| `XdnaExecutionTest.SharesDataAcrossIndependentContextLifetimes` | Ordinary shared backing outlives one of its context users. |
+| `XdnaExecutionTest.ReestablishesStateAcrossFullWidthContextSwitches` | Complete setup across contexts unable to occupy disjoint physical columns; the case requires full-width logical contexts. |
+| `XdnaConcurrentQueuesTest.RotatesProgramsAndBindingsAcrossPendingRuns` | Separate immutable program/binding ranges remain valid while runs are pending; addition consumes multiplication output. |
+| `XdnaPoolVisibilityTest.ReplaysQualifiedGpuXdnaGpuTransitions` | Host-sequenced GPU ingress → NPU command → GPU egress, with a host completion join at each transition. |
+
+These [case bodies](execution_test.cc) retain their instruction/data owners and
+check output guards and cleanup. Complete-command handoff is distinct from
+live-tile checkpointing, persistent placement, program-owned timer/counter
+protocols and device-only cross-engine scheduling. An execution record names
+the actual selected cases, image, target and native transport.
+
+### Benchmark smoke invocation
+
+The generated smoke test uses the XDNA hardware requirement and shared AMDGPU
+resource group, like the native CTS:
+
+```sh
+iree-bazel-test --config=asan \
+  //experimental/xdna/benchmarks:execution_benchmark_test
+iree-cmake-test -R '^iree/experimental/xdna/benchmarks/'
+```
+
+Smoke execution checks ordinary completion and cleanup. Its duration is not a
+performance result; the [benchmark account](../README.md#independent-execution-benchmarks)
+defines the optimized intervals.
+
+## Compiler execution cases
+
 `predicate_select_npu2_test` checks selection between independently computed
 predicates in full 64-element and partial 3x3 carriers. Every lane sees all
 eight Boolean input triples, with different patterns in the two mask halves.

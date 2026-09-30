@@ -7,6 +7,7 @@
 #ifndef AMDF_SRC_GPU_UMD_WDDM_MEMORY_PROFILE_H_
 #define AMDF_SRC_GPU_UMD_WDDM_MEMORY_PROFILE_H_
 
+#include "libamdf/src/gpu/umd/wddm/wkmi/bridge_api.h"
 #include "libamdf/src/memory_profile.h"
 #include "libamdf/src/platform/endpoint.h"
 
@@ -39,6 +40,7 @@ amdf_status_t amdf_windows_gpu_query_memory_capabilities(
 // This metadata query performs no native operation or device activation.
 amdf_status_t amdf_gpu_wddm_query_memory_profile(
     const amdf_windows_gpu_memory_capabilities_t* capabilities,
+    const amdf_wkmi_bridge_gpu_properties_t* properties,
     uint32_t memory_profile_ordinal, amdf_memory_native_profile_t* out_profile);
 
 #ifdef __cplusplus

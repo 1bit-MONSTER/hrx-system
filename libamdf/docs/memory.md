@@ -7,8 +7,8 @@ abstraction layer (HAL).
 
 This document describes the memory contracts and their caller scenarios.
 [Public headers](../include/amdf/memory.h) specify the C ABI; the
-[implementation overview](../README.md#implementation-and-qualification)
-summarizes the native providers and qualification scope.
+[implementation overview](../README.md#native-providers)
+summarizes the native providers.
 
 ## Fabric discovery
 
@@ -321,7 +321,7 @@ The handle can outlive the libamdf memory object and be opened with
 suballocation live. The caller preserves that allocation until every user has
 retired and releases each exported transport explicitly.
 
-The prepared GPU queue contract supplies global release-to-system and
+A qualifying PM4 queue family supplies global release-to-system and
 acquire-from-system cache operations. The interop caller also supplies D3D12
 resource transitions and completion edges. A native cache operation does not
 replace a foreign API's ownership transition, and import/export perform neither
@@ -417,6 +417,17 @@ resources. Native setup costs occur at that resource boundary, not once per
 dispatch. There is no per-invocation indirect BO list, first-launch registration,
 hidden pinning submission, or scan of the application's pointer graph.
 
+Physical page retention and usable device translation are separate parts of
+that contract. In Linux XDNA shared virtual addressing, the device depends on
+process page tables that the kernel can temporarily invalidate even when the
+backing pages remain pinned. The [XDNA translation reference](../../docs/reference/amd/xdna/execution.md#host-memory-translation-and-page-pinning)
+documents an observed native-driver failure on registered shared backing and
+the distinction between physical pinning, mapping stability and fault replay.
+Successful registration on that affected path does not establish safe resident
+DMA. This is a native-provider correctness obligation; keeping caller storage
+live and applying cache-maintenance operations cannot supply missing mapping
+protection.
+
 Visibility describes how one participant observes another's writes. Shared
 backing does not automatically imply coherent caches or mutually supported
 atomics. Libamdf exposes directional rules for the actual producer, consumer,
@@ -480,6 +491,35 @@ dependency through its synchronization and scheduling mechanisms. Libamdf
 exposes native mechanisms and requirements without inferring dependencies from
 pointers or generating a scheduling policy. The HAL constructs engine commands;
 the library does not need a packet builder to describe a cache requirement.
+
+## Atomic operations and participant reach
+
+Using a queue to access an atomic cell requires three independent answers:
+
+| Question | Reported contract |
+| --- | --- |
+| Can the queue represent the operation? | The [queue family's](../include/amdf/queue.h) `atomic_capabilities` reports operation masks and wait conditions separately for 32-bit and 64-bit words. |
+| Does the target access support it? | Prospective `amdf_memory_access_capabilities_t` and achieved `amdf_memory_access_info_t` report `atomic_operations_32` and `atomic_operations_64` for that consumer's access. |
+| Are the participants mutually atomic? | `amdf_memory_pair_info_t.atomic_reach.scope_32` and `scope_64` report the reach shared by the two exact execution sites, independently of operation support. |
+
+For the selected naturally aligned word width, the requested operation must be
+present in both the queue-family and target-access masks. A wait also requires
+the selected wait condition. A caller that needs an operation without consuming
+dispatch resources checks `operations_without_dispatch_32` or
+`operations_without_dispatch_64` as an additional requirement.
+
+`memory_scope_query_device_profile` supplies the prospective access capabilities.
+The caller can combine them with `memory_scope_query_pair_info` before allocating
+backing, using the same construction contract for both queries. Existing
+allocations expose their achieved access records and concrete pair information.
+An encodable STORE is insufficient when the target access lacks STORE, and
+supported operation masks are insufficient when the pair's reach is NONE.
+
+SYSTEM denotes system-wide atomic scope, including host CPUs and devices. A
+pair query describes only its two named sites; other mapped accesses retain
+their own operation and reach requirements. Atomic reach does not replace the
+protocol's execution dependency, release/acquire operations, or final-use
+boundary. A successful visibility query can still report atomic reach NONE.
 
 ## Executable storage
 

@@ -276,8 +276,10 @@ iree_cc_library(
   SRCS
     "memory_profile.c"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     ::topology
     amdf::headers
+    libamdf::src::gpu::umd::memory
     libamdf::src::memory_profile
     libamdf::src::platform::linux::dma_buf
   PUBLIC
@@ -313,11 +315,15 @@ iree_cc_test(
   SRCS
     "memory_test.cc"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     ::device_state
     ::memory
+    ::memory_profile
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
+    libamdf::src::gpu::endpoint_profile
+    libamdf::src::gpu::umd::kfd::target::user_queue
     libamdf::src::gpu::umd::memory
   LABELS
     "iree-build-requirement=libamdf"
@@ -361,11 +367,28 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
+    aql
+  HDRS
+    "aql.h"
+  SRCS
+    "aql.c"
+  DEPS
+    amdf::headers
+    libamdf::src::gpu::umd::kfd::target::queue_plan
+    libamdf::src::gpu::umd::user_queue
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
+iree_cc_library(
+  NAME
     user_queue
   SRCS
     "user_queue.c"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::aql
     ::buffer
     ::device_state
     ::user_queue_native
@@ -388,6 +411,7 @@ iree_cc_test(
     "user_queue_test.cc"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
+    ::aql
     ::device_state
     ::user_queue
     ::user_queue_native

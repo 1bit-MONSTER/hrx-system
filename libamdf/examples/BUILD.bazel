@@ -15,6 +15,5 @@ package(
 amdf_cc_binary(
     name = "enumerate",
     srcs = ["enumerate.c"],
-    target_compatible_with = ["@platforms//os:windows"],
     deps = ["//libamdf:amdf"],
 )

@@ -11,6 +11,7 @@ import re
 import bazel_to_cmake_config
 import bazel_to_cmake_converter
 import bazel_to_cmake_requirements
+from loom_binary import LoomBinaryBuildFileFunctions
 
 
 def _load_loom_corpus_build_file_functions():
@@ -105,6 +106,7 @@ _GENERATED_LOCATION_PATTERN = re.compile(r"\$\(location ([^)]+)\)")
 
 class LoomBuildFileFunctions(
     LoomCorpusBuildFileFunctions,
+    LoomBinaryBuildFileFunctions,
     bazel_to_cmake_converter.BuildFileFunctions,
 ):
     def _declarative_load_bindings(self):
@@ -269,12 +271,6 @@ class LoomBuildFileFunctions(
             ],
             **kwargs,
         )
-
-    def loom_kernel_binary(self, name, tags=None, **kwargs):
-        if not self._should_skip_target(tags=tags):
-            raise NotImplementedError(
-                f"loom_kernel_binary requires a CMake projection: {name}"
-            )
 
     def loom_module(
         self,

@@ -1,0 +1,53 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Each workitem initializes all nine private words before reading a dynamic
+// permutation. Volatile accesses preserve the private-memory roundtrip.
+// Workgroup count is a host workload input; token arithmetic wraps at 32 bits.
+kernel.def export("private_roundtrip") @private_roundtrip(%groups_x: index) {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%groups_x, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %seed: i32, %rotation: i32) {
+  %group = kernel.workgroup.id<x> : index
+  %lane = kernel.workitem.id<x> : index
+  %width = index.constant 64 : index
+  %global = index.madd %group, %width, %lane : index
+  %global_i32 = index.cast %global : index to i32
+  %lane_i32 = index.cast %lane : index to i32
+
+  %origin = index.constant 0 : offset
+  %private_bytes = index.constant 36 : offset
+  %scratch = buffer.alloca<private> align(4) %private_bytes : buffer
+  %words = buffer.view %scratch[%origin] : buffer -> view<9xi32>
+  %output_offset = index.scale %global, %private_bytes : index, offset -> offset
+  %output_words = buffer.view %output[%output_offset] : buffer -> view<9xi32>
+
+  %zero = index.constant 0 : index
+  %nine = index.constant 9 : index
+  %one = index.constant 1 : index
+  %global_multiplier = scalar.constant 16909063 : i32
+  %slot_multiplier = scalar.constant 4129 : i32
+  %nine_i32 = scalar.constant 9 : i32
+  %global_product = scalar.muli %global_i32, %global_multiplier : i32
+  %base_value = scalar.addi %seed, %global_product : i32
+  scf.for %slot = [%zero to %nine step %one] {
+    %slot_i32 = index.cast %slot : index to i32
+    %slot_product = scalar.muli %slot_i32, %slot_multiplier : i32
+    %value = scalar.addi %base_value, %slot_product : i32
+    view.store<volatile> %value, %words[%slot] : i32, view<9xi32>
+  }
+  scf.for %slot = [%zero to %nine step %one] {
+    %slot_i32 = index.cast %slot : index to i32
+    %slot_lane = scalar.addi %slot_i32, %lane_i32 : i32
+    %permutation = scalar.addi %slot_lane, %rotation : i32
+    %selected_i32 = scalar.remui %permutation, %nine_i32 : i32
+    %selected = index.cast %selected_i32 : i32 to index
+    %value = view.load<volatile> %words[%selected] : view<9xi32> -> i32
+    view.store %value, %output_words[%slot] : i32, view<9xi32>
+  }
+  kernel.return
+}

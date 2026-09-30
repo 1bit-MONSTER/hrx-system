@@ -1,0 +1,69 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
+
+package(
+    default_visibility = ["//libamdf/cts:__subpackages__"],
+    features = ["layering_check"],
+    licenses = ["notice"],
+)
+
+amdf_cc_library(
+    name = "command_fixture",
+    testonly = True,
+    hdrs = ["command_fixture.h"],
+    deps = [
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/gpu/util:command_fixture",
+    ],
+)
+
+amdf_cc_library(
+    name = "dispatch_fixture",
+    testonly = True,
+    hdrs = ["dispatch_fixture.h"],
+    deps = [
+        ":command_fixture",
+        "//libamdf/cts/gpu/kernels:image",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "pm4",
+    srcs = [
+        "atomic_store_test.cc",
+        "command_buffer_test.cc",
+        "copy_test.cc",
+        "dispatch_test.cc",
+        "handoff_test.cc",
+        "indirect_test.cc",
+        "lds_test.cc",
+        "resource_test.cc",
+        "timestamp_test.cc",
+        "wait_test.cc",
+        "write_test.cc",
+    ],
+    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":command_fixture",
+        ":dispatch_fixture",
+        "//libamdf/cts/gpu/kernels:lds_exchange",
+        "//libamdf/cts/gpu/kernels:lds_exchange_kernels",
+        "//libamdf/cts/gpu/kernels:transform",
+        "//libamdf/cts/gpu/kernels:transform_kernels",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/gpu/util:command_fixture",
+        "//third_party:google_test",
+    ],
+)

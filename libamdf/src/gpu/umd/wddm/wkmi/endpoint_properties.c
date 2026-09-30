@@ -79,6 +79,8 @@ bool amdf_gpu_wddm_wkmi_endpoint_properties_translate(
     amdf_queue_format_features_t format_features = 0;
     if (provider_properties->gfx_ip_major >= 12) {
       format_features |= AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM;
+    } else if (provider_properties->gfx_ip_major >= 10) {
+      format_features |= AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE;
     }
     if (provider_properties->gfx_ip_major == 12 &&
         provider_properties->gfx_ip_minor >= 5) {

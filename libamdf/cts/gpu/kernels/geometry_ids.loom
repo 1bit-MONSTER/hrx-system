@@ -1,0 +1,52 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Both launch counts and local sizes remain runtime inputs, so every raw ID
+// coordinate is observed. Dispatch bounds select active workitems; the body
+// writes each seven-word record without a shader bounds check.
+kernel.def export("geometry_ids") @geometry_ids(%groups_x: index, %groups_y: index, %groups_z: index, %size_x: index, %size_y: index, %size_z: index) {
+  kernel.launch.config workgroups(%groups_x, %groups_y, %groups_z) workgroup_size(%size_x, %size_y, %size_z) : index
+} launch(%output: buffer, %workgroup_x: i32, %workgroup_y: i32, %workgroup_z: i32, %output_pitch_x: i32, %output_pitch_y: i32, %epoch: i32) {
+  %group_x = kernel.workgroup.id<x> : index
+  %group_y = kernel.workgroup.id<y> : index
+  %group_z = kernel.workgroup.id<z> : index
+  %local_x = kernel.workitem.id<x> : index
+  %local_y = kernel.workitem.id<y> : index
+  %local_z = kernel.workitem.id<z> : index
+  %group_x_value = index.cast %group_x : index to i32
+  %group_y_value = index.cast %group_y : index to i32
+  %group_z_value = index.cast %group_z : index to i32
+  %local_x_value = index.cast %local_x : index to i32
+  %local_y_value = index.cast %local_y : index to i32
+  %local_z_value = index.cast %local_z : index to i32
+  // Coordinate arithmetic uses the caller's unsigned 32-bit payload domain.
+  %group_origin_x = scalar.muli %group_x_value, %workgroup_x : i32
+  %group_origin_y = scalar.muli %group_y_value, %workgroup_y : i32
+  %group_origin_z = scalar.muli %group_z_value, %workgroup_z : i32
+  %global_x = scalar.addi %group_origin_x, %local_x_value : i32
+  %global_y = scalar.addi %group_origin_y, %local_y_value : i32
+  %global_z = scalar.addi %group_origin_z, %local_z_value : i32
+  %plane_origin = scalar.muli %global_z, %output_pitch_y : i32
+  %row = scalar.addi %plane_origin, %global_y : i32
+  %row_origin = scalar.muli %row, %output_pitch_x : i32
+  %position = scalar.addi %row_origin, %global_x : i32
+  %record_word_count = scalar.constant 7 : i32
+  %record_word = scalar.muli %position, %record_word_count : i32
+  // Zero-extend the unsigned word position before scaling into a byte offset.
+  %unsigned_word = index.cast %record_word : i32 to offset
+  %word_index = index.cast %unsigned_word : offset to index
+  %word_bytes = index.constant 4 : offset
+  %record_offset = index.scale %word_index, %word_bytes : index, offset -> offset
+  %record = buffer.view %output[%record_offset] : buffer -> view<7xi32>
+  view.store %group_x_value, %record[0] : i32, view<7xi32>
+  view.store %group_y_value, %record[1] : i32, view<7xi32>
+  view.store %group_z_value, %record[2] : i32, view<7xi32>
+  view.store %local_x_value, %record[3] : i32, view<7xi32>
+  view.store %local_y_value, %record[4] : i32, view<7xi32>
+  view.store %local_z_value, %record[5] : i32, view<7xi32>
+  view.store %epoch, %record[6] : i32, view<7xi32>
+  kernel.return
+}

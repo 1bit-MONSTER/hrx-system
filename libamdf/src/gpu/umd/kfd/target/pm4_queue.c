@@ -11,10 +11,7 @@
 enum {
   AMDF_GPU_KFD_PM4_PAGE_SIZE = 4096,
   AMDF_GPU_KFD_PM4_RING_BYTE_LENGTH = 4096,
-  AMDF_GPU_KFD_PM4_END_OF_PIPE_BYTE_LENGTH = 4096,
   AMDF_GPU_KFD_PM4_DOORBELL_MAPPING_BYTE_LENGTH = 8192,
-  AMDF_GPU_KFD_PM4_DEBUG_BYTE_LENGTH_PER_WAVE = 32,
-  AMDF_GPU_KFD_PM4_DEBUG_BYTE_ALIGNMENT = 64,
 };
 
 static bool amdf_gpu_kfd_pm4_queue_is_supported(
@@ -27,24 +24,13 @@ static bool amdf_gpu_kfd_pm4_queue_is_supported(
       topology->properties.compute.wavefront_size != 32 ||
       topology->properties.compute.compute_unit_count == 0 ||
       topology->properties.compute.maximum_wave_count_per_compute_unit == 0 ||
-      topology->properties.topology.xcc_count != 1 ||
-      topology->compute_queue_count == 0 ||
-      topology->context_save_restore_byte_length == 0 ||
-      topology->context_save_restore_byte_length % page_size != 0 ||
-      topology->control_stack_byte_length == 0 ||
-      topology->control_stack_byte_length % page_size != 0 ||
-      topology->control_stack_byte_length >
-          topology->context_save_restore_byte_length) {
+      (topology->properties.topology.xcc_count != 1 &&
+       !(topology->properties.gfx_ip.major == 12 &&
+         topology->properties.gfx_ip.minor == 5)) ||
+      topology->compute_queue_count == 0) {
     return false;
   }
-  const uint64_t wave_count =
-      (uint64_t)topology->properties.compute.compute_unit_count *
-      topology->properties.compute.maximum_wave_count_per_compute_unit;
-  // The native CWSR header holds a 32-bit debug size. Reserve its alignment
-  // padding before narrowing the count.
-  return wave_count <=
-         (UINT32_MAX - (AMDF_GPU_KFD_PM4_DEBUG_BYTE_ALIGNMENT - 1)) /
-             AMDF_GPU_KFD_PM4_DEBUG_BYTE_LENGTH_PER_WAVE;
+  return true;
 }
 
 static amdf_gpu_queue_family_properties_t
@@ -76,17 +62,14 @@ bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
                                            cache_line_size)) {
     return false;
   }
+  amdf_gpu_kfd_compute_storage_plan_t compute;
+  if (!amdf_gpu_kfd_compute_storage_plan(
+          topology, AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, page_size, &compute)) {
+    return false;
+  }
   const uint32_t host_storage_flags =
-      KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+      KFD_IOC_ALLOC_MEM_FLAGS_GTT | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
-  const uint32_t debug_byte_length =
-      (topology->properties.compute.compute_unit_count *
-           topology->properties.compute.maximum_wave_count_per_compute_unit *
-           AMDF_GPU_KFD_PM4_DEBUG_BYTE_LENGTH_PER_WAVE +
-       AMDF_GPU_KFD_PM4_DEBUG_BYTE_ALIGNMENT - 1) &
-      ~(uint32_t)(AMDF_GPU_KFD_PM4_DEBUG_BYTE_ALIGNMENT - 1);
-  const size_t context_byte_length =
-      (size_t)topology->context_save_restore_byte_length + debug_byte_length;
   const amdf_gpu_kfd_user_queue_plan_t plan = {
       .family = amdf_gpu_kfd_pm4_queue_family_properties(),
       .native_queue_type = KFD_IOC_QUEUE_TYPE_COMPUTE,
@@ -118,38 +101,13 @@ bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .index_bit_count = 64,
               .read_index_mask = AMDF_GPU_KFD_PM4_RING_BYTE_LENGTH / 4 - 1,
           },
-      .compute =
-          {
-              .end_of_pipe_storage =
-                  {
-                      .native_flags = KFD_IOC_ALLOC_MEM_FLAGS_VRAM |
-                                      KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
-                                      KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE,
-                      .byte_length = AMDF_GPU_KFD_PM4_END_OF_PIPE_BYTE_LENGTH,
-                      .alignment = AMDF_GPU_KFD_PM4_PAGE_SIZE,
-                      .host_access = AMDF_GPU_KFD_BUFFER_HOST_ACCESS_NONE,
-                  },
-              .context_storage =
-                  {
-                      .native_flags = host_storage_flags,
-                      .byte_length = (context_byte_length +
-                                      AMDF_GPU_KFD_PM4_PAGE_SIZE - 1) &
-                                     ~(size_t)(AMDF_GPU_KFD_PM4_PAGE_SIZE - 1),
-                      .alignment = AMDF_GPU_KFD_PM4_PAGE_SIZE,
-                      .host_access = AMDF_GPU_KFD_BUFFER_HOST_ACCESS_MAPPED,
-                  },
-              .context_save_restore_byte_length =
-                  topology->context_save_restore_byte_length,
-              .control_stack_byte_length = topology->control_stack_byte_length,
-              .debug_byte_offset = topology->context_save_restore_byte_length,
-              .debug_byte_length = debug_byte_length,
-          },
+      .compute = compute,
       .retirement =
           {
               .flush_trigger_storage =
                   {
                       .native_flags = KFD_IOC_ALLOC_MEM_FLAGS_GTT |
-                                      KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+                                      AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                                       KFD_IOC_ALLOC_MEM_FLAGS_COHERENT,
                       .byte_length = AMDF_GPU_KFD_PM4_PAGE_SIZE,
                       .alignment = AMDF_GPU_KFD_PM4_PAGE_SIZE,

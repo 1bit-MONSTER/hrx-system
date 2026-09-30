@@ -90,6 +90,125 @@ different owners. A command count in the submission envelope is not a tile
 workgroup count, and a copied envelope does not permit the caller to overwrite
 the instruction bytes that firmware will fetch.
 
+## Host-memory translation and page pinning
+
+Linux shared virtual addressing (SVA) binds an XDNA client to the process's
+address space with `iommu_sva_bind_device`. The PASID identifies that address
+space for host-memory transactions. The platform IOMMU translates those
+accesses using the process page tables; pinning the backing does not create a
+separate, immutable device page table. Tile-local SRAM accesses have a different
+address path. The caller still obtains shim-DMA addresses through the native
+mapping's address contract. [Native SVA
+binding][sva-binding] [Shared virtual addressing][sva]
+
+Three properties have different owners and guarantees:
+
+| Property | What it establishes |
+| --- | --- |
+| Live allocation and registration | The backing and native access objects remain owned through their users' last access. |
+| DMA page pin | References retain particular physical pages and prevent ordinary migration from replacing them while pinned. |
+| Usable device translation | Each device access can translate its address, or a supported mechanism coordinates or replays accesses interrupted by mapping changes. |
+
+A page pin belongs to the physical page, not every page-table entry referring
+to it. Linux compaction consolidates free physical memory for larger contiguous
+allocations. Migration can first replace normal page-table entries with
+temporary migration entries, then reject the move because references such as
+pins remain. The application pointer and physical page can both remain unchanged
+while translation is interrupted. CPU accesses can fault, wait and retry; that
+behavior is not implicit in an NPU DMA engine. [DMA pinning][page-pinning]
+[Migration ordering][page-migration] [Compaction policy][compaction]
+
+```text
+Before:  process address X -> present mapping -> pinned physical page P
+During:  process address X -> migration entry -> CPU waits; DMA may fault
+After:   process address X -> present mapping -> original physical page P
+```
+
+IOMMU translation-cache invalidation can be correct while the device still
+issues an access through a temporarily unavailable mapping. Synchronizing
+translation caches and preserving progress of outstanding DMA are separate
+obligations. `mlock` is also different from a DMA pin: it prevents paging out,
+but Linux can compact mlocked memory when `compact_unevictable_allowed` permits
+it. Neither a pin count nor an mlock call proves uninterrupted SVA access.
+[MMU notifications][mmu-notifiers] [Compaction policy][compaction]
+
+### Observed registered-memory failure
+
+A CPU/NPU/GPU streaming workload on NPU5 (Strix Halo) exposed this boundary on
+September 29, 2026, using Linux `7.1.12-200.fc44.x86_64`. The installed
+`amdxdna.ko` had decompressed
+SHA-256 `324ea1c87a152a5258cc6294643cb83fc3262e37a964b0d551ff52e7db127b89`.
+This identifies the observed implementation, not a driver-version admission
+rule or a claim about every Linux or Windows provider.
+
+The channel buffers used ROCr shared anonymous backing, represented by Linux
+as shmem. XDNA registration called `pin_user_pages_fast` with
+`FOLL_WRITE | FOLL_LONGTERM`; process `VmPin` was 8460 KiB, matching the two
+page-rounded channel ranges. In that installed implementation, the original-VA
+path `amdxdna_gem_create_ubuf_object` -> `amdxdna_get_ubuf` ->
+`amdxdna_gem_prime_import` did not call `amdxdna_hmm_register`. That helper was
+used by the GEM mmap path, which did not protect the original caller mapping.
+
+A lossless kernel capture recorded this sequence, with times relative to the
+first invalidation:
+
+| Time | Observed event |
+| --- | --- |
+| 0 us | `kcompactd` starts MMU invalidation of `[0x7ffed2788000, 0x7ffed2789000)` inside the live input channel. |
+| 14 us | The matching MMU invalidation-end notification occurs. |
+| 295 us | AMD-Vi reports an XDNA `IO_PAGE_FAULT` at `0x7ffed2788000`. |
+
+The capture contained 9418 paired MMU invalidations and no XDNA HMM invalidate
+callbacks, with no lost trace events or missed probes. An invalidation-end
+notification does not mean the migration entry has already been replaced by a
+usable mapping. The evidence establishes interrupted translation and a fault
+on the same page; it does not establish that the pinned physical page moved.
+In another fault capture, an output publication remained one generation behind
+its GPU consumer even after native command retirement. Retirement could not
+substitute for the missing dataflow edge.
+
+Replacing only the channel backing with private anonymous memory, registered
+with the GPU and NPU, removed active-channel invalidations in a diagnostic that
+still recorded 26039 MMU invalidations overall. It completed without NPU faults;
+independent reference-output checks also passed. This is bounded evidence for
+that allocation path, not a general guarantee that private mappings are immune
+to invalidation. Allocation construction matters even when both resources are
+described as pinned host memory.
+
+The cited compaction source, from a newer kernel snapshot, has an early
+extra-reference rejection for anonymous pages without a file mapping; shmem
+does not take that test. This supplies a mechanism consistent with the
+allocation comparison, rather than proof of the installed kernel's complete
+migration path. [Compaction candidate selection][compaction-selection]
+
+The newer cited driver explicitly registers the caller's ranges through
+`amdxdna_ubuf_hmm_register`. Presence of that callback is a source-level
+difference, not qualification of resident execution on that driver. [Caller
+range registration][ubuf-registration]
+
+### Residency and forward progress
+
+A resident service requires usable device access throughout each range's
+ownership interval. The native provider must establish that through its mapping
+contract, invalidation coordination or supported fault replay. Caller lifetime,
+cache publication and application semaphore edges remain necessary, but cannot
+repair a missing native translation guarantee.
+
+Invalidation coordination must preserve the service's forward progress. A
+callback that waits for an entire resident NPU command to finish can deadlock
+if that command awaits a CPU producer whose access to the invalidated range is
+blocked until the callback returns. A native repair therefore needs a safe
+quiescence or replay boundary, or an independently maintained device mapping;
+waiting for whole-command retirement is not sufficient for every service.
+
+Qualification covers the registered backing kind, original address range,
+native mapping mode, active DMA, concurrent producers and observed compaction.
+Correlating native faults with invalidations in that same range distinguishes
+translation failure from a channel-credit or cache-visibility failure. A quiet
+short run, successful registration or retained physical pins alone cannot make
+that distinction. Linux SVA qualification does not establish Windows MCDM
+mapping behavior.
+
 ## Acceptance, completion and result inspection
 
 Submission obtains a native job credit, constructs scheduler/fence state,
@@ -243,3 +362,11 @@ clock domain, frequency history and reset epoch.
 [iron-output]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/programming_examples/getting_started/01_SAXPY/saxpy.py#L63-L95
 [iron-worker-default]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/python/iron/worker.py#L42-L60
 [iron-worker]: https://github.com/Xilinx/mlir-aie/blob/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5/python/iron/worker.py#L240-L267
+[sva-binding]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_drm.c#L55-L77
+[sva]: https://www.kernel.org/doc/html/v6.12/arch/x86/sva.html
+[page-pinning]: https://www.kernel.org/doc/html/latest/core-api/pin_user_pages.html
+[page-migration]: https://www.kernel.org/doc/html/latest/mm/page_migration.html#how-migrate-pages-works
+[compaction]: https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html#compact-memory
+[compaction-selection]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/mm/compaction.c#L1096-L1103
+[mmu-notifiers]: https://www.kernel.org/doc/html/latest/mm/mmu_notifier.html
+[ubuf-registration]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_ubuf.c#L344-L365

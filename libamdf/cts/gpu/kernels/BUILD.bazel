@@ -1,0 +1,338 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
+load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//libamdf/build_tools/bazel:cc_test.bzl", "amdf_cc_test")
+load("//libamdf/build_tools/bazel:cts_gpu_kernel.bzl", "amdf_cts_gpu_kernel_set")
+load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
+load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_selected_descriptor_set_values")
+load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET", "LOOM_AMDGPU_SUPPORTED_TARGETS")
+load("//loom/build_tools/bazel:defs.bzl", "loom_target_profile")
+
+package(
+    default_visibility = ["//libamdf/cts:__subpackages__"],
+    licenses = ["notice"],
+)
+
+exports_files([
+    "README.md",
+    "byte_copy_unaligned.loom",
+    "completed_tick.loom",
+    "completed_tick_rdna3.loom",
+    "completed_tick_rdna3_5.loom",
+    "completed_tick_rdna4m.loom",
+    "completed_tick_rdna4.loom",
+    "completed_tick_rdna4_gfx125x.loom",
+    "completed_tick_rdna4_gfx1251.loom",
+    "completed_tick_rdna4_gfx1250_a0.loom",
+    "geometry_ids.loom",
+    "lds_exchange.loom",
+    "pattern_fill_unaligned.loom",
+    "private_roundtrip.loom",
+    "resident_channels.loom",
+    "resident_exchange.loom",
+    "resident_npu_initiated.loom",
+    "transform.loom",
+    "transform_alternate.loom",
+])
+
+py_binary(
+    name = "embed",
+    testonly = True,
+    srcs = ["embed.py"],
+    visibility = ["//libamdf:__subpackages__"],
+)
+
+# Every exact physical selector, including encoding overlays, shares the same
+# authored kernels. Generic code-object processors are not physical endpoints.
+_KERNEL_TARGETS = sorted([
+    target
+    for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+    if not target.endswith("-generic")
+])
+
+# Resident GPU/XDNA programs are submitted through the RDNA PM4 path.
+_RDNA_KERNEL_TARGETS = [target for target in _KERNEL_TARGETS if not target.startswith("gfx9")]
+
+_KERNEL_TARGETS_BY_CAPABILITY = {
+    capability: [
+        target
+        for target in _KERNEL_TARGETS
+        if LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET[target] == capability
+    ]
+    for capability in LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITIES
+}
+
+_RDNA_DESCRIPTOR_CONFIGS = {
+    "//loom/config/target/amdgpu:" + LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET[target]: []
+    for target in _RDNA_KERNEL_TARGETS
+}
+
+_RDNA_TEST_DEPS = {config: [":resident_kernel_test"] for config in _RDNA_DESCRIPTOR_CONFIGS}
+
+_RDNA_TEST_DEPS["//conditions:default"] = []
+
+_RDNA_DESCRIPTOR_CONFIGS["//conditions:default"] = ["@platforms//:incompatible"]
+
+# Parsing Low assembly requires its representation to be linked into Loom,
+# even when a later template specialization would select a different body.
+_COMPLETED_TICK_SRCS = ["completed_tick.loom"] + loom_amdgpu_selected_descriptor_set_values({
+    "descriptor_set_rdna3_5_core": ["completed_tick_rdna3_5.loom"],
+    "descriptor_set_rdna3_core": ["completed_tick_rdna3.loom"],
+    "descriptor_set_rdna4_core": ["completed_tick_rdna4.loom"],
+    "descriptor_set_rdna4_gfx1250_a0_core": ["completed_tick_rdna4_gfx1250_a0.loom"],
+    "descriptor_set_rdna4_gfx1251_core": ["completed_tick_rdna4_gfx1251.loom"],
+    "descriptor_set_rdna4_gfx125x_core": ["completed_tick_rdna4_gfx125x.loom"],
+    "descriptor_set_rdna4m_core": ["completed_tick_rdna4m.loom"],
+})
+
+[
+    loom_target_profile(
+        name = target,
+        family = "amdgpu",
+        selector = target,
+        target_compatible_with = select({
+            "//loom/config/target/amdgpu:" + LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET[target]: [],
+            "//conditions:default": ["@platforms//:incompatible"],
+        }),
+        visibility = ["//visibility:private"],
+    )
+    for target in _KERNEL_TARGETS
+]
+
+amdf_cc_library(
+    name = "kernel",
+    testonly = True,
+    srcs = ["kernel.cc"],
+    hdrs = ["kernel.h"],
+    deps = [":image"],
+)
+
+amdf_cc_library(
+    name = "image",
+    testonly = True,
+    hdrs = ["image.h"],
+)
+
+amdf_cc_library(
+    name = "transform",
+    testonly = True,
+    hdrs = ["transform.h"],
+)
+
+amdf_cc_library(
+    name = "byte_copy_unaligned",
+    testonly = True,
+    hdrs = ["byte_copy_unaligned.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "byte_copy_unaligned_kernels",
+    srcs = ["byte_copy_unaligned.loom"],
+    entry_point = "byte_copy_unaligned",
+    namespace = "kernels::byte_copy_unaligned",
+    targets = _KERNEL_TARGETS,
+)
+
+amdf_cc_library(
+    name = "pattern_fill_unaligned",
+    testonly = True,
+    hdrs = ["pattern_fill_unaligned.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "pattern_fill_unaligned_kernels",
+    srcs = ["pattern_fill_unaligned.loom"],
+    entry_point = "pattern_fill_unaligned",
+    namespace = "kernels::pattern_fill_unaligned",
+    targets = _KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "transform_kernels",
+    srcs = ["transform.loom"],
+    entry_point = "aql_transform",
+    namespace = "kernels::transform",
+    targets = _KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "transform_alternate_kernels",
+    srcs = ["transform_alternate.loom"],
+    entry_point = "aql_transform",
+    namespace = "kernels::transform_alternate",
+    targets = _KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "resident_exchange_kernels",
+    srcs = _COMPLETED_TICK_SRCS + ["resident_exchange.loom"],
+    entry_point = "resident_exchange",
+    namespace = "kernels::resident_exchange",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "resident_channels_kernels",
+    srcs = _COMPLETED_TICK_SRCS + ["resident_channels.loom"],
+    entry_point = "resident_channels",
+    namespace = "kernels::resident_channels",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "resident_npu_initiated_kernels",
+    srcs = _COMPLETED_TICK_SRCS + ["resident_npu_initiated.loom"],
+    entry_point = "resident_npu_initiated",
+    namespace = "kernels::resident_npu_initiated",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "geometry_ids_kernels",
+    srcs = ["geometry_ids.loom"],
+    entry_point = "geometry_ids",
+    namespace = "kernels::geometry_ids",
+    targets = _KERNEL_TARGETS,
+)
+
+amdf_cc_library(
+    name = "lds_exchange",
+    testonly = True,
+    hdrs = ["lds_exchange.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "lds_exchange_kernels",
+    srcs = ["lds_exchange.loom"],
+    entry_point = "lds_exchange",
+    namespace = "kernels::lds_exchange",
+    targets = _KERNEL_TARGETS,
+)
+
+amdf_cc_test(
+    name = "kernel_test",
+    srcs = ["kernel_test.cc"],
+    deps = [
+        ":byte_copy_unaligned",
+        ":byte_copy_unaligned_kernels",
+        ":geometry_ids",
+        ":geometry_ids_kernels",
+        ":kernel",
+        ":lds_exchange",
+        ":lds_exchange_kernels",
+        ":pattern_fill_unaligned",
+        ":pattern_fill_unaligned_kernels",
+        ":private_roundtrip",
+        ":private_roundtrip_kernels",
+        ":product_test",
+        ":transform",
+        ":transform_alternate_kernels",
+        ":transform_kernels",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ] + select(_RDNA_TEST_DEPS),
+)
+
+amdf_cc_library(
+    name = "product_test",
+    testonly = True,
+    hdrs = ["product_test.h"],
+    deps = [
+        ":kernel",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
+    name = "resident_kernel_test",
+    testonly = True,
+    srcs = ["resident_kernel_test.cc"],
+    target_compatible_with = select(_RDNA_DESCRIPTOR_CONFIGS),
+    deps = [
+        ":product_test",
+        ":resident_channels",
+        ":resident_channels_kernels",
+        ":resident_exchange",
+        ":resident_exchange_kernels",
+        ":resident_npu_initiated",
+        ":resident_npu_initiated_kernels",
+        "//third_party:google_test",
+    ],
+    alwayslink = True,
+)
+
+amdf_cc_library(
+    name = "private_roundtrip",
+    testonly = True,
+    hdrs = ["private_roundtrip.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "private_roundtrip_kernels",
+    srcs = ["private_roundtrip.loom"],
+    entry_point = "private_roundtrip",
+    namespace = "kernels::private_roundtrip",
+    targets = _KERNEL_TARGETS,
+)
+
+_KERNEL_POLICY = apply_amdf_target_policy({})
+
+_EMBED_TEST_COMPATIBILITY = {
+    "//loom/config/target/amdgpu:" + capability: []
+    for capability, targets in _KERNEL_TARGETS_BY_CAPABILITY.items()
+    if targets
+}
+
+_EMBED_TEST_COMPATIBILITY["//conditions:default"] = ["@platforms//:incompatible"]
+
+py_test(
+    name = "embed_test",
+    size = "small",
+    srcs = [
+        "embed.py",
+        "embed_test.py",
+    ],
+    args = loom_amdgpu_selected_descriptor_set_values({
+        capability: [
+            "--variant=%s=$(rootpath :transform_kernels_%s)" % (target, target)
+            for target in targets
+        ]
+        for capability, targets in _KERNEL_TARGETS_BY_CAPABILITY.items()
+    }),
+    data = loom_amdgpu_selected_descriptor_set_values({
+        capability: [":transform_kernels_" + target for target in targets]
+        for capability, targets in _KERNEL_TARGETS_BY_CAPABILITY.items()
+    }),
+    main = "embed_test.py",
+    tags = _KERNEL_POLICY["tags"],
+    target_compatible_with = _KERNEL_POLICY["target_compatible_with"] + select(_EMBED_TEST_COMPATIBILITY),
+)
+
+amdf_cc_library(
+    name = "geometry_ids",
+    testonly = True,
+    hdrs = ["geometry_ids.h"],
+)
+
+amdf_cc_library(
+    name = "resident_exchange",
+    testonly = True,
+    hdrs = ["resident_exchange.h"],
+)
+
+amdf_cc_library(
+    name = "resident_channels",
+    testonly = True,
+    hdrs = ["resident_channels.h"],
+)
+
+amdf_cc_library(
+    name = "resident_npu_initiated",
+    testonly = True,
+    hdrs = ["resident_npu_initiated.h"],
+)

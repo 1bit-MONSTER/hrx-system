@@ -1,10 +1,12 @@
 # PM4 command buffers
 
 INDIRECT_BUFFER redirects command fetch to a caller-owned GPU address and
-count. With CHAIN clear, execution returns to the containing stream after the
-indirect body. This creates two memory owners: the containing ring or command
-stream, and the separately referenced command storage. A shader launched by
-that body may remain active after command parsing has advanced.
+count. A primary compute ring uses CHAIN clear to call a first-level IB and
+resume afterward. A compute IB uses CHAIN set to replace its remaining stream
+with another IB; it cannot nest an IB2 call and return. This creates two memory
+owners: the referring ring or command stream, and the separately referenced
+command storage. A shader launched by that body may remain active after command
+parsing has advanced. [Compute call and chain rules][pal-compute-chain]
 
 The libhsakmt KFD utility provides a concrete first-level raw-compute caller:
 `Dispatch::Submit` builds an IB, places its reference on the primary ring, and
@@ -153,6 +155,7 @@ mutation or a substitute for the firmware contract of an AQL carrier.
 [kfd-packet]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/libhsakmt/tests/kfdtest/src/PM4Packet.cpp#L302-L323
 [kfd-layout]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/libhsakmt/tests/kfdtest/include/pm4_pkt_struct_common.h#L211-L256
 [pal-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_f32_mec_pm4_packets.h#L1571-L1632
+[pal-compute-chain]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfxCmdStream.cpp#L466-L546
 [pal-builder]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L2670-L2716
 [pal-header]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.h#L805-L810
 [pal-reset-contract]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/inc/core/palCmdBuffer.h#L2244-L2306

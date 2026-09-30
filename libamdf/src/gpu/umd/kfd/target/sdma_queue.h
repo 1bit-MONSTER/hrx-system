@@ -18,8 +18,8 @@
 extern "C" {
 #endif  // __cplusplus
 
-// Builds the SDMA6 KFD storage plan from native topology. The caller selects
-// the engine IP; unsupported storage facts leave `out_plan` unchanged.
+// Resolves the exact native SDMA IP and builds its KFD storage/encoding plan.
+// Unsupported engine or storage facts leave `out_plan` unchanged.
 bool amdf_gpu_kfd_sdma_queue_plan(const amdf_gpu_kfd_topology_t* topology,
                                   size_t page_size, uint32_t cache_line_size,
                                   amdf_gpu_kfd_user_queue_plan_t* out_plan);

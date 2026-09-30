@@ -904,6 +904,7 @@ static amdf_status_t amdf_memory_profile_describe_site(
     const amdf_memory_profile_pair_query_t* query,
     const amdf_memory_profile_site_t* site,
     const amdf_memory_profile_site_t* peer,
+    const amdf_memory_site_description_t* peer_description,
     amdf_memory_site_description_t* out_description) {
   if (site->kind == AMDF_MEMORY_SITE_KIND_DEVICE) {
     const uint32_t ordinal = site->value.device.access_ordinal;
@@ -925,6 +926,8 @@ static amdf_status_t amdf_memory_profile_describe_site(
     const amdf_memory_site_query_t local_query = {
         .access = query->accesses[ordinal].requirements.access,
         .flags = amdf_memory_profile_access_flags(plan, query, ordinal),
+        .atomic_operations_32 = native->atomic_operations_32,
+        .atomic_operations_64 = native->atomic_operations_64,
         .queue_family_info = &family,
     };
     return native->visibility.describe_site(&local_query, out_description);
@@ -954,8 +957,9 @@ static amdf_status_t amdf_memory_profile_describe_site(
                         (amdf_memory_profile_access_flags(
                              plan, query, peer->value.device.access_ordinal) &
                          AMDF_MEMORY_FLAG_HOST_COHERENT) != 0;
-  *out_description =
-      amdf_memory_describe_host_site(&host, site->value.host_access, coherent);
+  *out_description = amdf_memory_describe_host_site(
+      &host, site->value.host_access, coherent,
+      peer->kind == AMDF_MEMORY_SITE_KIND_DEVICE ? peer_description : NULL);
   return AMDF_STATUS_OK;
 }
 
@@ -1022,18 +1026,28 @@ amdf_status_t AMDF_CALL amdf_memory_scope_query_pair_info(
     status = amdf_memory_profile_validate_site(&plan, query->required_flags,
                                                &query->consumer);
   }
-  amdf_memory_site_description_t producer;
-  amdf_memory_site_description_t consumer;
+  // Match concrete pair ordering: the device supplies any SYSTEM fact before
+  // the host view is described, while composition retains the query direction.
+  const bool consumer_first =
+      query->producer.kind == AMDF_MEMORY_SITE_KIND_HOST;
+  const amdf_memory_profile_site_t* first_site =
+      consumer_first ? &query->consumer : &query->producer;
+  const amdf_memory_profile_site_t* second_site =
+      consumer_first ? &query->producer : &query->consumer;
+  amdf_memory_site_description_t first;
+  amdf_memory_site_description_t second;
   if (amdf_status_is_ok(status)) {
-    status = amdf_memory_profile_describe_site(&plan, query, &query->producer,
-                                               &query->consumer, &producer);
+    status = amdf_memory_profile_describe_site(&plan, query, first_site,
+                                               second_site, NULL, &first);
   }
   if (amdf_status_is_ok(status)) {
-    status = amdf_memory_profile_describe_site(&plan, query, &query->consumer,
-                                               &query->producer, &consumer);
+    status = amdf_memory_profile_describe_site(&plan, query, second_site,
+                                               first_site, &first, &second);
   }
   if (amdf_status_is_ok(status)) {
-    status = amdf_memory_pair_compose(&producer, &consumer, out_info);
+    status =
+        amdf_memory_pair_compose(consumer_first ? &second : &first,
+                                 consumer_first ? &first : &second, out_info);
   }
   amdf_memory_scope_plan_deinitialize(&plan);
   return status;
