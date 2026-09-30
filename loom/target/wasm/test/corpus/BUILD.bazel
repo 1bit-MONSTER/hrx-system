@@ -334,6 +334,12 @@ loom_test(
 )
 
 loom_test(
+    name = "scalar_memory_exchange_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:view/scalar_exchange.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
     name = "vector_integer_bitwise_test",
     srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],

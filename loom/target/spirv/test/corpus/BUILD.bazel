@@ -78,6 +78,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "memory/buffer/selection.loom",
     "memory/packed/transport.loom",
     "memory/storage/word.loom",
+    "memory/view/scalar_exchange.loom",
     "numeric/conversion/bfloat_rounding.loom",
     "numeric/conversion/integer_float8.loom",
     "numeric/conversion/narrow_integer_float.loom",

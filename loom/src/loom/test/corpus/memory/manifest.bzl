@@ -72,6 +72,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "view/nested_selection.loom",
         "view/offset_recurrence.loom",
         "view/rotation.loom",
+        "view/scalar_exchange.loom",
         "view/selected_crops.loom",
         "view/selection.loom",
         "view/shrinking.loom",

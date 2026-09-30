@@ -75,6 +75,7 @@ loom_corpus_sources(
     "view/nested_selection.loom"
     "view/offset_recurrence.loom"
     "view/rotation.loom"
+    "view/scalar_exchange.loom"
     "view/selected_crops.loom"
     "view/selection.loom"
     "view/shrinking.loom"
