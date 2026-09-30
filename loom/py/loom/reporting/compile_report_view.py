@@ -71,6 +71,10 @@ from loom.reporting.compile_report_residency import (
     build_residency_show,
     residency_summary,
 )
+from loom.reporting.compile_report_scalarization import (
+    append_scalarization_show_text,
+    build_scalarization_show,
+)
 from loom.reporting.compile_report_subgroup_access import (
     append_subgroup_access_diff_text,
     append_subgroup_access_show_text,
@@ -423,6 +427,9 @@ def build_compile_report_show(
             for entry in document.entries
         ],
     }
+    scalarization = build_scalarization_show(document)
+    if scalarization is not None:
+        view["scalarization"] = scalarization
     loop_pipelines = build_loop_pipeline_show(document)
     if loop_pipelines is not None:
         view["loop_pipelines"] = loop_pipelines
@@ -687,6 +694,9 @@ def format_compile_report_show_text(view: dict[str, object]) -> str:
             lines.append(f"    {binding['key']} = {binding['value']}")
     lines.append("")
     append_workload_show_text(lines, _expect_dict(view["workload"]))
+    scalarization = view.get("scalarization")
+    if isinstance(scalarization, dict):
+        append_scalarization_show_text(lines, scalarization)
 
     entries = _expect_list(view["entries"])
     if not entries:
