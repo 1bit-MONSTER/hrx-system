@@ -226,7 +226,11 @@ INTERFACES: tuple[InterfaceSpec, ...] = (
         name="RegionBranchInterface",
         c_struct="loom_region_branch_vtable_t",
         vtable_field="region_branch",
-        fields=(InterfaceFieldSpec("selector", "selector_operand_index", "operand"),),
+        fields=(
+            InterfaceFieldSpec("selector", "selector_operand_index", "operand"),
+            InterfaceFieldSpec("true_region", "true_region_index", "region"),
+            InterfaceFieldSpec("false_region", "false_region_index", "region"),
+        ),
     ),
     InterfaceSpec(
         python_class=MemoryAccessInterface,
@@ -659,6 +663,14 @@ def _validate_cache_policy_interface(op: Op, iface: CachePolicyInterface, interf
             raise ValueError(f"{interface_name} on {op.name!r}: attr {name!r} must use the shared {c_type} enum")
 
 
+def _validate_region_branch_interface(op: Op, iface: RegionBranchInterface, interface_name: str) -> None:
+    """Validates the optional Boolean branch-region contract."""
+    if (iface.true_region is None) != (iface.false_region is None):
+        raise ValueError(f"{interface_name} on {op.name!r}: true_region and false_region must be declared together")
+    if iface.true_region is not None and iface.true_region == iface.false_region:
+        raise ValueError(f"{interface_name} on {op.name!r}: true_region and false_region must be distinct")
+
+
 def _interface_field_initializers(op: Op, spec: InterfaceSpec, iface: Any) -> list[str]:
     """Resolves and validates the fields of an implemented interface."""
     if isinstance(iface, CachePolicyInterface):
@@ -667,6 +679,8 @@ def _interface_field_initializers(op: Op, spec: InterfaceSpec, iface: Any) -> li
         _validate_call_like_interface(op, iface, spec.name)
     if isinstance(iface, LoopLikeInterface):
         _validate_loop_like_interface(op, iface, spec.name)
+    if isinstance(iface, RegionBranchInterface):
+        _validate_region_branch_interface(op, iface, spec.name)
     if isinstance(iface, MemoryAccessInterface):
         _validate_memory_access_interface(op, iface, spec.name)
     lines = ["    .available = true,"] if spec.inline else []

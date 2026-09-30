@@ -1239,6 +1239,20 @@ loom_value_id_t loom_region_branch_selector(loom_region_branch_t branch) {
   return loom_op_operands(branch.op)[selector_index];
 }
 
+loom_region_branch_truth_t loom_region_branch_region_truth(
+    loom_region_branch_t branch, uint8_t region_index) {
+  if (!branch.vtable || region_index >= branch.op->region_count) {
+    return LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
+  }
+  if (region_index == branch.vtable->true_region_index) {
+    return LOOM_REGION_BRANCH_TRUTH_TRUE;
+  }
+  if (region_index == branch.vtable->false_region_index) {
+    return LOOM_REGION_BRANCH_TRUTH_FALSE;
+  }
+  return LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
+}
+
 loom_region_t* loom_region_branch_region(const loom_module_t* module,
                                          loom_region_branch_t branch,
                                          uint8_t region_index) {

@@ -1867,7 +1867,13 @@ test_branch = Op(
             terminator="test.yield",
         ),
     ],
-    interfaces=[RegionBranchInterface(selector="condition")],
+    interfaces=[
+        RegionBranchInterface(
+            selector="condition",
+            true_region="then_region",
+            false_region="else_region",
+        )
+    ],
     traits=[ImplicitTerminator("test.implicit_yield")],
     format=[
         Ref("condition"),

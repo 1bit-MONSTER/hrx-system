@@ -484,6 +484,12 @@ TEST_F(InterfaceTest, RegionBranchSelectorForBranch) {
   loom_region_branch_t branch = loom_region_branch_cast(module_, branch_op);
   ASSERT_TRUE(loom_region_branch_isa(branch));
   EXPECT_EQ(loom_region_branch_selector(branch), condition_id);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 0),
+            LOOM_REGION_BRANCH_TRUTH_TRUE);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 1),
+            LOOM_REGION_BRANCH_TRUTH_FALSE);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 2),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
 }
 
 TEST_F(InterfaceTest, RegionBranchYieldOnlyOperandsForBranch) {
@@ -572,6 +578,10 @@ TEST_F(InterfaceTest, RegionBranchRegionsForRegionTable) {
   loom_region_branch_t branch = loom_region_branch_cast(module_, table_op);
   ASSERT_TRUE(loom_region_branch_isa(branch));
   EXPECT_EQ(loom_region_branch_selector(branch), loom_op_results(selector)[0]);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 0),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
+  EXPECT_EQ(loom_region_branch_region_truth(branch, 1),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
   EXPECT_EQ(loom_region_branch_region(module_, branch, 0),
             loom_test_region_table_default_region(table_op));
   EXPECT_EQ(loom_region_branch_region(module_, branch, 1),

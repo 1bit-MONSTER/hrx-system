@@ -609,7 +609,11 @@ scf_if = Op(
         ),
     ],
     interfaces=[
-        RegionBranchInterface(selector="condition"),
+        RegionBranchInterface(
+            selector="condition",
+            true_region="then_region",
+            false_region="else_region",
+        ),
     ],
     constraints=[
         YieldCountMatches("then_region", "results"),
