@@ -34,7 +34,7 @@ struct loom_target_residency_model_t;
 
 // Borrowed allocator facts used when probing physical storage.
 typedef struct loom_low_allocation_search_context_t {
-  // Module containing the allocated low function.
+  // Module with the allocated function's local value domain acquired.
   const loom_module_t* module;
   // Function control-flow graph used to construct |liveness|.
   const loom_cfg_graph_t* cfg_graph;

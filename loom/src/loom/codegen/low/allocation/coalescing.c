@@ -13,6 +13,7 @@
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/schedule/types.h"
 #include "loom/codegen/low/storage_relation.h"
+#include "loom/ir/module.h"
 
 static bool loom_low_allocation_coalescing_value_ordinal_for_value(
     const loom_low_allocation_coalescing_context_t* context,
@@ -730,11 +731,16 @@ static iree_status_t loom_low_allocation_coalescing_append_interval_at_location(
     return iree_ok_status();
   }
 
+  const loom_value_ordinal_t value_ordinal =
+      loom_module_value_ordinal_scratch_lookup(context->search_context->module,
+                                               interval->value_id);
   const loom_low_allocation_assignment_t assignment = {
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = descriptor_reg_class_id,
-      .start_point = interval->start_point,
+      .start_point =
+          context->search_context->unit_liveness->values[value_ordinal]
+              .acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .unit_count = interval->unit_count,
@@ -1559,7 +1565,9 @@ iree_status_t loom_low_allocation_coalescing_assign_tied_interval(
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = interval_reg_class_id,
-      .start_point = interval->start_point,
+      .start_point =
+          context->search_context->unit_liveness->values[result_ordinal]
+              .acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .unit_count = interval->unit_count,

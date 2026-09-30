@@ -118,9 +118,12 @@ loom_low_allocation_edge_alias_destination_may_survive_candidate_definition(
     if (candidate_value_id != destination_value_id &&
         loom_value_def_block(candidate_value)->parent_region ==
             loom_value_def_block(destination_value)->parent_region) {
-      const uint32_t definition_point =
-          interval->value_id == destination_value_id ? counterpart->start_point
-                                                     : interval->start_point;
+      const loom_liveness_interval_t* candidate_interval =
+          interval->value_id == destination_value_id
+              ? loom_liveness_interval_for_value_ordinal(
+                    context->liveness, relation->source_ordinal)
+              : interval;
+      const uint32_t definition_point = candidate_interval->definition_point;
       const loom_liveness_segment_range_t segments =
           loom_liveness_segment_range_for_value_ordinal(
               context->liveness, relation->result_ordinal);

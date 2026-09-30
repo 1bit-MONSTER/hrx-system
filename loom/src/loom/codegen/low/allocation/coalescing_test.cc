@@ -183,11 +183,11 @@ TEST_F(LowAllocationCoalescingTest, AssignsTiedIntervalToSourceLocation) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 1};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 0}, {1, 2}};
   uint32_t unit_end_points[] = {8, 6};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -217,7 +217,8 @@ TEST_F(LowAllocationCoalescingTest, AssignsTiedIntervalToSourceLocation) {
   relation.unit_count = 1;
   relation.kind = LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE;
   relation.cause = LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT;
-  relation.flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD;
+  relation.flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD |
+                   LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE;
   loom_low_placement_relation_range_t ranges_by_result[] = {
       {
           /*.start=*/0,

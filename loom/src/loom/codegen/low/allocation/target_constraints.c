@@ -920,7 +920,8 @@ loom_low_allocation_target_constraints_make_resolved_fixed_value(
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = reg_class_id,
-      .start_point = interval->start_point,
+      .start_point =
+          unit_liveness->values[value_ordinal].acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .unit_count = interval->unit_count,

@@ -47,16 +47,36 @@ class LowAllocationScalarPackingTest : public ::testing::Test {
     iree_arena_block_pool_deinitialize(&pool_);
   }
 
-  iree_status_t Build(const std::vector<loom_liveness_interval_t>& intervals,
+  iree_status_t Build(std::vector<loom_liveness_interval_t> intervals,
                       loom_low_allocation_scalar_packing_t* out_packing) {
+    std::vector<uint32_t> interval_indices(intervals.size());
+    std::vector<loom_value_id_t> value_ids(intervals.size());
+    std::vector<loom_low_allocation_unit_liveness_value_t> values(
+        intervals.size());
+    uint32_t unit_count = 0;
+    for (size_t i = 0; i < intervals.size(); ++i) {
+      interval_indices[i] = static_cast<uint32_t>(i);
+      value_ids[i] = static_cast<loom_value_id_t>(i);
+      intervals[i].value_id = value_ids[i];
+      values[i] = {unit_count, intervals[i].start_point};
+      unit_count += intervals[i].unit_count;
+    }
     loom_liveness_analysis_t liveness = {};
     liveness.intervals = intervals.data();
     liveness.interval_count = intervals.size();
+    liveness.value_ids = value_ids.data();
+    liveness.value_count = intervals.size();
+    liveness.value_interval_indices = interval_indices.data();
     liveness.pressure_summaries = summaries_;
     liveness.pressure_summary_count = IREE_ARRAYSIZE(summaries_);
+    loom_low_allocation_unit_liveness_t unit_liveness = {};
+    unit_liveness.values = values.data();
+    unit_liveness.point_count = unit_count;
+    const loom_low_placement_table_t placement = {};
     loom_low_allocation_interval_order_t order = {};
     IREE_RETURN_IF_ERROR(loom_low_allocation_interval_order_build(
-        &descriptor_set_, &liveness, &arena_, &order));
+        &descriptor_set_, &liveness, &unit_liveness, &placement, &arena_,
+        &order));
     return loom_low_allocation_scalar_packing_build(
         &descriptor_set_, &liveness, &order, &arena_, out_packing);
   }

@@ -12,16 +12,30 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
+#include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/placement.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// One interval and its retained acquisition-order keys.
+typedef struct loom_low_allocation_interval_order_entry_t {
+  // Borrowed semantic interval whose identity and uses remain unchanged.
+  const loom_liveness_interval_t* interval;
+  // Earliest required acquisition point retained by unit liveness.
+  uint32_t acquisition_start_point;
+  // Positive source-before-user priority for mandatory storage nonorigins.
+  // Origins and ordinary values use zero to retain end/identity preference.
+  uint32_t topology_rank;
+} loom_low_allocation_interval_order_entry_t;
+
 // Deterministic storage-allocation order over allocatable intervals.
 typedef struct loom_low_allocation_interval_order_t {
-  // Allocatable intervals sorted by allocation order.
-  const loom_liveness_interval_t** intervals;
+  // Intervals ordered by acquisition start, source-before-user priority,
+  // semantic end, and value identity.
+  loom_low_allocation_interval_order_entry_t* intervals;
   // Number of entries in |intervals|.
   iree_host_size_t interval_count;
   // At least one multi-unit interval uses contiguous allocation units instead
@@ -29,10 +43,15 @@ typedef struct loom_low_allocation_interval_order_t {
   bool has_packable_aggregates;
 } loom_low_allocation_interval_order_t;
 
-// Builds the allocatable interval order for |liveness|.
+// Builds acquisition chronology with mandatory sources before their results at
+// equal starts. |unit_liveness| must retain mandatory starts from |placement|.
+// Ordinary values and storage origins retain shortest-end then value-identity
+// preference, including when optional storage relations are present.
 iree_status_t loom_low_allocation_interval_order_build(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_liveness_analysis_t* liveness, iree_arena_allocator_t* arena,
+    const loom_liveness_analysis_t* liveness,
+    const loom_low_allocation_unit_liveness_t* unit_liveness,
+    const loom_low_placement_table_t* placement, iree_arena_allocator_t* arena,
     loom_low_allocation_interval_order_t* out_order);
 
 #ifdef __cplusplus

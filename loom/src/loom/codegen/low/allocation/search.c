@@ -12,6 +12,7 @@
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/spill_traffic.h"
 #include "loom/codegen/low/allocation/storage.h"
+#include "loom/ir/module.h"
 #include "loom/target/residency.h"
 
 static bool loom_low_allocation_search_align_up_u32(uint32_t value,
@@ -52,20 +53,18 @@ loom_low_allocation_search_candidate_assignment(
     const loom_liveness_interval_t* interval, uint16_t reg_class_id,
     loom_low_allocation_location_kind_t location_kind, uint32_t location_base,
     uint32_t location_count) {
-  loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-  const bool has_value_ordinal =
-      loom_low_allocation_assignment_map_value_ordinal_for_value(
-          context->assignment_map, interval->value_id, &value_ordinal);
+  const loom_value_ordinal_t value_ordinal =
+      loom_module_value_ordinal_scratch_lookup(context->module,
+                                               interval->value_id);
   const loom_liveness_segment_range_t segment_range =
-      has_value_ordinal
-          ? loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
-                context->unit_liveness, context->liveness, value_ordinal)
-          : (loom_liveness_segment_range_t){0};
+      loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
+          context->unit_liveness, context->liveness, value_ordinal);
   loom_low_allocation_assignment_t candidate = {
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = reg_class_id,
-      .start_point = interval->start_point,
+      .start_point =
+          context->unit_liveness->values[value_ordinal].acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .liveness_segments = segment_range,
@@ -74,10 +73,8 @@ loom_low_allocation_search_candidate_assignment(
       .location_base = location_base,
       .location_count = location_count,
       .unit_point_start =
-          has_value_ordinal
-              ? loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
-                    context->unit_liveness, context->liveness, value_ordinal)
-              : UINT32_MAX,
+          loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
+              context->unit_liveness, context->liveness, value_ordinal),
   };
   candidate.end_point =
       loom_low_allocation_live_range_assignment_max_unit_end_point(

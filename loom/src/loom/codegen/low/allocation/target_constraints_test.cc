@@ -375,7 +375,8 @@ TEST_F(LowAllocationTargetConstraintsTest,
   loom_value_id_t values[kValueCount];
   loom_liveness_interval_t intervals[kValueCount] = {};
   uint32_t interval_indices[] = {0, 1, 2};
-  uint32_t point_starts[] = {0, 1, 2};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 2}, {1, 0}, {2, 1}};
   uint32_t unit_start_points[] = {2, 0, 1};
   uint32_t unit_end_points[] = {3, 2, 3};
   const uint16_t reg_class_id = RegisterClassId(IREE_SV("test.phys"));
@@ -410,7 +411,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   liveness.value_count = kValueCount;
   liveness.value_interval_indices = interval_indices;
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_start_points;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = kValueCount;
@@ -482,6 +483,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   loom_liveness_segment_t segments[kValueCount + 1] = {};
   loom_liveness_segment_range_t segment_ranges[kValueCount] = {};
   uint32_t interval_indices[kValueCount];
+  loom_low_allocation_unit_liveness_value_t unit_values[kValueCount];
   uint32_t unit_starts[kValueCount];
   uint32_t unit_ends[kValueCount];
   loom_low_allocation_fixed_value_t fixed_values[kFixedCount] = {};
@@ -516,7 +518,8 @@ TEST_F(LowAllocationTargetConstraintsTest,
       segment_ranges[i].count = 1;
     }
     interval_indices[i] = i;
-    unit_starts[i] = i;
+    unit_values[i] = {i, intervals[i].start_point};
+    unit_starts[i] = intervals[i].start_point;
     unit_ends[i] = intervals[i].end_point;
     if (i < kFixedCount) {
       fixed_values[i].value_id = values[i];
@@ -540,7 +543,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   liveness.segment_count = segment_count;
   liveness.value_segment_ranges = segment_ranges;
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_starts;
   unit_liveness.end_points = unit_ends;
   unit_liveness.point_count = kValueCount;
@@ -664,7 +667,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   loom_value_id_t values[kValueCount];
   loom_liveness_interval_t intervals[kValueCount] = {};
   uint32_t interval_indices[] = {0, 1};
-  uint32_t point_starts[] = {0, 1};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 0}, {1, 0}};
   uint32_t unit_starts[] = {0, 0};
   uint32_t unit_ends[] = {10, 10};
   loom_module_value_ordinal_scratch_acquire(module);
@@ -698,7 +701,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   liveness.value_count = kValueCount;
   liveness.value_interval_indices = interval_indices;
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_starts;
   unit_liveness.end_points = unit_ends;
   unit_liveness.point_count = kValueCount;

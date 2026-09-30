@@ -209,6 +209,21 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_test(
+  NAME
+    edge_alias_test
+  SRCS
+    "edge_alias_test.cc"
+  DEPS
+    ::edge_alias
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::low
+    loom::target::registers
+)
+
 loom_cc_library(
   NAME
     concat_reservation
@@ -536,10 +551,12 @@ loom_cc_library(
     "interval_order.c"
   DEPS
     ::live_range
+    ::unit_liveness
     iree::base
     iree::base::internal::arena
     loom::analysis::liveness
     loom::codegen::low::descriptors
+    loom::codegen::low::placement
     loom::util::adaptive_sort
   PUBLIC
 )

@@ -61,19 +61,20 @@ class DestructiveReuseTest : public ::testing::Test {
   // put the identity and result before their sources, as CFG layout can do.
   void Refine(uint32_t low_end, uint32_t high_end, uint32_t write_point,
               bool low_live_at_write = true) {
-    uint32_t unit_starts[] = {0, 2, 4, 6, 7};
+    loom_low_allocation_unit_liveness_value_t unit_values[] = {
+        {0, 0}, {2, 0}, {4, 0}, {6, 0}, {7, 0}};
     uint32_t unit_start_points[] = {0, 0, 0, 0, 0, 0, 0, 0};
     uint32_t unit_ends[] = {write_point, write_point,     6,
                             6,           write_point - 1, write_point - 1,
                             low_end,     high_end};
     uint64_t incomplete_segment_words[] = {0};
     loom_low_allocation_unit_liveness_t units = {};
-    units.point_starts_by_value_ordinal = unit_starts;
+    units.values = unit_values;
     units.start_points = unit_start_points;
     units.end_points = unit_ends;
     units.point_count = IREE_ARRAYSIZE(unit_ends);
     units.values_with_incomplete_storage_segments = {
-        /*.bit_count=*/IREE_ARRAYSIZE(unit_starts),
+        /*.bit_count=*/IREE_ARRAYSIZE(unit_values),
         /*.words=*/incomplete_segment_words,
     };
 
@@ -167,17 +168,18 @@ TEST_F(DestructiveReuseTest, IgnoresObservationsOnDisjointPaths) {
 }
 
 TEST_F(DestructiveReuseTest, PreservesRequiredTiedFamilyObservations) {
-  uint32_t unit_starts[] = {0, 1, 2, 3};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 0}, {1, 0}, {2, 0}, {3, 6}};
   uint32_t unit_start_points[] = {0, 0, 0, 6};
   uint32_t unit_ends[] = {4, 5, 4, 7};
   uint64_t incomplete_segment_words[] = {0};
   loom_low_allocation_unit_liveness_t units = {};
-  units.point_starts_by_value_ordinal = unit_starts;
+  units.values = unit_values;
   units.start_points = unit_start_points;
   units.end_points = unit_ends;
   units.point_count = IREE_ARRAYSIZE(unit_ends);
   units.values_with_incomplete_storage_segments = {
-      /*.bit_count=*/IREE_ARRAYSIZE(unit_starts),
+      /*.bit_count=*/IREE_ARRAYSIZE(unit_values),
       /*.words=*/incomplete_segment_words,
   };
 
@@ -238,17 +240,18 @@ TEST_F(DestructiveReuseTest, PreservesRequiredTiedFamilyObservations) {
 }
 
 TEST_F(DestructiveReuseTest, PreservesMappedResultUnitAcrossSourceWrite) {
-  uint32_t unit_starts[] = {0, 2, 3, 5};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 0}, {2, 1}, {3, 2}, {5, 4}};
   uint32_t unit_start_points[] = {0, 0, 1, 2, 2, 4};
   uint32_t unit_ends[] = {2, 2, 4, 3, 3, 5};
   uint64_t incomplete_segment_words[] = {0};
   loom_low_allocation_unit_liveness_t units = {};
-  units.point_starts_by_value_ordinal = unit_starts;
+  units.values = unit_values;
   units.start_points = unit_start_points;
   units.end_points = unit_ends;
   units.point_count = IREE_ARRAYSIZE(unit_ends);
   units.values_with_incomplete_storage_segments = {
-      /*.bit_count=*/IREE_ARRAYSIZE(unit_starts),
+      /*.bit_count=*/IREE_ARRAYSIZE(unit_values),
       /*.words=*/incomplete_segment_words,
   };
 

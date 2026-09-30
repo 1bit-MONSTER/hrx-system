@@ -81,7 +81,8 @@ loom_low_allocation_interval_assignment_max_unit_end_point_for_interval(
   const loom_low_allocation_assignment_t candidate = {
       .value_id = interval->value_id,
       .value_class = interval->value_class,
-      .start_point = interval->start_point,
+      .start_point = state->context->unit_liveness->values[value_ordinal]
+                         .acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .unit_count = interval->unit_count,
@@ -163,7 +164,8 @@ loom_low_allocation_interval_assignment_failure_candidate(
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = capacity->descriptor_reg_class_id,
-      .start_point = interval->start_point,
+      .start_point = state->context->unit_liveness->values[value_ordinal]
+                         .acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .liveness_segments = segment_range,
@@ -207,7 +209,8 @@ static iree_status_t loom_low_allocation_interval_assignment_record_failure(
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = capacity->descriptor_reg_class_id,
-      .start_point = interval->start_point,
+      .start_point = state->context->unit_liveness->values[value_ordinal]
+                         .acquisition_start_point,
       .end_point =
           loom_low_allocation_interval_assignment_max_unit_end_point_for_interval(
               state, interval, value_ordinal),
@@ -264,8 +267,7 @@ static iree_status_t loom_low_allocation_interval_assignment_record_failure(
 
   loom_low_allocation_search_context_t search_context =
       loom_low_allocation_interval_assignment_search_context(state);
-  const uint32_t interval_end =
-      loom_low_allocation_live_range_interval_storage_end_point(interval);
+  const uint32_t interval_end = failure.end_point;
   const uint32_t explicit_pressure_limit =
       uses_explicit_physical_registers
           ? iree_min((uint32_t)reg_class->allocatable_count,
@@ -517,18 +519,17 @@ static iree_status_t loom_low_allocation_interval_assignment_append_assignment(
   // updates allocation state without repeating the input-boundary checks.
   const uint32_t assignment_index = (uint32_t)state->result.assignment_count;
   loom_low_allocation_assignment_t stored_assignment = *assignment;
-  const loom_liveness_interval_t* semantic_interval =
-      loom_liveness_interval_for_value_ordinal(state->context->liveness,
-                                               value_ordinal);
-  if (stored_assignment.start_point == semantic_interval->start_point) {
+  if (stored_assignment.start_point ==
+      state->context->unit_liveness->values[value_ordinal]
+          .acquisition_start_point) {
     stored_assignment.liveness_segments =
         loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
             state->context->unit_liveness, state->context->liveness,
             value_ordinal);
   } else {
-    // Storage reserved outside semantic SSA liveness is not represented by the
-    // value's sparse segments. Keep the range empty so conflicts use the
-    // conservative linear storage lifetime.
+    // Optional storage reserved beyond the canonical component lifetime is not
+    // represented by its sparse segments. Keep the range empty so conflicts
+    // use the conservative linear storage lifetime.
     stored_assignment.liveness_segments = (loom_liveness_segment_range_t){0};
   }
   stored_assignment.unit_point_start =
@@ -690,7 +691,8 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
       state->context;
   loom_low_allocation_interval_order_t order = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_interval_order_build(
-      context->target->descriptor_set, context->liveness, state->scratch_arena,
+      context->target->descriptor_set, context->liveness,
+      context->unit_liveness, context->placement, state->scratch_arena,
       &order));
   state->interval_count = order.interval_count;
   state->result.has_packable_aggregates = order.has_packable_aggregates;
@@ -712,10 +714,12 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
   }
 
   for (iree_host_size_t i = 0; i < order.interval_count; ++i) {
-    const loom_liveness_interval_t* interval = order.intervals[i];
+    const loom_low_allocation_interval_order_entry_t* entry =
+        &order.intervals[i];
+    const loom_liveness_interval_t* interval = entry->interval;
     loom_low_allocation_active_set_expire(
         &state->active, state->result.assignments,
-        state->result.assignment_count, interval->start_point);
+        state->result.assignment_count, entry->acquisition_start_point);
 
     loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
     IREE_RETURN_IF_ERROR(
@@ -850,7 +854,7 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
         .value_id = interval->value_id,
         .value_class = interval->value_class,
         .descriptor_reg_class_id = capacity.descriptor_reg_class_id,
-        .start_point = interval->start_point,
+        .start_point = entry->acquisition_start_point,
         .end_point =
             loom_low_allocation_live_range_interval_storage_end_point(interval),
         .unit_count = interval->unit_count,

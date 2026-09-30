@@ -71,7 +71,13 @@ typedef struct loom_liveness_interval_t {
   loom_liveness_value_class_t value_class;
   // Number of units contributed to |value_class| when live.
   uint32_t unit_count;
+  // Exact definition program point, or UINT32_MAX for a value defined outside
+  // the analyzed region tree. Live-through uses may precede this point.
+  uint32_t definition_point;
 } loom_liveness_interval_t;
+
+static_assert(sizeof(loom_liveness_interval_t) <= 40,
+              "liveness intervals must remain compact per-value records");
 
 // Contiguous half-open range where one value is live within one CFG block.
 //
