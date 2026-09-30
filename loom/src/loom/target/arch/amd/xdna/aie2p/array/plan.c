@@ -1133,6 +1133,112 @@ static iree_status_t loom_aie2p_array_reject_worker_local_storage(
   return iree_diagnostic_emit(builder->diagnostic_emitter, &emission);
 }
 
+static iree_status_t loom_aie2p_array_reject_read_only_data_bank_conflicts(
+    loom_aie2p_array_plan_builder_t* builder, uint32_t worker_index,
+    const loom_low_read_only_data_requirement_t* requirement) {
+  const loom_aie2p_array_worker_t* worker = &builder->workers[worker_index];
+  const loom_aie2p_array_tile_state_t* tile_state =
+      loom_aie2p_array_tile_state(builder, worker->coordinate);
+  const loom_symbol_t* symbol =
+      &builder->module->symbols.entries[requirement->symbol.symbol_id];
+  const loom_diagnostic_param_t params[] = {
+      loom_param_u32(worker_index),
+      loom_param_u32(worker->coordinate.column),
+      loom_param_u32(worker->coordinate.row),
+      loom_param_string(
+          loom_string_table_get(&builder->module->strings, symbol->name_id)),
+      loom_param_u32(tile_state->resources.facts->memory.bank_count),
+  };
+  const loom_diagnostic_emission_t emission = {
+      .op = loom_value_def_op(
+          loom_module_value(builder->module, worker->value_id)),
+      .error = LOOM_ERR_XDNA_034,
+      .params = params,
+      .param_count = IREE_ARRAYSIZE(params),
+  };
+  builder->valid = false;
+  return iree_diagnostic_emit(builder->diagnostic_emitter, &emission);
+}
+
+static bool loom_aie2p_array_read_only_data_conflicts_with(
+    const loom_low_read_only_data_requirement_t* requirement,
+    loom_symbol_ref_t symbol) {
+  for (iree_host_size_t i = 0; i < requirement->bank_conflicts.count; ++i) {
+    if (loom_aie2p_array_symbol_ref_equal(requirement->bank_conflicts.values[i],
+                                          symbol)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool loom_aie2p_array_read_only_data_proposal_conflicts(
+    const loom_aie2p_array_plan_builder_t* builder, uint32_t worker_index,
+    const loom_low_read_only_data_requirement_t* requirement,
+    const loom_aie2p_array_local_memory_proposal_t* proposal) {
+  // Verification makes every conflict reciprocal, so the current
+  // requirement names every conflicting definition in the committed prefix.
+  const loom_xdna_tile_memory_facts_t* memory =
+      &loom_xdna_array_tile_facts(builder->family,
+                                  builder->workers[worker_index].coordinate)
+           ->memory;
+  const uint32_t bank_capacity = memory->local_capacity / memory->bank_count;
+  for (iree_host_size_t i = 0; i < builder->read_only_data_cursor; ++i) {
+    const loom_aie2p_array_read_only_data_plan_t* placement =
+        &builder->read_only_data[i];
+    if (placement->byte_length == 0) {
+      continue;
+    }
+    if (placement->worker_index != worker_index) {
+      continue;
+    }
+    const loom_low_read_only_data_requirement_t* prior_requirement =
+        &builder->workers[worker_index]
+             .leaf->requirements.read_only_data[placement->requirement_ordinal];
+    if (!loom_aie2p_array_read_only_data_conflicts_with(
+            requirement, prior_requirement->symbol)) {
+      continue;
+    }
+
+    const uint32_t prior_first_bank = placement->owner_offset / bank_capacity;
+    const uint32_t prior_last_bank =
+        (placement->owner_offset + placement->byte_length - 1u) / bank_capacity;
+    if (proposal->first_bank <= prior_last_bank &&
+        prior_first_bank <= proposal->last_bank) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool loom_aie2p_array_propose_read_only_data(
+    const loom_aie2p_array_plan_builder_t* builder, uint32_t worker_index,
+    const loom_low_read_only_data_requirement_t* requirement,
+    const loom_aie2p_array_tile_state_t* tile_state,
+    loom_aie2p_array_local_memory_proposal_t* out_proposal) {
+  if (requirement->bank_conflicts.count == 0) {
+    return loom_aie2p_array_local_memory_propose_worker(
+        tile_state->resources.facts, tile_state->resources.bank_cursors,
+        requirement->contents.data_length, requirement->minimum_alignment,
+        out_proposal);
+  }
+
+  const uint8_t bank_count = tile_state->resources.facts->memory.bank_count;
+  for (uint8_t attempt = 0; attempt < bank_count; ++attempt) {
+    const uint8_t bank = (uint8_t)(bank_count - attempt - 1u);
+    if (!loom_aie2p_array_local_memory_propose_worker_from_bank(
+            tile_state->resources.facts, tile_state->resources.bank_cursors,
+            bank, requirement->contents.data_length,
+            requirement->minimum_alignment, out_proposal) ||
+        loom_aie2p_array_read_only_data_proposal_conflicts(
+            builder, worker_index, requirement, out_proposal)) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 static iree_status_t loom_aie2p_array_plan_workers(
     loom_aie2p_array_plan_builder_t* builder) {
   for (iree_host_size_t i = 0; i < builder->plan->worker_count; ++i) {
@@ -1208,12 +1314,21 @@ static iree_status_t loom_aie2p_array_plan_workers(
       uint32_t owner_offset = 0;
       if (requirement->contents.data_length != 0) {
         loom_aie2p_array_local_memory_proposal_t proposal;
-        if (!loom_aie2p_array_local_memory_propose_worker(
-                tile_state->resources.facts, tile_state->resources.bank_cursors,
-                requirement->contents.data_length,
-                requirement->minimum_alignment, &proposal)) {
+        if (!loom_aie2p_array_propose_read_only_data(
+                builder, (uint32_t)worker_index, requirement, tile_state,
+                &proposal)) {
           const loom_symbol_t* symbol =
               &builder->module->symbols.entries[requirement->symbol.symbol_id];
+          loom_aie2p_array_local_memory_proposal_t unconstrained_proposal;
+          if (requirement->bank_conflicts.count != 0 &&
+              loom_aie2p_array_local_memory_propose_worker(
+                  tile_state->resources.facts,
+                  tile_state->resources.bank_cursors,
+                  requirement->contents.data_length,
+                  requirement->minimum_alignment, &unconstrained_proposal)) {
+            return loom_aie2p_array_reject_read_only_data_bank_conflicts(
+                builder, (uint32_t)worker_index, requirement);
+          }
           return loom_aie2p_array_reject_worker_local_storage(
               builder, (uint32_t)worker_index,
               loom_string_table_get(&builder->module->strings, symbol->name_id),

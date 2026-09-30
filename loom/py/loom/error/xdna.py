@@ -629,6 +629,30 @@ ERR_XDNA_033 = ErrorDef(
     ),
 )
 
+# ERR_XDNA_034: Read-only data bank conflicts cannot be placed.
+ERR_XDNA_034 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=34,
+    severity=Severity.ERROR,
+    summary="Resident read-only data bank conflicts cannot be placed.",
+    message=(
+        "AIE2P worker {worker} at tile ({column}, {row}) cannot place "
+        "read-only data '@{symbol}' in any of {bank_count} programmer banks "
+        "without overlapping a conflicting resident definition"
+    ),
+    params=(
+        ErrorParam("worker", ParamKind.U32),
+        ErrorParam("column", ParamKind.U32),
+        ErrorParam("row", ParamKind.U32),
+        ErrorParam("symbol", ParamKind.STRING),
+        ErrorParam("bank_count", ParamKind.U32),
+    ),
+    fix_hint=(
+        "Reduce the conflicting data footprint, split the worker, or select a "
+        "tile with enough independent local-memory banks."
+    ),
+)
+
 ALL_XDNA_ERRORS = (
     ERR_XDNA_001,
     ERR_XDNA_002,
@@ -663,4 +687,5 @@ ALL_XDNA_ERRORS = (
     ERR_XDNA_031,
     ERR_XDNA_032,
     ERR_XDNA_033,
+    ERR_XDNA_034,
 )

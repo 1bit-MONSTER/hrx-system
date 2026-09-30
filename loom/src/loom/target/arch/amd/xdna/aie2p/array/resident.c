@@ -130,6 +130,11 @@ static iree_status_t loom_aie2p_array_resident_clone_read_only_data(
   loom_builder_t ir_builder;
   loom_builder_initialize(builder->module, &builder->module->arena,
                           loom_module_block(builder->module), &ir_builder);
+
+  // Reserve every retained symbol before rebuilding any definition so
+  // reciprocal conflict sets can be remapped without depending on traversal
+  // order. Conflicts against definitions unused by all resident workers are
+  // intentionally projected out.
   for (iree_host_size_t plan_index = 0; plan_index < plan_count; ++plan_index) {
     const loom_aie2p_array_plan_t* plan = &plans[plan_index];
     for (iree_host_size_t worker_index = 0; worker_index < plan->worker_count;
@@ -165,20 +170,68 @@ static iree_status_t loom_aie2p_array_resident_clone_read_only_data(
         IREE_RETURN_IF_ERROR(loom_module_add_symbol(
             builder->module, target_name_id, &target_ref.symbol_id));
         builder->resident_symbols_by_source[source_ref.symbol_id] = target_ref;
+      }
+    }
+  }
+
+  for (iree_host_size_t plan_index = 0; plan_index < plan_count; ++plan_index) {
+    const loom_aie2p_array_plan_t* plan = &plans[plan_index];
+    for (iree_host_size_t worker_index = 0; worker_index < plan->worker_count;
+         ++worker_index) {
+      const loom_low_function_requirements_t* requirements =
+          &plan->workers[worker_index].leaf->requirements;
+      for (iree_host_size_t i = 0; i < requirements->read_only_data_count;
+           ++i) {
+        const loom_low_read_only_data_requirement_t* requirement =
+            &requirements->read_only_data[i];
+        const loom_symbol_ref_t source_ref = requirement->symbol;
+        const loom_symbol_ref_t target_ref =
+            builder->resident_symbols_by_source[source_ref.symbol_id];
+        IREE_ASSERT(loom_symbol_ref_is_valid(target_ref));
+        if (builder->module->symbols.entries[target_ref.symbol_id]
+                .defining_op != NULL) {
+          continue;
+        }
+
+        loom_symbol_ref_t* target_conflicts = NULL;
+        if (requirement->bank_conflicts.count != 0) {
+          IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+              builder->arena, requirement->bank_conflicts.count,
+              sizeof(*target_conflicts), (void**)&target_conflicts));
+        }
+        iree_host_size_t target_conflict_count = 0;
+        for (iree_host_size_t conflict_index = 0;
+             conflict_index < requirement->bank_conflicts.count;
+             ++conflict_index) {
+          const loom_symbol_ref_t source_conflict =
+              requirement->bank_conflicts.values[conflict_index];
+          IREE_ASSERT_EQ(source_conflict.module_id, 0u);
+          IREE_ASSERT_LT(source_conflict.symbol_id,
+                         builder->source_module->symbols.count);
+          const loom_symbol_ref_t target_conflict =
+              builder->resident_symbols_by_source[source_conflict.symbol_id];
+          if (loom_symbol_ref_is_valid(target_conflict)) {
+            target_conflicts[target_conflict_count++] = target_conflict;
+          }
+        }
 
         loom_location_id_t target_location = LOOM_LOCATION_UNKNOWN;
         IREE_RETURN_IF_ERROR(loom_ir_remap_location_id(
             &remap, requirement->definition->location, &target_location));
         const bool has_alignment =
             loom_global_rodata_def_has_alignment(requirement->definition);
+        loom_global_rodata_def_build_flags_t build_flags =
+            has_alignment ? LOOM_GLOBAL_RODATA_DEF_BUILD_FLAG_HAS_ALIGNMENT : 0;
+        if (target_conflict_count != 0) {
+          build_flags |= LOOM_GLOBAL_RODATA_DEF_BUILD_FLAG_HAS_BANK_CONFLICTS;
+        }
         loom_op_t* target_definition = NULL;
         IREE_RETURN_IF_ERROR(loom_global_rodata_def_build(
-            &ir_builder,
-            has_alignment ? LOOM_GLOBAL_RODATA_DEF_BUILD_FLAG_HAS_ALIGNMENT : 0,
-            target_ref,
+            &ir_builder, build_flags, target_ref,
             has_alignment
                 ? loom_global_rodata_def_alignment(requirement->definition)
                 : 0,
+            loom_make_symbol_ref_array(target_conflicts, target_conflict_count),
             requirement->contents, target_location, &target_definition));
       }
     }

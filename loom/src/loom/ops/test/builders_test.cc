@@ -295,7 +295,7 @@ TEST_F(BuilderStorageTest, BytesOutliveCallerStorage) {
     uint8_t bytes[] = {0x00, 0x7F, 0xFF};
     loom_op_t* op = nullptr;
     IREE_ASSERT_OK(loom_global_rodata_def_build(
-        &builder_, 0, {0, symbol}, 0,
+        &builder_, 0, {0, symbol}, 0, loom_symbol_ref_array_empty(),
         iree_make_const_byte_span(count ? bytes : nullptr, count),
         LOOM_LOCATION_UNKNOWN, &op));
 

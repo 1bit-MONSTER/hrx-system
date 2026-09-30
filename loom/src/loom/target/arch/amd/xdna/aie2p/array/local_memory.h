@@ -46,6 +46,14 @@ bool loom_aie2p_array_local_memory_propose_channel(
     uint8_t next_channel_bank, uint64_t byte_length, uint64_t alignment,
     loom_aie2p_array_local_memory_proposal_t* out_proposal);
 
+// Selects one persistent worker allocation beginning in |first_bank|. A wide
+// allocation may span subsequent empty banks. Returns false without mutating
+// |bank_cursors| when the requested range cannot begin in that bank.
+bool loom_aie2p_array_local_memory_propose_worker_from_bank(
+    const loom_xdna_tile_facts_t* facts, const uint32_t* bank_cursors,
+    uint8_t first_bank, uint64_t byte_length, uint64_t alignment,
+    loom_aie2p_array_local_memory_proposal_t* out_proposal);
+
 // Selects one persistent worker allocation from the highest usable bank.
 // Returns false without mutating |bank_cursors| when no bank can contain the
 // requested range. |out_proposal| is defined only when true is returned.

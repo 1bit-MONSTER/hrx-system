@@ -32,6 +32,22 @@ TEST(Aie2pArrayLocalMemoryTest, WorkerProposalPacksFromHighestBank) {
   EXPECT_EQ(next_channel_bank, 2u);
 }
 
+TEST(Aie2pArrayLocalMemoryTest, WorkerProposalCanSelectExactBank) {
+  const loom_xdna_tile_facts_t* facts = ComputeFacts();
+  uint32_t bank_cursors[4] = {0};
+  loom_aie2p_array_local_memory_proposal_t proposal = {};
+
+  ASSERT_TRUE(loom_aie2p_array_local_memory_propose_worker_from_bank(
+      facts, bank_cursors, /*first_bank=*/1, /*byte_length=*/64,
+      /*alignment=*/64, &proposal));
+  EXPECT_EQ(proposal.owner_offset, 16u * 1024u);
+  EXPECT_EQ(proposal.first_bank, 1u);
+  EXPECT_EQ(proposal.last_bank, 1u);
+  EXPECT_FALSE(loom_aie2p_array_local_memory_propose_worker_from_bank(
+      facts, bank_cursors, facts->memory.bank_count, /*byte_length=*/64,
+      /*alignment=*/64, &proposal));
+}
+
 TEST(Aie2pArrayLocalMemoryTest, ChannelProposalAdvancesRoundRobinBank) {
   const loom_xdna_tile_facts_t* facts = ComputeFacts();
   uint32_t bank_cursors[4] = {0};

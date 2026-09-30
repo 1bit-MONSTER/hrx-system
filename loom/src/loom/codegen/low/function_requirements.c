@@ -47,6 +47,7 @@ static iree_status_t loom_low_function_requirements_append_read_only_data(
           loom_global_rodata_def_has_alignment(definition)
               ? (uint64_t)loom_global_rodata_def_alignment(definition)
               : 1,
+      .bank_conflicts = loom_global_rodata_def_bank_conflicts(definition),
   };
   ordinal_by_symbol[symbol.symbol_id] = ordinal;
   ++out_requirements->read_only_data_count;

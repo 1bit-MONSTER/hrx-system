@@ -69,6 +69,16 @@ bool loom_aie2p_array_local_memory_propose_channel(
   return false;
 }
 
+bool loom_aie2p_array_local_memory_propose_worker_from_bank(
+    const loom_xdna_tile_facts_t* facts, const uint32_t* bank_cursors,
+    uint8_t first_bank, uint64_t byte_length, uint64_t alignment,
+    loom_aie2p_array_local_memory_proposal_t* out_proposal) {
+  return first_bank < facts->memory.bank_count &&
+         loom_aie2p_array_local_memory_propose_in_bank(facts, bank_cursors,
+                                                       first_bank, byte_length,
+                                                       alignment, out_proposal);
+}
+
 bool loom_aie2p_array_local_memory_propose_worker(
     const loom_xdna_tile_facts_t* facts, const uint32_t* bank_cursors,
     uint64_t byte_length, uint64_t alignment,
@@ -76,7 +86,7 @@ bool loom_aie2p_array_local_memory_propose_worker(
   const uint8_t bank_count = facts->memory.bank_count;
   for (uint8_t attempt = 0; attempt < bank_count; ++attempt) {
     const uint8_t bank = (uint8_t)(bank_count - attempt - 1u);
-    if (loom_aie2p_array_local_memory_propose_in_bank(
+    if (loom_aie2p_array_local_memory_propose_worker_from_bank(
             facts, bank_cursors, bank, byte_length, alignment, out_proposal)) {
       return true;
     }
