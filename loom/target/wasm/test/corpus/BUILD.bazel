@@ -334,6 +334,12 @@ loom_test(
 )
 
 loom_test(
+    name = "biased_offsets_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:address/biased_offsets.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
     name = "buffer_selection_test",
     srcs = ["//loom/src/loom/test/corpus/memory:buffer/selection.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],

@@ -1,0 +1,75 @@
+// Exercise the same logical element through negative dynamic terms, a large
+// positive bias, and a separately proven nonnegative coordinate. The vector
+// transfer keeps the signed coordinate live through both source and target
+// address plans.
+func.def @biased_offset_observations(%ordinal: index, %replacement_bits: i64, %biased_storage: buffer, %large_bias_storage: buffer, %nonnegative_storage: buffer, %vector_source: buffer, %vector_destination: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %c4 = index.constant 4 : index
+  %c5 = index.constant 5 : index
+  %large_dynamic_bias = index.constant 1073741816 : index
+  %large_static_bias = index.constant 1073741820 : index
+  %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 8)] : index
+  %signed_position = index.sub %bounded_ordinal, %c4 : index
+  %biased_element = index.add %signed_position, %c4 : index
+  %large_position = index.sub %signed_position, %large_dynamic_bias : index
+  %large_element = index.add %large_position, %large_static_bias : index
+  %nonnegative_position = index.rem %bounded_ordinal, %c5 : index
+  %bounded_nonnegative_position = index.assume %nonnegative_position [range(%nonnegative_position, 0, 4)] : index
+  %nonnegative_element = index.add %bounded_nonnegative_position, %c4 : index
+  %replacement = scalar.trunci %replacement_bits : i64 to i32
+
+  %biased_view = buffer.view %biased_storage[%base] : buffer -> view<9xi32>
+  %biased_previous = view.load %biased_view[%biased_element] : view<9xi32> -> i32
+  view.store %replacement, %biased_view[%biased_element] : i32, view<9xi32>
+
+  %large_bias_view = buffer.view %large_bias_storage[%base] : buffer -> view<9xi32>
+  %large_previous = view.load %large_bias_view[%large_element] : view<9xi32> -> i32
+  view.store %replacement, %large_bias_view[%large_element] : i32, view<9xi32>
+
+  %nonnegative_view = buffer.view %nonnegative_storage[%base] : buffer -> view<9xi32>
+  %nonnegative_previous = view.load %nonnegative_view[%nonnegative_element] : view<9xi32> -> i32
+  view.store %replacement, %nonnegative_view[%nonnegative_element] : i32, view<9xi32>
+
+  %vector_source_view = buffer.view %vector_source[%base] : buffer -> view<12xi32>
+  %vector_destination_view = buffer.view %vector_destination[%base] : buffer -> view<12xi32>
+  %values = vector.load %vector_source_view[%biased_element] : view<12xi32> -> vector<4xi32>
+  vector.store %values, %vector_destination_view[%biased_element] : vector<4xi32>, view<12xi32>
+
+  %results = buffer.view %output[%base] : buffer -> view<3xi32>
+  view.store %biased_previous, %results[0] : i32, view<3xi32>
+  view.store %large_previous, %results[1] : i32, view<3xi32>
+  view.store %nonnegative_previous, %results[2] : i32, view<3xi32>
+  func.return
+}
+
+check.scenario @biased_offset_values {
+  check.trial[9](%trial: index, %entropy: check.entropy) {
+    %replacement_bits = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %biased_storage = check.generate.iota offset(101) step(17) : tensor<17xi32>
+    %large_bias_storage = check.generate.iota offset(-1001) step(29) : tensor<17xi32>
+    %nonnegative_storage = check.generate.iota offset(7001) step(-31) : tensor<17xi32>
+    %vector_source_storage = check.generate.iota offset(-3001) step(37) : tensor<20xi32>
+    %vector_destination_storage = check.generate.fill value(-559038737) : tensor<20xi32>
+    %output_storage = check.generate.fill value(-889275714) : tensor<11xi32>
+    %biased = check.tensor.view %biased_storage offset(16) : tensor<17xi32> -> tensor<9xi32>
+    %large_bias = check.tensor.view %large_bias_storage offset(16) : tensor<17xi32> -> tensor<9xi32>
+    %nonnegative = check.tensor.view %nonnegative_storage offset(16) : tensor<17xi32> -> tensor<9xi32>
+    %vector_source = check.tensor.view %vector_source_storage offset(16) : tensor<20xi32> -> tensor<12xi32>
+    %vector_destination = check.tensor.view %vector_destination_storage offset(16) : tensor<20xi32> -> tensor<12xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<11xi32> -> tensor<3xi32>
+    %word_guard = check.generate.fill value(-889275714) : tensor<4xi32>
+    %output_prefix = check.tensor.view %output_storage offset(0) : tensor<11xi32> -> tensor<4xi32>
+    %output_suffix = check.tensor.view %output_storage offset(28) : tensor<11xi32> -> tensor<4xi32>
+    check.compare<@biased_offset_observations>(%trial, %replacement_bits, %biased, %large_bias, %nonnegative, %vector_source, %vector_destination, %output) : (index, i64, tensor<9xi32>, tensor<9xi32>, tensor<9xi32>, tensor<12xi32>, tensor<12xi32>, tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%biased_storage) expected(%biased_storage) : tensor<17xi32>
+      check.expect.bitwise actual(%large_bias_storage) expected(%large_bias_storage) : tensor<17xi32>
+      check.expect.bitwise actual(%nonnegative_storage) expected(%nonnegative_storage) : tensor<17xi32>
+      check.expect.bitwise actual(%vector_source_storage) expected(%vector_source_storage) : tensor<20xi32>
+      check.expect.bitwise actual(%vector_destination_storage) expected(%vector_destination_storage) : tensor<20xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3xi32>
+      check.expect.bitwise actual(%output_prefix) expected(%word_guard) : tensor<4xi32>
+      check.expect.bitwise actual(%output_suffix) expected(%word_guard) : tensor<4xi32>
+    }
+  }
+  check.return
+}

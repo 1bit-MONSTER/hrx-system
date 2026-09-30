@@ -1016,6 +1016,15 @@ loom_test_module(
 
 loom_test_module(
   NAME
+    biased_offsets_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/address/biased_offsets.loom"
+)
+
+# biased_offsets_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
     buffer_selection_test_module
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/buffer/selection.loom"

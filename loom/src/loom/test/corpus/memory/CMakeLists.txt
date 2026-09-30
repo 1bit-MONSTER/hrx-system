@@ -16,6 +16,7 @@ loom_corpus_sources(
     "memory"
   SRCS
     "address/address.loom"
+    "address/biased_offsets.loom"
     "address/carrier_casts.loom"
     "address/carrier_loops.loom"
     "address/generic.loom"
