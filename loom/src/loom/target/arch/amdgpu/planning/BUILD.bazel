@@ -167,10 +167,12 @@ loom_cc_test(
 loom_cc_library(
     name = "wait_states",
     srcs = [
+        "mask_write_wait.c",
         "store_data_wait.c",
         "wait_states.c",
     ],
     hdrs = [
+        "mask_write_wait.h",
         "store_data_wait.h",
         "wait_states.h",
     ],
