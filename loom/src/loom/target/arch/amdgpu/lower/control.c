@@ -1733,8 +1733,7 @@ static iree_status_t loom_amdgpu_emit_no_true_else_entry_block(
 static iree_status_t loom_amdgpu_emit_else_dispatch_block(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t saved_exec, loom_value_id_t low_condition,
-    loom_type_t condition_type, loom_type_t active_type,
-    const loom_amdgpu_branch_plan_t* plan) {
+    loom_type_t active_type, const loom_amdgpu_branch_plan_t* plan) {
   IREE_ASSERT_EQ(plan->else_dispatch_block->op_count, 0);
 
   loom_builder_t* builder = loom_low_lower_context_builder(context);
@@ -1744,40 +1743,23 @@ static iree_status_t loom_amdgpu_emit_else_dispatch_block(
   loom_op_t* else_active_op = NULL;
   iree_status_t status = iree_ok_status();
   if (plan->if_else_merge_arg_count == 0) {
-    // Store-only branches do not introduce merge operands, so no later VALU
-    // select can observe values from lanes that skipped a branch body.
+    // Store-only branches leave EXEC set to the true lanes. Invert those lanes
+    // within saved EXEC without retaining the condition through the true body.
     status = loom_amdgpu_emit_low_op(
         context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_XOR_B64_EXEC,
         &saved_exec, 1, loom_named_attr_slice_empty(), &active_type, 1,
         &else_active_op);
   } else {
-    // Value-producing branches may reach this block either from the true body
-    // or from a no-true placeholder block. Recompute the else mask from the
-    // original saved EXEC instead of assuming the predecessor left EXEC set to
-    // exactly the true lanes.
-    loom_op_t* restore_op = NULL;
-    status = loom_amdgpu_emit_low_op(
-        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B64_EXEC,
-        &saved_exec, 1, loom_named_attr_slice_empty(), /*result_types=*/NULL, 0,
-        &restore_op);
-    const loom_value_id_t true_mask_operands[] = {
+    // A no-true placeholder predecessor may have restored EXEC to initialize
+    // merge values. Derive the false lanes directly from the saved entry mask.
+    const loom_value_id_t else_mask_operands[] = {
         saved_exec,
         low_condition,
     };
-    loom_op_t* true_mask_op = NULL;
-    if (iree_status_is_ok(status)) {
-      status = loom_amdgpu_emit_low_op(
-          context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_AND_B64,
-          true_mask_operands, IREE_ARRAYSIZE(true_mask_operands),
-          loom_named_attr_slice_empty(), &condition_type, 1, &true_mask_op);
-    }
-    if (iree_status_is_ok(status)) {
-      const loom_value_id_t true_mask = loom_op_const_results(true_mask_op)[0];
-      status = loom_amdgpu_emit_low_op(
-          context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_XOR_B64_EXEC,
-          &true_mask, 1, loom_named_attr_slice_empty(), &active_type, 1,
-          &else_active_op);
-    }
+    status = loom_amdgpu_emit_low_op(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_ANDN2_B64_EXEC,
+        else_mask_operands, IREE_ARRAYSIZE(else_mask_operands),
+        loom_named_attr_slice_empty(), &active_type, 1, &else_active_op);
   }
   if (iree_status_is_ok(status)) {
     loom_block_t* const restore_dest = plan->true_only_restore_block != NULL
@@ -1918,8 +1900,7 @@ static iree_status_t loom_amdgpu_emit_exec_mask_cond_branch(
   if (branch_plan.id == LOOM_AMDGPU_BRANCH_PLAN_IF_ELSE_DIAMOND &&
       plan->if_else_merge_arg_count == 0) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_else_dispatch_block(
-        context, source_op, saved_exec, low_condition, condition_type,
-        active_type, plan));
+        context, source_op, saved_exec, low_condition, active_type, plan));
   }
   if (branch_plan.id == LOOM_AMDGPU_BRANCH_PLAN_IF_ELSE_DIAMOND &&
       plan->if_else_merge_arg_count != 0) {
@@ -1932,8 +1913,7 @@ static iree_status_t loom_amdgpu_emit_exec_mask_cond_branch(
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_if_else_merge_restore_block(
         context, source_op, saved_exec, low_condition, plan));
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_else_dispatch_block(
-        context, source_op, saved_exec, low_condition, condition_type,
-        active_type, plan));
+        context, source_op, saved_exec, low_condition, active_type, plan));
   }
 
   return loom_amdgpu_emit_plain_cond_branch(context, source_op, active,

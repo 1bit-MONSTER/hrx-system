@@ -1379,6 +1379,7 @@ def _with_instruction_classes(descriptor_set: DescriptorSet) -> DescriptorSet:
 _AMDGPU_CORE_DESCRIPTOR_SET_BUILDER_FLAG_GFX125X = 1 << 0
 
 _AMDGPU_CORE_INSTRUCTION_FACT_NAMES = (
+    "S_ANDN2_B64",
     "S_GETPC_B64",
     "S_MOV_B32",
     "S_MOV_B64",
