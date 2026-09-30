@@ -19,15 +19,13 @@ iree_py_test(
     "qualification_test.py"
   ARGS
     "{{$<TARGET_FILE:loom::tools::loom-check::loom-check>}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_global_atomic.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/arch/amdgpu/test/source_low/source_low_memory_global_atomic_gfx9_4_generic.loom-test}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_accepted.loom-test}}"
     "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_address_realizations.loom-test}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_rejected.loom-test}}"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/arch/amdgpu/test/source_low/source_low_memory_global_atomic_gfx9_4_generic.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_address_realizations.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_global_atomic.loom-test"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_accepted.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amdgpu/test/qualification_rejected.loom-test"
     "loom::tools::loom-check::loom-check"
     "loom::tools::loom-compile::loom-compile"

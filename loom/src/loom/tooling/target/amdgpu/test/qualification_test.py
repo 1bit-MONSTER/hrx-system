@@ -21,12 +21,12 @@ class QualificationTest(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.corpus = self.root / "corpus.loom-test"
-        self.corpus.write_bytes(Path(_ARGS.corpus).read_bytes())
+        source = Path(_ARGS.accepted).read_text()
+        self.corpus.write_text(source, newline="\n")
         self.fixture = self.root / "fixture.loom-test"
-        source = Path(_ARGS.fixture).read_text()
-        source = "// TEMPLATE: corpus.loom-test\n" + source.split("\n", 1)[1]
-        # Keep the copied fixture in its canonical LF form.
-        self.fixture.write_text(source, newline="\n")
+        self.fixture.write_text(
+            "// TEMPLATE: corpus.loom-test\n" + source, newline="\n"
+        )
         self.rejected = self.root / "rejected.loom-test"
         self.rejected.write_bytes(Path(_ARGS.rejected).read_bytes())
 
@@ -43,12 +43,12 @@ class QualificationTest(unittest.TestCase):
             text=True,
         )
 
-    def test_native_compilation_is_independent_of_low_goldens(self):
+    def test_native_compilation_uses_authored_cases(self):
         result = self.check(self.fixture)
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(
-            report["summary"], {"total": 15, "passed": 15, "failed": 0, "skipped": 0}
+            report["summary"], {"total": 2, "passed": 2, "failed": 0, "skipped": 0}
         )
         self.assertTrue(all(case["mode"] == "compile" for case in report["cases"]))
 
@@ -105,11 +105,11 @@ class QualificationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(
-            report["summary"], {"total": 15, "passed": 15, "failed": 0, "skipped": 0}
+            report["summary"], {"total": 2, "passed": 2, "failed": 0, "skipped": 0}
         )
         self.assertEqual(self.fixture.read_bytes(), original)
 
-    def test_update_does_not_rewrite_goldens(self):
+    def test_update_does_not_rewrite_targeted_input(self):
         original = self.fixture.read_bytes()
         result = self.check(self.fixture, "--update")
         self.assertNotEqual(result.returncode, 0)
@@ -208,8 +208,7 @@ class QualificationTest(unittest.TestCase):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("checker")
-    parser.add_argument("corpus")
-    parser.add_argument("fixture")
+    parser.add_argument("accepted")
     parser.add_argument("compiler")
     parser.add_argument("realizations")
     parser.add_argument("rejected")
