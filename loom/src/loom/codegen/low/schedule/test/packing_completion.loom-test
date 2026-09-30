@@ -168,3 +168,96 @@ low.func.def target<test.low.core>(@test_target) @register_packing_tracks_operan
 
 // ----
 CHECK: *"scheduled_node_indices":[0,2,1,3,5,4,6,8,7,9,10]*
+
+// ====
+
+// The peer remains owned by the successor, but each temporary really retires.
+// Finish the first temporary before opening the second packed transaction.
+// RUN: with-checks emit low-schedule-json @register_packing_forwarded_peer strategy=resource-stall
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @register_packing_forwarded_peer(%carried_peer: reg<test.packed.wide x2>, %first_source: reg<test.i32>, %second_source: reg<test.i32>) -> (reg<test.packed.wide x2>, reg<test.i32>, reg<test.i32>) asm {
+  %first_narrow = test.packing.create %first_source
+  %first_temporary = test.packing.expand %first_narrow
+  %second_narrow = test.packing.create %second_source
+  %second_temporary = test.packing.expand %second_narrow
+  %first_result = test.packing.retire %first_temporary, %carried_peer
+  %second_result = test.packing.retire %second_temporary, %carried_peer
+  low.br ^exit(%carried_peer: reg<test.packed.wide x2>, %first_result: reg<test.i32>, %second_result: reg<test.i32>)
+^exit(%kept: reg<test.packed.wide x2>, %first: reg<test.i32>, %second: reg<test.i32>):
+  return %kept, %first, %second
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[0,1,4,2,3,5,6,7]*
+
+// ====
+
+// Retiring a derived value cannot release its forwarded source. The independent
+// transaction completes while that source stays live; the derived value then
+// retains its own genuine local completion.
+// RUN: with-checks emit low-schedule-json @register_packing_forwarded_source_derived_release strategy=resource-stall
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @register_packing_forwarded_source_derived_release(%first_source: reg<test.i32>, %second_source: reg<test.i32>) -> (reg<test.packed.narrow>, reg<test.i32>, reg<test.i32>) asm {
+  %carried = test.packing.create %first_source
+  %derived = test.packing.expand %carried
+  %second_narrow = test.packing.create %second_source
+  %second_temporary = test.packing.expand %second_narrow
+  %derived_result = test.packing.retire %derived, %derived
+  %second_result = test.packing.retire %second_temporary, %second_temporary
+  low.br ^exit(%carried: reg<test.packed.narrow>, %derived_result: reg<test.i32>, %second_result: reg<test.i32>)
+^exit(%kept: reg<test.packed.narrow>, %first: reg<test.i32>, %second: reg<test.i32>):
+  return %kept, %first, %second
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[0,2,3,5,1,4,6,7]*
+
+// ====
+
+// One producer publishes a temporary and a forwarded sibling in the same
+// packing resource. The temporary's completion is not the sibling's release.
+// RUN: with-checks emit low-schedule-json @register_packing_forwarded_sibling strategy=resource-stall
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @register_packing_forwarded_sibling(%first_source: reg<test.i32>, %configuration: reg<test.i32>, %second_source: reg<test.i32>) -> (reg<test.packed.wide x2>, reg<test.i32>, reg<test.i32>) asm {
+  %first_narrow = test.packing.create %first_source
+  %carried, %temporary = test.packing.configured.expand %first_narrow, %configuration
+  %second_narrow = test.packing.create %second_source
+  %second_temporary = test.packing.expand %second_narrow
+  %first_result = test.packing.retire %temporary, %temporary
+  %second_result = test.packing.retire %second_temporary, %second_temporary
+  low.br ^exit(%carried: reg<test.packed.wide x2>, %first_result: reg<test.i32>, %second_result: reg<test.i32>)
+^exit(%kept: reg<test.packed.wide x2>, %first: reg<test.i32>, %second: reg<test.i32>):
+  return %kept, %first, %second
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[0,1,4,2,3,5,6,7]*
+
+// ====
+
+// Repeated branch payloads establish one source ownership fact. They preserve
+// the same temporary-release order as a single forwarded occurrence.
+// RUN: with-checks emit low-schedule-json @register_packing_duplicate_forwarding strategy=resource-stall
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @register_packing_duplicate_forwarding(%first_source: reg<test.i32>, %second_source: reg<test.i32>) -> (reg<test.packed.narrow>, reg<test.packed.narrow>, reg<test.i32>, reg<test.i32>) asm {
+  %carried = test.packing.create %first_source
+  %derived = test.packing.expand %carried
+  %second_narrow = test.packing.create %second_source
+  %second_temporary = test.packing.expand %second_narrow
+  %derived_result = test.packing.retire %derived, %derived
+  %second_result = test.packing.retire %second_temporary, %second_temporary
+  low.br ^exit(%carried: reg<test.packed.narrow>, %carried: reg<test.packed.narrow>, %derived_result: reg<test.i32>, %second_result: reg<test.i32>)
+^exit(%kept: reg<test.packed.narrow>, %also_kept: reg<test.packed.narrow>, %first: reg<test.i32>, %second: reg<test.i32>):
+  return %kept, %also_kept, %first, %second
+}
+
+// ----
+CHECK: *"scheduled_node_indices":[0,2,3,5,1,4,6,7]*

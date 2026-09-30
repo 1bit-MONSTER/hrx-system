@@ -440,8 +440,10 @@ static bool loom_low_schedule_register_packing_resource_has_aggregate_member(
 static uint32_t loom_low_schedule_value_register_packing_completion_sink(
     const loom_low_schedule_build_state_t* state,
     loom_value_ordinal_t value_ordinal, uint16_t resource_id) {
-  const uint32_t producer_node = state->values[value_ordinal].producer_node;
-  if (producer_node == LOOM_LOW_SCHEDULE_NODE_NONE) {
+  const loom_low_schedule_value_record_t* value = &state->values[value_ordinal];
+  const uint32_t producer_node = value->producer_node;
+  if (producer_node == LOOM_LOW_SCHEDULE_NODE_NONE ||
+      iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED)) {
     return LOOM_LOW_SCHEDULE_NODE_NONE;
   }
   return loom_low_schedule_const_register_packing_row(

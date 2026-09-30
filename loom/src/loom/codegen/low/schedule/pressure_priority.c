@@ -456,6 +456,12 @@ void loom_low_schedule_pressure_compute_node_priorities(
           loom_low_schedule_source_range_start(state, node_index);
     }
     loom_low_schedule_node_t* node = &state->nodes[node_index];
+    const loom_low_schedule_block_t* block_record =
+        &state->blocks[node->block_index];
+    if (node_index == block_record->node_start + block_record->node_count - 1) {
+      loom_low_schedule_storage_lifetimes_set_forwarded_values(
+          state, node->block_index, true);
+    }
     const bool is_storage_setup = iree_any_bit_set(
         node->flags, LOOM_LOW_SCHEDULE_NODE_FLAG_STORAGE_SETUP);
     // Same-block SSA consumers follow their producers in source order. Their
@@ -619,6 +625,8 @@ void loom_low_schedule_pressure_compute_node_priorities(
               loom_low_schedule_value_record_t* value =
                   &state->values[value_ordinal];
               if (value->producer_node != node_index ||
+                  iree_any_bit_set(value->flags,
+                                   LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED) ||
                   loom_low_schedule_unspillable_completion_domain_id(
                       state, value->register_class_id) !=
                       completion_domain_id) {
@@ -660,6 +668,12 @@ void loom_low_schedule_pressure_compute_node_priorities(
                     dependency->consumer_node);
             const uint16_t resource_count =
                 state->target.descriptor_set->register_packing_resource_count;
+            const loom_value_ordinal_t source_ordinal =
+                loom_low_schedule_node_const_operand_ordinals(
+                    consumer)[dependency->value_operand_index];
+            const bool forwards_source =
+                iree_any_bit_set(state->values[source_ordinal].flags,
+                                 LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED);
             for (uint16_t resource_id = 0; resource_id < resource_count;
                  ++resource_id) {
               const loom_low_register_packing_resource_t* resource =
@@ -686,6 +700,9 @@ void loom_low_schedule_pressure_compute_node_priorities(
                           consumer->flags,
                           LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER)));
 
+              if (forwards_source) {
+                continue;
+              }
               const bool exits_resource =
                   consumer_reads_resource && consumer_result_units == 0;
               const uint32_t completion_sink =
@@ -733,12 +750,14 @@ void loom_low_schedule_pressure_compute_node_priorities(
         state->pressure_resources != NULL) {
       loom_low_schedule_reverse_source_pressure_node(state, pressure_state,
                                                      node);
-      const loom_low_schedule_block_t* block_record =
-          &state->blocks[node->block_index];
       if (node_index == block_record->node_start) {
         loom_low_schedule_remove_source_pressure_block_arguments(
             state, pressure_state, block_record->block);
       }
+    }
+    if (node_index == block_record->node_start) {
+      loom_low_schedule_storage_lifetimes_set_forwarded_values(
+          state, node->block_index, false);
     }
   }
   if (pressure_state->first_actionable_pressure_cliff_indices != NULL ||

@@ -574,7 +574,8 @@ static void loom_low_schedule_nominate_unspillable_completion(
     loom_value_ordinal_t value_ordinal) {
   const loom_low_schedule_value_record_t* value = &state->values[value_ordinal];
   const uint16_t reg_class_id = value->register_class_id;
-  if (!iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE)) {
+  if (!iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE) ||
+      iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED)) {
     return;
   }
   const uint16_t completion_domain_id =
@@ -799,7 +800,8 @@ void loom_low_schedule_pressure_initialize_block(
     state->values[ordinal].flags &=
         ~(LOOM_LOW_SCHEDULE_VALUE_FLAG_PRESSURE_TOUCHED |
           LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE |
-          LOOM_LOW_SCHEDULE_VALUE_FLAG_ACTIVE_PRESSURE_ALIAS);
+          LOOM_LOW_SCHEDULE_VALUE_FLAG_ACTIVE_PRESSURE_ALIAS |
+          LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED);
   }
   pressure_state->block_value_count = 0;
   if (pressure_state->current_live_units_by_reg_class) {
@@ -807,6 +809,8 @@ void loom_low_schedule_pressure_initialize_block(
            state->target.descriptor_set->reg_class_count *
                sizeof(*pressure_state->current_live_units_by_reg_class));
   }
+  loom_low_schedule_storage_lifetimes_set_forwarded_values(
+      state, block_record->block->region_index, true);
 
   const uint32_t block_node_end =
       block_record->node_start + block_record->node_count;

@@ -277,3 +277,94 @@ issue cycles: 22
 code bytes: 78
 coissued bundles: 3
 coissued components: 6
+
+// ====
+
+// Two loaded-C updates precede explicit accumulator forwarding to the loop.
+// The four C fragments remain owned across the backedge; they are not a local
+// storage exit. Encoding scratch must complete within the one remaining DM.
+// RUN: emit aie2p-leaf @fused_forwarded_loop report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @fused_forwarded_loop(%first_row: reg<aie2p.ep>, %second_row: reg<aie2p.ep>, %columns: reg<aie2p.ep>, %reduction_cell_count: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %begin = mov.short 0
+  %cells_per_iteration = mov.short 2
+  low.br ^loop(%begin: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %first_row: reg<aie2p.ep>, %second_row: reg<aie2p.ep>, %columns: reg<aie2p.ep>)
+^loop(%reduction_cell: reg<aie2p.er>, %carried00: reg<aie2p.mbms x4>, %carried01: reg<aie2p.mbms x4>, %carried10: reg<aie2p.mbms x4>, %carried11: reg<aie2p.mbms x4>, %first_row_cursor: reg<aie2p.ep>, %second_row_cursor: reg<aie2p.ep>, %column_cursor: reg<aie2p.ep>):
+  %has_cells = lt %reduction_cell, %reduction_cell_count
+  low.cond_br %has_cells, ^update, ^finish : reg<aie2p.er>
+^update:
+  %column0_lower = vlda.512.bf16x32 %column_cursor, 0
+  %column0_upper = vlda.512.bf16x32 %column_cursor, 64
+  %column1_lower = vlda.512.bf16x32 %column_cursor, 128
+  %column1_upper = vlda.512.bf16x32 %column_cursor, 192
+  %transpose_lower_mode = mova.i32 52
+  %transpose_upper_mode = mova.i32 53
+  %column0_transposed_lower = vshuffle %column0_lower, %column0_upper, %transpose_lower_mode
+  %column0_transposed_upper = vshuffle %column0_lower, %column0_upper, %transpose_upper_mode
+  %column1_transposed_lower = vshuffle %column1_lower, %column1_upper, %transpose_lower_mode
+  %column1_transposed_upper = vshuffle %column1_lower, %column1_upper, %transpose_upper_mode
+  %row0_lower = vlda.convert.bf16x32.to.f32x32 %first_row_cursor, 0
+  %row0_upper = vlda.convert.bf16x32.to.f32x32 %first_row_cursor, 64
+  %row0_float = concat(%row0_lower, %row0_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %lhs0 = vconv.bfp16ebs8.fp32 %row0_float
+  %row1_lower = vlda.convert.bf16x32.to.f32x32 %second_row_cursor, 0
+  %row1_upper = vlda.convert.bf16x32.to.f32x32 %second_row_cursor, 64
+  %row1_float = concat(%row1_lower, %row1_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %lhs1 = vconv.bfp16ebs8.fp32 %row1_float
+  %column0_float_lower = vconv.fp32.bf16 %column0_transposed_lower
+  %column0_float_upper = vconv.fp32.bf16 %column0_transposed_upper
+  %column0_float = concat(%column0_float_lower, %column0_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %rhs0 = vconv.bfp16ebs8.fp32 %column0_float
+  %column1_float_lower = vconv.fp32.bf16 %column1_transposed_lower
+  %column1_float_upper = vconv.fp32.bf16 %column1_transposed_upper
+  %column1_float = concat(%column1_float_lower, %column1_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %rhs1 = vconv.bfp16ebs8.fp32 %column1_float
+  %matrix_control = mova.i32 780
+  %next00 = mma.bfp16ebs8.m8n8k8 %carried00, %lhs0, %rhs0, %matrix_control
+  %next01 = mma.bfp16ebs8.m8n8k8 %carried01, %lhs0, %rhs1, %matrix_control
+  %next10 = mma.bfp16ebs8.m8n8k8 %carried10, %lhs1, %rhs0, %matrix_control
+  %next11 = mma.bfp16ebs8.m8n8k8 %carried11, %lhs1, %rhs1, %matrix_control
+  %later_column0_lower = vlda.512.bf16x32 %column_cursor, 256
+  %later_column0_upper = vlda.512.bf16x32 %column_cursor, 320
+  %later_column1_lower = vlda.512.bf16x32 %column_cursor, 384
+  %later_column1_upper = vlda.512.bf16x32 %column_cursor, 448
+  %later_column0_transposed_lower = vshuffle %later_column0_lower, %later_column0_upper, %transpose_lower_mode
+  %later_column0_transposed_upper = vshuffle %later_column0_lower, %later_column0_upper, %transpose_upper_mode
+  %later_column1_transposed_lower = vshuffle %later_column1_lower, %later_column1_upper, %transpose_lower_mode
+  %later_column1_transposed_upper = vshuffle %later_column1_lower, %later_column1_upper, %transpose_upper_mode
+  %later_row0_lower = vlda.convert.bf16x32.to.f32x32 %first_row_cursor, 128
+  %later_row0_upper = vlda.convert.bf16x32.to.f32x32 %first_row_cursor, 192
+  %later_row0_float = concat(%later_row0_lower, %later_row0_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %later_lhs0 = vconv.bfp16ebs8.fp32 %later_row0_float
+  %later_row1_lower = vlda.convert.bf16x32.to.f32x32 %second_row_cursor, 128
+  %later_row1_upper = vlda.convert.bf16x32.to.f32x32 %second_row_cursor, 192
+  %later_row1_float = concat(%later_row1_lower, %later_row1_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %later_lhs1 = vconv.bfp16ebs8.fp32 %later_row1_float
+  %later_column0_float_lower = vconv.fp32.bf16 %later_column0_transposed_lower
+  %later_column0_float_upper = vconv.fp32.bf16 %later_column0_transposed_upper
+  %later_column0_float = concat(%later_column0_float_lower, %later_column0_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %later_rhs0 = vconv.bfp16ebs8.fp32 %later_column0_float
+  %later_column1_float_lower = vconv.fp32.bf16 %later_column1_transposed_lower
+  %later_column1_float_upper = vconv.fp32.bf16 %later_column1_transposed_upper
+  %later_column1_float = concat(%later_column1_float_lower, %later_column1_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %later_rhs1 = vconv.bfp16ebs8.fp32 %later_column1_float
+  %later_next00 = mma.bfp16ebs8.m8n8k8 %next00, %later_lhs0, %later_rhs0, %matrix_control
+  %later_next01 = mma.bfp16ebs8.m8n8k8 %next01, %later_lhs0, %later_rhs1, %matrix_control
+  %later_next10 = mma.bfp16ebs8.m8n8k8 %next10, %later_lhs1, %later_rhs0, %matrix_control
+  %later_next11 = mma.bfp16ebs8.m8n8k8 %next11, %later_lhs1, %later_rhs1, %matrix_control
+  %next_reduction_cell = add.rr %reduction_cell, %cells_per_iteration
+  %next_first_row = padda %first_row_cursor, 256
+  %next_second_row = padda %second_row_cursor, 256
+  %next_column_cell = padda %column_cursor, 256
+  %next_column_pair = padda %next_column_cell, 256
+  low.br ^loop(%next_reduction_cell: reg<aie2p.er>, %later_next00: reg<aie2p.mbms x4>, %later_next01: reg<aie2p.mbms x4>, %later_next10: reg<aie2p.mbms x4>, %later_next11: reg<aie2p.mbms x4>, %next_first_row: reg<aie2p.ep>, %next_second_row: reg<aie2p.ep>, %next_column_pair: reg<aie2p.ep>)
+^finish:
+  return %carried00, %carried01, %carried10, %carried11
+}
+
+// ----
+issue cycles: 111
+code bytes: 366
+coissued bundles: 15
+coissued components: 32

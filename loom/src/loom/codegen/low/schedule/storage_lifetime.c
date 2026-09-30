@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/schedule/context.h"
+#include "loom/codegen/low/schedule/pressure.h"
 
 static bool loom_low_schedule_storage_relation_carries_lifetime(
     const loom_low_schedule_storage_relation_t* relation) {
@@ -177,4 +178,34 @@ iree_status_t loom_low_schedule_storage_lifetimes_initialize(
     loom_low_schedule_storage_lifetimes_populate(state);
   }
   return iree_ok_status();
+}
+
+void loom_low_schedule_storage_lifetimes_set_forwarded_values(
+    loom_low_schedule_build_state_t* state, uint32_t block_index,
+    bool is_forwarded) {
+  const loom_low_schedule_block_t* block = &state->blocks[block_index];
+  if (block->node_count == 0 ||
+      !loom_low_schedule_strategy_uses_pressure(state->options->strategy) ||
+      (state->pressure_limits.unspillable_completion_domain_count == 0 &&
+       state->target.descriptor_set->register_packing_resource_count == 0)) {
+    return;
+  }
+  const uint32_t endpoint = block->node_start + block->node_count - 1;
+  const uint32_t begin = loom_low_schedule_storage_relation_index_begin(
+      &state->storage_relations, endpoint);
+  const uint32_t end = loom_low_schedule_storage_relation_index_end(
+      &state->storage_relations, endpoint);
+  const loom_low_schedule_value_flags_t forwarding_flags =
+      is_forwarded ? LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED : 0;
+  for (uint32_t i = begin; i < end; ++i) {
+    const loom_low_schedule_storage_relation_t* relation =
+        loom_low_schedule_storage_relation_index_at(&state->storage_relations,
+                                                    i);
+    if (relation->cause == LOOM_LOW_STORAGE_RELATION_CAUSE_LOW_BRANCH) {
+      loom_low_schedule_value_record_t* value =
+          &state->values[relation->source_ordinal];
+      value->flags = (value->flags & ~LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED) |
+                     forwarding_flags;
+    }
+  }
 }
