@@ -864,6 +864,11 @@ typedef struct loom_low_lower_policy_t {
   loom_low_func_decl_import_kind_t import_decl_kind;
   // Generated source-op selection tables shared by all uses of this policy.
   loom_low_lower_contract_t contract;
+  // Optional exact target-owned contract query evaluated before generated
+  // cases. This admits bounded recipes whose invariants cannot be represented
+  // by generated guards. It is read-only, leaves unowned operations
+  // unhandled, and must agree with the corresponding target plan selector.
+  loom_target_contract_query_callback_t query_op_contract;
   // Optional observer of the compiler-owned source-plan traversal. The
   // observer sees the current op only and must not recursively inspect the
   // source function.
