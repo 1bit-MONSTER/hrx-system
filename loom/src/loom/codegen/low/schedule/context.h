@@ -341,6 +341,9 @@ typedef struct loom_low_schedule_build_state_t {
   // First architectural-state writer in the current block, dense by register
   // class.
   loom_low_schedule_state_access_t* state_first_writes;
+  // Current-block observations or replacements requiring ordered state writes,
+  // dense by register class. Zero permits commutative write reordering.
+  uint8_t* state_requires_write_order;
   // Most recent non-writing state-ordering access, dense by register class.
   loom_low_schedule_state_access_t* state_ordering_frontiers;
   // Readers retained until the next actual writer, dense by register class.

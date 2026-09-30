@@ -1346,6 +1346,13 @@ def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLay
                 raise ValueError(f"descriptor '{descriptor.key}' narrowing mask '{operand.field_name}' must write implicit state")
             if not any(OperandFlag.EXECUTION_MASK in other.flags and other.reg_alts == operand.reg_alts for other in descriptor.operands):
                 raise ValueError(f"descriptor '{descriptor.key}' narrowing mask '{operand.field_name}' must read the same execution mask")
+        if OperandFlag.COMMUTATIVE_STATE_UPDATE in operand.flags:
+            if operand.role is not OperandRole.IMPLICIT or state_flags != {OperandFlag.STATE_WRITE}:
+                raise ValueError(f"descriptor '{descriptor.key}' commutative update '{operand.field_name}' must be an implicit state write without a state read")
+            if operand.unit_count != 1 or operand.register_part is not None:
+                raise ValueError(f"descriptor '{descriptor.key}' commutative update '{operand.field_name}' must update a whole state register")
+            if DescriptorFlag.STATE_ASSIGNMENT in descriptor.flags:
+                raise ValueError(f"descriptor '{descriptor.key}' state assignment cannot promise commutative updates")
     if variadic_operand_index is not None:
         if descriptor.constraints:
             raise ValueError(f"descriptor '{descriptor.key}' with variadic operands cannot declare descriptor constraints")

@@ -132,3 +132,48 @@ def test_implicit_state_assignment_preserves_generic_effects() -> None:
     assignment = replace(TEST_LOW_STATE_ASSIGN_I32_IMMEDIATE_DESCRIPTOR, flags=(DescriptorFlag.STATE_ASSIGNMENT,))
     with pytest.raises(ValueError, match="retain its side effect"):
         validation.validate_descriptor_state_assignment(assignment, _STATE_CLASSES)
+
+
+_COMMUTATIVE_WRITE = replace(
+    _MASK,
+    flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE, OperandFlag.COMMUTATIVE_STATE_UPDATE),
+)
+_COMMUTATIVE_ADD = replace(TEST_LOW_ADD_I32_DESCRIPTOR, operands=(*TEST_LOW_ADD_I32_DESCRIPTOR.operands, _COMMUTATIVE_WRITE))
+
+
+def test_commutative_update_retains_the_native_state_write() -> None:
+    validation.validate_descriptor_operands(_COMMUTATIVE_ADD)
+
+
+@pytest.mark.parametrize(
+    "operand",
+    [
+        replace(_COMMUTATIVE_WRITE, role=OperandRole.OPERAND),
+        replace(_COMMUTATIVE_WRITE, flags=(OperandFlag.IMPLICIT, OperandFlag.COMMUTATIVE_STATE_UPDATE)),
+        replace(_COMMUTATIVE_WRITE, flags=(*_COMMUTATIVE_WRITE.flags, OperandFlag.STATE_READ)),
+    ],
+)
+def test_commutative_update_requires_an_implicit_write(operand: Operand) -> None:
+    descriptor = replace(_COMMUTATIVE_ADD, operands=(*TEST_LOW_ADD_I32_DESCRIPTOR.operands, operand))
+    with pytest.raises(ValueError, match="must be an implicit state write without a state read"):
+        validation.validate_descriptor_operands(descriptor)
+
+
+def test_commutative_update_cannot_produce_an_explicit_state_snapshot() -> None:
+    snapshot = replace(_COMMUTATIVE_WRITE, role=OperandRole.RESULT)
+    descriptor = replace(_COMMUTATIVE_ADD, operands=(snapshot, *TEST_LOW_ADD_I32_DESCRIPTOR.operands))
+    with pytest.raises(ValueError, match="must be an implicit state write"):
+        validation.validate_descriptor_operands(descriptor)
+
+
+@pytest.mark.parametrize("operand", [replace(_COMMUTATIVE_WRITE, unit_count=2), replace(_COMMUTATIVE_WRITE, register_part="low_half")])
+def test_commutative_update_requires_whole_state(operand: Operand) -> None:
+    descriptor = replace(_COMMUTATIVE_ADD, operands=(*TEST_LOW_ADD_I32_DESCRIPTOR.operands, operand))
+    with pytest.raises(ValueError, match="must update a whole state register"):
+        validation.validate_descriptor_operands(descriptor)
+
+
+def test_replacement_is_not_a_commutative_update() -> None:
+    descriptor = replace(_COMMUTATIVE_ADD, flags=(DescriptorFlag.STATE_ASSIGNMENT,))
+    with pytest.raises(ValueError, match="state assignment cannot promise commutative updates"):
+        validation.validate_descriptor_operands(descriptor)

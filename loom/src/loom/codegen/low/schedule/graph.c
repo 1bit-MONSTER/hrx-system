@@ -322,42 +322,11 @@ static iree_status_t loom_low_schedule_add_state_read_order(
       consumer.endpoint);
 }
 
-static iree_status_t loom_low_schedule_descriptor_operand_reg_class_id(
+static uint16_t loom_low_schedule_state_operand_reg_class_id(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_descriptor_t* descriptor, uint16_t descriptor_operand_index,
-    uint16_t* out_reg_class_id) {
-  *out_reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-  const uint32_t operand_row =
-      descriptor->operand_start + descriptor_operand_index;
-  if (operand_row >= descriptor_set->operand_count) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "low schedule descriptor state operand row is out of range");
-  }
-  const loom_low_operand_t* operand = &descriptor_set->operands[operand_row];
-  if (operand->reg_class_alt_count != 1) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "low schedule state operand must have one register-class alternative");
-  }
-  const uint32_t alt_index = operand->reg_class_alt_start;
-  if (alt_index >= descriptor_set->reg_class_alt_count) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "low schedule state operand register-class alternative is out of "
-        "range");
-  }
-  const loom_low_reg_class_alt_t* alt =
-      &descriptor_set->reg_class_alts[alt_index];
-  if (iree_any_bit_set(alt->flags, LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE) ||
-      alt->reg_class_id == LOOM_LOW_REG_CLASS_NONE ||
-      alt->reg_class_id >= descriptor_set->reg_class_count) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "low schedule state operand must name a concrete register class");
-  }
-  *out_reg_class_id = alt->reg_class_id;
-  return iree_ok_status();
+    const loom_low_operand_t* operand) {
+  return descriptor_set->reg_class_alts[operand->reg_class_alt_start]
+      .reg_class_id;
 }
 
 static bool loom_low_schedule_reg_class_is_state(
@@ -1109,7 +1078,8 @@ static iree_status_t loom_low_schedule_note_state_write(
   }
   const loom_low_schedule_state_access_t last_write =
       state->state_last_writes[reg_class_id];
-  if (last_write.node_index != LOOM_LOW_SCHEDULE_NODE_NONE) {
+  if (last_write.node_index != LOOM_LOW_SCHEDULE_NODE_NONE &&
+      state->state_requires_write_order[reg_class_id]) {
     IREE_RETURN_IF_ERROR(loom_low_schedule_add_state_dependency(
         state, last_write, writer, LOOM_LOW_ID_NONE));
   }
@@ -1232,9 +1202,8 @@ static iree_status_t loom_low_schedule_note_descriptor_state_accesses(
     if (state_flags == 0) {
       continue;
     }
-    uint16_t reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-    IREE_RETURN_IF_ERROR(loom_low_schedule_descriptor_operand_reg_class_id(
-        descriptor_set, descriptor, i, &reg_class_id));
+    const uint16_t reg_class_id =
+        loom_low_schedule_state_operand_reg_class_id(descriptor_set, operand);
     if (!iree_any_bit_set(state_flags, LOOM_LOW_OPERAND_FLAG_STATE_READ)) {
       continue;
     }
@@ -1265,9 +1234,8 @@ static iree_status_t loom_low_schedule_note_descriptor_state_accesses(
     if (!iree_any_bit_set(state_flags, LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
       continue;
     }
-    uint16_t reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-    IREE_RETURN_IF_ERROR(loom_low_schedule_descriptor_operand_reg_class_id(
-        descriptor_set, descriptor, i, &reg_class_id));
+    const uint16_t reg_class_id =
+        loom_low_schedule_state_operand_reg_class_id(descriptor_set, operand);
     IREE_RETURN_IF_ERROR(loom_low_schedule_note_state_write(
         state,
         loom_low_schedule_state_access(
@@ -1316,22 +1284,56 @@ static iree_status_t loom_low_schedule_note_structural_state_reads(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_schedule_index_state_value_clobbers(
+// Readers and replacements anywhere in the block preserve the writer chain.
+// A reader before both updates still needs that chain after the first writer
+// retires the forward reader list.
+static void loom_low_schedule_index_state_value_clobbers(
     loom_low_schedule_build_state_t* state,
     const loom_low_schedule_block_t* block_record) {
   const loom_low_descriptor_set_t* descriptor_set =
       state->target.descriptor_set;
   if (descriptor_set->reg_class_count == 0) {
-    return iree_ok_status();
+    return;
   }
   loom_low_schedule_reset_state_accesses(state->state_first_writes,
                                          descriptor_set->reg_class_count);
+  memset(state->state_requires_write_order, 0,
+         descriptor_set->reg_class_count *
+             sizeof(*state->state_requires_write_order));
+  const loom_low_schedule_structural_state_read_list_t structural_reads =
+      state->options->structural_state_reads;
+  for (iree_host_size_t i = 0; i < structural_reads.count; ++i) {
+    state->state_requires_write_order[structural_reads.values[i]
+                                          .state_reg_class_id] = 1;
+  }
 
+  bool has_opaque_state_access = false;
   const uint32_t block_node_end =
       block_record->node_start + block_record->node_count;
   for (uint32_t node_index = block_node_end;
        node_index-- > block_record->node_start;) {
     const loom_low_schedule_node_t* node = &state->nodes[node_index];
+    const loom_low_descriptor_t* descriptor = node->descriptor;
+    const bool is_state_assignment =
+        descriptor != NULL &&
+        iree_any_bit_set(descriptor->flags,
+                         LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT);
+    has_opaque_state_access |=
+        node->op->region_count != 0 ||
+        iree_any_bit_set(node->traits, LOOM_TRAIT_CALLABLE_BOUNDARY |
+                                           LOOM_TRAIT_CONVERGENT) ||
+        (iree_any_bit_set(node->traits, LOOM_TRAIT_UNKNOWN_EFFECTS) &&
+         !is_state_assignment);
+    const loom_value_ordinal_t* operand_ordinals =
+        loom_low_schedule_node_const_operand_ordinals(node);
+    for (uint16_t operand_index = 0; operand_index < node->operand_count;
+         ++operand_index) {
+      const uint16_t reg_class_id =
+          state->values[operand_ordinals[operand_index]].register_class_id;
+      if (loom_low_schedule_reg_class_is_state(state, reg_class_id)) {
+        state->state_requires_write_order[reg_class_id] = 1;
+      }
+    }
     const loom_value_ordinal_t* result_ordinals =
         loom_low_schedule_node_const_result_ordinals(node);
     for (uint16_t result_index = 0; result_index < node->result_count;
@@ -1341,10 +1343,10 @@ static iree_status_t loom_low_schedule_index_state_value_clobbers(
       const uint16_t reg_class_id = value->register_class_id;
       if (loom_low_schedule_reg_class_is_state(state, reg_class_id)) {
         value->state_next_write = state->state_first_writes[reg_class_id];
+        state->state_requires_write_order[reg_class_id] = 1;
       }
     }
 
-    const loom_low_descriptor_t* descriptor = node->descriptor;
     if (descriptor == NULL) {
       continue;
     }
@@ -1352,19 +1354,32 @@ static iree_status_t loom_low_schedule_index_state_value_clobbers(
          ++operand_index) {
       const loom_low_operand_t* operand =
           &descriptor_set->operands[descriptor->operand_start + operand_index];
-      if (!iree_any_bit_set(operand->flags,
-                            LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
+      const loom_low_operand_flags_t state_flags =
+          operand->flags & (LOOM_LOW_OPERAND_FLAG_STATE_READ |
+                            LOOM_LOW_OPERAND_FLAG_STATE_WRITE);
+      if (state_flags == 0) {
         continue;
       }
-      uint16_t reg_class_id = LOOM_LOW_REG_CLASS_NONE;
-      IREE_RETURN_IF_ERROR(loom_low_schedule_descriptor_operand_reg_class_id(
-          descriptor_set, descriptor, operand_index, &reg_class_id));
-      state->state_first_writes[reg_class_id] = loom_low_schedule_state_access(
-          node_index, loom_low_schedule_dependency_operand_endpoint(
-                          operand_index, operand->write_event_id));
+      const uint16_t reg_class_id =
+          loom_low_schedule_state_operand_reg_class_id(descriptor_set, operand);
+      if (iree_any_bit_set(state_flags, LOOM_LOW_OPERAND_FLAG_STATE_READ) ||
+          !iree_any_bit_set(operand->flags,
+                            LOOM_LOW_OPERAND_FLAG_COMMUTATIVE_STATE_UPDATE)) {
+        state->state_requires_write_order[reg_class_id] = 1;
+      }
+      if (iree_any_bit_set(state_flags, LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
+        state->state_first_writes[reg_class_id] =
+            loom_low_schedule_state_access(
+                node_index, loom_low_schedule_dependency_operand_endpoint(
+                                operand_index, operand->write_event_id));
+      }
     }
   }
-  return iree_ok_status();
+  if (has_opaque_state_access) {
+    memset(state->state_requires_write_order, 1,
+           descriptor_set->reg_class_count *
+               sizeof(*state->state_requires_write_order));
+  }
 }
 
 static iree_status_t loom_low_schedule_initialize_node_value_ordinals(
@@ -1513,10 +1528,11 @@ static void loom_low_schedule_preserve_live_out_state(
     if (!loom_low_schedule_reg_class_is_state(state, reg_class_id)) {
       continue;
     }
+    state->state_requires_write_order[reg_class_id] = 1;
 
-    // State writers retain their source order. A locally defined value must
-    // survive all later writers; an incoming value must survive the whole
-    // block. Ordinary read dependencies only protect uses inside this block.
+    // An explicit state value fixes the state observed across this CFG edge.
+    // Its writers retain source order: a local value must survive all later
+    // writers, and an incoming value must survive the whole block.
     const uint32_t producer = value->producer_node;
     const uint32_t clobber =
         producer != LOOM_LOW_SCHEDULE_NODE_NONE &&
@@ -1549,8 +1565,14 @@ iree_status_t loom_low_schedule_build_dependencies(
   for (iree_host_size_t block_index = 0; block_index < state->body->block_count;
        ++block_index) {
     const loom_low_schedule_block_t* block_record = &state->blocks[block_index];
-    IREE_RETURN_IF_ERROR(
-        loom_low_schedule_index_state_value_clobbers(state, block_record));
+    loom_low_schedule_index_state_value_clobbers(state, block_record);
+    if (liveness != NULL) {
+      loom_low_schedule_preserve_live_out_state(state, (uint32_t)block_index,
+                                                &liveness->blocks[block_index]);
+      if (state->error_count != 0) {
+        return iree_ok_status();
+      }
+    }
     if (state->state_chain_read_heads != NULL) {
       memset(&state->state_chain_read_heads[block_record->node_start], 0xFF,
              block_record->node_count * sizeof(*state->state_chain_read_heads));
@@ -1659,13 +1681,6 @@ iree_status_t loom_low_schedule_build_dependencies(
       }
     }
     loom_low_schedule_reset_storage_reads(state);
-    if (liveness != NULL) {
-      loom_low_schedule_preserve_live_out_state(state, (uint32_t)block_index,
-                                                &liveness->blocks[block_index]);
-      if (state->error_count != 0) {
-        return iree_ok_status();
-      }
-    }
   }
   return loom_low_schedule_build_effect_dependencies(state);
 }

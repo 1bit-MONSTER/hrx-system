@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 47u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 48u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -155,6 +155,11 @@ typedef uint16_t loom_low_operand_flags_t;
 // descriptor also reads that mask. This licenses widening lane-local work
 // across this write, not across arbitrary mask replacement or restoration.
 #define LOOM_LOW_OPERAND_FLAG_NARROWS_EXECUTION_MASK ((uint16_t)1u << 11)
+// Implicit state update commutes with every other marked update to the same
+// architectural register, for all legal inputs and incoming state. This does
+// not permit removing, duplicating, or speculating execution. Reads and
+// unmarked writes still observe source order; native write events remain.
+#define LOOM_LOW_OPERAND_FLAG_COMMUTATIVE_STATE_UPDATE ((uint16_t)1u << 12)
 
 // Bitset of register-class alternative flags.
 typedef uint16_t loom_low_reg_class_alt_flags_t;

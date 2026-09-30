@@ -700,7 +700,11 @@ def test_fused_cascade_arithmetic_preserves_accumulator_and_selector_state() -> 
                 if payload == "floating":
                     expected.update(
                         crFPMask=(OperandFlag.IMPLICIT, OperandFlag.STATE_READ),
-                        srFPFlags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE),
+                        srFPFlags=(
+                            OperandFlag.IMPLICIT,
+                            OperandFlag.STATE_WRITE,
+                            OperandFlag.COMMUTATIVE_STATE_UPDATE,
+                        ),
                     )
                 assert states == expected
 
@@ -1912,6 +1916,44 @@ def test_vector_multiply_descriptors_own_configuration_state() -> None:
         for operand in unsigned_unpack.operands[2:]
     }
     assert unsigned_unpack_state["implicit_use_crunpacksize"] == ("aie2p.mcrunpacksize")
+
+
+def test_native_sticky_updates_are_distinct_from_replacement_writes() -> None:
+    sticky_registers = {
+        "srSparse_of",
+        "srF2FFlags",
+        "srF2BFlags",
+        "srF2IFlags",
+        "srFPFlags",
+        "srSRS_of",
+        "srUPS_of",
+        "srFifo_of",
+        "srFifo_uf",
+    }
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    seen_registers = set()
+    for spec in _DESCRIPTOR_SPECS:
+        native_updates = (
+            set(_MACHINE_FORMS[spec.form_name].implicit_defs) & sticky_registers
+        )
+        expected_fields = {
+            f"implicit_def_{register.lower()}" for register in native_updates
+        }
+        actual_fields = set()
+        for operand in descriptors[spec.key].operands:
+            if OperandFlag.COMMUTATIVE_STATE_UPDATE not in operand.flags:
+                continue
+            actual_fields.add(operand.field_name)
+            assert operand.role is OperandRole.IMPLICIT
+            assert OperandFlag.STATE_WRITE in operand.flags
+            assert OperandFlag.STATE_READ not in operand.flags
+            assert operand.write_event is not None
+        assert actual_fields == expected_fields
+        seen_registers.update(native_updates)
+    assert {"srF2BFlags", "srFPFlags"} <= seen_registers
 
 
 def test_implicit_registers_and_machine_ties_reach_low() -> None:

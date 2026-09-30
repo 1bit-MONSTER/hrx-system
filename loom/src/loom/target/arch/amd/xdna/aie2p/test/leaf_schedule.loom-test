@@ -138,13 +138,13 @@ CHECK: *"register_class_id":34},"peak_live_units":1,"peak_live_values":1,*
 
 // ====
 
-// Five rematerializable shifts cross the four-register es boundary while a
-// live vector keeps candidate comparison in pressure recovery. Later SRS
-// packets are state-ordered behind the first and their shifts cannot make them
-// ready, so consume the first shift before opening another es live range.
-// RUN: with-checks emit low-schedule-json @serialized_shift_consumers strategy=resource-stall
+// Five rematerializable shifts share four es registers. Independent SRS
+// packets retain their configuration reads but have no ordering through
+// unread sticky overflow status. Later shifts can issue beside earlier
+// consumers without opening all five shift live ranges.
+// RUN: with-checks emit low-schedule-json @interleaved_shift_consumers strategy=resource-stall
 
-low.func.def target<amd.xdna.aie2p.core> @serialized_shift_consumers(%padding: reg<aie2p.vec256>, %value: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>) asm {
+low.func.def target<amd.xdna.aie2p.core> @interleaved_shift_consumers(%padding: reg<aie2p.vec256>, %value: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>) asm {
   set.srs-mode 0
   %shift0 = mov.shift 24
   %shift1 = mov.shift 20
@@ -161,7 +161,13 @@ low.func.def target<amd.xdna.aie2p.core> @serialized_shift_consumers(%padding: r
 }
 
 // ----
-CHECK: *"scheduled_node_indices":[6,0,1,7,*
+CHECK: *"scheduled_node_indices":[6,0,1,2,7,3,8,4,9,5,10,11,12]*
+CHECK: *{"from":0,"to":7,"kind":"state",*"minimum_issue_separation_cycles":1,*
+CHECK: *{"from":0,"to":8,"kind":"state",*"minimum_issue_separation_cycles":1,*
+CHECK: *{"from":0,"to":9,"kind":"state",*"minimum_issue_separation_cycles":1,*
+CHECK: *{"from":0,"to":10,"kind":"state",*"minimum_issue_separation_cycles":1,*
+CHECK: *{"from":0,"to":11,"kind":"state",*"minimum_issue_separation_cycles":1,*
+CHECK-NOT: *{"from":7,"to":8,"kind":"state",*
 
 // ====
 
@@ -197,7 +203,77 @@ low.func.def target<amd.xdna.aie2p.core> @pinned_encode_address_prerequisites(%s
 }
 
 // ----
-issue cycles: 32
-code bytes: 108
+issue cycles: 31
+code bytes: 106
 coissued bundles: 2
 coissued components: 4
+
+// ====
+
+// Four loaded-C fragments leave one DM register for encoding scratch. Ready
+// BF16 inputs can encode before the shuffle-dependent inputs: unread sticky
+// conversion flags do not force their scratch exits into source order.
+// Both encoded operands remain live for the four loaded-C matrix updates.
+// RUN: emit aie2p-leaf @bfp_encode_read_ahead_four_accumulators report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @bfp_encode_read_ahead_four_accumulators(%first_row: reg<aie2p.vec256 x2>, %second_row: reg<aie2p.vec256 x2>, %ready_lower_bf16: reg<aie2p.vec256 x2>, %ready_upper_bf16: reg<aie2p.vec256 x2>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %transpose_lower_mode = mova.i32 52
+  %shuffled_lower_bf16 = vshuffle %first_row, %second_row, %transpose_lower_mode
+  %transpose_upper_mode = mova.i32 53
+  %shuffled_upper_bf16 = vshuffle %first_row, %second_row, %transpose_upper_mode
+  %shuffled_lower = vconv.fp32.bf16 %shuffled_lower_bf16
+  %shuffled_upper = vconv.fp32.bf16 %shuffled_upper_bf16
+  %shuffled_float = concat(%shuffled_lower, %shuffled_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %shuffled_operand = vconv.bfp16ebs8.fp32 %shuffled_float
+  %ready_lower = vconv.fp32.bf16 %ready_lower_bf16
+  %ready_upper = vconv.fp32.bf16 %ready_upper_bf16
+  %ready_float = concat(%ready_lower, %ready_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %ready_operand = vconv.bfp16ebs8.fp32 %ready_float
+  %matrix_control = mova.i32 780
+  %updated_accumulator00 = mma.bfp16ebs8.m8n8k8 %accumulator00, %shuffled_operand, %ready_operand, %matrix_control
+  %updated_accumulator01 = mma.bfp16ebs8.m8n8k8 %accumulator01, %shuffled_operand, %ready_operand, %matrix_control
+  %updated_accumulator10 = mma.bfp16ebs8.m8n8k8 %accumulator10, %shuffled_operand, %ready_operand, %matrix_control
+  %updated_accumulator11 = mma.bfp16ebs8.m8n8k8 %accumulator11, %shuffled_operand, %ready_operand, %matrix_control
+  return %updated_accumulator00, %updated_accumulator01, %updated_accumulator10, %updated_accumulator11
+}
+
+// ----
+issue cycles: 23
+code bytes: 82
+coissued bundles: 3
+coissued components: 6
+
+// ====
+
+// Three loaded-C fragments leave enough scratch storage for both encodings.
+// This control differs by one accumulator and one matrix update; it exercises
+// the same unread sticky updates without requiring scratch-bank reuse.
+// RUN: emit aie2p-leaf @bfp_encode_read_ahead_three_accumulators report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @bfp_encode_read_ahead_three_accumulators(%first_row: reg<aie2p.vec256 x2>, %second_row: reg<aie2p.vec256 x2>, %ready_lower_bf16: reg<aie2p.vec256 x2>, %ready_upper_bf16: reg<aie2p.vec256 x2>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %transpose_lower_mode = mova.i32 52
+  %shuffled_lower_bf16 = vshuffle %first_row, %second_row, %transpose_lower_mode
+  %transpose_upper_mode = mova.i32 53
+  %shuffled_upper_bf16 = vshuffle %first_row, %second_row, %transpose_upper_mode
+  %shuffled_lower = vconv.fp32.bf16 %shuffled_lower_bf16
+  %shuffled_upper = vconv.fp32.bf16 %shuffled_upper_bf16
+  %shuffled_float = concat(%shuffled_lower, %shuffled_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %shuffled_operand = vconv.bfp16ebs8.fp32 %shuffled_float
+  %ready_lower = vconv.fp32.bf16 %ready_lower_bf16
+  %ready_upper = vconv.fp32.bf16 %ready_upper_bf16
+  %ready_float = concat(%ready_lower, %ready_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %ready_operand = vconv.bfp16ebs8.fp32 %ready_float
+  %matrix_control = mova.i32 780
+  %updated_accumulator00 = mma.bfp16ebs8.m8n8k8 %accumulator00, %shuffled_operand, %ready_operand, %matrix_control
+  %updated_accumulator01 = mma.bfp16ebs8.m8n8k8 %accumulator01, %shuffled_operand, %ready_operand, %matrix_control
+  %updated_accumulator10 = mma.bfp16ebs8.m8n8k8 %accumulator10, %shuffled_operand, %ready_operand, %matrix_control
+  return %updated_accumulator00, %updated_accumulator01, %updated_accumulator10
+}
+
+// ----
+issue cycles: 22
+code bytes: 78
+coissued bundles: 3
+coissued components: 6

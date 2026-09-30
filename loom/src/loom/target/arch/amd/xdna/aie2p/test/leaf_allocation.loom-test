@@ -449,7 +449,7 @@ low.func.def target<amd.xdna.aie2p.core> @noncompact_upper_half_first(%source: r
 }
 
 // ----
-issue cycles: 32
-code bytes: 108
+issue cycles: 31
+code bytes: 106
 coissued bundles: 2
 coissued components: 4
