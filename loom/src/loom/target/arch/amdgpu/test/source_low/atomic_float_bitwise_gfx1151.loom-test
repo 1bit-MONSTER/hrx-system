@@ -43,7 +43,8 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @global_atomic_bitwise_
   buffer_gl0_inv
   s_waitcnt {vmcnt = 0, lgkmcnt = 0}
   s_waitcnt_vscnt {vscnt = 0}
-  %36 = concat(%26, %26) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %35 = copy %26 : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %36 = concat(%35, %26) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   %37 = buffer_atomic_cmpswap_b32_rtn %36, %46, %18, %19
   %failed = slice %37[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   s_waitcnt {vmcnt = 0}

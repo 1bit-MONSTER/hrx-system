@@ -12,6 +12,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/ir/context.h"
 #include "loom/ir/scalar_type.h"
+#include "loom/ops/low/ops.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/view/ops.h"
 #include "loom/target/arch/amdgpu/lower/atomic_ordering.h"
@@ -1367,11 +1368,17 @@ iree_status_t loom_amdgpu_lower_atomic(loom_low_lower_context_t* context,
   if (plan->operation_kind == LOOM_AMDGPU_ATOMIC_OPERATION_CMPXCHG) {
     loom_value_id_t low_expected = LOOM_VALUE_ID_INVALID;
     loom_value_id_t low_replacement = LOOM_VALUE_ID_INVALID;
+    const bool reuses_source_payload =
+        atomic_source.expected == atomic_source.replacement;
     if (loom_amdgpu_atomic_uses_buffer_resource(plan)) {
       IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_atomic_value_as_fresh_vgpr(
           context, source_op, atomic_source.expected, &low_expected));
-      IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_atomic_value_as_fresh_vgpr(
-          context, source_op, atomic_source.replacement, &low_replacement));
+      if (reuses_source_payload) {
+        low_replacement = low_expected;
+      } else {
+        IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_atomic_value_as_fresh_vgpr(
+            context, source_op, atomic_source.replacement, &low_replacement));
+      }
     } else {
       IREE_RETURN_IF_ERROR(loom_amdgpu_lookup_atomic_cmpxchg_values_as_vgpr(
           context, &atomic_source, &low_expected, &low_replacement));
@@ -1392,6 +1399,16 @@ iree_status_t loom_amdgpu_lower_atomic(loom_low_lower_context_t* context,
       loom_type_t pair_type = loom_type_none();
       IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_range_type(
           context, payload_register_count * 2, &pair_type));
+      if (reuses_source_payload) {
+        // The packet needs two independently placeable copies when one SSA
+        // value supplies both halves of its destructive compare-exchange
+        // payload.
+        loom_op_t* copy_op = NULL;
+        IREE_RETURN_IF_ERROR(loom_low_copy_build(
+            loom_low_lower_context_builder(context), low_replacement, false,
+            old_type, source_op->location, &copy_op));
+        low_replacement = loom_low_copy_result(copy_op);
+      }
       loom_value_id_t low_pair = LOOM_VALUE_ID_INVALID;
       IREE_RETURN_IF_ERROR(loom_amdgpu_emit_atomic_cmpxchg_pair(
           context, source_op, low_expected, low_replacement, pair_type,

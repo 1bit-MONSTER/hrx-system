@@ -48,7 +48,7 @@ class QualificationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(
-            report["summary"], {"total": 14, "passed": 14, "failed": 0, "skipped": 0}
+            report["summary"], {"total": 15, "passed": 15, "failed": 0, "skipped": 0}
         )
         self.assertTrue(all(case["mode"] == "compile" for case in report["cases"]))
 
@@ -105,7 +105,7 @@ class QualificationTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(
-            report["summary"], {"total": 14, "passed": 14, "failed": 0, "skipped": 0}
+            report["summary"], {"total": 15, "passed": 15, "failed": 0, "skipped": 0}
         )
         self.assertEqual(self.fixture.read_bytes(), original)
 
