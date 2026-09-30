@@ -525,6 +525,7 @@ loom_check_test_suite(
         "test/array_plan/packed_record.loom-test",
         "test/array_plan/pipeline_record_shapes.loom-test",
         "test/array_plan/pipeline_views.loom-test",
+        "test/array_plan/private_atomics.loom-test",
         "test/array_plan/read_only_data.loom-test",
         "test/array_plan/record_contracts.loom-test",
         "test/array_plan/ring_wrap.loom-test",
