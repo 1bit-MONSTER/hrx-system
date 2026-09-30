@@ -1,0 +1,144 @@
+// Packed vectors preserve every raw payload through odd lane counts. Integer
+// tensors initialize and observe floating storage without numeric conversion.
+func.def @copy_packed_byte_values(%byte_input: buffer, %byte_output: buffer, %capture_input: buffer, %replacement_input: buffer, %capture_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+
+  // The byte output concatenates i8, E4M3, and E5M2 width-three rows;
+  // equivalent width-seven rows; then i8 width-17 and width-63 rows.
+  %byte3_input = buffer.view %byte_input[%base] : buffer -> view<258xi8>
+  %e4m3_3_input = buffer.view %byte_input[%base] : buffer -> view<258xf8E4M3>
+  %e5m2_3_input = buffer.view %byte_input[%base] : buffer -> view<258xf8E5M2>
+  %byte3_output = buffer.view %byte_output[%base] : buffer -> view<258xi8>
+  %e4m3_3_origin = index.constant 258 : offset
+  %e4m3_3_output = buffer.view %byte_output[%e4m3_3_origin] : buffer -> view<258xf8E4M3>
+  %e5m2_3_origin = index.constant 516 : offset
+  %e5m2_3_output = buffer.view %byte_output[%e5m2_3_origin] : buffer -> view<258xf8E5M2>
+  %byte3_end = index.constant 258 : index
+  %byte3_step = index.constant 3 : index
+  scf.for %i = [%begin to %byte3_end step %byte3_step] {
+    %byte = vector.load %byte3_input[%i] : view<258xi8> -> vector<3xi8>
+    %e4m3 = vector.load %e4m3_3_input[%i] : view<258xf8E4M3> -> vector<3xf8E4M3>
+    %e5m2 = vector.load %e5m2_3_input[%i] : view<258xf8E5M2> -> vector<3xf8E5M2>
+    vector.store %byte, %byte3_output[%i] : vector<3xi8>, view<258xi8>
+    vector.store %e4m3, %e4m3_3_output[%i] : vector<3xf8E4M3>, view<258xf8E4M3>
+    vector.store %e5m2, %e5m2_3_output[%i] : vector<3xf8E5M2>, view<258xf8E5M2>
+  }
+
+  %byte7_input = buffer.view %byte_input[%base] : buffer -> view<259xi8>
+  %e4m3_7_input = buffer.view %byte_input[%base] : buffer -> view<259xf8E4M3>
+  %e5m2_7_input = buffer.view %byte_input[%base] : buffer -> view<259xf8E5M2>
+  %byte7_origin = index.constant 774 : offset
+  %byte7_output = buffer.view %byte_output[%byte7_origin] : buffer -> view<259xi8>
+  %e4m3_7_origin = index.constant 1033 : offset
+  %e4m3_7_output = buffer.view %byte_output[%e4m3_7_origin] : buffer -> view<259xf8E4M3>
+  %e5m2_7_origin = index.constant 1292 : offset
+  %e5m2_7_output = buffer.view %byte_output[%e5m2_7_origin] : buffer -> view<259xf8E5M2>
+  %byte7_end = index.constant 259 : index
+  %byte7_step = index.constant 7 : index
+  scf.for %i = [%begin to %byte7_end step %byte7_step] {
+    %byte = vector.load %byte7_input[%i] : view<259xi8> -> vector<7xi8>
+    %e4m3 = vector.load %e4m3_7_input[%i] : view<259xf8E4M3> -> vector<7xf8E4M3>
+    %e5m2 = vector.load %e5m2_7_input[%i] : view<259xf8E5M2> -> vector<7xf8E5M2>
+    vector.store %byte, %byte7_output[%i] : vector<7xi8>, view<259xi8>
+    vector.store %e4m3, %e4m3_7_output[%i] : vector<7xf8E4M3>, view<259xf8E4M3>
+    vector.store %e5m2, %e5m2_7_output[%i] : vector<7xf8E5M2>, view<259xf8E5M2>
+  }
+
+  %byte17_input = buffer.view %byte_input[%base] : buffer -> view<272xi8>
+  %byte17_origin = index.constant 1551 : offset
+  %byte17_output = buffer.view %byte_output[%byte17_origin] : buffer -> view<272xi8>
+  %byte17_end = index.constant 272 : index
+  %byte17_step = index.constant 17 : index
+  scf.for %i = [%begin to %byte17_end step %byte17_step] {
+    %value = vector.load %byte17_input[%i] : view<272xi8> -> vector<17xi8>
+    vector.store %value, %byte17_output[%i] : vector<17xi8>, view<272xi8>
+  }
+
+  %byte63_input = buffer.view %byte_input[%base] : buffer -> view<315xi8>
+  %byte63_origin = index.constant 1823 : offset
+  %byte63_output = buffer.view %byte_output[%byte63_origin] : buffer -> view<315xi8>
+  %byte63_end = index.constant 315 : index
+  %byte63_step = index.constant 63 : index
+  scf.for %i = [%begin to %byte63_end step %byte63_step] {
+    %value = vector.load %byte63_input[%i] : view<315xi8> -> vector<63xi8>
+    vector.store %value, %byte63_output[%i] : vector<63xi8>, view<315xi8>
+  }
+
+  %capture_source = buffer.view %capture_input[%base] : buffer -> view<258xi8>
+  %replacement_source = buffer.view %replacement_input[%base] : buffer -> view<258xi8>
+  %captured_output = buffer.view %capture_output[%base] : buffer -> view<258xi8>
+  %reloaded_origin = index.constant 258 : offset
+  %reloaded_output = buffer.view %capture_output[%reloaded_origin] : buffer -> view<258xi8>
+  scf.for %i = [%begin to %byte3_end step %byte3_step] {
+    %captured = vector.load<volatile> %capture_source[%i] : view<258xi8> -> vector<3xi8>
+    %replacement = vector.load %replacement_source[%i] : view<258xi8> -> vector<3xi8>
+    vector.store<volatile> %replacement, %capture_source[%i] : vector<3xi8>, view<258xi8>
+    %reloaded = vector.load<volatile> %capture_source[%i] : view<258xi8> -> vector<3xi8>
+    vector.store %captured, %captured_output[%i] : vector<3xi8>, view<258xi8>
+    vector.store %reloaded, %reloaded_output[%i] : vector<3xi8>, view<258xi8>
+  }
+  func.return
+}
+
+func.def @copy_packed_word_values(%word_input: buffer, %word_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65541 : index
+  %step = index.constant 7 : index
+  // The output concatenates i16, F16, and BF16 width-seven rows.
+  %word_input_view = buffer.view %word_input[%base] : buffer -> view<65541xi16>
+  %half_input_view = buffer.view %word_input[%base] : buffer -> view<65541xf16>
+  %bfloat_input_view = buffer.view %word_input[%base] : buffer -> view<65541xbf16>
+  %word_output_view = buffer.view %word_output[%base] : buffer -> view<65541xi16>
+  %half_origin = index.constant 131082 : offset
+  %half_output_view = buffer.view %word_output[%half_origin] : buffer -> view<65541xf16>
+  %bfloat_origin = index.constant 262164 : offset
+  %bfloat_output_view = buffer.view %word_output[%bfloat_origin] : buffer -> view<65541xbf16>
+  scf.for %i = [%begin to %end step %step] {
+    %word = vector.load %word_input_view[%i] : view<65541xi16> -> vector<7xi16>
+    %half = vector.load %half_input_view[%i] : view<65541xf16> -> vector<7xf16>
+    %bfloat = vector.load %bfloat_input_view[%i] : view<65541xbf16> -> vector<7xbf16>
+    vector.store %word, %word_output_view[%i] : vector<7xi16>, view<65541xi16>
+    vector.store %half, %half_output_view[%i] : vector<7xf16>, view<65541xf16>
+    vector.store %bfloat, %bfloat_output_view[%i] : vector<7xbf16>, view<65541xbf16>
+  }
+  func.return
+}
+
+check.scenario @packed_byte_transport_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %byte_input_owner = check.generate.iota offset(-128) step(1) period(256) : tensor<323xi8>
+    %byte_input = check.tensor.view %byte_input_owner offset(4) : tensor<323xi8> -> tensor<315xi8>
+    %byte_output_owner = check.generate.fill value(-91) : tensor<2146xi8>
+    %byte_output = check.tensor.view %byte_output_owner offset(4) : tensor<2146xi8> -> tensor<2138xi8>
+    %capture_input_owner = check.generate.iota offset(-128) step(1) period(256) : tensor<266xi8>
+    %capture_input = check.tensor.view %capture_input_owner offset(4) : tensor<266xi8> -> tensor<258xi8>
+    %replacement_input_owner = check.generate.iota offset(127) step(-1) period(256) : tensor<266xi8>
+    %replacement_input = check.tensor.view %replacement_input_owner offset(4) : tensor<266xi8> -> tensor<258xi8>
+    %capture_output_owner = check.generate.fill value(-91) : tensor<524xi8>
+    %capture_output = check.tensor.view %capture_output_owner offset(4) : tensor<524xi8> -> tensor<516xi8>
+    check.compare<@copy_packed_byte_values>(%byte_input, %byte_output, %capture_input, %replacement_input, %capture_output) : (tensor<315xi8>, tensor<2138xi8>, tensor<258xi8>, tensor<258xi8>, tensor<516xi8>) -> () {
+      check.expect.bitwise actual(%byte_input_owner) expected(%byte_input_owner) : tensor<323xi8>
+      check.expect.bitwise actual(%byte_output_owner) expected(%byte_output_owner) : tensor<2146xi8>
+      check.expect.bitwise actual(%capture_input_owner) expected(%capture_input_owner) : tensor<266xi8>
+      check.expect.bitwise actual(%replacement_input_owner) expected(%replacement_input_owner) : tensor<266xi8>
+      check.expect.bitwise actual(%capture_output_owner) expected(%capture_output_owner) : tensor<524xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @packed_word_transport_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %word_input_owner = check.generate.iota offset(-32768) step(1) period(65536) : tensor<65549xi16>
+    %word_input = check.tensor.view %word_input_owner offset(8) : tensor<65549xi16> -> tensor<65541xi16>
+    %word_output_owner = check.generate.fill value(-21846) : tensor<196631xi16>
+    %word_output = check.tensor.view %word_output_owner offset(8) : tensor<196631xi16> -> tensor<196623xi16>
+    check.compare<@copy_packed_word_values>(%word_input, %word_output) : (tensor<65541xi16>, tensor<196623xi16>) -> () {
+      check.expect.bitwise actual(%word_input_owner) expected(%word_input_owner) : tensor<65549xi16>
+      check.expect.bitwise actual(%word_output_owner) expected(%word_output_owner) : tensor<196631xi16>
+    }
+  }
+  check.return
+}

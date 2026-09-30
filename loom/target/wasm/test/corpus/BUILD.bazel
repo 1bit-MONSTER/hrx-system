@@ -343,6 +343,18 @@ loom_test(
 )
 
 loom_test(
+    name = "narrow_widening_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:conversion/narrow_widening.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "packed_transport_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:packed/transport.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
     name = "predicate_lanes_test",
     srcs = ["//loom/src/loom/test/corpus/numeric:predicate/lanes.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],
@@ -357,5 +369,11 @@ loom_test(
 loom_test(
     name = "tiled_channel_test",
     srcs = ["//loom/src/loom/test/corpus/memory:address/tiled_channel.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "word_storage_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:storage/word.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],
 )

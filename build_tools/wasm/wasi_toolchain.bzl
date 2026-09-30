@@ -139,7 +139,12 @@ def wasi_cc_toolchain(
     cc_args(
         name = "link",
         actions = [_ACTIONS + "link_actions"],
-        args = ["-Wl,--export-memory"],
+        args = [
+            "-Wl,--export-memory",
+            # Keep the downward-growing stack below static data so exhaustion
+            # traps at address zero instead of overwriting mutable globals.
+            "-Wl,--stack-first",
+        ],
     )
     cc_artifact_name_pattern(
         name = "wasm_executable",

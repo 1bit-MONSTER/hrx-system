@@ -55,6 +55,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "packed/consumers.loom",
         "packed/lookup_widths.loom",
         "packed/tails.loom",
+        "packed/transport.loom",
         "storage/byte_banks.loom",
         "storage/load_snapshot.loom",
         "storage/natural_alignment.loom",
