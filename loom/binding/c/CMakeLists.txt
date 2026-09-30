@@ -150,6 +150,7 @@ loom_cc_library(
     loom::target::reporting::artifact_manifest
     loom::target::reporting::format
     loom::target::reporting::report
+    loom::target::selection
     loom::target::specialization
     loom::target::types
     loom::tooling::config

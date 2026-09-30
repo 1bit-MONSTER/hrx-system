@@ -27,13 +27,13 @@ using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
 using TargetEnvironmentPtr =
     HandlePtr<loomc_target_environment_t, loomc_target_environment_release>;
+using TargetProfilePtr =
+    HandlePtr<loomc_target_profile_t, loomc_target_profile_release>;
 using WorkspacePtr = HandlePtr<loomc_workspace_t, loomc_workspace_release>;
 
 constexpr char kSource[] = R"(
-wasm.target<simd128> @wasm
-
-low.func.def public target<wasm.core.simd128>(@wasm) abi(wasm_function) @identity(%value: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  return %value
+func.def public @identity(%value: i32) -> (i32) {
+  func.return %value : i32
 }
 )";
 
@@ -63,6 +63,11 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
   LOOMC_ASSERT_OK(loomc_target_environment_create_wasm(
       loomc_allocator_system(), &raw_target_environment));
   TargetEnvironmentPtr target_environment(raw_target_environment);
+  loomc_target_profile_t* raw_target_profile = nullptr;
+  LOOMC_ASSERT_OK(loomc_target_profile_select(
+      target_environment.get(), loomc_make_cstring_view("wasm:simd128"),
+      loomc_allocator_system(), &raw_target_profile));
+  TargetProfilePtr target_profile(raw_target_profile);
 
   loomc_context_target_options_t target_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS,
@@ -121,10 +126,26 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
   LOOMC_ASSERT_OK(loomc_compiler_create(
       context.get(), nullptr, loomc_allocator_system(), &raw_compiler));
   CompilerPtr compiler(raw_compiler);
+  const loomc_target_specialization_t specialization = {
+      /*.function_symbol=*/loomc_make_cstring_view("identity"),
+      /*.target_profile=*/target_profile.get(),
+  };
+  const loomc_target_specialization_options_t target_compile_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_TARGET_SPECIALIZATION_OPTIONS,
+      /*.structure_size=*/sizeof(target_compile_options),
+      /*.next=*/nullptr,
+      /*.specializations=*/&specialization,
+      /*.specialization_count=*/1,
+  };
+  const loomc_compile_options_t compile_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS,
+      /*.structure_size=*/sizeof(compile_options),
+      /*.next=*/&target_compile_options,
+  };
   raw_result = nullptr;
   LOOMC_ASSERT_OK(loomc_compile_module(
       compiler.get(), workspace.get(), pass_program.get(), module.get(),
-      nullptr, loomc_allocator_system(), &raw_result));
+      &compile_options, loomc_allocator_system(), &raw_result));
   result.reset(raw_result);
   ASSERT_TRUE(Succeeded(result.get()));
 
