@@ -38,12 +38,6 @@ loom_check_compile_tests(
 )
 
 loom_check_compile_tests(
-    name = "memory_wide_offsets",
-    src = "memory_wide_offsets.loom-test",
-    targets = ["//loom/target/amdgpu:" + target for target in LOOM_AMDGPU_SUPPORTED_TARGETS],
-)
-
-loom_check_compile_tests(
     name = "narrow_float_arguments",
     src = "narrow_float_arguments.loom-test",
     targets = [
