@@ -18,6 +18,7 @@
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ir/ir.h"
 #include "loom/ir/local_value_domain.h"
+#include "loom/util/cfg_graph.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,14 +81,15 @@ typedef struct loom_low_allocation_unit_liveness_t {
 } loom_low_allocation_unit_liveness_t;
 
 // Initializes |out_unit_liveness| from value-granular liveness and IR use
-// structure. The resulting points refine register intervals down to their
-// target allocation units for low.slice, descriptor early-clobber hazards, and
-// structured loop backedges.
+// structure over the canonical |cfg_graph|. The resulting points refine
+// register intervals down to target allocation units across CFG boundaries,
+// low.slice uses, descriptor early-clobber hazards, and structured backedges.
 iree_status_t loom_low_allocation_unit_liveness_initialize(
     const loom_low_resolved_target_t* target,
     const loom_low_placement_table_t* placement,
     const loom_local_value_domain_t* value_domain,
-    const loom_liveness_analysis_t* liveness, iree_arena_allocator_t* arena,
+    const loom_liveness_analysis_t* liveness, const loom_cfg_graph_t* cfg_graph,
+    iree_arena_allocator_t* arena,
     loom_low_allocation_unit_liveness_t* out_unit_liveness);
 
 // Returns true when an implicit physical write overlaps |candidate|'s refined

@@ -560,8 +560,8 @@ class AllocationBenchmark {
     } else if (phase_ == Phase::kUnitLiveness) {
       loom_low_allocation_unit_liveness_t unit_liveness = {};
       IREE_CHECK_OK(loom_low_allocation_unit_liveness_initialize(
-          &model_.target, &placement_, &model_.value_domain, &liveness_, &arena,
-          &unit_liveness));
+          &model_.target, &placement_, &model_.value_domain, &liveness_,
+          &model_.cfg_graph, &arena, &unit_liveness));
       result.value_count = liveness_.value_count;
       benchmark::DoNotOptimize(unit_liveness.end_points);
     } else {

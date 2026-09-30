@@ -839,6 +839,7 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::util::adaptive_sort
+    loom::util::cfg_graph
   PUBLIC
 )
 
@@ -885,6 +886,7 @@ loom_cc_test(
     loom::ir
     loom::ops::low
     loom::target::registers
+    loom::util::cfg_graph
 )
 
 loom_cc_library(
