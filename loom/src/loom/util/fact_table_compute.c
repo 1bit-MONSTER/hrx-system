@@ -1063,6 +1063,12 @@ static iree_status_t loom_value_fact_table_compute_region_branch_summary(
     if (!region) {
       continue;
     }
+    const loom_region_branch_truth_t truth =
+        loom_region_branch_region_truth(branch, region_index);
+    if (truth != LOOM_REGION_BRANCH_TRUTH_UNKNOWN) {
+      IREE_RETURN_IF_ERROR(
+          loom_value_fact_table_set_region_branch_truth(table, region, truth));
+    }
     IREE_RETURN_IF_ERROR(
         loom_value_fact_table_compute_region_tree(table, module, region, op));
     loom_op_t* terminator =

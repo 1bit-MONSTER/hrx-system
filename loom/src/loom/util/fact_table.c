@@ -23,6 +23,8 @@ struct loom_value_fact_region_entry_t {
   const loom_region_t* region;
   // Distribution inherited from enclosing CFG cycles, excluding this region.
   uint32_t temporal_distribution;
+  // Boolean selector truth established upon entry to this region.
+  loom_region_branch_truth_t branch_truth;
   // CFG and forwarding components retained for the populated fact scope.
   const loom_value_fact_cfg_region_t* structure;
   // Condition-loop equation retained for the populated fact scope, when
@@ -301,6 +303,7 @@ iree_status_t loom_value_fact_table_initialize_with_arenas(
 
 void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->has_conditioned_results = false;
+  table->has_boolean_branch_regions = false;
   table->condition_integer_projection_count = 0;
   if (table->identities.capacity) {
     for (iree_host_size_t i = 0; i < table->touched_count; ++i) {
@@ -547,6 +550,25 @@ iree_status_t loom_value_fact_table_set_region_condition_projection(
       loom_value_fact_table_ensure_region_entry(table, region, &entry));
   entry->condition_projection = projection;
   return iree_ok_status();
+}
+
+iree_status_t loom_value_fact_table_set_region_branch_truth(
+    loom_value_fact_table_t* table, const loom_region_t* region,
+    loom_region_branch_truth_t truth) {
+  loom_value_fact_region_entry_t* entry = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_value_fact_table_ensure_region_entry(table, region, &entry));
+  entry->branch_truth = truth;
+  table->has_boolean_branch_regions |=
+      truth != LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
+  return iree_ok_status();
+}
+
+loom_region_branch_truth_t loom_value_fact_table_lookup_region_branch_truth(
+    const loom_value_fact_table_t* table, const loom_region_t* region) {
+  const loom_value_fact_region_entry_t* entry =
+      loom_value_fact_table_lookup_region_entry(table, region);
+  return entry ? entry->branch_truth : LOOM_REGION_BRANCH_TRUTH_UNKNOWN;
 }
 
 const loom_condition_edge_projection_t*

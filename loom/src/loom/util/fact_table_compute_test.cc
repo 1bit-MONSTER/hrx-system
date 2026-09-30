@@ -161,6 +161,70 @@ TEST_F(FactTableComputeTest, IdentityOnlyMutationReportsChangedFacts) {
       loom_value_fact_table_lookup(&table_, second_result)));
 }
 
+TEST_F(FactTableComputeTest, BooleanBranchTruthIsRetainedByRegion) {
+  loom_op_t* branch = nullptr;
+  IREE_ASSERT_OK(loom_test_branch_build(
+      &builder_, inputs_[0], /*result_types=*/nullptr, /*result_count=*/0,
+      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
+      &branch));
+  loom_region_branch_t branch_interface =
+      loom_region_branch_cast(module_, branch);
+  for (uint8_t i = 0; i < branch->region_count; ++i) {
+    loom_region_t* region =
+        loom_region_branch_region(module_, branch_interface, i);
+    loom_builder_ip_t saved =
+        loom_builder_enter_region(&builder_, branch, region);
+    loom_op_t* yield = nullptr;
+    IREE_ASSERT_OK(loom_test_yield_build(&builder_, /*values=*/nullptr,
+                                         /*values_count=*/0,
+                                         LOOM_LOCATION_UNKNOWN, &yield));
+    loom_builder_restore(&builder_, saved);
+  }
+
+  EXPECT_FALSE(table_.has_boolean_branch_regions);
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, branch));
+  EXPECT_TRUE(table_.has_boolean_branch_regions);
+  EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                &table_, loom_test_branch_then_region(branch)),
+            LOOM_REGION_BRANCH_TRUTH_TRUE);
+  EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                &table_, loom_test_branch_else_region(branch)),
+            LOOM_REGION_BRANCH_TRUTH_FALSE);
+
+  loom_value_fact_table_clear_scope(&table_);
+  EXPECT_FALSE(table_.has_boolean_branch_regions);
+  EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                &table_, loom_test_branch_then_region(branch)),
+            LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
+}
+
+TEST_F(FactTableComputeTest, SelectorBranchRegionsRemainTruthUnknown) {
+  int64_t case_keys[] = {0, 1};
+  loom_op_t* table_op = nullptr;
+  IREE_ASSERT_OK(loom_test_region_table_build(
+      &builder_, inputs_[0], case_keys, IREE_ARRAYSIZE(case_keys),
+      LOOM_LOCATION_UNKNOWN, &table_op));
+  loom_region_branch_t branch = loom_region_branch_cast(module_, table_op);
+  for (uint8_t i = 0; i < table_op->region_count; ++i) {
+    loom_region_t* region = loom_region_branch_region(module_, branch, i);
+    loom_builder_ip_t saved =
+        loom_builder_enter_region(&builder_, table_op, region);
+    loom_op_t* yield = nullptr;
+    IREE_ASSERT_OK(loom_test_yield_build(&builder_, /*values=*/nullptr,
+                                         /*values_count=*/0,
+                                         LOOM_LOCATION_UNKNOWN, &yield));
+    loom_builder_restore(&builder_, saved);
+  }
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, table_op));
+  EXPECT_FALSE(table_.has_boolean_branch_regions);
+  for (uint8_t i = 0; i < table_op->region_count; ++i) {
+    EXPECT_EQ(loom_value_fact_table_lookup_region_branch_truth(
+                  &table_, loom_region_branch_region(module_, branch, i)),
+              LOOM_REGION_BRANCH_TRUTH_UNKNOWN);
+  }
+}
+
 TEST_F(FactTableComputeTest, ExactDynamicRelationsAreRetainedLazily) {
   EXPECT_EQ(table_.exact_relations.ops, nullptr);
   IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[0],

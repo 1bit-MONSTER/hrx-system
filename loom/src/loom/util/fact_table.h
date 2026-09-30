@@ -162,6 +162,9 @@ struct loom_value_fact_table_t {
   // edits. The incremental rewriter cannot maintain their guard dependencies.
   bool has_conditioned_results;
 
+  // At least one structured region entry has Boolean branch semantics.
+  bool has_boolean_branch_regions;
+
   // Structured region entries with visible projected integer relations.
   uint32_t condition_integer_projection_count;
 
@@ -414,6 +417,16 @@ loom_value_facts_t loom_value_fact_table_block_temporal_scope(
 iree_status_t loom_value_fact_table_set_region_condition_projection(
     loom_value_fact_table_t* table, const loom_region_t* region,
     loom_condition_edge_projection_t* projection);
+
+// Retains the Boolean selector truth established upon entry to |region|.
+// Repeated publication of the same immutable interface role is idempotent.
+iree_status_t loom_value_fact_table_set_region_branch_truth(
+    loom_value_fact_table_t* table, const loom_region_t* region,
+    loom_region_branch_truth_t truth);
+
+// Returns the Boolean selector truth established upon entry to |region|.
+loom_region_branch_truth_t loom_value_fact_table_lookup_region_branch_truth(
+    const loom_value_fact_table_t* table, const loom_region_t* region);
 
 // Returns retained condition-projection storage for |region|, or NULL when no
 // condition facts have been established. Recomputing a condition may leave the
