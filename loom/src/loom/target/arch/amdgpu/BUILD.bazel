@@ -586,36 +586,6 @@ loom_check_test_suite(
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",
         ],
-        "test/source_low/source_low_memory_atomic_publication_gfx1200.loom-test": [
-            "//loom/target/amdgpu:gfx1200",
-            "//loom/target/amdgpu:gfx1201",
-            "//loom/target/amdgpu:gfx12-generic",
-        ],
-        "test/source_low/source_low_memory_atomic_publication_gfx1250.loom-test": [
-            "//loom/target/amdgpu:gfx1250",
-            "//loom/target/amdgpu:gfx1251",
-            "//loom/target/amdgpu:gfx12-5-generic",
-        ],
-        "test/source_low/source_low_memory_atomic_publication_gfx9_4_generic.loom-test": [
-            "//loom/target/amdgpu:gfx9-4-generic",
-            "//loom/target/amdgpu:gfx942",
-            "//loom/target/amdgpu:gfx950",
-        ],
-        "test/source_low/source_low_memory_atomic_scopes_gfx1200.loom-test": [
-            "//loom/target/amdgpu:gfx1200",
-            "//loom/target/amdgpu:gfx1201",
-            "//loom/target/amdgpu:gfx12-generic",
-        ],
-        "test/source_low/source_low_memory_atomic_scopes_gfx1250.loom-test": [
-            "//loom/target/amdgpu:gfx1250",
-            "//loom/target/amdgpu:gfx1251",
-            "//loom/target/amdgpu:gfx12-5-generic",
-        ],
-        "test/source_low/source_low_memory_atomic_scopes_gfx9_4_generic.loom-test": [
-            "//loom/target/amdgpu:gfx9-4-generic",
-            "//loom/target/amdgpu:gfx942",
-            "//loom/target/amdgpu:gfx950",
-        ],
         "test/source_low/uniform_packed_memory.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
