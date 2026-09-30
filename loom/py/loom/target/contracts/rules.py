@@ -368,10 +368,10 @@ class DescriptorRule:
                 f"{self.source_op.name}: per-lane-sequence emits must form the "
                 "final contiguous emit-program tail"
             )
-        if len(sequence_emits) < 2:
+        if len(sequence_emits) == 1 and sequence_start == 0:
             raise ValueError(
-                f"{self.source_op.name}: per-lane-sequence emit programs need "
-                "at least two lane emits"
+                f"{self.source_op.name}: a single per-lane-sequence emit "
+                "requires shared setup"
             )
         for sequence_index, emit in enumerate(sequence_emits):
             emit_index = sequence_start + sequence_index

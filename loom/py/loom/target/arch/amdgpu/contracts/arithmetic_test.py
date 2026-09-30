@@ -190,6 +190,20 @@ def test_bitfield_insert_rules_try_native_bfi_before_mask_merge_fallback() -> No
     )
 
 
+def test_f32_copysign_rules_try_literal_bfi_before_register_mask() -> None:
+    compiled = _compiled_arithmetic_rules()
+
+    for source_op in (
+        scalar_arithmetic.scalar_copysignf,
+        vector.vector_copysignf,
+    ):
+        positions = _descriptor_sequence_positions(compiled, source_op)
+        assert (
+            positions[("amdgpu.v_bfi_b32.src0_lit",)]
+            < positions[("amdgpu.s_mov_b32", "amdgpu.v_bfi_b32")]
+        )
+
+
 def test_packed_i16_arithmetic_rules_try_native_pk_ops_before_word_ops() -> None:
     compiled = _compiled_arithmetic_rules()
 
