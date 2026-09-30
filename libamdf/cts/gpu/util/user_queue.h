@@ -14,20 +14,21 @@
 #include "amdf/amdf.h"
 #include "amdf/gpu.h"
 
-// These native producer witnesses require x86-64. Naturally aligned device
-// memory uses single-copy accesses; fences order surrounding CPU accesses.
-// In particular, doorbells are stores, never locked read-modify-writes to MMIO.
+// These native producer witnesses require x86-64 and naturally aligned device
+// memory. Lock-free acquire/release accesses preserve host-thread atomicity and
+// lower to plain loads/stores. Doorbells never use locked read-modify-writes.
 template <typename T>
 T GpuLoadAcquire(uint64_t address) {
-  const T value = *reinterpret_cast<volatile T*>(address);
-  std::atomic_thread_fence(std::memory_order_acquire);
-  return value;
+  static_assert(std::atomic_ref<T>::is_always_lock_free);
+  return std::atomic_ref<T>(*reinterpret_cast<T*>(address))
+      .load(std::memory_order_acquire);
 }
 
 template <typename T>
 void GpuStoreRelease(uint64_t address, T value) {
-  std::atomic_thread_fence(std::memory_order_release);
-  *reinterpret_cast<volatile T*>(address) = value;
+  static_assert(std::atomic_ref<T>::is_always_lock_free);
+  std::atomic_ref<T>(*reinterpret_cast<T*>(address))
+      .store(value, std::memory_order_release);
 }
 
 // Waits on a coherent completion line without maintaining any payload cache.
