@@ -221,11 +221,11 @@ uint32_t FindFreeLocationWithPlacement(
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 1};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 2}, {1, 0}};
   uint32_t unit_end_points[] = {6, 1};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -359,12 +359,13 @@ uint32_t FindFreeLocationWithStorageLease(
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, options.unit_count};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 2}, {options.unit_count, 0}};
   std::vector<uint32_t> unit_end_points(options.unit_count + 1, 4);
   unit_end_points.back() = 1;
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points.data();
   unit_liveness.point_count = unit_end_points.size();
   unit_liveness.values_with_incomplete_storage_segments = {
@@ -617,11 +618,12 @@ TEST_F(LowAllocationSearchTest,
   liveness.pressure_summaries = pressure_summaries;
   liveness.pressure_summary_count = IREE_ARRAYSIZE(pressure_summaries);
 
-  uint32_t unit_point_starts[] = {0, 1, 5};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 0}, {1, 1}, {5, 8}};
   uint32_t unit_end_points[] = {8, 7, 7, 7, 7, 10};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {
@@ -678,7 +680,7 @@ TEST_F(LowAllocationSearchTest,
 
   loom_low_allocation_interval_order_t order = {};
   IREE_ASSERT_OK(loom_low_allocation_interval_order_build(
-      &descriptor_set, &liveness, &arena_, &order));
+      &descriptor_set, &liveness, &unit_liveness, &placement, &arena_, &order));
   IREE_ASSERT_OK(loom_low_allocation_scalar_packing_build(
       &descriptor_set, &liveness, &order, &arena_, &context.scalar_packing));
   location_base = UINT32_MAX;
@@ -902,11 +904,11 @@ TEST_F(LowAllocationSearchTest, FindsFreeLocationAfterActiveAndReservedRanges) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 2}, {2, 0}};
   uint32_t unit_end_points[] = {6, 6, 10, 10};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -1027,11 +1029,11 @@ TEST_F(LowAllocationSearchTest,
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {{0, 2}, {2, 0}};
   uint32_t unit_end_points[] = {6, 6, 12, 12};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -1190,11 +1192,12 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficActiveSpillVictimSetTie) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2, 4};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 4}, {2, 0}, {4, 0}};
   uint32_t unit_end_points[] = {8, 8, 20, 20, 12, 12};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,
@@ -1328,11 +1331,12 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficOverFewerVictims) {
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t unit_point_starts[] = {0, 2, 4, 5};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 4}, {2, 0}, {4, 0}, {5, 0}};
   uint32_t unit_end_points[] = {8, 8, 28, 28, 12, 12};
   uint64_t edge_handoff_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = unit_point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   unit_liveness.values_with_incomplete_storage_segments = {liveness.value_count,

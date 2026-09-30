@@ -326,6 +326,14 @@ static bool loom_low_allocation_concat_reservation_find_location_for_source(
               relation->result_ordinal),
       .flags = reservation_flags,
   };
+  if (reservation_start_point ==
+      context->unit_liveness->values[relation->result_ordinal]
+          .acquisition_start_point) {
+    reservation.liveness_segments =
+        loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
+            context->unit_liveness, context->liveness,
+            relation->result_ordinal);
+  }
   reservation.end_point =
       loom_low_allocation_live_range_assignment_max_unit_end_point(
           context->unit_liveness->end_points,
@@ -504,7 +512,9 @@ iree_status_t loom_low_allocation_concat_reservation_find(
     }
   }
 
-  uint32_t reservation_start_point = result_interval->start_point;
+  uint32_t reservation_start_point =
+      context->unit_liveness->values[relation->result_ordinal]
+          .acquisition_start_point;
   loom_low_allocation_assignment_flags_t reservation_flags = 0;
   if (has_fragmented_tied_source_assembly) {
     reservation_flags = LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_REFINED_UNIT_STARTS;
@@ -590,7 +600,9 @@ iree_status_t loom_low_allocation_concat_reservation_find(
           *out_assignment = source_assignment;
           out_assignment->value_id = source_interval->value_id;
           out_assignment->value_class = source_interval->value_class;
-          out_assignment->start_point = source_interval->start_point;
+          out_assignment->start_point =
+              context->unit_liveness->values[relation->source_ordinal]
+                  .acquisition_start_point;
           out_assignment->end_point =
               loom_low_allocation_live_range_interval_storage_end_point(
                   source_interval);

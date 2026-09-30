@@ -944,11 +944,14 @@ static iree_status_t loom_low_allocation_unit_liveness_initialize_impl(
 
   if (liveness->value_count != 0) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        result_arena, liveness->value_count,
-        sizeof(*out_unit_liveness->point_starts_by_value_ordinal),
-        (void**)&out_unit_liveness->point_starts_by_value_ordinal));
+        result_arena, liveness->value_count, sizeof(*out_unit_liveness->values),
+        (void**)&out_unit_liveness->values));
     for (iree_host_size_t i = 0; i < liveness->value_count; ++i) {
-      out_unit_liveness->point_starts_by_value_ordinal[i] = UINT32_MAX;
+      out_unit_liveness->values[i] =
+          (loom_low_allocation_unit_liveness_value_t){
+              .unit_point_start = UINT32_MAX,
+              .acquisition_start_point = UINT32_MAX,
+          };
     }
     const iree_host_size_t incomplete_segment_word_count =
         iree_bitmap_calculate_words(liveness->value_count);
@@ -1007,8 +1010,10 @@ static iree_status_t loom_low_allocation_unit_liveness_initialize_impl(
           IREE_STATUS_OUT_OF_RANGE,
           "low allocation unit liveness start exceeds u32 range");
     }
-    out_unit_liveness->point_starts_by_value_ordinal[i] =
-        (uint32_t)unit_point_start;
+    out_unit_liveness->values[i] = (loom_low_allocation_unit_liveness_value_t){
+        .unit_point_start = (uint32_t)unit_point_start,
+        .acquisition_start_point = interval->start_point,
+    };
     for (uint32_t unit_index = 0; unit_index < interval->unit_count;
          ++unit_index) {
       out_unit_liveness->start_points[unit_point_start + unit_index] =
@@ -1062,10 +1067,7 @@ uint32_t loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
   IREE_ASSERT_ARGUMENT(unit_liveness);
   IREE_ASSERT_ARGUMENT(liveness);
   IREE_ASSERT_LT(value_ordinal, liveness->value_count);
-  if (unit_liveness->point_starts_by_value_ordinal == NULL) {
-    return UINT32_MAX;
-  }
-  return unit_liveness->point_starts_by_value_ordinal[value_ordinal];
+  return unit_liveness->values[value_ordinal].unit_point_start;
 }
 
 const uint32_t*
@@ -1114,19 +1116,16 @@ bool loom_low_allocation_unit_liveness_storage_component_live_at_point(
       placement->tied_storage_origins_by_value_ordinal == NULL
           ? value_ordinal
           : placement->tied_storage_origins_by_value_ordinal[value_ordinal];
-  const loom_liveness_interval_t* storage_interval =
-      loom_liveness_interval_for_value_ordinal(liveness, storage_ordinal);
-  IREE_ASSERT_ARGUMENT(storage_interval);
-  IREE_ASSERT_EQ(storage_interval->unit_count, value_interval->unit_count);
-
   const loom_liveness_segment_range_t segments =
       loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
           unit_liveness, liveness, storage_ordinal);
   const bool storage_live_at_point =
-      segments.count == 0 ? storage_interval->start_point <= program_point
-                          : loom_liveness_segment_range_contains(
-                                unit_liveness->storage_segments.entries,
-                                segments, program_point);
+      segments.count == 0
+          ? unit_liveness->values[storage_ordinal].acquisition_start_point <=
+                program_point
+          : loom_liveness_segment_range_contains(
+                unit_liveness->storage_segments.entries, segments,
+                program_point);
   if (!storage_live_at_point) {
     return false;
   }
@@ -1172,11 +1171,9 @@ static bool loom_low_allocation_unit_liveness_can_refine_tie(
     const loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_low_placement_relation_t* relation) {
   return relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT &&
-         unit_liveness
-                 ->point_starts_by_value_ordinal[relation->source_ordinal] !=
+         unit_liveness->values[relation->source_ordinal].unit_point_start !=
              UINT32_MAX &&
-         unit_liveness
-                 ->point_starts_by_value_ordinal[relation->result_ordinal] !=
+         unit_liveness->values[relation->result_ordinal].unit_point_start !=
              UINT32_MAX;
 }
 
@@ -1201,7 +1198,7 @@ static void loom_low_allocation_unit_liveness_contribute_segments(
     const loom_liveness_interval_t* interval =
         loom_liveness_interval_for_value_ordinal(liveness, value_ordinal);
     const uint32_t unit_start =
-        unit_liveness->point_starts_by_value_ordinal[value_ordinal];
+        unit_liveness->values[value_ordinal].unit_point_start;
     contiguous.start_point = interval->start_point;
     for (uint32_t i = 0; i < interval->unit_count; ++i) {
       contiguous.end_point = iree_max(
@@ -1391,38 +1388,50 @@ static iree_status_t loom_low_allocation_unit_liveness_refine_storage_segments(
   return status;
 }
 
-// One origin assignment retains each tied component's complete physical
-// lifetime. Required ties force every later member to that location, so
-// extending every intermediate alias would duplicate the reservation and grow
-// the active set with chain depth.
-static void loom_low_allocation_unit_liveness_retain_tied_component_ends(
+// Acquisition starts flow from users to sources in the retained storage order.
+// Only ancestors needed earlier move; ordinary forward aliases keep their own
+// starts. The origin alone retains the component's complete physical lifetime.
+static void loom_low_allocation_unit_liveness_retain_tied_component_lifetimes(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_low_placement_table_t* placement) {
-  for (iree_host_size_t i = 0; i < placement->relation_count; ++i) {
-    const loom_low_placement_relation_t* relation = &placement->relations[i];
-    if (relation->cause != LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-      continue;
-    }
-    const loom_value_ordinal_t origin_ordinal =
-        placement
-            ->tied_storage_origins_by_value_ordinal[relation->source_ordinal];
-    const uint32_t origin_unit_point_start =
-        unit_liveness->point_starts_by_value_ordinal[origin_ordinal];
-    const uint32_t result_unit_point_start =
-        unit_liveness->point_starts_by_value_ordinal[relation->result_ordinal];
-    if (origin_unit_point_start == UINT32_MAX ||
-        result_unit_point_start == UINT32_MAX) {
-      continue;
-    }
-    for (uint32_t unit_index = 0; unit_index < relation->unit_count;
-         ++unit_index) {
-      uint32_t* origin_end_point =
-          &unit_liveness->end_points[origin_unit_point_start +
-                                     relation->source_unit_offset + unit_index];
-      const uint32_t result_end_point =
-          unit_liveness->end_points[result_unit_point_start +
-                                    relation->result_unit_offset + unit_index];
-      *origin_end_point = iree_max(*origin_end_point, result_end_point);
+  for (loom_value_ordinal_t cursor = 0;
+       cursor < placement->storage_value_order_count; ++cursor) {
+    const loom_value_ordinal_t result_ordinal =
+        placement->storage_value_order[cursor];
+    const loom_low_placement_relation_range_t range =
+        placement->ranges_by_result_ordinal[result_ordinal];
+    for (uint32_t i = 0; i < range.count; ++i) {
+      const loom_low_placement_relation_t* relation =
+          &placement->relations[range.start + i];
+      if (!loom_low_allocation_unit_liveness_can_refine_tie(unit_liveness,
+                                                            relation)) {
+        continue;
+      }
+      loom_low_allocation_unit_liveness_value_t* source =
+          &unit_liveness->values[relation->source_ordinal];
+      const loom_low_allocation_unit_liveness_value_t* result =
+          &unit_liveness->values[result_ordinal];
+      source->acquisition_start_point = iree_min(
+          source->acquisition_start_point, result->acquisition_start_point);
+      const loom_value_ordinal_t origin_ordinal =
+          placement
+              ->tied_storage_origins_by_value_ordinal[relation->source_ordinal];
+      const uint32_t origin_unit_point_start =
+          unit_liveness->values[origin_ordinal].unit_point_start;
+      for (uint32_t unit_index = 0; unit_index < relation->unit_count;
+           ++unit_index) {
+        const uint32_t origin_point_index =
+            origin_unit_point_start + relation->source_unit_offset + unit_index;
+        const uint32_t result_point_index = result->unit_point_start +
+                                            relation->result_unit_offset +
+                                            unit_index;
+        unit_liveness->start_points[origin_point_index] =
+            iree_min(unit_liveness->start_points[origin_point_index],
+                     unit_liveness->start_points[result_point_index]);
+        unit_liveness->end_points[origin_point_index] =
+            iree_max(unit_liveness->end_points[origin_point_index],
+                     unit_liveness->end_points[result_point_index]);
+      }
     }
   }
 }
@@ -1440,8 +1449,8 @@ iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
     return iree_ok_status();
   }
 
-  loom_low_allocation_unit_liveness_retain_tied_component_ends(unit_liveness,
-                                                               placement);
+  loom_low_allocation_unit_liveness_retain_tied_component_lifetimes(
+      unit_liveness, placement);
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_unit_liveness_refine_storage_segments(
           unit_liveness, liveness, placement, arena));
@@ -1487,11 +1496,9 @@ void loom_low_allocation_unit_liveness_propagate_storage_relations(
         continue;
       }
       const uint32_t source_unit_point_start =
-          unit_liveness
-              ->point_starts_by_value_ordinal[relation->source_ordinal];
+          unit_liveness->values[relation->source_ordinal].unit_point_start;
       const uint32_t result_unit_point_start =
-          unit_liveness
-              ->point_starts_by_value_ordinal[relation->result_ordinal];
+          unit_liveness->values[relation->result_ordinal].unit_point_start;
       if (source_unit_point_start == UINT32_MAX ||
           result_unit_point_start == UINT32_MAX) {
         continue;

@@ -254,6 +254,7 @@ static iree_status_t loom_liveness_ensure_interval_by_ordinal(
                     loom_liveness_classify_value(state->module, value_id),
                 .unit_count =
                     loom_liveness_value_unit_count(state->module, value_id),
+                .definition_point = UINT32_MAX,
             },
         .has_bounds = false,
     };
@@ -304,6 +305,7 @@ static iree_status_t loom_liveness_note_definition(
   loom_liveness_mutable_interval_t* interval_state = NULL;
   IREE_RETURN_IF_ERROR(
       loom_liveness_ensure_interval(state, value_id, &interval_state));
+  interval_state->interval.definition_point = point;
   if (!interval_state->has_bounds) {
     interval_state->interval.start_point = point;
     interval_state->interval.end_point = point;

@@ -191,6 +191,20 @@ loom_cc_library(
     ],
 )
 
+loom_cc_test(
+    name = "edge_alias_test",
+    srcs = ["edge_alias_test.cc"],
+    deps = [
+        ":edge_alias",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "concat_reservation",
     srcs = ["concat_reservation.c"],
@@ -476,8 +490,10 @@ loom_cc_library(
     hdrs = ["interval_order.h"],
     deps = [
         ":live_range",
+        ":unit_liveness",
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:placement",
         "//loom/src/loom/util:adaptive_sort",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

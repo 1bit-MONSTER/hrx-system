@@ -920,7 +920,8 @@ loom_low_allocation_target_constraints_make_resolved_fixed_value(
       .value_id = interval->value_id,
       .value_class = interval->value_class,
       .descriptor_reg_class_id = reg_class_id,
-      .start_point = interval->start_point,
+      .start_point =
+          unit_liveness->values[value_ordinal].acquisition_start_point,
       .end_point =
           loom_low_allocation_live_range_interval_storage_end_point(interval),
       .unit_count = interval->unit_count,
@@ -968,24 +969,8 @@ loom_low_allocation_target_constraints_emit_conflicting_tied_fixed_values(
       LOOM_ERR_BACKEND_049, params, IREE_ARRAYSIZE(params));
 }
 
-static loom_value_ordinal_t loom_low_allocation_target_constraints_tied_root(
-    loom_value_ordinal_t* roots, loom_value_ordinal_t ordinal) {
-  loom_value_ordinal_t root = ordinal;
-  while (roots[root] != root) {
-    root = roots[root];
-  }
-  while (roots[ordinal] != root) {
-    const loom_value_ordinal_t parent = roots[ordinal];
-    roots[ordinal] = root;
-    ordinal = parent;
-  }
-  return root;
-}
-
-// Required ties preserve whole-value storage types, and each result has one
-// tied source. Flatten the resulting forest once, independent of value ordinal
-// order, before any member can be independently assigned. Optional transfers
-// do not bind their endpoints: their moves are chosen after allocation.
+// Fixed bindings constrain every member of the required storage component
+// retained by placement. Optional transfers remain independent assignments.
 static iree_status_t
 loom_low_allocation_target_constraints_resolve_tied_fixed_values(
     loom_low_allocation_target_constraints_t* constraints,
@@ -993,34 +978,17 @@ loom_low_allocation_target_constraints_resolve_tied_fixed_values(
     const loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_low_placement_table_t* placement,
     iree_arena_allocator_t* scratch_arena, iree_arena_allocator_t* arena) {
-  iree_host_size_t first_tie = 0;
-  while (first_tie < placement->relation_count &&
-         placement->relations[first_tie].cause !=
-             LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-    ++first_tie;
-  }
-  if (first_tie == placement->relation_count) {
+  const loom_value_ordinal_t* roots =
+      placement->tied_storage_origins_by_value_ordinal;
+  if (roots == NULL) {
     return iree_ok_status();
   }
-  loom_value_ordinal_t* roots = NULL;
   uint32_t* bindings = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      scratch_arena, liveness->value_count, sizeof(*roots), (void**)&roots));
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate_array(scratch_arena, liveness->value_count,
                                 sizeof(*bindings), (void**)&bindings));
   for (loom_value_ordinal_t i = 0; i < liveness->value_count; ++i) {
-    roots[i] = i;
     bindings[i] = UINT32_MAX;
-  }
-  for (iree_host_size_t i = first_tie; i < placement->relation_count; ++i) {
-    const loom_low_placement_relation_t* relation = &placement->relations[i];
-    if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-      roots[relation->result_ordinal] = relation->source_ordinal;
-    }
-  }
-  for (loom_value_ordinal_t i = 0; i < liveness->value_count; ++i) {
-    roots[i] = loom_low_allocation_target_constraints_tied_root(roots, i);
   }
   for (uint32_t i = 0; i < constraints->fixed_value_count; ++i) {
     loom_low_allocation_resolved_fixed_value_t* fixed =

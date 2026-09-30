@@ -124,13 +124,13 @@ loom_low_placement_pair_use_list_empty(void) {
 // Sentinel used when a relation source is not an operand of the observed op.
 #define LOOM_LOW_PLACEMENT_SOURCE_OPERAND_NONE UINT16_MAX
 
-// One directional placement relation keyed by result and source value ordinals.
+// One directional placement relation retaining its authored SSA endpoints.
 typedef struct loom_low_placement_relation_t {
   // Operation that introduced this relation.
   const loom_op_t* op;
-  // Result or destination value ordinal receiving preferred storage.
+  // Authored result or destination value ordinal receiving preferred storage.
   loom_value_ordinal_t result_ordinal;
-  // Source value ordinal providing preferred storage.
+  // Authored source value ordinal providing preferred storage.
   loom_value_ordinal_t source_ordinal;
   // Unit offset inside the result assignment.
   uint32_t result_unit_offset;
@@ -180,11 +180,11 @@ bool loom_low_placement_relation_compose_tied_concat_source(
     const loom_low_placement_relation_t* concat_relation,
     loom_low_placement_relation_t* out_relation);
 
-// Contiguous relation range for one result value ordinal.
+// Contiguous relation range for one endpoint index key.
 typedef struct loom_low_placement_relation_range_t {
-  // First relation index for the value ordinal.
+  // First relation index for the endpoint key.
   uint32_t start;
-  // Number of relation records for the value ordinal.
+  // Number of relation records for the endpoint key.
   uint32_t count;
 } loom_low_placement_relation_range_t;
 
@@ -198,8 +198,10 @@ typedef struct loom_low_placement_table_t {
   const loom_value_id_t* value_ids;
   // Number of local value IDs.
   loom_value_ordinal_t value_count;
-  // Placement relations grouped by result value ordinal. Allocation refines
-  // optional alias permissions before assigning any concrete locations.
+  // Placement relations grouped by result index key. Hard register-ordinal
+  // relations use the result's tied storage origin; all other relations use
+  // their authored result ordinal. Allocation refines optional alias
+  // permissions before assigning any concrete locations.
   loom_low_placement_relation_t* relations;
   // Number of relation records.
   iree_host_size_t relation_count;
@@ -223,13 +225,15 @@ typedef struct loom_low_placement_table_t {
   iree_host_size_t branch_unit_count;
   // Maximum raw move units contributed by any one packet or branch operation.
   iree_host_size_t max_move_group_unit_count;
-  // Relation ranges into |relations| indexed by result value ordinal.
+  // Relation ranges into |relations| indexed by result ordinal or, for hard
+  // register-ordinal constraints, the result's tied storage origin.
   const loom_low_placement_relation_range_t* ranges_by_result_ordinal;
-  // Relation indices grouped by source value ordinal. Each entry indexes
-  // |relations|.
+  // Relation indices grouped by source ordinal or, for hard register-ordinal
+  // constraints, the source's tied storage origin. Each entry indexes
+  // |relations| without changing its authored endpoints.
   const uint32_t* relation_indices_by_source_ordinal;
-  // Relation ranges into |relation_indices_by_source_ordinal| indexed by source
-  // value ordinal.
+  // Relation ranges into |relation_indices_by_source_ordinal| indexed by the
+  // same source ordinal or storage-origin key.
   const loom_low_placement_relation_range_t* ranges_by_source_ordinal;
   // Local value ordinals in users-before-sources order for structural SSA
   // storage relations. Tied results and aliasable low copy/move/slice/concat
@@ -268,14 +272,17 @@ iree_status_t loom_low_placement_analyze_region(
     loom_low_placement_pair_use_list_t pair_uses, iree_arena_allocator_t* arena,
     loom_low_placement_table_t* out_table);
 
-// Returns the relation range for |result_ordinal|. The ordinal must belong to
-// this placement table.
+// Returns the relation range keyed by |result_ordinal|. Hard register-ordinal
+// constraints are keyed by the endpoint's tied storage origin; all other
+// relations are keyed by their authored SSA endpoint. The ordinal must belong
+// to this placement table.
 loom_low_placement_relation_range_t
 loom_low_placement_relation_range_for_value_ordinal(
     const loom_low_placement_table_t* table,
     loom_value_ordinal_t result_ordinal);
 
-// Returns the relation range for |source_ordinal|. The returned range indexes
+// Returns the relation range keyed by |source_ordinal|, using the same storage-
+// origin projection as result ranges. The returned range indexes
 // |relation_indices_by_source_ordinal|, whose records then index |relations|.
 // The ordinal must belong to this placement table.
 loom_low_placement_relation_range_t

@@ -108,48 +108,6 @@ static iree_status_t loom_low_allocation_storage_lease_value_id(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_allocation_storage_lease_start_point(
-    const loom_liveness_analysis_t* liveness,
-    const loom_low_storage_lease_record_t* record, uint32_t* out_start_point) {
-  if (record->block_index >= liveness->block_count) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "storage lease block index exceeds allocation "
-                            "liveness block count");
-  }
-  const loom_liveness_block_info_t* block_info =
-      &liveness->blocks[record->block_index];
-  if (record->scheduled_ordinal > UINT32_MAX - block_info->start_point) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "storage lease start point exceeds u32 range");
-  }
-  const uint32_t start_point =
-      block_info->start_point + record->scheduled_ordinal;
-  if (start_point >= block_info->end_point) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "storage lease scheduled ordinal exceeds "
-                            "allocation liveness block extent");
-  }
-  *out_start_point = start_point;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_low_allocation_storage_lease_end_point(
-    const loom_liveness_analysis_t* liveness,
-    const loom_low_storage_lease_record_t* record, uint32_t* out_end_point) {
-  if (record->block_index >= liveness->block_count) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "storage lease block index exceeds allocation "
-                            "liveness block count");
-  }
-  if (iree_any_bit_set(record->flags,
-                       LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_BEFORE_BOUNDARY)) {
-    *out_end_point = liveness->blocks[record->block_index].end_point;
-    return iree_ok_status();
-  }
-  *out_end_point = liveness->blocks[liveness->block_count - 1u].end_point;
-  return iree_ok_status();
-}
-
 static bool loom_low_allocation_storage_lease_overlaps_liveness(
     const loom_liveness_segment_t* storage_segments,
     const loom_low_allocation_storage_lease_t* lease,
@@ -835,90 +793,40 @@ iree_status_t loom_low_allocation_storage_lease_state_record_release_actions(
   return iree_ok_status();
 }
 
-iree_status_t loom_low_allocation_storage_lease_state_record_assignment(
+void loom_low_allocation_storage_lease_state_record_assignment(
     loom_low_allocation_storage_lease_state_t* state,
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_liveness_analysis_t* liveness,
     const loom_low_allocation_assignment_t* assignment,
     uint32_t assignment_index, loom_value_ordinal_t value_ordinal) {
-  IREE_ASSERT_ARGUMENT(state);
-  IREE_ASSERT_ARGUMENT(descriptor_set);
-  IREE_ASSERT_ARGUMENT(liveness);
-  IREE_ASSERT_ARGUMENT(assignment);
   if (state->record_heads_by_value_ordinal == NULL) {
-    return iree_ok_status();
+    return;
   }
   uint32_t lease_record_index =
       state->record_heads_by_value_ordinal[value_ordinal];
   while (lease_record_index != UINT32_MAX) {
     const loom_low_storage_lease_record_t* record =
         &state->lease_table->records[lease_record_index];
-    loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_low_allocation_storage_lease_value_id(
-        state->lease_table, record, &value_id));
-    if (assignment->value_id != value_id) {
-      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                              "storage lease record does not match assigned "
-                              "value");
-    }
-    if (!loom_low_allocation_location_kind_is_register_like(
-            assignment->location_kind)) {
-      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                              "storage lease references value %u assigned to "
-                              "non-register storage",
-                              (unsigned)value_id);
-    }
-    if (record->unit_offset > UINT32_MAX - record->unit_count) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "storage lease unit range exceeds u32 range");
-    }
-    const uint32_t lease_assignment_end =
-        record->unit_offset + record->unit_count;
-    if (lease_assignment_end > assignment->location_count) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "storage lease unit range exceeds assigned "
-                              "physical storage");
-    }
-    if (assignment->location_base > UINT32_MAX - record->unit_offset) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "storage lease physical location exceeds u32 "
-                              "range");
-    }
-    const uint32_t location_base =
-        assignment->location_base + record->unit_offset;
-    if (!iree_any_bit_set(record->flags,
-                          LOOM_LOW_STORAGE_LEASE_FLAG_STARTS_AT_ISSUE)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "storage lease record has no supported start "
-                              "condition");
-    }
-    uint32_t start_point = 0;
-    IREE_RETURN_IF_ERROR(loom_low_allocation_storage_lease_start_point(
-        liveness, record, &start_point));
-    uint32_t end_point = 0;
-    IREE_RETURN_IF_ERROR(loom_low_allocation_storage_lease_end_point(
-        liveness, record, &end_point));
-    if (end_point <= start_point) {
-      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                              "storage lease end point must be after its "
-                              "start point");
-    }
-
-    if (state->instance_written[lease_record_index] != 0) {
-      return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                              "storage lease record was materialized twice");
-    }
+    const loom_liveness_block_info_t* block_info =
+        &liveness->blocks[record->block_index];
+    const uint32_t end_point =
+        iree_any_bit_set(record->flags,
+                         LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_BEFORE_BOUNDARY)
+            ? block_info->end_point
+            : liveness->blocks[liveness->block_count - 1u].end_point;
+    // The temporal index reserves nodes for exactly one insertion per lease.
+    IREE_ASSERT_EQ(state->instance_written[lease_record_index], 0u);
     state->instances[lease_record_index] =
         (loom_low_allocation_storage_lease_t){
             .lease_record_index = lease_record_index,
             .assignment_index = assignment_index,
-            .value_id = value_id,
-            .start_point = start_point,
+            .value_id = assignment->value_id,
+            .start_point = block_info->start_point + record->scheduled_ordinal,
             .end_point = end_point,
             .release_action_index = LOOM_LOW_STORAGE_RELEASE_ACTION_INDEX_NONE,
             .descriptor_reg_class_id = assignment->descriptor_reg_class_id,
             .location_kind = assignment->location_kind,
-            .location_base = location_base,
+            .location_base = assignment->location_base + record->unit_offset,
             .location_count = record->unit_count,
         };
     state->instance_written[lease_record_index] = 1;
@@ -927,7 +835,6 @@ iree_status_t loom_low_allocation_storage_lease_state_record_assignment(
         state->unit_index, descriptor_set, lease_record_index);
     lease_record_index = state->next_record_indices[lease_record_index];
   }
-  return iree_ok_status();
 }
 
 iree_status_t loom_low_allocation_storage_lease_state_finalize(

@@ -54,14 +54,16 @@ static iree_status_t loom_low_allocation_refine_destructive_reuse_build(
                                 sizeof(*first_writes), (void**)&first_writes));
   memset(first_writes, 0xFF,
          unit_liveness->point_count * sizeof(*first_writes));
-  const uint32_t* unit_starts = unit_liveness->point_starts_by_value_ordinal;
+  const loom_low_allocation_unit_liveness_value_t* values =
+      unit_liveness->values;
   for (iree_host_size_t i = 0; i < placement->relation_count; ++i) {
     const loom_low_placement_relation_t* relation = &placement->relations[i];
     if (!loom_low_allocation_reuse_relation(relation)) {
       continue;
     }
     const uint32_t source_start =
-        unit_starts[relation->source_ordinal] + relation->source_unit_offset;
+        values[relation->source_ordinal].unit_point_start +
+        relation->source_unit_offset;
     if (iree_any_bit_set(relation->flags,
                          LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE)) {
       for (uint32_t unit = 0; unit < relation->unit_count; ++unit) {
@@ -88,9 +90,11 @@ static iree_status_t loom_low_allocation_refine_destructive_reuse_build(
         continue;
       }
       const uint32_t source_start =
-          unit_starts[relation->source_ordinal] + relation->source_unit_offset;
+          values[relation->source_ordinal].unit_point_start +
+          relation->source_unit_offset;
       const uint32_t result_start =
-          unit_starts[relation->result_ordinal] + relation->result_unit_offset;
+          values[relation->result_ordinal].unit_point_start +
+          relation->result_unit_offset;
       bool requires_copy = false;
       if (relation->cause != LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
         requires_copy = loom_low_allocation_storage_observed_at_first_writes(

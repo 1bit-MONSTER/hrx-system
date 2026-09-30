@@ -26,11 +26,20 @@ extern "C" {
 // Indexed physical write point retained by the unit-liveness producer.
 typedef struct loom_low_allocation_clobber_t loom_low_allocation_clobber_t;
 
+// Per-value storage lifetime facts retained beside the per-unit lifetime
+// cursor.
+typedef struct loom_low_allocation_unit_liveness_value_t {
+  // First per-unit lifetime record, or UINT32_MAX for a nonallocatable value.
+  uint32_t unit_point_start;
+  // Earliest storage acquisition required by this value and its mandatory tied
+  // descendants, or UINT32_MAX when the value has no allocatable lifetime.
+  uint32_t acquisition_start_point;
+} loom_low_allocation_unit_liveness_value_t;
+
 // Mutable unit-liveness state indexed by liveness value ordinal.
 typedef struct loom_low_allocation_unit_liveness_t {
-  // First per-unit lifetime record indexed by liveness local value ordinal.
-  // Values without allocatable unit liveness contain UINT32_MAX.
-  uint32_t* point_starts_by_value_ordinal;
+  // Per-value storage facts indexed by liveness local value ordinal.
+  loom_low_allocation_unit_liveness_value_t* values;
   // Per-assignment-unit storage start points.
   uint32_t* start_points;
   // Mutable per-assignment-unit live end points.
@@ -110,9 +119,10 @@ loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
     loom_value_ordinal_t value_ordinal);
 
 // Completes physical lifetime facts for mandatory tied-storage components.
-// Component origins retain every member's per-unit end and sparse segments so
-// destructive-reuse refinement can query exact old-content observations before
-// deciding which optional storage relations remain aliasable.
+// Each ancestor acquires storage by its earliest mandatory descendant start.
+// Component origins retain every member's physical unit lifetime and sparse
+// segments so destructive-reuse refinement can query exact old-content
+// observations before deciding which optional relations remain aliasable.
 iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_liveness_analysis_t* liveness,

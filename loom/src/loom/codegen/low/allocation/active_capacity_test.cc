@@ -50,11 +50,17 @@ class LowAllocationActiveCapacityTest : public ::testing::Test {
                       std::vector<uint32_t> refined_ends = {}) {
     std::vector<uint32_t> interval_indices(intervals.size());
     std::iota(interval_indices.begin(), interval_indices.end(), 0);
-    std::vector<uint32_t> unit_offsets;
+    std::vector<loom_low_allocation_unit_liveness_value_t> values;
     std::vector<uint32_t> unit_starts;
     std::vector<uint32_t> unit_ends;
     for (const auto& interval : intervals) {
-      unit_offsets.push_back(static_cast<uint32_t>(unit_ends.size()));
+      if (interval.value_class.type_kind != LOOM_TYPE_REGISTER ||
+          interval.unit_count == 0) {
+        values.push_back({UINT32_MAX, UINT32_MAX});
+        continue;
+      }
+      values.push_back(
+          {static_cast<uint32_t>(unit_ends.size()), interval.start_point});
       unit_starts.insert(unit_starts.end(), interval.unit_count,
                          interval.start_point);
       unit_ends.insert(unit_ends.end(), interval.unit_count,
@@ -70,7 +76,7 @@ class LowAllocationActiveCapacityTest : public ::testing::Test {
     liveness.value_count = intervals.size();
     liveness.value_interval_indices = interval_indices.data();
     loom_low_allocation_unit_liveness_t unit_liveness = {};
-    unit_liveness.point_starts_by_value_ordinal = unit_offsets.data();
+    unit_liveness.values = values.data();
     unit_liveness.start_points = unit_starts.data();
     unit_liveness.end_points = unit_ends.data();
     unit_liveness.point_count = unit_ends.size();

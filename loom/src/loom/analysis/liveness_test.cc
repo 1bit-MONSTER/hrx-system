@@ -204,10 +204,13 @@ func.def @linear(%a: i32, %b: i32) -> (i32) {
   ASSERT_NE(a_interval, nullptr);
   ASSERT_NE(sum_interval, nullptr);
   ASSERT_NE(dead_interval, nullptr);
+  EXPECT_EQ(a_interval->definition_point, 0u);
   EXPECT_EQ(a_interval->start_point, 0u);
   EXPECT_EQ(a_interval->end_point, 2u);
+  EXPECT_EQ(sum_interval->definition_point, 1u);
   EXPECT_EQ(sum_interval->start_point, 1u);
   EXPECT_EQ(sum_interval->end_point, 3u);
+  EXPECT_EQ(dead_interval->definition_point, 2u);
   EXPECT_EQ(dead_interval->start_point, 2u);
   EXPECT_EQ(dead_interval->end_point, 2u);
 
@@ -273,6 +276,13 @@ func.def @ordered(%a: i32, %b: i32) -> (i32) {
     EXPECT_EQ(analysis.operation_points[i].op, ordered_ops[i]);
     EXPECT_EQ(analysis.operation_points[i].start_point, i);
     EXPECT_EQ(analysis.operation_points[i].end_point, i + 1u);
+    for (uint16_t result_index = 0; result_index < ordered_ops[i]->result_count;
+         ++result_index) {
+      const auto* interval = loom_liveness_interval_for_value(
+          &analysis, loom_op_const_results(ordered_ops[i])[result_index]);
+      ASSERT_NE(interval, nullptr);
+      EXPECT_EQ(interval->definition_point, i + 1u);
+    }
   }
 }
 
@@ -372,8 +382,10 @@ TEST_F(LivenessTest, CfgLoopPropagatesFixedPointLiveness) {
   ModulePtr module = ParseModule(R"(
 func.def @cfg_loop(%cond: i1, %x: i32) -> (i32) {
   cfg.br ^loop(%x: i32)
+^dispatch:
+  cfg.br ^exit
 ^loop(%iter: i32):
-  cfg.cond_br %cond, ^body, ^exit
+  cfg.cond_br %cond, ^body, ^dispatch
 ^body:
   %next = scalar.addi %iter, %x : i32
   cfg.br ^loop(%next: i32)
@@ -388,12 +400,13 @@ func.def @cfg_loop(%cond: i1, %x: i32) -> (i32) {
 
   loom_liveness_analysis_t analysis = AnalyzeBody(module.get(), func);
   ASSERT_TRUE(analysis.is_cfg);
-  ASSERT_EQ(analysis.block_count, 4u);
+  ASSERT_EQ(analysis.block_count, 5u);
 
   const loom_liveness_block_info_t& entry = analysis.blocks[0];
-  const loom_liveness_block_info_t& loop = analysis.blocks[1];
-  const loom_liveness_block_info_t& body = analysis.blocks[2];
-  const loom_liveness_block_info_t& exit = analysis.blocks[3];
+  const loom_liveness_block_info_t& dispatch = analysis.blocks[1];
+  const loom_liveness_block_info_t& loop = analysis.blocks[2];
+  const loom_liveness_block_info_t& body = analysis.blocks[3];
+  const loom_liveness_block_info_t& exit = analysis.blocks[4];
   EXPECT_TRUE(
       ContainsValue(entry.live_out_values, entry.live_out_count, args[0]));
   EXPECT_TRUE(
@@ -404,6 +417,14 @@ func.def @cfg_loop(%cond: i1, %x: i32) -> (i32) {
   EXPECT_EQ(exit.live_in_count, 1u);
 
   const loom_value_id_t iter = loom_block_arg_id(loop.block, 0);
+  const auto* iter_interval = loom_liveness_interval_for_value(&analysis, iter);
+  ASSERT_NE(iter_interval, nullptr);
+  // Live-through blocks can precede the defining block in numeric layout.
+  EXPECT_TRUE(
+      ContainsValue(dispatch.live_in_values, dispatch.live_in_count, iter));
+  EXPECT_EQ(iter_interval->start_point, dispatch.start_point);
+  EXPECT_EQ(iter_interval->definition_point, loop.start_point);
+  EXPECT_LT(iter_interval->start_point, iter_interval->definition_point);
   const loom_op_t* add = loom_block_const_op(body.block, 0);
   const loom_value_id_t next = loom_op_const_results(add)[0];
   const loom_liveness_segment_range_t iter_segments =
@@ -415,7 +436,7 @@ func.def @cfg_loop(%cond: i1, %x: i32) -> (i32) {
   const loom_liveness_segment_range_t invariant_segments =
       loom_liveness_segment_range_for_value_ordinal(
           &analysis, FindValueOrdinal(analysis, args[1]));
-  EXPECT_EQ(iter_segments.count, 3u);
+  EXPECT_EQ(iter_segments.count, 4u);
   EXPECT_EQ(next_segments.count, 1u);
   EXPECT_FALSE(loom_liveness_segment_ranges_overlap(
       analysis.segments, iter_segments, next_segments));
@@ -558,6 +579,39 @@ func.def @region_tree_pressure(%input: tile<4xf32>, %bias: f32) -> (tile<4xf32>)
     EXPECT_EQ(analysis.operation_points[i].parent_operation_index, 0u);
   }
   EXPECT_EQ(analysis.operation_points[6].parent_operation_index, UINT32_MAX);
+
+  const loom_region_t* nested_region = loom_op_regions(map_point.op)[0];
+  const loom_block_t* nested_block =
+      loom_region_const_entry_block(nested_region);
+  const loom_value_id_t element = loom_block_arg_id(nested_block, 0);
+  const auto* element_interval =
+      loom_liveness_interval_for_value(&analysis, element);
+  const auto* mapped_interval = loom_liveness_interval_for_value(
+      &analysis, loom_op_const_results(map_point.op)[0]);
+  const auto* bias_interval =
+      loom_liveness_interval_for_value(&analysis, args[1]);
+  ASSERT_NE(element_interval, nullptr);
+  ASSERT_NE(mapped_interval, nullptr);
+  ASSERT_NE(bias_interval, nullptr);
+  EXPECT_EQ(element_interval->definition_point,
+            analysis.operation_points[1].start_point);
+  EXPECT_EQ(mapped_interval->definition_point, map_point.end_point);
+  EXPECT_EQ(bias_interval->definition_point, 0u);
+
+  // An analysis rooted at the nested region owns its argument definition but
+  // sees the enclosing function's bias only as a capture.
+  loom_liveness_analysis_t nested_analysis = {};
+  IREE_ASSERT_OK(loom_liveness_analyze_region(
+      module.get(), nested_region, &analysis_arena_, &nested_analysis));
+  const auto* nested_element_interval =
+      loom_liveness_interval_for_value(&nested_analysis, element);
+  const auto* captured_bias_interval =
+      loom_liveness_interval_for_value(&nested_analysis, args[1]);
+  ASSERT_NE(nested_element_interval, nullptr);
+  ASSERT_NE(captured_bias_interval, nullptr);
+  EXPECT_EQ(nested_element_interval->definition_point, 0u);
+  EXPECT_EQ(captured_bias_interval->definition_point, UINT32_MAX);
+  EXPECT_EQ(captured_bias_interval->start_point, 0u);
 }
 
 TEST_F(LivenessTest, PressureBudgetReportsHighUnrolledRegisterUse) {

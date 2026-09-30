@@ -63,12 +63,13 @@ TEST(LowAllocationConcatReservationTest,
   liveness.value_count = IREE_ARRAYSIZE(value_ids);
   liveness.value_interval_indices = interval_indices;
 
-  uint32_t point_starts[] = {0, 2, 4, 8};
+  loom_low_allocation_unit_liveness_value_t unit_values[] = {
+      {0, 2}, {2, 3}, {4, 4}, {8, 5}};
   uint32_t unit_start_points[] = {2, 2, 3, 3, 2, 2, 3, 3, 5, 5};
   uint32_t unit_end_points[] = {4, 4, 4, 4, 10, 10, 10, 10, 14, 14};
   uint64_t incomplete_storage_words[] = {0};
   loom_low_allocation_unit_liveness_t unit_liveness = {};
-  unit_liveness.point_starts_by_value_ordinal = point_starts;
+  unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_start_points;
   unit_liveness.end_points = unit_end_points;
   unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
@@ -162,6 +163,7 @@ TEST(LowAllocationConcatReservationTest,
       future.start_point = future_start;
       intervals[3].start_point = future_start;
       intervals[3].end_point = 14;
+      unit_values[3].acquisition_start_point = future_start;
       unit_start_points[8] = unit_start_points[9] = future_start;
       loom_low_allocation_active_set_t active_set = {};
       IREE_CHECK_OK(loom_low_allocation_active_set_initialize(1, 16, 16, &arena,

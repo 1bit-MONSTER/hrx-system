@@ -1,3 +1,23 @@
+// Non-writing identities share their original storage even when every name
+// remains live. Each name is published without acquiring another register bank.
+// RUN: with-checks emit low-allocation-json @live_identity_chain
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @live_identity_chain(%source: reg<test.i32 x4>) -> (reg<test.i32 x4>, reg<test.i32 x4>, reg<test.i32 x4>) asm {
+  %first_identity = low.assume %source [range(%source, 0, 1024)] : reg<test.i32 x4>
+  %second_identity = low.assume %first_identity [range(%first_identity, 0, 1024)] : reg<test.i32 x4>
+  return %source, %first_identity, %second_identity
+}
+
+// ----
+CHECK: *"assignment_count":3,*"spill_count":0,*
+CHECK: *"name":"source","type":"reg<test.i32 x4>"},"class":*,"start_point":0,"end_point":3,"unit_count":4,"location":{"kind":"target_id","base":0,"count":4}}*
+CHECK: *"name":"first_identity","type":"reg<test.i32 x4>"},"class":*,"start_point":1,"end_point":3,"unit_count":4,"location":{"kind":"target_id","base":0,"count":4}}*
+CHECK: *"name":"second_identity","type":"reg<test.i32 x4>"},"class":*,"start_point":2,"end_point":3,"unit_count":4,"location":{"kind":"target_id","base":0,"count":4}}*
+
+// ====
+
 // RUN: emit low-allocation-json @copy_input_at_early_tie
 
 test.target<low_core> @target

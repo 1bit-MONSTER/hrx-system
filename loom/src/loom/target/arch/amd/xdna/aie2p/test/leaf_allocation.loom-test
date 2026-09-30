@@ -1,3 +1,87 @@
+// A pointer fixed to p1 selects the matching lf1/r25 FIFO tuple.
+// RUN: emit aie2p-leaf @fixed_fifo_tuple fixed=%pointer:physical_register:201:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @fixed_fifo_tuple(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
+// A constraint on a pointer identity reaches its already assigned p1 owner.
+// RUN: emit aie2p-leaf @identity_fifo_tuple fixed=%pointer:physical_register:201:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @identity_fifo_tuple(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
+  %pointer_identity = low.assume %pointer [range(%pointer, 0, 1024)] : reg<aie2p.eps>
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer_identity, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
+// The FIFO is allocated before the fixed pointer, whose resolved binding still
+// selects tuple ordinal 1 before either interval has an assignment.
+// RUN: emit aie2p-leaf @fifo_before_fixed_pointer fixed=%pointer:physical_register:201:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @fifo_before_fixed_pointer(%initial_fifo: reg<aie2p.eldfiforeg>, %pointer: reg<aie2p.eps>) -> (reg<aie2p.vec256 x2>) asm {
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
+// A constraint introduced on a future identity participates in its origin's
+// initial placement, using the FIFO's resolved lf1 binding.
+// RUN: emit aie2p-leaf @identity_before_fixed_fifo fixed=%initial_fifo:physical_register:184:1 registers=p0,p1,lf0,lf1,r24,r25
+
+low.func.def target<amd.xdna.aie2p.core> @identity_before_fixed_fifo(%pointer: reg<aie2p.eps>, %initial_fifo: reg<aie2p.eldfiforeg>) -> (reg<aie2p.vec256 x2>) asm {
+  %pointer_identity = low.assume %pointer [range(%pointer, 0, 1024)] : reg<aie2p.eps>
+  %position = mova.fifo.position 0
+  %filled_pointer, %filled_fifo, %filled_position = vldb.fill.512 %pointer_identity, %initial_fifo, %position
+  %data, %final_pointer, %final_fifo, %final_position = vldb.pop.512.i8x64 %filled_pointer, %filled_fifo, %filled_position
+  return %data
+}
+
+// ----
+p0: preserved
+p1: written
+lf0: preserved
+lf1: written
+r24: preserved
+r25: written
+
+// ====
+
 // Reversed parameter order must preserve two independent FIFO tuples.
 // RUN: with-checks emit low-allocation @fifo_pair diagnostics=placement-decisions
 

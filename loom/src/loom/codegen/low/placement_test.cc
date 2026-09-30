@@ -176,14 +176,21 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
         module, body, &descriptor_set, &domain, &liveness, {}, &module->arena,
         &placement));
     ASSERT_NE(placement.unit_alignment_log2_by_interval, nullptr);
+    ASSERT_NE(placement.tied_storage_origins_by_value_ordinal, nullptr);
+    const auto chain_origin =
+        loom_local_value_domain_try_ordinal(&domain, chain[0]);
     for (auto value : chain) {
       const auto ordinal = loom_local_value_domain_try_ordinal(&domain, value);
+      EXPECT_EQ(placement.tied_storage_origins_by_value_ordinal[ordinal],
+                chain_origin);
       EXPECT_EQ(placement.unit_alignment_log2_by_interval
                     [liveness.value_interval_indices[ordinal]],
                 class_id == 0 ? 3 : 1);
     }
     const auto source_ordinal =
         loom_local_value_domain_try_ordinal(&domain, source);
+    EXPECT_EQ(placement.tied_storage_origins_by_value_ordinal[source_ordinal],
+              source_ordinal);
     EXPECT_EQ(placement.unit_alignment_log2_by_interval
                   [liveness.value_interval_indices[source_ordinal]],
               0);

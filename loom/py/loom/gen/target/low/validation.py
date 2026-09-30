@@ -1801,6 +1801,8 @@ def validate_descriptor_storage_leases(
             raise ValueError(f"{description} has zero release action id")
         if lease.release_reason_id == LOW_DESCRIPTOR_ENCODING_ID_NONE:
             raise ValueError(f"{description} has no release reason id")
+        if StorageLeaseFlag.STARTS_AT_ISSUE not in lease.flags:
+            raise ValueError(f"{description} must start at issue")
         if StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY in lease.flags and StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY in lease.flags:
             raise ValueError(f"{description} cannot both release before and carry across a boundary")
         unit_count = attachment_unit_counts.get((lease.attachment, lease.attachment_index))
