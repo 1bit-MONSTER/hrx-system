@@ -714,6 +714,7 @@ loom_module(
         "//loom/src/loom/test/corpus/source_low:memory_generic.loom-test",
         "//loom/src/loom/test/corpus/source_low:memory_generic_atomic_addressing.loom-test",
         "//loom/src/loom/test/corpus/source_low:memory_workgroup_atomic_observations.loom",
+        "//loom/src/loom/test/corpus/source_low:numeric_narrow_reduce.loom",
         "//loom/src/loom/test/corpus/source_low:storage_stability.loom-test",
         "//loom/src/loom/test/corpus/source_low:storage_stability_cfg.loom-test",
         "//loom/src/loom/test/corpus/source_low:storage_stability_switch.loom-test",

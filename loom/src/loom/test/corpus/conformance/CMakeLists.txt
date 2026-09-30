@@ -3276,6 +3276,7 @@ loom_module(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_generic_atomic_addressing.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_workgroup_atomic_observations.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_narrow_reduce.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability_cfg.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/storage_stability_switch.loom-test"
