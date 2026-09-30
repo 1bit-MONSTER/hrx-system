@@ -1,0 +1,287 @@
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @sitofp_i8_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi8>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %value : vector<4xi8> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s16 *, *, 6
+
+// ====
+
+func.def @uitofp_i8_f16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xi8>
+  %target = buffer.view %output[%base] : buffer -> view<3xf16>
+  %value = vector.load %source[0] : view<3xi8> -> vector<3xi8>
+  %converted = vector.uitofp %value : vector<3xi8> to vector<3xf16>
+  vector.store %converted, %target[0] : vector<3xf16>, view<3xf16>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s16 *, *, 4
+
+// ====
+
+func.def @sitofp_i16_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi16>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi16> -> i16
+  %converted = scalar.sitofp %value : i16 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s16 *, *, 0
+
+// ====
+
+func.def @uitofp_i16_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi16>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi16> -> vector<4xi16>
+  %converted = vector.uitofp %value : vector<4xi16> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s16 *, *, 6
+
+// ====
+
+func.def @sitofp_i32_f16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi32>
+  %target = buffer.view %output[%base] : buffer -> view<4xf16>
+  %value = vector.load %source[0] : view<4xi32> -> vector<4xi32>
+  %converted = vector.sitofp %value : vector<4xi32> to vector<4xf16>
+  vector.store %converted, %target[0] : vector<4xf16>, view<4xf16>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s16 *, *, 6
+
+// ====
+
+func.def @uitofp_i32_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.uitofp %value : i32 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s16 *, *, 0
+
+// ====
+
+func.def @fptosi_f16_i8_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi8>
+  %value = vector.load %source[0] : view<4xf16> -> vector<4xf16>
+  %converted = vector.fptosi %value : vector<4xf16> to vector<4xi8>
+  vector.store %converted, %target[0] : vector<4xi8>, view<4xi8>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st.s8 *, *, 3
+
+// ====
+
+func.def @fptoui_f16_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf16>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf16> -> f16
+  %converted = scalar.fptoui %value : f16 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st.s16 *, *, 0
+
+// ====
+
+func.def @fptosi_bf16_i16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<3xi16>
+  %value = vector.load %source[0] : view<3xbf16> -> vector<3xbf16>
+  %converted = vector.fptosi %value : vector<3xbf16> to vector<3xi16>
+  vector.store %converted, %target[0] : vector<3xi16>, view<3xi16>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st.s16 *, *, 4
+
+// ====
+
+func.def @fptoui_bf16_i32_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi32>
+  %value = vector.load %source[0] : view<4xbf16> -> vector<4xbf16>
+  %converted = vector.fptoui %value : vector<4xbf16> to vector<4xi32>
+  vector.store %converted, %target[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st *, *, 12
+
+// ====
+
+func.def @sitofp_i8_f8E4M3_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi8>
+  %target = buffer.view %output[%base] : buffer -> view<4xf8E4M3>
+  %value = vector.load %source[0] : view<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %value : vector<4xi8> to vector<4xf8E4M3>
+  vector.store %converted, %target[0] : vector<4xf8E4M3>, view<4xf8E4M3>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s8 *, *, 3
+
+// ====
+
+func.def @uitofp_i16_f8E5M2_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xi16>
+  %target = buffer.view %output[%base] : buffer -> view<3xf8E5M2>
+  %value = vector.load %source[0] : view<3xi16> -> vector<3xi16>
+  %converted = vector.uitofp %value : vector<3xi16> to vector<3xf8E5M2>
+  vector.store %converted, %target[0] : vector<3xf8E5M2>, view<3xf8E5M2>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s8 *, *, 2
+
+// ====
+
+func.def @sitofp_i32_f8E4M3_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf8E4M3>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.sitofp %value : i32 to f8E4M3
+  view.store %converted, %target[0] : f8E4M3, view<1xf8E4M3>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s8 *, *, 0
+
+// ====
+
+func.def @uitofp_i32_f8E5M2_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf8E5M2>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.uitofp %value : i32 to f8E5M2
+  view.store %converted, %target[0] : f8E5M2, view<1xf8E5M2>
+  func.return
+}
+
+// ----
+CHECK: *convert.signed.i32.to.f32*
+CHECK: *st.s8 *, *, 0
+
+// ====
+
+func.def @fptosi_f8E4M3_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf8E4M3>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf8E4M3> -> f8E4M3
+  %converted = scalar.fptosi %value : f8E4M3 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st.s16 *, *, 0
+
+// ====
+
+func.def @fptosi_f8E5M2_i32_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf8E5M2>
+  %target = buffer.view %output[%base] : buffer -> view<4xi32>
+  %value = vector.load %source[0] : view<4xf8E5M2> -> vector<4xf8E5M2>
+  %converted = vector.fptosi %value : vector<4xf8E5M2> to vector<4xi32>
+  vector.store %converted, %target[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st *, *, 12
+
+// ====
+
+func.def @fptoui_f8E4M3_i8_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf8E4M3>
+  %target = buffer.view %output[%base] : buffer -> view<4xi8>
+  %value = vector.load %source[0] : view<4xf8E4M3> -> vector<4xf8E4M3>
+  %converted = vector.fptoui %value : vector<4xf8E4M3> to vector<4xi8>
+  vector.store %converted, %target[0] : vector<4xi8>, view<4xi8>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st.s8 *, *, 3
+
+// ====
+
+func.def @fptoui_f8E5M2_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf8E5M2>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf8E5M2> -> f8E5M2
+  %converted = scalar.fptoui %value : f8E5M2 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+CHECK: *convert.round-nearest.f32.to.signed.i32*
+CHECK: *st.s16 *, *, 0
