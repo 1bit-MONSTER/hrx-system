@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "iree/base/internal/math.h"
 #include "loom/ir/structural_hash.h"
 #include "loom/util/fact_table.h"
 
@@ -908,6 +909,100 @@ bool loom_value_facts_query_vector_iota(const loom_fact_context_t* context,
     *out = entry->payload.vector_iota;
   }
   return true;
+}
+
+static bool loom_value_facts_bounded_integer_range(loom_value_facts_t facts,
+                                                   int64_t* out_lower,
+                                                   int64_t* out_upper) {
+  if (loom_value_facts_is_float(facts) ||
+      (!loom_value_facts_is_exact(facts) &&
+       (facts.range_lo == INT64_MIN || facts.range_hi == INT64_MAX))) {
+    return false;
+  }
+  *out_lower = facts.range_lo;
+  *out_upper = facts.range_hi;
+  return true;
+}
+
+bool loom_value_facts_query_vector_integer_bounds(
+    const loom_fact_context_t* context, loom_value_facts_t facts,
+    uint64_t maximum_lane_count, int64_t* out_lower, int64_t* out_upper) {
+  const loom_value_fact_extension_entry_t* entry =
+      loom_value_facts_lookup_extension(context, facts);
+  if (!entry) {
+    return false;
+  }
+
+  switch (entry->kind) {
+    case LOOM_VALUE_FACT_EXTENSION_UNIFORM_ELEMENT:
+      return loom_value_facts_bounded_integer_range(
+          entry->payload.uniform_element.element, out_lower, out_upper);
+    case LOOM_VALUE_FACT_EXTENSION_SMALL_STATIC_LANES: {
+      loom_value_fact_small_static_lanes_t lanes =
+          entry->payload.small_static_lanes;
+      if (lanes.count == 0) {
+        *out_lower = 0;
+        *out_upper = -1;
+        return true;
+      }
+      int64_t lower = INT64_MAX;
+      int64_t upper = INT64_MIN;
+      for (iree_host_size_t i = 0; i < lanes.count; ++i) {
+        int64_t lane_lower = 0;
+        int64_t lane_upper = 0;
+        if (!loom_value_facts_bounded_integer_range(lanes.lanes[i], &lane_lower,
+                                                    &lane_upper)) {
+          return false;
+        }
+        lower = iree_min(lower, lane_lower);
+        upper = iree_max(upper, lane_upper);
+      }
+      *out_lower = lower;
+      *out_upper = upper;
+      return true;
+    }
+    case LOOM_VALUE_FACT_EXTENSION_VECTOR_IOTA: {
+      if (maximum_lane_count == UINT64_MAX) {
+        return false;
+      }
+      if (maximum_lane_count == 0) {
+        *out_lower = 0;
+        *out_upper = -1;
+        return true;
+      }
+
+      loom_value_fact_vector_iota_t iota = entry->payload.vector_iota;
+      int64_t base_lower = 0;
+      int64_t base_upper = 0;
+      int64_t step = 0;
+      if (!loom_value_facts_bounded_integer_range(iota.base, &base_lower,
+                                                  &base_upper) ||
+          !loom_value_facts_as_exact_i64(iota.step, &step) ||
+          maximum_lane_count - 1 > INT64_MAX) {
+        return false;
+      }
+
+      int64_t last_delta = 0;
+      if (!iree_checked_mul_i64((int64_t)(maximum_lane_count - 1), step,
+                                &last_delta)) {
+        return false;
+      }
+      if (step >= 0) {
+        if (!iree_checked_add_i64(base_upper, last_delta, out_upper)) {
+          return false;
+        }
+        *out_lower = base_lower;
+      } else {
+        if (!iree_checked_add_i64(base_lower, last_delta, out_lower)) {
+          return false;
+        }
+        *out_upper = base_upper;
+      }
+      return true;
+    }
+    default:
+      return false;
+  }
 }
 
 iree_status_t loom_value_facts_make_vector_prefix_mask(
