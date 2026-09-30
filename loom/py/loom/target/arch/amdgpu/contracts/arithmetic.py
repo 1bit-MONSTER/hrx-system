@@ -65,6 +65,7 @@ from loom.target.contracts import (
 from loom.target.low_descriptors import Descriptor
 
 _DESCRIPTOR_KEYS = (
+    "amdgpu.s_mov_b32",
     "amdgpu.s_add_f16",
     "amdgpu.s_sub_f16",
     "amdgpu.s_mul_f16",
@@ -210,6 +211,7 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_bfe_u32.offset_0_width_16_low16",
     "amdgpu.v_bfe_i32.offset_width_inline",
     "amdgpu.v_bfe_u32.offset_width_inline",
+    "amdgpu.v_bfi_b32",
     "amdgpu.v_bfi_b32.src0_lit",
     "amdgpu.v_ashrrev_i32",
     "amdgpu.v_ashrrev_i32.src0_inline",
@@ -812,28 +814,73 @@ def _f32_abs_rule(
     )
 
 
-def _f32_copysign_rule(
+def _f32_copysign_rules(
     source_op: Op,
     type_pattern: TypePattern,
-) -> DescriptorRule:
-    descriptor = _descriptor("amdgpu.v_bfi_b32.src0_lit")
-    return DescriptorRule(
-        source_op=source_op,
-        descriptor=descriptor,
-        guards=(
-            *_typed_guards(("lhs", "rhs", "result"), type_pattern),
-            Guard.descriptor_available(descriptor),
+) -> tuple[DescriptorRule, ...]:
+    literal_insert = _descriptor("amdgpu.v_bfi_b32.src0_lit")
+    move = _descriptor("amdgpu.s_mov_b32")
+    register_insert = _descriptor("amdgpu.v_bfi_b32")
+    typed_guards = _typed_guards(("lhs", "rhs", "result"), type_pattern)
+    emit_form = _emit_form(type_pattern)
+    register_emit_form = (
+        DescriptorEmitForm.PER_LANE_SEQUENCE
+        if type_pattern.kind == "vector"
+        else DescriptorEmitForm.OP
+    )
+    register_insert_operand = (
+        ValueRef.operand("lhs")
+        if type_pattern.kind == "vector"
+        else _f32_vgpr_operand("lhs")
+    )
+    register_base_operand = (
+        ValueRef.operand("rhs")
+        if type_pattern.kind == "vector"
+        else _f32_vgpr_operand("rhs")
+    )
+    return (
+        DescriptorRule(
+            source_op=source_op,
+            descriptor=literal_insert,
+            guards=(*typed_guards, Guard.descriptor_available(literal_insert)),
+            emit=(
+                EmitDescriptorOp(
+                    descriptor=literal_insert,
+                    operands={
+                        "insert": _f32_vgpr_operand("lhs"),
+                        "base": _f32_vgpr_operand("rhs"),
+                    },
+                    results={"dst": ValueRef.result("result")},
+                    immediates={"imm32": _F32_ABS_MASK},
+                    form=emit_form,
+                ),
+            ),
         ),
-        emit=(
-            EmitDescriptorOp(
-                descriptor=descriptor,
-                operands={
-                    "insert": _f32_vgpr_operand("lhs"),
-                    "base": _f32_vgpr_operand("rhs"),
-                },
-                results={"dst": ValueRef.result("result")},
-                immediates={"imm32": _F32_ABS_MASK},
-                form=_emit_form(type_pattern),
+        DescriptorRule(
+            source_op=source_op,
+            descriptor=register_insert,
+            guards=(
+                *typed_guards,
+                Guard.descriptor_available(move),
+                Guard.descriptor_available(register_insert),
+            ),
+            emit=(
+                EmitDescriptorOp(
+                    descriptor=move,
+                    results={"dst": ValueRef.temporary("magnitude_mask")},
+                    result_types={"dst": _I32},
+                    immediates={"imm32": _F32_ABS_MASK},
+                ),
+                EmitDescriptorOp(
+                    descriptor=register_insert,
+                    operands={
+                        "mask": ValueRef.temporary("magnitude_mask"),
+                        "insert": register_insert_operand,
+                        "base": register_base_operand,
+                    },
+                    results={"dst": ValueRef.result("result")},
+                    form=register_emit_form,
+                ),
             ),
         ),
     )
@@ -3898,7 +3945,7 @@ def _rules() -> tuple[ContractCase, ...]:
             ),
             _f32_neg_rule(vector.vector_negf, _VEC_F32_STATIC, f32_operand=True),
             _f32_abs_rule(vector.vector_absf, _VEC_F32_STATIC, f32_operand=True),
-            _f32_copysign_rule(vector.vector_copysignf, _VEC_F32_STATIC),
+            *_f32_copysign_rules(vector.vector_copysignf, _VEC_F32_STATIC),
             _divf_arcp_one_rule(vector.vector_divf, _VEC_F32_STATIC),
             _divf_arcp_literal_lhs_rule(vector.vector_divf, _VEC_F32_STATIC),
             _divf_arcp_rule(vector.vector_divf, _VEC_F32_STATIC),
@@ -4170,7 +4217,7 @@ def _rules() -> tuple[ContractCase, ...]:
             ),
             _f32_neg_rule(scalar_arithmetic.scalar_negf, _F32, f32_operand=True),
             _f32_abs_rule(scalar_arithmetic.scalar_absf, _F32, f32_operand=True),
-            _f32_copysign_rule(scalar_arithmetic.scalar_copysignf, _F32),
+            *_f32_copysign_rules(scalar_arithmetic.scalar_copysignf, _F32),
             _divf_arcp_one_rule(scalar_arithmetic.scalar_divf, _F32),
             _divf_arcp_literal_lhs_rule(scalar_arithmetic.scalar_divf, _F32),
             _divf_arcp_rule(scalar_arithmetic.scalar_divf, _F32),

@@ -816,17 +816,8 @@ def test_compile_lower_rule_set_compiles_setup_before_per_lane_sequence() -> Non
                             "lhs": ValueRef.operand("lhs"),
                             "rhs": ValueRef.temporary("bias"),
                         },
-                        results={"dst": ValueRef.temporary("partial")},
-                        result_types={"dst": ValueRef.result("result")},
-                        form=DescriptorEmitForm.PER_LANE_SEQUENCE,
-                    ),
-                    EmitDescriptorOp(
-                        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
-                        operands={
-                            "lhs": ValueRef.temporary("partial"),
-                            "rhs": ValueRef.operand("rhs"),
-                        },
                         results={"dst": ValueRef.result("result")},
+                        result_types={"dst": ValueRef.result("result")},
                         form=DescriptorEmitForm.PER_LANE_SEQUENCE,
                     ),
                 ),
@@ -840,7 +831,27 @@ def test_compile_lower_rule_set_compiles_setup_before_per_lane_sequence() -> Non
     assert tuple(emit.kind for emit in compiled.emits) == (
         LowerEmitKind.DESCRIPTOR_CONST,
         LowerEmitKind.DESCRIPTOR_OP_PER_LANE_SEQUENCE,
-        LowerEmitKind.DESCRIPTOR_OP_PER_LANE_SEQUENCE,
+    )
+
+
+def test_descriptor_rule_rejects_single_per_lane_sequence_without_setup() -> None:
+    _expect_value_error(
+        lambda: DescriptorRule(
+            source_op=vector.vector_addi,
+            descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+            emit=(
+                EmitDescriptorOp(
+                    descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                    operands={
+                        "lhs": ValueRef.operand("lhs"),
+                        "rhs": ValueRef.operand("rhs"),
+                    },
+                    results={"dst": ValueRef.result("result")},
+                    form=DescriptorEmitForm.PER_LANE_SEQUENCE,
+                ),
+            ),
+        ).validate(TEST_LOW_CORE_DESCRIPTOR_SET),
+        "a single per-lane-sequence emit requires shared setup",
     )
 
 
