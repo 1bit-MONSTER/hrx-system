@@ -33,4 +33,21 @@ loom_cc_test(
     loom::ir
 )
 
+loom_cc_library(
+  NAME
+    target_legalization
+  HDRS
+    "target_legalization.h"
+  SRCS
+    "target_legalization.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::scalar
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+  PUBLIC
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

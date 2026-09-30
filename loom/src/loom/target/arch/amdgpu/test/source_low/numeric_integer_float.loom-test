@@ -1,0 +1,355 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_float.loom-test
+// RUN: emit source-low target=amdgpu:gfx1100 output=low
+
+func.def @sitofp_i8_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi8>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %value : vector<4xi8> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @sitofp_i8_bf16_4() asm {
+  %source = resource<hal_binding> {extent = 4, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_b32_saddr %11, %source
+  %13 = v_bfe_i32_offset_width_inline %value {offset = 0, width = 8}
+  %14 = v_cvt_f32_i32 %13
+  %15 = v_bfe_i32_offset_width_inline %value {offset = 8, width = 8}
+  %16 = v_cvt_f32_i32 %15
+  %17 = v_bfe_i32_offset_width_inline %value {offset = 16, width = 8}
+  %18 = v_cvt_f32_i32 %17
+  %19 = v_ashrrev_i32_src0_inline %value, 24
+  %20 = v_cvt_f32_i32 %19
+  %24 = v_lshrrev_b32_src0_inline %14, 16
+  %25 = v_and_b32_src0_inline %24, 1
+  %26 = v_add3_u32_src2_lit %14, %25, 32767
+  %27 = v_lshrrev_b32_src0_inline %26, 16
+  %28 = v_lshrrev_b32_src0_inline %16, 16
+  %29 = v_and_b32_src0_inline %28, 1
+  %30 = v_add3_u32_src2_lit %16, %29, 32767
+  %31 = v_lshrrev_b32_src0_inline %30, 16
+  %32 = v_cvt_pk_u16_u32 %27, %31
+  %35 = v_lshrrev_b32_src0_inline %18, 16
+  %36 = v_and_b32_src0_inline %35, 1
+  %37 = v_add3_u32_src2_lit %18, %36, 32767
+  %38 = v_lshrrev_b32_src0_inline %37, 16
+  %39 = v_lshrrev_b32_src0_inline %20, 16
+  %40 = v_and_b32_src0_inline %39, 1
+  %41 = v_add3_u32_src2_lit %20, %40, 32767
+  %42 = v_lshrrev_b32_src0_inline %41, 16
+  %43 = v_cvt_pk_u16_u32 %38, %42
+  %converted = concat(%32, %43) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %11, %converted, %target
+  return
+}
+
+// ====
+
+func.def @uitofp_i8_f16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xi8>
+  %target = buffer.view %output[%base] : buffer -> view<3xf16>
+  %value = vector.load %source[0] : view<3xi8> -> vector<3xi8>
+  %converted = vector.uitofp %value : vector<3xi8> to vector<3xf16>
+  vector.store %converted, %target[0] : vector<3xf16>, view<3xf16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @uitofp_i8_f16_3() asm {
+  %source = resource<hal_binding> {extent = 3, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 6, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %12 = global_load_u16_saddr %11, %source
+  %14 = global_load_i8_saddr %11, %source {offset = 2}
+  %15 = v_lshlrev_b32_src0_inline %14, 16
+  %value = v_or_b32 %12, %15
+  %17 = v_cvt_f32_ubyte0 %value
+  %18 = v_cvt_f32_ubyte1 %value
+  %19 = v_cvt_f32_ubyte2 %value
+  %22 = v_cvt_f16_f32 %17
+  %23 = v_bfe_u32_offset_0_width_16_low16 %22
+  %25 = v_cvt_f16_f32 %18
+  %26 = v_bfe_u32_offset_0_width_16_low16 %25
+  %27 = v_lshl_add_u32_shift_imm %26, %23, 16
+  %29 = v_cvt_f16_f32 %19
+  %30 = v_bfe_u32_offset_0_width_16_low16 %29
+  global_store_b32_saddr %11, %27, %target
+  global_store_short_saddr %11, %30, %target {offset = 4}
+  return
+}
+
+// ====
+
+func.def @sitofp_i16_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi16>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi16> -> i16
+  %converted = scalar.sitofp %value : i16 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @sitofp_i16_f16_1() asm {
+  %source = resource<hal_binding> {extent = 2, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 2, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %9 = v_mov_b32 0
+  %value = global_load_i16_saddr %9, %source
+  %11 = v_cvt_f32_i32 %value
+  %converted = v_cvt_f16_f32 %11
+  %13 = v_bfe_u32_offset_0_width_16_low16 %converted
+  global_store_short_saddr %9, %13, %target
+  return
+}
+
+// ====
+
+func.def @uitofp_i16_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi16>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi16> -> vector<4xi16>
+  %converted = vector.uitofp %value : vector<4xi16> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @uitofp_i16_bf16_4() asm {
+  %source = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_b64_saddr %11, %source
+  %13 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %14 = v_and_b32_lit %13, 65535
+  %15 = v_cvt_f32_u32 %14
+  %17 = v_bfe_u32_offset_width_inline %13 {offset = 16, width = 16}
+  %18 = v_cvt_f32_u32 %17
+  %19 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %20 = v_and_b32_lit %19, 65535
+  %21 = v_cvt_f32_u32 %20
+  %23 = v_bfe_u32_offset_width_inline %19 {offset = 16, width = 16}
+  %24 = v_cvt_f32_u32 %23
+  %28 = v_lshrrev_b32_src0_inline %15, 16
+  %29 = v_and_b32_src0_inline %28, 1
+  %30 = v_add3_u32_src2_lit %15, %29, 32767
+  %31 = v_lshrrev_b32_src0_inline %30, 16
+  %32 = v_lshrrev_b32_src0_inline %18, 16
+  %33 = v_and_b32_src0_inline %32, 1
+  %34 = v_add3_u32_src2_lit %18, %33, 32767
+  %35 = v_lshrrev_b32_src0_inline %34, 16
+  %36 = v_cvt_pk_u16_u32 %31, %35
+  %39 = v_lshrrev_b32_src0_inline %21, 16
+  %40 = v_and_b32_src0_inline %39, 1
+  %41 = v_add3_u32_src2_lit %21, %40, 32767
+  %42 = v_lshrrev_b32_src0_inline %41, 16
+  %43 = v_lshrrev_b32_src0_inline %24, 16
+  %44 = v_and_b32_src0_inline %43, 1
+  %45 = v_add3_u32_src2_lit %24, %44, 32767
+  %46 = v_lshrrev_b32_src0_inline %45, 16
+  %47 = v_cvt_pk_u16_u32 %42, %46
+  %converted = concat(%36, %47) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %11, %converted, %target
+  return
+}
+
+// ====
+
+func.def @sitofp_i32_f16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi32>
+  %target = buffer.view %output[%base] : buffer -> view<4xf16>
+  %value = vector.load %source[0] : view<4xi32> -> vector<4xi32>
+  %converted = vector.sitofp %value : vector<4xi32> to vector<4xf16>
+  vector.store %converted, %target[0] : vector<4xf16>, view<4xf16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @sitofp_i32_f16_4() asm {
+  %source = resource<hal_binding> {extent = 16, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_b128_saddr %11, %source
+  %13 = slice %value[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %14 = v_cvt_f32_i32 %13
+  %15 = slice %value[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %16 = v_cvt_f32_i32 %15
+  %17 = slice %value[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %18 = v_cvt_f32_i32 %17
+  %19 = slice %value[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %20 = v_cvt_f32_i32 %19
+  %23 = v_cvt_f16_f32 %14
+  %24 = v_bfe_u32_offset_0_width_16_low16 %23
+  %26 = v_cvt_f16_f32 %16
+  %27 = v_bfe_u32_offset_0_width_16_low16 %26
+  %28 = v_lshl_add_u32_shift_imm %27, %24, 16
+  %30 = v_cvt_f16_f32 %18
+  %31 = v_bfe_u32_offset_0_width_16_low16 %30
+  %33 = v_cvt_f16_f32 %20
+  %34 = v_bfe_u32_offset_0_width_16_low16 %33
+  %35 = v_lshl_add_u32_shift_imm %34, %31, 16
+  %converted = concat(%28, %35) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %11, %converted, %target
+  return
+}
+
+// ====
+
+func.def @uitofp_i32_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.uitofp %value : i32 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @uitofp_i32_f16_1() asm {
+  %source = resource<hal_binding> {extent = 4, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 2, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_b32_saddr %11, %source
+  %13 = v_cvt_f32_u32 %value
+  %converted = v_cvt_f16_f32 %13
+  %15 = v_bfe_u32_offset_0_width_16_low16 %converted
+  global_store_short_saddr %11, %15, %target
+  return
+}
+
+// ====
+
+func.def @fptosi_f16_i8_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi8>
+  %value = vector.load %source[0] : view<4xf16> -> vector<4xf16>
+  %converted = vector.fptosi %value : vector<4xf16> to vector<4xi8>
+  vector.store %converted, %target[0] : vector<4xi8>, view<4xi8>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @fptosi_f16_i8_4() asm {
+  %source = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 4, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_b64_saddr %11, %source
+  %13 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %14 = v_cvt_f32_f16 %13
+  %16 = v_lshrrev_b32_src0_inline %13, 16
+  %17 = v_cvt_f32_f16 %16
+  %18 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %19 = v_cvt_f32_f16 %18
+  %21 = v_lshrrev_b32_src0_inline %18, 16
+  %22 = v_cvt_f32_f16 %21
+  %25 = v_cvt_i32_f32 %14
+  %27 = v_cvt_i32_f32 %17
+  %29 = v_cvt_i32_f32 %19
+  %31 = v_cvt_i32_f32 %22
+  %32 = v_perm_b32_src2_lit %25, %27, 4
+  %33 = v_perm_b32_src2_lit %29, %31, 4
+  %converted = v_perm_b32_src2_lit %32, %33, 16778500
+  global_store_b32_saddr %11, %converted, %target
+  return
+}
+
+// ====
+
+func.def @fptoui_f16_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf16>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf16> -> f16
+  %converted = scalar.fptoui %value : f16 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @fptoui_f16_i16_1() asm {
+  %source = resource<hal_binding> {extent = 2, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 2, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_d16_b16_saddr %11, %source
+  %13 = v_cvt_f32_f16 %value
+  %converted = v_cvt_u32_f32 %13
+  global_store_short_saddr %11, %converted, %target
+  return
+}
+
+// ====
+
+func.def @fptosi_bf16_i16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<3xi16>
+  %value = vector.load %source[0] : view<3xbf16> -> vector<3xbf16>
+  %converted = vector.fptosi %value : vector<3xbf16> to vector<3xi16>
+  vector.store %converted, %target[0] : vector<3xi16>, view<3xi16>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @fptosi_bf16_i16_3() asm {
+  %source = resource<hal_binding> {extent = 6, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 6, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %12 = global_load_b32_saddr %11, %source
+  %14 = global_load_u16_saddr %11, %source {offset = 4}
+  %17 = v_lshlrev_b32_src0_inline %12, 16
+  %19 = v_and_b32_lit %12, 4294901760
+  %21 = v_lshlrev_b32_src0_inline %14, 16
+  %24 = v_cvt_i32_f32 %17
+  %25 = v_and_b32_lit %24, 65535
+  %27 = v_cvt_i32_f32 %19
+  %28 = v_and_b32_lit %27, 65535
+  %29 = v_lshl_add_u32_shift_imm %28, %25, 16
+  %31 = v_cvt_i32_f32 %21
+  %32 = v_and_b32_lit %31, 65535
+  global_store_b32_saddr %11, %29, %target
+  global_store_short_saddr %11, %32, %target {offset = 4}
+  return
+}
+
+// ====
+
+func.def @fptoui_bf16_i32_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi32>
+  %value = vector.load %source[0] : view<4xbf16> -> vector<4xbf16>
+  %converted = vector.fptoui %value : vector<4xbf16> to vector<4xi32>
+  vector.store %converted, %target[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.rdna3.core> abi(hal_kernel) @fptoui_bf16_i32_4() asm {
+  %source = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %target = resource<hal_binding> {extent = 16, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_mov_b32 0
+  %value = global_load_b64_saddr %11, %source
+  %13 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %14 = v_lshlrev_b32_src0_inline %13, 16
+  %16 = v_and_b32_lit %13, 4294901760
+  %17 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %18 = v_lshlrev_b32_src0_inline %17, 16
+  %20 = v_and_b32_lit %17, 4294901760
+  %23 = v_cvt_u32_f32 %14
+  %25 = v_cvt_u32_f32 %16
+  %27 = v_cvt_u32_f32 %18
+  %29 = v_cvt_u32_f32 %20
+  %converted = concat(%23, %25, %27, %29) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  global_store_b128_saddr %11, %converted, %target
+  return
+}

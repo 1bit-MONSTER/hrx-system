@@ -1,0 +1,128 @@
+// RUN: pass target-legalize{mode=eager,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @signed_narrow_integer(%byte: i8, %word: i16) -> (bf16, f16) {
+  %bfloat = scalar.sitofp %byte : i8 to bf16
+  %half = scalar.sitofp %word : i16 to f16
+  func.return %bfloat, %half : bf16, f16
+}
+
+func.def target(@test_target) @unsigned_narrow_integer(%byte: i8, %word: i16) -> (f16, bf16) {
+  %half = scalar.uitofp %byte : i8 to f16
+  %bfloat = scalar.uitofp %word : i16 to bf16
+  func.return %half, %bfloat : f16, bf16
+}
+
+func.def target(@test_target) @wide_integer_half(%word: i32) -> (f16, f16) {
+  %signed = scalar.sitofp %word : i32 to f16
+  %unsigned = scalar.uitofp %word : i32 to f16
+  func.return %signed, %unsigned : f16, f16
+}
+
+func.def target(@test_target) @single_rounding_required(%word: i32, %wide: i64) -> (bf16, bf16, bf16, bf16) {
+  %signed_word = scalar.sitofp %word : i32 to bf16
+  %unsigned_word = scalar.uitofp %word : i32 to bf16
+  %signed_wide = scalar.sitofp %wide : i64 to bf16
+  %unsigned_wide = scalar.uitofp %wide : i64 to bf16
+  func.return %signed_word, %unsigned_word, %signed_wide, %unsigned_wide : bf16, bf16, bf16, bf16
+}
+
+func.def target(@test_target) @toward_zero(%half: f16, %bfloat: bf16) -> (i8, i16, i32, i64) {
+  %signed_half = scalar.fptosi %half : f16 to i8
+  %unsigned_half = scalar.fptoui %half : f16 to i16
+  %signed_bfloat = scalar.fptosi %bfloat : bf16 to i32
+  %unsigned_bfloat = scalar.fptoui %bfloat : bf16 to i64
+  func.return %signed_half, %unsigned_half, %signed_bfloat, %unsigned_bfloat : i8, i16, i32, i64
+}
+
+func.def target(@test_target) @vector_shape(%input: vector<2x3xi16>) -> (vector<2x3xbf16>, vector<2x3xf16>) {
+  %bfloat = vector.sitofp %input : vector<2x3xi16> to vector<2x3xbf16>
+  %half = vector.uitofp %input : vector<2x3xi16> to vector<2x3xf16>
+  func.return %bfloat, %half : vector<2x3xbf16>, vector<2x3xf16>
+}
+
+func.def target(@test_target) @vector_toward_zero(%half: vector<3xf16>, %bfloat: vector<3xbf16>) -> (vector<3xi32>, vector<3xi16>) {
+  %signed = vector.fptosi %half : vector<3xf16> to vector<3xi32>
+  %unsigned = vector.fptoui %bfloat : vector<3xbf16> to vector<3xi16>
+  func.return %signed, %unsigned : vector<3xi32>, vector<3xi16>
+}
+
+func.def target(@test_target) @single_precision_unchanged(%integer: i32, %single: f32) -> (f32, f32, i32, i32) {
+  %signed_float = scalar.sitofp %integer : i32 to f32
+  %unsigned_float = scalar.uitofp %integer : i32 to f32
+  %signed_integer = scalar.fptosi %single : f32 to i32
+  %unsigned_integer = scalar.fptoui %single : f32 to i32
+  func.return %signed_float, %unsigned_float, %signed_integer, %unsigned_integer : f32, f32, i32, i32
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @signed_narrow_integer(%byte: i8, %word: i16) -> (bf16, f16) {
+  %60 = scalar.sitofp %byte : i8 to f32
+  %bfloat = scalar.fptrunc %60 : f32 to bf16
+  %58 = scalar.sitofp %word : i16 to f32
+  %half = scalar.fptrunc %58 : f32 to f16
+  func.return %bfloat, %half : bf16, f16
+}
+
+func.def target(@test_target) @unsigned_narrow_integer(%byte: i8, %word: i16) -> (f16, bf16) {
+  %64 = scalar.uitofp %byte : i8 to f32
+  %half = scalar.fptrunc %64 : f32 to f16
+  %62 = scalar.uitofp %word : i16 to f32
+  %bfloat = scalar.fptrunc %62 : f32 to bf16
+  func.return %half, %bfloat : f16, bf16
+}
+
+func.def target(@test_target) @wide_integer_half(%word: i32) -> (f16, f16) {
+  %68 = scalar.sitofp %word : i32 to f32
+  %signed = scalar.fptrunc %68 : f32 to f16
+  %66 = scalar.uitofp %word : i32 to f32
+  %unsigned = scalar.fptrunc %66 : f32 to f16
+  func.return %signed, %unsigned : f16, f16
+}
+
+func.def target(@test_target) @single_rounding_required(%word: i32, %wide: i64) -> (bf16, bf16, bf16, bf16) {
+  %signed_word = scalar.sitofp %word : i32 to bf16
+  %unsigned_word = scalar.uitofp %word : i32 to bf16
+  %signed_wide = scalar.sitofp %wide : i64 to bf16
+  %unsigned_wide = scalar.uitofp %wide : i64 to bf16
+  func.return %signed_word, %unsigned_word, %signed_wide, %unsigned_wide : bf16, bf16, bf16, bf16
+}
+
+func.def target(@test_target) @toward_zero(%half: f16, %bfloat: bf16) -> (i8, i16, i32, i64) {
+  %76 = scalar.extf %half : f16 to f32
+  %signed_half = scalar.fptosi %76 : f32 to i8
+  %74 = scalar.extf %half : f16 to f32
+  %unsigned_half = scalar.fptoui %74 : f32 to i16
+  %72 = scalar.extf %bfloat : bf16 to f32
+  %signed_bfloat = scalar.fptosi %72 : f32 to i32
+  %70 = scalar.extf %bfloat : bf16 to f32
+  %unsigned_bfloat = scalar.fptoui %70 : f32 to i64
+  func.return %signed_half, %unsigned_half, %signed_bfloat, %unsigned_bfloat : i8, i16, i32, i64
+}
+
+func.def target(@test_target) @vector_shape(%input: vector<2x3xi16>) -> (vector<2x3xbf16>, vector<2x3xf16>) {
+  %80 = vector.sitofp %input : vector<2x3xi16> to vector<2x3xf32>
+  %bfloat = vector.fptrunc %80 : vector<2x3xf32> to vector<2x3xbf16>
+  %78 = vector.uitofp %input : vector<2x3xi16> to vector<2x3xf32>
+  %half = vector.fptrunc %78 : vector<2x3xf32> to vector<2x3xf16>
+  func.return %bfloat, %half : vector<2x3xbf16>, vector<2x3xf16>
+}
+
+func.def target(@test_target) @vector_toward_zero(%half: vector<3xf16>, %bfloat: vector<3xbf16>) -> (vector<3xi32>, vector<3xi16>) {
+  %84 = vector.extf %half : vector<3xf16> to vector<3xf32>
+  %signed = vector.fptosi %84 : vector<3xf32> to vector<3xi32>
+  %82 = vector.extf %bfloat : vector<3xbf16> to vector<3xf32>
+  %unsigned = vector.fptoui %82 : vector<3xf32> to vector<3xi16>
+  func.return %signed, %unsigned : vector<3xi32>, vector<3xi16>
+}
+
+func.def target(@test_target) @single_precision_unchanged(%integer: i32, %single: f32) -> (f32, f32, i32, i32) {
+  %signed_float = scalar.sitofp %integer : i32 to f32
+  %unsigned_float = scalar.uitofp %integer : i32 to f32
+  %signed_integer = scalar.fptosi %single : f32 to i32
+  %unsigned_integer = scalar.fptoui %single : f32 to i32
+  func.return %signed_float, %unsigned_float, %signed_integer, %unsigned_integer : f32, f32, i32, i32
+}

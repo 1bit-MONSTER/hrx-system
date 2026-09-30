@@ -1,0 +1,381 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_float.loom-test
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low control-flow=structured-low
+
+func.def @sitofp_i8_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi8>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %value : vector<4xi8> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @sitofp_i8_bf16_4(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %26 = OpConstant.offset64 0
+  %27 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %26
+  %28 = OpLoad.storage_buffer.i8 %27
+  %29 = OpConstant.offset64 1
+  %30 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %29
+  %31 = OpLoad.storage_buffer.i8 %30
+  %32 = OpConstant.offset64 2
+  %33 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %32
+  %34 = OpLoad.storage_buffer.i8 %33
+  %35 = OpConstant.offset64 3
+  %36 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %35
+  %37 = OpLoad.storage_buffer.i8 %36
+  %38 = OpConvertSToF.i8.f32 %28
+  %39 = OpFConvert.f32.bf16 %38
+  %40 = OpConvertSToF.i8.f32 %31
+  %41 = OpFConvert.f32.bf16 %40
+  %42 = OpConvertSToF.i8.f32 %34
+  %43 = OpFConvert.f32.bf16 %42
+  %44 = OpConvertSToF.i8.f32 %37
+  %45 = OpFConvert.f32.bf16 %44
+  %47 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %26
+  OpStore.storage_buffer.bf16 %47, %39
+  %49 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %32
+  OpStore.storage_buffer.bf16 %49, %41
+  %50 = OpConstant.offset64 4
+  %51 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %50
+  OpStore.storage_buffer.bf16 %51, %43
+  %52 = OpConstant.offset64 6
+  %53 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %52
+  OpStore.storage_buffer.bf16 %53, %45
+  return
+}
+
+// ====
+
+func.def @uitofp_i8_f16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xi8>
+  %target = buffer.view %output[%base] : buffer -> view<3xf16>
+  %value = vector.load %source[0] : view<3xi8> -> vector<3xi8>
+  %converted = vector.uitofp %value : vector<3xi8> to vector<3xf16>
+  vector.store %converted, %target[0] : vector<3xf16>, view<3xf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @uitofp_i8_f16_3(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %16 = OpConstant.offset64 0
+  %17 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %16
+  %18 = OpLoad.storage_buffer.i8 %17
+  %19 = OpConstant.offset64 1
+  %20 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %19
+  %21 = OpLoad.storage_buffer.i8 %20
+  %22 = OpConstant.offset64 2
+  %23 = OpPtrAccessChain.storage_buffer.i8.byte_offset %input, %22
+  %24 = OpLoad.storage_buffer.i8 %23
+  %25 = OpBitcast.i8.u8 %18
+  %26 = OpConvertUToF.u8.f16 %25
+  %27 = OpBitcast.i8.u8 %21
+  %28 = OpConvertUToF.u8.f16 %27
+  %29 = OpBitcast.i8.u8 %24
+  %30 = OpConvertUToF.u8.f16 %29
+  %32 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %16
+  OpStore.storage_buffer.f16 %32, %26
+  %34 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %22
+  OpStore.storage_buffer.f16 %34, %28
+  %35 = OpConstant.offset64 4
+  %36 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %35
+  OpStore.storage_buffer.f16 %36, %30
+  return
+}
+
+// ====
+
+func.def @sitofp_i16_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi16>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi16> -> i16
+  %converted = scalar.sitofp %value : i16 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @sitofp_i16_f16_1(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %9 = OpConstant.offset64 0
+  %10 = OpPtrAccessChain.storage_buffer.i16.byte_offset %input, %9
+  %value = OpLoad.storage_buffer.i16 %10
+  %converted = OpConvertSToF.i16.f16 %value
+  %14 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %9
+  OpStore.storage_buffer.f16 %14, %converted
+  return
+}
+
+// ====
+
+func.def @uitofp_i16_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi16>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi16> -> vector<4xi16>
+  %converted = vector.uitofp %value : vector<4xi16> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @uitofp_i16_bf16_4(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %26 = OpConstant.offset64 0
+  %27 = OpPtrAccessChain.storage_buffer.i16.byte_offset %input, %26
+  %28 = OpLoad.storage_buffer.i16 %27
+  %29 = OpConstant.offset64 2
+  %30 = OpPtrAccessChain.storage_buffer.i16.byte_offset %input, %29
+  %31 = OpLoad.storage_buffer.i16 %30
+  %32 = OpConstant.offset64 4
+  %33 = OpPtrAccessChain.storage_buffer.i16.byte_offset %input, %32
+  %34 = OpLoad.storage_buffer.i16 %33
+  %35 = OpConstant.offset64 6
+  %36 = OpPtrAccessChain.storage_buffer.i16.byte_offset %input, %35
+  %37 = OpLoad.storage_buffer.i16 %36
+  %38 = OpBitcast.i16.u16 %28
+  %39 = OpConvertUToF.u16.f32 %38
+  %40 = OpFConvert.f32.bf16 %39
+  %41 = OpBitcast.i16.u16 %31
+  %42 = OpConvertUToF.u16.f32 %41
+  %43 = OpFConvert.f32.bf16 %42
+  %44 = OpBitcast.i16.u16 %34
+  %45 = OpConvertUToF.u16.f32 %44
+  %46 = OpFConvert.f32.bf16 %45
+  %47 = OpBitcast.i16.u16 %37
+  %48 = OpConvertUToF.u16.f32 %47
+  %49 = OpFConvert.f32.bf16 %48
+  %51 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %26
+  OpStore.storage_buffer.bf16 %51, %40
+  %53 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %29
+  OpStore.storage_buffer.bf16 %53, %43
+  %55 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %32
+  OpStore.storage_buffer.bf16 %55, %46
+  %57 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %35
+  OpStore.storage_buffer.bf16 %57, %49
+  return
+}
+
+// ====
+
+func.def @sitofp_i32_f16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi32>
+  %target = buffer.view %output[%base] : buffer -> view<4xf16>
+  %value = vector.load %source[0] : view<4xi32> -> vector<4xi32>
+  %converted = vector.sitofp %value : vector<4xi32> to vector<4xf16>
+  vector.store %converted, %target[0] : vector<4xf16>, view<4xf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @sitofp_i32_f16_4(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %18 = OpConstant.offset64 0
+  %19 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %18
+  %20 = OpLoad.storage_buffer.i32 %19
+  %21 = OpConstant.offset64 4
+  %22 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %21
+  %23 = OpLoad.storage_buffer.i32 %22
+  %24 = OpConstant.offset64 8
+  %25 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %24
+  %26 = OpLoad.storage_buffer.i32 %25
+  %27 = OpConstant.offset64 12
+  %28 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %27
+  %29 = OpLoad.storage_buffer.i32 %28
+  %30 = OpConvertSToF.i32.f16 %20
+  %31 = OpConvertSToF.i32.f16 %23
+  %32 = OpConvertSToF.i32.f16 %26
+  %33 = OpConvertSToF.i32.f16 %29
+  %35 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %18
+  OpStore.storage_buffer.f16 %35, %30
+  %36 = OpConstant.offset64 2
+  %37 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %36
+  OpStore.storage_buffer.f16 %37, %31
+  %39 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %21
+  OpStore.storage_buffer.f16 %39, %32
+  %40 = OpConstant.offset64 6
+  %41 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %40
+  OpStore.storage_buffer.f16 %41, %33
+  return
+}
+
+// ====
+
+func.def @uitofp_i32_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.uitofp %value : i32 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @uitofp_i32_f16_1(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %9 = OpConstant.offset64 0
+  %10 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %9
+  %value = OpLoad.storage_buffer.i32 %10
+  %12 = OpBitcast.i32.u32 %value
+  %converted = OpConvertUToF.u32.f16 %12
+  %15 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %9
+  OpStore.storage_buffer.f16 %15, %converted
+  return
+}
+
+// ====
+
+func.def @fptosi_f16_i8_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi8>
+  %value = vector.load %source[0] : view<4xf16> -> vector<4xf16>
+  %converted = vector.fptosi %value : vector<4xf16> to vector<4xi8>
+  vector.store %converted, %target[0] : vector<4xi8>, view<4xi8>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @fptosi_f16_i8_4(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %18 = OpConstant.offset64 0
+  %19 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input, %18
+  %20 = OpLoad.storage_buffer.f16 %19
+  %21 = OpConstant.offset64 2
+  %22 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input, %21
+  %23 = OpLoad.storage_buffer.f16 %22
+  %24 = OpConstant.offset64 4
+  %25 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input, %24
+  %26 = OpLoad.storage_buffer.f16 %25
+  %27 = OpConstant.offset64 6
+  %28 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input, %27
+  %29 = OpLoad.storage_buffer.f16 %28
+  %30 = OpConvertFToS.f16.i8 %20
+  %31 = OpConvertFToS.f16.i8 %23
+  %32 = OpConvertFToS.f16.i8 %26
+  %33 = OpConvertFToS.f16.i8 %29
+  %35 = OpPtrAccessChain.storage_buffer.i8.byte_offset %output, %18
+  OpStore.storage_buffer.i8 %35, %30
+  %36 = OpConstant.offset64 1
+  %37 = OpPtrAccessChain.storage_buffer.i8.byte_offset %output, %36
+  OpStore.storage_buffer.i8 %37, %31
+  %39 = OpPtrAccessChain.storage_buffer.i8.byte_offset %output, %21
+  OpStore.storage_buffer.i8 %39, %32
+  %40 = OpConstant.offset64 3
+  %41 = OpPtrAccessChain.storage_buffer.i8.byte_offset %output, %40
+  OpStore.storage_buffer.i8 %41, %33
+  return
+}
+
+// ====
+
+func.def @fptoui_f16_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf16>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf16> -> f16
+  %converted = scalar.fptoui %value : f16 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @fptoui_f16_i16_1(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %9 = OpConstant.offset64 0
+  %10 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input, %9
+  %value = OpLoad.storage_buffer.f16 %10
+  %12 = OpConvertFToU.f16.u16 %value
+  %converted = OpBitcast.u16.i16 %12
+  %15 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output, %9
+  OpStore.storage_buffer.i16 %15, %converted
+  return
+}
+
+// ====
+
+func.def @fptosi_bf16_i16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<3xi16>
+  %value = vector.load %source[0] : view<3xbf16> -> vector<3xbf16>
+  %converted = vector.fptosi %value : vector<3xbf16> to vector<3xi16>
+  vector.store %converted, %target[0] : vector<3xi16>, view<3xi16>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @fptosi_bf16_i16_3(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %22 = OpConstant.offset64 0
+  %23 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %22
+  %24 = OpLoad.storage_buffer.bf16 %23
+  %25 = OpConstant.offset64 2
+  %26 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %25
+  %27 = OpLoad.storage_buffer.bf16 %26
+  %28 = OpConstant.offset64 4
+  %29 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %28
+  %30 = OpLoad.storage_buffer.bf16 %29
+  %31 = OpFConvert.bf16.f32 %24
+  %32 = OpConvertFToS.f32.i16 %31
+  %33 = OpFConvert.bf16.f32 %27
+  %34 = OpConvertFToS.f32.i16 %33
+  %35 = OpFConvert.bf16.f32 %30
+  %36 = OpConvertFToS.f32.i16 %35
+  %38 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output, %22
+  OpStore.storage_buffer.i16 %38, %32
+  %40 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output, %25
+  OpStore.storage_buffer.i16 %40, %34
+  %42 = OpPtrAccessChain.storage_buffer.i16.byte_offset %output, %28
+  OpStore.storage_buffer.i16 %42, %36
+  return
+}
+
+// ====
+
+func.def @fptoui_bf16_i32_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi32>
+  %value = vector.load %source[0] : view<4xbf16> -> vector<4xbf16>
+  %converted = vector.fptoui %value : vector<4xbf16> to vector<4xi32>
+  vector.store %converted, %target[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @fptoui_bf16_i32_4(%input: reg<spirv.ptr.storage_buffer>, %output: reg<spirv.ptr.storage_buffer>) asm {
+  %26 = OpConstant.offset64 0
+  %27 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %26
+  %28 = OpLoad.storage_buffer.bf16 %27
+  %29 = OpConstant.offset64 2
+  %30 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %29
+  %31 = OpLoad.storage_buffer.bf16 %30
+  %32 = OpConstant.offset64 4
+  %33 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %32
+  %34 = OpLoad.storage_buffer.bf16 %33
+  %35 = OpConstant.offset64 6
+  %36 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %input, %35
+  %37 = OpLoad.storage_buffer.bf16 %36
+  %38 = OpFConvert.bf16.f32 %28
+  %39 = OpConvertFToU.f32.u32 %38
+  %40 = OpBitcast.u32.i32 %39
+  %41 = OpFConvert.bf16.f32 %31
+  %42 = OpConvertFToU.f32.u32 %41
+  %43 = OpBitcast.u32.i32 %42
+  %44 = OpFConvert.bf16.f32 %34
+  %45 = OpConvertFToU.f32.u32 %44
+  %46 = OpBitcast.u32.i32 %45
+  %47 = OpFConvert.bf16.f32 %37
+  %48 = OpConvertFToU.f32.u32 %47
+  %49 = OpBitcast.u32.i32 %48
+  %51 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %26
+  OpStore.storage_buffer.i32 %51, %40
+  %53 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %32
+  OpStore.storage_buffer.i32 %53, %43
+  %54 = OpConstant.offset64 8
+  %55 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %54
+  OpStore.storage_buffer.i32 %55, %46
+  %56 = OpConstant.offset64 12
+  %57 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %56
+  OpStore.storage_buffer.i32 %57, %49
+  return
+}

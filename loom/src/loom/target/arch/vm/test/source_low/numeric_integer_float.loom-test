@@ -1,0 +1,328 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_float.loom-test
+// RUN: emit source-low target=vm:core output=low
+
+func.def @sitofp_i8_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi8>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %value : vector<4xi8> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @sitofp_i8_bf16_4(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %26 = constant.i64 0
+  %27 = buffer.load %source, %26, %26, 0, "i8.x1" : reg<vm.value : i8>
+  %28 = constant.i64 1
+  %29 = buffer.load %source, %28, %28, 0, "i8.x1" : reg<vm.value : i8>
+  %30 = constant.i64 2
+  %31 = buffer.load %source, %30, %30, 0, "i8.x1" : reg<vm.value : i8>
+  %32 = constant.i64 3
+  %33 = buffer.load %source, %32, %32, 0, "i8.x1" : reg<vm.value : i8>
+  %34 = conversion.integer %27, "s8.to.i32" : reg<vm.value : i32>
+  %35 = conversion.integer.to.float %34, "s32.to.bf16" : reg<vm.value : bf16>
+  %36 = conversion.integer %29, "s8.to.i32" : reg<vm.value : i32>
+  %37 = conversion.integer.to.float %36, "s32.to.bf16" : reg<vm.value : bf16>
+  %38 = conversion.integer %31, "s8.to.i32" : reg<vm.value : i32>
+  %39 = conversion.integer.to.float %38, "s32.to.bf16" : reg<vm.value : bf16>
+  %40 = conversion.integer %33, "s8.to.i32" : reg<vm.value : i32>
+  %41 = conversion.integer.to.float %40, "s32.to.bf16" : reg<vm.value : bf16>
+  buffer.store %target, %26, %26, %35, 0, "i16.x1"
+  buffer.store %target, %30, %30, %37, 0, "i16.x1"
+  %44 = constant.i64 4
+  buffer.store %target, %44, %44, %39, 0, "i16.x1"
+  %45 = constant.i64 6
+  buffer.store %target, %45, %45, %41, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @uitofp_i8_f16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xi8>
+  %target = buffer.view %output[%base] : buffer -> view<3xf16>
+  %value = vector.load %source[0] : view<3xi8> -> vector<3xi8>
+  %converted = vector.uitofp %value : vector<3xi8> to vector<3xf16>
+  vector.store %converted, %target[0] : vector<3xf16>, view<3xf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uitofp_i8_f16_3(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %22 = constant.i64 0
+  %23 = buffer.load %source, %22, %22, 0, "i8.x1" : reg<vm.value : i8>
+  %24 = constant.i64 1
+  %25 = buffer.load %source, %24, %24, 0, "i8.x1" : reg<vm.value : i8>
+  %26 = constant.i64 2
+  %27 = buffer.load %source, %26, %26, 0, "i8.x1" : reg<vm.value : i8>
+  %28 = conversion.integer %23, "u8.to.i32" : reg<vm.value : i32>
+  %29 = conversion.integer.to.float %28, "u32.to.f32" : reg<vm.value : f32>
+  %30 = conversion.float.truncate %29, "f32.to.f16" : reg<vm.value : f16>
+  %31 = conversion.integer %25, "u8.to.i32" : reg<vm.value : i32>
+  %32 = conversion.integer.to.float %31, "u32.to.f32" : reg<vm.value : f32>
+  %33 = conversion.float.truncate %32, "f32.to.f16" : reg<vm.value : f16>
+  %34 = conversion.integer %27, "u8.to.i32" : reg<vm.value : i32>
+  %35 = conversion.integer.to.float %34, "u32.to.f32" : reg<vm.value : f32>
+  %36 = conversion.float.truncate %35, "f32.to.f16" : reg<vm.value : f16>
+  buffer.store %target, %22, %22, %30, 0, "i16.x1"
+  buffer.store %target, %26, %26, %33, 0, "i16.x1"
+  %39 = constant.i64 4
+  buffer.store %target, %39, %39, %36, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @sitofp_i16_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi16>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi16> -> i16
+  %converted = scalar.sitofp %value : i16 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @sitofp_i16_f16_1(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %9 = constant.i64 0
+  %value = buffer.load %source, %9, %9, 0, "i16.x1" : reg<vm.value : i16>
+  %11 = conversion.integer %value, "s16.to.i32" : reg<vm.value : i32>
+  %12 = conversion.integer.to.float %11, "s32.to.f32" : reg<vm.value : f32>
+  %converted = conversion.float.truncate %12, "f32.to.f16" : reg<vm.value : f16>
+  buffer.store %target, %9, %9, %converted, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @uitofp_i16_bf16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi16>
+  %target = buffer.view %output[%base] : buffer -> view<4xbf16>
+  %value = vector.load %source[0] : view<4xi16> -> vector<4xi16>
+  %converted = vector.uitofp %value : vector<4xi16> to vector<4xbf16>
+  vector.store %converted, %target[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uitofp_i16_bf16_4(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %26 = constant.i64 0
+  %27 = buffer.load %source, %26, %26, 0, "i16.x1" : reg<vm.value : i16>
+  %28 = constant.i64 2
+  %29 = buffer.load %source, %28, %28, 0, "i16.x1" : reg<vm.value : i16>
+  %30 = constant.i64 4
+  %31 = buffer.load %source, %30, %30, 0, "i16.x1" : reg<vm.value : i16>
+  %32 = constant.i64 6
+  %33 = buffer.load %source, %32, %32, 0, "i16.x1" : reg<vm.value : i16>
+  %34 = conversion.integer %27, "u16.to.i32" : reg<vm.value : i32>
+  %35 = conversion.integer.to.float %34, "u32.to.bf16" : reg<vm.value : bf16>
+  %36 = conversion.integer %29, "u16.to.i32" : reg<vm.value : i32>
+  %37 = conversion.integer.to.float %36, "u32.to.bf16" : reg<vm.value : bf16>
+  %38 = conversion.integer %31, "u16.to.i32" : reg<vm.value : i32>
+  %39 = conversion.integer.to.float %38, "u32.to.bf16" : reg<vm.value : bf16>
+  %40 = conversion.integer %33, "u16.to.i32" : reg<vm.value : i32>
+  %41 = conversion.integer.to.float %40, "u32.to.bf16" : reg<vm.value : bf16>
+  buffer.store %target, %26, %26, %35, 0, "i16.x1"
+  buffer.store %target, %28, %28, %37, 0, "i16.x1"
+  buffer.store %target, %30, %30, %39, 0, "i16.x1"
+  buffer.store %target, %32, %32, %41, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @sitofp_i32_f16_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi32>
+  %target = buffer.view %output[%base] : buffer -> view<4xf16>
+  %value = vector.load %source[0] : view<4xi32> -> vector<4xi32>
+  %converted = vector.sitofp %value : vector<4xi32> to vector<4xf16>
+  vector.store %converted, %target[0] : vector<4xf16>, view<4xf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @sitofp_i32_f16_4(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %26 = constant.i64 0
+  %27 = buffer.load %source, %26, %26, 0, "i32.x1" : reg<vm.value : i32>
+  %28 = constant.i64 4
+  %29 = buffer.load %source, %28, %28, 0, "i32.x1" : reg<vm.value : i32>
+  %30 = constant.i64 8
+  %31 = buffer.load %source, %30, %30, 0, "i32.x1" : reg<vm.value : i32>
+  %32 = constant.i64 12
+  %33 = buffer.load %source, %32, %32, 0, "i32.x1" : reg<vm.value : i32>
+  %34 = conversion.integer.to.float %27, "s32.to.f32" : reg<vm.value : f32>
+  %35 = conversion.float.truncate %34, "f32.to.f16" : reg<vm.value : f16>
+  %36 = conversion.integer.to.float %29, "s32.to.f32" : reg<vm.value : f32>
+  %37 = conversion.float.truncate %36, "f32.to.f16" : reg<vm.value : f16>
+  %38 = conversion.integer.to.float %31, "s32.to.f32" : reg<vm.value : f32>
+  %39 = conversion.float.truncate %38, "f32.to.f16" : reg<vm.value : f16>
+  %40 = conversion.integer.to.float %33, "s32.to.f32" : reg<vm.value : f32>
+  %41 = conversion.float.truncate %40, "f32.to.f16" : reg<vm.value : f16>
+  buffer.store %target, %26, %26, %35, 0, "i16.x1"
+  %43 = constant.i64 2
+  buffer.store %target, %43, %43, %37, 0, "i16.x1"
+  buffer.store %target, %28, %28, %39, 0, "i16.x1"
+  %45 = constant.i64 6
+  buffer.store %target, %45, %45, %41, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @uitofp_i32_f16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf16>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.uitofp %value : i32 to f16
+  view.store %converted, %target[0] : f16, view<1xf16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @uitofp_i32_f16_1(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %9 = constant.i64 0
+  %value = buffer.load %source, %9, %9, 0, "i32.x1" : reg<vm.value : i32>
+  %11 = conversion.integer.to.float %value, "u32.to.f32" : reg<vm.value : f32>
+  %converted = conversion.float.truncate %11, "f32.to.f16" : reg<vm.value : f16>
+  buffer.store %target, %9, %9, %converted, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @fptosi_f16_i8_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi8>
+  %value = vector.load %source[0] : view<4xf16> -> vector<4xf16>
+  %converted = vector.fptosi %value : vector<4xf16> to vector<4xi8>
+  vector.store %converted, %target[0] : vector<4xi8>, view<4xi8>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @fptosi_f16_i8_4(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %26 = constant.i64 0
+  %27 = buffer.load %source, %26, %26, 0, "i16.x1" : reg<vm.value : f16>
+  %28 = constant.i64 2
+  %29 = buffer.load %source, %28, %28, 0, "i16.x1" : reg<vm.value : f16>
+  %30 = constant.i64 4
+  %31 = buffer.load %source, %30, %30, 0, "i16.x1" : reg<vm.value : f16>
+  %32 = constant.i64 6
+  %33 = buffer.load %source, %32, %32, 0, "i16.x1" : reg<vm.value : f16>
+  %34 = conversion.float.extend %27, "f16.to.f32" : reg<vm.value : f32>
+  %35 = conversion.float.to.integer %34, "f32.to.s8" : reg<vm.value : i8>
+  %36 = conversion.float.extend %29, "f16.to.f32" : reg<vm.value : f32>
+  %37 = conversion.float.to.integer %36, "f32.to.s8" : reg<vm.value : i8>
+  %38 = conversion.float.extend %31, "f16.to.f32" : reg<vm.value : f32>
+  %39 = conversion.float.to.integer %38, "f32.to.s8" : reg<vm.value : i8>
+  %40 = conversion.float.extend %33, "f16.to.f32" : reg<vm.value : f32>
+  %41 = conversion.float.to.integer %40, "f32.to.s8" : reg<vm.value : i8>
+  buffer.store %target, %26, %26, %35, 0, "i8.x1"
+  %43 = constant.i64 1
+  buffer.store %target, %43, %43, %37, 0, "i8.x1"
+  buffer.store %target, %28, %28, %39, 0, "i8.x1"
+  %45 = constant.i64 3
+  buffer.store %target, %45, %45, %41, 0, "i8.x1"
+  return
+}
+
+// ====
+
+func.def @fptoui_f16_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf16>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf16> -> f16
+  %converted = scalar.fptoui %value : f16 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @fptoui_f16_i16_1(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %9 = constant.i64 0
+  %value = buffer.load %source, %9, %9, 0, "i16.x1" : reg<vm.value : f16>
+  %11 = conversion.float.extend %value, "f16.to.f32" : reg<vm.value : f32>
+  %converted = conversion.float.to.integer %11, "f32.to.u16" : reg<vm.value : i16>
+  buffer.store %target, %9, %9, %converted, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @fptosi_bf16_i16_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<3xi16>
+  %value = vector.load %source[0] : view<3xbf16> -> vector<3xbf16>
+  %converted = vector.fptosi %value : vector<3xbf16> to vector<3xi16>
+  vector.store %converted, %target[0] : vector<3xi16>, view<3xi16>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @fptosi_bf16_i16_3(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %22 = constant.i64 0
+  %23 = buffer.load %source, %22, %22, 0, "i16.x1" : reg<vm.value : bf16>
+  %24 = constant.i64 2
+  %25 = buffer.load %source, %24, %24, 0, "i16.x1" : reg<vm.value : bf16>
+  %26 = constant.i64 4
+  %27 = buffer.load %source, %26, %26, 0, "i16.x1" : reg<vm.value : bf16>
+  %28 = conversion.float.extend %23, "bf16.to.f32" : reg<vm.value : f32>
+  %29 = conversion.float.to.integer %28, "f32.to.s16" : reg<vm.value : i16>
+  %30 = conversion.float.extend %25, "bf16.to.f32" : reg<vm.value : f32>
+  %31 = conversion.float.to.integer %30, "f32.to.s16" : reg<vm.value : i16>
+  %32 = conversion.float.extend %27, "bf16.to.f32" : reg<vm.value : f32>
+  %33 = conversion.float.to.integer %32, "f32.to.s16" : reg<vm.value : i16>
+  buffer.store %target, %22, %22, %29, 0, "i16.x1"
+  buffer.store %target, %24, %24, %31, 0, "i16.x1"
+  buffer.store %target, %26, %26, %33, 0, "i16.x1"
+  return
+}
+
+// ====
+
+func.def @fptoui_bf16_i32_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xbf16>
+  %target = buffer.view %output[%base] : buffer -> view<4xi32>
+  %value = vector.load %source[0] : view<4xbf16> -> vector<4xbf16>
+  %converted = vector.fptoui %value : vector<4xbf16> to vector<4xi32>
+  vector.store %converted, %target[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+low.func.def target<vm.core> abi(vm_function) @fptoui_bf16_i32_4(%source: reg<vm.ref : buffer>, %target: reg<vm.ref : buffer>) asm {
+  %26 = constant.i64 0
+  %27 = buffer.load %source, %26, %26, 0, "i16.x1" : reg<vm.value : bf16>
+  %28 = constant.i64 2
+  %29 = buffer.load %source, %28, %28, 0, "i16.x1" : reg<vm.value : bf16>
+  %30 = constant.i64 4
+  %31 = buffer.load %source, %30, %30, 0, "i16.x1" : reg<vm.value : bf16>
+  %32 = constant.i64 6
+  %33 = buffer.load %source, %32, %32, 0, "i16.x1" : reg<vm.value : bf16>
+  %34 = conversion.float.extend %27, "bf16.to.f32" : reg<vm.value : f32>
+  %35 = conversion.float.to.integer %34, "f32.to.u32" : reg<vm.value : i32>
+  %36 = conversion.float.extend %29, "bf16.to.f32" : reg<vm.value : f32>
+  %37 = conversion.float.to.integer %36, "f32.to.u32" : reg<vm.value : i32>
+  %38 = conversion.float.extend %31, "bf16.to.f32" : reg<vm.value : f32>
+  %39 = conversion.float.to.integer %38, "f32.to.u32" : reg<vm.value : i32>
+  %40 = conversion.float.extend %33, "bf16.to.f32" : reg<vm.value : f32>
+  %41 = conversion.float.to.integer %40, "f32.to.u32" : reg<vm.value : i32>
+  buffer.store %target, %26, %26, %35, 0, "i32.x1"
+  buffer.store %target, %30, %30, %37, 0, "i32.x1"
+  %44 = constant.i64 8
+  buffer.store %target, %44, %44, %39, 0, "i32.x1"
+  %45 = constant.i64 12
+  buffer.store %target, %45, %45, %41, 0, "i32.x1"
+  return
+}

@@ -702,6 +702,7 @@ loom_check_test_suite(
     "test/source_low/numeric_index_conversion.loom-test"
     "test/source_low/numeric_index_operands.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
+    "test/source_low/numeric_integer_float.loom-test"
     "test/source_low/numeric_integer_widening.loom-test"
     "test/source_low/numeric_integer_widening_partial.loom-test"
     "test/source_low/numeric_minmax.loom-test"

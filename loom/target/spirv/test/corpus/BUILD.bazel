@@ -73,6 +73,7 @@ _NO_DEVICE_SUBJECTS = [
 _ADAPTER_ONLY_SCENARIOS = [
     "control/schedule/address_domains.loom",
     "memory/storage/word.loom",
+    "numeric/conversion/narrow_integer_float.loom",
     "numeric/conversion/scalar_float.loom",
     "numeric/float/half_extrema.loom",
     "numeric/float/scalar_float64.loom",
