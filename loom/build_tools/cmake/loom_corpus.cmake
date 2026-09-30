@@ -585,7 +585,7 @@ function(_loom_declare_corpus_test ID)
     _RULE
     ""
     "NAME;PROFILE;RESOURCE_GROUP;REQUIRES"
-    "MANIFESTS;XFAILS;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
+    "MANIFESTS;XFAILS;ALLOWED_FAILURES;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
     ${_ARGUMENTS}
   )
   if(_RULE_UNPARSED_ARGUMENTS)
@@ -637,42 +637,55 @@ function(_loom_declare_corpus_test ID)
     list(APPEND _EXCLUDED_SOURCES "${_SOURCE_ID}")
   endwhile()
 
-  list(LENGTH _RULE_XFAILS _XFAIL_VALUE_COUNT)
-  math(EXPR _XFAIL_REMAINDER "${_XFAIL_VALUE_COUNT} % 3")
-  if(NOT _XFAIL_REMAINDER EQUAL 0)
-    message(FATAL_ERROR
-      "loom_corpus_test(${_RULE_NAME}) XFAILS must contain source/record/diagnostic triples")
-  endif()
-  set(_XFAIL_KEYS)
-  set(_INDEX 0)
-  while(_INDEX LESS _XFAIL_VALUE_COUNT)
-    list(GET _RULE_XFAILS ${_INDEX} _SOURCE_ID)
-    math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _RULE_XFAILS ${_INDEX} _RECORD)
-    math(EXPR _INDEX "${_INDEX} + 1")
-    list(GET _RULE_XFAILS ${_INDEX} _DIAGNOSTIC)
-    math(EXPR _INDEX "${_INDEX} + 1")
-    if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
-      message(FATAL_ERROR
-        "loom_corpus_test(${_RULE_NAME}) xfails unknown source ${_SOURCE_ID}")
+  set(_FAILURE_QUALIFICATION_KEYS)
+  foreach(_QUALIFICATION_KIND XFAIL ALLOWED_FAILURE)
+    set(_QUALIFICATION_ARGUMENT "${_QUALIFICATION_KIND}S")
+    set(_QUALIFICATION_VALUES_VARIABLE "_RULE_${_QUALIFICATION_ARGUMENT}")
+    set(_QUALIFICATION_VALUES ${${_QUALIFICATION_VALUES_VARIABLE}})
+    if(_QUALIFICATION_KIND STREQUAL "XFAIL")
+      set(_QUALIFICATION_NAME "xfail")
+      set(_QUALIFICATION_FLAG "--xfail")
+    else()
+      set(_QUALIFICATION_NAME "allowed failure")
+      set(_QUALIFICATION_FLAG "--allow-failure")
     endif()
-    if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
+    list(LENGTH _QUALIFICATION_VALUES _QUALIFICATION_VALUE_COUNT)
+    math(EXPR _QUALIFICATION_REMAINDER "${_QUALIFICATION_VALUE_COUNT} % 3")
+    if(NOT _QUALIFICATION_REMAINDER EQUAL 0)
       message(FATAL_ERROR
-        "loom_corpus_test(${_RULE_NAME}) source ${_SOURCE_ID} cannot be both excluded and xfailed")
+        "loom_corpus_test(${_RULE_NAME}) ${_QUALIFICATION_ARGUMENT} must contain source/record/diagnostic triples")
     endif()
-    if(NOT _RECORD MATCHES "^@" OR NOT _DIAGNOSTIC)
-      message(FATAL_ERROR
-        "loom_corpus_test(${_RULE_NAME}) has malformed xfail for ${_SOURCE_ID}")
-    endif()
-    set(_XFAIL_KEY "${_SOURCE_ID}=${_RECORD}")
-    if(_XFAIL_KEY IN_LIST _XFAIL_KEYS)
-      message(FATAL_ERROR
-        "loom_corpus_test(${_RULE_NAME}) repeats xfail ${_RECORD} for ${_SOURCE_ID}")
-    endif()
-    list(APPEND _XFAIL_KEYS "${_XFAIL_KEY}")
-    set_property(GLOBAL APPEND PROPERTY "${ID}_XFAIL_${_SOURCE_ID}"
-      "--xfail=${_RECORD}=${_DIAGNOSTIC}")
-  endwhile()
+    set(_INDEX 0)
+    while(_INDEX LESS _QUALIFICATION_VALUE_COUNT)
+      list(GET _QUALIFICATION_VALUES ${_INDEX} _SOURCE_ID)
+      math(EXPR _INDEX "${_INDEX} + 1")
+      list(GET _QUALIFICATION_VALUES ${_INDEX} _RECORD)
+      math(EXPR _INDEX "${_INDEX} + 1")
+      list(GET _QUALIFICATION_VALUES ${_INDEX} _DIAGNOSTIC)
+      math(EXPR _INDEX "${_INDEX} + 1")
+      if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) ${_QUALIFICATION_NAME} names unknown source ${_SOURCE_ID}")
+      endif()
+      if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) source ${_SOURCE_ID} cannot be both excluded and qualified by ${_QUALIFICATION_NAME}")
+      endif()
+      if(NOT _RECORD MATCHES "^@" OR NOT _DIAGNOSTIC)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) has malformed ${_QUALIFICATION_NAME} for ${_SOURCE_ID}")
+      endif()
+      set(_QUALIFICATION_KEY "${_SOURCE_ID}=${_RECORD}")
+      if(_QUALIFICATION_KEY IN_LIST _FAILURE_QUALIFICATION_KEYS)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) repeats failure qualification ${_RECORD} for ${_SOURCE_ID}")
+      endif()
+      list(APPEND _FAILURE_QUALIFICATION_KEYS "${_QUALIFICATION_KEY}")
+      set_property(GLOBAL APPEND PROPERTY
+        "${ID}_FAILURE_QUALIFICATION_${_SOURCE_ID}"
+        "${_QUALIFICATION_FLAG}=${_RECORD}=${_DIAGNOSTIC}")
+    endwhile()
+  endforeach()
 
   set(_PROFILE_STEM "${_RULE_PROFILE}")
   if(_PROFILE_STEM MATCHES ":")
@@ -688,7 +701,8 @@ function(_loom_declare_corpus_test ID)
     if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
       continue()
     endif()
-    get_property(_SOURCE_XFAIL_ARGS GLOBAL PROPERTY "${ID}_XFAIL_${_SOURCE_ID}")
+    get_property(_SOURCE_FAILURE_QUALIFICATION_ARGS GLOBAL PROPERTY
+      "${ID}_FAILURE_QUALIFICATION_${_SOURCE_ID}")
     list(GET _SOURCES ${_SOURCE_INDEX} _SOURCE)
     string(REGEX REPLACE "\\.loom$" "" _PROGRAM_STEM "${_SOURCE_ID}")
     string(REGEX REPLACE "[/\\.+-]" "_" _PROGRAM_STEM "${_PROGRAM_STEM}")
@@ -704,7 +718,7 @@ function(_loom_declare_corpus_test ID)
       NAME "${_PROGRAM_STEM}_test_execute_${_PROFILE_STEM}_test"
       CORRECTNESS_ONLY
       MODULE "::${_MODULE_NAME}"
-      ARGS ${_RULE_ARGS} ${_SOURCE_XFAIL_ARGS}
+      ARGS ${_RULE_ARGS} ${_SOURCE_FAILURE_QUALIFICATION_ARGS}
       RUNNER_ARGS ${_RULE_RUNNER_ARGS}
       LABELS ${_RULE_LABELS}
       RESOURCE_GROUP "${_RULE_RESOURCE_GROUP}"

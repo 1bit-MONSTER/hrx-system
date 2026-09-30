@@ -277,7 +277,6 @@ _ALL_ROOTS_XFAIL = [
 ]
 
 _SPIRV_EXECUTION_XFAILS = {
-    "control/loop/carried_lane_liveness.loom:@loop_carried_lane_liveness_case": "TARGET/003",
     "kernel/subgroup/active_predicate.loom:@votes_ignore_inactive_lanes": "TARGET/032",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_down_case": "TARGET/032",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_index_case": "TARGET/032",
@@ -344,7 +343,6 @@ _SPIRV_EXECUTION_XFAILS = {
     "memory/atomic/workgroup/observations.loom:@lds_observation_bits_i64": "TARGET/032",
     "memory/atomic/workgroup/observations.loom:@lds_publication_values_i32": "TARGET/032",
     "memory/atomic/workgroup/observations.loom:@lds_publication_values_i64": "TARGET/032",
-    "memory/packed/tails.loom:@stage_bf16_7_bits": "TARGET/003",
     "memory/packed/tails.loom:@stage_private_i8_3_bits": "TARGET/050",
     "memory/storage/private.loom:@private_memory_roundtrip": "TARGET/050",
     "memory/storage/stability/switch.loom:@immutable_storage_switch_0": "TARGET/030",
@@ -354,17 +352,10 @@ _SPIRV_EXECUTION_XFAILS = {
     "memory/storage/stability/switch.loom:@varying_storage_switch_1": "TARGET/030",
     "memory/storage/stability/switch.loom:@varying_storage_switch_2": "TARGET/030",
     "memory/storage/word.loom:@copy_word_index_coordinates": "TARGET/050",
-    "memory/storage/word.loom:@copy_word_scalar_bits": "TARGET/003",
-    "memory/storage/word.loom:@copy_word_stride_coordinates": "TARGET/003",
+    "memory/storage/word.loom:@copy_word_stride_coordinates": "TARGET/003,TARGET/050",
     "memory/storage/word.loom:@copy_word_tail_guards": "TARGET/050",
     "memory/storage/word.loom:@copy_word_unaligned_guards": "TARGET/050",
-    "memory/storage/word.loom:@copy_word_vector_bits": "TARGET/003",
-    "memory/storage/word.loom:@copy_word_vector_large_bits": "TARGET/003",
-    "memory/storage/word.loom:@copy_word_vector_wide_bits": "TARGET/003",
-    "memory/storage/word.loom:@copy_word_volatile_bits": "TARGET/003",
-    "numeric/conversion/scalar_float.loom:@narrow_float_all_bits": "TARGET/003",
-    "numeric/conversion/scalar_float.loom:@narrow_float_scalar_arguments": "TARGET/003",
-    "numeric/conversion/scalar_float.loom:@narrow_float_scalar_bitcasts": "TARGET/003",
+    "numeric/conversion/scalar_float.loom:@narrow_float_all_bits": "TARGET/003,EXPECT/003",
     "numeric/conversion/scalar_float.loom:@scalar_f32_to_f64_values": "EXPECT/002",
     "numeric/conversion/scalar_float.loom:@scalar_f64_to_f32_values": "EXPECT/002",
     "numeric/float/extrema.loom:@float_extrema_both_nan": "TARGET/003",
@@ -389,6 +380,21 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/vector/integer_bitwise.loom:@vector_i32_bitwise_values": "TARGET/001",
     "numeric/vector/integer_bitwise.loom:@vector_i64_bitwise_values": "TARGET/001",
     "numeric/vector/packed_selection.loom:@packed_byte_selects": "TARGET/002",
+}
+
+# The hardware-discovered profile selects descriptors from the physical device.
+# These records are valid when the device supports them; unsupported devices must
+# still reject them with the exact target diagnostic.
+_SPIRV_EXECUTION_ALLOWED_FAILURES = {
+    "control/loop/carried_lane_liveness.loom:@loop_carried_lane_liveness_case": "TARGET/003",
+    "memory/packed/tails.loom:@stage_bf16_7_bits": "TARGET/003",
+    "memory/storage/word.loom:@copy_word_scalar_bits": "TARGET/003",
+    "memory/storage/word.loom:@copy_word_vector_bits": "TARGET/003",
+    "memory/storage/word.loom:@copy_word_vector_large_bits": "TARGET/003",
+    "memory/storage/word.loom:@copy_word_vector_wide_bits": "TARGET/003",
+    "memory/storage/word.loom:@copy_word_volatile_bits": "TARGET/003",
+    "numeric/conversion/scalar_float.loom:@narrow_float_scalar_arguments": "TARGET/003",
+    "numeric/conversion/scalar_float.loom:@narrow_float_scalar_bitcasts": "TARGET/003",
     "numeric/vector/packed_selection.loom:@packed_word_selects": "TARGET/003",
 }
 
@@ -430,6 +436,9 @@ loom_corpus_build(
 
 loom_corpus_test(
     name = "execution",
+    allowed_failures = {
+        SPIRV_VULKAN_HARDWARE_PROFILE.name: _SPIRV_EXECUTION_ALLOWED_FAILURES,
+    },
     catalog = LOOM_CORPUS,
     excludes = _NO_HARDWARE_SUBJECT_EXCLUDES,
     execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],

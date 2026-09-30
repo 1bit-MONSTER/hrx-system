@@ -104,7 +104,11 @@ loom_corpus_test(
   XFAILS
     "sample/nested/fixture.loom"
     "@fixture_cases"
-    "TARGET/003"
+    "TARGET/003,EXPECT/003"
+  ALLOWED_FAILURES
+    "sample/other.loom"
+    "@other_case"
+    "TARGET/003,EXPECT/003"
   RUNNER_ARGS
     "--max-samples-per-case=1"
   LABELS

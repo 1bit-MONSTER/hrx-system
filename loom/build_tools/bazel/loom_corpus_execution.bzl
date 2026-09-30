@@ -24,50 +24,58 @@ def _profile_with_runner_args(profile, runner_args):
         target_family = profile.target_family,
     )
 
-def _partition_xfails(catalog, profiles_by_name, selected_sources_by_profile, excludes, xfails):
-    xfails_by_source = {program.identity: {} for program in catalog.programs}
-    for profile_name, entries in xfails.items():
+def _partition_failure_qualifications(
+        catalog,
+        profiles_by_name,
+        selected_sources_by_profile,
+        excludes,
+        qualifications,
+        field_name,
+        entry_name):
+    qualifications_by_source = {program.identity: {} for program in catalog.programs}
+    for profile_name, entries in qualifications.items():
         if profile_name not in profiles_by_name:
-            fail("loom_corpus_test declares xfails for unknown profile %r" % profile_name)
+            fail("loom_corpus_test declares %s for unknown profile %r" % (field_name, profile_name))
         if type(entries) != "dict":
-            fail("loom_corpus_test xfails for profile %s must be a dictionary" % profile_name)
+            fail("loom_corpus_test %s for profile %s must be a dictionary" % (field_name, profile_name))
         for identity, diagnostic in entries.items():
             separator = identity.find(":@")
             if separator == -1:
                 fail(
-                    "loom_corpus_test xfail identity %r must use '<source>:@<record>'" %
-                    identity,
+                    "loom_corpus_test %s identity %r must use '<source>:@<record>'" %
+                    (entry_name, identity),
                 )
             source_identity = identity[:separator]
             record = identity[separator + 1:]
-            if source_identity not in xfails_by_source:
-                fail("loom_corpus_test xfail names unknown source %r" % source_identity)
+            if source_identity not in qualifications_by_source:
+                fail("loom_corpus_test %s names unknown source %r" % (entry_name, source_identity))
             if source_identity in excludes:
                 fail(
-                    "loom_corpus_test source %s cannot be both excluded and xfailed" %
-                    source_identity,
+                    "loom_corpus_test source %s cannot be both excluded and qualified by %s" %
+                    (source_identity, entry_name),
                 )
             selected_sources = selected_sources_by_profile.get(profile_name)
             if selected_sources != None and source_identity not in selected_sources:
                 fail(
-                    "loom_corpus_test profile %s xfails unselected source %s" %
-                    (profile_name, source_identity),
+                    "loom_corpus_test profile %s applies %s to unselected source %s" %
+                    (profile_name, entry_name, source_identity),
                 )
             if not diagnostic:
-                fail("loom_corpus_test xfail %s must name a diagnostic" % identity)
-            profile_xfails = xfails_by_source[source_identity].setdefault(profile_name, {})
-            if record in profile_xfails:
+                fail("loom_corpus_test %s %s must name a diagnostic" % (entry_name, identity))
+            profile_qualifications = qualifications_by_source[source_identity].setdefault(profile_name, {})
+            if record in profile_qualifications:
                 fail(
-                    "loom_corpus_test repeats xfail %s for profile %s" %
-                    (identity, profile_name),
+                    "loom_corpus_test repeats %s %s for profile %s" %
+                    (entry_name, identity, profile_name),
                 )
-            profile_xfails[record] = diagnostic
-    return xfails_by_source
+            profile_qualifications[record] = diagnostic
+    return qualifications_by_source
 
 def loom_corpus_test(
         name,
         catalog,
         execution_profiles,
+        allowed_failures = {},
         excludes = {},
         profile_sources = {},
         xfails = {},
@@ -86,6 +94,9 @@ def loom_corpus_test(
       name: Whole-catalog test suite name.
       catalog: Target-neutral catalog returned by `loom_corpus_catalog`.
       execution_profiles: Target-owned correctness execution environments.
+      allowed_failures: Execution profile names mapped to
+        '<source>:@<record>' diagnostic dictionaries. A named record may pass;
+        if it fails, the failure must carry one of the named diagnostics.
       excludes: Source identities mapped to target-local exclusion reasons.
       profile_sources: Execution profile names mapped to the source identities
         that carry an authored witness for that profile. Profiles absent from
@@ -148,13 +159,33 @@ def loom_corpus_test(
             selected_sources[identity] = None
         selected_sources_by_profile[profile_name] = selected_sources
 
-    xfails_by_source = _partition_xfails(
+    xfails_by_source = _partition_failure_qualifications(
         catalog,
         profiles_by_name,
         selected_sources_by_profile,
         excludes,
         xfails,
+        "xfails",
+        "xfail",
     )
+    allowed_failures_by_source = _partition_failure_qualifications(
+        catalog,
+        profiles_by_name,
+        selected_sources_by_profile,
+        excludes,
+        allowed_failures,
+        "allowed_failures",
+        "allowed failure",
+    )
+    for program in catalog.programs:
+        for profile_name, profile_allowed_failures in allowed_failures_by_source[program.identity].items():
+            profile_xfails = xfails_by_source[program.identity].get(profile_name, {})
+            for record in profile_allowed_failures:
+                if record in profile_xfails:
+                    fail(
+                        "loom_corpus_test record %s:%s cannot be both xfailed and allowed to fail for profile %s" %
+                        (program.identity, record, profile_name),
+                    )
 
     tests = []
     tests_by_manifest = {manifest.name: [] for manifest in catalog.manifests}
@@ -166,15 +197,23 @@ def loom_corpus_test(
             if (profile.name in selected_sources_by_profile and
                 program.identity not in selected_sources_by_profile[profile.name]):
                 continue
+            qualification_args = []
             profile_xfails = xfails_by_source[program.identity].get(profile.name, {})
             if profile_xfails:
-                xfail_args = [
+                qualification_args.extend([
                     "--xfail=%s=%s" % (record, profile_xfails[record])
                     for record in sorted(profile_xfails)
-                ]
+                ])
+            profile_allowed_failures = allowed_failures_by_source[program.identity].get(profile.name, {})
+            if profile_allowed_failures:
+                qualification_args.extend([
+                    "--allow-failure=%s=%s" % (record, profile_allowed_failures[record])
+                    for record in sorted(profile_allowed_failures)
+                ])
+            if qualification_args:
                 profile = _profile_with_runner_args(
                     profile,
-                    profile.runner_args + xfail_args,
+                    profile.runner_args + qualification_args,
                 )
             program_profiles.append(profile)
         if not program_profiles:

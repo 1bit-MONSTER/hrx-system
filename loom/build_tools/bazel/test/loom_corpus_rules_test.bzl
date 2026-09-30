@@ -234,17 +234,34 @@ def _test_execution_partitions_profiles_and_xfails_impl(env, target):
     info = target[LoomExecutionTestInfo]
     if info.test_runner_args != [
         "--max-samples-per-case=1",
-        "--xfail=@fixture_cases=TARGET/003",
+        "--xfail=@fixture_cases=TARGET/003,EXPECT/003",
     ]:
         env.fail("unexpected corpus correctness arguments %r" % info.test_runner_args)
     if info.benchmark_runner != None or info.benchmark_runner_args:
         env.fail("corpus execution must remain correctness-only")
+
+def _test_execution_carries_allowed_failures(name, **kwargs):
+    analysis_test(
+        name = name,
+        impl = _test_execution_carries_allowed_failures_impl,
+        target = ":sample_other_test_execute_reference_test_launcher",
+        **kwargs
+    )
+
+def _test_execution_carries_allowed_failures_impl(env, target):
+    info = target[LoomExecutionTestInfo]
+    if info.test_runner_args != [
+        "--max-samples-per-case=1",
+        "--allow-failure=@other_case=TARGET/003,EXPECT/003",
+    ]:
+        env.fail("unexpected corpus correctness arguments %r" % info.test_runner_args)
 
 def loom_corpus_rules_test_suite(name):
     test_suite(
         name = name,
         tests = [
             _test_aggregate_collects_program_outputs,
+            _test_execution_carries_allowed_failures,
             _test_execution_partitions_profiles_and_xfails,
             _test_program_allows_explicit_full_exclusion,
             _test_program_exposes_outputs_and_batched_xfails,

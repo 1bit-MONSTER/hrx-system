@@ -56,18 +56,51 @@ static iree_status_t iree_test_loom_parse_diagnostic_ref(
   return iree_ok_status();
 }
 
-iree_status_t iree_test_loom_xfail_list_initialize(
-    iree_string_view_list_t values, iree_allocator_t allocator,
-    iree_test_loom_xfail_list_t* out_list) {
-  *out_list = (iree_test_loom_xfail_list_t){0};
-  if (values.count == 0) {
-    return iree_ok_status();
+static const char* iree_test_loom_xfail_policy_flag(
+    iree_test_loom_xfail_policy_t policy) {
+  return policy == IREE_TEST_LOOM_XFAIL_POLICY_STRICT ? "--xfail"
+                                                      : "--allow-failure";
+}
+
+static iree_status_t iree_test_loom_parse_diagnostic_refs(
+    iree_test_loom_xfail_t* xfail, iree_allocator_t allocator) {
+  xfail->diagnostic_count = 1;
+  for (iree_host_size_t i = 0; i < xfail->diagnostic.size; ++i) {
+    xfail->diagnostic_count += xfail->diagnostic.data[i] == ',';
   }
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(allocator, values.count,
-                                                   sizeof(*out_list->values),
-                                                   (void**)&out_list->values));
-  memset(out_list->values, 0, values.count * sizeof(*out_list->values));
-  out_list->count = values.count;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      allocator, xfail->diagnostic_count, sizeof(*xfail->diagnostic_refs),
+      (void**)&xfail->diagnostic_refs));
+
+  iree_string_view_t remaining = xfail->diagnostic;
+  for (iree_host_size_t i = 0; i < xfail->diagnostic_count; ++i) {
+    iree_string_view_t diagnostic = iree_string_view_empty();
+    iree_string_view_split(remaining, ',', &diagnostic, &remaining);
+    if (iree_string_view_is_empty(diagnostic)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "%s value for '%.*s' contains an empty diagnostic identity",
+          iree_test_loom_xfail_policy_flag(xfail->policy),
+          (int)xfail->record.size, xfail->record.data);
+    }
+    IREE_RETURN_IF_ERROR(iree_test_loom_parse_diagnostic_ref(
+        diagnostic, &xfail->diagnostic_refs[i]));
+    for (iree_host_size_t j = 0; j < i; ++j) {
+      if (xfail->diagnostic_refs[j] == xfail->diagnostic_refs[i]) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "%s value for '%.*s' repeats diagnostic '%.*s'",
+                                iree_test_loom_xfail_policy_flag(xfail->policy),
+                                (int)xfail->record.size, xfail->record.data,
+                                (int)diagnostic.size, diagnostic.data);
+      }
+    }
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t iree_test_loom_append_xfail_values(
+    iree_string_view_list_t values, iree_test_loom_xfail_policy_t policy,
+    iree_allocator_t allocator, iree_test_loom_xfail_list_t* list) {
   for (iree_host_size_t i = 0; i < values.count; ++i) {
     iree_string_view_t record = iree_string_view_empty();
     iree_string_view_t diagnostic = iree_string_view_empty();
@@ -75,29 +108,63 @@ iree_status_t iree_test_loom_xfail_list_initialize(
             0 ||
         record.size < 2 || record.data[0] != '@' ||
         iree_string_view_is_empty(diagnostic)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "--xfail value '%.*s' must use '@record=DOMAIN/NNN'",
-          (int)values.values[i].size, values.values[i].data);
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "%s value '%.*s' must use "
+                              "'@record=DOMAIN/NNN[,DOMAIN/NNN...]'",
+                              iree_test_loom_xfail_policy_flag(policy),
+                              (int)values.values[i].size,
+                              values.values[i].data);
     }
-    for (iree_host_size_t j = 0; j < i; ++j) {
-      if (iree_string_view_equal(out_list->values[j].record, record)) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "--xfail repeats record '%.*s'",
-                                (int)record.size, record.data);
+    for (iree_host_size_t j = 0; j < list->count; ++j) {
+      if (iree_string_view_equal(list->values[j].record, record)) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "expected-failure qualification repeats record '%.*s'",
+            (int)record.size, record.data);
       }
     }
-    iree_test_loom_xfail_t* xfail = &out_list->values[i];
+    iree_test_loom_xfail_t* xfail = &list->values[list->count++];
     xfail->record = record;
     xfail->diagnostic = diagnostic;
-    IREE_RETURN_IF_ERROR(iree_test_loom_parse_diagnostic_ref(
-        diagnostic, &xfail->diagnostic_ref));
+    xfail->policy = policy;
+    IREE_RETURN_IF_ERROR(
+        iree_test_loom_parse_diagnostic_refs(xfail, allocator));
   }
   return iree_ok_status();
 }
 
+iree_status_t iree_test_loom_xfail_list_initialize(
+    iree_string_view_list_t strict_values,
+    iree_string_view_list_t allow_failure_values, iree_allocator_t allocator,
+    iree_test_loom_xfail_list_t* out_list) {
+  *out_list = (iree_test_loom_xfail_list_t){0};
+  const iree_host_size_t capacity =
+      strict_values.count + allow_failure_values.count;
+  if (capacity == 0) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(allocator, capacity,
+                                                   sizeof(*out_list->values),
+                                                   (void**)&out_list->values));
+  memset(out_list->values, 0, capacity * sizeof(*out_list->values));
+  iree_status_t status = iree_test_loom_append_xfail_values(
+      strict_values, IREE_TEST_LOOM_XFAIL_POLICY_STRICT, allocator, out_list);
+  if (iree_status_is_ok(status)) {
+    status = iree_test_loom_append_xfail_values(
+        allow_failure_values, IREE_TEST_LOOM_XFAIL_POLICY_ALLOW_PASS, allocator,
+        out_list);
+  }
+  if (!iree_status_is_ok(status)) {
+    iree_test_loom_xfail_list_deinitialize(out_list, allocator);
+  }
+  return status;
+}
+
 void iree_test_loom_xfail_list_deinitialize(iree_test_loom_xfail_list_t* list,
                                             iree_allocator_t allocator) {
+  for (iree_host_size_t i = 0; i < list->count; ++i) {
+    iree_allocator_free(allocator, list->values[i].diagnostic_refs);
+  }
   iree_allocator_free(allocator, list->values);
   *list = (iree_test_loom_xfail_list_t){0};
 }
@@ -138,8 +205,8 @@ iree_status_t iree_test_loom_validate_xfails(
     if (match_count != 1) {
       return iree_make_status(
           IREE_STATUS_NOT_FOUND,
-          "--xfail record '%.*s' matched %zu check records; expected exactly "
-          "one",
+          "%s record '%.*s' matched %zu check records; expected exactly one",
+          iree_test_loom_xfail_policy_flag(xfails->values[xfail_index].policy),
           (int)xfails->values[xfail_index].record.size,
           xfails->values[xfail_index].record.data, match_count);
     }
@@ -147,13 +214,24 @@ iree_status_t iree_test_loom_validate_xfails(
         !iree_string_view_equal(record_name, selected_record_name)) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
-          "--xfail record '%.*s' is not selected by --case=@%.*s",
+          "%s record '%.*s' is not selected by --case=@%.*s",
+          iree_test_loom_xfail_policy_flag(xfails->values[xfail_index].policy),
           (int)xfails->values[xfail_index].record.size,
           xfails->values[xfail_index].record.data,
           (int)selected_record_name.size, selected_record_name.data);
     }
   }
   return iree_ok_status();
+}
+
+static bool iree_test_loom_xfail_accepts_diagnostic(
+    const iree_test_loom_xfail_t* xfail, loom_error_ref_t ref) {
+  for (iree_host_size_t i = 0; i < xfail->diagnostic_count; ++i) {
+    if (xfail->diagnostic_refs[i] == ref) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void iree_test_loom_diagnostic_capture_begin(
@@ -174,7 +252,7 @@ static iree_status_t iree_test_loom_capture_diagnostic(
       capture->first_error_ref = ref;
     }
     if (capture->active_xfail != NULL &&
-        ref == capture->active_xfail->diagnostic_ref) {
+        iree_test_loom_xfail_accepts_diagnostic(capture->active_xfail, ref)) {
       capture->matched_expected_diagnostic = true;
     }
   }
@@ -200,7 +278,7 @@ void iree_test_loom_capture_expectation_report(
     if (!loom_error_ref_is_set(capture->first_error_ref)) {
       capture->first_error_ref = ref;
     }
-    if (ref == capture->active_xfail->diagnostic_ref) {
+    if (iree_test_loom_xfail_accepts_diagnostic(capture->active_xfail, ref)) {
       capture->matched_expected_diagnostic = true;
     }
   }
@@ -250,6 +328,8 @@ iree_test_loom_xfail_counts_t iree_test_loom_count_xfails(
       case IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS:
         ++counts.xpass_count;
         break;
+      case IREE_TEST_LOOM_XFAIL_OUTCOME_ALLOWED_PASS:
+        break;
       case IREE_TEST_LOOM_XFAIL_OUTCOME_DIAGNOSTIC_MISMATCH:
       case IREE_TEST_LOOM_XFAIL_OUTCOME_PENDING:
         ++counts.mismatch_count;
@@ -264,6 +344,8 @@ static iree_string_view_t iree_test_loom_xfail_outcome_name(
   switch (outcome) {
     case IREE_TEST_LOOM_XFAIL_OUTCOME_EXPECTED_FAILURE:
       return IREE_SV("xfail");
+    case IREE_TEST_LOOM_XFAIL_OUTCOME_ALLOWED_PASS:
+      return IREE_SV("pass");
     case IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS:
       return IREE_SV("xpass");
     case IREE_TEST_LOOM_XFAIL_OUTCOME_DIAGNOSTIC_MISMATCH:
@@ -272,6 +354,13 @@ static iree_string_view_t iree_test_loom_xfail_outcome_name(
     default:
       return IREE_SV("not_executed");
   }
+}
+
+static iree_string_view_t iree_test_loom_xfail_policy_name(
+    iree_test_loom_xfail_policy_t policy) {
+  return policy == IREE_TEST_LOOM_XFAIL_POLICY_STRICT
+             ? IREE_SV("strict")
+             : IREE_SV("allow_failure");
 }
 
 iree_status_t iree_test_loom_write_xfails_json(
@@ -309,6 +398,9 @@ iree_status_t iree_test_loom_write_xfails_json(
           &object, IREE_SV("observed_diagnostic"),
           iree_make_string_view(observed_diagnostic, length)));
     }
+    IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
+        &object, IREE_SV("policy"),
+        iree_test_loom_xfail_policy_name(xfail->policy)));
     IREE_RETURN_IF_ERROR(loom_json_object_end(&object));
   }
   return loom_json_array_end(&array);

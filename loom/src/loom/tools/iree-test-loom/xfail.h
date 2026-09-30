@@ -23,17 +23,29 @@ extern "C" {
 typedef enum iree_test_loom_xfail_outcome_e {
   IREE_TEST_LOOM_XFAIL_OUTCOME_PENDING = 0,
   IREE_TEST_LOOM_XFAIL_OUTCOME_EXPECTED_FAILURE,
+  IREE_TEST_LOOM_XFAIL_OUTCOME_ALLOWED_PASS,
   IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS,
   IREE_TEST_LOOM_XFAIL_OUTCOME_DIAGNOSTIC_MISMATCH,
 } iree_test_loom_xfail_outcome_t;
 
+typedef enum iree_test_loom_xfail_policy_e {
+  // The record must fail with one of its expected diagnostics.
+  IREE_TEST_LOOM_XFAIL_POLICY_STRICT = 0,
+  // The record may pass, but any failure must carry an expected diagnostic.
+  IREE_TEST_LOOM_XFAIL_POLICY_ALLOW_PASS,
+} iree_test_loom_xfail_policy_t;
+
 typedef struct iree_test_loom_xfail_t {
   // Authored record symbol, including its leading '@'.
   iree_string_view_t record;
-  // Canonical diagnostic spelling supplied on the command line.
+  // Comma-separated canonical diagnostics supplied on the command line.
   iree_string_view_t diagnostic;
-  // Parsed stable diagnostic identity.
-  loom_error_ref_t diagnostic_ref;
+  // Allocator-owned accepted stable diagnostic identities.
+  loom_error_ref_t* diagnostic_refs;
+  // Number of entries in |diagnostic_refs|.
+  iree_host_size_t diagnostic_count;
+  // Qualification policy selected by the command-line flag.
+  iree_test_loom_xfail_policy_t policy;
   // First failure identity observed while executing this record.
   loom_error_ref_t observed_diagnostic_ref;
   // Number of raw failed samples accepted by this expected failure.
@@ -73,9 +85,10 @@ typedef struct iree_test_loom_xfail_counts_t {
   iree_host_size_t accepted_failed_trial_count;
 } iree_test_loom_xfail_counts_t;
 
-// Parses and owns the expected failures in |values|.
+// Parses and owns strict and pass-allowed expected failures.
 iree_status_t iree_test_loom_xfail_list_initialize(
-    iree_string_view_list_t values, iree_allocator_t allocator,
+    iree_string_view_list_t strict_values,
+    iree_string_view_list_t allow_failure_values, iree_allocator_t allocator,
     iree_test_loom_xfail_list_t* out_list);
 
 // Releases storage owned by |list|.

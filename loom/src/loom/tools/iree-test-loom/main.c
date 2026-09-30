@@ -75,8 +75,12 @@ IREE_FLAG_NAMED(string, sanitizer_reporting, "sanitizer-reporting", "default",
                 "'default', 'trap', or 'report-only'.");
 IREE_FLAG_LIST_NAMED(
     string, xfail, "xfail",
-    "Expected record failure as '@record=DOMAIN/NNN'. Repeat once per "
-    "expected failure. XPASS and diagnostic drift fail the run.");
+    "Required record failure as '@record=DOMAIN/NNN[,DOMAIN/NNN...]'. "
+    "Repeat once per record. XPASS and diagnostic drift fail the run.");
+IREE_FLAG_LIST_NAMED(
+    string, allow_failure, "allow-failure",
+    "Permitted record failure as '@record=DOMAIN/NNN[,DOMAIN/NNN...]'. "
+    "A pass is valid, while any other diagnostic fails the run.");
 
 enum {
   // Target-linked requirement providers.
@@ -654,6 +658,8 @@ static void iree_test_loom_print_agents_markdown(FILE* stream) {
       "iree-test-loom module.loom --sanitizer=asan "
       "--sanitizer-reporting=report-only\n"
       "iree-test-loom module.loom --xfail=@unsupported=TARGET/003\n"
+      "iree-test-loom module.loom "
+      "--allow-failure=@device_dependent=TARGET/003\n"
       "```\n"
       "\n"
       "`--case=@name` selects one checked case or scenario; empty selection "
@@ -661,11 +667,13 @@ static void iree_test_loom_print_agents_markdown(FILE* stream) {
       "all records. `--sample=N` selects one planned sample for `check.case`\n"
       "records. Scenario trial domains execute in bounded batches.\n"
       "`--max-samples-per-case=N` bounds planning for generator-heavy cases.\n"
-      "`--xfail=@record=DOMAIN/NNN` accepts that record only when it fails "
-      "with\n"
-      "the named compile or expectation diagnostic. An unexpected pass or a "
-      "different\n"
-      "diagnostic fails the run.\n"
+      "`--xfail=@record=DOMAIN/NNN` requires that record to fail with the "
+      "named\n"
+      "compile or expectation diagnostic. `--allow-failure` also accepts a "
+      "pass.\n"
+      "Comma-separated diagnostics express target-dependent failure modes; "
+      "any\n"
+      "other diagnostic fails the run.\n"
       "\n"
       "### Kernel launches\n"
       "\n"
@@ -781,10 +789,15 @@ int iree_test_loom_main(int argc, char** argv,
   loom_output_stream_for_builder(&sample_output, &sample_stream);
   loom_json_array_writer_t samples;
   const iree_flag_string_list_t xfail_flags = FLAG_xfail_list();
+  const iree_flag_string_list_t allow_failure_flags = FLAG_allow_failure_list();
   iree_status_t status = iree_test_loom_xfail_list_initialize(
       (iree_string_view_list_t){
           .count = xfail_flags.count,
           .values = xfail_flags.values,
+      },
+      (iree_string_view_list_t){
+          .count = allow_failure_flags.count,
+          .values = allow_failure_flags.values,
       },
       allocator, &xfails);
   if (iree_status_is_ok(status)) {
@@ -1083,7 +1096,10 @@ int iree_test_loom_main(int argc, char** argv,
         } else if (failed_sample_delta == 0) {
           iree_test_loom_finish_xfail(
               xfail, &diagnostic_capture,
-              IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS, 0, 0);
+              xfail->policy == IREE_TEST_LOOM_XFAIL_POLICY_ALLOW_PASS
+                  ? IREE_TEST_LOOM_XFAIL_OUTCOME_ALLOWED_PASS
+                  : IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS,
+              0, 0);
         } else if (diagnostic_capture.matched_expected_diagnostic) {
           iree_test_loom_finish_xfail(
               xfail, &diagnostic_capture,
@@ -1134,7 +1150,10 @@ int iree_test_loom_main(int argc, char** argv,
         } else if (failed_trial_delta == 0) {
           iree_test_loom_finish_xfail(
               xfail, &diagnostic_capture,
-              IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS, 0, 0);
+              xfail->policy == IREE_TEST_LOOM_XFAIL_POLICY_ALLOW_PASS
+                  ? IREE_TEST_LOOM_XFAIL_OUTCOME_ALLOWED_PASS
+                  : IREE_TEST_LOOM_XFAIL_OUTCOME_UNEXPECTED_PASS,
+              0, 0);
         } else if (diagnostic_capture.matched_expected_diagnostic) {
           iree_test_loom_finish_xfail(
               xfail, &diagnostic_capture,
