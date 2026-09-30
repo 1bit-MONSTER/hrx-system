@@ -7,7 +7,7 @@
 #ifndef HRX_BINDING_HIP_FUNCTION_HANDLE_H_
 #define HRX_BINDING_HIP_FUNCTION_HANDLE_H_
 
-#include "binding/common/internal.h"
+#include "common/module.h"
 
 #ifdef __cplusplus
 extern "C" {

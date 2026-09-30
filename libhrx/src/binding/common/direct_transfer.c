@@ -6,7 +6,8 @@
 
 #include "common/direct_transfer.h"
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
 #include "transfer.h"
 
 iree_status_t iree_hal_streaming_direct_transfer_h2d(

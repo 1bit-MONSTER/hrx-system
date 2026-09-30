@@ -10,11 +10,20 @@
 #include <thread>
 #include <utility>
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/event.h"
+#include "common/graph.h"
+#include "common/hrx_bridge.h"
+#include "common/module.h"
+#include "common/stream.h"
+#include "common/stream_value.h"
 #include "iree/base/api.h"
 #include "iree/base/internal/atomics.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "libhrx/src/libhrx/buffer.h"
+#include "libhrx/src/libhrx/device.h"
 
 namespace {
 

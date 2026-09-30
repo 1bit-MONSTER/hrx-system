@@ -4,10 +4,37 @@
 // Buffer allocation, mapping, and lifecycle.
 // Adapted from iree-hal-streaming's memory.c allocation patterns.
 
+#include "buffer.h"
+
 #include <string.h>
 
 #include "hrx_internal.h"
 #include "mem_pool.h"
+
+iree_status_t hrx_buffer_create_from_hal(iree_hal_buffer_t* hal_buffer,
+                                         hrx_device_t device,
+                                         hrx_memory_type_t mem_type,
+                                         size_t size, void* mapped_ptr,
+                                         hrx_buffer_t* out_buffer) {
+  hrx_buffer_s* buffer = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(iree_allocator_system(),
+                                             sizeof(*buffer), (void**)&buffer));
+  memset(buffer, 0, sizeof(*buffer));
+  iree_atomic_ref_count_init(&buffer->ref_count);
+  buffer->hal_buffer = hal_buffer;
+  if (hal_buffer) {
+    iree_hal_buffer_retain(hal_buffer);
+  }
+  buffer->device = device;
+  if (device) {
+    hrx_device_retain(device);
+  }
+  buffer->mem_type = mem_type;
+  buffer->size = size;
+  buffer->mapped_ptr = mapped_ptr;
+  *out_buffer = buffer;
+  return iree_ok_status();
+}
 
 static iree_status_t hrx_buffer_unmap_internal(hrx_buffer_t buffer) {
   iree_status_t status = iree_hal_buffer_unmap_range(&buffer->mapping);

@@ -13,6 +13,8 @@
 #include "binding/hip/binding_internal.h"
 #include "binding/hip/error_state.h"
 #include "binding/hip/function_handle.h"
+#include "common/context.h"
+#include "common/device.h"
 #include "common/fat_binary.h"
 #include "common/module.h"
 #include "iree/base/threading/call_once.h"

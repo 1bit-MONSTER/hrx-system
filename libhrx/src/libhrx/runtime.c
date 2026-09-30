@@ -119,6 +119,10 @@ hrx_shared_state_t* hrx_get_shared_state(void) { return &g_shared; }
 hrx_gpu_state_t* hrx_get_gpu_state(void) { return &g_gpu; }
 hrx_cpu_state_t* hrx_get_cpu_state(void) { return &g_cpu; }
 
+iree_async_proactor_pool_t* hrx_runtime_proactor_pool(void) {
+  return g_shared.proactor_pool;
+}
+
 static hrx_string_view_t hrx_string_view_from_iree(iree_string_view_t value) {
   hrx_string_view_t view;
   view.data = value.data;

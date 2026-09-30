@@ -6,10 +6,12 @@
 
 #include "common/stream_value.h"
 
-#include "common/internal.h"
+#include "common/context.h"
 #include "common/stream.h"
 #include "iree/async/operations/scheduling.h"
+#include "iree/async/util/proactor_pool.h"
 #include "iree/base/internal/math.h"
+#include "libhrx/src/libhrx/runtime.h"
 
 // Maximum time a write-only batch may remain recorded without another stream
 // operation submitting it. A short delay coalesces adjacent scalar writes while
@@ -73,15 +75,15 @@ static iree_status_t iree_hal_streaming_schedule_value_flush_locked(
     return iree_ok_status();
   }
 
-  hrx_shared_state_t* shared_state = hrx_get_shared_state();
-  if (IREE_UNLIKELY(!shared_state || !shared_state->proactor_pool)) {
+  iree_async_proactor_pool_t* proactor_pool = hrx_runtime_proactor_pool();
+  if (IREE_UNLIKELY(!proactor_pool)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "async runtime is unavailable");
   }
 
   iree_async_proactor_t* proactor = NULL;
-  IREE_RETURN_IF_ERROR(iree_async_proactor_pool_get(shared_state->proactor_pool,
-                                                    /*index=*/0, &proactor));
+  IREE_RETURN_IF_ERROR(
+      iree_async_proactor_pool_get(proactor_pool, /*index=*/0, &proactor));
 
   iree_hal_streaming_value_flush_timer_t* timer = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(stream->host_allocator,
@@ -703,15 +705,14 @@ iree_status_t iree_hal_streaming_prepare_value_wait_submission(
     return status;
   }
 
-  hrx_shared_state_t* shared_state = hrx_get_shared_state();
-  if (IREE_UNLIKELY(!shared_state || !shared_state->proactor_pool)) {
+  iree_async_proactor_pool_t* proactor_pool = hrx_runtime_proactor_pool();
+  if (IREE_UNLIKELY(!proactor_pool)) {
     iree_hal_streaming_destroy_value_wait_submissions(context, submission);
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "async runtime is unavailable");
   }
-  status =
-      iree_async_proactor_pool_get(shared_state->proactor_pool,
-                                   /*index=*/0, &submission->observer_proactor);
+  status = iree_async_proactor_pool_get(proactor_pool, /*index=*/0,
+                                        &submission->observer_proactor);
   if (!iree_status_is_ok(status)) {
     iree_hal_streaming_destroy_value_wait_submissions(context, submission);
     return status;

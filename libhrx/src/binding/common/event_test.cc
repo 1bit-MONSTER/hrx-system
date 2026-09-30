@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "common/event.h"
+
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -13,12 +15,16 @@
 #include <thread>
 #include <utility>
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/graph.h"
+#include "common/hrx_bridge.h"
 #include "common/stream.h"
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "libhrx/src/libhrx/device.h"
 
 namespace {
 

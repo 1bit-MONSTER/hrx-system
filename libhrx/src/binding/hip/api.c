@@ -42,11 +42,17 @@
 #include "binding/hip/stream.h"
 #include "binding/hip/stream_value.h"
 #include "binding/hip/vmm.h"
+#include "common/context.h"
+#include "common/device.h"
 #include "common/direct_transfer.h"
+#include "common/event.h"
 #include "common/graph.h"
-#include "common/internal.h"
+#include "common/hrx_bridge.h"
+#include "common/init.h"
 #include "common/kernel_arguments.h"
+#include "common/mem_pool.h"
 #include "common/memory.h"
+#include "common/module.h"
 #include "common/occupancy.h"
 #include "common/peer.h"
 #include "common/stream.h"
@@ -54,6 +60,8 @@
 #include "common/tls.h"
 #include "hrx_runtime.h"
 #include "iree/base/threading/call_once.h"
+#include "libhrx/src/libhrx/device.h"
+#include "libhrx/src/libhrx/runtime.h"
 
 static_assert(hipStreamWaitValueGte == IREE_HIP_STREAM_WAIT_VALUE_GTE,
               "stream wait GTE flag mismatch");

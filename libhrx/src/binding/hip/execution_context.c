@@ -9,8 +9,10 @@
 #include "binding/hip/execution_resource.h"
 #include "binding/hip/execution_resource_descriptor.h"
 #include "binding/hip/stream.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/event.h"
 #include "common/graph.h"
-#include "common/internal.h"
 #include "common/stream.h"
 #include "iree/base/threading/call_once.h"
 

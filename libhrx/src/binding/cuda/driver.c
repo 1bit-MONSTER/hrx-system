@@ -8,9 +8,18 @@
 
 #include <limits.h>
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/device.h"
+#include "common/event.h"
+#include "common/graph.h"
+#include "common/hrx_bridge.h"
+#include "common/init.h"
+#include "common/mem_pool.h"
+#include "common/memory.h"
+#include "common/module.h"
 #include "common/occupancy.h"
 #include "common/peer.h"
+#include "common/stream.h"
 
 //===----------------------------------------------------------------------===//
 // Flag translation functions

@@ -11,9 +11,12 @@
 #include <thread>
 #include <utility>
 
-#include "common/internal.h"
+#include "common/context.h"
+#include "common/hrx_bridge.h"
+#include "common/stream.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "libhrx/src/libhrx/device.h"
 
 namespace {
 
