@@ -99,7 +99,13 @@ _ACCESS_SOURCES = [
     "kernel/subgroup/active_predicate.loom",
     "kernel/subgroup/ballot.loom",
     "kernel/workgroup/loop_state.loom",
+    "numeric/float/approximate_extended.loom",
+    "numeric/float/extrema.loom",
+    "numeric/integer/wide/subtract.loom",
+    "numeric/predicate/extension.loom",
+    "numeric/predicate/extract.loom",
     "numeric/predicate/truncation.loom",
+    "numeric/vector/integer_widening.loom",
 ]
 
 _NO_KERNEL_ARTIFACT_EXCLUDES = {

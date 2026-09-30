@@ -37,6 +37,18 @@ _KERNEL_SOURCES = [
     "kernel/workgroup/loop_state.loom",
     "kernel/workgroup/reduce_partial.loom",
     "kernel/workgroup/reduce_tree.loom",
+    "numeric/float/approximate_extended.loom",
+    "numeric/float/extrema.loom",
+    "numeric/integer/bitwise_divisibility.loom",
+    "numeric/integer/narrow_consumers.loom",
+    "numeric/integer/unsigned_remainder.loom",
+    "numeric/integer/wide/shifts.loom",
+    "numeric/integer/wide/subtract.loom",
+    "numeric/integer/wide/uniform.loom",
+    "numeric/integer/wide/uniform_immediate.loom",
+    "numeric/predicate/extension.loom",
+    "numeric/predicate/extract.loom",
+    "numeric/vector/integer_widening.loom",
 ]
 
 _NO_KERNEL_ARTIFACT_EXCLUDES = {

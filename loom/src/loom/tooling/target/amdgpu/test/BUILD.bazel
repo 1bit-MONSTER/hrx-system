@@ -250,21 +250,6 @@ loom_test(
 )
 
 loom_test(
-    name = "wide_subtract_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:integer_wide_subtract.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "wide_shift_hardware_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:integer_wide_shifts.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
-
-loom_test(
     name = "kernarg_test",
     srcs = ["amdgpu_unused_kernargs.loom"],
     execution_profiles = [
@@ -289,18 +274,6 @@ loom_test(
         AMDGPU_HARDWARE_PROFILE,
         AMDGPU_ACCESS_PROFILE,
     ],
-)
-
-loom_test(
-    name = "narrow_integer_hardware_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:integer_narrow_consumers.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
-
-loom_test(
-    name = "unsigned_remainder_hardware_test",
-    srcs = ["//loom/src/loom/test/corpus/conformance:integer_unsigned_remainder.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_test(

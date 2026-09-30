@@ -137,6 +137,9 @@ _ALL_PROFILE_XFAILS = {
     "kernel/workgroup/reduce_tree.loom:@workgroup_tree_row_exchange": "TARGET/032",
     "kernel/workgroup/reduce_tree.loom:@workgroup_tree_three_waves": "TARGET/032",
     "kernel/workgroup/reduce_tree.loom:@workgroup_tree_vector_all": "TARGET/032",
+    "numeric/float/extrema.loom:@float_extrema_f32": "TARGET/003",
+    "numeric/predicate/extract.loom:@predicate_extract": "TARGET/032",
+    "numeric/predicate/extract.loom:@predicate_logic_across_divergence": "TARGET/001",
 }
 
 _BALLOT_XFAILS = {
@@ -145,11 +148,21 @@ _BALLOT_XFAILS = {
     "kernel/subgroup/ballot.loom:@subgroup_ballot_masks": "SUBRANGE/024",
 }
 
+_SUBGROUP_XFAILS = {
+    "control/loop/carried_lane_liveness.loom:@loop_carried_lane_liveness": "TARGET/003",
+    "numeric/integer/narrow_consumers.loom:@narrow_integer_consumers": "TARGET/003",
+    "numeric/vector/integer_widening.loom:@vector_widen_i16": "TARGET/003",
+    "numeric/vector/integer_widening.loom:@vector_widen_i8": "TARGET/003",
+}
+
 _BDA_XFAILS = {
     "control/loop/carried_lane_liveness.loom:@loop_carried_lane_liveness": "TARGET/003",
     "kernel/subgroup/ballot.loom:@subgroup_ballot_divergent": "SUBRANGE/024",
     "kernel/subgroup/ballot.loom:@subgroup_ballot_helpers_and_loop": "TARGET/003",
     "kernel/subgroup/ballot.loom:@subgroup_ballot_masks": "SUBRANGE/024",
+    "numeric/integer/narrow_consumers.loom:@narrow_integer_consumers": "TARGET/003",
+    "numeric/vector/integer_widening.loom:@vector_widen_i16": "TARGET/003",
+    "numeric/vector/integer_widening.loom:@vector_widen_i8": "TARGET/003",
 }
 
 _ALL_ROOTS_XFAIL = [
@@ -160,6 +173,8 @@ _ALL_ROOTS_XFAIL = [
     "kernel/subgroup/transport_carrier.loom",
     "kernel/workgroup/reduce_partial.loom",
     "kernel/workgroup/reduce_tree.loom",
+    "numeric/float/extrema.loom",
+    "numeric/predicate/extract.loom",
 ]
 
 _SPIRV_EXECUTION_XFAILS = {
@@ -212,6 +227,22 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/conversion/scalar_float.loom:@narrow_float_scalar_bitcasts": "TARGET/003",
     "numeric/conversion/scalar_float.loom:@scalar_f32_to_f64_values": "EXPECT/002",
     "numeric/conversion/scalar_float.loom:@scalar_f64_to_f32_values": "EXPECT/002",
+    "numeric/float/extrema.loom:@float_extrema_both_nan": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_finite": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_infinities": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_negative_quiet_lhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_negative_quiet_rhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_negative_signaling_lhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_negative_signaling_rhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_opposite_zeros": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_quiet_lhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_quiet_rhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_reverse_zeros": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_signaling_lhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_signaling_rhs": "TARGET/003",
+    "numeric/float/extrema.loom:@float_extrema_subnormals": "TARGET/003",
+    "numeric/predicate/extract.loom:@predicate_element_values": "TARGET/032",
+    "numeric/predicate/extract.loom:@predicate_logic_survives_divergence": "TARGET/001",
     "numeric/predicate/vector_logic.loom:@predicate_bitwise_values": "TARGET/001",
     "numeric/predicate/vector_logic.loom:@predicate_select_values": "TARGET/001",
     "numeric/vector/f32.loom:@numeric_vector_f32_values": "LOWERING/036",
@@ -225,8 +256,14 @@ loom_corpus_build(
     name = "all",
     all_roots_xfail = {
         "//loom/target/spirv:all": _ALL_ROOTS_XFAIL,
-        "//loom/target/spirv:vulkan1.3+bda": ["kernel/subgroup/ballot.loom"],
+        "//loom/target/spirv:vulkan1.3+bda": [
+            "kernel/subgroup/ballot.loom",
+            "numeric/integer/narrow_consumers.loom",
+        ],
         "//loom/target/spirv:vulkan1.3+bda+extended-types": ["kernel/subgroup/ballot.loom"],
+        "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal": [
+            "numeric/integer/narrow_consumers.loom",
+        ],
     },
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/spirv:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
@@ -235,9 +272,7 @@ loom_corpus_build(
         "//loom/target/spirv:all": _ALL_PROFILE_XFAILS,
         "//loom/target/spirv:vulkan1.3+bda": _BDA_XFAILS,
         "//loom/target/spirv:vulkan1.3+bda+extended-types": _BALLOT_XFAILS,
-        "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal": {
-            "control/loop/carried_lane_liveness.loom:@loop_carried_lane_liveness": "TARGET/003",
-        },
+        "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal": _SUBGROUP_XFAILS,
     },
 )
 
