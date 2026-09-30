@@ -99,8 +99,8 @@ func.def public @excluded(%value: i32) -> (i32) {
 )");
   const iree_string_view_t roots[] = {IREE_SV("kept"), IREE_SV("also_kept")};
   loom_compile_request_t request = {};
-  request.product = LOOM_COMPILE_PRODUCT_MODULE;
-  request.roots = {IREE_ARRAYSIZE(roots), roots};
+  request.selection.product = LOOM_COMPILE_PRODUCT_MODULE;
+  request.selection.roots = {IREE_ARRAYSIZE(roots), roots};
 
   module = Materialize(std::move(module), request);
 
@@ -128,8 +128,8 @@ kernel.def @excluded() {
 )");
   const iree_string_view_t roots[] = {IREE_SV("kept")};
   loom_compile_request_t request = {};
-  request.product = LOOM_COMPILE_PRODUCT_KERNEL;
-  request.roots = {IREE_ARRAYSIZE(roots), roots};
+  request.selection.product = LOOM_COMPILE_PRODUCT_KERNEL;
+  request.selection.roots = {IREE_ARRAYSIZE(roots), roots};
 
   module = Materialize(std::move(module), request);
 

@@ -19,13 +19,7 @@ loom_cc_library(
   DEPS
     ::artifact
     iree::base
-    iree::base::internal::arena
-    loom::ir
-    loom::ops::op_defs
-    loom::ops::pipeline
-    loom::target::entry_selection
-    loom::target::projection
-    loom::target::provider
+    loom::compile::product_selection
     loom::target::selection
   PUBLIC
 )

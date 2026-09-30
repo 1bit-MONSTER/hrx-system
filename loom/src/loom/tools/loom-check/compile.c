@@ -261,15 +261,16 @@ iree_status_t loom_check_execute_compile(
   }
   if (iree_status_is_ok(status) && input.module != NULL &&
       collector.error_count == 0) {
-    if (request.product == LOOM_COMPILE_PRODUCT_KERNEL) {
+    if (request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL) {
       // Testbench launches are independent deployment units. Compiling their
       // roots separately also preserves targets with per-artifact dispatch
       // ABIs.
-      const iree_string_view_list_t roots = request.roots;
+      const iree_string_view_list_t roots = request.selection.roots;
       for (iree_host_size_t i = 0; iree_status_is_ok(status) && i < roots.count;
            ++i) {
         const iree_string_view_t root = roots.values[i];
-        request.roots = (iree_string_view_list_t){.count = 1, .values = &root};
+        request.selection.roots =
+            (iree_string_view_list_t){.count = 1, .values = &root};
         status = loom_check_compile_request(
             &request, input.module, &input.sources.table, &pipeline_options,
             &collector, block_pool, allocator);

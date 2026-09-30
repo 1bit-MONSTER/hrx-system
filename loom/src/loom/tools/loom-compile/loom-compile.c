@@ -608,7 +608,7 @@ static iree_status_t loom_compile_emit_command(
   return loom_compile_command_backend_emit(
       session, run_module,
       &(loom_compile_command_backend_options_t){
-          .root_symbols = request->roots,
+          .root_symbols = request->selection.roots,
           .artifact_directory =
               iree_make_cstring_view(FLAG_emit_command_artifacts),
           .kernel_request_directory =

@@ -16,7 +16,7 @@ static iree_status_t loom_compile_materialize_roots(
     iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
     loom_module_t** inout_module) {
   loom_module_t* module = *inout_module;
-  if (request->roots.count == 0) {
+  if (request->selection.roots.count == 0) {
     return iree_ok_status();
   }
 
@@ -31,7 +31,7 @@ static iree_status_t loom_compile_materialize_roots(
       source_modules, IREE_ARRAYSIZE(source_modules),
       &(loom_link_options_t){
           .module_name = module_name,
-          .root_symbols = request->roots,
+          .root_symbols = request->selection.roots,
           .source_callback = {.fn = loom_source_table_project,
                               .user_data = sources},
       },
@@ -54,7 +54,7 @@ iree_status_t loom_compile_materialize_request(
   *out_error_count = 0;
   IREE_RETURN_IF_ERROR(loom_compile_materialize_roots(
       request, sources, block_pool, allocator, inout_module));
-  if (request->product == LOOM_COMPILE_PRODUCT_KERNEL &&
+  if (request->selection.product == LOOM_COMPILE_PRODUCT_KERNEL &&
       request->explicit_target.target_profile != NULL) {
     const loom_target_entry_options_t diagnostic_options = {
         .diagnostic_sink = options->diagnostic_sink,
@@ -93,7 +93,7 @@ iree_status_t loom_compile_run_request_pipeline(
   iree_arena_allocator_t arena;
   iree_arena_initialize(block_pool, &arena);
   iree_status_t status = iree_ok_status();
-  if (request->product == LOOM_COMPILE_PRODUCT_MODULE &&
+  if (request->selection.product == LOOM_COMPILE_PRODUCT_MODULE &&
       request->explicit_target.target_profile != NULL) {
     loom_target_specialization_request_t* specializations = NULL;
     status = iree_arena_allocate_array(&arena, module->symbols.count,
