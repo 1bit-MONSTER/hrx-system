@@ -125,11 +125,13 @@ TEST_F(XdnaArtifactTest, EmitsLoaderReadyControlFreeResidentProduct) {
   IREE_ASSERT_OK(ParseModule(&module));
 
   const loom_aie2p_xdna_artifact_request_t request = {
-      .module = module.get(),
-      .low_descriptor_registry = &low_registry_.registry,
-      .compile_report = &compile_report_,
-      .scratch_arena = &scratch_arena_,
-      .allocator = iree_allocator_system(),
+      /*.module=*/module.get(),
+      /*.function_versions=*/nullptr,
+      /*.low_descriptor_registry=*/&low_registry_.registry,
+      /*.compile_report=*/&compile_report_,
+      /*.diagnostic_emitter=*/{},
+      /*.scratch_arena=*/&scratch_arena_,
+      /*.allocator=*/iree_allocator_system(),
   };
   bool emitted = false;
   IREE_ASSERT_OK(
