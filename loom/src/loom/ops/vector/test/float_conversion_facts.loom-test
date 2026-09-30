@@ -1,5 +1,27 @@
 // RUN: pass canonicalize
 
+// Every lane of a dynamic integer conversion is non-NaN. Narrow formats may
+// still overflow, so the infinity query remains dynamic.
+func.def @integer_to_float_not_nan(%input: vector<4xi32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %signed = vector.sitofp %input : vector<4xi32> to vector<4xf32>
+  %unsigned = vector.uitofp %input : vector<4xi32> to vector<4xf16>
+  %signed_nan = vector.isnanf %signed : vector<4xf32> -> vector<4xi1>
+  %unsigned_nan = vector.isnanf %unsigned : vector<4xf16> -> vector<4xi1>
+  %unsigned_inf = vector.isinff %unsigned : vector<4xf16> -> vector<4xi1>
+  func.return %signed_nan, %unsigned_nan, %unsigned_inf : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ----
+func.def @integer_to_float_not_nan(%input: vector<4xi32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %unsigned = vector.uitofp %input : vector<4xi32> to vector<4xf16>
+  %signed_nan = vector.constant false : vector<4xi1>
+  %unsigned_nan = vector.constant false : vector<4xi1>
+  %unsigned_inf = vector.isinff %unsigned : vector<4xf16> -> vector<4xi1>
+  func.return %signed_nan, %unsigned_nan, %unsigned_inf : vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ====
+
 // Uniform narrowing rounds before subsequent widening and arithmetic.
 func.def @bf16_residual_constant() -> (vector<16xbf16>) {
   %input = vector.constant 0.5 : vector<16xf32>

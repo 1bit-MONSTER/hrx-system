@@ -12,6 +12,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
     name = "numeric",
     package = "//loom/src/loom/test/corpus/numeric",
     srcs = [
+        "conversion/bfloat_rounding.loom",
         "conversion/conversion.loom",
         "conversion/integer_float8.loom",
         "conversion/narrow.loom",

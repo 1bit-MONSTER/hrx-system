@@ -60,6 +60,7 @@ _GUARD_VALUE_REF_KINDS = frozenset(
         GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
         GuardKind.VALUE_U32_DIVISOR_MAGIC_IS_ADD,
         GuardKind.VALUE_EXACT_FLOAT,
+        GuardKind.VALUE_NOT_NAN,
         GuardKind.VALUE_I64_RANGE,
         GuardKind.VALUE_I64_RANGE_LE,
         GuardKind.VALUE_I64_RANGE_GE,

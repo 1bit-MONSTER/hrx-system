@@ -496,7 +496,8 @@ static iree_status_t loom_amdgpu_vector_fp8_pack_f32_lanes(
     }
     return loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
         state->context, state->source_op, state->float16_pack_descriptors,
-        low_f32_lanes[0], high_lane, state->result_lane_type, out_low_packed);
+        low_f32_lanes[0], high_lane, /*source_flags=*/0,
+        state->result_lane_type, out_low_packed);
   }
 
   IREE_ASSERT_EQ(state->plan->result_element_type, LOOM_SCALAR_TYPE_F16);

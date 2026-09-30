@@ -15,6 +15,7 @@ loom_corpus_sources(
   MANIFEST
     "numeric"
   SRCS
+    "conversion/bfloat_rounding.loom"
     "conversion/conversion.loom"
     "conversion/integer_float8.loom"
     "conversion/narrow.loom"

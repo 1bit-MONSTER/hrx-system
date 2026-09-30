@@ -142,7 +142,10 @@ low.func.def target<amdgpu.rdna4.gfx125x.core> abi(hal_kernel) @subtract_bf16_1(
   %15 = v_and_b32_lit %14, 1
   %16 = v_add_u32_lit %15, 32767
   %17 = v_add_u32 %13, %16
-  %difference = v_lshrrev_b32_src0_inline %17, 16
+  %18 = v_lshrrev_b32_src0_inline %17, 16
+  %19 = v_cmp_u_f32 %13, %13
+  %20 = v_or_b32_lit %14, 64
+  %difference = v_cndmask_b32 %18, %20, %19
   return %difference
 }
 

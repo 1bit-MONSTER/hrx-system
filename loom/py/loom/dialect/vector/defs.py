@@ -3528,6 +3528,7 @@ vector_uitofp = _vector_cast(
     source_constraint=HasIntegerElement,
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise unsigned integer to floating-point conversion with unchanged shape."),
+    facts="loom_vector_uitofp_facts",
 )
 
 vector_fptosi = _vector_cast(

@@ -1072,6 +1072,14 @@ static iree_status_t loom_low_lower_rule_guard_matches(
       *out_matches = loom_low_lower_rule_value_facts_exact_float(
           match_context, rule_set, source_op, guard->value_ref_index);
       return iree_ok_status();
+    case LOOM_LOW_LOWER_GUARD_VALUE_NOT_NAN: {
+      const loom_value_id_t value_id = loom_low_lower_rule_source_value(
+          match_context->module, rule_set, source_op, guard->value_ref_index);
+      *out_matches = match_context->fact_table &&
+                     loom_value_facts_is_not_nan(loom_value_fact_table_lookup(
+                         match_context->fact_table, value_id));
+      return iree_ok_status();
+    }
     case LOOM_LOW_LOWER_GUARD_VALUE_I64_RANGE:
       *out_matches = loom_low_lower_rule_value_facts_i64_range(
           match_context, rule_set, source_op, guard->value_ref_index,

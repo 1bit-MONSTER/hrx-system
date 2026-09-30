@@ -142,7 +142,10 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @subtract_bf16_1(%lhs: 
   %15 = v_and_b32_lit %14, 1
   %16 = v_add_u32_lit %15, 32767
   %17 = v_add_u32 %13, %16
-  %difference = v_lshrrev_b32_src0_inline %17, 16
+  %18 = v_lshrrev_b32_src0_inline %17, 16
+  %19 = v_cmp_u_f32 %13, %13
+  %20 = v_or_b32_lit %14, 64
+  %difference = v_cndmask_b32 %18, %20, %19
   return %difference
 }
 
@@ -178,11 +181,17 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @subtract_bf16_2() asm 
   %37 = v_and_b32_src0_inline %36, 1
   %38 = v_add3_u32_src2_lit %29, %37, 32767
   %39 = v_lshrrev_b32_src0_inline %38, 16
-  %40 = v_lshrrev_b32_src0_inline %32, 16
-  %41 = v_and_b32_src0_inline %40, 1
-  %42 = v_add3_u32_src2_lit %32, %41, 32767
-  %43 = v_lshrrev_b32_src0_inline %42, 16
-  %difference = v_cvt_pk_u16_u32 %39, %43
+  %40 = v_cmp_u_f32 %29, %29
+  %41 = v_or_b32_src0_inline %36, 64
+  %42 = v_cndmask_b32 %39, %41, %40
+  %43 = v_lshrrev_b32_src0_inline %32, 16
+  %44 = v_and_b32_src0_inline %43, 1
+  %45 = v_add3_u32_src2_lit %32, %44, 32767
+  %46 = v_lshrrev_b32_src0_inline %45, 16
+  %47 = v_cmp_u_f32 %32, %32
+  %48 = v_or_b32_src0_inline %43, 64
+  %49 = v_cndmask_b32 %46, %48, %47
+  %difference = v_cvt_pk_u16_u32 %42, %49
   global_store_b32_saddr %17, %difference, %result
   return
 }
@@ -224,17 +233,26 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @subtract_bf16_3() asm 
   %54 = v_and_b32_src0_inline %53, 1
   %55 = v_add3_u32_src2_lit %43, %54, 32767
   %56 = v_lshrrev_b32_src0_inline %55, 16
-  %57 = v_lshrrev_b32_src0_inline %46, 16
-  %58 = v_and_b32_src0_inline %57, 1
-  %59 = v_add3_u32_src2_lit %46, %58, 32767
-  %60 = v_lshrrev_b32_src0_inline %59, 16
-  %61 = v_cvt_pk_u16_u32 %56, %60
-  %63 = v_lshrrev_b32_src0_inline %49, 16
-  %64 = v_and_b32_src0_inline %63, 1
-  %65 = v_add3_u32_src2_lit %49, %64, 32767
-  %66 = v_lshrrev_b32_src0_inline %65, 16
-  global_store_b32_saddr %17, %61, %result
-  global_store_short_saddr %17, %66, %result {offset = 4}
+  %57 = v_cmp_u_f32 %43, %43
+  %58 = v_or_b32_src0_inline %53, 64
+  %59 = v_cndmask_b32 %56, %58, %57
+  %60 = v_lshrrev_b32_src0_inline %46, 16
+  %61 = v_and_b32_src0_inline %60, 1
+  %62 = v_add3_u32_src2_lit %46, %61, 32767
+  %63 = v_lshrrev_b32_src0_inline %62, 16
+  %64 = v_cmp_u_f32 %46, %46
+  %65 = v_or_b32_src0_inline %60, 64
+  %66 = v_cndmask_b32 %63, %65, %64
+  %67 = v_cvt_pk_u16_u32 %59, %66
+  %69 = v_lshrrev_b32_src0_inline %49, 16
+  %70 = v_and_b32_src0_inline %69, 1
+  %71 = v_add3_u32_src2_lit %49, %70, 32767
+  %72 = v_lshrrev_b32_src0_inline %71, 16
+  %73 = v_cmp_u_f32 %49, %49
+  %74 = v_or_b32_src0_inline %69, 64
+  %75 = v_cndmask_b32 %72, %74, %73
+  global_store_b32_saddr %17, %67, %result
+  global_store_short_saddr %17, %75, %result {offset = 4}
   return
 }
 
@@ -296,39 +314,63 @@ low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @subtract_bf16_8() asm 
   %83 = v_and_b32_src0_inline %82, 1
   %84 = v_add3_u32_src2_lit %57, %83, 32767
   %85 = v_lshrrev_b32_src0_inline %84, 16
-  %86 = v_lshrrev_b32_src0_inline %60, 16
-  %87 = v_and_b32_src0_inline %86, 1
-  %88 = v_add3_u32_src2_lit %60, %87, 32767
-  %89 = v_lshrrev_b32_src0_inline %88, 16
-  %90 = v_cvt_pk_u16_u32 %85, %89
-  %93 = v_lshrrev_b32_src0_inline %63, 16
-  %94 = v_and_b32_src0_inline %93, 1
-  %95 = v_add3_u32_src2_lit %63, %94, 32767
-  %96 = v_lshrrev_b32_src0_inline %95, 16
-  %97 = v_lshrrev_b32_src0_inline %66, 16
-  %98 = v_and_b32_src0_inline %97, 1
-  %99 = v_add3_u32_src2_lit %66, %98, 32767
-  %100 = v_lshrrev_b32_src0_inline %99, 16
-  %101 = v_cvt_pk_u16_u32 %96, %100
-  %104 = v_lshrrev_b32_src0_inline %69, 16
-  %105 = v_and_b32_src0_inline %104, 1
-  %106 = v_add3_u32_src2_lit %69, %105, 32767
-  %107 = v_lshrrev_b32_src0_inline %106, 16
-  %108 = v_lshrrev_b32_src0_inline %72, 16
-  %109 = v_and_b32_src0_inline %108, 1
-  %110 = v_add3_u32_src2_lit %72, %109, 32767
-  %111 = v_lshrrev_b32_src0_inline %110, 16
-  %112 = v_cvt_pk_u16_u32 %107, %111
-  %115 = v_lshrrev_b32_src0_inline %75, 16
-  %116 = v_and_b32_src0_inline %115, 1
-  %117 = v_add3_u32_src2_lit %75, %116, 32767
-  %118 = v_lshrrev_b32_src0_inline %117, 16
-  %119 = v_lshrrev_b32_src0_inline %78, 16
-  %120 = v_and_b32_src0_inline %119, 1
-  %121 = v_add3_u32_src2_lit %78, %120, 32767
-  %122 = v_lshrrev_b32_src0_inline %121, 16
-  %123 = v_cvt_pk_u16_u32 %118, %122
-  %difference = concat(%90, %101, %112, %123) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %86 = v_cmp_u_f32 %57, %57
+  %87 = v_or_b32_src0_inline %82, 64
+  %88 = v_cndmask_b32 %85, %87, %86
+  %89 = v_lshrrev_b32_src0_inline %60, 16
+  %90 = v_and_b32_src0_inline %89, 1
+  %91 = v_add3_u32_src2_lit %60, %90, 32767
+  %92 = v_lshrrev_b32_src0_inline %91, 16
+  %93 = v_cmp_u_f32 %60, %60
+  %94 = v_or_b32_src0_inline %89, 64
+  %95 = v_cndmask_b32 %92, %94, %93
+  %96 = v_cvt_pk_u16_u32 %88, %95
+  %99 = v_lshrrev_b32_src0_inline %63, 16
+  %100 = v_and_b32_src0_inline %99, 1
+  %101 = v_add3_u32_src2_lit %63, %100, 32767
+  %102 = v_lshrrev_b32_src0_inline %101, 16
+  %103 = v_cmp_u_f32 %63, %63
+  %104 = v_or_b32_src0_inline %99, 64
+  %105 = v_cndmask_b32 %102, %104, %103
+  %106 = v_lshrrev_b32_src0_inline %66, 16
+  %107 = v_and_b32_src0_inline %106, 1
+  %108 = v_add3_u32_src2_lit %66, %107, 32767
+  %109 = v_lshrrev_b32_src0_inline %108, 16
+  %110 = v_cmp_u_f32 %66, %66
+  %111 = v_or_b32_src0_inline %106, 64
+  %112 = v_cndmask_b32 %109, %111, %110
+  %113 = v_cvt_pk_u16_u32 %105, %112
+  %116 = v_lshrrev_b32_src0_inline %69, 16
+  %117 = v_and_b32_src0_inline %116, 1
+  %118 = v_add3_u32_src2_lit %69, %117, 32767
+  %119 = v_lshrrev_b32_src0_inline %118, 16
+  %120 = v_cmp_u_f32 %69, %69
+  %121 = v_or_b32_src0_inline %116, 64
+  %122 = v_cndmask_b32 %119, %121, %120
+  %123 = v_lshrrev_b32_src0_inline %72, 16
+  %124 = v_and_b32_src0_inline %123, 1
+  %125 = v_add3_u32_src2_lit %72, %124, 32767
+  %126 = v_lshrrev_b32_src0_inline %125, 16
+  %127 = v_cmp_u_f32 %72, %72
+  %128 = v_or_b32_src0_inline %123, 64
+  %129 = v_cndmask_b32 %126, %128, %127
+  %130 = v_cvt_pk_u16_u32 %122, %129
+  %133 = v_lshrrev_b32_src0_inline %75, 16
+  %134 = v_and_b32_src0_inline %133, 1
+  %135 = v_add3_u32_src2_lit %75, %134, 32767
+  %136 = v_lshrrev_b32_src0_inline %135, 16
+  %137 = v_cmp_u_f32 %75, %75
+  %138 = v_or_b32_src0_inline %133, 64
+  %139 = v_cndmask_b32 %136, %138, %137
+  %140 = v_lshrrev_b32_src0_inline %78, 16
+  %141 = v_and_b32_src0_inline %140, 1
+  %142 = v_add3_u32_src2_lit %78, %141, 32767
+  %143 = v_lshrrev_b32_src0_inline %142, 16
+  %144 = v_cmp_u_f32 %78, %78
+  %145 = v_or_b32_src0_inline %140, 64
+  %146 = v_cndmask_b32 %143, %145, %144
+  %147 = v_cvt_pk_u16_u32 %139, %146
+  %difference = concat(%96, %113, %130, %147) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   global_store_b128_saddr %17, %difference, %result
   return
 }

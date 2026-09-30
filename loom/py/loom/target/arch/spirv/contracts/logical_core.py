@@ -1431,7 +1431,9 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
             row.source_op_key == "fptrunc" and row.result_type.source_type == "bf16"
         )
     ]
-    rules.append(bfloat_narrow_rule())
+    rules.extend(
+        (bfloat_narrow_rule(preserve_nan=False), bfloat_narrow_rule(preserve_nan=True))
+    )
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
     rules.extend(
         integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)

@@ -730,6 +730,8 @@ typedef enum loom_low_lower_guard_kind_e {
   // Source value's complete encoded-operand schema must equal the rule-set
   // storage_operand_schemas row selected by index.element_index.
   LOOM_LOW_LOWER_GUARD_VALUE_STORAGE_OPERAND_SCHEMA = 36,
+  // Retained source value facts prove that the value cannot be NaN.
+  LOOM_LOW_LOWER_GUARD_VALUE_NOT_NAN = 37,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;

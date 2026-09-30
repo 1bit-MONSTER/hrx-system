@@ -3455,9 +3455,21 @@ iree_status_t loom_vector_sitofp_facts(loom_fact_context_t* context,
                                        const loom_op_t* op,
                                        const loom_value_facts_t* operand_facts,
                                        loom_value_facts_t* result_facts) {
-  return loom_vector_float_unary_summary_facts(
+  IREE_RETURN_IF_ERROR(loom_vector_float_unary_summary_facts(
       context, loom_vector_result_element_type(module, op), operand_facts,
-      result_facts, loom_vector_sitofp_transfer, NULL);
+      result_facts, loom_vector_sitofp_transfer, NULL));
+  result_facts[0].flags |= LOOM_VALUE_FACT_NOT_NAN;
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_uitofp_facts(loom_fact_context_t* context,
+                                       const loom_module_t* module,
+                                       const loom_op_t* op,
+                                       const loom_value_facts_t* operand_facts,
+                                       loom_value_facts_t* result_facts) {
+  result_facts[0] = loom_value_facts_unknown();
+  result_facts[0].flags = LOOM_VALUE_FACT_NOT_NAN;
+  return iree_ok_status();
 }
 
 typedef struct loom_vector_geluf_transfer_t {
