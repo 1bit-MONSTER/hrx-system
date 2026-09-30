@@ -61,6 +61,10 @@ def _profile_stem(profile):
     info = profile[LoomTargetProfileInfo]
     return (info.family + "-" + info.selector).replace(":", "-").replace("/", "-").replace(".", "-").replace("+", "-")
 
+def _display_label(label):
+    repository = "@" + label.workspace_name if label.workspace_name else ""
+    return "%s//%s:%s" % (repository, label.package, label.name)
+
 def _decode_xfails(encoded_xfails, owner):
     xfails = json.decode(encoded_xfails)
     if type(xfails) != "dict":
@@ -106,7 +110,7 @@ def _declare_positive_compile(ctx, source, profile, xfails):
         outputs = [artifact, compile_report],
         progress_message = "Compiling corpus program %s for %s" % (
             ctx.attr.source_identity,
-            profile.label,
+            _display_label(profile.label),
         ),
     )
     return artifact, compile_report
@@ -134,7 +138,7 @@ def _declare_xfail_probes(ctx, source, profile, xfails, require_all_roots):
         outputs = [result],
         progress_message = "Probing corpus diagnostic xfails in %s for %s" % (
             ctx.attr.source_identity,
-            profile.label,
+            _display_label(profile.label),
         ),
         tools = [compile_tool.files_to_run],
     )
