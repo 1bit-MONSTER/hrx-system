@@ -83,15 +83,16 @@ static bool loom_low_schedule_candidate_defers_storage_setup(
 }
 
 // Defers operand-free materializations during pressure recovery unless they
-// make their consumer ready or complete storage directly. A leaf can lie on a
-// constrained completion path without advancing its executable frontier: for
-// example, its consumer may remain serialized behind a target-state access.
-// Materializing several such leaves opens unrelated live ranges while the
-// constrained storage remains unchanged.
+// make their consumer ready, complete storage directly, or advance the pinned
+// transaction's final. The latter can need several leaves before any one
+// consumer becomes ready. A leaf on another constrained completion path may
+// remain serialized behind a target-state access; materializing it early opens
+// an unrelated live range while the active storage remains unchanged.
 static bool loom_low_schedule_candidate_defers_rematerializable_leaf(
     loom_low_schedule_candidate_compare_mode_t compare_mode,
     const loom_low_schedule_candidate_score_t* score) {
-  if (compare_mode == LOOM_LOW_SCHEDULE_CANDIDATE_COMPARE_DEFAULT) {
+  if (compare_mode == LOOM_LOW_SCHEDULE_CANDIDATE_COMPARE_DEFAULT ||
+      score->active_unspillable_transaction_final_capacity != UINT32_MAX) {
     return false;
   }
   const uint16_t actionable_flags =

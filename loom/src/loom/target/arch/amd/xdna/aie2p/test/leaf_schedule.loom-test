@@ -162,3 +162,42 @@ low.func.def target<amd.xdna.aie2p.core> @serialized_shift_consumers(%padding: r
 
 // ----
 CHECK: *"scheduled_node_indices":[6,0,1,7,*
+
+// ====
+
+// Four loaded-C fragments leave one DM register for BF16 encoding scratch.
+// The first half is ready, while the second half requires two address
+// constants before the MAC can issue. Neither constant alone unlocks a
+// descriptor, but both advance the pinned encoding's exact final consumer.
+// Opening the independent second encoding first exhausts accumulator storage.
+// RUN: emit aie2p-leaf @pinned_encode_address_prerequisites report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @pinned_encode_address_prerequisites(%source: reg<aie2p.ep>, %reduction_cell: reg<aie2p.er>, %first_lower_bf16: reg<aie2p.vec256 x2>, %second_lower_bf16: reg<aie2p.vec256 x2>, %second_upper_bf16: reg<aie2p.vec256 x2>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %other_lhs: reg<aie2p.mexa>, %other_rhs: reg<aie2p.mexa>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %first_lower = vconv.fp32.bf16 %first_lower_bf16
+  %upper_half_offset = mov.static-byte-offset 1088
+  %row_stride_bytes = mov.i32 128
+  %upper_half_position = mac %upper_half_offset, %reduction_cell, %row_stride_bytes
+  %upper_half_address = mov.address-index %upper_half_position
+  %first_upper_bf16 = vlda.512.bf16x32.index %source, %upper_half_address
+  %first_upper = vconv.fp32.bf16 %first_upper_bf16
+  %first_float = concat(%first_lower, %first_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %lhs = vconv.bfp16ebs8.fp32 %first_float
+  %second_lower = vconv.fp32.bf16 %second_lower_bf16
+  %second_upper = vconv.fp32.bf16 %second_upper_bf16
+  %second_float = concat(%second_lower, %second_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  set.rounding 12
+  %rhs = vconv.bfp16ebs8.fp32 %second_float
+  %matrix_control = mova.i32 780
+  %next00 = mma.bfp16ebs8.m8n8k8 %accumulator00, %other_lhs, %rhs, %matrix_control
+  %next01 = mma.bfp16ebs8.m8n8k8 %accumulator01, %other_lhs, %other_rhs, %matrix_control
+  %next10 = mma.bfp16ebs8.m8n8k8 %accumulator10, %lhs, %rhs, %matrix_control
+  %next11 = mma.bfp16ebs8.m8n8k8 %accumulator11, %lhs, %other_rhs, %matrix_control
+  return %next00, %next01, %next10, %next11
+}
+
+// ----
+issue cycles: 32
+code bytes: 108
+coissued bundles: 2
+coissued components: 4
