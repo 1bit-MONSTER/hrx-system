@@ -296,6 +296,25 @@ TEST_F(CompileRequestTest, InfersKernelAndCanonicalFormat) {
                                      IREE_SV("Kernel123")));
 }
 
+TEST_F(CompileRequestTest, InfersKernelAndCanonicalEmitterFormat) {
+  loom_target_environment_deinitialize(&environment_);
+  emission_provider_.canonical_kernel_emitter = &kDiagnosticEmitter;
+  emission_provider_.canonical_kernel_fact_type =
+      &loom_target_generic_fact_type;
+  IREE_ASSERT_OK(
+      loom_target_environment_initialize(&target_provider_set_, &environment_));
+  ModulePtr module = ParseKernel(this, true);
+  const loom_compile_request_t request =
+      Resolve(module.get(), {}, /*providers=*/nullptr, 0);
+
+  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_TRUE(
+      iree_string_view_equal(request.format, IREE_SV("DiagnosticFormat123")));
+  EXPECT_EQ(request.producer.kind, LOOM_COMPILE_PRODUCER_TARGET_EMITTER);
+  EXPECT_EQ(request.producer.value.target_emitter, &kDiagnosticEmitter);
+  EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
+}
+
 TEST_F(CompileRequestTest, ResolvesLowKernelProductsWithDefaultAndNamedRoots) {
   const loom_artifact_provider_t* providers[] = {&kExecutableProvider};
   const iree_string_view_t roots[] = {IREE_SV("entry")};

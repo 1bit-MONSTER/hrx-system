@@ -33,7 +33,7 @@ typedef struct loom_compile_producer_t {
   union {
     // Offline kernel artifact provider.
     const loom_artifact_provider_t* artifact_provider;
-    // Target-owned diagnostic or intermediate emitter.
+    // Target-owned module or kernel artifact emitter.
     const loom_target_emitter_t* target_emitter;
   } value;
 } loom_compile_producer_t;
@@ -86,8 +86,8 @@ static inline bool loom_compile_request_is_command(
 
 // Resolves a core product selection, optional explicit target, and producer.
 // Resolution never probes a producer by compiling. An omitted format selects
-// the unique configured kernel artifact provider, the selected target family's
-// canonical module emitter, or the target-independent command format.
+// the selected target family's unique canonical kernel or module producer, or
+// the target-independent command format.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_artifact_provider_registry_t* artifact_provider_registry,

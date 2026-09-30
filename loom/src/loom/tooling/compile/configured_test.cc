@@ -41,24 +41,28 @@ TEST(ConfiguredCompileTest, ReturnsStableCompleteEnvironment) {
       loom_target_environment_emitter_list(environment->target_environment);
   bool has_vm_emitter = false;
   bool has_wasm_emitter = false;
+  bool has_xdna_emitter = false;
   for (iree_host_size_t i = 0; i < emitters.count; ++i) {
     has_vm_emitter |=
         iree_string_view_equal(emitters.values[i]->name, IREE_SV("vm"));
     has_wasm_emitter |= iree_string_view_equal(emitters.values[i]->name,
                                                IREE_SV("wasm-binary"));
+    has_xdna_emitter |=
+        iree_string_view_equal(emitters.values[i]->name, IREE_SV("xdna"));
   }
   EXPECT_EQ(has_vm_emitter,
             static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS));
   EXPECT_EQ(has_wasm_emitter,
             static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS));
+  EXPECT_EQ(has_xdna_emitter,
+            static_cast<bool>(LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS));
 
   const loom_artifact_provider_registry_t* artifact_registry =
       environment->artifact_provider_registry;
   ASSERT_NE(artifact_registry, nullptr);
   const iree_host_size_t expected_artifact_provider_count =
       LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS +
-      LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS +
-      LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS;
+      LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS;
   ASSERT_EQ(artifact_registry->provider_count,
             expected_artifact_provider_count);
   EXPECT_EQ(artifact_registry->providers == nullptr,

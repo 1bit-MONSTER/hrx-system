@@ -22,6 +22,7 @@
 #include "loom/target/arch/amd/xdna/aie2p/emit/tile_link.h"
 #include "loom/target/arch/amd/xdna/aie2p/emit/xdna_product.h"
 #include "loom/target/arch/amd/xdna/aie2p/facts.h"
+#include "loom/target/arch/amd/xdna/aie2p/profile.h"
 #include "loom/target/arch/amd/xdna/device/profile.h"
 #include "loom/target/function_version.h"
 #include "loom/target/reporting/low.h"
@@ -42,14 +43,19 @@ typedef struct loom_aie2p_xdna_source_entry_t {
   const loom_op_t* function_op;
   // Stable exported symbol name.
   iree_string_view_t name;
+  // AIE2P target facts resolved for the array function.
+  const loom_aie2p_target_facts_t* target_facts;
 } loom_aie2p_xdna_source_entry_t;
 
 static iree_status_t loom_aie2p_xdna_collect_array_entries(
     const loom_aie2p_xdna_artifact_request_t* request,
+    loom_symbol_fact_table_t* symbol_facts,
+    const loom_target_function_version_snapshot_t* versions,
     loom_aie2p_xdna_source_entry_t** out_entries,
-    iree_host_size_t* out_entry_count) {
+    iree_host_size_t* out_entry_count, bool* out_valid) {
   *out_entries = NULL;
   *out_entry_count = 0;
+  *out_valid = false;
   iree_host_size_t entry_count = 0;
   const loom_symbol_t* symbol = NULL;
   loom_module_for_each_symbol(request->module, symbol) {
@@ -95,39 +101,42 @@ static iree_status_t loom_aie2p_xdna_collect_array_entries(
     if (loom_func_like_visibility(function) == 0) {
       continue;
     }
+    const loom_symbol_id_t symbol_id =
+        (loom_symbol_id_t)(symbol - request->module->symbols.entries);
+    const loom_target_function_version_t* version =
+        loom_target_function_version_snapshot_at(versions, symbol_id);
+    loom_low_resolved_target_t target = {0};
+    IREE_RETURN_IF_ERROR(loom_low_resolve_function_target(
+        request->module, symbol_facts, symbol->defining_op,
+        version != NULL ? version->function_target_facts : NULL,
+        request->low_descriptor_registry, request->diagnostic_emitter,
+        &target));
+    if (target.descriptor_set == NULL) {
+      return iree_ok_status();
+    }
     entries[entry_index++] = (loom_aie2p_xdna_source_entry_t){
         .function_op = symbol->defining_op,
         .name =
             loom_string_table_get(&request->module->strings, symbol->name_id),
+        .target_facts = loom_aie2p_target_facts_cast(target.target_facts),
     };
   }
   IREE_ASSERT_EQ(entry_index, entry_count);
   *out_entries = entries;
   *out_entry_count = entry_count;
+  *out_valid = true;
   return iree_ok_status();
 }
 
-static const loom_target_facts_t* loom_aie2p_xdna_function_target_facts(
-    const loom_aie2p_xdna_artifact_request_t* request,
-    const loom_op_t* function_op) {
-  const loom_target_function_version_t* version =
-      loom_target_function_version_list_find(
-          request->function_versions,
-          loom_func_like_const_cast(request->module, function_op));
-  return version != NULL ? version->function_target_facts : NULL;
-}
-
 static iree_status_t loom_aie2p_xdna_resolve_device_profile(
-    const loom_aie2p_xdna_artifact_request_t* request,
     const loom_aie2p_xdna_source_entry_t* entries, iree_host_size_t entry_count,
     const loom_xdna_device_profile_t** out_device_profile) {
-  const loom_xdna_device_profile_t* device_profile = request->device_profile;
+  const loom_xdna_device_profile_t* device_profile = NULL;
   for (iree_host_size_t i = 0; i < entry_count; ++i) {
-    const loom_aie2p_target_facts_t* target_facts =
-        loom_aie2p_target_facts_cast(loom_aie2p_xdna_function_target_facts(
-            request, entries[i].function_op));
     const loom_xdna_device_profile_t* function_profile =
-        target_facts != NULL ? target_facts->device_profile : NULL;
+        entries[i].target_facts != NULL
+            ? entries[i].target_facts->device_profile
+            : NULL;
     if (function_profile == NULL) {
       continue;
     }
@@ -149,6 +158,8 @@ static iree_status_t loom_aie2p_xdna_resolve_device_profile(
 
 static iree_status_t loom_aie2p_xdna_collect_source_leaves(
     const loom_aie2p_xdna_artifact_request_t* request,
+    loom_symbol_fact_table_t* symbol_facts,
+    const loom_target_function_version_snapshot_t* versions,
     loom_aie2p_array_leaf_t** out_leaves, iree_host_size_t* out_leaf_count,
     bool* out_valid) {
   *out_leaves = NULL;
@@ -167,12 +178,6 @@ static iree_status_t loom_aie2p_xdna_collect_source_leaves(
   loom_aie2p_array_leaf_t* leaves = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       request->scratch_arena, leaf_count, sizeof(*leaves), (void**)&leaves));
-  loom_symbol_fact_table_t symbol_facts = {0};
-  loom_symbol_fact_table_initialize(&symbol_facts, request->scratch_arena);
-  loom_target_function_version_snapshot_t versions = {0};
-  IREE_RETURN_IF_ERROR(loom_target_function_version_snapshot_build(
-      request->module, request->function_versions, request->scratch_arena,
-      &versions));
   iree_host_size_t leaf_index = 0;
   loom_module_for_each_symbol(request->module, symbol) {
     const loom_op_t* function_op = symbol->defining_op;
@@ -184,10 +189,10 @@ static iree_status_t loom_aie2p_xdna_collect_source_leaves(
     const loom_symbol_id_t symbol_id =
         (loom_symbol_id_t)(symbol - request->module->symbols.entries);
     const loom_target_function_version_t* version =
-        loom_target_function_version_snapshot_at(&versions, symbol_id);
+        loom_target_function_version_snapshot_at(versions, symbol_id);
     loom_low_resolved_target_t target = {0};
     IREE_RETURN_IF_ERROR(loom_low_resolve_function_target(
-        request->module, &symbol_facts, function_op,
+        request->module, symbol_facts, function_op,
         version != NULL ? version->function_target_facts : NULL,
         request->low_descriptor_registry, request->diagnostic_emitter,
         &target));
@@ -473,23 +478,42 @@ iree_status_t loom_aie2p_xdna_compile_artifact(
   *out_emitted = false;
   *out_contents = NULL;
 
+  loom_symbol_fact_table_t symbol_facts = {0};
+  loom_symbol_fact_table_initialize(&symbol_facts, request->scratch_arena);
+  loom_target_function_version_snapshot_t versions = {0};
+  IREE_RETURN_IF_ERROR(loom_target_function_version_snapshot_build(
+      request->module, request->function_versions, request->scratch_arena,
+      &versions));
+
   loom_aie2p_xdna_source_entry_t* source_entries = NULL;
   iree_host_size_t entry_count = 0;
+  bool source_entries_valid = false;
   IREE_RETURN_IF_ERROR(loom_aie2p_xdna_collect_array_entries(
-      request, &source_entries, &entry_count));
+      request, &symbol_facts, &versions, &source_entries, &entry_count,
+      &source_entries_valid));
+  if (!source_entries_valid) {
+    return iree_ok_status();
+  }
   const loom_xdna_device_profile_t* device_profile = NULL;
   IREE_RETURN_IF_ERROR(loom_aie2p_xdna_resolve_device_profile(
-      request, source_entries, entry_count, &device_profile));
+      source_entries, entry_count, &device_profile));
   if (request->compile_report != NULL) {
     loom_target_compile_report_initialize_if_empty(request->compile_report,
                                                    request->allocator);
+    request->compile_report->artifact_kind =
+        LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;
+    request->compile_report->target_family_name =
+        loom_aie2p_target_profile_type.name;
+    request->compile_report->target_key =
+        iree_make_cstring_view(device_profile->key);
   }
 
   loom_aie2p_array_leaf_t* source_leaves = NULL;
   iree_host_size_t source_leaf_count = 0;
   bool source_leaves_valid = false;
   IREE_RETURN_IF_ERROR(loom_aie2p_xdna_collect_source_leaves(
-      request, &source_leaves, &source_leaf_count, &source_leaves_valid));
+      request, &symbol_facts, &versions, &source_leaves, &source_leaf_count,
+      &source_leaves_valid));
   if (!source_leaves_valid) {
     return iree_ok_status();
   }
@@ -652,4 +676,6 @@ const loom_target_provider_t loom_aie2p_xdna_artifact_provider = {
             .values = kXdnaArtifactEmitters,
             .count = IREE_ARRAYSIZE(kXdnaArtifactEmitters),
         },
+    .canonical_kernel_emitter = &loom_aie2p_xdna_artifact_emitter,
+    .canonical_kernel_fact_type = &loom_aie2p_target_fact_type,
 };

@@ -28,8 +28,7 @@
 
 #define LOOM_CONFIG_COMPILE_HAVE_ANY_ARTIFACT_PROVIDER \
   (LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS ||        \
-   LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS ||         \
-   LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS)
+   LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS)
 
 #if LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
 #include "loom/tooling/target/amdgpu/artifact_provider.h"
@@ -38,7 +37,7 @@
 #include "loom/tooling/target/spirv/artifact_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-#include "loom/tooling/target/amd/xdna/artifact_provider.h"
+#include "loom/target/arch/amd/xdna/aie2p/emit/artifact.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
 #include "loom/target/emit/vm/module_compiler.h"
@@ -64,9 +63,6 @@ static const loom_artifact_provider_t* const kConfiguredArtifactProviders[] = {
 #if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
     &loom_spirv_vulkan_artifact_provider,
 #endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-    &loom_xdna_artifact_provider,
-#endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 };
 #endif  // LOOM_CONFIG_COMPILE_HAVE_ANY_ARTIFACT_PROVIDER
 
@@ -100,6 +96,11 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
       &configured_compile_storage.target_provider_storage,
       &loom_wasm_module_provider));
 #endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
+#if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
+  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
+      &configured_compile_storage.target_provider_storage,
+      &loom_aie2p_xdna_artifact_provider));
+#endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
   IREE_RETURN_IF_ERROR(loom_target_environment_initialize(
       &configured_compile_storage.target_provider_storage.provider_set,
       &configured_compile_storage.target_environment));

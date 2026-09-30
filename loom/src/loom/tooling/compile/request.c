@@ -158,6 +158,7 @@ static iree_status_t loom_compile_request_select_named_format(
 static iree_status_t loom_compile_request_select_canonical_kernel_format(
     const loom_target_fact_type_t* target_fact_type,
     const loom_artifact_provider_registry_t* artifact_provider_registry,
+    const loom_target_environment_t* target_environment,
     iree_string_view_t* out_format, loom_compile_producer_t* out_producer) {
   *out_format = iree_string_view_empty();
   *out_producer = (loom_compile_producer_t){0};
@@ -178,6 +179,15 @@ static iree_status_t loom_compile_request_select_canonical_kernel_format(
     *out_format = provider->public_artifact_format;
     out_producer->kind = LOOM_COMPILE_PRODUCER_ARTIFACT;
     out_producer->value.artifact_provider = provider;
+    ++match_count;
+  }
+  const loom_target_emitter_t* canonical_emitter =
+      loom_target_environment_lookup_canonical_kernel_emitter(
+          target_environment, target_fact_type);
+  if (canonical_emitter != NULL) {
+    *out_format = canonical_emitter->public_artifact_format;
+    out_producer->kind = LOOM_COMPILE_PRODUCER_TARGET_EMITTER;
+    out_producer->value.target_emitter = canonical_emitter;
     ++match_count;
   }
   if (match_count == 0) {
@@ -213,8 +223,8 @@ static iree_status_t loom_compile_request_select_format(
   switch (product) {
     case LOOM_COMPILE_PRODUCT_KERNEL:
       return loom_compile_request_select_canonical_kernel_format(
-          target_fact_type, artifact_provider_registry, out_format,
-          out_producer);
+          target_fact_type, artifact_provider_registry, target_environment,
+          out_format, out_producer);
     case LOOM_COMPILE_PRODUCT_COMMAND:
       *out_format = IREE_SV("loom-command");
       out_producer->kind = LOOM_COMPILE_PRODUCER_COMMAND;

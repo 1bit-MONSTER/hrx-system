@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 // Materializes the selected roots and their dependency closure, then
-// specializes the retained kernel entries for the explicit target. Root
+// specializes the selected kernel-product roots for the explicit target. Root
 // materialization establishes the deployment ABI independently of any check
 // launches in the input module and ensures excluded roots cannot participate in
 // specialization. Module products without explicit or excluded roots keep the

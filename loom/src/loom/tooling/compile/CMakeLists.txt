@@ -142,7 +142,7 @@ if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
   list(APPEND _configured_platform_deps loom::target::emit::wasm::module_compiler)
 endif()
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_deps loom::tooling::target::amd::xdna::artifact_provider)
+  list(APPEND _configured_platform_deps loom::target::arch::amd::xdna::aie2p::artifact)
 endif()
 loom_cc_library(
   NAME

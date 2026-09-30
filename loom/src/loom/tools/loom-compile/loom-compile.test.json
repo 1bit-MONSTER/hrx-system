@@ -18,6 +18,34 @@
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
+      "name": "selects the canonical XDNA kernel emitter",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/resident_xdna.loom",
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/resident.xdna",
+          "--emit-target-artifact={tmp}/resident-target.xdna",
+          "--compile-report=summary",
+          "--compile-report-output={tmp}/resident-report.json"
+        ]
+      },
+      "files": [
+        {"path": "{tmp}/resident.xdna", "non_empty": true},
+        {"path": "{tmp}/resident-target.xdna", "non_empty": true},
+        {
+          "path": "{tmp}/resident-report.json",
+          "contains": [
+            "\"artifact_kind\":\"hal-executable\"",
+            "\"backend\":\"xdna\"",
+            "\"target_family\":\"amd.xdna.aie2p\"",
+            "\"target_key\":\"amd.xdna.strix_halo.17f0_11\""
+          ]
+        }
+      ]
+    },
+    {
       "name": "renders exact carried types for invalid Low",
       "run": {
         "tool": "loom-compile",

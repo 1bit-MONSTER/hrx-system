@@ -72,7 +72,7 @@ _CONFIGURED_COMPILE_DEPS = (
     }) +
     iree_select({
         "//loom/config/target:xdna_artifacts": [
-            "//loom/src/loom/tooling/target/amd/xdna:artifact_provider",
+            "//loom/src/loom/target/arch/amd/xdna/aie2p:artifact",
         ],
         "//conditions:default": [],
     })

@@ -45,6 +45,70 @@ static iree_status_t loom_compile_materialize_roots(
   return status;
 }
 
+static iree_status_t loom_compile_specialize_kernel_roots(
+    const loom_compile_request_t* request,
+    const loom_compile_pipeline_options_t* options,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_module_t** inout_module, uint32_t* out_error_count) {
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(block_pool, &arena);
+  // Linking internalizes reachable dependencies and retains every selected
+  // function root, preserving the exact product selection without rechecking
+  // target-specific op kinds here.
+  iree_host_size_t specialization_count = 0;
+  for (loom_symbol_id_t symbol_id = 0;
+       symbol_id < (*inout_module)->symbols.count; ++symbol_id) {
+    const loom_symbol_t* symbol = &(*inout_module)->symbols.entries[symbol_id];
+    if (iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_RETAIN)) {
+      ++specialization_count;
+    }
+  }
+  loom_target_specialization_request_t* specializations = NULL;
+  iree_status_t status = iree_arena_allocate_array(&arena, specialization_count,
+                                                   sizeof(*specializations),
+                                                   (void**)&specializations);
+  if (iree_status_is_ok(status)) {
+    iree_host_size_t specialization_ordinal = 0;
+    for (loom_symbol_id_t symbol_id = 0;
+         symbol_id < (*inout_module)->symbols.count; ++symbol_id) {
+      const loom_symbol_t* symbol =
+          &(*inout_module)->symbols.entries[symbol_id];
+      if (!iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_RETAIN)) {
+        continue;
+      }
+      specializations[specialization_ordinal++] =
+          (loom_target_specialization_request_t){
+              .function_name = loom_string_table_get(&(*inout_module)->strings,
+                                                     symbol->name_id),
+              .target_profile = request->explicit_target.target_profile,
+          };
+    }
+    IREE_ASSERT_EQ(specialization_ordinal, specialization_count);
+  }
+  if (iree_status_is_ok(status)) {
+    const loom_target_entry_options_t diagnostic_options = {
+        .diagnostic_sink = options->diagnostic_sink,
+        .source_resolver = options->source_resolver,
+        .max_errors = options->max_errors,
+    };
+    loom_target_entry_diagnostic_emitter_t diagnostic_emitter;
+    loom_target_entry_diagnostic_emitter_initialize(
+        *inout_module, &diagnostic_options, LOOM_EMITTER_PASS,
+        &diagnostic_emitter);
+    status = loom_target_specialize_module(
+        options->target_environment,
+        (loom_target_specialization_request_list_t){
+            .values = specializations,
+            .count = specialization_count,
+        },
+        (loom_target_declaration_binding_list_t){0},
+        loom_target_entry_emitter(&diagnostic_emitter), block_pool, allocator,
+        inout_module, out_error_count);
+  }
+  iree_arena_deinitialize(&arena);
+  return status;
+}
+
 iree_status_t loom_compile_materialize_request(
     const loom_compile_request_t* request,
     const loom_compile_pipeline_options_t* options,
@@ -56,19 +120,9 @@ iree_status_t loom_compile_materialize_request(
       request, sources, block_pool, allocator, inout_module));
   if (request->selection.product == LOOM_COMPILE_PRODUCT_KERNEL &&
       request->explicit_target.target_profile != NULL) {
-    const loom_target_entry_options_t diagnostic_options = {
-        .diagnostic_sink = options->diagnostic_sink,
-        .source_resolver = options->source_resolver,
-        .max_errors = options->max_errors,
-    };
-    loom_target_entry_diagnostic_emitter_t diagnostic_emitter;
-    loom_target_entry_diagnostic_emitter_initialize(
-        *inout_module, &diagnostic_options, LOOM_EMITTER_PASS,
-        &diagnostic_emitter);
-    IREE_RETURN_IF_ERROR(loom_target_specialize_module_kernel_entries(
-        options->target_environment, request->explicit_target.target_profile,
-        loom_target_entry_emitter(&diagnostic_emitter), block_pool, allocator,
-        inout_module, out_error_count));
+    IREE_RETURN_IF_ERROR(loom_compile_specialize_kernel_roots(
+        request, options, block_pool, allocator, inout_module,
+        out_error_count));
     // Standalone target specialization is an exact module clone: source IDs
     // remain unchanged while ownership moves to its replacement.
     sources->table.module = *inout_module;

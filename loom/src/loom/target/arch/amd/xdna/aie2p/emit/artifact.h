@@ -12,7 +12,6 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/codegen/low/descriptors.h"
-#include "loom/target/arch/amd/xdna/device/profile.h"
 #include "loom/target/function_version.h"
 #include "loom/target/provider.h"
 #include "loom/target/reporting/report.h"
@@ -30,9 +29,6 @@ typedef struct loom_aie2p_xdna_artifact_request_t {
 
   // Low descriptor registry containing AIE2P core and array descriptors.
   const loom_low_descriptor_registry_t* low_descriptor_registry;
-
-  // Explicit deployment profile, or NULL to use the array entry target facts.
-  const loom_xdna_device_profile_t* device_profile;
 
   // Optional caller-owned structured compile report for this compilation. The
   // report may retain target backing storage until report deinitialization.
@@ -55,8 +51,8 @@ iree_status_t loom_aie2p_xdna_compile_artifact(
     iree_byte_sequence_t** out_contents);
 
 // Canonical XDNA emission for in-process target environments. Device identity
-// comes from the prepared array function versions; no emission-time target
-// override or intermediate tile artifacts are required.
+// comes from the prepared array target facts; no emission-time target override
+// or intermediate tile artifacts are required.
 extern const loom_target_provider_t loom_aie2p_xdna_artifact_provider;
 
 #ifdef __cplusplus

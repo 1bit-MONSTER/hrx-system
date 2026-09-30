@@ -122,6 +122,7 @@ iree_execution_test_suite(
     data = [
         "//loom/src/loom/tools/loom-compile/testdata:command_artifacts.loom",
         "//loom/src/loom/tools/loom-compile/testdata:command_kernel_requests.loom",
+        "//loom/src/loom/tools/loom-compile/testdata:resident_xdna.loom",
     ],
     manifests = ["loom-compile.test.json"],
     tags = ["hostonly"],
