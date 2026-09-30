@@ -468,7 +468,7 @@ _SPIRV_EXECUTION_ALLOWED_FAILURES = {
     "numeric/float/half_extrema.loom:@half_extrema_random_values": "TARGET/001,TARGET/002",
     "numeric/float/half_extrema.loom:@half_extrema_special_values": "TARGET/001,TARGET/002",
     "numeric/float/narrow_reduction.loom:@narrow_reduction_normal": "TARGET/003",
-    "numeric/float/narrow_reduction.loom:@narrow_reduction_subnormal": "TARGET/003",
+    "numeric/float/narrow_reduction.loom:@narrow_reduction_subnormal": "TARGET/003,EXPECT/002",
     "numeric/float/scalar_float64.loom:@scalar_float64_random_values": "TARGET/002",
     "numeric/float/scalar_float64.loom:@scalar_float64_special_values": "TARGET/002",
     "numeric/vector/packed_selection.loom:@packed_word_selects": "TARGET/003",

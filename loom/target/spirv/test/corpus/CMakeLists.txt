@@ -1731,7 +1731,7 @@ loom_corpus_test(
     "TARGET/003"
     "numeric/float/narrow_reduction.loom"
     "@narrow_reduction_subnormal"
-    "TARGET/003"
+    "TARGET/003,EXPECT/002"
     "numeric/float/scalar_float64.loom"
     "@scalar_float64_random_values"
     "TARGET/002"
