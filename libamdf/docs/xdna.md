@@ -40,6 +40,13 @@ and lifetime, including uses by independently scheduled consumers such as a
 GPU program. Retiring the XDNA command does not join those consumers. Its own
 tile workers and transfers must be quiescent before the controller finishes.
 
+For Linux SVA, physical page pinning alone does not establish continuously usable
+device translation. Compaction can temporarily invalidate a process mapping
+without moving its pinned backing. The [host-memory translation reference](../../docs/reference/amd/xdna/execution.md#host-memory-translation-and-page-pinning)
+describes the observed registered-memory failure, the qualified scope of an
+allocation-specific mitigation and the progress requirements for resident
+workers during native invalidation handling.
+
 For CPU/NPU interchange, the caller queries `memory_query_pair_info` with its
 concrete host mapping and device access plus queue-family ordinal. The result
 selects the host publication or invalidation operation; XDNA DMA requires no

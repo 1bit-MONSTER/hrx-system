@@ -417,6 +417,17 @@ resources. Native setup costs occur at that resource boundary, not once per
 dispatch. There is no per-invocation indirect BO list, first-launch registration,
 hidden pinning submission, or scan of the application's pointer graph.
 
+Physical page retention and usable device translation are separate parts of
+that contract. In Linux XDNA shared virtual addressing, the device depends on
+process page tables that the kernel can temporarily invalidate even when the
+backing pages remain pinned. The [XDNA translation reference](../../docs/reference/amd/xdna/execution.md#host-memory-translation-and-page-pinning)
+documents an observed native-driver failure on registered shared backing and
+the distinction between physical pinning, mapping stability and fault replay.
+Successful registration on that affected path does not establish safe resident
+DMA. This is a native-provider correctness obligation; keeping caller storage
+live and applying cache-maintenance operations cannot supply missing mapping
+protection.
+
 Visibility describes how one participant observes another's writes. Shared
 backing does not automatically imply coherent caches or mutually supported
 atomics. Libamdf exposes directional rules for the actual producer, consumer,
