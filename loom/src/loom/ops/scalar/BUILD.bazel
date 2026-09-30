@@ -4,12 +4,31 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_generated_cc_library")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_generated_cc_library")
 
 package(
     default_visibility = ["//visibility:public"],
     features = ["layering_check"],
     licenses = ["notice"],  # Apache 2.0
+)
+
+# Declarations and accessors can be consumed by shared analyses without linking
+# the dialect's inference and rewrite implementation back into those analyses.
+loom_cc_library(
+    name = "op_defs",
+    hdrs = ["ops.h"],
+    textual_hdrs = ["ops.inc"],
+    deps = ["//loom/src/loom/ops:op_defs"],
+)
+
+loom_cc_library(
+    name = "comparison",
+    srcs = ["compare.c"],
+    hdrs = ["compare.h"],
+    deps = [
+        ":op_defs",
+        "//loom/src/loom/ir:facts",
+    ],
 )
 
 loom_generated_cc_library(
@@ -18,7 +37,6 @@ loom_generated_cc_library(
         "canonicalize.c",
         "canonicalize_comparison.c",
         "combining.c",
-        "compare.c",
         "facts.c",
         "traits.c",
         "verify.c",
@@ -55,6 +73,8 @@ loom_generated_cc_library(
     generator = "//loom/py/loom/gen/ops:c_tables_scalar_generator",
     textual_hdrs = ["ops.inc"],
     deps = [
+        ":comparison",
+        ":op_defs",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",

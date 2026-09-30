@@ -334,10 +334,12 @@ loom_cc_library(
     iree::base::internal::arena
     loom::ir
     loom::ir::facts
-    loom::ops::index
-    loom::ops::scalar
+    loom::ops::index::comparison
+    loom::ops::index::op_defs
+    loom::ops::scalar::comparison
+    loom::ops::scalar::op_defs
     loom::util::adaptive_sort
-    loom::util::fact_table
+    loom::util::fact_table_api
   PUBLIC
 )
 
@@ -360,6 +362,22 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    condition_edge_projection
+  HDRS
+    "condition_edge_projection.h"
+  SRCS
+    "condition_edge_projection.c"
+  DEPS
+    ::condition_facts
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::util::adaptive_sort
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     condition_fact_scope
   HDRS
     "condition_fact_scope.h"
@@ -367,6 +385,7 @@ loom_cc_library(
     "condition_fact_scope.c"
   DEPS
     ::cfg_condition_facts
+    ::condition_edge_projection
     ::condition_facts
     iree::base
     loom::util::fact_table
@@ -427,11 +446,13 @@ loom_cc_benchmark(
   SRCS
     "condition_facts_benchmark.cc"
   DEPS
+    ::condition_edge_projection
     ::condition_facts
     iree::base::internal::arena
     iree::testing::benchmark_main
     loom::ir
     loom::ops::scalar
+    loom::ops::scf
     loom::util::fact_table
   TESTONLY
 )

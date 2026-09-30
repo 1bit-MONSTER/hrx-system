@@ -28,6 +28,8 @@ struct loom_value_fact_region_entry_t {
   // Condition-loop equation retained for the populated fact scope, when
   // present.
   loom_value_fact_induction_t* induction;
+  // Condition facts projected onto this region's entry arguments, when any.
+  loom_condition_edge_projection_t* condition_projection;
   // Next entry in the region-address hash collision chain.
   loom_value_fact_region_entry_t* next_bucket;
   // Next entry in the complete cache entry list.
@@ -365,6 +367,7 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->scratch.value_ids.capacity = 0;
   table->scratch.alias_ordinals.values = NULL;
   table->scratch.alias_ordinals.capacity = 0;
+  table->scratch.condition = NULL;
   table->context.table = table;
   table->context.function = (loom_func_like_t){0};
   table->context.reference_origin = (loom_value_fact_reference_origin_t){0};
@@ -535,6 +538,32 @@ loom_value_facts_t loom_value_fact_table_block_temporal_scope(
   return scope;
 }
 
+iree_status_t loom_value_fact_table_set_region_condition_projection(
+    loom_value_fact_table_t* table, const loom_region_t* region,
+    loom_condition_edge_projection_t* projection) {
+  loom_value_fact_region_entry_t* entry = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_value_fact_table_ensure_region_entry(table, region, &entry));
+  entry->condition_projection = projection;
+  return iree_ok_status();
+}
+
+const loom_condition_edge_projection_t*
+loom_value_fact_table_lookup_region_condition_projection(
+    const loom_value_fact_table_t* table, const loom_region_t* region) {
+  const loom_value_fact_region_entry_t* entry =
+      loom_value_fact_table_lookup_region_entry(table, region);
+  return entry ? entry->condition_projection : NULL;
+}
+
+loom_condition_edge_projection_t*
+loom_value_fact_table_lookup_mutable_region_condition_projection(
+    loom_value_fact_table_t* table, const loom_region_t* region) {
+  loom_value_fact_region_entry_t* entry =
+      loom_value_fact_table_lookup_region_entry(table, region);
+  return entry ? entry->condition_projection : NULL;
+}
+
 iree_status_t loom_value_fact_table_set_condition_induction(
     loom_value_fact_table_t* table, const loom_region_t* condition_region,
     loom_value_fact_induction_t induction) {
@@ -662,15 +691,6 @@ bool loom_value_fact_table_values_equal(const loom_value_fact_table_t* table,
          !loom_value_facts_is_float(lhs_facts) &&
          !loom_value_facts_is_float(rhs_facts) &&
          lhs_facts.range_lo == rhs_facts.range_lo;
-}
-
-loom_value_id_t loom_value_fact_table_query_identity(
-    const loom_value_fact_table_t* table, loom_value_id_t value_id) {
-  if (!table || value_id >= table->identities.capacity) {
-    return value_id;
-  }
-  const loom_value_id_t identity = table->identities.entries[value_id];
-  return identity != LOOM_VALUE_ID_INVALID ? identity : value_id;
 }
 
 void loom_value_fact_table_pending_exact_relations(

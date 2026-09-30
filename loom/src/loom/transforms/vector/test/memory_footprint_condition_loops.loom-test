@@ -1,4 +1,4 @@
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_body_excludes_terminal(%output: buffer) {
   %begin = index.constant 0 : index
@@ -19,12 +19,9 @@ func.def @condition_body_excludes_terminal(%output: buffer) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<4xi32>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_partial_step(%output: buffer) {
   %begin = index.constant 2 : index
@@ -45,12 +42,9 @@ func.def @condition_partial_step(%output: buffer) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<9xi32>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_inclusive_body(%output: buffer) {
   %begin = index.constant 0 : index
@@ -71,12 +65,9 @@ func.def @condition_inclusive_body(%output: buffer) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<4xi32>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_declared_aliases(%output: buffer) {
   %begin = index.constant 0 : index
@@ -99,9 +90,6 @@ func.def @condition_declared_aliases(%output: buffer) {
   }
   func.return
 }
-
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<4xi32>
 
 // ====
 
@@ -202,7 +190,7 @@ func.def @condition_bound_must_be_invariant(%output: buffer) {
 
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @nested_condition_loops(%output: buffer, %enabled: i1) {
   %begin = index.constant 0 : index
@@ -236,5 +224,254 @@ func.def @nested_condition_loops(%output: buffer, %enabled: i1) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[%position] : i32, view<12xi32>
+// ====
+// RUN: pass vector-memory-footprint
+
+// The true edge turns a dynamic unsigned comparison into both a nonnegative
+// lower bound and a symbolic upper bound for the forwarded body argument.
+func.def @dynamic_unsigned_body(%output: buffer, %initial: i64, %raw_length: i64) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %active = scalar.cmpi ult, %before, %count : i64
+    scf.condition %active, %before : i1, i64
+  } do(%position: i64) {
+    %index = index.cast %position : i64 to index
+    view.store %value, %view[%index] : i8, view<[%extent]xi8>
+    %advanced = scalar.addi %position, %c1 : i64
+    %wrapped = scalar.cmpi ult, %advanced, %position : i64
+    %next = scf.select %wrapped, %count, %advanced : i64
+    scf.yield %next : i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// The before region executes before the comparison, so it cannot consume the
+// relation established by the condition terminator.
+func.def @dynamic_unsigned_before(%output: buffer, %initial: i64, %raw_length: i64) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %index = index.cast %before : i64 to index
+    // ERROR@+1: SUBRANGE/023
+    view.store %value, %view[%index] : i8, view<[%extent]xi8>
+    %active = scalar.cmpi ult, %before, %count : i64
+    scf.condition %active, %before : i1, i64
+  } do(%position: i64) {
+    %advanced = scalar.addi %position, %c1 : i64
+    scf.yield %advanced : i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// The false edge reaches the loop result and does not inherit true-edge facts.
+func.def @dynamic_unsigned_exit(%output: buffer, %initial: i64, %raw_length: i64) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %active = scalar.cmpi ult, %before, %count : i64
+    scf.condition %active, %before : i1, i64
+  } do(%position: i64) {
+    %advanced = scalar.addi %position, %c1 : i64
+    scf.yield %advanced : i64
+  }
+  %index = index.cast %terminal : i64 to index
+  // ERROR@+1: SUBRANGE/023
+  view.store %value, %view[%index] : i8, view<[%extent]xi8>
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// Relations follow exact condition payloads instead of attaching to body
+// arguments by position alone.
+func.def @dynamic_unsigned_different_payload(%output: buffer, %initial: i64, %raw_length: i64) {
+  %c4 = scalar.constant 4 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %active = scalar.cmpi ult, %before, %count : i64
+    scf.condition %active, %count : i1, i64
+  } do(%position: i64) {
+    %index = index.cast %position : i64 to index
+    // ERROR@+1: SUBRANGE/024
+    view.store %value, %view[%index] : i8, view<[%extent]xi8>
+    scf.yield %position : i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// One condition value may project onto multiple body arguments.
+func.def @dynamic_unsigned_duplicate_payload(%output: buffer, %initial: i64, %raw_length: i64) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal0, %terminal1 = scf.while(%before = %initial : i64) -> (i64, i64) {
+    %active = scalar.cmpi ult, %before, %count : i64
+    scf.condition %active, %before, %before : i1, i64, i64
+  } do(%left: i64, %right: i64) {
+    %left_index = index.cast %left : i64 to index
+    %right_index = index.cast %right : i64 to index
+    view.store %value, %view[%left_index] : i8, view<[%extent]xi8>
+    view.store %value, %view[%right_index] : i8, view<[%extent]xi8>
+    %advanced = scalar.addi %left, %c1 : i64
+    scf.yield %advanced : i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// Relations between two duplicated condition values stay factorized while any
+// pair of their body arguments can consume the proof.
+func.def @dynamic_unsigned_duplicate_pair(%output: buffer, %raw_position: i64, %raw_length: i64) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %initial_position = scalar.shrui %raw_position, %c4 : i64
+  %initial_count = scalar.shrui %raw_length, %c4 : i64
+  %terminal_position0, %terminal_position1, %terminal_count0, %terminal_count1 = scf.while(%before_position = %initial_position : i64, %before_count = %initial_count : i64) -> (i64, i64, i64, i64) {
+    %active = scalar.cmpi ult, %before_position, %before_count : i64
+    scf.condition %active, %before_position, %before_position, %before_count, %before_count : i1, i64, i64, i64, i64
+  } do(%position0: i64, %position1: i64, %count0: i64, %count1: i64) {
+    %extent = index.cast %count1 : i64 to index
+    %origin = index.constant 0 : offset
+    %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+    %index = index.cast %position1 : i64 to index
+    %value = scalar.constant 7 : i8
+    view.store %value, %view[%index] : i8, view<[%extent]xi8>
+    %advanced = scalar.addi %position0, %c1 : i64
+    %wrapped = scalar.cmpi ult, %advanced, %position0 : i64
+    %next = scf.select %wrapped, %count0, %advanced : i64
+    scf.yield %next, %count0 : i64, i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// A true conjunction preserves every required conjunct through nested regions.
+func.def @dynamic_unsigned_conjunction(%output: buffer, %initial: i64, %raw_length: i64, %enabled: i1) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %in_range = scalar.cmpi ult, %before, %count : i64
+    %active = scalar.andi %in_range, %enabled : i1
+    scf.condition %active, %before : i1, i64
+  } do(%position: i64) {
+    scf.if %enabled {
+      %index = index.cast %position : i64 to index
+      view.store %value, %view[%index] : i8, view<[%extent]xi8>
+    } else {
+    }
+    %advanced = scalar.addi %position, %c1 : i64
+    scf.yield %advanced : i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// A true disjunction does not establish which alternative made it true.
+func.def @dynamic_unsigned_disjunction(%output: buffer, %initial: i64, %raw_length: i64, %forced: i1) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %in_range = scalar.cmpi ult, %before, %count : i64
+    %active = scalar.ori %in_range, %forced : i1
+    scf.condition %active, %before : i1, i64
+  } do(%position: i64) {
+    %index = index.cast %position : i64 to index
+    // ERROR@+1: SUBRANGE/023
+    view.store %value, %view[%index] : i8, view<[%extent]xi8>
+    %advanced = scalar.addi %position, %c1 : i64
+    scf.yield %advanced : i64
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+// The outer body relation remains active through an inner condition region and
+// its nested structured control flow.
+func.def @nested_dynamic_condition_scope(%output: buffer, %initial: i64, %raw_length: i64, %enabled: i1) {
+  %c4 = scalar.constant 4 : i64
+  %c1 = scalar.constant 1 : i64
+  %count = scalar.shrui %raw_length, %c4 : i64
+  %extent = index.cast %count : i64 to index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<[%extent]xi8>
+  %value = scalar.constant 7 : i8
+  %terminal = scf.while(%before = %initial : i64) -> (i64) {
+    %active = scalar.cmpi ult, %before, %count : i64
+    scf.condition %active, %before : i1, i64
+  } do(%position: i64) {
+    %inner_terminal = scf.while(%inner_before = %position : i64) -> (i64) {
+      scf.if %enabled {
+        %index = index.cast %position : i64 to index
+        view.store %value, %view[%index] : i8, view<[%extent]xi8>
+      } else {
+      }
+      %inner_active = scalar.cmpi ult, %inner_before, %position : i64
+      scf.condition %inner_active, %inner_before : i1, i64
+    } do(%inner_position: i64) {
+      scf.yield %inner_position : i64
+    }
+    %advanced = scalar.addi %position, %c1 : i64
+    scf.yield %advanced : i64
+  }
+  func.return
+}

@@ -9,6 +9,31 @@
 
 iree_add_all_subdirs()
 
+loom_cc_library(
+  NAME
+    op_defs
+  HDRS
+    "ops.h"
+  TEXTUAL_HDRS
+    "ops.inc"
+  DEPS
+    loom::ops::op_defs
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    comparison
+  HDRS
+    "compare.h"
+  SRCS
+    "compare.c"
+  DEPS
+    ::op_defs
+    loom::ir::facts
+  PUBLIC
+)
+
 loom_generated_cc_library(
   NAME
     scalar
@@ -18,7 +43,6 @@ loom_generated_cc_library(
     "canonicalize.c"
     "canonicalize_comparison.c"
     "combining.c"
-    "compare.c"
     "facts.c"
     "traits.c"
     "verify.c"
@@ -54,6 +78,8 @@ loom_generated_cc_library(
   EXTRA_OUTPUTS
     "ops.inc"
   DEPS
+    ::comparison
+    ::op_defs
     iree::base::internal
     loom::error::emitter
     loom::error::error_defs

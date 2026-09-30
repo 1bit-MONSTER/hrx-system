@@ -200,6 +200,23 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "fact_table_api",
+    hdrs = [
+        "fact_extensions.h",
+        "fact_layout.h",
+        "fact_table.h",
+    ],
+    deps = [
+        ":numeric_format",
+        ":reference_facts",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ir:facts",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "fact_table",
     srcs = [
         "fact_cfg.c",
@@ -227,8 +244,11 @@ loom_cc_library(
         ":cfg_loop_nest",
         ":cfg_regions",
         ":fact_control",
+        ":fact_table_api",
         ":numeric_format",
         ":reference_facts",
+        "//loom/src/loom/analysis:condition_edge_projection",
+        "//loom/src/loom/analysis:condition_facts",
         "//loom/src/loom/analysis:loop_domain",
         "//loom/src/loom/analysis:scc",
         "//loom/src/loom/ir",
@@ -271,6 +291,8 @@ loom_cc_test(
     srcs = ["fact_table_compute_test.cc"],
     deps = [
         ":fact_table",
+        "//loom/src/loom/analysis:condition_edge_projection",
+        "//loom/src/loom/analysis:condition_facts",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scf",

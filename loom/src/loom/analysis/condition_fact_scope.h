@@ -11,7 +11,7 @@
 
 #include "iree/base/api.h"
 #include "loom/analysis/cfg_condition_facts.h"
-#include "loom/analysis/condition_facts.h"
+#include "loom/analysis/condition_edge_projection.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +24,9 @@ typedef struct loom_condition_fact_scope_t {
 
   // Complete local derivation, or NULL for an indexed fragment.
   const loom_condition_derivation_t* local_derivation;
+
+  // Structured-edge projection, or NULL for another fragment kind.
+  const loom_condition_edge_projection_t* edge_projection;
 
   // Retained CFG relation table, or NULL for a local fragment.
   const loom_cfg_condition_relation_table_t* relation_table;
@@ -38,6 +41,21 @@ void loom_condition_fact_scope_initialize_local(
     const loom_condition_fact_scope_t* parent,
     const loom_condition_derivation_t* derivation,
     loom_condition_fact_scope_t* out_scope);
+
+// Initializes a caller-owned scope node extending |parent| with one compact
+// structured-edge projection. All inputs must outlive the node.
+void loom_condition_fact_scope_initialize_projected(
+    const loom_condition_fact_scope_t* parent,
+    const loom_condition_edge_projection_t* projection,
+    loom_condition_fact_scope_t* out_scope);
+
+// Extends |parent| with the retained structured-edge projection entering
+// |region|. Returns |parent| unchanged when no observable projection exists;
+// otherwise allocates one scope node in |arena|.
+iree_status_t loom_condition_fact_scope_extend_region(
+    const loom_value_fact_table_t* fact_table, const loom_region_t* region,
+    const loom_condition_fact_scope_t* parent, iree_arena_allocator_t* arena,
+    const loom_condition_fact_scope_t** out_scope);
 
 // Initializes a caller-owned scope node extending |parent| with one retained
 // indexed view. The table and view must outlive the node.
@@ -71,9 +89,10 @@ iree_status_t loom_condition_fact_scope_proves_condition(
     const loom_condition_fact_scope_t* scope, loom_value_id_t condition_value,
     bool* out_condition, bool* out_proven);
 
-// Visits every authored relation once and retained relations incident to any
-// of |anchors| in lexical scope order. Repeated retained relations across
-// anchors may be visited more than once. Returns false when |visit| stops.
+// Visits every local or projected relation once and retained CFG relations
+// incident to any of |anchors| in lexical scope order. Repeated retained CFG
+// relations across anchors may be visited more than once. Returns false when
+// |visit| stops.
 bool loom_condition_fact_scope_for_each_anchored_while(
     const loom_condition_fact_scope_t* scope,
     const loom_value_fact_table_t* fact_table,
@@ -81,9 +100,9 @@ bool loom_condition_fact_scope_for_each_anchored_while(
     iree_host_size_t anchor_count, loom_cfg_condition_relation_visit_fn_t visit,
     void* user_data);
 
-// Visits every local relation once and indexed relations incident to any value
-// in |value_ids|. Repeated indexed relations across values may be visited more
-// than once. Returns false when |visit| stops.
+// Visits every local or projected relation once and retained CFG relations
+// incident to any value in |value_ids|. Repeated retained CFG relations across
+// values may be visited more than once. Returns false when |visit| stops.
 bool loom_condition_fact_scope_for_each_value_anchored_while(
     const loom_condition_fact_scope_t* scope,
     const loom_value_fact_table_t* fact_table, const loom_value_id_t* value_ids,
