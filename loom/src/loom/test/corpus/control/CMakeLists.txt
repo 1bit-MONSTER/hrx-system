@@ -28,6 +28,7 @@ loom_corpus_sources(
     "loop/rotation/offsets.loom"
     "loop/rotation/values.loom"
     "loop/rotation/views.loom"
+    "loop/scalar_state.loom"
     "loop/sequential_slices.loom"
     "loop/termination.loom"
     "loop/vector_recurrence.loom"

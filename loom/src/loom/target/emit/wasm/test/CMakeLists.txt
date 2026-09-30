@@ -20,7 +20,6 @@ iree_py_test(
   ARGS
     "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.loom}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.loom}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.loom}}"
     "--corpus"
@@ -31,8 +30,6 @@ iree_py_test(
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division.mjs"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division_edges.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.mjs"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.mjs"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.loom"

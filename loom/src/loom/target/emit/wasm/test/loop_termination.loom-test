@@ -1,9 +1,11 @@
-// RUN: with-checks emit wasm-dis
+// RUN: emit wasm-dis
 // REQUIRES: wasm-objdump
 
 wasm.target<simd128> @target
 
-// Ordered hashes expose a wrong IV, an extra iteration, and lost final state.
+// The emitter computes a wrap-safe terminal threshold for both signed and
+// unsigned loop domains. Ordered hashes expose a wrong induction value, an
+// extra iteration, or a lost final carried value.
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @signed_hash(%lower: reg<wasm.i32>, %upper: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
   %multiplier = i32.const 33
   %result = low.scf.for signed [%lower to %upper step %step] iter_args(%seed: reg<wasm.i32>) -> (reg<wasm.i32>) do(%iv: reg<wasm.i32>, %hash: reg<wasm.i32>) {
@@ -14,21 +16,6 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @signe
   return %result
 }
 
-// ----
-CHECK: <signed_hash>:
-CHECK: i32.lt_s
-CHECK: i32.lt_u
-CHECK: i32.sub
-CHECK: f32.select
-CHECK: br        1
-CHECK: br        2
-CHECK: i32.mul
-
-// ====
-
-wasm.target<simd128> @target
-
-// The same opaque register class covers the entire unsigned 32-bit domain.
 low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @unsigned_hash(%lower: reg<wasm.i32>, %upper: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
   %multiplier = i32.const 33
   %result = low.scf.for unsigned [%lower to %upper step %step] iter_args(%seed: reg<wasm.i32>) -> (reg<wasm.i32>) do(%iv: reg<wasm.i32>, %hash: reg<wasm.i32>) {
@@ -40,67 +27,238 @@ low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @unsig
 }
 
 // ----
-CHECK: <unsigned_hash>:
-CHECK: i32.lt_u
-CHECK: i32.sub
-CHECK: f32.select
-CHECK: br        1
-CHECK: br        2
-CHECK-NOT: i32.lt_s
+Disassembly of section CODE:
+
+<CODE>:
+        # 2 functions in section.
+
+<signed_hash>:
+        .local i32, i32, i32
+  i32.const  33
+  local.set  4
+  local.get  1
+  local.get  2
+  i32.sub
+  local.get  0
+  local.get  2
+  local.get  1
+  local.get  0
+  i32.sub
+  i32.lt_u
+  f32.select
+  local.set  6
+  block
+  local.get  0
+  local.get  1
+  i32.lt_s
+  i32.eqz
+  if
+  br        1
+  end
+  loop
+  local.get  3
+  local.get  4
+  i32.mul
+  local.set  5
+  local.get  5
+  local.get  0
+  i32.add
+  local.set  3
+  local.get  0
+  local.get  6
+  i32.lt_s
+  i32.eqz
+  if
+  br        2
+  end
+  local.get  0
+  local.get  2
+  i32.add
+  local.set  0
+  br        0
+  end
+  end
+  local.get  3
+  return
+  end
+
+<unsigned_hash>:
+        .local i32, i32, i32
+  i32.const  33
+  local.set  4
+  local.get  1
+  local.get  2
+  i32.sub
+  local.get  0
+  local.get  2
+  local.get  1
+  local.get  0
+  i32.sub
+  i32.lt_u
+  f32.select
+  local.set  6
+  block
+  local.get  0
+  local.get  1
+  i32.lt_u
+  i32.eqz
+  if
+  br        1
+  end
+  loop
+  local.get  3
+  local.get  4
+  i32.mul
+  local.set  5
+  local.get  5
+  local.get  0
+  i32.add
+  local.set  3
+  local.get  0
+  local.get  6
+  i32.lt_u
+  i32.eqz
+  if
+  br        2
+  end
+  local.get  0
+  local.get  2
+  i32.add
+  local.set  0
+  br        0
+  end
+  end
+  local.get  3
+  return
+  end
 
 // ====
 
+// RUN: emit wasm-dis
+// REQUIRES: wasm-objdump
+
 wasm.target<simd128> @target
 
-// Directly yielding the counter must return the last body IV, including when
-// the mathematical terminal increment cannot be represented.
-low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @last_iv(%lower: reg<wasm.i32>, %upper: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %result = low.scf.for signed [%lower to %upper step %step] iter_args(%seed: reg<wasm.i32>) -> (reg<wasm.i32>) do(%iv: reg<wasm.i32>, %previous: reg<wasm.i32>) {
-    low.scf.yield %iv : reg<wasm.i32>
-  }
-  return %result
-}
-
-// Parallel state moves must preserve a swap at the final iteration as well as
-// on ordinary backedges. A zero-trip loop preserves the initial pair.
-low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @swap(%lower: reg<wasm.i32>, %upper: reg<wasm.i32>, %step: reg<wasm.i32>, %left: reg<wasm.i32>, %right: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
+// Parallel moves must preserve both final results on the zero-trip path and
+// every ordinary backedge. Wasm multi-value returns expose the pair directly.
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @for_swap(%lower: reg<wasm.i32>, %upper: reg<wasm.i32>, %step: reg<wasm.i32>, %left: reg<wasm.i32>, %right: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
   %result_left, %result_right = low.scf.for signed [%lower to %upper step %step] iter_args(%left: reg<wasm.i32>, %right: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) do(%iv: reg<wasm.i32>, %a: reg<wasm.i32>, %b: reg<wasm.i32>) {
     low.scf.yield %b, %a : reg<wasm.i32>, reg<wasm.i32>
   }
   return %result_left, %result_right
 }
 
-// Each nested loop needs its own stopping threshold. The branch result is the
-// inner loop's carried value and the outer loop's final yielded value.
-low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @nested(%lower: reg<wasm.i32>, %upper: reg<wasm.i32>, %step: reg<wasm.i32>, %seed: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %inner_lower = i32.const 2147483642
-  %inner_upper = i32.const 2147483647
-  %inner_step = i32.const 2
-  %multiplier = i32.const 33
-  %result = low.scf.for signed [%lower to %upper step %step] iter_args(%seed: reg<wasm.i32>) -> (reg<wasm.i32>) do(%outer_iv: reg<wasm.i32>, %outer_hash: reg<wasm.i32>) {
-    %inner_result = low.scf.for signed [%inner_lower to %inner_upper step %inner_step] iter_args(%outer_hash: reg<wasm.i32>) -> (reg<wasm.i32>) do(%inner_iv: reg<wasm.i32>, %inner_hash: reg<wasm.i32>) {
-      %less = i32.lt_u %outer_iv, %inner_iv
-      %chosen = low.scf.if %less -> (reg<wasm.i32>) {
-        low.scf.yield %outer_iv : reg<wasm.i32>
-      } else {
-        low.scf.yield %inner_iv : reg<wasm.i32>
-      }
-      %scaled = i32.mul %inner_hash, %multiplier
-      %next = i32.add %scaled, %chosen
-      low.scf.yield %next : reg<wasm.i32>
-    }
-    low.scf.yield %inner_result : reg<wasm.i32>
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @while_swap(%condition: reg<wasm.i32>, %left: reg<wasm.i32>, %right: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>) asm {
+  %false = i32.const 0
+  %ignored_condition, %result_left, %result_right = low.scf.while(%before_condition = %condition : reg<wasm.i32>, %before_left = %left : reg<wasm.i32>, %before_right = %right : reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) {
+    low.scf.condition %before_condition, %before_condition, %before_left, %before_right : reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>
+  } do(%body_condition: reg<wasm.i32>, %body_left: reg<wasm.i32>, %body_right: reg<wasm.i32>) {
+    low.scf.yield %false, %body_right, %body_left : reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>
   }
-  return %result
+  return %result_left, %result_right
 }
 
 // ----
-CHECK: <last_iv>:
-CHECK: <swap>:
-CHECK: <nested>:
-CHECK: i32.lt_s
-CHECK: i32.lt_u
-CHECK: br        1
-CHECK: br        2
-CHECK: if
-CHECK: else
+Disassembly of section CODE:
+
+<CODE>:
+        # 2 functions in section.
+
+<for_swap>:
+        .local i32
+  local.get  1
+  local.get  2
+  i32.sub
+  local.get  0
+  local.get  2
+  local.get  1
+  local.get  0
+  i32.sub
+  i32.lt_u
+  f32.select
+  local.set  5
+  block
+  local.get  0
+  local.get  1
+  i32.lt_s
+  i32.eqz
+  if
+  local.get  3
+  local.get  4
+  local.set  3
+  local.set  4
+  br        1
+  end
+  loop
+  local.get  0
+  local.get  5
+  i32.lt_s
+  i32.eqz
+  if
+  br        2
+  end
+  local.get  4
+  local.get  3
+  local.set  4
+  local.set  3
+  local.get  0
+  local.get  2
+  i32.add
+  local.set  0
+  br        0
+  end
+  end
+  local.get  4
+  local.get  3
+  return
+  end
+
+<while_swap>:
+        .local i32
+  i32.const  0
+  local.set  3
+  block
+  loop
+  local.get  0
+  i32.eqz
+  if
+  br        2
+  end
+  local.get  1
+  local.get  2
+  local.set  1
+  local.set  2
+  local.get  3
+  local.set  0
+  br        0
+  end
+  end
+  local.get  1
+  local.get  2
+  return
+  end
+
+// ====
+
+// RUN: emit wasm-dis
+// REQUIRES: wasm-objdump
+
+wasm.target<simd128> @target
+
+// The used value keeps its signature ordinal when unused parameters surround
+// it and require different Wasm carrier classes.
+low.func.def public target<wasm.core.simd128>(@target) abi(wasm_function) @sparse_parameters(%unused: reg<wasm.i64>, %used: reg<wasm.i32>, %trailing: reg<wasm.f64>) -> (reg<wasm.i32>) asm {
+  return %used
+}
+
+// ----
+Disassembly of section CODE:
+
+<CODE>:
+        # 1 functions in section.
+
+<sparse_parameters>:
+
+  local.get  1
+  return
+  end

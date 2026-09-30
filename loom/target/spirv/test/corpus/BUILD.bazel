@@ -71,6 +71,7 @@ _NO_DEVICE_SUBJECTS = [
 ]
 
 _ADAPTER_ONLY_SCENARIOS = [
+    "control/loop/scalar_state.loom",
     "control/schedule/address_domains.loom",
     "memory/address/biased_offsets.loom",
     "memory/address/tiled_channel.loom",
