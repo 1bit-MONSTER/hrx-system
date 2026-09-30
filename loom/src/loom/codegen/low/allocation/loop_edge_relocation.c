@@ -371,7 +371,8 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_group_supported(
     loom_low_allocation_class_capacity_t capacity = {0};
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_target_constraints_interval_capacity(
-            context->target_constraints, interval, &capacity));
+            context->target_constraints, context->liveness, context->placement,
+            interval, &capacity));
     if (!loom_low_allocation_target_constraints_location_range_fits_capacity(
             context->descriptor_set, &capacity, proposed.location_kind,
             proposed.location_base, proposed.location_count) ||
@@ -914,7 +915,8 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_prepare_eviction(
   }
   loom_low_allocation_class_capacity_t capacity = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_target_constraints_interval_capacity(
-      context->target_constraints, interval, &capacity));
+      context->target_constraints, context->liveness, context->placement,
+      interval, &capacity));
   *out_eviction = (loom_low_allocation_loop_edge_eviction_t){
       .assignment_index = assignment_index,
       .assignment = *assignment,

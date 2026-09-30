@@ -1031,8 +1031,9 @@ TEST_F(LowAllocationSearchTest, FindsFreeLocationAfterActiveAndReservedRanges) {
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(/*max_units=*/7), &location_base));
   EXPECT_EQ(location_base, 5u);
-  const uint8_t alignment_log2[] = {1, 0};
-  placement.unit_alignment_log2_by_interval = alignment_log2;
+  const loom_low_placement_operand_constraints_t operands[] = {{0, 1, false},
+                                                               {0, 0, false}};
+  placement.operand_constraints_by_interval = operands;
   EXPECT_FALSE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(/*max_units=*/7), &location_base));
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(

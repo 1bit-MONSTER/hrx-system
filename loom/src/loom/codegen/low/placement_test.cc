@@ -264,7 +264,7 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
   iree_arena_block_pool_deinitialize(&pool);
 }
 
-TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
+TEST(LowPlacementTest, RetainsOperandConstraintsAcrossExactTiesOnly) {
   iree_arena_block_pool_t pool;
   iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);
   loom_context_t context;
@@ -297,7 +297,14 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
     operand.unit_count = 1;
   }
   operands[0].role = LOOM_LOW_OPERAND_ROLE_RESULT;
+  operands[0].address_map_kind = LOOM_LOW_OPERAND_ADDRESS_MAP_LOW_SUBSET;
+  operands[0].addressable_unit_count = 16;
+  operands[1].address_map_kind = LOOM_LOW_OPERAND_ADDRESS_MAP_TARGET_STATE;
+  operands[1].addressable_unit_count = 16;
+  operands[1].address_state_slot = 1;
   operands[2].reg_class_alt_start = 2;
+  operands[2].address_map_kind = LOOM_LOW_OPERAND_ADDRESS_MAP_LOW_SUBSET;
+  operands[2].addressable_unit_count = 8;
   const loom_low_constraint_t tie_constraint = {LOOM_LOW_CONSTRAINT_KIND_TIED,
                                                 0, 1, 0};
   loom_low_descriptor_t descriptors[2] = {};
@@ -412,40 +419,39 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
         &module->arena, &placement, &preferences));
     ASSERT_EQ(preferences.use_count, 3u);
     ASSERT_EQ(preferences.binding_count, 8u);
-    EXPECT_EQ(preferences.max_incident_use_count, 3u);
-    EXPECT_EQ(preferences.max_incident_binding_count, 8u);
-    EXPECT_EQ(preferences.max_memo_entry_count, test_case.entry_count);
+    EXPECT_EQ(preferences.instruction_use_count, 3u);
+    EXPECT_EQ(preferences.max_incident_use_count, 0u);
+    EXPECT_EQ(preferences.max_incident_binding_count, 0u);
+    EXPECT_EQ(preferences.max_memo_entry_count, 0u);
+    EXPECT_EQ(preferences.offsets_by_origin, nullptr);
+    EXPECT_EQ(preferences.use_indices, nullptr);
     const auto origin = loom_local_value_domain_ordinal(&domain, chain[0]);
     for (uint32_t i = 0; i < preferences.use_count; ++i) {
-      EXPECT_EQ(preferences.use_indices[i], i);
       const auto& use = preferences.uses[i];
+      EXPECT_EQ(use.memo.location_bit_count == 0
+                    ? 0
+                    : UINT32_MAX >> (32 - use.memo.location_bit_count),
+                test_case.dependency_mask);
       if (test_case.entry_count == 0) {
-        EXPECT_EQ(use.memo.location_bit_count, 0u);
+        EXPECT_EQ(use.memo.index_bit_count_plus_one, 0u);
       } else {
-        EXPECT_EQ(UINT32_MAX >> (32 - use.memo.location_bit_count),
-                  test_case.dependency_mask);
-        EXPECT_EQ(UINT32_C(1) << use.memo.index_bit_count,
+        EXPECT_EQ(UINT32_C(1) << (use.memo.index_bit_count_plus_one - 1),
                   test_case.entry_count);
       }
       for (uint16_t j = 0; j < use.preference->value_count; ++j) {
         const auto& binding = preferences.bindings[use.binding_start + j];
-        EXPECT_EQ(binding.representative, 0u);
+        EXPECT_EQ(binding.representative, j);
         EXPECT_EQ(
             placement
                 .tied_storage_origins_by_value_ordinal[binding.value_ordinal],
             origin);
       }
     }
-    // Incidence is per mandatory origin, but bindings keep the actual values.
+    // Deferred instruction bindings keep actual values without an origin CSR.
     EXPECT_EQ(preferences.bindings[0].value_ordinal,
               loom_local_value_domain_ordinal(&domain, chain[1]));
     EXPECT_EQ(preferences.bindings[1].value_ordinal, origin);
-    for (uint32_t i = 0; i < placement.value_count; ++i) {
-      EXPECT_EQ(preferences.offsets_by_origin[i + 1] -
-                    preferences.offsets_by_origin[i],
-                i == origin ? 3u : 0u);
-    }
-    ASSERT_NE(placement.unit_alignment_log2_by_interval, nullptr);
+    ASSERT_NE(placement.operand_constraints_by_interval, nullptr);
     ASSERT_NE(placement.tied_storage_origins_by_value_ordinal, nullptr);
     const auto chain_origin =
         loom_local_value_domain_try_ordinal(&domain, chain[0]);
@@ -453,17 +459,39 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
       const auto ordinal = loom_local_value_domain_try_ordinal(&domain, value);
       EXPECT_EQ(placement.tied_storage_origins_by_value_ordinal[ordinal],
                 chain_origin);
-      EXPECT_EQ(placement.unit_alignment_log2_by_interval
-                    [liveness.value_interval_indices[ordinal]],
+      EXPECT_EQ(placement
+                    .operand_constraints_by_interval
+                        [liveness.value_interval_indices[ordinal]]
+                    .unit_alignment_log2,
                 class_id == 0 ? 3 : 1);
+      EXPECT_EQ(placement
+                    .operand_constraints_by_interval
+                        [liveness.value_interval_indices[ordinal]]
+                    .addressable_unit_count,
+                8u);
+      EXPECT_TRUE(placement
+                      .operand_constraints_by_interval
+                          [liveness.value_interval_indices[ordinal]]
+                      .has_target_address_state);
     }
     const auto source_ordinal =
         loom_local_value_domain_try_ordinal(&domain, source);
     EXPECT_EQ(placement.tied_storage_origins_by_value_ordinal[source_ordinal],
               source_ordinal);
-    EXPECT_EQ(placement.unit_alignment_log2_by_interval
-                  [liveness.value_interval_indices[source_ordinal]],
+    EXPECT_EQ(placement
+                  .operand_constraints_by_interval
+                      [liveness.value_interval_indices[source_ordinal]]
+                  .unit_alignment_log2,
               0);
+    EXPECT_EQ(placement
+                  .operand_constraints_by_interval
+                      [liveness.value_interval_indices[source_ordinal]]
+                  .addressable_unit_count,
+              0u);
+    EXPECT_FALSE(placement
+                     .operand_constraints_by_interval
+                         [liveness.value_interval_indices[source_ordinal]]
+                     .has_target_address_state);
     loom_local_value_domain_release(&domain);
     loom_module_free(module);
   }

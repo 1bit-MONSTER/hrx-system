@@ -209,7 +209,8 @@ loom_low_allocation_concat_reservation_default_source_assembles_result(
     loom_low_allocation_class_capacity_t sibling_capacity = {0};
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_target_constraints_interval_capacity(
-            context->target_constraints, sibling_interval, &sibling_capacity));
+            context->target_constraints, context->liveness, context->placement,
+            sibling_interval, &sibling_capacity));
     const uint32_t sibling_alignment =
         loom_low_allocation_live_range_interval_alignment(
             context->descriptor_set, context->liveness, context->placement,
@@ -542,7 +543,8 @@ iree_status_t loom_low_allocation_concat_reservation_find(
       result_interval->end_point - result_interval->start_point;
   loom_low_allocation_class_capacity_t capacity = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_target_constraints_interval_capacity(
-      context->target_constraints, result_interval, &capacity));
+      context->target_constraints, context->liveness, context->placement,
+      result_interval, &capacity));
 
   if (ignored_value_count == 0) {
     return iree_ok_status();
@@ -594,7 +596,8 @@ iree_status_t loom_low_allocation_concat_reservation_find(
     if (favor_result_reservation && !uses_explicit_physical_registers) {
       IREE_RETURN_IF_ERROR(
           loom_low_allocation_target_constraints_interval_capacity(
-              context->target_constraints, source_interval, &source_capacity));
+              context->target_constraints, context->liveness,
+              context->placement, source_interval, &source_capacity));
       source_location_state =
           loom_low_allocation_search_find_free_location(
               context, source_interval, source_capacity, &source_location_base)
@@ -622,7 +625,8 @@ iree_status_t loom_low_allocation_concat_reservation_find(
   if (has_preferences && source_location_state == SOURCE_LOCATION_UNQUERIED) {
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_target_constraints_interval_capacity(
-            context->target_constraints, source_interval, &source_capacity));
+            context->target_constraints, context->liveness, context->placement,
+            source_interval, &source_capacity));
     source_location_state =
         loom_low_allocation_search_find_free_location(
             context, source_interval, source_capacity, &source_location_base)
@@ -642,7 +646,8 @@ iree_status_t loom_low_allocation_concat_reservation_find(
   if (source_location_state == SOURCE_LOCATION_UNQUERIED) {
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_target_constraints_interval_capacity(
-            context->target_constraints, source_interval, &source_capacity));
+            context->target_constraints, context->liveness, context->placement,
+            source_interval, &source_capacity));
   }
   const loom_low_allocation_preference_query_t preferences =
       loom_low_allocation_preference_prepare(

@@ -576,6 +576,7 @@ loom_cc_library(
     loom::codegen::low::allocation::loop_edge_relocation
     loom::codegen::low::allocation::move_plan
     loom::codegen::low::allocation::move_topology
+    loom::codegen::low::allocation::numbering
     loom::codegen::low::allocation::packet_move
     loom::codegen::low::allocation::search
     loom::codegen::low::allocation::spill_plan

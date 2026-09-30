@@ -14,6 +14,7 @@
 #include "loom/codegen/low/allocation/interval_assignment.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/loop_edge_relocation.h"
+#include "loom/codegen/low/allocation/numbering.h"
 #include "loom/codegen/low/allocation/packet_move.h"
 #include "loom/codegen/low/allocation/storage_lease.h"
 #include "loom/codegen/low/allocation/target_constraints.h"
@@ -356,7 +357,6 @@ iree_status_t loom_low_allocate_function(
     status = loom_low_allocation_repair_fragmentation(
         &state, model, value_domain, &interval_assignment_checkpoint);
   }
-  iree_arena_deinitialize(&decision_arena);
   // Backedge placement belongs to the final physical assignment. Spill repair
   // rewrites the IR and rebuilds the frame, so relocating a provisional spill
   // assignment would be discarded.
@@ -411,6 +411,22 @@ iree_status_t loom_low_allocate_function(
       assignment_is_final) {
     status = loom_low_allocation_build_moves(&state);
   }
+  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
+      assignment_is_final) {
+    const loom_low_allocation_numbering_context_t numbering_context = {
+        .placement = &state.placement,
+        .preferences = &state.preferences,
+        .target_constraints = &state.target_constraints,
+        .unit_liveness = &state.unit_liveness,
+        .interval_assignment = &state.interval_assignment,
+        .storage_leases = &state.storage_leases,
+        .moves = state.move_plan.moves,
+        .move_count = state.move_plan.move_count,
+    };
+    status = loom_low_allocation_number_registers(&numbering_context,
+                                                  &decision_arena);
+  }
+  iree_arena_deinitialize(&decision_arena);
 
   loom_low_allocation_table_t table = {0};
   if (iree_status_is_ok(status)) {

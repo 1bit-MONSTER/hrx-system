@@ -188,6 +188,17 @@ typedef struct loom_low_placement_relation_range_t {
   uint32_t count;
 } loom_low_placement_relation_range_t;
 
+// Operand requirements combined across every use of one live interval.
+typedef struct loom_low_placement_operand_constraints_t {
+  // Smallest LOW_SUBSET addressable extent, or zero for no low-window bound.
+  uint16_t addressable_unit_count;
+  // Strongest required base alignment exponent in allocation units.
+  uint8_t unit_alignment_log2;
+  // An operand uses a target-selected address window. Renumbering preserves
+  // its concrete location so it cannot change address-state transitions.
+  bool has_target_address_state;
+} loom_low_placement_operand_constraints_t;
+
 // Placement analysis table for one target-low function body.
 typedef struct loom_low_placement_table_t {
   // Module containing the analyzed low function.
@@ -248,11 +259,11 @@ typedef struct loom_low_placement_table_t {
   // ordinal. Unconnected values name themselves. NULL when the function has no
   // tied storage.
   const loom_value_ordinal_t* tied_storage_origins_by_value_ordinal;
-  // Required instruction alignment exponents indexed by liveness interval.
-  // Exact tied-storage components share their strongest requirement. NULL
-  // when no packet requires alignment beyond one allocation unit.
-  // Optional slice/concat aliases are checked at their concrete derived base.
-  const uint8_t* unit_alignment_log2_by_interval;
+  // Operand requirements indexed by liveness interval. Exact tied-storage
+  // components share their strongest requirements. NULL when unconstrained;
+  // optional slice/concat aliases are checked at their concrete derived base.
+  const loom_low_placement_operand_constraints_t*
+      operand_constraints_by_interval;
 } loom_low_placement_table_t;
 
 // One allocation-local instruction preference bound during placement analysis.
@@ -266,35 +277,40 @@ typedef struct loom_low_placement_preference_use_t {
   // Retained periodic-cost facts for allocation-local score reuse.
   struct {
     // Low candidate bits needed by the predicates, including offset carries.
-    // Zero disables reuse for nonperiodic costs or unbounded domains.
+    // Structural predicates are invariant after storage assignment; only the
+    // masked predicates contribute location dependencies during renumbering.
     uint8_t location_bit_count;
-    // Log2 of the cell bound, capped by the finite 16-bit register domains.
-    // Meaningful only when location_bit_count is nonzero.
-    uint8_t index_bit_count;
+    // One plus log2 of the cell bound, capped by finite register domains.
+    // Zero disables assignment-time memoization for nonperiodic costs.
+    uint8_t index_bit_count_plus_one;
   } memo;
 } loom_low_placement_preference_use_t;
 
 typedef struct loom_low_placement_preference_binding_t {
   // Actual value named by the recipe, even when another value is tied to it.
   loom_value_ordinal_t value_ordinal;
-  // First slot in this use with the same mandatory storage origin.
+  // First slot in a scheduled-pair use with the same mandatory storage
+  // origin. Deferred instruction uses retain their own slot index.
   uint32_t representative;
 } loom_low_placement_preference_binding_t;
 
 // Working index for allocation decisions, not part of the returned placement
-// or allocation table. Its owner releases it after all assignment attempts.
+// or allocation table. Its owner releases it after final register numbering.
 typedef struct loom_low_placement_preference_index_t {
   // Bound uses in collection order.
   const loom_low_placement_preference_use_t* uses;
   // Bound real values, grouped by use.
   const loom_low_placement_preference_binding_t* bindings;
-  // Stable use indexes, grouped by mandatory storage origin and deduplicated
-  // within each origin. There is one incidence per distinct origin in a use.
+  // Scheduled-pair use indexes, grouped by mandatory storage origin and
+  // deduplicated within each origin. Instruction uses are numbered only after
+  // storage assignment and do not participate in assignment queries.
   const uint32_t* use_indices;
   // Offsets into use_indices, with value_count + 1 entries; NULL when inert.
   const uint32_t* offsets_by_origin;
   // Number of bound uses.
   uint32_t use_count;
+  // Leading instruction uses deferred until final register numbering.
+  uint32_t instruction_use_count;
   // Number of bound values.
   uint32_t binding_count;
   // Maximum uses incident to any one origin, for reusable query storage.

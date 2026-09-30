@@ -47,7 +47,7 @@ class LowAllocationPreferenceTest : public ::testing::Test {
     placement_.ranges_by_result_ordinal = ranges_;
     placement_.ranges_by_source_ordinal = source_ranges_;
     preference_ = {values_, predicates_, clauses_, 3, 2};
-    use_ = {&preference_, 0, 3, {2, 2}};
+    use_ = {&preference_, 0, 3, {2, 3}};
     index_.uses = &use_;
     index_.use_count = 1;
     index_.bindings = bindings_;
@@ -166,6 +166,18 @@ TEST_F(LowAllocationPreferenceTest, WeightedClausesAndMergedIncidence) {
   preference_.clauses = large_weights;
   use_.priority = UINT16_MAX;
   EXPECT_EQ(Penalty(Prepare(1), 0, 0), UINT32_MAX);
+}
+
+TEST_F(LowAllocationPreferenceTest, InstructionUsesDoNotAffectStorageSearch) {
+  index_.instruction_use_count = index_.use_count;
+  const auto arena_bytes = arena_.used_allocation_size;
+  IREE_ASSERT_OK(loom_low_allocation_preference_workspace_initialize(
+      &index_, &arena_, &workspace_));
+  EXPECT_EQ(arena_.used_allocation_size, arena_bytes);
+  EXPECT_EQ(workspace_.use_indices, nullptr);
+  EXPECT_FALSE(
+      loom_low_allocation_preference_has_uses(&index_, &placement_, 0));
+  EXPECT_EQ(Prepare().use_count, 0u);
 }
 
 TEST_F(LowAllocationPreferenceTest,

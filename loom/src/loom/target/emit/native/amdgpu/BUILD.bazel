@@ -158,6 +158,7 @@ loom_check_test_suite(
         "test/message_completion.loom-test",
         "test/packet.loom-test",
         "test/packet_json.loom-test",
+        "test/register_numbering.loom-test",
         "test/spill_lowering.loom-test",
         "test/structural_delay_alu.loom-test",
         "test/tensor_completion.loom-test",

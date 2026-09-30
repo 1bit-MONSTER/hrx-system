@@ -148,6 +148,40 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    numbering
+  HDRS
+    "numbering.h"
+  SRCS
+    "numbering.c"
+  DEPS
+    ::interval_assignment
+    ::move
+    ::storage
+    ::storage_lease
+    ::storage_lease_index
+    ::target_constraints
+    ::unit_liveness
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::placement
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    numbering_test
+  SRCS
+    "numbering_test.cc"
+  DEPS
+    ::numbering
+    ::storage_lease_index
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     preference
   HDRS
     "preference.h"
@@ -294,7 +328,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
-    loom::ops::low
+    loom::target::registers
     loom::target::residency
 )
 
@@ -847,7 +881,10 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::codegen::low::builder
     loom::ir
+    loom::ops::low
+    loom::target::registers
 )
 
 loom_cc_library(

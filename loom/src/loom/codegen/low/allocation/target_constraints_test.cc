@@ -464,6 +464,82 @@ TEST_F(LowAllocationTargetConstraintsTest,
 }
 
 TEST_F(LowAllocationTargetConstraintsTest,
+       FixedValuesRespectRetainedOperandWindow) {
+  loom_context_t context;
+  loom_context_initialize(iree_allocator_system(), &context);
+  IREE_ASSERT_OK(loom_context_finalize(&context));
+  loom_module_t* module = nullptr;
+  IREE_ASSERT_OK(loom_module_allocate(&context, IREE_SV("fixed"), &block_pool_,
+                                      nullptr, iree_allocator_system(),
+                                      &module));
+  const uint16_t reg_class_id = RegisterClassId(IREE_SV("test.phys"));
+  loom_value_id_t value;
+  IREE_ASSERT_OK(loom_module_define_value(
+      module,
+      loom_low_register_type(target_.descriptor_set->stable_id, reg_class_id,
+                             1),
+      &value));
+  loom_module_value_ordinal_scratch_acquire(module);
+  loom_module_value_ordinal_scratch_set(module, value, 0);
+  loom_local_value_domain_t domain = {};
+  domain.module = module;
+  domain.value_ids = &value;
+  domain.value_count = 1;
+  domain.flags = LOOM_LOCAL_VALUE_DOMAIN_FLAG_ACQUIRED;
+  loom_liveness_interval_t interval = {};
+  interval.value_id = value;
+  interval.value_class.type_kind = LOOM_TYPE_REGISTER;
+  interval.value_class.register_descriptor_set_stable_id =
+      target_.descriptor_set->stable_id;
+  interval.value_class.register_class_id = reg_class_id;
+  interval.unit_count = 1;
+  interval.end_point = 1;
+  uint32_t zero = 0, one = 1;
+  loom_liveness_analysis_t liveness = {};
+  liveness.intervals = &interval;
+  liveness.interval_count = 1;
+  liveness.value_ids = &value;
+  liveness.value_count = 1;
+  liveness.value_interval_indices = &zero;
+  loom_low_allocation_unit_liveness_value_t unit_value = {};
+  loom_low_allocation_unit_liveness_t unit_liveness = {};
+  unit_liveness.values = &unit_value;
+  unit_liveness.start_points = &zero;
+  unit_liveness.end_points = &one;
+  unit_liveness.point_count = 1;
+  uint64_t incomplete_storage_words[] = {0};
+  unit_liveness.values_with_incomplete_storage_segments = {
+      1, incomplete_storage_words};
+  loom_low_placement_operand_constraints_t operand = {};
+  operand.addressable_unit_count = 8;
+  loom_low_placement_table_t placement = {};
+  placement.operand_constraints_by_interval = &operand;
+  // The class's ABI-fixed window at 32 is legal storage, but still cannot be
+  // encoded by an operand restricted to the first eight registers.
+  for (uint32_t location : {7, 8, 32}) {
+    DiagnosticCapture capture = {};
+    const iree_diagnostic_emitter_t emitter = {CaptureDiagnostic, &capture};
+    loom_low_allocation_target_constraints_t constraints = {};
+    IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
+        module, &function_op_, &target_, nullptr, 0, nullptr, 0, emitter,
+        &arena_, &constraints));
+    const loom_low_allocation_fixed_value_t fixed = {
+        value, LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, location, 1};
+    IREE_ASSERT_OK(loom_low_allocation_target_constraints_resolve_fixed_values(
+        &constraints, &liveness, &domain, &unit_liveness, &placement, &fixed, 1,
+        &arena_));
+    EXPECT_EQ(constraints.error_count, location < 8 ? 0u : 1u);
+    EXPECT_EQ(constraints.fixed_value_count, location < 8 ? 1u : 0u);
+    if (location >= 8) {
+      EXPECT_EQ(capture.error, LOOM_ERR_BACKEND_022);
+    }
+  }
+  loom_local_value_domain_release(&domain);
+  loom_module_free(module);
+  loom_context_deinitialize(&context);
+}
+
+TEST_F(LowAllocationTargetConstraintsTest,
        IndexesFixedValuesAndLifetimeOverlap) {
   loom_context_t context;
   loom_context_initialize(iree_allocator_system(), &context);

@@ -46,7 +46,8 @@ static iree_status_t loom_low_allocation_unit_liveness_note_clobber(
     uint32_t point, iree_arena_allocator_t* arena) {
   const loom_low_reg_class_t* reg_class =
       &descriptor_set->reg_classes[reg_class_id];
-  if (!iree_any_bit_set(reg_class->flags, LOOM_LOW_REG_CLASS_FLAG_PHYSICAL)) {
+  if (loom_low_allocation_storage_reg_class_location_kind(reg_class) !=
+      LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
     return iree_ok_status();
   }
   const uint16_t* atomic_units = NULL;
@@ -587,14 +588,34 @@ loom_low_allocation_unit_liveness_note_descriptor_unit_uses(
     const loom_low_operand_t* operand =
         &descriptor_set->operands[descriptor->operand_start + i];
     if (operand->source_value_index != LOOM_LOW_ID_NONE ||
-        !iree_any_bit_set(operand->flags, LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
+        !iree_any_bit_set(operand->flags,
+                          LOOM_LOW_OPERAND_FLAG_STATE_READ |
+                              LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
       continue;
     }
     const uint16_t reg_class_id =
         descriptor_set->reg_class_alts[operand->reg_class_alt_start]
             .reg_class_id;
-    IREE_RETURN_IF_ERROR(loom_low_allocation_unit_liveness_note_clobber(
-        unit_liveness, descriptor_set, reg_class_id, clobber_point, arena));
+    const loom_low_reg_class_t* reg_class =
+        &descriptor_set->reg_classes[reg_class_id];
+    if (loom_low_allocation_storage_reg_class_location_kind(reg_class) ==
+            LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER &&
+        !loom_low_reg_class_uses_explicit_physical_registers(reg_class)) {
+      if (unit_liveness->implicit_location_counts_by_reg_class == NULL) {
+        IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+            arena, descriptor_set->reg_class_count, sizeof(uint16_t),
+            (void**)&unit_liveness->implicit_location_counts_by_reg_class));
+        memset(unit_liveness->implicit_location_counts_by_reg_class, 0,
+               descriptor_set->reg_class_count * sizeof(uint16_t));
+      }
+      uint16_t* count =
+          &unit_liveness->implicit_location_counts_by_reg_class[reg_class_id];
+      *count = iree_max(*count, operand->unit_count);
+    }
+    if (iree_any_bit_set(operand->flags, LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
+      IREE_RETURN_IF_ERROR(loom_low_allocation_unit_liveness_note_clobber(
+          unit_liveness, descriptor_set, reg_class_id, clobber_point, arena));
+    }
   }
   for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =

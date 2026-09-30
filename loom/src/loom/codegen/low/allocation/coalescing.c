@@ -508,7 +508,8 @@ static iree_status_t loom_low_allocation_coalescing_append_interval_at_location(
   }
   loom_low_allocation_class_capacity_t capacity = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_target_constraints_interval_capacity(
-      context->target_constraints, interval, &capacity));
+      context->target_constraints, context->liveness, context->placement,
+      interval, &capacity));
   if (!loom_low_allocation_storage_reg_classes_share(
           context->search_context->descriptor_set,
           capacity.descriptor_reg_class_id, descriptor_reg_class_id)) {

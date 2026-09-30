@@ -96,14 +96,14 @@ typedef struct loom_low_placement_build_state_t {
     loom_low_placement_preference_binding_t* bindings;
     // Number of collected uses.
     iree_host_size_t use_count;
+    // Leading instruction uses, before collecting scheduled pairs.
+    uint32_t instruction_use_count;
     // Number of collected binding slots.
     iree_host_size_t binding_count;
     // Capacity of uses.
     iree_host_size_t use_capacity;
     // Capacity of bindings.
     iree_host_size_t binding_capacity;
-    // Largest domain-bounded memo required by a collected periodic use.
-    uint32_t max_memo_entry_count;
   } preferences;
   // Arena owning placement table storage.
   iree_arena_allocator_t* arena;
@@ -130,8 +130,8 @@ typedef struct loom_low_placement_build_state_t {
   loom_value_ordinal_t storage_value_order_count;
   // Earliest value in each exact tied-storage component.
   loom_value_ordinal_t* tied_storage_origins_by_value_ordinal;
-  // Instruction alignment exponents, dense by liveness interval when needed.
-  uint8_t* unit_alignment_log2_by_interval;
+  // Combined operand requirements, dense by liveness interval when needed.
+  loom_low_placement_operand_constraints_t* operand_constraints_by_interval;
   // Number of relation records counted or populated.
   uint32_t relation_count;
   // Number of whole-value edge relations counted during collection.
@@ -529,7 +529,7 @@ static loom_value_id_t loom_low_placement_descriptor_operand_value_id(
   return loom_op_const_operands(op)[descriptor_operand->source_value_index];
 }
 
-static iree_status_t loom_low_placement_collect_operand_alignment(
+static iree_status_t loom_low_placement_collect_operand_constraints(
     loom_low_placement_build_state_t* state, const loom_low_operand_t* operand,
     loom_value_id_t value_id) {
   const loom_value_ordinal_t ordinal =
@@ -541,28 +541,46 @@ static iree_status_t loom_low_placement_collect_operand_alignment(
     return iree_ok_status();
   }
   const uint16_t reg_class_id = interval->value_class.register_class_id;
+  uint8_t unit_alignment_log2 = 0;
   for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
     const loom_low_reg_class_alt_t* alternative =
         &state->descriptor_set
              ->reg_class_alts[operand->reg_class_alt_start + i];
-    if (alternative->reg_class_id != reg_class_id ||
-        alternative->unit_alignment_log2 == 0) {
-      continue;
+    if (alternative->reg_class_id == reg_class_id) {
+      unit_alignment_log2 =
+          iree_max(unit_alignment_log2, alternative->unit_alignment_log2);
     }
-    if (state->unit_alignment_log2_by_interval == NULL) {
-      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-          state->arena, state->liveness->interval_count,
-          sizeof(*state->unit_alignment_log2_by_interval),
-          (void**)&state->unit_alignment_log2_by_interval));
-      memset(state->unit_alignment_log2_by_interval, 0,
-             state->liveness->interval_count *
-                 sizeof(*state->unit_alignment_log2_by_interval));
-    }
-    uint8_t* alignment =
-        &state->unit_alignment_log2_by_interval[interval -
-                                                state->liveness->intervals];
-    *alignment = iree_max(*alignment, alternative->unit_alignment_log2);
   }
+  const uint16_t addressable_unit_count =
+      operand->address_map_kind == LOOM_LOW_OPERAND_ADDRESS_MAP_LOW_SUBSET
+          ? operand->addressable_unit_count
+          : 0;
+  const bool has_target_address_state =
+      operand->address_map_kind == LOOM_LOW_OPERAND_ADDRESS_MAP_TARGET_STATE;
+  if (unit_alignment_log2 == 0 && addressable_unit_count == 0 &&
+      !has_target_address_state) {
+    return iree_ok_status();
+  }
+  if (state->operand_constraints_by_interval == NULL) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        state->arena, state->liveness->interval_count,
+        sizeof(*state->operand_constraints_by_interval),
+        (void**)&state->operand_constraints_by_interval));
+    memset(state->operand_constraints_by_interval, 0,
+           state->liveness->interval_count *
+               sizeof(*state->operand_constraints_by_interval));
+  }
+  loom_low_placement_operand_constraints_t* constraints =
+      &state->operand_constraints_by_interval[interval -
+                                              state->liveness->intervals];
+  constraints->unit_alignment_log2 =
+      iree_max(constraints->unit_alignment_log2, unit_alignment_log2);
+  if (addressable_unit_count != 0 &&
+      (constraints->addressable_unit_count == 0 ||
+       addressable_unit_count < constraints->addressable_unit_count)) {
+    constraints->addressable_unit_count = addressable_unit_count;
+  }
+  constraints->has_target_address_state |= has_target_address_state;
   return iree_ok_status();
 }
 
@@ -639,15 +657,13 @@ static iree_status_t loom_low_placement_collect_preference(
   // Adding a fixed unit offset can carry through every lower location bit.
   // Keep that dependency here instead of rescanning recipes at query time.
   const uint8_t location_bit_count =
-      memo_capacity == 0
+      (uint8_t)(32 - iree_math_count_leading_zeros_u32(dependency_mask));
+  const uint8_t index_bit_count_plus_one =
+      location_bit_count == 0 || memo_capacity == 0
           ? 0
-          : (uint8_t)(32 - iree_math_count_leading_zeros_u32(dependency_mask));
-  const uint8_t index_bit_count =
-      location_bit_count == 0
-          ? 0
-          : (uint8_t)iree_min(
-                location_bit_count,
-                31 - iree_math_count_leading_zeros_u32(memo_capacity));
+          : 1 + (uint8_t)iree_min(
+                    location_bit_count,
+                    31 - iree_math_count_leading_zeros_u32(memo_capacity));
   if (binding_start + preference->value_count > UINT32_MAX) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "too many placement preference bindings");
@@ -666,6 +682,7 @@ static iree_status_t loom_low_placement_collect_preference(
         loom_low_placement_value_ordinal(
             state, loom_low_placement_operation_value_id(
                        operations, &preference->values[i]));
+    state->preferences.bindings[binding_start + i].representative = i;
   }
   if (state->preferences.use_count == state->preferences.use_capacity) {
     IREE_RETURN_IF_ERROR(iree_arena_grow_array(
@@ -679,14 +696,9 @@ static iree_status_t loom_low_placement_collect_preference(
           .binding_start = (uint32_t)binding_start,
           .priority = iree_max(priority, 1u),
           .memo = {.location_bit_count = location_bit_count,
-                   .index_bit_count = index_bit_count},
+                   .index_bit_count_plus_one = index_bit_count_plus_one},
       };
   state->preferences.binding_count += preference->value_count;
-  if (location_bit_count != 0) {
-    state->preferences.max_memo_entry_count =
-        iree_max(state->preferences.max_memo_entry_count,
-                 UINT32_C(1) << index_bit_count);
-  }
   return iree_ok_status();
 }
 
@@ -788,11 +800,11 @@ static iree_status_t loom_low_placement_collect_op_relations(
     if (iree_any_bit_set(operand->flags, LOOM_LOW_OPERAND_FLAG_VARIADIC)) {
       for (uint16_t j = operand->source_value_index; j < op->operand_count;
            ++j) {
-        IREE_RETURN_IF_ERROR(loom_low_placement_collect_operand_alignment(
+        IREE_RETURN_IF_ERROR(loom_low_placement_collect_operand_constraints(
             state, operand, loom_op_const_operands(op)[j]));
       }
     } else {
-      IREE_RETURN_IF_ERROR(loom_low_placement_collect_operand_alignment(
+      IREE_RETURN_IF_ERROR(loom_low_placement_collect_operand_constraints(
           state, operand,
           loom_low_placement_descriptor_operand_value_id(op, operand)));
     }
@@ -1096,6 +1108,28 @@ static iree_status_t loom_low_placement_index_preferences(
     return iree_ok_status();
   }
   const uint32_t binding_count = (uint32_t)state->preferences.binding_count;
+  const uint32_t instruction_use_count =
+      state->preferences.instruction_use_count;
+  loom_low_placement_preference_use_t* uses = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      state->preference_arena, use_count, sizeof(*uses), (void**)&uses));
+  memcpy(uses, state->preferences.uses, use_count * sizeof(*uses));
+  loom_low_placement_preference_binding_t* bindings = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(state->preference_arena, binding_count,
+                                sizeof(*bindings), (void**)&bindings));
+  memcpy(bindings, state->preferences.bindings,
+         binding_count * sizeof(*bindings));
+  *out_index = (loom_low_placement_preference_index_t){
+      .uses = uses,
+      .bindings = bindings,
+      .use_count = use_count,
+      .instruction_use_count = instruction_use_count,
+      .binding_count = binding_count,
+  };
+  if (instruction_use_count == use_count) {
+    return iree_ok_status();
+  }
   const loom_value_ordinal_t value_count = state->value_domain->value_count;
   const loom_value_ordinal_t* origins =
       state->tied_storage_origins_by_value_ordinal;
@@ -1109,12 +1143,17 @@ static iree_status_t loom_low_placement_index_preferences(
       state->scratch_arena, value_count, sizeof(*last_bindings),
       (void**)&last_bindings));
   memset(last_bindings, 0, value_count * sizeof(*last_bindings));
-  for (uint32_t i = 0; i < use_count; ++i) {
-    const loom_low_placement_preference_use_t* use =
-        &state->preferences.uses[i];
+  uint32_t max_memo_entry_count = 0;
+  for (uint32_t i = instruction_use_count; i < use_count; ++i) {
+    const loom_low_placement_preference_use_t* use = &uses[i];
+    if (use->memo.index_bit_count_plus_one != 0) {
+      max_memo_entry_count =
+          iree_max(max_memo_entry_count,
+                   UINT32_C(1) << (use->memo.index_bit_count_plus_one - 1));
+    }
     for (uint16_t slot = 0; slot < use->preference->value_count; ++slot) {
       loom_low_placement_preference_binding_t* binding =
-          &state->preferences.bindings[use->binding_start + slot];
+          &bindings[use->binding_start + slot];
       const loom_value_ordinal_t origin =
           origins ? origins[binding->value_ordinal] : binding->value_ordinal;
       if (last_bindings[origin] > use->binding_start) {
@@ -1141,12 +1180,11 @@ static iree_status_t loom_low_placement_index_preferences(
       iree_arena_allocate_array(state->preference_arena, incidence_count,
                                 sizeof(*use_indices), (void**)&use_indices));
   uint32_t max_incident_binding_count = 0;
-  for (uint32_t i = use_count; i > 0; --i) {
-    const loom_low_placement_preference_use_t* use =
-        &state->preferences.uses[i - 1];
+  for (uint32_t i = use_count; i > instruction_use_count; --i) {
+    const loom_low_placement_preference_use_t* use = &uses[i - 1];
     for (uint16_t slot = 0; slot < use->preference->value_count; ++slot) {
       const loom_low_placement_preference_binding_t* binding =
-          &state->preferences.bindings[use->binding_start + slot];
+          &bindings[use->binding_start + slot];
       if (binding->representative != slot) {
         continue;
       }
@@ -1162,27 +1200,11 @@ static iree_status_t loom_low_placement_index_preferences(
     offsets[i] = offsets[i + 1];
   }
   offsets[value_count] = incidence_count;
-  loom_low_placement_preference_use_t* uses = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      state->preference_arena, use_count, sizeof(*uses), (void**)&uses));
-  memcpy(uses, state->preferences.uses, use_count * sizeof(*uses));
-  loom_low_placement_preference_binding_t* bindings = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(state->preference_arena, binding_count,
-                                sizeof(*bindings), (void**)&bindings));
-  memcpy(bindings, state->preferences.bindings,
-         binding_count * sizeof(*bindings));
-  *out_index = (loom_low_placement_preference_index_t){
-      .uses = uses,
-      .bindings = bindings,
-      .use_indices = use_indices,
-      .offsets_by_origin = offsets,
-      .use_count = use_count,
-      .binding_count = binding_count,
-      .max_incident_use_count = max_incident_use_count,
-      .max_incident_binding_count = max_incident_binding_count,
-      .max_memo_entry_count = state->preferences.max_memo_entry_count,
-  };
+  out_index->use_indices = use_indices;
+  out_index->offsets_by_origin = offsets;
+  out_index->max_incident_use_count = max_incident_use_count;
+  out_index->max_incident_binding_count = max_incident_binding_count;
+  out_index->max_memo_entry_count = max_memo_entry_count;
   return iree_ok_status();
 }
 
@@ -1205,6 +1227,8 @@ static iree_status_t loom_low_placement_build(
   }
 
   IREE_RETURN_IF_ERROR(loom_low_placement_visit_ops(state));
+  state->preferences.instruction_use_count =
+      (uint32_t)state->preferences.use_count;
   for (iree_host_size_t i = 0; i < state->pair_uses.count; ++i) {
     IREE_RETURN_IF_ERROR(loom_low_placement_collect_pair_relations(
         state, &state->pair_uses.values[i]));
@@ -1245,7 +1269,7 @@ static iree_status_t loom_low_placement_build(
   // Every exact tied component uses one base. Retain its strongest packet
   // requirement once, before fixed-input validation or allocation can place
   // any member. Optional copy and slice relations do not constrain the source.
-  if (state->unit_alignment_log2_by_interval != NULL &&
+  if (state->operand_constraints_by_interval != NULL &&
       state->tied_storage_origins_by_value_ordinal != NULL) {
     const uint32_t* interval_indices = state->liveness->value_interval_indices;
     for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
@@ -1255,9 +1279,18 @@ static iree_status_t loom_low_placement_build(
       }
       const uint32_t origin_index =
           interval_indices[state->tied_storage_origins_by_value_ordinal[i]];
-      uint8_t* origin = &state->unit_alignment_log2_by_interval[origin_index];
-      *origin = iree_max(
-          *origin, state->unit_alignment_log2_by_interval[interval_index]);
+      loom_low_placement_operand_constraints_t* origin =
+          &state->operand_constraints_by_interval[origin_index];
+      const loom_low_placement_operand_constraints_t* member =
+          &state->operand_constraints_by_interval[interval_index];
+      origin->unit_alignment_log2 =
+          iree_max(origin->unit_alignment_log2, member->unit_alignment_log2);
+      if (member->addressable_unit_count != 0 &&
+          (origin->addressable_unit_count == 0 ||
+           member->addressable_unit_count < origin->addressable_unit_count)) {
+        origin->addressable_unit_count = member->addressable_unit_count;
+      }
+      origin->has_target_address_state |= member->has_target_address_state;
     }
     for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
       const uint32_t interval_index = interval_indices[i];
@@ -1266,8 +1299,8 @@ static iree_status_t loom_low_placement_build(
       }
       const uint32_t origin_index =
           interval_indices[state->tied_storage_origins_by_value_ordinal[i]];
-      state->unit_alignment_log2_by_interval[interval_index] =
-          state->unit_alignment_log2_by_interval[origin_index];
+      state->operand_constraints_by_interval[interval_index] =
+          state->operand_constraints_by_interval[origin_index];
     }
   }
 
@@ -1295,7 +1328,7 @@ static iree_status_t loom_low_placement_build(
       .storage_value_order_count = state->storage_value_order_count,
       .tied_storage_origins_by_value_ordinal =
           state->tied_storage_origins_by_value_ordinal,
-      .unit_alignment_log2_by_interval = state->unit_alignment_log2_by_interval,
+      .operand_constraints_by_interval = state->operand_constraints_by_interval,
   };
   return iree_ok_status();
 }

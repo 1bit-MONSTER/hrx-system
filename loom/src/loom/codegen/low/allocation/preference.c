@@ -25,7 +25,7 @@ iree_status_t loom_low_allocation_preference_workspace_initialize(
     iree_arena_allocator_t* arena,
     loom_low_allocation_preference_workspace_t* out_workspace) {
   *out_workspace = (loom_low_allocation_preference_workspace_t){0};
-  if (index == NULL || index->use_count == 0) {
+  if (index == NULL || index->use_count == index->instruction_use_count) {
     return iree_ok_status();
   }
   // A concat query merges two origin lists; neither merged span can exceed
@@ -58,7 +58,7 @@ static loom_value_ordinal_t loom_low_allocation_preference_origin(
 bool loom_low_allocation_preference_has_uses(
     const loom_low_placement_preference_index_t* index,
     const loom_low_placement_table_t* placement, loom_value_ordinal_t ordinal) {
-  if (index == NULL || index->use_count == 0) {
+  if (index == NULL || index->use_count == index->instruction_use_count) {
     return false;
   }
   const loom_value_ordinal_t origin =
@@ -306,7 +306,7 @@ loom_low_allocation_preference_query_t loom_low_allocation_preference_prepare(
   loom_low_allocation_preference_prepare_structural(
       placement, assignments, constraints, primary_ordinal, secondary_ordinal,
       &query);
-  if (index == NULL || index->use_count == 0) {
+  if (index == NULL || index->use_count == index->instruction_use_count) {
     return query;
   }
   const loom_value_ordinal_t primary_origin =
@@ -343,8 +343,12 @@ loom_low_allocation_preference_query_t loom_low_allocation_preference_prepare(
     const loom_low_placement_preference_use_t* use = &index->uses[use_index];
     location_bit_count =
         iree_max(location_bit_count, use->memo.location_bit_count);
-    index_bit_count = iree_max(index_bit_count, use->memo.index_bit_count);
-    memo_applicable &= use->memo.location_bit_count != 0;
+    if (use->memo.index_bit_count_plus_one != 0) {
+      index_bit_count =
+          iree_max(index_bit_count, use->memo.index_bit_count_plus_one - 1);
+    } else {
+      memo_applicable = false;
+    }
     loom_low_allocation_preference_prepare_use(
         index, use_index, placement, assignments, constraints, primary_origin,
         secondary_origin, &workspace->locations[binding_start]);

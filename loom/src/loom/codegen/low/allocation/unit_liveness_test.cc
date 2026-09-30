@@ -9,10 +9,13 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/builder.h"
 #include "loom/ir/context.h"
 #include "loom/ir/local_value_domain.h"
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
+#include "loom/ops/low/ops.h"
+#include "loom/target/registers.h"
 
 namespace loom {
 namespace {
@@ -24,6 +27,10 @@ class LowAllocationUnitLivenessTest : public ::testing::Test {
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
     loom_context_initialize(iree_allocator_system(), &context_);
+    iree_host_size_t vtable_count = 0;
+    const auto* vtables = loom_low_dialect_vtables(&vtable_count);
+    IREE_ASSERT_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_LOW, vtables, (uint16_t)vtable_count));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
 
@@ -108,6 +115,88 @@ loom_liveness_analysis_t Liveness(const loom_value_id_t* value_ids,
   liveness.blocks = blocks;
   liveness.block_count = block_count;
   return liveness;
+}
+
+TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
+  loom_low_reg_class_t classes[2] = {};
+  for (auto& reg_class : classes) {
+    reg_class.allocatable_count = 4;
+    reg_class.alloc_unit_bits = 32;
+  }
+  // A finite inventory is physical without requiring the redundant flag.
+  // Implicit writes name singleton state; reads may cover several units.
+  classes[1].allocatable_count = 1;
+  const loom_low_reg_class_alt_t alternatives[] = {{0, 0, 0}, {1, 0, 0}};
+  loom_low_operand_t operands[3] = {};
+  operands[0].role = LOOM_LOW_OPERAND_ROLE_RESULT;
+  operands[0].reg_class_alt_count = 1;
+  operands[0].unit_count = 1;
+  for (uint16_t i = 0; i < 2; ++i) {
+    operands[i + 1].role = LOOM_LOW_OPERAND_ROLE_IMPLICIT;
+    operands[i + 1].source_value_index = LOOM_LOW_ID_NONE;
+    operands[i + 1].reg_class_alt_start = i;
+    operands[i + 1].reg_class_alt_count = 1;
+    operands[i + 1].flags = LOOM_LOW_OPERAND_FLAG_IMPLICIT |
+                            (i == 0 ? LOOM_LOW_OPERAND_FLAG_STATE_READ
+                                    : LOOM_LOW_OPERAND_FLAG_STATE_WRITE);
+    operands[i + 1].unit_count = i == 0 ? 3 : 1;
+  }
+  loom_low_descriptor_t descriptor = {};
+  descriptor.operand_count = 3;
+  descriptor.result_count = 1;
+  loom_low_descriptor_set_t descriptors = {};
+  descriptors.stable_id = 1;
+  descriptors.reg_classes = classes;
+  descriptors.reg_class_count = 2;
+  descriptors.reg_class_alts = alternatives;
+  descriptors.reg_class_alt_count = 2;
+  descriptors.operands = operands;
+  descriptors.operand_count = 3;
+  descriptors.descriptors = &descriptor;
+  descriptors.descriptor_count = 1;
+  loom_low_resolved_target_t target = {};
+  target.descriptor_set = &descriptors;
+  auto* module = AllocateModule();
+  loom_builder_t builder;
+  loom_builder_initialize(module, &module->arena, loom_module_block(module),
+                          &builder);
+  loom_op_t* op = nullptr;
+  const auto type = loom_low_register_type(1, 0, 1);
+  IREE_ASSERT_OK(loom_low_build_resolved_descriptor_op(
+      &builder, &descriptors, &descriptor, 0, nullptr, 0, {}, &type, 1, nullptr,
+      0, LOOM_LOCATION_UNKNOWN, &op));
+  const auto value = loom_op_results(op)[0];
+  loom_local_value_domain_t domain = {};
+  AcquireValueDomain(module, &value, 1, &domain);
+  const auto interval = RegisterInterval(value, 1, 1, 1);
+  const uint32_t interval_index = 0;
+  loom_liveness_operation_point_t point = {};
+  point.op = op;
+  point.parent_operation_index = UINT32_MAX;
+  point.end_point = 1;
+  loom_liveness_block_info_t block = {};
+  block.block = loom_module_block(module);
+  block.end_point = 1;
+  block.operation_count = 1;
+  loom_liveness_analysis_t liveness = {};
+  liveness.value_count = 1;
+  liveness.value_ids = &value;
+  liveness.value_interval_indices = &interval_index;
+  liveness.intervals = &interval;
+  liveness.interval_count = 1;
+  liveness.operation_points = &point;
+  liveness.operation_count = 1;
+  liveness.blocks = &block;
+  liveness.block_count = 1;
+  loom_low_allocation_unit_liveness_t result = {};
+  IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
+      &target, nullptr, &domain, &liveness, &arena_, &result));
+  ASSERT_NE(result.implicit_location_counts_by_reg_class, nullptr);
+  EXPECT_EQ(result.implicit_location_counts_by_reg_class[0], 3u);
+  EXPECT_EQ(result.implicit_location_counts_by_reg_class[1], 1u);
+  EXPECT_EQ(result.clobbers.count, 1u);
+  loom_local_value_domain_release(&domain);
+  loom_module_free(module);
 }
 
 TEST_F(LowAllocationUnitLivenessTest, InitializesUnitStartsAndBoundaryUses) {

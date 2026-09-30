@@ -287,10 +287,12 @@ iree_status_t loom_low_allocation_target_constraints_class_capacity(
     loom_liveness_value_class_t value_class,
     loom_low_allocation_class_capacity_t* out_capacity);
 
-// Resolves |interval|'s value class and applies descriptor-result placement
-// windows imposed by the interval's defining packet.
+// Resolves |interval|'s value class and applies the addressability bound
+// retained by placement across its defining and consuming operands.
 iree_status_t loom_low_allocation_target_constraints_interval_capacity(
     const loom_low_allocation_target_constraints_t* constraints,
+    const loom_liveness_analysis_t* liveness,
+    const loom_low_placement_table_t* placement,
     const loom_liveness_interval_t* interval,
     loom_low_allocation_class_capacity_t* out_capacity);
 

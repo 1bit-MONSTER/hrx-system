@@ -12,7 +12,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
-#include "loom/ops/low/ops.h"
+#include "loom/target/registers.h"
 #include "loom/target/residency.h"
 
 namespace loom {
@@ -25,10 +25,6 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   iree_arena_initialize(&pool, &arena);
   loom_context_t ir_context;
   loom_context_initialize(iree_allocator_system(), &ir_context);
-  iree_host_size_t vtable_count = 0;
-  const auto* vtables = loom_low_dialect_vtables(&vtable_count);
-  IREE_CHECK_OK(loom_context_register_dialect(&ir_context, LOOM_DIALECT_LOW,
-                                              vtables, (uint16_t)vtable_count));
   IREE_CHECK_OK(loom_context_finalize(&ir_context));
   loom_module_t* module = nullptr;
   IREE_CHECK_OK(loom_module_allocate(&ir_context, IREE_SV("test"), &pool,
@@ -104,6 +100,9 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   placement.ranges_by_result_ordinal = result_ranges;
   placement.ranges_by_source_ordinal = source_ranges;
   placement.relation_indices_by_source_ordinal = source_relations;
+  loom_low_placement_operand_constraints_t operands[4] = {};
+  operands[0].addressable_unit_count = 16;
+  placement.operand_constraints_by_interval = operands;
 
   loom_low_reg_class_t reg_class = {};
   reg_class.flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL;
@@ -114,33 +113,6 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   descriptors.stable_id = 17;
   descriptors.reg_classes = &reg_class;
   descriptors.reg_class_count = 1;
-  const loom_low_reg_class_alt_t alternative = {
-      0, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED, 0};
-  loom_low_operand_t source_result = {};
-  source_result.role = LOOM_LOW_OPERAND_ROLE_RESULT;
-  source_result.unit_count = 2;
-  source_result.reg_class_alt_count = 1;
-  source_result.address_map_kind = LOOM_LOW_OPERAND_ADDRESS_MAP_LOW_SUBSET;
-  source_result.addressable_unit_count = 16;
-  loom_low_descriptor_t source_descriptor = {};
-  source_descriptor.result_count = 1;
-  source_descriptor.operand_count = 1;
-  descriptors.reg_class_alts = &alternative;
-  descriptors.reg_class_alt_count = 1;
-  descriptors.operands = &source_result;
-  descriptors.operand_count = 1;
-  descriptors.descriptors = &source_descriptor;
-  descriptors.descriptor_count = 1;
-  loom_builder_t builder;
-  loom_builder_initialize(module, &module->arena, loom_module_block(module),
-                          &builder);
-  loom_op_t* source_op = nullptr;
-  IREE_CHECK_OK(loom_builder_allocate_op(&builder, LOOM_OP_LOW_OP, 0, 1, 0, 0,
-                                         2, LOOM_LOCATION_UNKNOWN, &source_op));
-  loom_low_op_initialize_descriptor(source_op, loom_attr_scoped_enum(0));
-  loom_low_op_initialize_attrs(source_op, loom_attr_absent());
-  loom_op_results(source_op)[0] = value_ids[0];
-  IREE_CHECK_OK(loom_builder_finalize_op(&builder, source_op));
   loom_low_resolved_target_t target = {};
   target.descriptor_set = &descriptors;
   loom_low_allocation_resolved_reserved_range_t prefix = {};
@@ -192,7 +164,7 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
                                               LOOM_LOW_PLACEMENT_CLAUSE_ANY};
   const loom_low_placement_preference_t preference = {values, &predicate,
                                                       &clause, 2, 1};
-  const loom_low_placement_preference_use_t use = {&preference, 0, 1, {2, 2}};
+  const loom_low_placement_preference_use_t use = {&preference, 0, 1, {2, 3}};
   const loom_low_placement_preference_binding_t bindings[] = {{2, 0}, {3, 1}};
   const uint32_t use_indices[] = {0, 0};
   const uint32_t offsets[] = {0, 0, 0, 1, 2};
@@ -292,7 +264,7 @@ TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   // A shared register class does not imply the same addressable window. The
   // source can only occupy base 2, while the longer-lived aggregate conflicts
   // there. Its wider result domain cannot justify moving that source above 3.
-  source_result.addressable_unit_count = 4;
+  operands[0].addressable_unit_count = 4;
   context.residency = {};
   future.location_base = 4;
   future.start_point = intervals[3].start_point = 5;
