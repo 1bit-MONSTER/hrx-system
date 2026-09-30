@@ -33,6 +33,25 @@ const char* loom_testbench_expectation_kind_name(
   return "unknown";
 }
 
+static loom_error_ref_t loom_testbench_expectation_diagnostic_ref(
+    loom_testbench_expectation_kind_t kind) {
+  switch (kind) {
+    case LOOM_TESTBENCH_EXPECTATION_EQUAL:
+      return LOOM_ERROR_REF(LOOM_ERROR_DOMAIN_EXPECT, 1);
+    case LOOM_TESTBENCH_EXPECTATION_BITWISE:
+      return LOOM_ERROR_REF(LOOM_ERROR_DOMAIN_EXPECT, 2);
+    case LOOM_TESTBENCH_EXPECTATION_CLOSE:
+      return LOOM_ERROR_REF(LOOM_ERROR_DOMAIN_EXPECT, 3);
+    case LOOM_TESTBENCH_EXPECTATION_SHAPE:
+      return LOOM_ERROR_REF(LOOM_ERROR_DOMAIN_EXPECT, 4);
+    case LOOM_TESTBENCH_EXPECTATION_EVENT:
+      return LOOM_ERROR_REF(LOOM_ERROR_DOMAIN_EXPECT, 5);
+    case LOOM_TESTBENCH_EXPECTATION_NONE:
+      return LOOM_ERROR_REF_NONE;
+  }
+  return LOOM_ERROR_REF_NONE;
+}
+
 iree_status_t loom_testbench_expectation_report_initialize(
     iree_host_size_t failure_capacity, iree_allocator_t host_allocator,
     loom_testbench_expectation_report_t* out_report) {
@@ -1618,6 +1637,9 @@ static iree_status_t loom_testbench_append_expectation_failure(
   failure->expectation_index = expectation_index;
   failure->expectation = expectation;
   failure->kind = expectation->kind;
+  failure->diagnostic_ref =
+      loom_testbench_expectation_diagnostic_ref(expectation->kind);
+  IREE_ASSERT(loom_error_ref_is_set(failure->diagnostic_ref));
   failure->actual_value_id = expectation->actual_value_id;
   failure->expected_value_id = expectation->expected_value_id;
   failure->detail_offset = iree_string_builder_size(&report->detail_builder);
@@ -1720,6 +1742,20 @@ static iree_status_t loom_testbench_write_expectation_failure_json(
       &object, IREE_SV("kind"),
       iree_make_cstring_view(
           loom_testbench_expectation_kind_name(failure->kind))));
+  char diagnostic[32] = {0};
+  const int diagnostic_length = iree_snprintf(
+      diagnostic, sizeof(diagnostic), "%s/%03u",
+      loom_error_domain_name(loom_error_ref_domain(failure->diagnostic_ref)),
+      (unsigned)loom_error_ref_code(failure->diagnostic_ref));
+  if (diagnostic_length < 0 ||
+      (iree_host_size_t)diagnostic_length >= sizeof(diagnostic)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "expectation diagnostic identity exceeded report "
+                            "storage");
+  }
+  IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
+      &object, IREE_SV("diagnostic"),
+      iree_make_string_view(diagnostic, diagnostic_length)));
   IREE_RETURN_IF_ERROR(
       loom_json_object_begin_field(&object, IREE_SV("actual_value_id")));
   IREE_RETURN_IF_ERROR(loom_testbench_write_expectation_value_id_json(

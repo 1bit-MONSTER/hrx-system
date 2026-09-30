@@ -101,6 +101,7 @@ class ErrorDomain(IntEnum):
     WASM = 15  # WebAssembly-owned legality and lowering failures.
     SPIRV = 16  # SPIR-V-owned legality and lowering failures.
     XDNA = 17  # XDNA-owned legality and lowering failures.
+    EXPECT = 18  # Runtime check.expect mismatches.
 
 
 @unique

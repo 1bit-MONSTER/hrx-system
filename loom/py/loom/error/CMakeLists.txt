@@ -19,6 +19,7 @@ iree_py_library(
     "bytecode.py"
     "dominance.py"
     "encoding.py"
+    "expect.py"
     "fold.py"
     "lowering.py"
     "parse.py"

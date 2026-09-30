@@ -48,6 +48,18 @@ TEST(ErrorDefsTest, LookupBytecode007) {
   EXPECT_EQ(loom_error_def_param_kind(def, 1), LOOM_PARAM_U64);
 }
 
+TEST(ErrorDefsTest, LookupExpectBitwiseMismatch) {
+  const loom_error_def_t* def =
+      loom_error_def_lookup(LOOM_ERROR_DOMAIN_EXPECT, 2);
+  ASSERT_NE(def, nullptr);
+  EXPECT_EQ(loom_error_def_domain(def), LOOM_ERROR_DOMAIN_EXPECT);
+  EXPECT_EQ(loom_error_def_code(def), 2);
+  EXPECT_EQ(loom_error_def_severity(def), LOOM_DIAGNOSTIC_ERROR);
+  EXPECT_STREQ(loom_error_def_summary(def),
+               "Bitwise expectation did not match.");
+  EXPECT_EQ(def->param_count, 0);
+}
+
 TEST(ErrorDefsTest, LookupBackendPressurePeakRemark) {
   const loom_error_def_t* def =
       loom_error_def_lookup(LOOM_ERROR_DOMAIN_BACKEND, 3);
@@ -159,6 +171,7 @@ TEST(ErrorDefsTest, DomainNames) {
   EXPECT_STREQ(loom_error_domain_name(LOOM_ERROR_DOMAIN_SHAPE), "SHAPE");
   EXPECT_STREQ(loom_error_domain_name(LOOM_ERROR_DOMAIN_FOLD), "FOLD");
   EXPECT_STREQ(loom_error_domain_name(LOOM_ERROR_DOMAIN_BACKEND), "BACKEND");
+  EXPECT_STREQ(loom_error_domain_name(LOOM_ERROR_DOMAIN_EXPECT), "EXPECT");
 }
 
 TEST(ErrorDefsTest, EmitterNames) {

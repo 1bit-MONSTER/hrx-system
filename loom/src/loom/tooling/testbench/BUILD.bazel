@@ -132,6 +132,7 @@ loom_cc_library(
         ":source_report",
         ":testbench",
         ":value_materializer",
+        "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",
         "//loom/src/loom/util:json",
         "//loom/src/loom/util:stream",

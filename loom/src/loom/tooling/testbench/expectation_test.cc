@@ -264,6 +264,8 @@ check.case @scalar_mismatch {
   EXPECT_EQ(report.expectation_count, 1u);
   EXPECT_EQ(report.passed_count, 0u);
   ASSERT_EQ(report.failure_count, 1u);
+  EXPECT_EQ(report.failures[0].diagnostic_ref,
+            LOOM_ERROR_REF(LOOM_ERROR_DOMAIN_EXPECT, 1));
   EXPECT_EQ(report.failures[0].actual_value_id,
             case_plan.expectations[0].actual_value_id);
   EXPECT_THAT(FailureDetail(report, report.failures[0]),
@@ -280,6 +282,7 @@ check.case @scalar_mismatch {
                    iree_string_builder_view(&json_builder).size);
   EXPECT_THAT(json, ::testing::HasSubstr("\"expectation_count\":1"));
   EXPECT_THAT(json, ::testing::HasSubstr("\"kind\":\"equal\""));
+  EXPECT_THAT(json, ::testing::HasSubstr("\"diagnostic\":\"EXPECT/001\""));
   EXPECT_THAT(json,
               ::testing::HasSubstr(
                   "\"source_location\":{\"filename\":\"expectation_test.loom\","
