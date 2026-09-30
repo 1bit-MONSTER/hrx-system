@@ -101,11 +101,35 @@ loom_corpus_test(
   EXCLUDES
     "sample/excluded.loom"
     "This fixture is excluded from execution as well as compilation."
+  XFAILS
+    "sample/nested/fixture.loom"
+    "@fixture_cases"
+    "TARGET/003"
   RUNNER_ARGS
     "--max-samples-per-case=1"
   LABELS
     "manual"
     "loom-execution-profile=reference"
+    "loom-target-family=test"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+
+loom_corpus_test(
+  NAME
+    "execution"
+  PROFILE
+    "selected_reference"
+  MANIFESTS
+    "sample"
+  EXCLUDES
+    "sample/excluded.loom"
+    "The execution profile does not select this source."
+    "sample/nested/fixture.loom"
+    "The execution profile does not select this source."
+  LABELS
+    "manual"
+    "loom-execution-profile=selected_reference"
     "loom-target-family=test"
     "loom-target-class=cpu"
     "loom-executor=reference"

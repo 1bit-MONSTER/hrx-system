@@ -11,6 +11,8 @@ load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load(
     "//loom/build_tools/bazel:defs.bzl",
     "loom_amdgpu_target_profile",
+    "loom_corpus_test",
+    "loom_execution_profile",
     "loom_kernel_binary",
     "loom_kernel_library",
     "loom_library",
@@ -21,6 +23,7 @@ load(
     "loom_test_module",
 )
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test")
+load("//loom/build_tools/bazel/test/testdata/corpus:catalog.bzl", "TEST_CORPUS")
 load(
     ":loom_binary_rules_test.bzl",
     "loom_binary_rules_test_suite",
@@ -194,6 +197,27 @@ loom_test(
     execution_profiles = [REFERENCE_PROFILE],
     module = ":profiled_module",
     tags = ["manual"],
+)
+
+loom_corpus_test(
+    name = "corpus_execution_fixture",
+    catalog = TEST_CORPUS,
+    excludes = {
+        "sample/excluded.loom": "This fixture is excluded from execution.",
+    },
+    execution_profiles = [loom_execution_profile(
+        name = "reference",
+        executor = "reference",
+        runner_args = ["--max-samples-per-case=1"],
+        target_class = "cpu",
+        target_family = "test",
+    )],
+    tags = ["manual"],
+    xfails = {
+        "reference": {
+            "sample/nested/fixture.loom:@fixture_cases": "TARGET/003",
+        },
+    },
 )
 
 loom_check_test(

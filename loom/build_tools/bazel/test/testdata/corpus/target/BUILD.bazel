@@ -85,12 +85,28 @@ loom_corpus_test(
     excludes = {
         "sample/excluded.loom": "This fixture is excluded from execution as well as compilation.",
     },
-    execution_profiles = [loom_execution_profile(
-        name = "reference",
-        executor = "reference",
-        runner_args = ["--max-samples-per-case=1"],
-        target_class = "cpu",
-        target_family = "test",
-    )],
+    execution_profiles = [
+        loom_execution_profile(
+            name = "reference",
+            executor = "reference",
+            runner_args = ["--max-samples-per-case=1"],
+            target_class = "cpu",
+            target_family = "test",
+        ),
+        loom_execution_profile(
+            name = "selected_reference",
+            executor = "reference",
+            target_class = "cpu",
+            target_family = "test",
+        ),
+    ],
+    profile_sources = {
+        "selected_reference": ["sample/other.loom"],
+    },
     tags = ["manual"],
+    xfails = {
+        "reference": {
+            "sample/nested/fixture.loom:@fixture_cases": "TARGET/003",
+        },
+    },
 )

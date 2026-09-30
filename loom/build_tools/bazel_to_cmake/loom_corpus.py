@@ -167,6 +167,8 @@ class LoomCorpusBuildFileFunctions:
         catalog,
         execution_profiles,
         excludes=None,
+        profile_sources=None,
+        xfails=None,
         args=None,
         size="small",
         tags=None,
@@ -188,42 +190,140 @@ class LoomCorpusBuildFileFunctions:
                 raise ValueError(
                     f"{name} exclusion for {source_identity} requires a reason"
                 )
+        profile_sources = profile_sources or {}
+        profile_names = set()
+        for profile in execution_profiles:
+            if profile.kind != "loom_execution_profile":
+                raise ValueError(
+                    f"{name} execution profile was not created by "
+                    "loom_execution_profile"
+                )
+            profile_names.add(profile.name)
+        for profile_name, selected_sources in profile_sources.items():
+            if profile_name not in profile_names:
+                raise ValueError(
+                    f"{name} selects sources for unknown profile {profile_name}"
+                )
+            if not isinstance(selected_sources, list):
+                raise ValueError(
+                    f"{name} sources for profile {profile_name} must be a list"
+                )
+            if len(selected_sources) != len(set(selected_sources)):
+                raise ValueError(f"{name} repeats a source for profile {profile_name}")
+            for source_identity in selected_sources:
+                if source_identity not in source_identities:
+                    raise ValueError(
+                        f"{name} profile {profile_name} names unknown source "
+                        f"{source_identity}"
+                    )
+                if source_identity in excluded_sources:
+                    raise ValueError(
+                        f"{name} profile {profile_name} selects excluded source "
+                        f"{source_identity}"
+                    )
+        xfails = xfails or {}
+        xfails_by_profile_and_source = {}
+        for profile_name, entries in xfails.items():
+            if profile_name not in profile_names:
+                raise ValueError(
+                    f"{name} declares xfails for unknown profile {profile_name}"
+                )
+            if not isinstance(entries, dict):
+                raise ValueError(
+                    f"{name} xfails for profile {profile_name} must be a dictionary"
+                )
+            profile_xfails = xfails_by_profile_and_source.setdefault(profile_name, {})
+            for identity, diagnostic in entries.items():
+                source_identity, separator, record = identity.partition(":@")
+                if not separator:
+                    raise ValueError(
+                        f"{name} xfail identity must use '<source>:@<record>': "
+                        f"{identity}"
+                    )
+                record = "@" + record
+                if source_identity not in source_identities:
+                    raise ValueError(
+                        f"{name} xfail names unknown source {source_identity}"
+                    )
+                if source_identity in excluded_sources:
+                    raise ValueError(
+                        f"{name} source {source_identity} cannot be both excluded "
+                        "and xfailed"
+                    )
+                selected_sources = profile_sources.get(profile_name)
+                if (
+                    selected_sources is not None
+                    and source_identity not in selected_sources
+                ):
+                    raise ValueError(
+                        f"{name} profile {profile_name} xfails unselected source "
+                        f"{source_identity}"
+                    )
+                if not diagnostic:
+                    raise ValueError(f"{name} xfail {identity} must name a diagnostic")
+                source_xfails = profile_xfails.setdefault(source_identity, {})
+                if record in source_xfails:
+                    raise ValueError(
+                        f"{name} repeats xfail {identity} for profile {profile_name}"
+                    )
+                source_xfails[record] = diagnostic
         del size, visibility
         manifest_names = [manifest["name"] for manifest in catalog["manifests"]]
-        exclude_values = []
-        for source_identity in sorted(excluded_sources):
-            exclude_values.extend([source_identity, excluded_sources[source_identity]])
 
         target_compatible_with = self._apply_loom_target_compatible_with(
             target_compatible_with
         )
         execution_names = set()
         for profile in execution_profiles:
-            if profile.get("kind") != "loom_execution_profile":
+            if profile.kind != "loom_execution_profile":
                 raise ValueError(
                     f"{name} execution profile was not created by "
                     "loom_execution_profile"
                 )
-            profile_suffix = self._loom_test_name_suffix(profile["name"])
+            profile_suffix = self._loom_test_name_suffix(profile.name)
             if profile_suffix in execution_names:
                 raise ValueError(
-                    f"{name} has colliding execution profiles: {profile['name']}"
+                    f"{name} has colliding execution profiles: {profile.name}"
                 )
             execution_names.add(profile_suffix)
 
+            profile_excludes = dict(excluded_sources)
+            if profile.name in profile_sources:
+                selected_sources = set(profile_sources[profile.name])
+                for source_identity in source_identities - selected_sources:
+                    profile_excludes[source_identity] = (
+                        "The execution profile does not select this source."
+                    )
+            profile_exclude_values = []
+            for source_identity in sorted(profile_excludes):
+                profile_exclude_values.extend(
+                    [source_identity, profile_excludes[source_identity]]
+                )
+            profile_xfail_values = []
+            for source_identity in sorted(
+                xfails_by_profile_and_source.get(profile.name, {})
+            ):
+                source_xfails = xfails_by_profile_and_source[profile.name][
+                    source_identity
+                ]
+                for record in sorted(source_xfails):
+                    profile_xfail_values.extend(
+                        [source_identity, record, source_xfails[record]]
+                    )
+
             policy = bazel_to_cmake_requirements.CollectedPackagePolicy(
-                build_requirements=profile["build_requirements"],
-                run_requirements=profile["run_requirements"],
-                resource_group=profile["resource_group"],
+                build_requirements=profile.build_requirements,
+                run_requirements=profile.run_requirements,
+                resource_group=profile.resource_group,
             )
-            labels = list(tags or []) + profile["tags"]
+            labels = list(tags or []) + profile.tags
             labels.extend(policy.tags(include_run_requirements=True))
             labels.extend(
                 [
-                    "loom-execution-profile=" + profile["name"],
-                    "loom-target-family=" + profile["target_family"],
-                    "loom-target-class=" + profile["target_class"],
-                    "loom-executor=" + profile["executor"],
+                    "loom-execution-profile=" + profile.name,
+                    "loom-target-family=" + profile.target_family,
+                    "loom-target-class=" + profile.target_class,
+                    "loom-executor=" + profile.executor,
                 ]
             )
             requirements = bazel_to_cmake_requirements.append_cmake_conditions(
@@ -234,19 +334,22 @@ class LoomCorpusBuildFileFunctions:
             self._converter.body += (
                 "loom_corpus_test(\n"
                 + self._convert_string_arg_block("NAME", name)
-                + self._convert_string_arg_block("PROFILE", profile["name"])
+                + self._convert_string_arg_block("PROFILE", profile.name)
                 + self._convert_string_list_block(
                     "MANIFESTS", manifest_names, sort=False
                 )
                 + self._convert_string_list_block(
-                    "EXCLUDES", exclude_values or None, sort=False
+                    "EXCLUDES", profile_exclude_values or None, sort=False
+                )
+                + self._convert_string_list_block(
+                    "XFAILS", profile_xfail_values or None, sort=False
                 )
                 + self._convert_string_list_block(
                     "ARGS", self._convert_test_location_args(args), sort=False
                 )
                 + self._convert_string_list_block(
                     "RUNNER_ARGS",
-                    self._convert_test_location_args(profile["runner_args"]),
+                    self._convert_test_location_args(profile.runner_args),
                     sort=False,
                 )
                 + self._convert_string_list_block("LABELS", labels, sort=False)
