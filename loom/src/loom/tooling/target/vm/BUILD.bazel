@@ -16,90 +16,13 @@ package(
 _VM_CHECK_VISIBILITY = ["//loom/src/loom/tools/loom-check:__pkg__"]
 
 loom_cc_library(
-    name = "reference_plan",
-    srcs = ["reference_plan.c"],
-    hdrs = ["reference_plan.h"],
-    visibility = ["//visibility:private"],
-    deps = [
-        "//loom/src/loom/ir",
-        "//loom/src/loom/target/arch/vm:types",
-        "//loom/src/loom/util:adaptive_sort",
-        "//loom/src/loom/util:segmented_storage",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_test(
-    name = "reference_plan_test",
-    srcs = ["reference_plan_test.cc"],
-    target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
-    deps = [
-        ":reference_plan",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:type_registry",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-    ],
-)
-
-loom_cc_library(
-    name = "program_prepare",
-    srcs = [
-        "function_plan.c",
-        "program_prepare.c",
-    ],
-    hdrs = [
-        "function_plan.h",
-        "program_prepare.h",
-    ],
-    visibility = ["//visibility:private"],
-    deps = [
-        ":reference_plan",
-        "//loom/src/loom/codegen/low:descriptors",
-        "//loom/src/loom/codegen/low:frame",
-        "//loom/src/loom/codegen/low:storage_layout",
-        "//loom/src/loom/codegen/low/allocation:move_sequence",
-        "//loom/src/loom/error:emitter",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/ops:op_defs",
-        "//loom/src/loom/ops/global",
-        "//loom/src/loom/ops/low",
-        "//loom/src/loom/target:function_version",
-        "//loom/src/loom/target/arch/vm/descriptors",
-        "//loom/src/loom/target/emit/vm:program",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/io:stream",
-        "//runtime/src/iree/vm/bytecode:wire",
-    ],
-)
-
-loom_cc_library(
-    name = "artifact_emitter",
-    srcs = ["artifact_emitter.c"],
-    hdrs = ["artifact_emitter.h"],
-    visibility = ["//loom/src/loom/tooling/compile:__pkg__"],
-    deps = [
-        ":program_prepare",
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/vm/ops",
-        "//loom/src/loom/target/emit/vm:module_binary",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_library(
     name = "check",
     srcs = ["check.c"],
     hdrs = ["check.h"],
     visibility = _VM_CHECK_VISIBILITY,
     deps = [
-        ":artifact_emitter",
         "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tools/loom-check:execute",
         "//loom/src/loom/tools/loom-check:provider",
         "//runtime/src/iree/base",
@@ -112,7 +35,6 @@ loom_cc_library(
     srcs = ["testbench.c"],
     hdrs = ["testbench.h"],
     deps = [
-        ":artifact_emitter",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/error:source",
         "//loom/src/loom/link:linker",
@@ -121,6 +43,7 @@ loom_cc_library(
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/config",
         "//loom/src/loom/tooling/testbench:invocation",
@@ -161,7 +84,6 @@ loom_cc_test(
     srcs = ["imports_test.cc"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
     deps = [
-        ":artifact_emitter",
         ":imports_bytecode",
         "//loom/src/loom/format:location",
         "//loom/src/loom/format/bytecode:reader",
@@ -174,7 +96,8 @@ loom_cc_test(
         "//loom/src/loom/ops/func:location_capture",
         "//loom/src/loom/ops/func:location_capture_test_data",
         "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/vm:provider",
+        "//loom/src/loom/target:selection",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/input",
         "//loom/src/loom/transforms/cleanup:configured",
@@ -226,16 +149,14 @@ loom_cc_test(
     srcs = ["emission_test.cc"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target/arch:vm"]),
     deps = [
-        ":artifact_emitter",
         ":emission_test_data",
         ":native_references_bytecode",
-        ":program_prepare",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/func",
         "//loom/src/loom/target:provider",
-        "//loom/src/loom/target/arch/vm:provider",
-        "//loom/src/loom/target/emit/vm:module_binary",
+        "//loom/src/loom/target:selection",
+        "//loom/src/loom/target/emit/vm:module_compiler",
         "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/input",
         "//loom/src/loom/transforms/cleanup:configured",

@@ -6,8 +6,8 @@
 
 #include "loom/tooling/target/wasm/check/loom_check.h"
 
+#include "loom/target/emit/wasm/module_compiler.h"
 #include "loom/target/tool/wasm.h"
-#include "loom/tooling/target/wasm/prepare.h"
 #include "loom/tools/loom-check/diagnostics.h"
 
 static bool loom_wasm_loom_check_case_has_requirement(

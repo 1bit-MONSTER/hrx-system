@@ -191,7 +191,7 @@ static iree_status_t loom_cmd_transient_collect_allocation(
     return iree_make_status(
         IREE_STATUS_UNIMPLEMENTED,
         "command buffer.alloca must have a finite positive byte-length "
-        "maximum before program preparation");
+        "maximum before command planning");
   }
   const uint64_t byte_length = (uint64_t)byte_length_i64;
   const uint64_t base_alignment =
@@ -476,7 +476,7 @@ static iree_status_t loom_cmd_transient_append_result_range(
       return iree_make_status(
           IREE_STATUS_UNIMPLEMENTED,
           "command transient views require exact nonnegative byte ranges "
-          "before program preparation");
+          "before command planning");
     }
     return loom_cmd_transient_append_range(build, result, allocation,
                                            (uint64_t)byte_offset,

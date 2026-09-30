@@ -45,8 +45,7 @@ enum {
 // Required materialization boundary. An absent scope permits a generic pipeline program that may span targets and runtime operations.
 typedef enum loom_pipeline_def_scope_e {
   LOOM_PIPELINE_DEF_SCOPE_KERNEL = 1,
-  LOOM_PIPELINE_DEF_SCOPE_COMMAND = 2,
-  LOOM_PIPELINE_DEF_SCOPE_COUNT_ = 3,
+  LOOM_PIPELINE_DEF_SCOPE_COUNT_ = 2,
 } loom_pipeline_def_scope_t;
 
 // Function visibility. Absent (0) means private (module-internal).

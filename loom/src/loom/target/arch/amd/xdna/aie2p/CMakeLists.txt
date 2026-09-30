@@ -930,6 +930,7 @@ loom_cc_library(
     ::array_resident
     ::leaf_compile
     ::target_facts
+    ::target_profile
     ::tile_link
     ::xdna_product
     iree::base
@@ -952,6 +953,33 @@ loom_cc_library(
     loom::target::reporting::report
     loom::util::fact_table
   PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    artifact_test
+  SRCS
+    "emit/artifact_test.cc"
+  DEPS
+    ::artifact
+    ::low_registry
+    ::provider
+    iree::base
+    iree::hal::drivers::amd::xdna::image
+    iree::hal::drivers::amd::xdna::image::aie2p::npu2
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::codegen::low::text_asm
+    loom::format::text::parser
+    loom::ir
+    loom::ops::op_registry
+    loom::target::reporting::report
+    loom::testing::module_ptr
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=loom.target.arch.xdna"
 )
 endif()
 

@@ -116,6 +116,7 @@ iree_execution_test_suite(
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/command_artifacts.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/command_kernel_requests.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/resident_xdna.loom"
   LABELS
     "hostonly"
 )

@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test_suite")
 
@@ -36,6 +37,118 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "program",
+    srcs = ["program.c"],
+    hdrs = ["program.h"],
+    visibility = ["//loom/src/loom/target/emit/vm:__pkg__"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "program_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "The prepared VM program is a target-owned physical contract and must not depend on tooling",
+    target = ":program",
+)
+
+loom_cc_library(
+    name = "reference_plan",
+    srcs = ["reference_plan.c"],
+    hdrs = ["reference_plan.h"],
+    deps = [
+        ":types",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/util:adaptive_sort",
+        "//loom/src/loom/util:segmented_storage",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "function_plan",
+    srcs = ["function_plan.c"],
+    hdrs = ["function_plan.h"],
+    deps = [
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:frame",
+        "//loom/src/loom/codegen/low:storage_layout",
+        "//loom/src/loom/codegen/low/allocation:move_sequence",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/global",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:function_version",
+        "//loom/src/loom/target/arch/vm/descriptors",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "function_plan_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM function planning is target-owned compiler code and must not depend on tooling",
+    target = ":function_plan",
+)
+
+loom_cc_library(
+    name = "program_build",
+    srcs = ["program_build.c"],
+    hdrs = ["program_build.h"],
+    visibility = ["//loom/src/loom/target/emit/vm:__pkg__"],
+    deps = [
+        ":function_plan",
+        ":program",
+        ":reference_plan",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/global",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:function_version",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/io:stream",
+        "//runtime/src/iree/vm/bytecode:wire",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "program_build_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM program planning is target-owned compiler code and must not depend on tooling",
+    target = ":program_build",
+)
+
+loom_cc_test(
+    name = "reference_plan_test",
+    srcs = ["reference_plan_test.cc"],
+    deps = [
+        ":reference_plan",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:type_registry",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "reference_plan_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "VM reference planning is target-owned compiler code and must not depend on tooling",
+    target = ":reference_plan",
+)
+
 loom_cc_test(
     name = "types_test",
     srcs = ["types_test.cc"],
@@ -66,6 +179,7 @@ loom_cc_library(
     visibility = [
         "//loom/src/loom/target/all:__pkg__",
         "//loom/src/loom/target/configured:__pkg__",
+        "//loom/src/loom/target/emit/vm:__pkg__",
         "//loom/src/loom/tooling/target/vm:__pkg__",
         "//loom/src/loom/tools/iree-benchmark-loom:__pkg__",
         "//loom/src/loom/tools/iree-test-loom:__pkg__",

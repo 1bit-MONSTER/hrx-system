@@ -215,6 +215,38 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_library(
+  NAME
+    module_compiler
+  HDRS
+    "module_compiler.h"
+  SRCS
+    "module_compiler.c"
+  DEPS
+    ::module_builder
+    ::module_emitter
+    ::program
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::symbol_facts
+    loom::codegen::low::descriptors
+    loom::codegen::low::diagnostics
+    loom::codegen::low::function
+    loom::codegen::low::target_binding
+    loom::error::emitter
+    loom::error::error_defs
+    loom::ir
+    loom::target::arch::spirv::descriptors
+    loom::target::arch::spirv::module_contract
+    loom::target::facts
+    loom::target::function_version
+    loom::target::provider
+    loom::target::types
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_test(
   NAME

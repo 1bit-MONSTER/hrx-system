@@ -105,9 +105,7 @@ loom_cc_library(
     visibility = [
         "//loom/src/loom/target/all:__pkg__",
         "//loom/src/loom/target/arch/cmd/check:__pkg__",
-        "//loom/src/loom/tooling/compile:__pkg__",
-        "//loom/src/loom/tools/loom-compile:__pkg__",
-        "//loom/src/loom/tools/loom-format:__pkg__",
+        "//loom/src/loom/target/configured:__pkg__",
     ],
     deps = [
         "//loom/src/loom/target:provider",
@@ -122,7 +120,7 @@ loom_check_test_suite(
         "test/bytecode.loom-test",
         "test/diagnostics.loom-test",
         "test/low.loom-test",
-        "test/preparation.loom-test",
+        "test/planning.loom-test",
         "test/roundtrip.loom-test",
         "test/scheduling.loom-test",
         "test/storage.loom-test",

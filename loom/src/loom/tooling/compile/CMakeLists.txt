@@ -19,12 +19,7 @@ loom_cc_library(
   DEPS
     ::artifact
     iree::base
-    loom::ir
-    loom::ops::op_defs
-    loom::ops::pipeline
-    loom::target::entry_selection
-    loom::target::projection
-    loom::target::provider
+    loom::compile::product_selection
     loom::target::selection
   PUBLIC
 )
@@ -40,7 +35,6 @@ loom_cc_library(
     ::pipeline
     ::request
     loom::link::linker
-    loom::ops::op_defs
     loom::target::entry_selection
     loom::target::module_specialization
   PUBLIC
@@ -142,13 +136,13 @@ if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
   list(APPEND _configured_platform_deps loom::tooling::target::spirv::artifact_provider)
 endif()
 if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_deps loom::tooling::target::vm::artifact_emitter)
+  list(APPEND _configured_platform_deps loom::target::emit::vm::module_compiler)
 endif()
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_deps loom::tooling::target::wasm::artifact_emitter)
+  list(APPEND _configured_platform_deps loom::target::emit::wasm::module_compiler)
 endif()
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_deps loom::tooling::target::amd::xdna::artifact_provider)
+  list(APPEND _configured_platform_deps loom::target::arch::amd::xdna::aie2p::artifact)
 endif()
 loom_cc_library(
   NAME
@@ -163,7 +157,6 @@ loom_cc_library(
     ::artifact
     iree::base
     iree::base::threading
-    loom::target::arch::cmd::provider
     loom::target::configured::provider_set
     loom::target::provider
     loom::transforms::cleanup::configured

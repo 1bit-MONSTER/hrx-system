@@ -32,8 +32,8 @@ loom_cc_library(
     loom::target::arch::spirv::profile
     loom::target::arch::spirv::provider
     loom::target::arch::spirv::records::target_records
+    loom::target::emit::spirv::module_compiler
     loom::target::types
-    loom::tooling::target::spirv::prepare
   ALWAYSLINK
   PUBLIC
 )

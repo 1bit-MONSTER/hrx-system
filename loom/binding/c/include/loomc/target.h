@@ -315,6 +315,32 @@ LOOMC_API_EXPORT loomc_status_t loomc_pass_program_create_from_target_pipeline(
     loomc_allocator_t allocator, loomc_pass_program_t** out_pass_program,
     loomc_result_t** out_result);
 
+/// Selects a complete named profile from a target environment.
+///
+/// The specification uses Loom's `family:selector` spelling, such as
+/// `vm:core` or `wasm:simd128`. The target environment must contain exactly
+/// one provider for the named family, and that provider must expose the named
+/// process-lifetime profile. This operation performs no hardware discovery.
+///
+/// @param target_environment Environment containing the target family.
+/// @param specification Complete `family:selector` target specification. The
+/// view need not be NUL-terminated.
+/// @param allocator Host allocator used for profile-handle storage.
+/// @param out_profile Receives one retained profile on success.
+/// @return OK when the profile was selected; invalid argument for malformed or
+/// unavailable families, not found for an unknown family-owned selector, and
+/// unimplemented when the family has no named profiles.
+///
+/// @ownership
+/// The caller releases the returned reference with
+/// `loomc_target_profile_release`. The handle copies the specification and
+/// retains the target environment. It borrows immutable process-lifetime
+/// target facts owned by the selected provider.
+LOOMC_API_EXPORT loomc_status_t loomc_target_profile_select(
+    loomc_target_environment_t* target_environment,
+    loomc_string_view_t specification, loomc_allocator_t allocator,
+    loomc_target_profile_t** out_profile);
+
 /// Retains a target profile for another owner.
 ///
 /// @param profile Target profile to retain.

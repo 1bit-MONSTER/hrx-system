@@ -25,7 +25,7 @@ typedef enum loom_cmd_schedule_command_kind_e {
   LOOM_CMD_SCHEDULE_COMMAND_KIND_KERNEL_DISPATCH_INDIRECT = 1,
 } loom_cmd_schedule_command_kind_t;
 
-// Borrowed source SSA values retained by one prepared issue row.
+// Borrowed source SSA values retained by one classified issue row.
 typedef struct loom_cmd_schedule_value_slice_t {
   // Source value IDs in authored order.
   const loom_value_id_t* values;
@@ -35,8 +35,9 @@ typedef struct loom_cmd_schedule_value_slice_t {
 
 // One issue command classified while traversing the structured schedule.
 //
-// The row borrows all source storage. Consumers use this prepared shape rather
-// than repeatedly identifying operations and decoding their operand segments.
+// The row borrows all source storage. Consumers use this classified shape
+// rather than repeatedly identifying operations and decoding their operand
+// segments.
 typedef struct loom_cmd_schedule_command_t {
   // Source issue operation.
   const loom_op_t* source_op;
@@ -100,7 +101,7 @@ typedef struct loom_cmd_schedule_plan_t {
 // scheduling. Allocation definitions retain
 // their first possible wave so storage planning can preserve state from
 // definition through last use. Pure leaf dataflow is ignored because it emits
-// no command; later placement consumes its prepared SSA facts directly. Other
+// no command; later placement consumes its resolved SSA facts directly. Other
 // residual source operations must have been specialized away and are rejected.
 // Issue rows classify direct/indirect dispatch forms once so later command
 // planning never needs to rediscover them.

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Kernel request publication from prepared command schedules.
+// Kernel request publication from planned command schedules.
 
 #ifndef LOOM_TARGET_ARCH_CMD_LOWER_PROGRAM_PLAN_REQUESTS_H_
 #define LOOM_TARGET_ARCH_CMD_LOWER_PROGRAM_PLAN_REQUESTS_H_
@@ -19,9 +19,9 @@
 extern "C" {
 #endif
 
-// One prepared root schedule and its per-command requirement projection.
+// One planned root schedule and its per-command requirement projection.
 typedef struct loom_cmd_program_kernel_site_root_t {
-  // Prepared command schedule borrowing the preparation module.
+  // Planned command schedule borrowing the plan module.
   const loom_cmd_schedule_plan_t* schedule;
 
   // Scratch table indexed by schedule command ordinal. Source-backed commands
@@ -40,7 +40,7 @@ typedef struct loom_cmd_program_kernel_site_root_t {
 // Per-kernel analysis storage is rewound after its site projection is complete,
 // bounding scratch usage by the largest live kernel rather than their sum.
 iree_status_t loom_cmd_program_plan_publish_kernel_requests(
-    loom_cmd_program_plan_t* plan, const loom_module_t* preparation_module,
+    loom_cmd_program_plan_t* plan, const loom_module_t* plan_module,
     const loom_value_fact_table_t* source_facts,
     const loom_cmd_program_kernel_source_t* kernel_source,
     loom_cmd_program_kernel_site_root_t* roots, iree_host_size_t root_count,

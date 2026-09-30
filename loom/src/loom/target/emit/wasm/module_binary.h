@@ -4,9 +4,9 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// WebAssembly binary module emission from prepared physical programs.
+// WebAssembly binary module emission from planned physical programs.
 //
-// This target-owned layer is the Wasm artifact boundary: it serializes prepared
+// This target-owned layer is the Wasm artifact boundary: it serializes planned
 // function/type/export indices, physical locals, and structured Low bodies into
 // one binary module. Tool validation, disassembly, allocation, and diagnostics
 // remain outside this production emitter.
@@ -43,10 +43,10 @@ typedef struct loom_wasm_module_binary_t {
 void loom_wasm_module_binary_deinitialize(loom_wasm_module_binary_t* module,
                                           iree_allocator_t allocator);
 
-// Emits one complete WebAssembly binary from a compiler-prepared physical
-// program. The writer preserves prepared function/type/local indices and walks
+// Emits one complete WebAssembly binary from a compiler-planned physical
+// program. The writer preserves planned function/type/local indices and walks
 // trusted structured Low bodies in source order. Allocation, target resolution,
-// diagnostics, and semantic rejection belong to program preparation and are
+// diagnostics, and semantic rejection belong to program planning and are
 // not accepted by this interface.
 iree_status_t loom_wasm_program_emit_binary(
     const loom_wasm_program_plan_t* plan, iree_allocator_t allocator,

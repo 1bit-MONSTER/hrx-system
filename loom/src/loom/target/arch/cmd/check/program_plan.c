@@ -137,9 +137,9 @@ static iree_status_t loom_cmd_program_plan_check_resolve_roots(
   return iree_ok_status();
 }
 
-// Indexes the check module and prepares only the command implementation and
+// Indexes the check module and plans only the command implementation and
 // exact kernel facets requested by its roots. Kernel bodies remain unopened.
-static iree_status_t loom_cmd_program_plan_check_prepare_roots(
+static iree_status_t loom_cmd_program_plan_check_build_from_roots(
     loom_module_t* source_module, const loom_symbol_ref_t* source_root_refs,
     iree_host_size_t root_count, iree_arena_allocator_t* arena,
     iree_arena_block_pool_t* block_pool, iree_allocator_t host_allocator,
@@ -189,7 +189,7 @@ static iree_status_t loom_cmd_program_plan_check_prepare_roots(
         .block_pool = block_pool,
         .allocator = host_allocator,
     };
-    status = loom_cmd_program_plan_prepare_index(
+    status = loom_cmd_program_plan_build_from_index(
         index, root_symbol_ordinals, root_count, /*options=*/NULL,
         loom_pass_builtin_registry(), cleanup_pattern_provider_set,
         diagnostic_emitter, &environment, arena, out_valid, out_plan);
@@ -221,7 +221,7 @@ static iree_status_t loom_cmd_program_plan_check_print_roots(
   return iree_ok_status();
 }
 
-// Exercises the complete portable artifact boundary for every prepared root.
+// Exercises the complete portable artifact boundary for every planned root.
 // Textual expectations continue to describe the source and Low semantics while
 // this closure proves that the same production plan serializes into an artifact
 // accepted by the artifact's untrusted-byte parser.
@@ -288,7 +288,7 @@ static iree_status_t loom_cmd_program_plan_check_emit_provider_execute(
           .source_resolver = request->source_resolver,
           .emitter = LOOM_EMITTER_PASS,
       };
-      status = loom_cmd_program_plan_check_prepare_roots(
+      status = loom_cmd_program_plan_check_build_from_roots(
           request->module, source_root_refs, options.root_count,
           request->case_arena, request->block_pool, request->host_allocator,
           request->environment->cleanup_pattern_provider_set,
@@ -301,7 +301,7 @@ static iree_status_t loom_cmd_program_plan_check_emit_provider_execute(
           capture.emission_count == 0) {
         status = iree_make_status(
             IREE_STATUS_INTERNAL,
-            "command program preparation failed without a diagnostic");
+            "command program planning failed without a diagnostic");
       }
     }
   }

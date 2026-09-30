@@ -542,7 +542,7 @@ loom_cc_library(
     "kernel_emission.c"
   DEPS
     ::encoding
-    ::hsaco_prepare
+    ::hsaco_build
     ::kernel_assembly
     ::kernel_entry
     ::kernel_record
@@ -582,11 +582,11 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_library(
   NAME
-    hsaco_prepare
+    hsaco_build
   HDRS
-    "hsaco_prepare.h"
+    "hsaco_build.h"
   SRCS
-    "hsaco_prepare.c"
+    "hsaco_build.c"
   DEPS
     ::descriptor
     ::hsaco
@@ -611,7 +611,7 @@ loom_cc_library(
   SRCS
     "runtime_globals.c"
   DEPS
-    ::hsaco_prepare
+    ::hsaco_build
     iree::base
     loom::target::arch::amdgpu::abi::asan
     loom::target::arch::amdgpu::abi::feedback
@@ -646,7 +646,7 @@ loom_cc_library(
     "hal_kernel_library.c"
   DEPS
     ::hsaco
-    ::hsaco_prepare
+    ::hsaco_build
     ::kernel_emission
     ::preflight
     ::runtime_globals
@@ -659,10 +659,14 @@ loom_cc_library(
     loom::codegen::low::frame
     loom::codegen::low::target_binding
     loom::error::diagnostic
+    loom::error::emitter
     loom::error::source
     loom::ir
     loom::ops::global
     loom::ops::low
+    loom::target::arch::amdgpu::abi::asan
+    loom::target::arch::amdgpu::abi::feedback
+    loom::target::arch::amdgpu::abi::tsan
     loom::target::arch::amdgpu::amdhsa_target_id
     loom::target::arch::amdgpu::artifact_key
     loom::target::arch::amdgpu::error_defs
@@ -673,6 +677,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::planning::occupancy
     loom::target::arch::amdgpu::planning::storage_lease
     loom::target::arch::amdgpu::planning::vopd_plan
+    loom::target::arch::amdgpu::profile
     loom::target::arch::amdgpu::provider
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
@@ -781,7 +786,7 @@ loom_cc_test(
   DEPS
     ::descriptor
     ::hsaco
-    ::hsaco_prepare
+    ::hsaco_build
     ::metadata
     iree::base
     iree::base::internal::arena
@@ -807,7 +812,7 @@ loom_cc_test(
     "hsaco_hsa_test.cc"
   DEPS
     ::hsaco
-    ::hsaco_prepare
+    ::hsaco_build
     ::kernel_emission
     iree::base
     iree::base::internal

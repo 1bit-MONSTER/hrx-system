@@ -119,3 +119,12 @@ pipeline.def @fold_integer_fastmath() launch(%input: buffer) {
   %folded = pipeline.fold<addi, reassoc> %tiles : pipeline.flow<tile<8xi8>>
   pipeline.return
 }
+
+// ====
+
+// A reusable command product is authored with command.program.def; pipeline
+// scope names the directly loadable kernel artifact boundary.
+// ERROR@+1: PARSE/017 "scope" "command"
+pipeline.def<command> @unsupported_command_scope() launch() {
+  pipeline.return
+}

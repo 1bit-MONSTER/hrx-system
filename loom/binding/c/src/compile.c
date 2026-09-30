@@ -201,7 +201,7 @@ static loomc_status_t loomc_compile_run_pass_program(
     pass_environment = loom_pass_environment_make(
         extended_capabilities, pass_environment.capability_count + 1);
   }
-  loom_pass_interpreter_options_t interpreter_options = {
+  const loom_pass_interpreter_options_t interpreter_options = {
       .block_pool = loomc_workspace_block_pool(workspace),
       .predicate_provider = predicate_provider,
       .diagnostic_emitter =
@@ -213,13 +213,24 @@ static loomc_status_t loomc_compile_run_pass_program(
       .function_versions = &function_version_owner->list,
   };
   loom_pass_run_result_t run_result = {0};
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_pass_interpreter_run_module(
-      loomc_pass_program_loom_pass_program(pass_program), internal_module,
-      &interpreter_options, &run_result)));
-  if (run_result.error_count != 0) {
-    return loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
+  loomc_status_t status =
+      loomc_status_from_iree(loom_pass_interpreter_run_program(
+          loomc_pass_program_loom_pass_program(pass_program), internal_module,
+          &interpreter_options, &run_result));
+  if (!loomc_status_is_ok(status)) {
+    if (!loomc_status_is_result_diagnostic(status)) {
+      return status;
+    }
+    if (run_result.error_count == 0) {
+      return loomc_result_fail_status_diagnostic_consume(
+          result, /*source=*/NULL, LOOMC_DIAGNOSTIC_SEVERITY_ERROR,
+          loomc_make_cstring_view("PASS_PROGRAM/EXECUTION"), status);
+    }
+    loomc_status_free(status);
   }
-  return loomc_ok_status();
+  return run_result.error_count != 0
+             ? loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED)
+             : loomc_ok_status();
 }
 
 static loomc_status_t loomc_compile_specialize_functions(

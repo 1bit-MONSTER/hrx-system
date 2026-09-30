@@ -17,7 +17,7 @@
 #include "loom/target/arch/amdgpu/abi/asan.h"
 #include "loom/target/arch/amdgpu/abi/feedback.h"
 #include "loom/target/arch/amdgpu/abi/tsan.h"
-#include "loom/target/emit/native/amdgpu/hsaco_prepare.h"
+#include "loom/target/emit/native/amdgpu/hsaco_build.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,11 +36,6 @@ typedef enum loom_amdgpu_runtime_global_flag_bits_e {
 
 // Bitset of loom_amdgpu_runtime_global_flag_bits_t values.
 typedef uint32_t loom_amdgpu_runtime_global_flags_t;
-
-#define LOOM_AMDGPU_RUNTIME_GLOBALS_KNOWN                                            \
-  ((loom_amdgpu_runtime_global_flags_t)(LOOM_AMDGPU_RUNTIME_GLOBAL_FEEDBACK_CONFIG | \
-                                        LOOM_AMDGPU_RUNTIME_GLOBAL_ASAN_CONFIG |     \
-                                        LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG))
 
 enum {
   // Maximum number of symbols produced by the current runtime-global bitset.
@@ -61,10 +56,6 @@ enum {
   IREE_SVL(LOOM_AMDGPU_ASAN_CONFIG_GLOBAL_NAME)
 #define LOOM_AMDGPU_RUNTIME_GLOBAL_TSAN_CONFIG_NAME \
   IREE_SVL(LOOM_AMDGPU_TSAN_CONFIG_GLOBAL_NAME)
-
-// Validates that all runtime-global option bits are understood.
-iree_status_t loom_amdgpu_runtime_global_flags_validate(
-    loom_amdgpu_runtime_global_flags_t flags);
 
 // Returns the number of HSACO data symbols required for |flags|.
 iree_host_size_t loom_amdgpu_runtime_global_count(

@@ -17,7 +17,7 @@ package(
 
 _WASM_ROOT_VISIBILITY = [
     "//loom/src/loom/target/arch/wasm:__pkg__",
-    "//loom/src/loom/tooling/target/wasm:__pkg__",
+    "//loom/src/loom/target/emit/wasm:__pkg__",
 ]
 
 loom_generated_cc_library(

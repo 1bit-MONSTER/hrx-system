@@ -38,45 +38,27 @@ static iree_status_t loom_compile_command_backend_require_directory(
   return iree_ok_status();
 }
 
-// Selects command roots from source roles retained by the module index. The
-// compact indexed-symbol scan replaces source-IR walks and allocates the result
-// once at its maximum possible size.
-static iree_status_t loom_compile_command_backend_collect_roots(
-    const loom_link_module_index_t* index,
-    const loom_link_module_index_module_t* indexed_module,
+// Maps the already resolved root selection to the index consumed by command
+// planning. Selection order and repeated roots remain exact.
+static iree_status_t loom_compile_command_backend_map_roots(
+    const loom_link_module_index_t* index, iree_string_view_list_t root_symbols,
     iree_arena_allocator_t* scratch_arena,
-    iree_host_size_t** out_root_symbol_ordinals,
-    iree_host_size_t* out_root_count) {
+    iree_host_size_t** out_root_symbol_ordinals) {
   *out_root_symbol_ordinals = NULL;
-  *out_root_count = 0;
-  if (indexed_module->symbol_count == 0) {
-    return iree_ok_status();
-  }
-
   iree_host_size_t* root_symbol_ordinals = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      scratch_arena, indexed_module->symbol_count,
-      sizeof(*root_symbol_ordinals), (void**)&root_symbol_ordinals));
+      scratch_arena, root_symbols.count, sizeof(*root_symbol_ordinals),
+      (void**)&root_symbol_ordinals));
 
-  iree_host_size_t root_count = 0;
-  for (iree_host_size_t i = 0; i < indexed_module->symbol_count; ++i) {
-    const iree_host_size_t symbol_ordinal =
-        indexed_module->symbol_start_ordinal + i;
+  for (iree_host_size_t i = 0; i < root_symbols.count; ++i) {
+    const iree_string_view_t root_name =
+        loom_target_entry_normalize_symbol_name(root_symbols.values[i]);
     const loom_link_module_index_symbol_t* symbol =
-        loom_link_module_index_symbol_at(index, symbol_ordinal);
+        loom_link_module_index_lookup_name(index, root_name);
     IREE_ASSERT(symbol != NULL);
-    if (!iree_any_bit_set(symbol->facets.schema.interfaces,
-                          LOOM_SYMBOL_INTERFACE_COMMAND_PROGRAM) ||
-        !iree_any_bit_set(symbol->flags,
-                          LOOM_LINK_SYMBOL_FLAG_CONCRETE_DEFINITION) ||
-        !iree_any_bit_set(symbol->flags, LOOM_LINK_SYMBOL_FLAG_PUBLIC |
-                                             LOOM_LINK_SYMBOL_FLAG_RETAIN)) {
-      continue;
-    }
-    root_symbol_ordinals[root_count++] = symbol_ordinal;
+    root_symbol_ordinals[i] = symbol->ordinal;
   }
   *out_root_symbol_ordinals = root_symbol_ordinals;
-  *out_root_count = root_count;
   return iree_ok_status();
 }
 
@@ -225,24 +207,7 @@ iree_status_t loom_compile_command_backend_emit(
     loom_run_session_t* session, loom_run_module_t* run_module,
     const loom_compile_command_backend_options_t* options, bool* out_emitted,
     iree_allocator_t host_allocator) {
-  if (session == NULL || run_module == NULL || run_module->module == NULL ||
-      options == NULL || out_emitted == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "command backend inputs must be present");
-  }
   *out_emitted = false;
-  if (iree_string_view_is_empty(options->artifact_directory) ||
-      loom_tooling_file_path_is_stdio(options->artifact_directory)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "command backend requires a filesystem artifact directory");
-  }
-  if (!iree_string_view_is_empty(options->kernel_request_directory) &&
-      loom_tooling_file_path_is_stdio(options->kernel_request_directory)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "kernel request artifacts require a filesystem directory");
-  }
 
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(loom_run_session_block_pool(session), &scratch_arena);
@@ -250,38 +215,19 @@ iree_status_t loom_compile_command_backend_emit(
   iree_status_t status = loom_link_module_index_allocate(
       run_module->module->context, loom_run_session_block_pool(session),
       host_allocator, &index);
-  iree_host_size_t provider_ordinal = 0;
   if (iree_status_is_ok(status)) {
     status = loom_link_module_index_add_materialized(
         index, run_module->module,
         &(loom_link_module_index_add_options_t){
             .provider_name = IREE_SV("loom-compile-command"),
         },
-        &provider_ordinal);
-  }
-
-  const loom_link_module_index_module_t* indexed_module = NULL;
-  if (iree_status_is_ok(status)) {
-    const loom_link_module_index_provider_t* provider =
-        loom_link_module_index_provider_at(index, provider_ordinal);
-    IREE_ASSERT(provider != NULL);
-    IREE_ASSERT_EQ(provider->module_count, 1u);
-    indexed_module =
-        loom_link_module_index_module_at(index, provider->module_start_ordinal);
-    IREE_ASSERT(indexed_module != NULL);
+        /*out_provider_ordinal=*/NULL);
   }
 
   iree_host_size_t* root_symbol_ordinals = NULL;
-  iree_host_size_t root_count = 0;
   if (iree_status_is_ok(status)) {
-    status = loom_compile_command_backend_collect_roots(
-        index, indexed_module, &scratch_arena, &root_symbol_ordinals,
-        &root_count);
-  }
-  if (iree_status_is_ok(status) && root_count == 0) {
-    status = iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "command backend requires at least one retained command program root");
+    status = loom_compile_command_backend_map_roots(
+        index, options->root_symbols, &scratch_arena, &root_symbol_ordinals);
   }
   if (iree_status_is_ok(status) &&
       !iree_string_view_is_empty(options->kernel_request_directory)) {
@@ -327,7 +273,7 @@ iree_status_t loom_compile_command_backend_emit(
   loom_cmd_program_artifact_set_t artifact_set = {0};
   if (iree_status_is_ok(status)) {
     status = loom_cmd_program_artifact_set_build_from_index(
-        index, root_symbol_ordinals, root_count,
+        index, root_symbol_ordinals, options->root_symbols.count,
         &(loom_cmd_program_artifact_builder_options_t){
             .plan_options = plan_options.kernel_request_sink.publish != NULL
                                 ? &plan_options
@@ -345,7 +291,7 @@ iree_status_t loom_compile_command_backend_emit(
       diagnostic_emitter.error_count == 0) {
     status = iree_make_status(
         IREE_STATUS_INTERNAL,
-        "command program preparation failed without a diagnostic");
+        "command program planning failed without a diagnostic");
   }
 
   if (iree_status_is_ok(status) && plan_valid) {

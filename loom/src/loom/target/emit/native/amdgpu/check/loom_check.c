@@ -443,7 +443,7 @@ static iree_status_t loom_amdgpu_loom_check_emit_hal_kernel_assembly(
   };
   bool emitted = false;
   loom_amdgpu_hal_kernel_library_t library = {0};
-  iree_status_t status = loom_amdgpu_emit_hal_kernel_library(
+  iree_status_t status = loom_amdgpu_compile_hal_kernel_library(
       request->module, &options, request->host_allocator, &emitted, &library);
   if (iree_status_is_ok(status) && emitted) {
     if (!iree_string_view_equal(library.target_listing_format,

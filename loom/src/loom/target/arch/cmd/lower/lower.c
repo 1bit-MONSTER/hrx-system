@@ -83,7 +83,7 @@ typedef struct loom_cmd_lower_buffer_tuple_t {
   loom_value_id_t byte_length;
 } loom_cmd_lower_buffer_tuple_t;
 
-// Prepared low representations associated with one source SSA value.
+// Materialized low representations associated with one source SSA value.
 typedef struct loom_cmd_lower_source_value_t {
   // Resolved buffer tuple when the source is a buffer or view.
   loom_cmd_lower_buffer_tuple_t buffer;
@@ -92,7 +92,7 @@ typedef struct loom_cmd_lower_source_value_t {
 } loom_cmd_lower_source_value_t;
 
 typedef struct loom_cmd_lower_resources_t {
-  // Prepared representations indexed directly by source value ID.
+  // Materialized representations indexed directly by source value ID.
   loom_cmd_lower_source_value_t* source_values;
   // Number of entries in |source_values|.
   iree_host_size_t source_value_count;

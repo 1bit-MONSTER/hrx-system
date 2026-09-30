@@ -92,14 +92,9 @@ class CxxSourceScenario final : public TargetCompileScenario {
     IREE_RETURN_IF_ERROR(CompileModuleToPreparedLow(workspace, module, root,
                                                     root, config_.get(), 0));
 
-    loomc_amdgpu_emit_options_t amdgpu_options = {};
-    amdgpu_options.type = LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS;
-    amdgpu_options.structure_size = sizeof(amdgpu_options);
-    amdgpu_options.runtime_globals = LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE;
     loomc_emit_options_t emit_options = {};
     emit_options.type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS;
     emit_options.structure_size = sizeof(emit_options);
-    emit_options.next = &amdgpu_options;
     emit_options.artifact_format =
         loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_AMDGPU_HSACO);
     emit_options.identifier = root;

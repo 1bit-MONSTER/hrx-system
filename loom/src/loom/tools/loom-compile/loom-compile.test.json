@@ -18,6 +18,34 @@
       "files": [{"path": "{tmp}/invalid.bin", "exists": false}]
     },
     {
+      "name": "selects the canonical XDNA kernel emitter",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/resident_xdna.loom",
+          "--pipeline=none",
+          "--target=amd.xdna.aie2p:amd.xdna.strix_halo.17f0_11",
+          "--output={tmp}/resident.xdna",
+          "--emit-target-artifact={tmp}/resident-target.xdna",
+          "--compile-report=summary",
+          "--compile-report-output={tmp}/resident-report.json"
+        ]
+      },
+      "files": [
+        {"path": "{tmp}/resident.xdna", "non_empty": true},
+        {"path": "{tmp}/resident-target.xdna", "non_empty": true},
+        {
+          "path": "{tmp}/resident-report.json",
+          "contains": [
+            "\"artifact_kind\":\"hal-executable\"",
+            "\"backend\":\"xdna\"",
+            "\"target_family\":\"amd.xdna.aie2p\"",
+            "\"target_key\":\"amd.xdna.strix_halo.17f0_11\""
+          ]
+        }
+      ]
+    },
+    {
       "name": "renders exact carried types for invalid Low",
       "run": {
         "tool": "loom-compile",
@@ -275,6 +303,61 @@
       ]
     },
     {
+      "name": "rejects an unknown explicit command pipeline",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--root=@increment_then_double",
+          "--pipeline=not-a-pass",
+          "--output={tmp}/manifest.json",
+          "--emit-command-artifacts={tmp}/commands"
+        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": ["unknown pass 'not-a-pass' at pipeline entry 0"]
+      },
+      "files": [
+        {
+          "path": "{tmp}/manifest.json",
+          "exists": false
+        }
+      ]
+    },
+    {
+      "name": "preserves command root order and duplicates",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--root=@increment_then_double",
+          "--root=@increment_once",
+          "--root=@increment_then_double",
+          "--output={tmp}/ordered-manifest.json",
+          "--emit-command-artifacts={tmp}/ordered-commands"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/ordered-manifest.json",
+          "contains": [
+            "\"symbol\":\"increment_then_double\"",
+            "\"symbol\":\"increment_once\"",
+            "\"symbol\":\"increment_then_double\""
+          ]
+        },
+        {
+          "path": "{tmp}/ordered-commands/program-2.loomcmd",
+          "non_empty": true
+        }
+      ]
+    },
+    {
       "name": "requires command artifact directory",
       "run": {
         "tool": "loom-compile",
@@ -291,6 +374,49 @@
       "stderr": {
         "contains": [
           "format 'loom-command' requires --emit-command-artifacts=<directory>"
+        ]
+      }
+    },
+    {
+      "name": "requires a filesystem command artifact directory",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--output={tmp}/manifest.json",
+          "--emit-command-artifacts=-"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stderr": {
+        "contains": [
+          "format 'loom-command' requires --emit-command-artifacts=<directory>"
+        ]
+      }
+    },
+    {
+      "name": "requires a filesystem kernel request directory",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--output={tmp}/manifest.json",
+          "--emit-command-artifacts={tmp}/commands",
+          "--emit-kernel-requests=-"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stderr": {
+        "contains": [
+          "--emit-kernel-requests requires a filesystem directory"
         ]
       }
     },

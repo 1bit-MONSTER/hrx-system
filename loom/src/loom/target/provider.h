@@ -243,19 +243,6 @@ typedef struct loom_target_emitter_list_t {
   iree_host_size_t count;
 } loom_target_emitter_list_t;
 
-// Canonical ordinary-function module emitter associated with a target family.
-//
-// Target architecture and artifact emission providers may be linked
-// independently. This entry retains their association in the composed target
-// environment without making either provider own the other.
-typedef struct loom_target_canonical_module_emitter_entry_t {
-  // Target fact representation accepted by the emitter.
-  const loom_target_fact_type_t* target_fact_type;
-
-  // Canonical emitter for ordinary function modules in the target family.
-  const loom_target_emitter_t* emitter;
-} loom_target_canonical_module_emitter_entry_t;
-
 // Creates a borrowed emitter list.
 static inline loom_target_emitter_list_t loom_target_emitter_list_make(
     const loom_target_emitter_t* const* values, iree_host_size_t count) {
@@ -367,6 +354,15 @@ struct loom_target_provider_t {
   // artifact emission providers can be linked separately. Must be NULL if and
   // only if |canonical_module_emitter| is NULL.
   const loom_target_fact_type_t* canonical_module_fact_type;
+  // Default emitter for kernel products compiled for a target family, or NULL
+  // when callers must select an explicit format. The emitter must appear in
+  // |emitter_list|.
+  const loom_target_emitter_t* canonical_kernel_emitter;
+  // Target fact representation accepted by |canonical_kernel_emitter|. This
+  // association is independent of target fact ownership so architecture and
+  // artifact emission providers can be linked separately. Must be NULL if and
+  // only if |canonical_kernel_emitter| is NULL.
+  const loom_target_fact_type_t* canonical_kernel_fact_type;
 };
 
 // Static target provider table linked into a binary or embedding.
@@ -378,6 +374,25 @@ typedef struct loom_target_provider_set_t {
 } loom_target_provider_set_t;
 
 enum {
+  // Maximum number of providers retained by mutable provider-set storage.
+  LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY = 64,
+};
+
+// Fixed-capacity storage for assembling a target provider set.
+//
+// The storage must not move or be copied after initialization because
+// |provider_set| points into |providers|. Provider order and duplicates are
+// preserved exactly. Static provider sets may exceed this capacity when they
+// do not require composition.
+typedef struct loom_target_provider_set_storage_t {
+  // Mutable provider table owned by this storage.
+  const loom_target_provider_t*
+      providers[LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY];
+  // Provider-set view over the initialized prefix of |providers|.
+  loom_target_provider_set_t provider_set;
+} loom_target_provider_set_storage_t;
+
+enum {
   LOOM_TARGET_PROVIDER_DESCRIPTOR_SET_PROVIDER_CAPACITY = 256,
   LOOM_TARGET_PROVIDER_LOW_LOWER_POLICY_CAPACITY = 128,
   LOOM_TARGET_PROVIDER_MATH_POLICY_CAPACITY = 128,
@@ -387,7 +402,7 @@ enum {
   LOOM_TARGET_PROVIDER_LOW_ASM_DIAGNOSTIC_PROVIDER_CAPACITY = 64,
   LOOM_TARGET_PROVIDER_LOW_VERIFY_PROVIDER_CAPACITY = 64,
   LOOM_TARGET_PROVIDER_EMITTER_CAPACITY = 64,
-  LOOM_TARGET_PROVIDER_CANONICAL_MODULE_EMITTER_CAPACITY = 64,
+  LOOM_TARGET_PROVIDER_CANONICAL_EMITTER_CAPACITY = 64,
   LOOM_TARGET_PROVIDER_PASS_REGISTRY_CAPACITY = 64,
 };
 
@@ -440,11 +455,6 @@ struct loom_target_environment_t {
   const loom_target_emitter_t* emitters[LOOM_TARGET_PROVIDER_EMITTER_CAPACITY];
   // Number of entries in |emitters|.
   iree_host_size_t emitter_count;
-  // Canonical ordinary-function module emitters keyed by target fact type.
-  loom_target_canonical_module_emitter_entry_t canonical_module_emitters
-      [LOOM_TARGET_PROVIDER_CANONICAL_MODULE_EMITTER_CAPACITY];
-  // Number of entries in |canonical_module_emitters|.
-  iree_host_size_t canonical_module_emitter_count;
   // Composed target-owned pass registry storage.
   loom_pass_registry_storage_t pass_registry_storage;
 };
@@ -458,6 +468,22 @@ static inline loom_target_provider_set_t loom_target_provider_set_make(
       /*.provider_count=*/provider_count,
   };
 }
+
+// Initializes empty provider-set |storage|.
+void loom_target_provider_set_storage_initialize(
+    loom_target_provider_set_storage_t* storage);
+
+// Appends non-NULL |provider| to |storage|. Fails without changing |storage|
+// when full.
+iree_status_t loom_target_provider_set_storage_append(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_t* provider);
+
+// Appends every provider in |provider_set| to |storage| in order. Fails
+// without changing |storage| when the complete set cannot fit.
+iree_status_t loom_target_provider_set_storage_append_set(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_set_t* provider_set);
 
 // Initializes |out_environment| from |provider_set|. The environment borrows
 // |provider_set| until deinitialized.
@@ -544,6 +570,13 @@ const loom_target_provider_t* loom_target_environment_lookup_fact_provider(
 // NULL when the configured compiler has no canonical module format for it.
 const loom_target_emitter_t*
 loom_target_environment_lookup_canonical_module_emitter(
+    const loom_target_environment_t* environment,
+    const loom_target_fact_type_t* fact_type);
+
+// Returns the canonical kernel emitter for |fact_type|, or NULL when the
+// configured compiler has no canonical kernel format for it.
+const loom_target_emitter_t*
+loom_target_environment_lookup_canonical_kernel_emitter(
     const loom_target_environment_t* environment,
     const loom_target_fact_type_t* fact_type);
 

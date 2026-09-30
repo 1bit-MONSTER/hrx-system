@@ -85,11 +85,6 @@ PipelineScope = EnumDef(
             1,
             doc="Must materialize as one directly loadable executable artifact.",
         ),
-        EnumCase(
-            "command",
-            2,
-            doc="Must materialize as one reusable command program.",
-        ),
     ],
     doc=("Required materialization boundary. An absent scope permits a generic pipeline program that may span targets and runtime operations."),
 )

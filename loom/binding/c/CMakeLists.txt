@@ -150,9 +150,9 @@ loom_cc_library(
     loom::target::reporting::artifact_manifest
     loom::target::reporting::format
     loom::target::reporting::report
+    loom::target::selection
     loom::target::specialization
     loom::target::types
-    loom::tooling::compile::pipeline
     loom::tooling::config
     loom::transforms::cleanup::configured
     loom::transforms::cleanup::patterns
@@ -335,6 +335,12 @@ _loomc_add_shared_component(loom_binding_c_loomc)
 _loomc_add_shared_component(loom_binding_c_target_iree_hal_iree_hal)
 if(LOOM_IMPORT_CXX)
   _loomc_add_shared_component(loom_binding_c_import_cxx_cxx)
+endif()
+if(LOOM_TARGET_ARCH_VM)
+  _loomc_add_shared_component(loom_binding_c_target_vm_vm)
+endif()
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+  _loomc_add_shared_component(loom_binding_c_target_wasm_wasm)
 endif()
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
   _loomc_add_shared_component(loom_binding_c_target_spirv_spirv)

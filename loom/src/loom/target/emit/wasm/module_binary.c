@@ -39,15 +39,15 @@ enum {
 };
 
 typedef struct loom_wasm_module_layout_t {
-  // Prepared functions in WebAssembly function-index order.
+  // Planned functions in WebAssembly function-index order.
   const loom_wasm_function_plan_t* functions;
-  // Number of prepared functions.
+  // Number of planned functions.
   iree_host_size_t function_count;
-  // Prepared interned function signatures.
+  // Planned interned function signatures.
   const loom_wasm_function_type_t* types;
-  // Number of prepared function signatures.
+  // Number of planned function signatures.
   iree_host_size_t type_count;
-  // Number of prepared function exports.
+  // Number of planned function exports.
   iree_host_size_t function_export_count;
   // Allocator-owned encoded function bodies.
   loom_wasm_function_body_t* bodies;

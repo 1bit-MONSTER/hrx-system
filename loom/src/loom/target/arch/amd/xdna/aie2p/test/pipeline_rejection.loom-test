@@ -106,15 +106,6 @@ pipeline.def target(@array_target) @generic_scope() launch() {
 
 // ====
 
-aie2p.target<array> @array_target
-
-// ERROR@+1: XDNA/008 {scope="command"}
-pipeline.def<command> target(@array_target) @command_scope() launch() {
-  pipeline.return
-}
-
-// ====
-
 // ERROR@+1: TARGET/009 {pipeline_name="aie2p-lower-pipeline", function_name="missing_array_target"}
 pipeline.def<kernel> @missing_array_target() launch() {
   pipeline.return

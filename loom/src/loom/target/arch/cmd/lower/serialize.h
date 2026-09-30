@@ -16,13 +16,13 @@
 extern "C" {
 #endif
 
-// Serializes one prepared root into a portable command artifact.
+// Serializes one planned root into a portable command artifact.
 //
 // |root_index| selects a root in caller order from |plan|. The root's Low
 // function, parameter placement, transient requirements, and ABI layout are
-// consumed together so independently prepared state cannot be mixed.
+// consumed together so independently planned state cannot be mixed.
 //
-// Preparation guarantees that the selected root is a closed zero-signature,
+// Planning guarantees that the selected root is a closed zero-signature,
 // single-block low.func.def using the cmd.core descriptor set and
 // command_program ABI. Serialization trusts those plan-owned invariants. It is
 // the closed portable-format boundary: a descriptor or Low operation without a

@@ -55,7 +55,8 @@ static const iree_byte_sequence_vtable_t counting_byte_sequence_vtable = {
     /*.try_get_contiguous_span=*/NULL,
 };
 
-TEST(VMModuleBinaryTest, RetainsPreparedFunctionBytesWithoutCopying) {
+TEST(VMModuleBinaryTest,
+     RepeatedEmissionRetainsPreparedFunctionBytesWithoutCopying) {
   const uint8_t function_bytes[] = {0x11, 0x22, 0x33, 0x44};
   counting_byte_sequence_t function_bytecode = {};
   iree_byte_sequence_initialize(&counting_byte_sequence_vtable,
@@ -72,26 +73,39 @@ TEST(VMModuleBinaryTest, RetainsPreparedFunctionBytesWithoutCopying) {
   plan.function_bytecode = &function_bytecode.base;
   plan.maximum_block_count = 1;
 
-  iree_byte_sequence_t* binary = NULL;
-  IREE_ASSERT_OK(
-      loom_vm_program_emit_binary(&plan, iree_allocator_system(), &binary));
+  iree_byte_sequence_t* first_binary = NULL;
+  iree_byte_sequence_t* second_binary = NULL;
+  IREE_ASSERT_OK(loom_vm_program_emit_binary(&plan, iree_allocator_system(),
+                                             &first_binary));
+  IREE_ASSERT_OK(loom_vm_program_emit_binary(&plan, iree_allocator_system(),
+                                             &second_binary));
   EXPECT_EQ(function_bytecode.enumeration_count, 0);
   EXPECT_EQ(function_bytecode.destroy_count, 0);
 
   loom_vm_program_plan_deinitialize(&plan);
   EXPECT_EQ(function_bytecode.destroy_count, 0);
 
-  iree_byte_span_t bytes = iree_byte_span_empty();
-  IREE_ASSERT_OK(
-      iree_byte_sequence_clone(binary, iree_allocator_system(), &bytes));
-  ASSERT_GE(bytes.data_length, sizeof(function_bytes));
-  EXPECT_TRUE(
-      std::equal(std::begin(function_bytes), std::end(function_bytes),
-                 bytes.data + bytes.data_length - sizeof(function_bytes)));
-  EXPECT_EQ(function_bytecode.enumeration_count, 1);
+  iree_byte_span_t first_bytes = iree_byte_span_empty();
+  iree_byte_span_t second_bytes = iree_byte_span_empty();
+  IREE_ASSERT_OK(iree_byte_sequence_clone(first_binary, iree_allocator_system(),
+                                          &first_bytes));
+  IREE_ASSERT_OK(iree_byte_sequence_clone(
+      second_binary, iree_allocator_system(), &second_bytes));
+  EXPECT_EQ(std::vector<uint8_t>(first_bytes.data,
+                                 first_bytes.data + first_bytes.data_length),
+            std::vector<uint8_t>(second_bytes.data,
+                                 second_bytes.data + second_bytes.data_length));
+  ASSERT_GE(first_bytes.data_length, sizeof(function_bytes));
+  EXPECT_TRUE(std::equal(
+      std::begin(function_bytes), std::end(function_bytes),
+      first_bytes.data + first_bytes.data_length - sizeof(function_bytes)));
+  EXPECT_EQ(function_bytecode.enumeration_count, 2);
 
-  iree_allocator_free(iree_allocator_system(), bytes.data);
-  iree_byte_sequence_release(binary);
+  iree_allocator_free(iree_allocator_system(), second_bytes.data);
+  iree_allocator_free(iree_allocator_system(), first_bytes.data);
+  iree_byte_sequence_release(first_binary);
+  EXPECT_EQ(function_bytecode.destroy_count, 0);
+  iree_byte_sequence_release(second_binary);
   EXPECT_EQ(function_bytecode.destroy_count, 1);
 }
 

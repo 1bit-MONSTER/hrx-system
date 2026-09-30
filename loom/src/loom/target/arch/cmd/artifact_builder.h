@@ -40,7 +40,7 @@ typedef struct loom_cmd_program_artifact_builder_options_t {
       materialization_environment;
 } loom_cmd_program_artifact_builder_options_t;
 
-// Selectively prepares indexed command roots and serializes their artifacts.
+// Builds a plan for selected command roots and serializes their artifacts.
 //
 // This is the single index-to-product compiler boundary shared by LoomC and
 // command-line tooling. Source contract failures emit diagnostics, leave

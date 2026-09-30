@@ -8,11 +8,10 @@
 
 #include "loom/target/arch/spirv/descriptors/low_registry.h"
 #include "loom/target/arch/spirv/profile.h"
-#include "loom/target/emit/spirv/module_builder.h"
+#include "loom/target/emit/spirv/module_compiler.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/function_contract.h"
 #include "loom/target/reporting/artifact_manifest_collect.h"
-#include "loom/tooling/target/spirv/prepare.h"
 
 typedef struct loom_spirv_compile_artifact_storage_t {
   // Immutable SPIR-V binary module contents.
@@ -72,7 +71,6 @@ static iree_status_t loom_spirv_artifact_provider_emit_entries(
     };
   }
   loom_spirv_compile_options_t compile_options = {0};
-  loom_spirv_compile_options_initialize(&compile_options);
   compile_options.function_versions = target_options->function_versions;
   compile_options.entries = compile_entries;
   compile_options.entry_count = entries.count;

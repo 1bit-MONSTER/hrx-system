@@ -29,7 +29,7 @@ static bool loom_cmd_program_plan_has_source_kernels(
   return false;
 }
 
-iree_status_t loom_cmd_program_plan_prepare_index(
+iree_status_t loom_cmd_program_plan_build_from_index(
     const loom_link_module_index_t* index,
     const iree_host_size_t* program_symbol_ordinals,
     iree_host_size_t program_count,
@@ -131,7 +131,7 @@ iree_status_t loom_cmd_program_plan_prepare_index(
   }
 
   if (iree_status_is_ok(status)) {
-    status = loom_cmd_program_plan_prepare_materialization(
+    status = loom_cmd_program_plan_build_from_materialization(
         &materialization.product, target_root_refs, program_count,
         kernel_source.producer != NULL ? &kernel_source : NULL, pass_registry,
         cleanup_pattern_provider_set, diagnostic_emitter,

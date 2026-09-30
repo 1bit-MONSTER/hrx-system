@@ -7,14 +7,12 @@
 // loom-format: converts Loom modules between text and bytecode formats.
 
 #include <stdio.h>
-#include <string.h>
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "iree/base/tooling/flags.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/error/diagnostic.h"
-#include "loom/target/arch/cmd/provider.h"
 #include "loom/target/configured/provider_set.h"
 #include "loom/target/provider.h"
 #include "loom/target/test/provider.h"
@@ -263,8 +261,8 @@ int main(int argc, char** argv) {
   bool context_initialized = false;
   loom_target_environment_t target_environment = {0};
   bool target_environment_initialized = false;
-  const loom_target_provider_t** target_providers = NULL;
-  loom_target_provider_set_t target_provider_set = {0};
+  loom_target_provider_set_storage_t target_provider_storage;
+  loom_target_provider_set_storage_initialize(&target_provider_storage);
   loom_target_low_descriptor_registry_t low_descriptor_registry = {0};
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
   loom_text_low_asm_environment_t low_asm_environment = {0};
@@ -337,25 +335,15 @@ int main(int argc, char** argv) {
   if (iree_status_is_ok(status)) {
     const loom_target_provider_set_t* configured_provider_set =
         loom_configured_target_provider_set();
-    const iree_host_size_t provider_count =
-        configured_provider_set->provider_count + 2;
-    status = iree_allocator_malloc(allocator,
-                                   provider_count * sizeof(*target_providers),
-                                   (void**)&target_providers);
+    status = loom_target_provider_set_storage_append_set(
+        &target_provider_storage, configured_provider_set);
     if (iree_status_is_ok(status)) {
-      if (configured_provider_set->provider_count > 0) {
-        memcpy(target_providers, configured_provider_set->providers,
-               configured_provider_set->provider_count *
-                   sizeof(*target_providers));
-      }
-      target_providers[configured_provider_set->provider_count] =
-          &loom_cmd_target_provider;
-      target_providers[configured_provider_set->provider_count + 1] =
-          &loom_test_target_provider;
-      target_provider_set =
-          loom_target_provider_set_make(target_providers, provider_count);
-      status = loom_target_environment_initialize(&target_provider_set,
-                                                  &target_environment);
+      status = loom_target_provider_set_storage_append(
+          &target_provider_storage, &loom_test_target_provider);
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_target_environment_initialize(
+          &target_provider_storage.provider_set, &target_environment);
       target_environment_initialized = iree_status_is_ok(status);
     }
   }
@@ -433,7 +421,6 @@ int main(int argc, char** argv) {
   if (target_environment_initialized) {
     loom_target_environment_deinitialize(&target_environment);
   }
-  iree_allocator_free(allocator, target_providers);
   iree_arena_block_pool_deinitialize(&block_pool);
 
   IREE_TRACE_ZONE_END(z0);

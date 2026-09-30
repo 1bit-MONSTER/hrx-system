@@ -46,7 +46,6 @@ loom_cc_binary(
     iree::io::file_handle
     loom::codegen::low::text_asm
     loom::error::diagnostic
-    loom::target::arch::cmd::provider
     loom::target::configured::provider_set
     loom::target::provider
     loom::target::test::provider

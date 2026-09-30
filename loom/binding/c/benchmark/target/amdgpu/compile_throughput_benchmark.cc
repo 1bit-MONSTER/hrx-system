@@ -113,17 +113,11 @@ static iree_status_t EmitAmdgpuBenchmarkArtifact(
       /*.next=*/nullptr,
       /*.mode=*/report_mode,
   };
-  const loomc_amdgpu_emit_options_t amdgpu_options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS,
-      /*.structure_size=*/sizeof(amdgpu_options),
-      /*.next=*/report_mode != LOOMC_COMPILE_REPORT_MODE_NONE ? &report_options
-                                                              : nullptr,
-      /*.runtime_globals=*/LOOMC_AMDGPU_RUNTIME_GLOBAL_NONE,
-  };
   const loomc_emit_options_t emit_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
       /*.structure_size=*/sizeof(emit_options),
-      /*.next=*/&amdgpu_options,
+      /*.next=*/report_mode != LOOMC_COMPILE_REPORT_MODE_NONE ? &report_options
+                                                              : nullptr,
       /*.artifact_format=*/
       loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_AMDGPU_HSACO),
       /*.identifier=*/identifier,

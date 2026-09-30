@@ -1035,11 +1035,9 @@ iree_status_t loom_aie2p_pipeline_lower_to_array_low(
 
   IREE_ASSERT(loom_pipeline_def_isa(pipeline.op));
   if (loom_pipeline_def_scope(pipeline.op) != LOOM_PIPELINE_DEF_SCOPE_KERNEL) {
-    const iree_string_view_t scope =
-        loom_pipeline_def_scope(pipeline.op) == LOOM_PIPELINE_DEF_SCOPE_COMMAND
-            ? IREE_SV("command")
-            : IREE_SV("generic");
-    const loom_diagnostic_param_t params[] = {loom_param_string(scope)};
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(IREE_SV("generic")),
+    };
     const loom_diagnostic_emission_t emission = {
         .op = pipeline.op,
         .error = LOOM_ERR_XDNA_008,

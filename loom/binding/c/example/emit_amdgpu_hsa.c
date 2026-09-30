@@ -1184,14 +1184,9 @@ static loomc_status_t compile_module_to_prepared_low(
 }
 
 static loomc_status_t emit_amdgpu_artifact(emit_amdgpu_hsa_state_t* state) {
-  loomc_amdgpu_emit_options_t amdgpu_options = {
-      .type = LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS,
-      .structure_size = sizeof(amdgpu_options),
-  };
   loomc_emit_options_t emit_options = {
       .type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
       .structure_size = sizeof(emit_options),
-      .next = &amdgpu_options,
       .artifact_format =
           loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_AMDGPU_HSACO),
       .identifier = loomc_make_cstring_view("targetless_store_i32.hsaco"),

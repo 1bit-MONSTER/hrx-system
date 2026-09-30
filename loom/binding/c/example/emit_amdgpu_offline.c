@@ -290,10 +290,6 @@ static loomc_status_t compile_module_to_prepared_low(
 }
 
 static loomc_status_t emit_amdgpu_artifact(emit_amdgpu_offline_state_t* state) {
-  loomc_amdgpu_emit_options_t amdgpu_options = {
-      .type = LOOMC_STRUCTURE_TYPE_AMDGPU_EMIT_OPTIONS,
-      .structure_size = sizeof(amdgpu_options),
-  };
   const loomc_option_entry_t emit_entries[] = {
       {
           .key = loomc_make_cstring_view(LOOMC_EMIT_OPTION_KEY_IDENTIFIER),
@@ -303,7 +299,6 @@ static loomc_status_t emit_amdgpu_artifact(emit_amdgpu_offline_state_t* state) {
   loomc_option_dict_t option_dict = {
       .type = LOOMC_STRUCTURE_TYPE_OPTION_DICT,
       .structure_size = sizeof(option_dict),
-      .next = &amdgpu_options,
       .entries = emit_entries,
       .entry_count = 1,
   };

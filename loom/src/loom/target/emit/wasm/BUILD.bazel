@@ -9,6 +9,7 @@ load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
     "loom_cc_test",
+    "loom_config_compatible_with",
     "loom_generated_cc_library",
 )
 
@@ -99,6 +100,42 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "module_compiler",
+    srcs = ["module_compiler.c"],
+    hdrs = ["module_compiler.h"],
+    visibility = [
+        "//loom/binding/c/target/wasm:__pkg__",
+        "//loom/src/loom/tooling/compile:__pkg__",
+        "//loom/src/loom/tooling/target/wasm:__pkg__",
+    ],
+    deps = [
+        ":module_binary",
+        ":program",
+        "//loom/src/loom/codegen/low:allocation",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:function_model",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target:registers",
+        "//loom/src/loom/target/arch/wasm:provider",
+        "//loom/src/loom/target/arch/wasm/descriptors",
+        "//loom/src/loom/target/arch/wasm/ops",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+iree_assert_dependency_boundary(
+    name = "module_compiler_has_no_tooling_dependencies",
+    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
+    message = "Wasm module compilation is target-owned and must not depend on tooling",
+    target = ":module_compiler",
+)
+
 iree_assert_dependency_boundary(
     name = "module_binary_analysis_boundary",
     allowed_dependencies = [
@@ -106,8 +143,22 @@ iree_assert_dependency_boundary(
         "//loom/src/loom/codegen/low:representation_binding",
     ],
     forbidden_subtrees = ["//loom/src/loom/codegen/low/..."],
-    message = "Wasm binary emission may consume verified Low representation bindings but must not run target resolution or compiler preparation",
+    message = "Wasm binary emission may consume verified Low representation bindings but must not run target resolution or program planning",
     target = ":module_binary",
+)
+
+loom_cc_test(
+    name = "module_compiler_test",
+    srcs = ["module_compiler_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:wasm",
+    ]),
+    deps = [
+        ":module_compiler",
+        "//loom/src/loom/target:selection",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_cc_test(

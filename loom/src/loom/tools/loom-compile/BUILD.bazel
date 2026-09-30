@@ -37,6 +37,7 @@ loom_cc_library(
     name = "command_backend",
     srcs = ["command_backend.c"],
     hdrs = ["command_backend.h"],
+    visibility = ["//loom/src/loom/tools/loom-compile:__pkg__"],
     deps = [
         ":command_manifest",
         "//loom/src/loom/codegen/low:repr",
@@ -121,6 +122,7 @@ iree_execution_test_suite(
     data = [
         "//loom/src/loom/tools/loom-compile/testdata:command_artifacts.loom",
         "//loom/src/loom/tools/loom-compile/testdata:command_kernel_requests.loom",
+        "//loom/src/loom/tools/loom-compile/testdata:resident_xdna.loom",
     ],
     manifests = ["loom-compile.test.json"],
     tags = ["hostonly"],

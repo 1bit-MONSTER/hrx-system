@@ -299,7 +299,7 @@ static void RunProgramPlanBenchmark(benchmark::State& state,
 
     bool valid = false;
     loom_cmd_program_plan_t program_plan = {};
-    CheckStatus(loom_cmd_program_plan_prepare_materialization(
+    CheckStatus(loom_cmd_program_plan_build_from_materialization(
         &materialization, &root_ref, /*program_count=*/1,
         /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
         loom_cleanup_configured_pattern_provider_set(),
@@ -411,7 +411,7 @@ static void RunIndexedProgramPlanBenchmark(benchmark::State& state,
     capture.start_time = std::chrono::steady_clock::now();
     bool valid = false;
     loom_cmd_program_plan_t program_plan = {};
-    CheckStatus(loom_cmd_program_plan_prepare_index(
+    CheckStatus(loom_cmd_program_plan_build_from_index(
         fixture.index(), &root_symbol_ordinal, /*program_count=*/1,
         request_mode == KernelRequestMode::kPublish ? &options : nullptr,
         loom_pass_builtin_registry(),

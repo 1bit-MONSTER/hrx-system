@@ -9,7 +9,7 @@ template.def<@request.schedule> priority(1) @small(%size: index) {
 }
 
 // Targetless launch configurations retain nested template dependencies even
-// before command preparation creates calls to their projected helpers.
+// before command planning creates calls to their projected helpers.
 template.decl @request.unit() -> (index)
 
 template.def<@request.unit> @unit() -> (index) {

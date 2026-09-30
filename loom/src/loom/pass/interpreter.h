@@ -67,11 +67,26 @@ typedef struct loom_pass_interpreter_options_t {
   loom_pass_trace_t* trace;
 } loom_pass_interpreter_options_t;
 
+// Executes a compiled pass program over its declared root domain.
+//
+// Module-root programs run once on |module|. Function-root programs run once
+// on each bodyful function-like symbol from a deterministic symbol snapshot.
+// Functions added while the program runs are not visited by that invocation;
+// erased or replaced snapshot entries are skipped when reached.
+//
+// Status carries interpreter, pass implementation, explicit fail/halt, and
+// trace/report sink failures. Pass-emitted diagnostics are accumulated in
+// |out_result|; a nonzero diagnostic count does not by itself change status.
+iree_status_t loom_pass_interpreter_run_program(
+    const loom_pass_program_t* program, loom_module_t* module,
+    const loom_pass_interpreter_options_t* options,
+    loom_pass_run_result_t* out_result);
+
 // Executes a module-root compiled pass program.
 //
-// Status is reserved for infrastructure failure while compiling or running the
-// interpreter. Pass-emitted diagnostics are counted in |out_result| and do not
-// become iree_status_t failures.
+// Status carries interpreter, pass implementation, explicit fail/halt, and
+// trace/report sink failures. Pass-emitted diagnostics are accumulated in
+// |out_result|; a nonzero diagnostic count does not by itself change status.
 iree_status_t loom_pass_interpreter_run_module(
     const loom_pass_program_t* program, loom_module_t* module,
     const loom_pass_interpreter_options_t* options,
@@ -79,9 +94,9 @@ iree_status_t loom_pass_interpreter_run_module(
 
 // Executes a function-root compiled pass program on one function-like symbol.
 //
-// Status is reserved for infrastructure failure while compiling or running the
-// interpreter. Pass-emitted diagnostics are counted in |out_result| and do not
-// become iree_status_t failures.
+// Status carries interpreter, pass implementation, explicit fail/halt, and
+// trace/report sink failures. Pass-emitted diagnostics are accumulated in
+// |out_result|; a nonzero diagnostic count does not by itself change status.
 iree_status_t loom_pass_interpreter_run_function(
     const loom_pass_program_t* program, loom_module_t* module,
     loom_func_like_t function, const loom_pass_interpreter_options_t* options,

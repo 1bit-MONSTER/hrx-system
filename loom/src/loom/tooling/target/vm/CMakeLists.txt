@@ -12,105 +12,16 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
-    reference_plan
-  HDRS
-    "reference_plan.h"
-  SRCS
-    "reference_plan.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::ir
-    loom::target::arch::vm::types
-    loom::util::adaptive_sort
-    loom::util::segmented_storage
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_test(
-  NAME
-    reference_plan_test
-  SRCS
-    "reference_plan_test.cc"
-  DEPS
-    ::reference_plan
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::ir
-    loom::ops::type_registry
-  LABELS
-    "iree-build-requirement=loom.target.arch.vm"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
-    program_prepare
-  HDRS
-    "function_plan.h"
-    "program_prepare.h"
-  SRCS
-    "function_plan.c"
-    "program_prepare.c"
-  DEPS
-    ::reference_plan
-    iree::base
-    iree::base::internal::arena
-    iree::io::stream
-    iree::vm::bytecode::wire
-    loom::codegen::low::allocation::move_sequence
-    loom::codegen::low::descriptors
-    loom::codegen::low::frame
-    loom::codegen::low::storage_layout
-    loom::error::emitter
-    loom::ir
-    loom::ops::global
-    loom::ops::low
-    loom::ops::op_defs
-    loom::target::arch::vm::descriptors
-    loom::target::emit::vm::program
-    loom::target::function_version
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
-    artifact_emitter
-  HDRS
-    "artifact_emitter.h"
-  SRCS
-    "artifact_emitter.c"
-  DEPS
-    ::program_prepare
-    iree::base
-    iree::base::internal::arena
-    loom::target::arch::vm::ops
-    loom::target::emit::vm::module_binary
-    loom::target::provider
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_library(
-  NAME
     check
   HDRS
     "check.h"
   SRCS
     "check.c"
   DEPS
-    ::artifact_emitter
     iree::base
     iree::vm::bytecode::disassembler
     loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::tools::loom-check::execute
     loom::tools::loom-check::provider
   PUBLIC
@@ -126,7 +37,6 @@ loom_cc_library(
   SRCS
     "testbench.c"
   DEPS
-    ::artifact_emitter
     iree::base
     iree::hal
     iree::vm
@@ -137,6 +47,7 @@ loom_cc_library(
     loom::ops::func
     loom::ops::op_defs
     loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::target::entry_selection
     loom::target::provider
     loom::tooling::compile::pipeline
@@ -190,7 +101,6 @@ loom_cc_test(
   SRCS
     "imports_test.cc"
   DEPS
-    ::artifact_emitter
     ::imports_bytecode
     iree::base
     iree::base::internal::arena
@@ -209,8 +119,9 @@ loom_cc_test(
     loom::ops::func::location_capture_test_data
     loom::ops::op_defs
     loom::ops::op_registry
-    loom::target::arch::vm::provider
+    loom::target::emit::vm::module_compiler
     loom::target::provider
+    loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::input
     loom::transforms::cleanup::configured
@@ -277,10 +188,8 @@ loom_cc_test(
   SRCS
     "emission_test.cc"
   DEPS
-    ::artifact_emitter
     ::emission_test_data
     ::native_references_bytecode
-    ::program_prepare
     iree::base
     iree::base::internal::arena
     iree::testing::gtest
@@ -288,9 +197,9 @@ loom_cc_test(
     loom::ir
     loom::ops::func
     loom::ops::op_registry
-    loom::target::arch::vm::provider
-    loom::target::emit::vm::module_binary
+    loom::target::emit::vm::module_compiler
     loom::target::provider
+    loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::input
     loom::transforms::cleanup::configured

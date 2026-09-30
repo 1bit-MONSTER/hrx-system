@@ -6,15 +6,6 @@
 
 #include "loom/target/emit/native/amdgpu/runtime_globals.h"
 
-iree_status_t loom_amdgpu_runtime_global_flags_validate(
-    loom_amdgpu_runtime_global_flags_t flags) {
-  if ((flags & ~LOOM_AMDGPU_RUNTIME_GLOBALS_KNOWN) != 0) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "AMDGPU runtime globals contain unknown bits");
-  }
-  return iree_ok_status();
-}
-
 iree_host_size_t loom_amdgpu_runtime_global_count(
     loom_amdgpu_runtime_global_flags_t flags) {
   iree_host_size_t count = 0;

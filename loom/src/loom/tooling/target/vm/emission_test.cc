@@ -13,14 +13,12 @@
 #include "loom/ir/context.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
-#include "loom/target/arch/vm/provider.h"
-#include "loom/target/emit/vm/module_binary.h"
+#include "loom/target/emit/vm/module_compiler.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
-#include "loom/tooling/target/vm/artifact_emitter.h"
 #include "loom/tooling/target/vm/emission_test_data.h"
 #include "loom/tooling/target/vm/native_references_bytecode.h"
-#include "loom/tooling/target/vm/program_prepare.h"
 #include "loom/transforms/cleanup/configured.h"
 
 namespace {
@@ -71,12 +69,8 @@ class VMEmissionTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(128 * 1024, iree_allocator_system(),
                                      &pool_);
-    static const loom_target_provider_t* const providers[] = {
-        &loom_vm_target_provider};
-    static const auto provider_set =
-        loom_target_provider_set_make(providers, 1);
-    IREE_ASSERT_OK(
-        loom_target_environment_initialize(&provider_set, &environment_));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &loom_vm_compiler_provider_set, &environment_));
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context_));
     IREE_ASSERT_OK(
@@ -102,9 +96,13 @@ class VMEmissionTest : public ::testing::Test {
                                           &context_, &pool_,
                                           iree_allocator_system(), &input_));
     ASSERT_NE(input_.module, nullptr);
+    const loom_target_specification_t specification = {
+        /*.family=*/IREE_SVL("vm"),
+        /*.selector=*/IREE_SVL("core"),
+    };
     const loom_target_profile_t* profile = nullptr;
-    IREE_ASSERT_OK(
-        loom_vm_target_provider.select_profile(IREE_SV("core"), &profile));
+    IREE_ASSERT_OK(loom_target_environment_select_profile(
+        &environment_, &specification, &profile));
     std::vector<loom_target_specialization_request_t> specializations;
     for (uint32_t i = 0; i < input_.module->symbols.count; ++i) {
       const auto& symbol = input_.module->symbols.entries[i];
@@ -159,7 +157,7 @@ class VMEmissionTest : public ::testing::Test {
       request.function_versions = &pipeline_.function_versions.list;
       request.scratch_arena = &arena;
       request.allocator = allocations->allocator();
-      status = loom_vm_artifact_emit(&request, out_emitted, out_artifact);
+      status = loom_vm_module_emitter.emit(&request, out_emitted, out_artifact);
       EXPECT_EQ(arena.used_allocation_size, checkpoint.used_allocation_size);
       EXPECT_EQ(arena.total_allocation_size, checkpoint.total_allocation_size);
       for (unsigned i = 0; i < 64; ++i) {
@@ -186,7 +184,7 @@ class VMEmissionTest : public ::testing::Test {
   loom_context_t context_ = {};
   // Target services retained throughout compilation and emission.
   loom_target_environment_t environment_ = {};
-  // Target-Low descriptors used by preparation and emission.
+  // Target-Low descriptors used by program planning and emission.
   loom_target_low_descriptor_registry_t registry_ = {};
   // Admitted source and its mutable compiler module.
   loom_input_module_t input_ = {};
@@ -228,97 +226,6 @@ TEST_F(VMEmissionTest, AllocationFailuresPreserveScratchAndPublishNoArtifact) {
     ASSERT_GT(allocations.attempts, fail_at)
         << "emission failed without reaching the injected allocation failure";
   }
-}
-
-TEST_F(VMEmissionTest, PreparationFailuresLeaveNoPartialPlan) {
-  const auto* data = loom_vm_emission_test_data_create();
-  ASSERT_NO_FATAL_FAILURE(
-      Prepare({reinterpret_cast<const char*>(data[0].data), data[0].size}));
-
-  for (iree_host_size_t fail_at = 0;; ++fail_at) {
-    SCOPED_TRACE(fail_at);
-    EmissionAllocator allocations;
-    allocations.fail_at = fail_at;
-    iree_arena_block_pool_t plan_pool;
-    iree_arena_block_pool_initialize(128 * 1024, allocations.allocator(),
-                                     &plan_pool);
-    iree_arena_allocator_t plan_arena;
-    iree_arena_initialize(&plan_pool, &plan_arena);
-
-    loom_vm_program_plan_t plan = {};
-    bool accepted = false;
-    iree_status_t status = loom_vm_program_plan_prepare(
-        input_.module, &pipeline_.function_versions.list, &registry_.registry,
-        {}, &plan_arena, allocations.allocator(), &accepted, &plan);
-    const bool succeeded = iree_status_is_ok(status);
-    if (succeeded) {
-      EXPECT_TRUE(accepted);
-      EXPECT_NE(plan.function_bytecode, nullptr);
-      loom_vm_program_plan_deinitialize(&plan);
-    } else {
-      EXPECT_FALSE(accepted);
-      IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
-      EXPECT_EQ(plan.strings, nullptr);
-      EXPECT_EQ(plan.functions, nullptr);
-      EXPECT_EQ(plan.function_bytecode, nullptr);
-      EXPECT_EQ(plan.rodata, nullptr);
-      EXPECT_EQ(plan.rodata_alignment, 0u);
-    }
-
-    iree_arena_deinitialize(&plan_arena);
-    iree_arena_block_pool_deinitialize(&plan_pool);
-    EXPECT_EQ(allocations.live, 0u);
-    if (succeeded) {
-      EXPECT_GT(fail_at, 0u);
-      break;
-    }
-    ASSERT_GT(allocations.attempts, fail_at)
-        << "preparation failed without reaching the injected allocation";
-  }
-}
-
-TEST_F(VMEmissionTest, PreparedProgramCanBeEmittedRepeatedly) {
-  const auto* data = loom_vm_emission_test_data_create();
-  ASSERT_NO_FATAL_FAILURE(
-      Prepare({reinterpret_cast<const char*>(data[0].data), data[0].size}));
-
-  iree_arena_allocator_t arena;
-  iree_arena_initialize(&pool_, &arena);
-  loom_vm_program_plan_t plan = {};
-  bool accepted = false;
-  IREE_ASSERT_OK(loom_vm_program_plan_prepare(
-      input_.module, &pipeline_.function_versions.list, &registry_.registry, {},
-      &arena, iree_allocator_system(), &accepted, &plan));
-  ASSERT_TRUE(accepted);
-
-  iree_byte_sequence_t* first = nullptr;
-  iree_byte_sequence_t* second = nullptr;
-  IREE_ASSERT_OK(
-      loom_vm_program_emit_binary(&plan, iree_allocator_system(), &first));
-  IREE_ASSERT_OK(
-      loom_vm_program_emit_binary(&plan, iree_allocator_system(), &second));
-  iree_byte_span_t first_bytes = iree_byte_span_empty();
-  iree_byte_span_t second_bytes = iree_byte_span_empty();
-  IREE_ASSERT_OK(
-      iree_byte_sequence_clone(first, iree_allocator_system(), &first_bytes));
-  IREE_ASSERT_OK(
-      iree_byte_sequence_clone(second, iree_allocator_system(), &second_bytes));
-  EXPECT_EQ(std::vector<uint8_t>(first_bytes.data,
-                                 first_bytes.data + first_bytes.data_length),
-            std::vector<uint8_t>(second_bytes.data,
-                                 second_bytes.data + second_bytes.data_length));
-  const auto* compiled = loom_vm_native_references_bytecode_create();
-  EXPECT_EQ(std::vector<uint8_t>(first_bytes.data,
-                                 first_bytes.data + first_bytes.data_length),
-            std::vector<uint8_t>(compiled[0].data,
-                                 compiled[0].data + compiled[0].size));
-
-  iree_allocator_free(iree_allocator_system(), second_bytes.data);
-  iree_allocator_free(iree_allocator_system(), first_bytes.data);
-  iree_byte_sequence_release(second);
-  iree_byte_sequence_release(first);
-  loom_vm_program_plan_deinitialize(&plan);
-  iree_arena_deinitialize(&arena);
 }
 
 class VMEmissionReferenceScalingTest
