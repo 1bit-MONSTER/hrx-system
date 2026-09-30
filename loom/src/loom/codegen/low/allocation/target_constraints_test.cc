@@ -360,7 +360,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
 }
 
 TEST_F(LowAllocationTargetConstraintsTest,
-       ResolvesFixedTiesIndependentOfValueOrdinalOrder) {
+       PropagatesFixedBindingsAcrossRetainedTiedOrigins) {
   loom_context_t context;
   loom_context_initialize(iree_allocator_system(), &context);
   IREE_ASSERT_OK(loom_context_finalize(&context));
@@ -368,8 +368,9 @@ TEST_F(LowAllocationTargetConstraintsTest,
   IREE_ASSERT_OK(loom_module_allocate(&context, IREE_SV("fixed"), &block_pool_,
                                       nullptr, iree_allocator_system(),
                                       &module));
-  // CFG layout and local value registration need not follow definition order.
-  // The required chain is ordinal 1 -> 2 -> 0, with only its final value fixed.
+  // Placement retains one origin for the required chain 1 -> 2 -> 0,
+  // independently of local value registration order. Only its final value has
+  // an explicit fixed binding.
   constexpr uint32_t kValueCount = 3;
   loom_value_id_t values[kValueCount];
   loom_liveness_interval_t intervals[kValueCount] = {};
@@ -431,6 +432,8 @@ TEST_F(LowAllocationTargetConstraintsTest,
   loom_low_placement_table_t placement = {};
   placement.relations = relations;
   placement.relation_count = IREE_ARRAYSIZE(relations);
+  const loom_value_ordinal_t tied_storage_origins[] = {1, 1, 1};
+  placement.tied_storage_origins_by_value_ordinal = tied_storage_origins;
   const loom_low_allocation_fixed_value_t fixed = {
       values[0], LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 6, 1};
   loom_low_allocation_target_constraints_t constraints = {};

@@ -284,11 +284,17 @@ static bool loom_low_allocation_search_hard_relation_conflicts(
                         LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD)) {
     return false;
   }
-  const loom_value_ordinal_t counterpart_ordinal =
+  loom_value_ordinal_t counterpart_ordinal =
       candidate_is_result ? relation->source_ordinal : relation->result_ordinal;
+  if (context->placement->tied_storage_origins_by_value_ordinal != NULL) {
+    counterpart_ordinal =
+        context->placement
+            ->tied_storage_origins_by_value_ordinal[counterpart_ordinal];
+  }
+  bool counterpart_is_future_fixed = false;
   const loom_low_allocation_assignment_t* counterpart =
-      loom_low_allocation_assignment_map_assignment_for_value_ordinal(
-          context->assignment_map, counterpart_ordinal, NULL);
+      loom_low_allocation_search_relation_counterpart(
+          context, counterpart_ordinal, &counterpart_is_future_fixed);
   if (counterpart == NULL) {
     return false;
   }
@@ -311,6 +317,10 @@ static bool loom_low_allocation_search_hard_relations_conflict(
   if (!loom_low_allocation_assignment_map_value_ordinal_for_value(
           context->assignment_map, candidate->value_id, &value_ordinal)) {
     return false;
+  }
+  if (placement->tied_storage_origins_by_value_ordinal != NULL) {
+    value_ordinal =
+        placement->tied_storage_origins_by_value_ordinal[value_ordinal];
   }
 
   const loom_low_placement_relation_range_t result_range =
