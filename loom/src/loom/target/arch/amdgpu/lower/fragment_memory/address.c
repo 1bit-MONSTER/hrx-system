@@ -208,6 +208,8 @@ bool loom_amdgpu_fragment_memory_uses_dynamic_view_base_value(
   // extracted static view-base delta from the immediate side of the address.
   return plan->address_realization == NULL && term_index == 0 &&
          plan->source.dynamic_view_base_term_count == 1 &&
+         plan->scalar_base.byte_offset == 0 &&
+         !iree_any_bit_set(plan->scalar_base.dynamic_term_mask, UINT32_C(1)) &&
          plan->source.dynamic_view_base_value_id != LOOM_VALUE_ID_INVALID;
 }
 
@@ -225,12 +227,15 @@ static bool loom_amdgpu_fragment_memory_address_base_key_for_plan(
   out_key->lane_term_count = plan->address_layout.lane_term_count;
   memcpy(out_key->lane_terms, plan->address_layout.lane_terms,
          out_key->lane_term_count * sizeof(out_key->lane_terms[0]));
-  out_key->dynamic_term_count = plan->source.dynamic_term_count;
   for (uint8_t i = 0; i < plan->source.dynamic_term_count; ++i) {
+    if (iree_any_bit_set(plan->scalar_base.dynamic_term_mask, UINT32_C(1)
+                                                                  << i)) {
+      continue;
+    }
     const loom_low_source_memory_dynamic_term_t* term =
         &plan->source.dynamic_terms[i];
     loom_amdgpu_fragment_memory_address_product_key_t* product =
-        &out_key->dynamic_terms[i];
+        &out_key->dynamic_terms[out_key->dynamic_term_count++];
     if (loom_amdgpu_fragment_memory_uses_dynamic_view_base_value(plan, i)) {
       product->values[0] = plan->source.dynamic_view_base_value_id;
       product->value_count = 1;
@@ -388,6 +393,10 @@ static iree_status_t loom_amdgpu_emit_fragment_memory_dynamic_source_terms(
     const loom_amdgpu_fragment_memory_address_state_t* address_state,
     loom_amdgpu_fragment_memory_address_accumulator_t* inout_accumulator) {
   for (uint8_t i = 0; i < plan->source.dynamic_term_count; ++i) {
+    if (iree_any_bit_set(plan->scalar_base.dynamic_term_mask, UINT32_C(1)
+                                                                  << i)) {
+      continue;
+    }
     const loom_low_source_memory_dynamic_term_t* term =
         &plan->source.dynamic_terms[i];
     IREE_ASSERT_GE(term->byte_stride, 0);
@@ -688,12 +697,14 @@ bool loom_amdgpu_fragment_memory_vaddr_static_offset_u32(
   if (plan->source.static_byte_offset < 0) {
     return false;
   }
-  int64_t static_byte_offset = plan->source.static_byte_offset;
+  int64_t static_byte_offset =
+      plan->source.static_byte_offset - (int64_t)plan->scalar_base.byte_offset;
   if (loom_amdgpu_fragment_memory_uses_dynamic_view_base_value(
           plan, /*term_index=*/0) &&
-      !iree_checked_sub_i64(static_byte_offset,
-                            plan->source.static_view_base_byte_offset,
-                            &static_byte_offset)) {
+      !iree_checked_sub_i64(
+          static_byte_offset,
+          plan->source.dynamic_view_base_value_static_byte_offset,
+          &static_byte_offset)) {
     return false;
   }
 

@@ -1037,7 +1037,7 @@ def _v_add_co_ci_u32_overlay(
             AmdgpuOperandOverlay("SDST", _sgpr_result("carry", units=2)),
             AmdgpuOperandOverlay("SRC0", _sgpr_vgpr_operand("lhs")),
             AmdgpuOperandOverlay("SRC1", _sgpr_vgpr_operand("rhs")),
-            AmdgpuOperandOverlay("SRC2", _sgpr_operand("carry_in", units=2)),
+            AmdgpuOperandOverlay("SRC2", _sgpr_predicate("carry_in", units=2)),
         ),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
@@ -1076,7 +1076,7 @@ def _v_sub_co_ci_u32_overlay(
             AmdgpuOperandOverlay("SDST", _sgpr_result("borrow", units=2)),
             AmdgpuOperandOverlay("SRC0", _sgpr_vgpr_operand("lhs")),
             AmdgpuOperandOverlay("SRC1", _sgpr_vgpr_operand("rhs")),
-            AmdgpuOperandOverlay("SRC2", _sgpr_operand("borrow_in", units=2)),
+            AmdgpuOperandOverlay("SRC2", _sgpr_predicate("borrow_in", units=2)),
         ),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )

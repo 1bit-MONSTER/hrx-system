@@ -344,7 +344,8 @@ static uint32_t loom_amdgpu_vector_register_count(
 }
 
 bool loom_amdgpu_type_is_word_memory_payload(loom_type_t type) {
-  if (loom_amdgpu_type_is_i32(type) || loom_amdgpu_type_is_f32(type)) {
+  if (loom_amdgpu_type_is_i32(type) || loom_amdgpu_type_is_i64(type) ||
+      loom_amdgpu_type_is_f32(type) || loom_amdgpu_type_is_f64(type)) {
     return true;
   }
   loom_amdgpu_vector_storage_t storage;

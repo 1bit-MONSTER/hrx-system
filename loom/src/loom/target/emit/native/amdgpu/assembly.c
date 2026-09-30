@@ -2329,11 +2329,40 @@ static iree_status_t loom_amdgpu_append_wait_states_before_packet(
     const loom_amdgpu_wait_state_t* wait_state =
         &state->packet_plan.wait_states
              ->states[state->packet_plan.next_wait_state_index];
-    if (!loom_amdgpu_wait_state_matches_packet(wait_state, context->packet)) {
+    if (!loom_amdgpu_wait_state_matches_packet(wait_state, context->packet) ||
+        wait_state->instruction_offset != 0) {
       return iree_ok_status();
     }
     IREE_RETURN_IF_ERROR(
         loom_amdgpu_append_wait_state_action(context, wait_state, state));
+    ++state->packet_plan.next_wait_state_index;
+  }
+  return iree_ok_status();
+}
+
+// Interior residuals follow a descriptor or a resolved move. The surrounding
+// packet formatter owns the final newline, just as it does for the instruction.
+static iree_status_t loom_amdgpu_append_wait_states_after_instruction(
+    loom_amdgpu_assembly_emit_state_t* state,
+    const loom_native_assembly_packet_context_t* context,
+    uint32_t instruction_offset) {
+  if (state == NULL || state->packet_plan.wait_states == NULL) {
+    return iree_ok_status();
+  }
+  while (state->packet_plan.next_wait_state_index <
+         state->packet_plan.wait_states->state_count) {
+    const loom_amdgpu_wait_state_t* wait_state =
+        &state->packet_plan.wait_states
+             ->states[state->packet_plan.next_wait_state_index];
+    if (!loom_amdgpu_wait_state_matches_packet(wait_state, context->packet) ||
+        wait_state->instruction_offset != instruction_offset) {
+      break;
+    }
+    IREE_ASSERT_EQ(wait_state->action,
+                   LOOM_AMDGPU_WAIT_STATE_ACTION_S_WAITCNT_DEPCTR);
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        context->builder, "\n  s_waitcnt_depctr 0x%04" PRIx16,
+        wait_state->immediate));
     ++state->packet_plan.next_wait_state_index;
   }
   return iree_ok_status();
@@ -2510,6 +2539,8 @@ static iree_status_t loom_amdgpu_emit_move_range(
         move->destination.descriptor_reg_class_id, &move_state.mnemonic));
     IREE_RETURN_IF_ERROR(loom_amdgpu_append_move(
         &move_state, &move->destination, &move->source));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_append_wait_states_after_instruction(
+        emit_state, context, (uint32_t)i + 1));
   }
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_append_vgpr_msb_mode(&move_state, saved_mode));
@@ -3435,7 +3466,9 @@ static iree_status_t loom_amdgpu_append_stateful_descriptor_packet(
     }
   }
   IREE_RETURN_IF_ERROR(loom_amdgpu_append_descriptor_packet(NULL, context));
-  return loom_amdgpu_update_vgpr_msb_mode_after_descriptor(state, context);
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_update_vgpr_msb_mode_after_descriptor(state, context));
+  return loom_amdgpu_append_wait_states_after_instruction(state, context, 1);
 }
 
 static iree_status_t loom_amdgpu_append_vopd_or_descriptor_packet(

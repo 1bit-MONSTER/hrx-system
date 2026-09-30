@@ -10,11 +10,47 @@
 
 #include "iree/testing/gtest.h"
 #include "loom/target/arch/amdgpu/descriptors/low_registry.h"
+#include "loom/target/arch/amdgpu/lower/fragment_memory/address.h"
 #include "loom/target/arch/amdgpu/lower/fragment_memory/layout.h"
 #include "loom/target/arch/amdgpu/matrix/contract.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 
 namespace {
+
+TEST(AmdgpuFragmentMemoryPacketTest, OriginPartitionPreservesStaticBytes) {
+  loom_amdgpu_fragment_memory_plan_t plan = {};
+  plan.source.static_byte_offset = 256;
+  plan.source.static_view_base_byte_offset = 256;
+  plan.source.dynamic_view_base_value_id = 1;
+  plan.source.dynamic_view_base_term_count = 1;
+  plan.source.dynamic_term_count = 1;
+  plan.register_count = 2;
+  plan.address_layout.register_byte_offsets[1] = 16;
+
+  // A recovered dynamic value excludes the static view contribution.
+  uint64_t offset = 0;
+  ASSERT_TRUE(loom_amdgpu_fragment_memory_vaddr_static_offset_u32(&plan, 1, 0,
+                                                                  &offset));
+  EXPECT_EQ(offset, 272u);
+
+  // An authored complete origin already includes that contribution.
+  plan.source.dynamic_view_base_value_static_byte_offset = 256;
+  ASSERT_TRUE(loom_amdgpu_fragment_memory_vaddr_static_offset_u32(&plan, 1, 0,
+                                                                  &offset));
+  EXPECT_EQ(offset, 16u);
+
+  // Moving the canonical origin to SADDR leaves the same relative packet
+  // displacement without changing the source-relative reporting address.
+  plan.scalar_base.byte_offset = 256;
+  plan.scalar_base.dynamic_term_mask = 1;
+  ASSERT_TRUE(loom_amdgpu_fragment_memory_vaddr_static_offset_u32(&plan, 1, 0,
+                                                                  &offset));
+  EXPECT_EQ(offset, 16u);
+  int64_t source_offset = 0;
+  ASSERT_TRUE(loom_amdgpu_fragment_memory_static_offset_i64(&plan, 1, 0,
+                                                            &source_offset));
+  EXPECT_EQ(source_offset, 272);
+}
 
 loom_amdgpu_fragment_memory_packet_plan_t Packet(
     loom_amdgpu_descriptor_ref_t descriptor_ref, uint16_t register_index,

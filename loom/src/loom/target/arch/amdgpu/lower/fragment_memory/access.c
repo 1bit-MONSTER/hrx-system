@@ -89,7 +89,22 @@ iree_status_t loom_amdgpu_fragment_memory_packet_resource(
   *out_low_packet_resource = low_binding;
   *out_low_soffset = LOOM_VALUE_ID_INVALID;
   if (!loom_amdgpu_fragment_memory_uses_buffer_descriptor(plan)) {
-    return iree_ok_status();
+    if (plan->scalar_base.dynamic_term_mask == 0 &&
+        plan->scalar_base.byte_offset == 0) {
+      return iree_ok_status();
+    }
+    loom_amdgpu_memory_dynamic_term_sequence_t sequence = {0};
+    for (uint8_t i = 0; i < plan->source.dynamic_term_count; ++i) {
+      if (iree_any_bit_set(plan->scalar_base.dynamic_term_mask, UINT32_C(1)
+                                                                    << i)) {
+        sequence.terms[sequence.count] = &plan->source.dynamic_terms[i];
+        sequence.kinds[sequence.count++] =
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET;
+      }
+    }
+    return loom_amdgpu_emit_sgpr_base_byte_offset_terms(
+        context, source_op, &sequence, plan->scalar_base.byte_offset,
+        low_binding, out_low_packet_resource);
   }
 
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(

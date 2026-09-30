@@ -184,9 +184,11 @@ loom_cc_library(
   NAME
     wait_states
   HDRS
+    "mask_write_wait.h"
     "store_data_wait.h"
     "wait_states.h"
   SRCS
+    "mask_write_wait.c"
     "store_data_wait.c"
     "wait_states.c"
   DEPS

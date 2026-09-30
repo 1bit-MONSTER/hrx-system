@@ -167,6 +167,14 @@ bool loom_amdgpu_source_memory_offset_fits_u32(
     const loom_low_source_memory_access_plan_t* source,
     int64_t static_byte_offset);
 
+// Returns canonical term bits whose indices and strides have scalar register
+// placement. This is a capability query, independent of packet cost policy.
+uint32_t loom_amdgpu_source_memory_scalar_term_mask(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    const loom_view_region_table_t* view_regions,
+    loom_amdgpu_source_value_analysis_t* analysis,
+    const loom_low_source_memory_access_plan_t* source);
+
 // Selects a complete AMDGPU memory packet sequence from a canonical source
 // access and facts into caller-owned bounded workspace. The mutable source
 // copy receives target visibility; operand paths use retained source placement.

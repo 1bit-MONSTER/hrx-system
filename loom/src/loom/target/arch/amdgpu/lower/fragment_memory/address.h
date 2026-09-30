@@ -108,8 +108,9 @@ iree_status_t loom_amdgpu_emit_fragment_memory_vaddr(
     loom_amdgpu_fragment_memory_address_state_t* address_state,
     loom_type_t vgpr_type, loom_amdgpu_fragment_memory_address_t* out_address);
 
-// Emits one physical fragment access's complete memory-space-relative byte
-// offset, including bytes represented by a descriptor immediate.
+// Emits one physical workgroup fragment access's complete byte offset,
+// including bytes represented by a descriptor immediate. Workgroup accesses
+// have no scalar-base partition and their complete address fits U32.
 iree_status_t loom_amdgpu_emit_fragment_memory_byte_offset(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_fragment_memory_plan_t* plan, uint16_t register_index,

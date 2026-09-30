@@ -51,7 +51,18 @@ static iree_status_t loom_amdgpu_wait_state_write_states_json(
         &state_object, IREE_SV("residual"), state->cycle_count));
     IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
         &state_object, IREE_SV("delay_alu_immediate"),
-        state->delay_alu_immediate));
+        state->action == LOOM_AMDGPU_WAIT_STATE_ACTION_S_DELAY_ALU
+            ? state->immediate
+            : 0));
+    if (state->instruction_offset != 0) {
+      IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+          &state_object, IREE_SV("instruction_offset"),
+          state->instruction_offset));
+    }
+    if (state->action == LOOM_AMDGPU_WAIT_STATE_ACTION_S_WAITCNT_DEPCTR) {
+      IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+          &state_object, IREE_SV("depctr_immediate"), state->immediate));
+    }
     if (state->matrix_result_use !=
         LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_UNKNOWN) {
       IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
@@ -103,9 +114,17 @@ iree_status_t loom_amdgpu_wait_state_plan_format_text(
         state->scheduled_ordinal, state->producer_node, state->consumer_node,
         state->required_cycle_count, state->observed_cycle_count,
         state->cycle_count));
+    if (state->instruction_offset != 0) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder, " after=%" PRIu32, state->instruction_offset));
+    }
+    if (state->action == LOOM_AMDGPU_WAIT_STATE_ACTION_S_WAITCNT_DEPCTR) {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+          builder, " depctr=0x%04" PRIx16, state->immediate));
+    }
     if (state->action == LOOM_AMDGPU_WAIT_STATE_ACTION_S_DELAY_ALU) {
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-          builder, " delay_alu=0x%04" PRIx16, state->delay_alu_immediate));
+          builder, " delay_alu=0x%04" PRIx16, state->immediate));
     }
     if (state->matrix_result_use !=
         LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_UNKNOWN) {
