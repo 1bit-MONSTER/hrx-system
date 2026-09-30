@@ -34,6 +34,7 @@ from loom.target.arch.spirv.builtins import (
     BuiltinScalarIndexQuery,
 )
 from loom.target.arch.spirv.contracts.atomic import SPIRV_ATOMIC_CONTRACT_CASES
+from loom.target.arch.spirv.contracts.bfloat import bfloat_narrow_rule
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
 )
@@ -1423,7 +1424,14 @@ def _vector_float_binary_rules() -> tuple[DescriptorRule, ...]:
 
 
 def _conversion_rules() -> tuple[DescriptorRule, ...]:
-    rules = [_conversion_rule(row) for row in DIRECT_SCALAR_CONVERSIONS]
+    rules = [
+        _conversion_rule(row)
+        for row in DIRECT_SCALAR_CONVERSIONS
+        if not (
+            row.source_op_key == "fptrunc" and row.result_type.source_type == "bf16"
+        )
+    ]
+    rules.append(bfloat_narrow_rule())
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
     rules.extend(
         integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)
