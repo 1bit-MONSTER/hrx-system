@@ -1881,6 +1881,7 @@ def test_vector_multiply_descriptors_own_configuration_state() -> None:
         assert len(setter.encoding_field_values) == 1
         assert setter.encoding_field_values[0].value == encoded_register
         assert DescriptorFlag.SIDE_EFFECTING in setter.flags
+        assert DescriptorFlag.STATE_ASSIGNMENT in setter.flags
         assert DescriptorFlag.DEAD_REMOVABLE not in setter.flags
         assert narrow_state_classes[state_field] == register_class
 
@@ -1902,6 +1903,7 @@ def test_vector_multiply_descriptors_own_configuration_state() -> None:
         assert state_write.encoding_field_id == 0
         assert len(setter.encoding_field_values) == 1
         assert setter.encoding_field_values[0].value == encoded_register
+        assert DescriptorFlag.STATE_ASSIGNMENT in setter.flags
         assert DescriptorFlag.SIDE_EFFECTING in setter.flags
         assert DescriptorFlag.DEAD_REMOVABLE not in setter.flags
     unsigned_unpack = descriptors["amd.xdna.aie2p.unpack.u4x64.to.u8x64.configured"]

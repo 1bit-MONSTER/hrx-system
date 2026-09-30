@@ -1374,6 +1374,32 @@ def validate_descriptor_speculation(descriptor: Descriptor) -> None:
             raise ValueError(f"descriptor '{descriptor.key}' speculation cannot write architectural state")
 
 
+def validate_descriptor_state_assignment(descriptor: Descriptor, register_classes: Mapping[str, RegClass]) -> None:
+    """Checks the shape promised by a deterministic whole-state replacement."""
+    if DescriptorFlag.STATE_ASSIGNMENT not in descriptor.flags:
+        return
+    description = f"descriptor '{descriptor.key}' state assignment"
+    forbidden = {DescriptorFlag.TERMINATOR, DescriptorFlag.BARRIER, DescriptorFlag.UNIQUE_IDENTITY, DescriptorFlag.VARIADIC_OPERANDS, DescriptorFlag.SAFE_TO_SPECULATE}
+    if forbidden.intersection(descriptor.flags) or descriptor.effects or descriptor.storage_leases:
+        raise ValueError(f"{description} must have no other effects")
+    writes = [operand for operand in descriptor.operands if OperandFlag.STATE_WRITE in operand.flags]
+    if len(writes) != 1:
+        raise ValueError(f"{description} must replace exactly one state register")
+    write = writes[0]
+    if write.role not in (OperandRole.RESULT, OperandRole.IMPLICIT) or write.unit_count != 1 or write.register_part is not None:
+        raise ValueError(f"{description} must replace the whole state register")
+    if write.role is OperandRole.IMPLICIT and DescriptorFlag.SIDE_EFFECTING not in descriptor.flags:
+        raise ValueError(f"{description} without an SSA result must retain its side effect")
+    register_class = register_classes[write.reg_alts[0].reg_class]
+    if _register_class_allocatable_count(register_class) != 1:
+        raise ValueError(f"{description} must name singleton architectural state")
+    for operand in descriptor.operands:
+        if OperandFlag.STATE_READ in operand.flags:
+            raise ValueError(f"{description} cannot depend on architectural state")
+        if operand is not write and operand.role is not OperandRole.OPERAND:
+            raise ValueError(f"{description} may only have explicit inputs and the assigned state result")
+
+
 def validate_register_part(part: RegisterPart) -> None:
     if part.mask == 0:
         raise ValueError(f"register part '{part.name}' has an empty mask")

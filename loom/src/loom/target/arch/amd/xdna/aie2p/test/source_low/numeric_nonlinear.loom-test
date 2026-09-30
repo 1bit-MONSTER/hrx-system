@@ -201,7 +201,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_f32_sin(%i
   %54 = sel.nez %51, %35, %53
   %55 = vbcst.32 %54
   %56 = vmov.vector512.to.accumulator512 %55
-  set.rounding 12
   %57 = vconv.bf16.fp32x16 %56
   %58 = concat(%57, %57) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
   %60 = vmul.bf16x32 %58, %58, %11
@@ -304,7 +303,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_f32_cos(%i
   %51 = and %49, %34
   %52 = vbcst.32 %50
   %53 = vmov.vector512.to.accumulator512 %52
-  set.rounding 12
   %54 = vconv.bf16.fp32x16 %53
   %55 = concat(%54, %54) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
   %57 = vmul.bf16x32 %55, %55, %11

@@ -252,10 +252,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_i32x16_uni
   set.rounding 0
   %18 = vups.2x.x-to-c.unsigned %input, %16
   %highest = vsrs.2x.c-to-x.unsigned %18, %17
-  set.saturation 0
-  set.ups-mode 1
-  set.srs-mode 1
-  set.rounding 0
   %22 = vups.2x.x-to-c.signed %input, %17
   %sign = vsrs.2x.c-to-x.signed %22, %16
   vst.512.i32x16 %input, %output_view, 0

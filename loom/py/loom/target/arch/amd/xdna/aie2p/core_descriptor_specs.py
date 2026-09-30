@@ -1541,6 +1541,7 @@ _BASE_DESCRIPTOR_SPECS = (
         (("dst", "mCRRnd"),),
         implicit_outputs=("dst",),
         asm_mnemonic="set.rounding",
+        flags=(DescriptorFlag.STATE_ASSIGNMENT,),
     ),
     _DescriptorSpec(
         "MOV_alu_mv_mv_mv_cg",
@@ -1550,6 +1551,7 @@ _BASE_DESCRIPTOR_SPECS = (
         (("dst", "mCRSRSMode"),),
         implicit_outputs=("dst",),
         asm_mnemonic="set.srs-mode",
+        flags=(DescriptorFlag.STATE_ASSIGNMENT,),
     ),
     _DescriptorSpec(
         "MOV_alu_mv_mv_mv_cg",
@@ -1559,6 +1561,7 @@ _BASE_DESCRIPTOR_SPECS = (
         (("dst", "mCRSat"),),
         implicit_outputs=("dst",),
         asm_mnemonic="set.saturation",
+        flags=(DescriptorFlag.STATE_ASSIGNMENT,),
     ),
     _DescriptorSpec(
         "MOV_alu_mv_mv_mv_cg",
@@ -1568,6 +1571,7 @@ _BASE_DESCRIPTOR_SPECS = (
         (("dst", "mCRUnpackSize"),),
         implicit_outputs=("dst",),
         asm_mnemonic="set.unpack-size",
+        flags=(DescriptorFlag.STATE_ASSIGNMENT,),
     ),
     _DescriptorSpec(
         "MOV_alu_mv_mv_mv_cg",
@@ -1577,6 +1581,7 @@ _BASE_DESCRIPTOR_SPECS = (
         (("dst", "mCRUPSMode"),),
         implicit_outputs=("dst",),
         asm_mnemonic="set.ups-mode",
+        flags=(DescriptorFlag.STATE_ASSIGNMENT,),
     ),
     _DescriptorSpec(
         "MOV_alu_mv_mv_mv_cg",
@@ -1586,6 +1591,7 @@ _BASE_DESCRIPTOR_SPECS = (
         (("dst", "mCRPackSize"),),
         implicit_outputs=("dst",),
         asm_mnemonic="set.pack-size",
+        flags=(DescriptorFlag.STATE_ASSIGNMENT,),
     ),
     _DescriptorSpec(
         "MOVXM",
