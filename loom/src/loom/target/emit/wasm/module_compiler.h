@@ -47,6 +47,10 @@ extern const loom_target_emitter_t loom_wasm_module_emitter;
 // Wasm binary module emission composed with the Wasm target fact type.
 extern const loom_target_provider_t loom_wasm_module_provider;
 
+// Complete Wasm compiler provider set containing the target architecture and
+// canonical module emitter.
+extern const loom_target_provider_set_t loom_wasm_compiler_provider_set;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

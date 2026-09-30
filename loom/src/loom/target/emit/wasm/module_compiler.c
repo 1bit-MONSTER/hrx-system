@@ -15,6 +15,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/target/arch/wasm/descriptors/descriptors.h"
 #include "loom/target/arch/wasm/ops/ops.h"
+#include "loom/target/arch/wasm/provider.h"
 #include "loom/target/registers.h"
 
 typedef struct loom_wasm_local_entry_t {
@@ -682,4 +683,14 @@ const loom_target_provider_t loom_wasm_module_provider = {
         },
     .canonical_module_emitter = &loom_wasm_module_emitter,
     .canonical_module_fact_type = &loom_wasm_target_fact_type,
+};
+
+static const loom_target_provider_t* const kWasmCompilerProviders[] = {
+    &loom_wasm_target_provider,
+    &loom_wasm_module_provider,
+};
+
+const loom_target_provider_set_t loom_wasm_compiler_provider_set = {
+    .providers = kWasmCompilerProviders,
+    .provider_count = IREE_ARRAYSIZE(kWasmCompilerProviders),
 };

@@ -9,6 +9,7 @@ load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "loom_cc_library",
     "loom_cc_test",
+    "loom_config_compatible_with",
     "loom_generated_cc_library",
 )
 
@@ -119,6 +120,7 @@ loom_cc_library(
         "//loom/src/loom/ops/low",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target:registers",
+        "//loom/src/loom/target/arch/wasm:provider",
         "//loom/src/loom/target/arch/wasm/descriptors",
         "//loom/src/loom/target/arch/wasm/ops",
         "//runtime/src/iree/base",
@@ -142,6 +144,20 @@ iree_assert_dependency_boundary(
     forbidden_subtrees = ["//loom/src/loom/codegen/low/..."],
     message = "Wasm binary emission may consume verified Low representation bindings but must not run target resolution or program planning",
     target = ":module_binary",
+)
+
+loom_cc_test(
+    name = "module_compiler_test",
+    srcs = ["module_compiler_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:wasm",
+    ]),
+    deps = [
+        ":module_compiler",
+        "//loom/src/loom/target:selection",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_cc_test(

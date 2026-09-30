@@ -138,9 +138,27 @@ loom_cc_library(
     loom::ops::op_defs
     loom::target::arch::wasm::descriptors
     loom::target::arch::wasm::ops
+    loom::target::arch::wasm::provider
     loom::target::provider
     loom::target::registers
   PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
+loom_cc_test(
+  NAME
+    module_compiler_test
+  SRCS
+    "module_compiler_test.cc"
+  DEPS
+    ::module_compiler
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::target::selection
+  LABELS
+    "iree-build-requirement=loom.target.arch.wasm"
+    "iree-build-requirement=loom.emit.wasm"
 )
 endif()
 
