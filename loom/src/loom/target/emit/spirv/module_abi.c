@@ -97,8 +97,8 @@ static iree_status_t loom_spirv_module_abi_lookup_value(
 
 static bool loom_spirv_module_abi_uses_raw_bda(
     const loom_spirv_function_plan_t* function_plan) {
-  return function_plan->target_bundle->export_plan->abi_kind ==
-         LOOM_TARGET_ABI_HAL_KERNEL;
+  return loom_spirv_function_plan_target_bundle(function_plan)
+             ->export_plan->abi_kind == LOOM_TARGET_ABI_HAL_KERNEL;
 }
 
 static bool loom_spirv_module_abi_type_is_named_opaque(
