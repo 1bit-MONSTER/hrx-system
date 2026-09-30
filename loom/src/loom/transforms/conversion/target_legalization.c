@@ -61,9 +61,11 @@ static bool loom_conversion_match_integer_to_narrow_float(
   (void)entry;
   const loom_scalar_type_t result_element = loom_type_element_type(
       loom_module_value_type(context->module, loom_op_results(op)[0]));
-  // All integers near a finite F16 rounding boundary are exactly representable
-  // in F32. Larger magnitudes overflow F16 with or without the intermediate.
-  if (result_element == LOOM_SCALAR_TYPE_F16) {
+  // All integers near a finite F16/FP8 rounding boundary are exact in F32.
+  // Larger magnitudes overflow IEEE formats or saturate E4M3 identically.
+  if (result_element == LOOM_SCALAR_TYPE_F16 ||
+      result_element == LOOM_SCALAR_TYPE_F8E4M3 ||
+      result_element == LOOM_SCALAR_TYPE_F8E5M2) {
     return true;
   }
   // I8/I16 are exact in F32. I32 is not: e.g. 16842753 rounds to BF16 0x4b81
@@ -105,7 +107,7 @@ static iree_status_t loom_conversion_legalize_float_to_integer(
       is_vector
           ? (is_signed ? loom_vector_fptosi_build : loom_vector_fptoui_build)
           : (is_signed ? loom_scalar_fptosi_build : loom_scalar_fptoui_build);
-  // Every F16/BF16 source value widens exactly, so the original toward-zero
+  // Every F16/BF16/FP8 source value widens exactly, so the original toward-zero
   // conversion and its defined integer result domain are unchanged.
   return loom_conversion_stage_f32(
       context, op, is_vector ? loom_vector_extf_build : loom_scalar_extf_build,
@@ -152,25 +154,33 @@ static const loom_target_legalizer_rule_t kConversionLegalizerRules[] = {
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_SCALAR_FPTOSI,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
         .legalize = loom_conversion_legalize_float_to_integer,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_SCALAR_FPTOUI,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
         .legalize = loom_conversion_legalize_float_to_integer,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_VECTOR_FPTOSI,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
         .legalize = loom_conversion_legalize_float_to_integer,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_VECTOR_FPTOUI,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_16BIT_FLOAT |
+                                       LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                       LOOM_SCALAR_TYPE_SET_F8E5M2,
         .legalize = loom_conversion_legalize_float_to_integer,
     },
 };

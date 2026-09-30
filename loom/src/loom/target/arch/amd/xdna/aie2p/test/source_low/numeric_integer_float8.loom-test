@@ -1,0 +1,1177 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_integer_float8.loom-test
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @sitofp_i8_f8E4M3_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi8>
+  %target = buffer.view %output[%base] : buffer -> view<4xf8E4M3>
+  %value = vector.load %source[0] : view<4xi8> -> vector<4xi8>
+  %converted = vector.sitofp %value : vector<4xi8> to vector<4xf8E4M3>
+  vector.store %converted, %target[0] : vector<4xf8E4M3>, view<4xf8E4M3>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @sitofp_i8_f8E4M3_4() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %40 = lda.u8 %source, 0
+  %41 = lda.u8 %source, 1
+  %42 = lda.u8 %source, 2
+  %43 = lda.u8 %source, 3
+  %44 = extend.s8 %40
+  %45 = mov.fx2flt-scale 0
+  %46 = convert.signed.i32.to.f32 %44, %45
+  %47 = mov.i32 -2147483648
+  %48 = mov.i32 2147483647
+  %49 = mov.i32 8388607
+  %50 = mov.i32 8388608
+  %51 = mov.short 1
+  %52 = mov.short 0
+  %53 = mov.short -24
+  %54 = mov.short -23
+  %55 = mov.short -20
+  %56 = and %46, %47
+  %57 = lshl %56, %53
+  %58 = and %46, %48
+  %59 = lshl %58, %54
+  %60 = and %58, %49
+  %61 = lshl %60, %55
+  %62 = and %61, %51
+  %63 = mov.i32 524287
+  %64 = add.rr %63, %62
+  %65 = add.rr %60, %64
+  %66 = lshl %65, %55
+  %67 = mov.short -120
+  %68 = add.rr %59, %67
+  %69 = mov.short 3
+  %70 = lshl %68, %69
+  %71 = add.rr %70, %66
+  %72 = mov.short 117
+  %73 = mov.short 121
+  %74 = mov.short 120
+  %75 = ltu %59, %72
+  %76 = copy %75 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %77 = sel.nez %72, %59, %76
+  %78 = geu %77, %73
+  %79 = copy %78 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %80 = sel.nez %74, %77, %79
+  %81 = mov.short 141
+  %82 = sub %80, %81
+  %83 = or %60, %50
+  %84 = lshl %83, %82
+  %85 = and %84, %51
+  %86 = mov.short 140
+  %87 = sub %86, %80
+  %88 = lshl %51, %87
+  %89 = sub %88, %51
+  %90 = add.rr %89, %85
+  %91 = add.rr %83, %90
+  %92 = lshl %91, %82
+  %93 = copy %75 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %94 = sel.nez %52, %92, %93
+  %95 = ltu %59, %73
+  %96 = copy %95 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %97 = sel.nez %94, %71, %96
+  %98 = mov.short 127
+  %99 = mov.short 126
+  %100 = geu %97, %98
+  %101 = copy %100 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %102 = sel.nez %99, %97, %101
+  %103 = copy %60 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %104 = sel.nez %98, %99, %103
+  %105 = mov.short 255
+  %106 = eq %59, %105
+  %107 = copy %106 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %108 = sel.nez %104, %102, %107
+  %109 = or %57, %108
+  %110 = extend.s8 %41
+  %112 = convert.signed.i32.to.f32 %110, %45
+  %122 = and %112, %47
+  %123 = lshl %122, %53
+  %124 = and %112, %48
+  %125 = lshl %124, %54
+  %126 = and %124, %49
+  %127 = lshl %126, %55
+  %128 = and %127, %51
+  %130 = add.rr %63, %128
+  %131 = add.rr %126, %130
+  %132 = lshl %131, %55
+  %134 = add.rr %125, %67
+  %136 = lshl %134, %69
+  %137 = add.rr %136, %132
+  %141 = ltu %125, %72
+  %142 = copy %141 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %143 = sel.nez %72, %125, %142
+  %144 = geu %143, %73
+  %145 = copy %144 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %146 = sel.nez %74, %143, %145
+  %148 = sub %146, %81
+  %149 = or %126, %50
+  %150 = lshl %149, %148
+  %151 = and %150, %51
+  %153 = sub %86, %146
+  %154 = lshl %51, %153
+  %155 = sub %154, %51
+  %156 = add.rr %155, %151
+  %157 = add.rr %149, %156
+  %158 = lshl %157, %148
+  %159 = copy %141 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %160 = sel.nez %52, %158, %159
+  %161 = ltu %125, %73
+  %162 = copy %161 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %163 = sel.nez %160, %137, %162
+  %166 = geu %163, %98
+  %167 = copy %166 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %168 = sel.nez %99, %163, %167
+  %169 = copy %126 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %170 = sel.nez %98, %99, %169
+  %172 = eq %125, %105
+  %173 = copy %172 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %174 = sel.nez %170, %168, %173
+  %175 = or %123, %174
+  %176 = extend.s8 %42
+  %178 = convert.signed.i32.to.f32 %176, %45
+  %188 = and %178, %47
+  %189 = lshl %188, %53
+  %190 = and %178, %48
+  %191 = lshl %190, %54
+  %192 = and %190, %49
+  %193 = lshl %192, %55
+  %194 = and %193, %51
+  %196 = add.rr %63, %194
+  %197 = add.rr %192, %196
+  %198 = lshl %197, %55
+  %200 = add.rr %191, %67
+  %202 = lshl %200, %69
+  %203 = add.rr %202, %198
+  %207 = ltu %191, %72
+  %208 = copy %207 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %209 = sel.nez %72, %191, %208
+  %210 = geu %209, %73
+  %211 = copy %210 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %212 = sel.nez %74, %209, %211
+  %214 = sub %212, %81
+  %215 = or %192, %50
+  %216 = lshl %215, %214
+  %217 = and %216, %51
+  %219 = sub %86, %212
+  %220 = lshl %51, %219
+  %221 = sub %220, %51
+  %222 = add.rr %221, %217
+  %223 = add.rr %215, %222
+  %224 = lshl %223, %214
+  %225 = copy %207 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %226 = sel.nez %52, %224, %225
+  %227 = ltu %191, %73
+  %228 = copy %227 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %229 = sel.nez %226, %203, %228
+  %232 = geu %229, %98
+  %233 = copy %232 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %234 = sel.nez %99, %229, %233
+  %235 = copy %192 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %236 = sel.nez %98, %99, %235
+  %238 = eq %191, %105
+  %239 = copy %238 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %240 = sel.nez %236, %234, %239
+  %241 = or %189, %240
+  %242 = extend.s8 %43
+  %244 = convert.signed.i32.to.f32 %242, %45
+  %254 = and %244, %47
+  %255 = lshl %254, %53
+  %256 = and %244, %48
+  %257 = lshl %256, %54
+  %258 = and %256, %49
+  %259 = lshl %258, %55
+  %260 = and %259, %51
+  %262 = add.rr %63, %260
+  %263 = add.rr %258, %262
+  %264 = lshl %263, %55
+  %266 = add.rr %257, %67
+  %268 = lshl %266, %69
+  %269 = add.rr %268, %264
+  %273 = ltu %257, %72
+  %274 = copy %273 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %275 = sel.nez %72, %257, %274
+  %276 = geu %275, %73
+  %277 = copy %276 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %278 = sel.nez %74, %275, %277
+  %280 = sub %278, %81
+  %281 = or %258, %50
+  %282 = lshl %281, %280
+  %283 = and %282, %51
+  %285 = sub %86, %278
+  %286 = lshl %51, %285
+  %287 = sub %286, %51
+  %288 = add.rr %287, %283
+  %289 = add.rr %281, %288
+  %290 = lshl %289, %280
+  %291 = copy %273 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %292 = sel.nez %52, %290, %291
+  %293 = ltu %257, %73
+  %294 = copy %293 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %295 = sel.nez %292, %269, %294
+  %298 = geu %295, %98
+  %299 = copy %298 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %300 = sel.nez %99, %295, %299
+  %301 = copy %258 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %302 = sel.nez %98, %99, %301
+  %304 = eq %257, %105
+  %305 = copy %304 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %306 = sel.nez %302, %300, %305
+  %307 = or %255, %306
+  st.s8 %109, %target, 0
+  st.s8 %175, %target, 1
+  st.s8 %241, %target, 2
+  st.s8 %307, %target, 3
+  return
+}
+
+// ====
+
+func.def @uitofp_i16_f8E5M2_3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xi16>
+  %target = buffer.view %output[%base] : buffer -> view<3xf8E5M2>
+  %value = vector.load %source[0] : view<3xi16> -> vector<3xi16>
+  %converted = vector.uitofp %value : vector<3xi16> to vector<3xf8E5M2>
+  vector.store %converted, %target[0] : vector<3xf8E5M2>, view<3xf8E5M2>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @uitofp_i16_f8E5M2_3() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %31 = lda.u16 %source, 0
+  %32 = lda.u16 %source, 2
+  %33 = lda.u16 %source, 4
+  %34 = extend.u16 %31
+  %35 = mov.fx2flt-scale 0
+  %36 = convert.signed.i32.to.f32 %34, %35
+  %37 = mov.i32 -2147483648
+  %38 = mov.i32 2147483647
+  %39 = mov.i32 8388607
+  %40 = mov.i32 8388608
+  %41 = mov.short 1
+  %42 = mov.short 0
+  %43 = mov.short -24
+  %44 = mov.short -23
+  %45 = mov.short -21
+  %46 = and %36, %37
+  %47 = lshl %46, %43
+  %48 = and %36, %38
+  %49 = lshl %48, %44
+  %50 = and %48, %39
+  %51 = lshl %50, %45
+  %52 = and %51, %41
+  %53 = mov.i32 1048575
+  %54 = add.rr %53, %52
+  %55 = add.rr %50, %54
+  %56 = lshl %55, %45
+  %57 = mov.short -112
+  %58 = add.rr %49, %57
+  %59 = mov.short 2
+  %60 = lshl %58, %59
+  %61 = add.rr %60, %56
+  %62 = mov.short 110
+  %63 = mov.short 113
+  %64 = mov.short 112
+  %65 = ltu %49, %62
+  %66 = copy %65 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %67 = sel.nez %62, %49, %66
+  %68 = geu %67, %63
+  %69 = copy %68 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %70 = sel.nez %64, %67, %69
+  %71 = mov.short 134
+  %72 = sub %70, %71
+  %73 = or %50, %40
+  %74 = lshl %73, %72
+  %75 = and %74, %41
+  %76 = mov.short 133
+  %77 = sub %76, %70
+  %78 = lshl %41, %77
+  %79 = sub %78, %41
+  %80 = add.rr %79, %75
+  %81 = add.rr %73, %80
+  %82 = lshl %81, %72
+  %83 = copy %65 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %84 = sel.nez %42, %82, %83
+  %85 = ltu %49, %63
+  %86 = copy %85 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %87 = sel.nez %84, %61, %86
+  %88 = mov.short 127
+  %89 = mov.short 124
+  %90 = mov.short 143
+  %91 = geu %49, %90
+  %92 = copy %91 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %93 = sel.nez %89, %87, %92
+  %94 = copy %50 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %95 = sel.nez %88, %89, %94
+  %96 = mov.short 255
+  %97 = eq %49, %96
+  %98 = copy %97 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %99 = sel.nez %95, %93, %98
+  %100 = or %47, %99
+  %101 = extend.u16 %32
+  %103 = convert.signed.i32.to.f32 %101, %35
+  %113 = and %103, %37
+  %114 = lshl %113, %43
+  %115 = and %103, %38
+  %116 = lshl %115, %44
+  %117 = and %115, %39
+  %118 = lshl %117, %45
+  %119 = and %118, %41
+  %121 = add.rr %53, %119
+  %122 = add.rr %117, %121
+  %123 = lshl %122, %45
+  %125 = add.rr %116, %57
+  %127 = lshl %125, %59
+  %128 = add.rr %127, %123
+  %132 = ltu %116, %62
+  %133 = copy %132 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %134 = sel.nez %62, %116, %133
+  %135 = geu %134, %63
+  %136 = copy %135 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %137 = sel.nez %64, %134, %136
+  %139 = sub %137, %71
+  %140 = or %117, %40
+  %141 = lshl %140, %139
+  %142 = and %141, %41
+  %144 = sub %76, %137
+  %145 = lshl %41, %144
+  %146 = sub %145, %41
+  %147 = add.rr %146, %142
+  %148 = add.rr %140, %147
+  %149 = lshl %148, %139
+  %150 = copy %132 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %151 = sel.nez %42, %149, %150
+  %152 = ltu %116, %63
+  %153 = copy %152 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %154 = sel.nez %151, %128, %153
+  %158 = geu %116, %90
+  %159 = copy %158 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %160 = sel.nez %89, %154, %159
+  %161 = copy %117 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %162 = sel.nez %88, %89, %161
+  %164 = eq %116, %96
+  %165 = copy %164 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %166 = sel.nez %162, %160, %165
+  %167 = or %114, %166
+  %168 = extend.u16 %33
+  %170 = convert.signed.i32.to.f32 %168, %35
+  %180 = and %170, %37
+  %181 = lshl %180, %43
+  %182 = and %170, %38
+  %183 = lshl %182, %44
+  %184 = and %182, %39
+  %185 = lshl %184, %45
+  %186 = and %185, %41
+  %188 = add.rr %53, %186
+  %189 = add.rr %184, %188
+  %190 = lshl %189, %45
+  %192 = add.rr %183, %57
+  %194 = lshl %192, %59
+  %195 = add.rr %194, %190
+  %199 = ltu %183, %62
+  %200 = copy %199 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %201 = sel.nez %62, %183, %200
+  %202 = geu %201, %63
+  %203 = copy %202 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %204 = sel.nez %64, %201, %203
+  %206 = sub %204, %71
+  %207 = or %184, %40
+  %208 = lshl %207, %206
+  %209 = and %208, %41
+  %211 = sub %76, %204
+  %212 = lshl %41, %211
+  %213 = sub %212, %41
+  %214 = add.rr %213, %209
+  %215 = add.rr %207, %214
+  %216 = lshl %215, %206
+  %217 = copy %199 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %218 = sel.nez %42, %216, %217
+  %219 = ltu %183, %63
+  %220 = copy %219 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %221 = sel.nez %218, %195, %220
+  %225 = geu %183, %90
+  %226 = copy %225 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %227 = sel.nez %89, %221, %226
+  %228 = copy %184 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %229 = sel.nez %88, %89, %228
+  %231 = eq %183, %96
+  %232 = copy %231 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %233 = sel.nez %229, %227, %232
+  %234 = or %181, %233
+  st.s8 %100, %target, 0
+  st.s8 %167, %target, 1
+  st.s8 %234, %target, 2
+  return
+}
+
+// ====
+
+func.def @sitofp_i32_f8E4M3_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf8E4M3>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.sitofp %value : i32 to f8E4M3
+  view.store %converted, %target[0] : f8E4M3, view<1xf8E4M3>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @sitofp_i32_f8E4M3_1() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value = lda %source, 0
+  %12 = mov.fx2flt-scale 0
+  %13 = convert.signed.i32.to.f32 %value, %12
+  %14 = mov.i32 -2147483648
+  %15 = mov.i32 2147483647
+  %16 = mov.i32 8388607
+  %17 = mov.i32 8388608
+  %18 = mov.short 1
+  %19 = mov.short 0
+  %20 = mov.short -24
+  %21 = mov.short -23
+  %22 = mov.short -20
+  %23 = and %13, %14
+  %24 = lshl %23, %20
+  %25 = and %13, %15
+  %26 = lshl %25, %21
+  %27 = and %25, %16
+  %28 = lshl %27, %22
+  %29 = and %28, %18
+  %30 = mov.i32 524287
+  %31 = add.rr %30, %29
+  %32 = add.rr %27, %31
+  %33 = lshl %32, %22
+  %34 = mov.short -120
+  %35 = add.rr %26, %34
+  %36 = mov.short 3
+  %37 = lshl %35, %36
+  %38 = add.rr %37, %33
+  %39 = mov.short 117
+  %40 = mov.short 121
+  %41 = mov.short 120
+  %42 = ltu %26, %39
+  %43 = copy %42 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %44 = sel.nez %39, %26, %43
+  %45 = geu %44, %40
+  %46 = copy %45 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %47 = sel.nez %41, %44, %46
+  %48 = mov.short 141
+  %49 = sub %47, %48
+  %50 = or %27, %17
+  %51 = lshl %50, %49
+  %52 = and %51, %18
+  %53 = mov.short 140
+  %54 = sub %53, %47
+  %55 = lshl %18, %54
+  %56 = sub %55, %18
+  %57 = add.rr %56, %52
+  %58 = add.rr %50, %57
+  %59 = lshl %58, %49
+  %60 = copy %42 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %61 = sel.nez %19, %59, %60
+  %62 = ltu %26, %40
+  %63 = copy %62 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %64 = sel.nez %61, %38, %63
+  %65 = mov.short 127
+  %66 = mov.short 126
+  %67 = geu %64, %65
+  %68 = copy %67 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %69 = sel.nez %66, %64, %68
+  %70 = copy %27 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %71 = sel.nez %65, %66, %70
+  %72 = mov.short 255
+  %73 = eq %26, %72
+  %74 = copy %73 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %75 = sel.nez %71, %69, %74
+  %converted = or %24, %75
+  st.s8 %converted, %target, 0
+  return
+}
+
+// ====
+
+func.def @uitofp_i32_f8E5M2_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xi32>
+  %target = buffer.view %output[%base] : buffer -> view<1xf8E5M2>
+  %value = view.load %source[0] : view<1xi32> -> i32
+  %converted = scalar.uitofp %value : i32 to f8E5M2
+  view.store %converted, %target[0] : f8E5M2, view<1xf8E5M2>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @uitofp_i32_f8E5M2_1() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value = lda %source, 0
+  %12 = mov.short 0
+  %13 = mov.short 1
+  %14 = mov.short -1
+  %15 = mov.i32 8388608
+  %16 = lt %value, %12
+  %17 = lshl %value, %14
+  %18 = and %value, %13
+  %19 = or %17, %18
+  %20 = copy %16 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %21 = sel.nez %19, %value, %20
+  %22 = mov.fx2flt-scale 0
+  %23 = convert.signed.i32.to.f32 %21, %22
+  %24 = copy %16 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %25 = sel.nez %15, %12, %24
+  %26 = add.rr %23, %25
+  %27 = mov.i32 -2147483648
+  %28 = mov.i32 2147483647
+  %29 = mov.i32 8388607
+  %33 = mov.short -24
+  %34 = mov.short -23
+  %35 = mov.short -21
+  %36 = and %26, %27
+  %37 = lshl %36, %33
+  %38 = and %26, %28
+  %39 = lshl %38, %34
+  %40 = and %38, %29
+  %41 = lshl %40, %35
+  %42 = and %41, %13
+  %43 = mov.i32 1048575
+  %44 = add.rr %43, %42
+  %45 = add.rr %40, %44
+  %46 = lshl %45, %35
+  %47 = mov.short -112
+  %48 = add.rr %39, %47
+  %49 = mov.short 2
+  %50 = lshl %48, %49
+  %51 = add.rr %50, %46
+  %52 = mov.short 110
+  %53 = mov.short 113
+  %54 = mov.short 112
+  %55 = ltu %39, %52
+  %56 = copy %55 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %57 = sel.nez %52, %39, %56
+  %58 = geu %57, %53
+  %59 = copy %58 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %60 = sel.nez %54, %57, %59
+  %61 = mov.short 134
+  %62 = sub %60, %61
+  %63 = or %40, %15
+  %64 = lshl %63, %62
+  %65 = and %64, %13
+  %66 = mov.short 133
+  %67 = sub %66, %60
+  %68 = lshl %13, %67
+  %69 = sub %68, %13
+  %70 = add.rr %69, %65
+  %71 = add.rr %63, %70
+  %72 = lshl %71, %62
+  %73 = copy %55 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %74 = sel.nez %12, %72, %73
+  %75 = ltu %39, %53
+  %76 = copy %75 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %77 = sel.nez %74, %51, %76
+  %78 = mov.short 127
+  %79 = mov.short 124
+  %80 = mov.short 143
+  %81 = geu %39, %80
+  %82 = copy %81 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %83 = sel.nez %79, %77, %82
+  %84 = copy %40 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %85 = sel.nez %78, %79, %84
+  %86 = mov.short 255
+  %87 = eq %39, %86
+  %88 = copy %87 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %89 = sel.nez %85, %83, %88
+  %converted = or %37, %89
+  st.s8 %converted, %target, 0
+  return
+}
+
+// ====
+
+func.def @fptosi_f8E4M3_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf8E4M3>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf8E4M3> -> f8E4M3
+  %converted = scalar.fptosi %value : f8E4M3 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @fptosi_f8E4M3_i16_1() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value = lda.u8 %source, 0
+  %12 = mov.short 128
+  %13 = mov.short 127
+  %14 = mov.short 7
+  %15 = mov.short 120
+  %16 = mov.short -3
+  %17 = mov.short 24
+  %18 = mov.short 20
+  %19 = mov.short 23
+  %20 = mov.short 255
+  %21 = and %value, %20
+  %22 = and %21, %12
+  %23 = lshl %22, %17
+  %24 = and %21, %13
+  %25 = and %21, %15
+  %26 = lshl %25, %16
+  %27 = and %21, %14
+  %29 = add.rr %26, %15
+  %30 = lshl %29, %19
+  %31 = lshl %27, %18
+  %32 = or %30, %31
+  %33 = or %23, %32
+  %34 = clz %27
+  %35 = mov.short -28
+  %36 = add.rr %34, %35
+  %37 = lshl %27, %36
+  %38 = and %37, %14
+  %39 = lshl %38, %18
+  %40 = mov.short 121
+  %41 = sub %40, %36
+  %42 = lshl %41, %19
+  %43 = or %42, %39
+  %44 = or %23, %43
+  %45 = copy %27 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %46 = sel.nez %44, %23, %45
+  %47 = eqz %26
+  %48 = copy %47 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %49 = sel.nez %46, %33, %48
+  %50 = mov.i32 2143289344
+  %52 = eq %24, %13
+  %53 = copy %52 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %54 = sel.nez %50, %49, %53
+  %55 = mov.flt2fx-scale 0
+  %56 = convert.round-nearest.f32.to.signed.i32 %54, %55
+  %57 = mov.fx2flt-scale 0
+  %58 = convert.signed.i32.to.f32 %56, %57
+  %59 = mov.i32 2147483647
+  %60 = and %54, %59
+  %61 = and %58, %59
+  %62 = ltu %60, %61
+  %63 = add %56, 1
+  %64 = add %56, -1
+  %65 = mov.i32 -2147483648
+  %66 = and %54, %65
+  %67 = copy %66 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %68 = sel.nez %63, %64, %67
+  %69 = copy %62 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %converted = sel.nez %68, %56, %69
+  st.s16 %converted, %target, 0
+  return
+}
+
+// ====
+
+func.def @fptosi_f8E5M2_i32_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf8E5M2>
+  %target = buffer.view %output[%base] : buffer -> view<4xi32>
+  %value = vector.load %source[0] : view<4xf8E5M2> -> vector<4xf8E5M2>
+  %converted = vector.fptosi %value : vector<4xf8E5M2> to vector<4xi32>
+  vector.store %converted, %target[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @fptosi_f8E5M2_i32_4() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %40 = lda.u8 %source, 0
+  %41 = lda.u8 %source, 1
+  %42 = lda.u8 %source, 2
+  %43 = lda.u8 %source, 3
+  %44 = mov.short 128
+  %46 = mov.short 3
+  %47 = mov.short 124
+  %48 = mov.short -2
+  %49 = mov.short 24
+  %50 = mov.short 21
+  %51 = mov.short 23
+  %52 = mov.short 255
+  %53 = and %40, %52
+  %54 = and %53, %44
+  %55 = lshl %54, %49
+  %57 = and %53, %47
+  %58 = lshl %57, %48
+  %59 = and %53, %46
+  %60 = mov.short 112
+  %61 = add.rr %58, %60
+  %62 = lshl %61, %51
+  %63 = lshl %59, %50
+  %64 = or %62, %63
+  %65 = or %55, %64
+  %66 = clz %59
+  %67 = mov.short -29
+  %68 = add.rr %66, %67
+  %69 = lshl %59, %68
+  %70 = and %69, %46
+  %71 = lshl %70, %50
+  %72 = mov.short 113
+  %73 = sub %72, %68
+  %74 = lshl %73, %51
+  %75 = or %74, %71
+  %76 = or %55, %75
+  %77 = copy %59 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %78 = sel.nez %76, %55, %77
+  %79 = eqz %58
+  %80 = copy %79 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %81 = sel.nez %78, %65, %80
+  %82 = mov.i32 2143289344
+  %83 = mov.short 31
+  %84 = eq %58, %83
+  %85 = mov.i32 2139095040
+  %86 = or %55, %85
+  %87 = copy %59 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %88 = sel.nez %82, %86, %87
+  %89 = copy %84 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %90 = sel.nez %88, %81, %89
+  %91 = mov.flt2fx-scale 0
+  %92 = convert.round-nearest.f32.to.signed.i32 %90, %91
+  %93 = mov.fx2flt-scale 0
+  %94 = convert.signed.i32.to.f32 %92, %93
+  %95 = mov.i32 2147483647
+  %96 = and %90, %95
+  %97 = and %94, %95
+  %98 = ltu %96, %97
+  %99 = add %92, 1
+  %100 = add %92, -1
+  %101 = mov.i32 -2147483648
+  %102 = and %90, %101
+  %103 = copy %102 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %104 = sel.nez %99, %100, %103
+  %105 = copy %98 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %106 = sel.nez %104, %92, %105
+  %116 = and %41, %52
+  %117 = and %116, %44
+  %118 = lshl %117, %49
+  %120 = and %116, %47
+  %121 = lshl %120, %48
+  %122 = and %116, %46
+  %124 = add.rr %121, %60
+  %125 = lshl %124, %51
+  %126 = lshl %122, %50
+  %127 = or %125, %126
+  %128 = or %118, %127
+  %129 = clz %122
+  %131 = add.rr %129, %67
+  %132 = lshl %122, %131
+  %133 = and %132, %46
+  %134 = lshl %133, %50
+  %136 = sub %72, %131
+  %137 = lshl %136, %51
+  %138 = or %137, %134
+  %139 = or %118, %138
+  %140 = copy %122 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %141 = sel.nez %139, %118, %140
+  %142 = eqz %121
+  %143 = copy %142 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %144 = sel.nez %141, %128, %143
+  %147 = eq %121, %83
+  %149 = or %118, %85
+  %150 = copy %122 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %151 = sel.nez %82, %149, %150
+  %152 = copy %147 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %153 = sel.nez %151, %144, %152
+  %155 = convert.round-nearest.f32.to.signed.i32 %153, %91
+  %157 = convert.signed.i32.to.f32 %155, %93
+  %159 = and %153, %95
+  %160 = and %157, %95
+  %161 = ltu %159, %160
+  %162 = add %155, 1
+  %163 = add %155, -1
+  %165 = and %153, %101
+  %166 = copy %165 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %167 = sel.nez %162, %163, %166
+  %168 = copy %161 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %169 = sel.nez %167, %155, %168
+  %179 = and %42, %52
+  %180 = and %179, %44
+  %181 = lshl %180, %49
+  %183 = and %179, %47
+  %184 = lshl %183, %48
+  %185 = and %179, %46
+  %187 = add.rr %184, %60
+  %188 = lshl %187, %51
+  %189 = lshl %185, %50
+  %190 = or %188, %189
+  %191 = or %181, %190
+  %192 = clz %185
+  %194 = add.rr %192, %67
+  %195 = lshl %185, %194
+  %196 = and %195, %46
+  %197 = lshl %196, %50
+  %199 = sub %72, %194
+  %200 = lshl %199, %51
+  %201 = or %200, %197
+  %202 = or %181, %201
+  %203 = copy %185 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %204 = sel.nez %202, %181, %203
+  %205 = eqz %184
+  %206 = copy %205 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %207 = sel.nez %204, %191, %206
+  %210 = eq %184, %83
+  %212 = or %181, %85
+  %213 = copy %185 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %214 = sel.nez %82, %212, %213
+  %215 = copy %210 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %216 = sel.nez %214, %207, %215
+  %218 = convert.round-nearest.f32.to.signed.i32 %216, %91
+  %220 = convert.signed.i32.to.f32 %218, %93
+  %222 = and %216, %95
+  %223 = and %220, %95
+  %224 = ltu %222, %223
+  %225 = add %218, 1
+  %226 = add %218, -1
+  %228 = and %216, %101
+  %229 = copy %228 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %230 = sel.nez %225, %226, %229
+  %231 = copy %224 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %232 = sel.nez %230, %218, %231
+  %242 = and %43, %52
+  %243 = and %242, %44
+  %244 = lshl %243, %49
+  %246 = and %242, %47
+  %247 = lshl %246, %48
+  %248 = and %242, %46
+  %250 = add.rr %247, %60
+  %251 = lshl %250, %51
+  %252 = lshl %248, %50
+  %253 = or %251, %252
+  %254 = or %244, %253
+  %255 = clz %248
+  %257 = add.rr %255, %67
+  %258 = lshl %248, %257
+  %259 = and %258, %46
+  %260 = lshl %259, %50
+  %262 = sub %72, %257
+  %263 = lshl %262, %51
+  %264 = or %263, %260
+  %265 = or %244, %264
+  %266 = copy %248 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %267 = sel.nez %265, %244, %266
+  %268 = eqz %247
+  %269 = copy %268 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %270 = sel.nez %267, %254, %269
+  %273 = eq %247, %83
+  %275 = or %244, %85
+  %276 = copy %248 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %277 = sel.nez %82, %275, %276
+  %278 = copy %273 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %279 = sel.nez %277, %270, %278
+  %281 = convert.round-nearest.f32.to.signed.i32 %279, %91
+  %283 = convert.signed.i32.to.f32 %281, %93
+  %285 = and %279, %95
+  %286 = and %283, %95
+  %287 = ltu %285, %286
+  %288 = add %281, 1
+  %289 = add %281, -1
+  %291 = and %279, %101
+  %292 = copy %291 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %293 = sel.nez %288, %289, %292
+  %294 = copy %287 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %295 = sel.nez %293, %281, %294
+  st %106, %target, 0
+  st %169, %target, 4
+  st %232, %target, 8
+  st %295, %target, 12
+  return
+}
+
+// ====
+
+func.def @fptoui_f8E4M3_i8_4(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf8E4M3>
+  %target = buffer.view %output[%base] : buffer -> view<4xi8>
+  %value = vector.load %source[0] : view<4xf8E4M3> -> vector<4xf8E4M3>
+  %converted = vector.fptoui %value : vector<4xf8E4M3> to vector<4xi8>
+  vector.store %converted, %target[0] : vector<4xi8>, view<4xi8>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @fptoui_f8E4M3_i8_4() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %40 = lda.u8 %source, 0
+  %41 = lda.u8 %source, 1
+  %42 = lda.u8 %source, 2
+  %43 = lda.u8 %source, 3
+  %44 = mov.short 128
+  %45 = mov.short 127
+  %46 = mov.short 7
+  %47 = mov.short 120
+  %48 = mov.short -3
+  %49 = mov.short 24
+  %50 = mov.short 20
+  %51 = mov.short 23
+  %52 = mov.short 255
+  %53 = and %40, %52
+  %54 = and %53, %44
+  %55 = lshl %54, %49
+  %56 = and %53, %45
+  %57 = and %53, %47
+  %58 = lshl %57, %48
+  %59 = and %53, %46
+  %61 = add.rr %58, %47
+  %62 = lshl %61, %51
+  %63 = lshl %59, %50
+  %64 = or %62, %63
+  %65 = or %55, %64
+  %66 = clz %59
+  %67 = mov.short -28
+  %68 = add.rr %66, %67
+  %69 = lshl %59, %68
+  %70 = and %69, %46
+  %71 = lshl %70, %50
+  %72 = mov.short 121
+  %73 = sub %72, %68
+  %74 = lshl %73, %51
+  %75 = or %74, %71
+  %76 = or %55, %75
+  %77 = copy %59 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %78 = sel.nez %76, %55, %77
+  %79 = eqz %58
+  %80 = copy %79 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %81 = sel.nez %78, %65, %80
+  %82 = mov.i32 2143289344
+  %84 = eq %56, %45
+  %85 = copy %84 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %86 = sel.nez %82, %81, %85
+  %87 = mov.flt2fx-scale 0
+  %88 = convert.round-nearest.f32.to.signed.i32 %86, %87
+  %89 = mov.fx2flt-scale 0
+  %90 = convert.signed.i32.to.f32 %88, %89
+  %91 = mov.i32 2147483647
+  %92 = and %86, %91
+  %93 = and %90, %91
+  %94 = ltu %92, %93
+  %95 = add %88, 1
+  %96 = add %88, -1
+  %97 = mov.i32 -2147483648
+  %98 = and %86, %97
+  %99 = copy %98 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %100 = sel.nez %95, %96, %99
+  %101 = copy %94 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %102 = sel.nez %100, %88, %101
+  %112 = and %41, %52
+  %113 = and %112, %44
+  %114 = lshl %113, %49
+  %115 = and %112, %45
+  %116 = and %112, %47
+  %117 = lshl %116, %48
+  %118 = and %112, %46
+  %120 = add.rr %117, %47
+  %121 = lshl %120, %51
+  %122 = lshl %118, %50
+  %123 = or %121, %122
+  %124 = or %114, %123
+  %125 = clz %118
+  %127 = add.rr %125, %67
+  %128 = lshl %118, %127
+  %129 = and %128, %46
+  %130 = lshl %129, %50
+  %132 = sub %72, %127
+  %133 = lshl %132, %51
+  %134 = or %133, %130
+  %135 = or %114, %134
+  %136 = copy %118 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %137 = sel.nez %135, %114, %136
+  %138 = eqz %117
+  %139 = copy %138 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %140 = sel.nez %137, %124, %139
+  %143 = eq %115, %45
+  %144 = copy %143 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %145 = sel.nez %82, %140, %144
+  %147 = convert.round-nearest.f32.to.signed.i32 %145, %87
+  %149 = convert.signed.i32.to.f32 %147, %89
+  %151 = and %145, %91
+  %152 = and %149, %91
+  %153 = ltu %151, %152
+  %154 = add %147, 1
+  %155 = add %147, -1
+  %157 = and %145, %97
+  %158 = copy %157 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %159 = sel.nez %154, %155, %158
+  %160 = copy %153 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %161 = sel.nez %159, %147, %160
+  %171 = and %42, %52
+  %172 = and %171, %44
+  %173 = lshl %172, %49
+  %174 = and %171, %45
+  %175 = and %171, %47
+  %176 = lshl %175, %48
+  %177 = and %171, %46
+  %179 = add.rr %176, %47
+  %180 = lshl %179, %51
+  %181 = lshl %177, %50
+  %182 = or %180, %181
+  %183 = or %173, %182
+  %184 = clz %177
+  %186 = add.rr %184, %67
+  %187 = lshl %177, %186
+  %188 = and %187, %46
+  %189 = lshl %188, %50
+  %191 = sub %72, %186
+  %192 = lshl %191, %51
+  %193 = or %192, %189
+  %194 = or %173, %193
+  %195 = copy %177 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %196 = sel.nez %194, %173, %195
+  %197 = eqz %176
+  %198 = copy %197 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %199 = sel.nez %196, %183, %198
+  %202 = eq %174, %45
+  %203 = copy %202 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %204 = sel.nez %82, %199, %203
+  %206 = convert.round-nearest.f32.to.signed.i32 %204, %87
+  %208 = convert.signed.i32.to.f32 %206, %89
+  %210 = and %204, %91
+  %211 = and %208, %91
+  %212 = ltu %210, %211
+  %213 = add %206, 1
+  %214 = add %206, -1
+  %216 = and %204, %97
+  %217 = copy %216 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %218 = sel.nez %213, %214, %217
+  %219 = copy %212 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %220 = sel.nez %218, %206, %219
+  %230 = and %43, %52
+  %231 = and %230, %44
+  %232 = lshl %231, %49
+  %233 = and %230, %45
+  %234 = and %230, %47
+  %235 = lshl %234, %48
+  %236 = and %230, %46
+  %238 = add.rr %235, %47
+  %239 = lshl %238, %51
+  %240 = lshl %236, %50
+  %241 = or %239, %240
+  %242 = or %232, %241
+  %243 = clz %236
+  %245 = add.rr %243, %67
+  %246 = lshl %236, %245
+  %247 = and %246, %46
+  %248 = lshl %247, %50
+  %250 = sub %72, %245
+  %251 = lshl %250, %51
+  %252 = or %251, %248
+  %253 = or %232, %252
+  %254 = copy %236 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %255 = sel.nez %253, %232, %254
+  %256 = eqz %235
+  %257 = copy %256 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %258 = sel.nez %255, %242, %257
+  %261 = eq %233, %45
+  %262 = copy %261 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %263 = sel.nez %82, %258, %262
+  %265 = convert.round-nearest.f32.to.signed.i32 %263, %87
+  %267 = convert.signed.i32.to.f32 %265, %89
+  %269 = and %263, %91
+  %270 = and %267, %91
+  %271 = ltu %269, %270
+  %272 = add %265, 1
+  %273 = add %265, -1
+  %275 = and %263, %97
+  %276 = copy %275 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %277 = sel.nez %272, %273, %276
+  %278 = copy %271 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %279 = sel.nez %277, %265, %278
+  st.s8 %102, %target, 0
+  st.s8 %161, %target, 1
+  st.s8 %220, %target, 2
+  st.s8 %279, %target, 3
+  return
+}
+
+// ====
+
+func.def @fptoui_f8E5M2_i16_1(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<1xf8E5M2>
+  %target = buffer.view %output[%base] : buffer -> view<1xi16>
+  %value = view.load %source[0] : view<1xf8E5M2> -> f8E5M2
+  %converted = scalar.fptoui %value : f8E5M2 to i16
+  view.store %converted, %target[0] : i16, view<1xi16>
+  func.return
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @fptoui_f8E5M2_i16_1() asm {
+  %source = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %target = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %value = lda.u8 %source, 0
+  %12 = mov.short 128
+  %14 = mov.short 3
+  %15 = mov.short 124
+  %16 = mov.short -2
+  %17 = mov.short 24
+  %18 = mov.short 21
+  %19 = mov.short 23
+  %20 = mov.short 255
+  %21 = and %value, %20
+  %22 = and %21, %12
+  %23 = lshl %22, %17
+  %25 = and %21, %15
+  %26 = lshl %25, %16
+  %27 = and %21, %14
+  %28 = mov.short 112
+  %29 = add.rr %26, %28
+  %30 = lshl %29, %19
+  %31 = lshl %27, %18
+  %32 = or %30, %31
+  %33 = or %23, %32
+  %34 = clz %27
+  %35 = mov.short -29
+  %36 = add.rr %34, %35
+  %37 = lshl %27, %36
+  %38 = and %37, %14
+  %39 = lshl %38, %18
+  %40 = mov.short 113
+  %41 = sub %40, %36
+  %42 = lshl %41, %19
+  %43 = or %42, %39
+  %44 = or %23, %43
+  %45 = copy %27 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %46 = sel.nez %44, %23, %45
+  %47 = eqz %26
+  %48 = copy %47 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %49 = sel.nez %46, %33, %48
+  %50 = mov.i32 2143289344
+  %51 = mov.short 31
+  %52 = eq %26, %51
+  %53 = mov.i32 2139095040
+  %54 = or %23, %53
+  %55 = copy %27 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %56 = sel.nez %50, %54, %55
+  %57 = copy %52 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %58 = sel.nez %56, %49, %57
+  %59 = mov.flt2fx-scale 0
+  %60 = convert.round-nearest.f32.to.signed.i32 %58, %59
+  %61 = mov.fx2flt-scale 0
+  %62 = convert.signed.i32.to.f32 %60, %61
+  %63 = mov.i32 2147483647
+  %64 = and %58, %63
+  %65 = and %62, %63
+  %66 = ltu %64, %65
+  %67 = add %60, 1
+  %68 = add %60, -1
+  %69 = mov.i32 -2147483648
+  %70 = and %58, %69
+  %71 = copy %70 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %72 = sel.nez %67, %68, %71
+  %73 = copy %66 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %converted = sel.nez %72, %60, %73
+  st.s16 %converted, %target, 0
+  return
+}

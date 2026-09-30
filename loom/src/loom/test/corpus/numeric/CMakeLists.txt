@@ -16,6 +16,7 @@ loom_corpus_sources(
     "numeric"
   SRCS
     "conversion/conversion.loom"
+    "conversion/integer_float8.loom"
     "conversion/narrow.loom"
     "conversion/narrow_arithmetic.loom"
     "conversion/narrow_integer_float.loom"
