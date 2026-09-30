@@ -46,6 +46,23 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    xfail
+  HDRS
+    "xfail.h"
+  SRCS
+    "xfail.c"
+  DEPS
+    iree::base
+    loom::error::diagnostic
+    loom::error::error_defs
+    loom::tooling::testbench::api
+    loom::tooling::testbench::expectation
+    loom::util::json
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     main
   HDRS
     "main.h"
@@ -53,6 +70,7 @@ loom_cc_library(
     "main.c"
   DEPS
     ::library_linker
+    ::xfail
     iree::base
     iree::base::internal::path
     iree::base::tooling::flags
@@ -160,6 +178,7 @@ iree_execution_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/linked_input_cases.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/requirement_cases.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/scalar_cases.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/iree-test-loom/testdata/xfail_cases.loom"
   LABELS
     "hostonly"
 )
