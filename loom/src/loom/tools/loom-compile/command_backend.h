@@ -42,7 +42,9 @@ typedef struct loom_compile_command_backend_options_t {
   uint32_t max_errors;
 } loom_compile_command_backend_options_t;
 
-// Emits the resolved command roots from an indexed source module.
+// Emits the resolved command roots from an indexed source module. The
+// package-local caller guarantees a live session and verified module,
+// validated output paths, and a non-NULL output pointer.
 //
 // Root artifacts are written to |options->artifact_directory| using canonical
 // ordinal filenames. The schema-versioned manifest at |manifest_path| maps

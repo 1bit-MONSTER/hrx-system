@@ -37,6 +37,7 @@ loom_cc_library(
     name = "command_backend",
     srcs = ["command_backend.c"],
     hdrs = ["command_backend.h"],
+    visibility = ["//loom/src/loom/tools/loom-compile:__pkg__"],
     deps = [
         ":command_manifest",
         "//loom/src/loom/codegen/low:repr",

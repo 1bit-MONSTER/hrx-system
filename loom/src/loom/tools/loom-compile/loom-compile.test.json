@@ -350,6 +350,49 @@
       }
     },
     {
+      "name": "requires a filesystem command artifact directory",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--output={tmp}/manifest.json",
+          "--emit-command-artifacts=-"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stderr": {
+        "contains": [
+          "format 'loom-command' requires --emit-command-artifacts=<directory>"
+        ]
+      }
+    },
+    {
+      "name": "requires a filesystem kernel request directory",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--output={tmp}/manifest.json",
+          "--emit-command-artifacts={tmp}/commands",
+          "--emit-kernel-requests=-"
+        ]
+      },
+      "exit": {
+        "nonzero": true
+      },
+      "stderr": {
+        "contains": [
+          "--emit-kernel-requests requires a filesystem directory"
+        ]
+      }
+    },
+    {
       "name": "rejects the removed backend flag",
       "run": {
         "tool": "loom-compile",

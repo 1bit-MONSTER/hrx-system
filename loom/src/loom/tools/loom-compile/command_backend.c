@@ -207,24 +207,7 @@ iree_status_t loom_compile_command_backend_emit(
     loom_run_session_t* session, loom_run_module_t* run_module,
     const loom_compile_command_backend_options_t* options, bool* out_emitted,
     iree_allocator_t host_allocator) {
-  if (session == NULL || run_module == NULL || run_module->module == NULL ||
-      options == NULL || out_emitted == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "command backend inputs must be present");
-  }
   *out_emitted = false;
-  if (iree_string_view_is_empty(options->artifact_directory) ||
-      loom_tooling_file_path_is_stdio(options->artifact_directory)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "command backend requires a filesystem artifact directory");
-  }
-  if (!iree_string_view_is_empty(options->kernel_request_directory) &&
-      loom_tooling_file_path_is_stdio(options->kernel_request_directory)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "kernel request artifacts require a filesystem directory");
-  }
 
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(loom_run_session_block_pool(session), &scratch_arena);
