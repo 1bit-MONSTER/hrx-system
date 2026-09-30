@@ -344,6 +344,62 @@ static uint32_t loom_low_numbering_location(
   return bases[block_index] - block->space_start + unit - block->base;
 }
 
+static bool loom_low_numbering_predicate_violated(
+    const loom_low_numbering_state_t* state,
+    const loom_low_placement_predicate_t* predicate, uint32_t result_index,
+    uint32_t source_index, const uint32_t* bases) {
+  const uint32_t result_unit = state->locations[result_index];
+  const uint32_t source_unit = state->locations[source_index];
+  if (predicate->kind ==
+          LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION &&
+      result_unit != UINT32_MAX && source_unit != UINT32_MAX) {
+    const uint32_t result_block_index = state->unit_blocks[result_unit];
+    const uint32_t source_block_index = state->unit_blocks[source_unit];
+    const loom_low_numbering_block_t* result_block =
+        &state->blocks[result_block_index];
+    const loom_low_numbering_block_t* source_block =
+        &state->blocks[source_block_index];
+    // Active coordinates already identify their physical inventory. Aliased
+    // classes share one space; independent classes cannot conflict.
+    if (result_block->space_start != source_block->space_start) {
+      return false;
+    }
+    const uint32_t result_location =
+        bases[result_block_index] - result_block->space_start + result_unit -
+        result_block->base + predicate->result_unit_offset;
+    const uint32_t source_location =
+        bases[source_block_index] - source_block->space_start + source_unit -
+        source_block->base + predicate->source_unit_offset;
+    return ((result_location ^ source_location) & predicate->location_mask) ==
+           0;
+  }
+  const loom_low_allocation_assignment_t* result =
+      loom_low_numbering_binding(state, result_index);
+  const loom_low_allocation_assignment_t* source =
+      loom_low_numbering_binding(state, source_index);
+  if (!loom_low_allocation_storage_assignment_classes_share(state->descriptors,
+                                                            result, source)) {
+    return false;
+  }
+  if (predicate->kind ==
+      LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION) {
+    const uint32_t result_location =
+        loom_low_numbering_location(state, result_index, bases) +
+        predicate->result_unit_offset;
+    const uint32_t source_location =
+        loom_low_numbering_location(state, source_index, bases) +
+        predicate->source_unit_offset;
+    return ((result_location ^ source_location) & predicate->location_mask) ==
+           0;
+  }
+  // A rigid bijection preserves structural relations. Evaluate these against
+  // the unchanged assignments rather than reconstructing them.
+  return !loom_low_allocation_storage_relation_satisfied(
+      state->descriptors, predicate->kind, predicate->result_unit_offset,
+      predicate->source_unit_offset, predicate->unit_count,
+      predicate->location_mask, result, source);
+}
+
 static uint32_t loom_low_numbering_score_use(loom_low_numbering_state_t* state,
                                              uint32_t use_index,
                                              const uint32_t* bases) {
@@ -359,31 +415,8 @@ static uint32_t loom_low_numbering_score_use(loom_low_numbering_state_t* state,
           &preference->predicates[clause->predicate_start + j];
       const uint32_t result_index = use->binding_start + predicate->result;
       const uint32_t source_index = use->binding_start + predicate->source;
-      const loom_low_allocation_assignment_t* result =
-          loom_low_numbering_binding(state, result_index);
-      const loom_low_allocation_assignment_t* source =
-          loom_low_numbering_binding(state, source_index);
-      bool violation = loom_low_allocation_storage_assignment_classes_share(
-          state->descriptors, result, source);
-      if (violation &&
-          predicate->kind ==
-              LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION) {
-        const uint32_t result_location =
-            loom_low_numbering_location(state, result_index, bases) +
-            predicate->result_unit_offset;
-        const uint32_t source_location =
-            loom_low_numbering_location(state, source_index, bases) +
-            predicate->source_unit_offset;
-        violation = (result_location & predicate->location_mask) ==
-                    (source_location & predicate->location_mask);
-      } else if (violation) {
-        // A rigid bijection preserves structural relations. Evaluate these
-        // against the unchanged assignments rather than reconstructing them.
-        violation = !loom_low_allocation_storage_relation_satisfied(
-            state->descriptors, predicate->kind, predicate->result_unit_offset,
-            predicate->source_unit_offset, predicate->unit_count,
-            predicate->location_mask, result, source);
-      }
+      const bool violation = loom_low_numbering_predicate_violated(
+          state, predicate, result_index, source_index, bases);
       ++state->work;
       if (clause->kind == LOOM_LOW_PLACEMENT_CLAUSE_ALL) {
         established &= violation;

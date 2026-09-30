@@ -252,6 +252,13 @@ TEST_F(LowAllocationNumberingTest, HonorsEachAliasedClassExtent) {
   ExpectIdentity();
 }
 
+TEST_F(LowAllocationNumberingTest, ImprovesCostsAcrossAliasedClasses) {
+  classes_[0].alias_set_id = classes_[1].alias_set_id = 1;
+  assignments_[1].descriptor_reg_class_id = 1;
+  Number();
+  ExpectImproved();
+}
+
 TEST_F(LowAllocationNumberingTest, LeavesIndependentStorageUnchanged) {
   assignments_[3].descriptor_reg_class_id = 1;
   assignments_[3].location_base = 0;
