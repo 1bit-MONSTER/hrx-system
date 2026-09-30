@@ -209,6 +209,22 @@
       ]
     },
     {
+      "name": "checks portable command low IR",
+      "run": {
+        "tool": "loom-format",
+        "args": ["--check"]
+      },
+      "stdin": {
+        "text": "low.func.def target<cmd.core> abi(command_program) @empty() asm {\n  return\n}\n"
+      },
+      "stdout": {
+        "empty": true
+      },
+      "stderr": {
+        "empty": true
+      }
+    },
+    {
       "name": "reports every batch check failure",
       "steps": [
         {

@@ -14,7 +14,6 @@
 #include "iree/base/tooling/flags.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/error/diagnostic.h"
-#include "loom/target/arch/cmd/provider.h"
 #include "loom/target/configured/provider_set.h"
 #include "loom/target/provider.h"
 #include "loom/target/test/provider.h"
@@ -338,7 +337,7 @@ int main(int argc, char** argv) {
     const loom_target_provider_set_t* configured_provider_set =
         loom_configured_target_provider_set();
     const iree_host_size_t provider_count =
-        configured_provider_set->provider_count + 2;
+        configured_provider_set->provider_count + 1;
     status = iree_allocator_malloc(allocator,
                                    provider_count * sizeof(*target_providers),
                                    (void**)&target_providers);
@@ -349,8 +348,6 @@ int main(int argc, char** argv) {
                    sizeof(*target_providers));
       }
       target_providers[configured_provider_set->provider_count] =
-          &loom_cmd_target_provider;
-      target_providers[configured_provider_set->provider_count + 1] =
           &loom_test_target_provider;
       target_provider_set =
           loom_target_provider_set_make(target_providers, provider_count);

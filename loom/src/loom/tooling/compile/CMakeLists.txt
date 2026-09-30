@@ -163,7 +163,6 @@ loom_cc_library(
     ::artifact
     iree::base
     iree::base::threading
-    loom::target::arch::cmd::provider
     loom::target::configured::provider_set
     loom::target::provider
     loom::transforms::cleanup::configured

@@ -7,7 +7,6 @@
 #include "loom/tooling/compile/configured.h"
 
 #include "iree/base/threading/call_once.h"
-#include "loom/target/arch/cmd/provider.h"
 #include "loom/target/configured/provider_set.h"
 #include "loom/transforms/cleanup/configured.h"
 
@@ -50,7 +49,7 @@
 
 enum {
   LOOM_TOOLING_CONFIGURED_COMPILE_ADDITIONAL_TARGET_PROVIDER_COUNT =
-      1 + LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS +
+      LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS +
       LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS,
   LOOM_TOOLING_CONFIGURED_COMPILE_TARGET_PROVIDER_CAPACITY = 64,
 };
@@ -113,9 +112,6 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
         .target_providers[configured_compile_storage.target_provider_count++] =
         configured_target_providers->providers[i];
   }
-  configured_compile_storage
-      .target_providers[configured_compile_storage.target_provider_count++] =
-      &loom_cmd_target_provider;
 #if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
   configured_compile_storage
       .target_providers[configured_compile_storage.target_provider_count++] =

@@ -101,6 +101,7 @@ loom_cc_library(
     ],
     deps = [
         "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/arch/cmd:provider",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
     ] + _CONFIGURED_TARGET_DEPS,
