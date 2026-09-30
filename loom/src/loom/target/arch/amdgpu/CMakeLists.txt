@@ -371,6 +371,7 @@ loom_cc_library(
     iree::base
     loom::analysis::symbolic_expr
     loom::codegen::low::descriptors
+    loom::codegen::low::source_memory_plan
     loom::ir
     loom::ops::atomic
     loom::ops::index
@@ -390,8 +391,7 @@ loom_cc_library(
     loom::transforms::vector::packet_legalization
     loom::transforms::vector::shape_legalization
     loom::transforms::vector::table_legalization
-    loom::transforms::vector::to_scalar
-    loom::transforms::view::target_legalization
+    loom::transforms::view::atomic
   PUBLIC
 )
 endif()

@@ -40,7 +40,7 @@ TEST(AmdgpuAtomicOrderingTest, SystemAdmissionRequiresCoherenceRecipe) {
       descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_F64)));
 
   source.memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP;
-  EXPECT_FALSE(loom_amdgpu_atomic_scope_supported(
+  EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(
       descriptor_set, &source, loom_type_scalar(LOOM_SCALAR_TYPE_I32)));
   source.atomic.scope = LOOM_ATOMIC_SCOPE_WORKGROUP;
   EXPECT_TRUE(loom_amdgpu_atomic_scope_supported(

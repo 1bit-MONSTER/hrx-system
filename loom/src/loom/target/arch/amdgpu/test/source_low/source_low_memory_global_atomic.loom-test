@@ -632,6 +632,64 @@ low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0,
 
 // ====
 
+kernel.def @global_atomic_cmpxchg_reused_payload_i32() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %buffer_base = index.constant 0 : offset
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %cell = buffer.view %global[%buffer_base] : buffer -> view<1xi32>
+  %results = buffer.view %output[%buffer_base] : buffer -> view<4xi32>
+  %value = scalar.constant 1 : i32
+  view.atomic.store %value, %cell[0] {ordering = seq_cst, scope = thread} : i32, view<1xi32>
+  %loaded_acquire = view.atomic.load %cell[0] {ordering = acquire, scope = thread} : view<1xi32> -> i32
+  view.store %loaded_acquire, %results[0] : i32, view<4xi32>
+  %loaded_seq_cst = view.atomic.load %cell[0] {ordering = seq_cst, scope = thread} : view<1xi32> -> i32
+  view.store %loaded_seq_cst, %results[1] : i32, view<4xi32>
+  // Keep one source payload live across repeated destructive packets whose
+  // expected and replacement lanes are identical.
+  %first = view.atomic.cmpxchg %value, %value, %cell[0] {failure_ordering = acquire, scope = thread, success_ordering = seq_cst} : i32, view<1xi32> -> i32
+  view.store %first, %results[2] : i32, view<4xi32>
+  %second = view.atomic.cmpxchg %value, %value, %cell[0] {failure_ordering = seq_cst, scope = thread, success_ordering = seq_cst} : i32, view<1xi32> -> i32
+  view.store %second, %results[3] : i32, view<4xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 2, resource_count = 2, resource_offsets = [0, 8], resource_parameter_indices = [0, 1], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @global_atomic_cmpxchg_reused_payload_i32() asm {
+  %cell = resource<hal_binding> {extent = 4, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %results = resource<hal_binding> {extent = 16, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %15 = v_mov_b32 1
+  %16 = v_mov_b32 0
+  global_store_b32_saddr<volatile> %16, %15, %cell
+  %loaded_acquire = global_load_b32_saddr<volatile> %16, %cell
+  global_store_b32_saddr %16, %loaded_acquire, %results
+  %loaded_seq_cst = global_load_b32_saddr<volatile> %16, %cell
+  global_store_b32_saddr %16, %loaded_seq_cst, %results {offset = 4}
+  %24 = s_mov_b32 0
+  %41 = slice %cell[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = slice %cell[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %43 = s_mov_b32 65535
+  %44 = s_and_b32 %42, %43
+  %45 = concat(%41, %44) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %46 = s_mov_b32 4
+  %47 = s_mov_b32 822173696
+  %48 = concat(%45, %46, %47) : (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x4>
+  %27 = copy %15 : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %28 = concat(%27, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %29 = buffer_atomic_cmpswap_b32_rtn %28, %48, %16, %24
+  %first = slice %29[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  global_store_b32_saddr %16, %first, %results {offset = 8}
+  %36 = copy %15 : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %37 = concat(%36, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %38 = buffer_atomic_cmpswap_b32_rtn %37, %48, %16, %24
+  %second = slice %38[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  global_store_b32_saddr %16, %second, %results {offset = 12}
+  return
+}
+
+// ====
+
 kernel.def @global_atomic_cmpxchg_i64() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index

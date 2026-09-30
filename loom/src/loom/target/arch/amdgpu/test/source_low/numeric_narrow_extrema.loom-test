@@ -1,0 +1,210 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_narrow_extrema.loom-test
+// RUN: pass target=amdgpu:gfx1250 target-legalize{mode=final}
+
+func.def @bf16_extrema(%lhs: bf16, %rhs: bf16) -> (bf16, bf16, bf16, bf16) {
+  %minimum = scalar.minimumf %lhs, %rhs : bf16
+  %maximum = scalar.maximumf %lhs, %rhs : bf16
+  %minnum = scalar.minnumf %lhs, %rhs : bf16
+  %maxnum = scalar.maxnumf<nnan|nsz> %lhs, %rhs : bf16
+  func.return %minimum, %maximum, %minnum, %maxnum : bf16, bf16, bf16, bf16
+}
+
+// ----
+func.def @bf16_extrema(%lhs: bf16, %rhs: bf16) -> (bf16, bf16, bf16, bf16) {
+  %22 = scalar.extf %lhs : bf16 to f32
+  %23 = scalar.extf %rhs : bf16 to f32
+  %24 = scalar.minimumf %22, %23 : f32
+  %minimum = scalar.fptrunc %24 : f32 to bf16
+  %18 = scalar.extf %lhs : bf16 to f32
+  %19 = scalar.extf %rhs : bf16 to f32
+  %20 = scalar.maximumf %18, %19 : f32
+  %maximum = scalar.fptrunc %20 : f32 to bf16
+  %14 = scalar.extf %lhs : bf16 to f32
+  %15 = scalar.extf %rhs : bf16 to f32
+  %16 = scalar.minnumf %14, %15 : f32
+  %minnum = scalar.fptrunc %16 : f32 to bf16
+  %10 = scalar.extf %lhs : bf16 to f32
+  %11 = scalar.extf %rhs : bf16 to f32
+  %12 = scalar.maxnumf<nnan|nsz> %10, %11 : f32
+  %maxnum = scalar.fptrunc %12 : f32 to bf16
+  func.return %minimum, %maximum, %minnum, %maxnum : bf16, bf16, bf16, bf16
+}
+
+// ====
+
+func.def @bf16_vector_extrema(%lhs: vector<2xbf16>, %rhs: vector<2xbf16>) -> (vector<2xbf16>, vector<2xbf16>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xbf16>
+  %maximum = vector.maxnumf<nnan|nsz> %lhs, %rhs : vector<2xbf16>
+  func.return %minimum, %maximum : vector<2xbf16>, vector<2xbf16>
+}
+
+// ----
+func.def @bf16_vector_extrema(%lhs: vector<2xbf16>, %rhs: vector<2xbf16>) -> (vector<2xbf16>, vector<2xbf16>) {
+  %21 = vector.extract %lhs[0] : vector<2xbf16> -> bf16
+  %22 = vector.extract %rhs[0] : vector<2xbf16> -> bf16
+  %32 = scalar.extf %21 : bf16 to f32
+  %33 = scalar.extf %22 : bf16 to f32
+  %34 = scalar.minnumf %32, %33 : f32
+  %35 = scalar.fptrunc %34 : f32 to bf16
+  %24 = vector.extract %lhs[1] : vector<2xbf16> -> bf16
+  %25 = vector.extract %rhs[1] : vector<2xbf16> -> bf16
+  %28 = scalar.extf %24 : bf16 to f32
+  %29 = scalar.extf %25 : bf16 to f32
+  %30 = scalar.minnumf %28, %29 : f32
+  %31 = scalar.fptrunc %30 : f32 to bf16
+  %minimum = vector.from_elements %35, %31 : vector<2xbf16>
+  %6 = vector.extract %lhs[0] : vector<2xbf16> -> bf16
+  %7 = vector.extract %rhs[0] : vector<2xbf16> -> bf16
+  %17 = scalar.extf %6 : bf16 to f32
+  %18 = scalar.extf %7 : bf16 to f32
+  %19 = scalar.maxnumf<nnan|nsz> %17, %18 : f32
+  %20 = scalar.fptrunc %19 : f32 to bf16
+  %9 = vector.extract %lhs[1] : vector<2xbf16> -> bf16
+  %10 = vector.extract %rhs[1] : vector<2xbf16> -> bf16
+  %13 = scalar.extf %9 : bf16 to f32
+  %14 = scalar.extf %10 : bf16 to f32
+  %15 = scalar.maxnumf<nnan|nsz> %13, %14 : f32
+  %16 = scalar.fptrunc %15 : f32 to bf16
+  %maximum = vector.from_elements %20, %16 : vector<2xbf16>
+  func.return %minimum, %maximum : vector<2xbf16>, vector<2xbf16>
+}
+
+// ====
+
+func.def @f8e4m3_extrema(%lhs: f8E4M3, %rhs: f8E4M3) -> (f8E4M3, f8E4M3, f8E4M3, f8E4M3) {
+  %minimum = scalar.minimumf %lhs, %rhs : f8E4M3
+  %maximum = scalar.maximumf %lhs, %rhs : f8E4M3
+  %minnum = scalar.minnumf %lhs, %rhs : f8E4M3
+  %maxnum = scalar.maxnumf<nnan|nsz> %lhs, %rhs : f8E4M3
+  func.return %minimum, %maximum, %minnum, %maxnum : f8E4M3, f8E4M3, f8E4M3, f8E4M3
+}
+
+// ----
+func.def @f8e4m3_extrema(%lhs: f8E4M3, %rhs: f8E4M3) -> (f8E4M3, f8E4M3, f8E4M3, f8E4M3) {
+  %22 = scalar.extf %lhs : f8E4M3 to f32
+  %23 = scalar.extf %rhs : f8E4M3 to f32
+  %24 = scalar.minimumf %22, %23 : f32
+  %minimum = scalar.fptrunc %24 : f32 to f8E4M3
+  %18 = scalar.extf %lhs : f8E4M3 to f32
+  %19 = scalar.extf %rhs : f8E4M3 to f32
+  %20 = scalar.maximumf %18, %19 : f32
+  %maximum = scalar.fptrunc %20 : f32 to f8E4M3
+  %14 = scalar.extf %lhs : f8E4M3 to f32
+  %15 = scalar.extf %rhs : f8E4M3 to f32
+  %16 = scalar.minnumf %14, %15 : f32
+  %minnum = scalar.fptrunc %16 : f32 to f8E4M3
+  %10 = scalar.extf %lhs : f8E4M3 to f32
+  %11 = scalar.extf %rhs : f8E4M3 to f32
+  %12 = scalar.maxnumf<nnan|nsz> %10, %11 : f32
+  %maxnum = scalar.fptrunc %12 : f32 to f8E4M3
+  func.return %minimum, %maximum, %minnum, %maxnum : f8E4M3, f8E4M3, f8E4M3, f8E4M3
+}
+
+// ====
+
+func.def @f8e4m3_vector_extrema(%lhs: vector<2xf8E4M3>, %rhs: vector<2xf8E4M3>) -> (vector<2xf8E4M3>, vector<2xf8E4M3>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xf8E4M3>
+  %maximum = vector.maxnumf<nnan|nsz> %lhs, %rhs : vector<2xf8E4M3>
+  func.return %minimum, %maximum : vector<2xf8E4M3>, vector<2xf8E4M3>
+}
+
+// ----
+func.def @f8e4m3_vector_extrema(%lhs: vector<2xf8E4M3>, %rhs: vector<2xf8E4M3>) -> (vector<2xf8E4M3>, vector<2xf8E4M3>) {
+  %21 = vector.extract %lhs[0] : vector<2xf8E4M3> -> f8E4M3
+  %22 = vector.extract %rhs[0] : vector<2xf8E4M3> -> f8E4M3
+  %32 = scalar.extf %21 : f8E4M3 to f32
+  %33 = scalar.extf %22 : f8E4M3 to f32
+  %34 = scalar.minnumf %32, %33 : f32
+  %35 = scalar.fptrunc %34 : f32 to f8E4M3
+  %24 = vector.extract %lhs[1] : vector<2xf8E4M3> -> f8E4M3
+  %25 = vector.extract %rhs[1] : vector<2xf8E4M3> -> f8E4M3
+  %28 = scalar.extf %24 : f8E4M3 to f32
+  %29 = scalar.extf %25 : f8E4M3 to f32
+  %30 = scalar.minnumf %28, %29 : f32
+  %31 = scalar.fptrunc %30 : f32 to f8E4M3
+  %minimum = vector.from_elements %35, %31 : vector<2xf8E4M3>
+  %6 = vector.extract %lhs[0] : vector<2xf8E4M3> -> f8E4M3
+  %7 = vector.extract %rhs[0] : vector<2xf8E4M3> -> f8E4M3
+  %17 = scalar.extf %6 : f8E4M3 to f32
+  %18 = scalar.extf %7 : f8E4M3 to f32
+  %19 = scalar.maxnumf<nnan|nsz> %17, %18 : f32
+  %20 = scalar.fptrunc %19 : f32 to f8E4M3
+  %9 = vector.extract %lhs[1] : vector<2xf8E4M3> -> f8E4M3
+  %10 = vector.extract %rhs[1] : vector<2xf8E4M3> -> f8E4M3
+  %13 = scalar.extf %9 : f8E4M3 to f32
+  %14 = scalar.extf %10 : f8E4M3 to f32
+  %15 = scalar.maxnumf<nnan|nsz> %13, %14 : f32
+  %16 = scalar.fptrunc %15 : f32 to f8E4M3
+  %maximum = vector.from_elements %20, %16 : vector<2xf8E4M3>
+  func.return %minimum, %maximum : vector<2xf8E4M3>, vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @f8e5m2_extrema(%lhs: f8E5M2, %rhs: f8E5M2) -> (f8E5M2, f8E5M2, f8E5M2, f8E5M2) {
+  %minimum = scalar.minimumf %lhs, %rhs : f8E5M2
+  %maximum = scalar.maximumf %lhs, %rhs : f8E5M2
+  %minnum = scalar.minnumf %lhs, %rhs : f8E5M2
+  %maxnum = scalar.maxnumf<nnan|nsz> %lhs, %rhs : f8E5M2
+  func.return %minimum, %maximum, %minnum, %maxnum : f8E5M2, f8E5M2, f8E5M2, f8E5M2
+}
+
+// ----
+func.def @f8e5m2_extrema(%lhs: f8E5M2, %rhs: f8E5M2) -> (f8E5M2, f8E5M2, f8E5M2, f8E5M2) {
+  %22 = scalar.extf %lhs : f8E5M2 to f32
+  %23 = scalar.extf %rhs : f8E5M2 to f32
+  %24 = scalar.minimumf %22, %23 : f32
+  %minimum = scalar.fptrunc %24 : f32 to f8E5M2
+  %18 = scalar.extf %lhs : f8E5M2 to f32
+  %19 = scalar.extf %rhs : f8E5M2 to f32
+  %20 = scalar.maximumf %18, %19 : f32
+  %maximum = scalar.fptrunc %20 : f32 to f8E5M2
+  %14 = scalar.extf %lhs : f8E5M2 to f32
+  %15 = scalar.extf %rhs : f8E5M2 to f32
+  %16 = scalar.minnumf %14, %15 : f32
+  %minnum = scalar.fptrunc %16 : f32 to f8E5M2
+  %10 = scalar.extf %lhs : f8E5M2 to f32
+  %11 = scalar.extf %rhs : f8E5M2 to f32
+  %12 = scalar.maxnumf<nnan|nsz> %10, %11 : f32
+  %maxnum = scalar.fptrunc %12 : f32 to f8E5M2
+  func.return %minimum, %maximum, %minnum, %maxnum : f8E5M2, f8E5M2, f8E5M2, f8E5M2
+}
+
+// ====
+
+func.def @f8e5m2_vector_extrema(%lhs: vector<2xf8E5M2>, %rhs: vector<2xf8E5M2>) -> (vector<2xf8E5M2>, vector<2xf8E5M2>) {
+  %minimum = vector.minnumf %lhs, %rhs : vector<2xf8E5M2>
+  %maximum = vector.maxnumf<nnan|nsz> %lhs, %rhs : vector<2xf8E5M2>
+  func.return %minimum, %maximum : vector<2xf8E5M2>, vector<2xf8E5M2>
+}
+
+// ----
+func.def @f8e5m2_vector_extrema(%lhs: vector<2xf8E5M2>, %rhs: vector<2xf8E5M2>) -> (vector<2xf8E5M2>, vector<2xf8E5M2>) {
+  %21 = vector.extract %lhs[0] : vector<2xf8E5M2> -> f8E5M2
+  %22 = vector.extract %rhs[0] : vector<2xf8E5M2> -> f8E5M2
+  %32 = scalar.extf %21 : f8E5M2 to f32
+  %33 = scalar.extf %22 : f8E5M2 to f32
+  %34 = scalar.minnumf %32, %33 : f32
+  %35 = scalar.fptrunc %34 : f32 to f8E5M2
+  %24 = vector.extract %lhs[1] : vector<2xf8E5M2> -> f8E5M2
+  %25 = vector.extract %rhs[1] : vector<2xf8E5M2> -> f8E5M2
+  %28 = scalar.extf %24 : f8E5M2 to f32
+  %29 = scalar.extf %25 : f8E5M2 to f32
+  %30 = scalar.minnumf %28, %29 : f32
+  %31 = scalar.fptrunc %30 : f32 to f8E5M2
+  %minimum = vector.from_elements %35, %31 : vector<2xf8E5M2>
+  %6 = vector.extract %lhs[0] : vector<2xf8E5M2> -> f8E5M2
+  %7 = vector.extract %rhs[0] : vector<2xf8E5M2> -> f8E5M2
+  %17 = scalar.extf %6 : f8E5M2 to f32
+  %18 = scalar.extf %7 : f8E5M2 to f32
+  %19 = scalar.maxnumf<nnan|nsz> %17, %18 : f32
+  %20 = scalar.fptrunc %19 : f32 to f8E5M2
+  %9 = vector.extract %lhs[1] : vector<2xf8E5M2> -> f8E5M2
+  %10 = vector.extract %rhs[1] : vector<2xf8E5M2> -> f8E5M2
+  %13 = scalar.extf %9 : f8E5M2 to f32
+  %14 = scalar.extf %10 : f8E5M2 to f32
+  %15 = scalar.maxnumf<nnan|nsz> %13, %14 : f32
+  %16 = scalar.fptrunc %15 : f32 to f8E5M2
+  %maximum = vector.from_elements %20, %16 : vector<2xf8E5M2>
+  func.return %minimum, %maximum : vector<2xf8E5M2>, vector<2xf8E5M2>
+}

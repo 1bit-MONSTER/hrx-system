@@ -22,12 +22,16 @@ low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @packed_
   %25 = v_pk_mul_f16 %16, %17
   %28 = v_pk_mul_f16 %19, %20
   %product = concat(%25, %28) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %32 = v_pk_min_f16 %16, %17
-  %35 = v_pk_min_f16 %19, %20
-  %minimum = concat(%32, %35) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %39 = v_pk_max_f16 %16, %17
-  %42 = v_pk_max_f16 %19, %20
-  %maximum = concat(%39, %42) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %32 = v_pk_max_f16 %16, %16
+  %35 = v_pk_max_f16 %19, %19
+  %39 = v_pk_max_f16 %17, %17
+  %42 = v_pk_max_f16 %20, %20
+  %46 = v_pk_min_f16 %32, %39
+  %49 = v_pk_min_f16 %35, %42
+  %minimum = concat(%46, %49) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %67 = v_pk_max_f16 %32, %39
+  %70 = v_pk_max_f16 %35, %42
+  %maximum = concat(%67, %70) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   return %sum, %product, %minimum, %maximum
 }
 

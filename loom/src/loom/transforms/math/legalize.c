@@ -488,11 +488,10 @@ static bool loom_math_legalize_policy_action_is_known(
   return false;
 }
 
-static iree_status_t loom_math_legalize_rewrite_op(
-    void* user_data, loom_greedy_rewrite_driver_t* driver, loom_op_t* op,
-    loom_greedy_rewrite_result_t* result, bool* out_changed) {
+static iree_status_t loom_math_legalize_rewrite(
+    loom_math_legalize_state_t* state, loom_rewriter_t* rewriter, loom_op_t* op,
+    bool* out_changed) {
   *out_changed = false;
-  loom_math_legalize_state_t* state = (loom_math_legalize_state_t*)user_data;
   if (loom_pass_has_error_diagnostics(state->pass)) {
     return iree_ok_status();
   }
@@ -534,12 +533,12 @@ static iree_status_t loom_math_legalize_rewrite_op(
       .query = query,
       .decision = decision,
   };
-  driver->rewriter.flags = 0;
-  const uint64_t created_op_count_before = driver->rewriter.created_op_count;
-  const uint64_t erased_op_count_before = driver->rewriter.erased_op_count;
+  rewriter->flags = 0;
+  const uint64_t created_op_count_before = rewriter->created_op_count;
+  const uint64_t erased_op_count_before = rewriter->erased_op_count;
   bool rewritten = false;
-  IREE_RETURN_IF_ERROR(loom_math_legalize_rewrite_recipe(
-      &context, op, &driver->rewriter, &rewritten));
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_rewrite_recipe(&context, op, rewriter, &rewritten));
   if (!rewritten) {
     IREE_RETURN_IF_ERROR(loom_math_legalize_record_report_row(
         state, op, &query, &decision,
@@ -550,16 +549,108 @@ static iree_status_t loom_math_legalize_rewrite_op(
   IREE_RETURN_IF_ERROR(loom_math_legalize_record_report_row(
       state, op, &query, &decision,
       LOOM_TARGET_COMPILE_REPORT_MATH_ACTION_REWRITTEN,
-      driver->rewriter.created_op_count - created_op_count_before,
-      driver->rewriter.erased_op_count - erased_op_count_before));
-  loom_greedy_rewrite_result_record_rewriter_flags(result, &driver->rewriter);
-  if (iree_any_bit_set(driver->rewriter.flags, LOOM_REWRITER_FLAG_CHANGED)) {
+      rewriter->created_op_count - created_op_count_before,
+      rewriter->erased_op_count - erased_op_count_before));
+  *out_changed = true;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_math_legalize_rewrite_op(
+    void* user_data, loom_greedy_rewrite_driver_t* driver, loom_op_t* op,
+    loom_greedy_rewrite_result_t* result, bool* out_changed) {
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_rewrite((loom_math_legalize_state_t*)user_data,
+                                 &driver->rewriter, op, out_changed));
+  if (*out_changed) {
+    loom_greedy_rewrite_result_record_rewriter_flags(result, &driver->rewriter);
     loom_greedy_rewrite_result_record_change(
         result, &driver->rewriter,
         LOOM_GREEDY_REWRITE_CHANGE_FLAG_COUNT_MODIFIED_OP);
-    *out_changed = true;
   }
   return iree_ok_status();
+}
+
+static iree_status_t loom_math_target_legalize_binary(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!context->rewriter->math_policy) {
+    return iree_ok_status();
+  }
+  loom_math_legalize_state_t state = {
+      .pass = context->pass,
+      .module = context->module,
+      .function = context->function,
+      .target_facts = context->target_facts,
+      .policy = context->rewriter->math_policy,
+      .compile_report = loom_target_math_pass_capability_compile_report(
+          loom_target_math_pass_capability_from_pass(context->pass)),
+  };
+  bool changed = false;
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_rewrite(&state, context->rewriter, op, &changed));
+  if (changed) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
+// Reference rewrites can introduce narrow arithmetic after legalize-math.
+// Keep those operations in the target fixed point using the same math policy
+// and recipes. Native contracts remain preferred, including packed BF16.
+static const loom_target_legalizer_rule_t kMathLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_SCALAR_ADDF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_SUBF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MULF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ADDF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SUBF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_MULF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .legalize = loom_math_target_legalize_binary,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+    },
+};
+
+static const loom_target_legalizer_provider_t kMathLegalizerProvider = {
+    .name = IREE_SVL("math"),
+    .strategy = LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE,
+    .rules = kMathLegalizerRules,
+    .rule_count = IREE_ARRAYSIZE(kMathLegalizerRules),
+};
+
+const loom_target_legalizer_provider_t* loom_math_target_legalizer_provider(
+    void) {
+  return &kMathLegalizerProvider;
 }
 
 iree_status_t loom_math_legalize_run(loom_pass_t* pass, loom_module_t* module,

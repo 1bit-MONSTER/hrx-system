@@ -1,0 +1,148 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/memory_atomic_private.loom-test
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+func.def @private_counter(%initial: i64, %increment: i64, %expected: i64) -> (i64, i64, i64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old = view.atomic.rmw<addi> %increment, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %compared = view.atomic.cmpxchg %expected, %increment, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : i64, view<1xi64> -> i64
+  %final = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  func.return %old, %compared, %final : i64, i64, i64
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @private_counter(%initial: reg<amdgpu.sgpr x2>, %increment: reg<amdgpu.sgpr x2>, %expected: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %25 = slice %initial[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %26 = slice %initial[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %27 = slice %increment[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %28 = slice %increment[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %29, %30 = s_add_co_u32 %25, %27
+  %31, %32 = s_addc_u32 %26, %28, %30
+  %33 = concat(%29, %31) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %34 = s_cmp_eq_u64 %33, %expected
+  %37 = s_cselect_b32 %27, %29, %34
+  %40 = s_cselect_b32 %28, %31, %34
+  %41 = concat(%37, %40) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  return %initial, %33, %41
+}
+
+// ====
+
+func.def @private_float(%initial: f64, %increment: f64) -> (f64, f64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old = view.atomic.rmw<addf, noftz> %increment, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  func.return %old, %final : f64, f64
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @private_float(%initial: reg<amdgpu.vgpr x2>, %increment: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %17 = v_add_f64 %initial, %increment
+  return %initial, %17
+}
+
+// ====
+
+func.def @private_half_vector(%initial: vector<2xf16>, %increment: vector<2xf16>, %mask: vector<2xi1>) -> (vector<2xf16>, vector<2xf16>, vector<2xf16>) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cells = buffer.view %storage[%origin] : buffer -> view<2xf16>
+  %first = index.constant 0 : index
+  %step = index.constant 1 : index
+  %offsets = vector.iota %first step %step : vector<2xindex>
+  vector.store %initial, %cells[0] : vector<2xf16>, view<2xf16>
+  %old = vector.atomic.rmw<addf, noftz> %increment, %cells[0][%offsets] {ordering = acq_rel, scope = system} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  %masked = vector.atomic.rmw.mask<addf, noftz> %increment, %cells[0][%offsets], %mask, %initial {ordering = relaxed, scope = thread} : vector<2xf16>, view<2xf16>, vector<2xindex>, vector<2xi1>, vector<2xf16>
+  %final = vector.load %cells[0] : view<2xf16> -> vector<2xf16>
+  func.return %old, %masked, %final : vector<2xf16>, vector<2xf16>, vector<2xf16>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core> abi(hal_kernel) @private_half_vector(%initial: reg<amdgpu.vgpr>, %increment: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %57 = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  %59 = v_mov_b32 0
+  scratch_store_b32_vaddr %59, %initial
+  %61 = scratch_load_u16_vaddr %59
+  %62 = v_add_f16 %61, %increment
+  %63 = v_bfe_u32_offset_0_width_16_low16 %62
+  scratch_store_b16_vaddr %59, %63
+  %65 = v_lshrrev_b32_src0_inline %increment, 16
+  %67 = scratch_load_u16_vaddr %59 {offset = 2}
+  %68 = v_add_f16 %67, %65
+  %69 = v_bfe_u32_offset_0_width_16_low16 %68
+  scratch_store_b16_vaddr %59, %69 {offset = 2}
+  %71 = v_and_b32_lit %61, 65535
+  %72 = v_and_b32_lit %67, 65535
+  %73 = v_lshlrev_b32_src0_inline %72, 16
+  %old = v_or_b32 %71, %73
+  %75 = slice %mask[0] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %76, %77 = s_and_saveexec_b64 %75
+  low.cond_br %77, ^_bb1, ^_bb8 : reg<amdgpu.scc>
+^_bb1:
+  %82 = v_mov_b32 0
+  %83 = scratch_load_u16_vaddr %82
+  %84 = v_add_f16 %83, %increment
+  %85 = v_bfe_u32_offset_0_width_16_low16 %84
+  scratch_store_b16_vaddr %82, %85
+  low.br ^_bb7(%83: reg<amdgpu.vgpr>)
+^_bb7(%53: reg<amdgpu.vgpr>):
+  s_mov_b64_exec %76
+  %80 = s_and_b64 %76, %75
+  %81 = s_xor_b64_exec %80
+  low.cond_br %81, ^_bb2, ^_bb9 : reg<amdgpu.scc>
+^_bb2:
+  s_mov_b64_exec %76
+  %79 = v_cndmask_b32 %initial, %53, %75
+  low.br ^_bb3(%79: reg<amdgpu.vgpr>)
+^_bb3(%51: reg<amdgpu.vgpr>):
+  %87 = slice %mask[2] : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x2>
+  %88, %89 = s_and_saveexec_b64 %87
+  low.cond_br %89, ^_bb4, ^_bb11 : reg<amdgpu.scc>
+^_bb4:
+  %94 = v_mov_b32 0
+  %95 = scratch_load_u16_vaddr %94 {offset = 2}
+  %96 = v_add_f16 %95, %65
+  %97 = v_bfe_u32_offset_0_width_16_low16 %96
+  scratch_store_b16_vaddr %94, %97 {offset = 2}
+  low.br ^_bb10(%95: reg<amdgpu.vgpr>)
+^_bb10(%55: reg<amdgpu.vgpr>):
+  s_mov_b64_exec %88
+  %92 = s_and_b64 %88, %87
+  %93 = s_xor_b64_exec %92
+  low.cond_br %93, ^_bb5, ^_bb12 : reg<amdgpu.scc>
+^_bb5:
+  %99 = v_lshrrev_b32_src0_inline %initial, 16
+  s_mov_b64_exec %88
+  %91 = v_cndmask_b32 %99, %55, %87
+  low.br ^_bb6(%91: reg<amdgpu.vgpr>)
+^_bb6(%52: reg<amdgpu.vgpr>):
+  %100 = v_and_b32_lit %51, 65535
+  %101 = v_and_b32_lit %52, 65535
+  %102 = v_lshlrev_b32_src0_inline %101, 16
+  %masked = v_or_b32 %100, %102
+  %104 = v_mov_b32 0
+  %final = scratch_load_b32_vaddr %104
+  return %old, %masked, %final
+^_bb8:
+  s_mov_b64_exec %76
+  %78 = v_mov_b32 0
+  low.br ^_bb7(%78: reg<amdgpu.vgpr>)
+^_bb9:
+  s_mov_b64_exec %76
+  low.br ^_bb3(%53: reg<amdgpu.vgpr>)
+^_bb11:
+  s_mov_b64_exec %88
+  %90 = v_mov_b32 0
+  low.br ^_bb10(%90: reg<amdgpu.vgpr>)
+^_bb12:
+  s_mov_b64_exec %88
+  low.br ^_bb6(%55: reg<amdgpu.vgpr>)
+}

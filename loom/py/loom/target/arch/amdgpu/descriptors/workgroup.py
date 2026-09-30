@@ -444,118 +444,76 @@ def _ds_atomic_overlays(
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
-    include_packed_half_add: bool = False,
+    float_atomic_add_types: tuple[str, ...] = ("f32",),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     rows = [
-        ("ds_add_u32", "DS_ADD_U32", "add.u32", "FMT_NUM_U32", False),
-        ("ds_sub_u32", "DS_SUB_U32", "sub.u32", "FMT_NUM_U32", False),
-        ("ds_min_i32", "DS_MIN_I32", "min.i32", "FMT_NUM_I32", False),
-        ("ds_max_i32", "DS_MAX_I32", "max.i32", "FMT_NUM_I32", False),
-        ("ds_min_u32", "DS_MIN_U32", "min.u32", "FMT_NUM_U32", False),
-        ("ds_max_u32", "DS_MAX_U32", "max.u32", "FMT_NUM_U32", False),
-        ("ds_and_b32", "DS_AND_B32", "and.b32", "FMT_NUM_B32", False),
-        ("ds_or_b32", "DS_OR_B32", "or.b32", "FMT_NUM_B32", False),
-        ("ds_xor_b32", "DS_XOR_B32", "xor.b32", "FMT_NUM_B32", False),
-        ("ds_add_f32", "DS_ADD_F32", "add.f32", "FMT_NUM_F32", False),
-        ("ds_min_f32", "DS_MIN_F32", "minnum.f32", "FMT_NUM_F32", False),
-        ("ds_max_f32", "DS_MAX_F32", "maxnum.f32", "FMT_NUM_F32", False),
-        ("ds_add_rtn_u32", "DS_ADD_RTN_U32", "add.return.u32", "FMT_NUM_U32", True),
-        ("ds_sub_rtn_u32", "DS_SUB_RTN_U32", "sub.return.u32", "FMT_NUM_U32", True),
-        ("ds_min_rtn_i32", "DS_MIN_RTN_I32", "min.return.i32", "FMT_NUM_I32", True),
-        ("ds_max_rtn_i32", "DS_MAX_RTN_I32", "max.return.i32", "FMT_NUM_I32", True),
-        ("ds_min_rtn_u32", "DS_MIN_RTN_U32", "min.return.u32", "FMT_NUM_U32", True),
-        ("ds_max_rtn_u32", "DS_MAX_RTN_U32", "max.return.u32", "FMT_NUM_U32", True),
-        ("ds_and_rtn_b32", "DS_AND_RTN_B32", "and.return.b32", "FMT_NUM_B32", True),
-        ("ds_or_rtn_b32", "DS_OR_RTN_B32", "or.return.b32", "FMT_NUM_B32", True),
-        ("ds_xor_rtn_b32", "DS_XOR_RTN_B32", "xor.return.b32", "FMT_NUM_B32", True),
         (
-            "ds_wrxchg_rtn_b32",
-            "DS_WRXCHG_RTN_B32",
-            "exchange.return.b32",
-            "FMT_NUM_B32",
-            True,
-        ),
-        ("ds_add_rtn_f32", "DS_ADD_RTN_F32", "add.return.f32", "FMT_NUM_F32", True),
-        (
-            "ds_min_rtn_f32",
-            "DS_MIN_RTN_F32",
-            "minnum.return.f32",
-            "FMT_NUM_F32",
-            True,
-        ),
-        (
-            "ds_max_rtn_f32",
-            "DS_MAX_RTN_F32",
-            "maxnum.return.f32",
-            "FMT_NUM_F32",
-            True,
-        ),
-    ]
-    if include_packed_half_add:
-        rows.extend(
-            (
-                (
-                    "ds_pk_add_f16",
-                    "DS_PK_ADD_F16",
-                    "add.pk2.f16",
-                    "FMT_NUM_PK2_F16",
-                    False,
-                ),
-                (
-                    "ds_pk_add_bf16",
-                    "DS_PK_ADD_BF16",
-                    "add.pk2.bf16",
-                    "FMT_NUM_PK2_BF16",
-                    False,
-                ),
-                (
-                    "ds_pk_add_rtn_f16",
-                    "DS_PK_ADD_RTN_F16",
-                    "add.return.pk2.f16",
-                    "FMT_NUM_PK2_F16",
-                    True,
-                ),
-                (
-                    "ds_pk_add_rtn_bf16",
-                    "DS_PK_ADD_RTN_BF16",
-                    "add.return.pk2.bf16",
-                    "FMT_NUM_PK2_BF16",
-                    True,
-                ),
-            )
+            f"ds_{operation}{return_suffix}_{kind}{width_bits}",
+            f"{semantic}.{kind}{width_bits}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_{kind.upper()}{width_bits}",
+            width_bits,
+            returns_old_value,
         )
+        for width_bits in (32, 64)
+        for operation, semantic, kind in (
+            ("add", "add", "u"),
+            ("sub", "sub", "u"),
+            ("min", "min", "i"),
+            ("max", "max", "i"),
+            ("min", "min", "u"),
+            ("max", "max", "u"),
+            ("and", "and", "b"),
+            ("or", "or", "b"),
+            ("xor", "xor", "b"),
+            ("wrxchg", "exchange", "b"),
+        )
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+        if operation != "wrxchg" or returns_old_value
+    ]
+    rows.extend(
+        (
+            f"ds_{operation}{return_suffix}_f{width_bits}",
+            f"{semantic}.f{width_bits}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_F{width_bits}",
+            width_bits,
+            returns_old_value,
+        )
+        for width_bits in (32, 64)
+        for operation, semantic in (("min", "minnum"), ("max", "maxnum"))
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+    )
+    rows.extend(
+        (
+            f"ds_{'pk_' if kind.startswith('pk2.') else ''}add"
+            f"{return_suffix}_{kind.split('.')[-1]}",
+            f"add.{kind}{'.return' if returns_old_value else ''}",
+            f"FMT_NUM_{kind.upper().replace('.', '_')}",
+            64 if kind == "f64" else 32,
+            returns_old_value,
+        )
+        for kind in float_atomic_add_types
+        for return_suffix, returns_old_value in (("", False), ("_rtn", True))
+    )
     overlays = [
         _ds_atomic_overlay(
             descriptor_key=f"amdgpu.{mnemonic}",
-            instruction_name=instruction_name,
+            instruction_name=mnemonic.upper(),
             mnemonic=mnemonic,
             semantic_tag=f"memory.workgroup.atomic.{semantic_suffix}",
             data_format_name=data_format_name,
             returns_old_value=returns_old_value,
+            width_bits=width_bits,
             encoding_name=encoding_name,
             fixed_encoding_fields=fixed_encoding_fields,
         )
         for (
             mnemonic,
-            instruction_name,
             semantic_suffix,
             data_format_name,
+            width_bits,
             returns_old_value,
         ) in rows
     ]
-    overlays.append(
-        _ds_atomic_overlay(
-            descriptor_key="amdgpu.ds_wrxchg_rtn_b64",
-            instruction_name="DS_WRXCHG_RTN_B64",
-            mnemonic="ds_wrxchg_rtn_b64",
-            semantic_tag="memory.workgroup.atomic.exchange.b64.return",
-            data_format_name="FMT_NUM_B64",
-            returns_old_value=True,
-            width_bits=64,
-            encoding_name=encoding_name,
-            fixed_encoding_fields=fixed_encoding_fields,
-        )
-    )
     overlays.extend(
         _ds_atomic_cmpstore_overlay(
             width_bits=width_bits,
@@ -891,7 +849,7 @@ def _ds_memory_overlays(
         ("OFFSET1", 0),
         ("GDS", 0),
     ),
-    include_packed_half_atomic_add: bool = False,
+    float_atomic_add_types: tuple[str, ...] = ("f32",),
     include_u16_d16_loads: bool = False,
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     widths = ((32, 1), (64, 2), (96, 3), (128, 4))
@@ -939,7 +897,7 @@ def _ds_memory_overlays(
             cmpxchg_replacement_field=cmpxchg_replacement_field,
             encoding_name=encoding_name,
             fixed_encoding_fields=fixed_encoding_fields,
-            include_packed_half_add=include_packed_half_atomic_add,
+            float_atomic_add_types=float_atomic_add_types,
         ),
         *(
             _ds_load_u16_d16_overlays(

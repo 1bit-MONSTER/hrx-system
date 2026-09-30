@@ -275,9 +275,9 @@ func.def @workgroup_atomic_bitwise_f64(%initial: f64, %replacement: f64) -> (f64
   %storage = buffer.alloca<workgroup> align(8) %bytes : buffer
   %cell = buffer.view %storage[%base] : buffer -> view<1xf64>
   view.store %initial, %cell[0] : f64, view<1xf64>
-  %exchanged = view.atomic.rmw<xchgf> %replacement, %cell[0] {ordering = acq_rel, scope = workgroup} : f64, view<1xf64> -> f64
-  %succeeded = view.atomic.cmpxchg %replacement, %initial, %cell[0] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : f64, view<1xf64> -> f64
-  %failed = view.atomic.cmpxchg %replacement, %replacement, %cell[0] {failure_ordering = seq_cst, scope = workgroup, success_ordering = seq_cst} : f64, view<1xf64> -> f64
+  %exchanged = view.atomic.rmw<xchgf> %replacement, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %succeeded = view.atomic.cmpxchg %replacement, %initial, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : f64, view<1xf64> -> f64
+  %failed = view.atomic.cmpxchg %replacement, %replacement, %cell[0] {failure_ordering = seq_cst, scope = system, success_ordering = seq_cst} : f64, view<1xf64> -> f64
   func.return %exchanged, %succeeded, %failed : f64, f64, f64
 }
 

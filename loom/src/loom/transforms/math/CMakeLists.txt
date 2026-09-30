@@ -35,6 +35,7 @@ loom_cc_library(
     loom::pass::value_facts
     loom::rewrite::greedy
     loom::rewrite::rewriter
+    loom::target::legalization
     loom::target::math_policy
     loom::target::pass_environment
     loom::target::reporting::report

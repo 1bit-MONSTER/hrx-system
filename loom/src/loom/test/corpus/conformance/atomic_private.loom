@@ -1,0 +1,713 @@
+kernel.def @private_cmpxchg() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf32>
+  %source = buffer.view %input[%origin] : buffer -> view<128xi32>
+  %results = buffer.view %output[%origin] : buffer -> view<3x128xi32>
+  %lane = kernel.workitem.id<x> : index
+  %initial_bits = view.load %source[%lane] : view<128xi32> -> i32
+  %initial = scalar.bitcast %initial_bits : i32 to f32
+  view.atomic.store %initial, %cell[0] {ordering = seq_cst, scope = system} : f32, view<1xf32>
+  %different_bits = scalar.constant 2143363909 : i32
+  %different = scalar.bitcast %different_bits : i32 to f32
+  %matching_bits = scalar.constant 2139169605 : i32
+  %matching = scalar.bitcast %matching_bits : i32 to f32
+  %replacement_bits = scalar.constant -2147483648 : i32
+  %replacement = scalar.bitcast %replacement_bits : i32 to f32
+  %failed = view.atomic.cmpxchg %different, %replacement, %cell[0] {failure_ordering = seq_cst, scope = system, success_ordering = seq_cst} : f32, view<1xf32> -> f32
+  %succeeded = view.atomic.cmpxchg %matching, %replacement, %cell[0] {failure_ordering = acquire, scope = device, success_ordering = acq_rel} : f32, view<1xf32> -> f32
+  %final = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf32> -> f32
+  %failed_bits = scalar.bitcast %failed : f32 to i32
+  %succeeded_bits = scalar.bitcast %succeeded : f32 to i32
+  %final_bits = scalar.bitcast %final : f32 to i32
+  view.store %failed_bits, %results[0, %lane] : i32, view<3x128xi32>
+  view.store %succeeded_bits, %results[1, %lane] : i32, view<3x128xi32>
+  view.store %final_bits, %results[2, %lane] : i32, view<3x128xi32>
+  kernel.return
+}
+
+check.case public @private_bitwise_compare {
+  %input = check.generate.fill value(2139169605) : tensor<128xi32>
+  %output = check.generate.fill value(0) : tensor<3x128xi32>
+  kernel.launch @private_cmpxchg(%input, %output) : (tensor<128xi32>, tensor<3x128xi32>)
+  %old = check.tensor.view %output offset(0) : tensor<3x128xi32> -> tensor<256xi32>
+  %expected_old = check.generate.fill value(2139169605) : tensor<256xi32>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<256xi32>
+  %final = check.tensor.view %output offset(1024) : tensor<3x128xi32> -> tensor<128xi32>
+  %expected_final = check.generate.fill value(-2147483648) : tensor<128xi32>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<128xi32>
+  check.return
+}
+
+// Every lane owns its cells. Runtime inputs keep updates and comparisons live.
+kernel.def @private_integer_updates() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi64>
+  %source = buffer.view %input[%origin] : buffer -> view<128xi64>
+  %results = buffer.view %output[%origin] : buffer -> view<21x128xi64>
+  %lane = kernel.workitem.id<x> : index
+  %initial = view.load %source[%lane] : view<128xi64> -> i64
+  %update = scalar.constant 5 : i64
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_xchgi = view.atomic.rmw<xchgi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_xchgi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_xchgi, %results[0, %lane] : i64, view<21x128xi64>
+  view.store %final_xchgi, %results[10, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_addi = view.atomic.rmw<addi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_addi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_addi, %results[1, %lane] : i64, view<21x128xi64>
+  view.store %final_addi, %results[11, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_subi = view.atomic.rmw<subi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_subi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_subi, %results[2, %lane] : i64, view<21x128xi64>
+  view.store %final_subi, %results[12, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_andi = view.atomic.rmw<andi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_andi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_andi, %results[3, %lane] : i64, view<21x128xi64>
+  view.store %final_andi, %results[13, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_ori = view.atomic.rmw<ori> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_ori = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_ori, %results[4, %lane] : i64, view<21x128xi64>
+  view.store %final_ori, %results[14, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_xori = view.atomic.rmw<xori> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_xori = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_xori, %results[5, %lane] : i64, view<21x128xi64>
+  view.store %final_xori, %results[15, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_minsi = view.atomic.rmw<minsi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_minsi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_minsi, %results[6, %lane] : i64, view<21x128xi64>
+  view.store %final_minsi, %results[16, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_maxsi = view.atomic.rmw<maxsi> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_maxsi = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_maxsi, %results[7, %lane] : i64, view<21x128xi64>
+  view.store %final_maxsi, %results[17, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_minui = view.atomic.rmw<minui> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_minui = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_minui, %results[8, %lane] : i64, view<21x128xi64>
+  view.store %final_minui, %results[18, %lane] : i64, view<21x128xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_maxui = view.atomic.rmw<maxui> %update, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %final_maxui = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_maxui, %results[9, %lane] : i64, view<21x128xi64>
+  view.store %final_maxui, %results[19, %lane] : i64, view<21x128xi64>
+  view.atomic.reduce<subi> %update, %cell[0] {ordering = seq_cst, scope = system} : i64, view<1xi64>
+  %reduced = view.atomic.load %cell[0] {ordering = seq_cst, scope = system} : view<1xi64> -> i64
+  view.store %reduced, %results[20, %lane] : i64, view<21x128xi64>
+  kernel.return
+}
+
+check.case public @private_integer_results {
+  %input = check.generate.fill value(-17) : tensor<128xi64>
+  %output = check.generate.fill value(0) : tensor<21x128xi64>
+  kernel.launch @private_integer_updates(%input, %output) : (tensor<128xi64>, tensor<21x128xi64>)
+  %old = check.tensor.view %output offset(0) : tensor<21x128xi64> -> tensor<1280xi64>
+  %expected_old = check.generate.fill value(-17) : tensor<1280xi64>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1280xi64>
+  %final_xchgi = check.tensor.view %output offset(10240) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_xchgi = check.generate.fill value(5) : tensor<128xi64>
+  check.expect.bitwise actual(%final_xchgi) expected(%expected_xchgi) : tensor<128xi64>
+  %final_addi = check.tensor.view %output offset(11264) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_addi = check.generate.fill value(-12) : tensor<128xi64>
+  check.expect.bitwise actual(%final_addi) expected(%expected_addi) : tensor<128xi64>
+  %final_subi = check.tensor.view %output offset(12288) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_subi = check.generate.fill value(-22) : tensor<128xi64>
+  check.expect.bitwise actual(%final_subi) expected(%expected_subi) : tensor<128xi64>
+  %final_andi = check.tensor.view %output offset(13312) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_andi = check.generate.fill value(5) : tensor<128xi64>
+  check.expect.bitwise actual(%final_andi) expected(%expected_andi) : tensor<128xi64>
+  %final_ori = check.tensor.view %output offset(14336) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_ori = check.generate.fill value(-17) : tensor<128xi64>
+  check.expect.bitwise actual(%final_ori) expected(%expected_ori) : tensor<128xi64>
+  %final_xori = check.tensor.view %output offset(15360) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_xori = check.generate.fill value(-22) : tensor<128xi64>
+  check.expect.bitwise actual(%final_xori) expected(%expected_xori) : tensor<128xi64>
+  %final_minsi = check.tensor.view %output offset(16384) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_minsi = check.generate.fill value(-17) : tensor<128xi64>
+  check.expect.bitwise actual(%final_minsi) expected(%expected_minsi) : tensor<128xi64>
+  %final_maxsi = check.tensor.view %output offset(17408) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_maxsi = check.generate.fill value(5) : tensor<128xi64>
+  check.expect.bitwise actual(%final_maxsi) expected(%expected_maxsi) : tensor<128xi64>
+  %final_minui = check.tensor.view %output offset(18432) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_minui = check.generate.fill value(5) : tensor<128xi64>
+  check.expect.bitwise actual(%final_minui) expected(%expected_minui) : tensor<128xi64>
+  %final_maxui = check.tensor.view %output offset(19456) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_maxui = check.generate.fill value(-17) : tensor<128xi64>
+  check.expect.bitwise actual(%final_maxui) expected(%expected_maxui) : tensor<128xi64>
+  %reduced = check.tensor.view %output offset(20480) : tensor<21x128xi64> -> tensor<128xi64>
+  %expected_reduced = check.generate.fill value(-22) : tensor<128xi64>
+  check.expect.bitwise actual(%reduced) expected(%expected_reduced) : tensor<128xi64>
+  check.return
+}
+
+// A minimum positive subnormal from memory doubles without flushing. Mixed
+// private fields also check exact access widths and signed narrow wrapping.
+kernel.def @private_carriers() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 24 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %source = buffer.view %input[%origin] : buffer -> view<128xi64>
+  %results = buffer.view %output[%origin] : buffer -> view<16x128xi64>
+  %lane = kernel.workitem.id<x> : index
+  %bits_i64 = view.load %source[%lane] : view<128xi64> -> i64
+  %bits_i32 = scalar.trunci %bits_i64 : i64 to i32
+  %bits_i16 = scalar.trunci %bits_i64 : i64 to i16
+  %bits_i8 = scalar.trunci %bits_i64 : i64 to i8
+  %offset_f16 = index.constant 0 : offset
+  %cell_f16 = buffer.view %storage[%offset_f16] : buffer -> view<1xf16>
+  %initial_f16 = scalar.bitcast %bits_i16 : i16 to f16
+  view.atomic.store %initial_f16, %cell_f16[0] {ordering = release, scope = system} : f16, view<1xf16>
+  %old_f16 = view.atomic.rmw<addf, noftz> %initial_f16, %cell_f16[0] {ordering = acq_rel, scope = system} : f16, view<1xf16> -> f16
+  %final_f16 = view.atomic.load %cell_f16[0] {ordering = acquire, scope = system} : view<1xf16> -> f16
+  %old_f16_bits = scalar.bitcast %old_f16 : f16 to i16
+  %old_f16_wide = scalar.extui %old_f16_bits : i16 to i64
+  view.store %old_f16_wide, %results[0, %lane] : i64, view<16x128xi64>
+  %final_f16_bits = scalar.bitcast %final_f16 : f16 to i16
+  %final_f16_wide = scalar.extui %final_f16_bits : i16 to i64
+  view.store %final_f16_wide, %results[6, %lane] : i64, view<16x128xi64>
+  %offset_bf16 = index.constant 2 : offset
+  %cell_bf16 = buffer.view %storage[%offset_bf16] : buffer -> view<1xbf16>
+  %initial_bf16 = scalar.bitcast %bits_i16 : i16 to bf16
+  view.atomic.store %initial_bf16, %cell_bf16[0] {ordering = release, scope = system} : bf16, view<1xbf16>
+  %old_bf16 = view.atomic.rmw<addf, noftz> %initial_bf16, %cell_bf16[0] {ordering = acq_rel, scope = system} : bf16, view<1xbf16> -> bf16
+  %final_bf16 = view.atomic.load %cell_bf16[0] {ordering = acquire, scope = system} : view<1xbf16> -> bf16
+  %old_bf16_bits = scalar.bitcast %old_bf16 : bf16 to i16
+  %old_bf16_wide = scalar.extui %old_bf16_bits : i16 to i64
+  view.store %old_bf16_wide, %results[1, %lane] : i64, view<16x128xi64>
+  %final_bf16_bits = scalar.bitcast %final_bf16 : bf16 to i16
+  %final_bf16_wide = scalar.extui %final_bf16_bits : i16 to i64
+  view.store %final_bf16_wide, %results[7, %lane] : i64, view<16x128xi64>
+  %offset_f32 = index.constant 4 : offset
+  %cell_f32 = buffer.view %storage[%offset_f32] : buffer -> view<1xf32>
+  %initial_f32 = scalar.bitcast %bits_i32 : i32 to f32
+  view.atomic.store %initial_f32, %cell_f32[0] {ordering = release, scope = system} : f32, view<1xf32>
+  %old_f32 = view.atomic.rmw<addf, noftz> %initial_f32, %cell_f32[0] {ordering = acq_rel, scope = system} : f32, view<1xf32> -> f32
+  %final_f32 = view.atomic.load %cell_f32[0] {ordering = acquire, scope = system} : view<1xf32> -> f32
+  %old_f32_bits = scalar.bitcast %old_f32 : f32 to i32
+  %old_f32_wide = scalar.extui %old_f32_bits : i32 to i64
+  view.store %old_f32_wide, %results[2, %lane] : i64, view<16x128xi64>
+  %final_f32_bits = scalar.bitcast %final_f32 : f32 to i32
+  %final_f32_wide = scalar.extui %final_f32_bits : i32 to i64
+  view.store %final_f32_wide, %results[8, %lane] : i64, view<16x128xi64>
+  %offset_f64 = index.constant 8 : offset
+  %cell_f64 = buffer.view %storage[%offset_f64] : buffer -> view<1xf64>
+  %initial_f64 = scalar.bitcast %bits_i64 : i64 to f64
+  view.atomic.store %initial_f64, %cell_f64[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old_f64 = view.atomic.rmw<addf, noftz> %initial_f64, %cell_f64[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final_f64 = view.atomic.load %cell_f64[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  %old_f64_bits = scalar.bitcast %old_f64 : f64 to i64
+  view.store %old_f64_bits, %results[3, %lane] : i64, view<16x128xi64>
+  %final_f64_bits = scalar.bitcast %final_f64 : f64 to i64
+  view.store %final_f64_bits, %results[9, %lane] : i64, view<16x128xi64>
+  %offset_i8 = index.constant 16 : offset
+  %cell_i8 = buffer.view %storage[%offset_i8] : buffer -> view<1xi8>
+  %initial_i8 = scalar.constant 127 : i8
+  %update_i8 = scalar.addi %bits_i8, %bits_i8 : i8
+  view.atomic.store %initial_i8, %cell_i8[0] {ordering = release, scope = system} : i8, view<1xi8>
+  %old_i8 = view.atomic.rmw<addi> %update_i8, %cell_i8[0] {ordering = acq_rel, scope = system} : i8, view<1xi8> -> i8
+  %final_i8 = view.atomic.load %cell_i8[0] {ordering = acquire, scope = system} : view<1xi8> -> i8
+  %old_i8_wide = scalar.extsi %old_i8 : i8 to i64
+  view.store %old_i8_wide, %results[4, %lane] : i64, view<16x128xi64>
+  %final_i8_wide = scalar.extsi %final_i8 : i8 to i64
+  view.store %final_i8_wide, %results[10, %lane] : i64, view<16x128xi64>
+  %offset_i16 = index.constant 18 : offset
+  %cell_i16 = buffer.view %storage[%offset_i16] : buffer -> view<1xi16>
+  %initial_i16 = scalar.constant 32767 : i16
+  %update_i16 = scalar.addi %bits_i16, %bits_i16 : i16
+  view.atomic.store %initial_i16, %cell_i16[0] {ordering = release, scope = system} : i16, view<1xi16>
+  %old_i16 = view.atomic.rmw<addi> %update_i16, %cell_i16[0] {ordering = acq_rel, scope = system} : i16, view<1xi16> -> i16
+  %final_i16 = view.atomic.load %cell_i16[0] {ordering = acquire, scope = system} : view<1xi16> -> i16
+  %old_i16_wide = scalar.extsi %old_i16 : i16 to i64
+  view.store %old_i16_wide, %results[5, %lane] : i64, view<16x128xi64>
+  %final_i16_wide = scalar.extsi %final_i16 : i16 to i64
+  view.store %final_i16_wide, %results[11, %lane] : i64, view<16x128xi64>
+  %offset_f8e4m3 = index.constant 20 : offset
+  %cell_f8e4m3 = buffer.view %storage[%offset_f8e4m3] : buffer -> view<1xf8E4M3>
+  %initial_f8e4m3 = scalar.bitcast %bits_i8 : i8 to f8E4M3
+  view.atomic.store %initial_f8e4m3, %cell_f8e4m3[0] {ordering = release, scope = system} : f8E4M3, view<1xf8E4M3>
+  %old_f8e4m3 = view.atomic.rmw<addf, noftz> %initial_f8e4m3, %cell_f8e4m3[0] {ordering = acq_rel, scope = system} : f8E4M3, view<1xf8E4M3> -> f8E4M3
+  %final_f8e4m3 = view.atomic.load %cell_f8e4m3[0] {ordering = acquire, scope = system} : view<1xf8E4M3> -> f8E4M3
+  %old_f8e4m3_bits = scalar.bitcast %old_f8e4m3 : f8E4M3 to i8
+  %old_f8e4m3_wide = scalar.extui %old_f8e4m3_bits : i8 to i64
+  view.store %old_f8e4m3_wide, %results[12, %lane] : i64, view<16x128xi64>
+  %final_f8e4m3_bits = scalar.bitcast %final_f8e4m3 : f8E4M3 to i8
+  %final_f8e4m3_wide = scalar.extui %final_f8e4m3_bits : i8 to i64
+  view.store %final_f8e4m3_wide, %results[13, %lane] : i64, view<16x128xi64>
+  %offset_f8e5m2 = index.constant 21 : offset
+  %cell_f8e5m2 = buffer.view %storage[%offset_f8e5m2] : buffer -> view<1xf8E5M2>
+  %initial_f8e5m2 = scalar.bitcast %bits_i8 : i8 to f8E5M2
+  view.atomic.store %initial_f8e5m2, %cell_f8e5m2[0] {ordering = release, scope = system} : f8E5M2, view<1xf8E5M2>
+  %old_f8e5m2 = view.atomic.rmw<addf, noftz> %initial_f8e5m2, %cell_f8e5m2[0] {ordering = acq_rel, scope = system} : f8E5M2, view<1xf8E5M2> -> f8E5M2
+  %final_f8e5m2 = view.atomic.load %cell_f8e5m2[0] {ordering = acquire, scope = system} : view<1xf8E5M2> -> f8E5M2
+  %old_f8e5m2_bits = scalar.bitcast %old_f8e5m2 : f8E5M2 to i8
+  %old_f8e5m2_wide = scalar.extui %old_f8e5m2_bits : i8 to i64
+  view.store %old_f8e5m2_wide, %results[14, %lane] : i64, view<16x128xi64>
+  %final_f8e5m2_bits = scalar.bitcast %final_f8e5m2 : f8E5M2 to i8
+  %final_f8e5m2_wide = scalar.extui %final_f8e5m2_bits : i8 to i64
+  view.store %final_f8e5m2_wide, %results[15, %lane] : i64, view<16x128xi64>
+  kernel.return
+}
+
+check.case public @private_carrier_results {
+  %input = check.generate.fill value(1) : tensor<128xi64>
+  %output = check.generate.fill value(0) : tensor<16x128xi64>
+  kernel.launch @private_carriers(%input, %output) : (tensor<128xi64>, tensor<16x128xi64>)
+  %result_0 = check.tensor.view %output offset(0) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_0 = check.generate.fill value(1) : tensor<128xi64>
+  check.expect.bitwise actual(%result_0) expected(%expected_0) : tensor<128xi64>
+  %result_1 = check.tensor.view %output offset(1024) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_1 = check.generate.fill value(1) : tensor<128xi64>
+  check.expect.bitwise actual(%result_1) expected(%expected_1) : tensor<128xi64>
+  %result_2 = check.tensor.view %output offset(2048) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_2 = check.generate.fill value(1) : tensor<128xi64>
+  check.expect.bitwise actual(%result_2) expected(%expected_2) : tensor<128xi64>
+  %result_3 = check.tensor.view %output offset(3072) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_3 = check.generate.fill value(1) : tensor<128xi64>
+  check.expect.bitwise actual(%result_3) expected(%expected_3) : tensor<128xi64>
+  %result_4 = check.tensor.view %output offset(4096) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_4 = check.generate.fill value(127) : tensor<128xi64>
+  check.expect.bitwise actual(%result_4) expected(%expected_4) : tensor<128xi64>
+  %result_5 = check.tensor.view %output offset(5120) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_5 = check.generate.fill value(32767) : tensor<128xi64>
+  check.expect.bitwise actual(%result_5) expected(%expected_5) : tensor<128xi64>
+  %result_6 = check.tensor.view %output offset(6144) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_6 = check.generate.fill value(2) : tensor<128xi64>
+  check.expect.bitwise actual(%result_6) expected(%expected_6) : tensor<128xi64>
+  %result_7 = check.tensor.view %output offset(7168) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_7 = check.generate.fill value(2) : tensor<128xi64>
+  check.expect.bitwise actual(%result_7) expected(%expected_7) : tensor<128xi64>
+  %result_8 = check.tensor.view %output offset(8192) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_8 = check.generate.fill value(2) : tensor<128xi64>
+  check.expect.bitwise actual(%result_8) expected(%expected_8) : tensor<128xi64>
+  %result_9 = check.tensor.view %output offset(9216) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_9 = check.generate.fill value(2) : tensor<128xi64>
+  check.expect.bitwise actual(%result_9) expected(%expected_9) : tensor<128xi64>
+  %result_10 = check.tensor.view %output offset(10240) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_10 = check.generate.fill value(-127) : tensor<128xi64>
+  check.expect.bitwise actual(%result_10) expected(%expected_10) : tensor<128xi64>
+  %result_11 = check.tensor.view %output offset(11264) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_11 = check.generate.fill value(-32767) : tensor<128xi64>
+  check.expect.bitwise actual(%result_11) expected(%expected_11) : tensor<128xi64>
+  %old_f8e4m3 = check.tensor.view %output offset(12288) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_old_f8e4m3 = check.generate.fill value(1) : tensor<128xi64>
+  check.expect.bitwise actual(%old_f8e4m3) expected(%expected_old_f8e4m3) : tensor<128xi64>
+  %final_f8e4m3 = check.tensor.view %output offset(13312) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_final_f8e4m3 = check.generate.fill value(2) : tensor<128xi64>
+  check.expect.bitwise actual(%final_f8e4m3) expected(%expected_final_f8e4m3) : tensor<128xi64>
+  %old_f8e5m2 = check.tensor.view %output offset(14336) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_old_f8e5m2 = check.generate.fill value(1) : tensor<128xi64>
+  check.expect.bitwise actual(%old_f8e5m2) expected(%expected_old_f8e5m2) : tensor<128xi64>
+  %final_f8e5m2 = check.tensor.view %output offset(15360) : tensor<16x128xi64> -> tensor<128xi64>
+  %expected_final_f8e5m2 = check.generate.fill value(2) : tensor<128xi64>
+  check.expect.bitwise actual(%final_f8e5m2) expected(%expected_final_f8e5m2) : tensor<128xi64>
+  check.return
+}
+
+// Adjacent invocations enable opposite vector lanes. Every update preserves
+// minimum subnormals, inactive lanes return the passthrough bits, and duplicate
+// addresses accumulate both contributions to the same private element.
+kernel.def @private_vector_updates() {
+  %unit = index.constant 1 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cells = buffer.view %storage[%origin] : buffer -> view<2xf16>
+  %source = buffer.view %input[%origin] : buffer -> view<128x2xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<5x128x2xi16>
+  %lane = kernel.workitem.id<x> : index
+  %bits = vector.load %source[%lane, 0] : view<128x2xi16> -> vector<2xi16>
+  %initial = vector.bitcast %bits : vector<2xi16> to vector<2xf16>
+  vector.store %initial, %cells[0] : vector<2xf16>, view<2xf16>
+  %first = index.constant 0 : index
+  %step = index.constant 1 : index
+  %offsets = vector.iota %first step %step : vector<2xindex>
+  %lane_bits = index.cast %lane : index to i32
+  %parity_mask = scalar.constant 1 : i32
+  %c0 = scalar.constant 0 : i32
+  %parity = scalar.andi %lane_bits, %parity_mask : i32
+  %even = scalar.cmpi eq, %parity, %c0 : i32
+  %odd = scalar.cmpi ne, %parity, %c0 : i32
+  %mask = vector.from_elements %even, %odd : vector<2xi1>
+  %passthrough_bits = vector.constant 11 : vector<2xi16>
+  %passthrough = vector.bitcast %passthrough_bits : vector<2xi16> to vector<2xf16>
+  vector.atomic.reduce<addf, noftz> %initial, %cells[0][%offsets] {ordering = release, scope = system} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  vector.atomic.reduce.mask<addf, noftz> %initial, %cells[0][%offsets], %mask {ordering = relaxed, scope = thread} : vector<2xf16>, view<2xf16>, vector<2xindex>, vector<2xi1>
+  %old = vector.atomic.rmw<addf, noftz> %initial, %cells[0][%offsets] {ordering = acq_rel, scope = system} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  %masked = vector.atomic.rmw.mask<addf, noftz> %initial, %cells[0][%offsets], %mask, %passthrough {ordering = relaxed, scope = thread} : vector<2xf16>, view<2xf16>, vector<2xindex>, vector<2xi1>, vector<2xf16>
+  %expected_bits = vector.constant 3 : vector<2xi16>
+  %expected = vector.bitcast %expected_bits : vector<2xi16> to vector<2xf16>
+  %replacement_bits = vector.constant 7 : vector<2xi16>
+  %replacement = vector.bitcast %replacement_bits : vector<2xi16> to vector<2xf16>
+  %observed = vector.atomic.cmpxchg %expected, %replacement, %cells[0][%offsets] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : vector<2xf16>, view<2xf16>, vector<2xindex> -> vector<2xf16>
+  %final = vector.load %cells[0] : view<2xf16> -> vector<2xf16>
+  %duplicates = vector.constant 0 : vector<2xindex>
+  vector.atomic.reduce<addf, noftz> %initial, %cells[0][%duplicates] {ordering = seq_cst, scope = system} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  %accumulated = vector.load %cells[0] : view<2xf16> -> vector<2xf16>
+  %old_bits = vector.bitcast %old : vector<2xf16> to vector<2xi16>
+  %masked_bits = vector.bitcast %masked : vector<2xf16> to vector<2xi16>
+  %observed_bits = vector.bitcast %observed : vector<2xf16> to vector<2xi16>
+  %final_bits = vector.bitcast %final : vector<2xf16> to vector<2xi16>
+  %accumulated_bits = vector.bitcast %accumulated : vector<2xf16> to vector<2xi16>
+  vector.store %old_bits, %results[0, %lane, 0] : vector<2xi16>, view<5x128x2xi16>
+  vector.store %masked_bits, %results[1, %lane, 0] : vector<2xi16>, view<5x128x2xi16>
+  vector.store %observed_bits, %results[2, %lane, 0] : vector<2xi16>, view<5x128x2xi16>
+  vector.store %final_bits, %results[3, %lane, 0] : vector<2xi16>, view<5x128x2xi16>
+  vector.store %accumulated_bits, %results[4, %lane, 0] : vector<2xi16>, view<5x128x2xi16>
+  kernel.return
+}
+
+check.case public @private_vector_results {
+  %input = check.generate.fill value(1) : tensor<128x2xi16>
+  %output = check.generate.fill value(0) : tensor<5x128x2xi16>
+  kernel.launch @private_vector_updates(%input, %output) : (tensor<128x2xi16>, tensor<5x128x2xi16>)
+  // Pack each pair of halfword payloads into one integer. Even and odd
+  // invocations observe [3, 2]/[2, 3], [4, 11]/[11, 4], [5, 3]/[3, 5],
+  // [5, 7]/[7, 5], then [7, 7]/[9, 5] after the duplicate updates.
+  %old = check.tensor.view %output offset(0) : tensor<5x128x2xi16> -> tensor<128xi32>
+  %expected_old = check.generate.iota offset(131075) step(65535) period(2) : tensor<128xi32>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<128xi32>
+  %masked = check.tensor.view %output offset(512) : tensor<5x128x2xi16> -> tensor<128xi32>
+  %expected_masked = check.generate.iota offset(720900) step(-458745) period(2) : tensor<128xi32>
+  check.expect.bitwise actual(%masked) expected(%expected_masked) : tensor<128xi32>
+  %observed = check.tensor.view %output offset(1024) : tensor<5x128x2xi16> -> tensor<128xi32>
+  %expected_observed = check.generate.iota offset(196613) step(131070) period(2) : tensor<128xi32>
+  check.expect.bitwise actual(%observed) expected(%expected_observed) : tensor<128xi32>
+  %final = check.tensor.view %output offset(1536) : tensor<5x128x2xi16> -> tensor<128xi32>
+  %expected_final = check.generate.iota offset(458757) step(-131070) period(2) : tensor<128xi32>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<128xi32>
+  %accumulated = check.tensor.view %output offset(2048) : tensor<5x128x2xi16> -> tensor<128xi32>
+  %expected_accumulated = check.generate.iota offset(458759) step(-131070) period(2) : tensor<128xi32>
+  check.expect.bitwise actual(%accumulated) expected(%expected_accumulated) : tensor<128xi32>
+  check.return
+}
+
+// The returned value keeps a signaling NaN payload while number-preferring
+// arithmetic stores the finite operand. The update is an immediate half.
+kernel.def @private_half_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf16>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi16>
+  %bits = view.load %source[0] : view<1xi16> -> i16
+  %initial = scalar.bitcast %bits : i16 to f16
+  %update = scalar.constant 1.0 : f16
+  view.store %initial, %cell[0] : f16, view<1xf16>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : f16, view<1xf16> -> f16
+  %final = view.load %cell[0] : view<1xf16> -> f16
+  %old_bits = scalar.bitcast %old : f16 to i16
+  %final_bits = scalar.bitcast %final : f16 to i16
+  view.store %old_bits, %results[0] : i16, view<2xi16>
+  view.store %final_bits, %results[1] : i16, view<2xi16>
+  kernel.return
+}
+
+check.case public @private_half_number_snan {
+  %input = check.generate.fill value(31745) : tensor<1xi16>
+  %output = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @private_half_number(%input, %output) : (tensor<1xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi16> -> tensor<1xi16>
+  %expected_old = check.generate.fill value(31745) : tensor<1xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi16>
+  %final = check.tensor.view %output offset(2) : tensor<2xi16> -> tensor<1xi16>
+  %expected_final = check.generate.fill value(15360) : tensor<1xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
+  check.return
+}
+
+// Every FP8 bit pattern participates in both successful and failed comparisons.
+// Independently loaded expected bits keep the comparison live after promotion;
+// signed zeros and NaNs compare by representation, without conversion.
+kernel.def @private_float8_compare() {
+  %unit = index.constant 1 : index
+  %width = index.constant 256 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %comparisons: buffer, %choice: i32, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %source = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %expected_source = buffer.view %comparisons[%origin] : buffer -> view<256xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<6x256xi8>
+  // Adjacent invocations alternate between the matching and nonmatching halves.
+  %item = kernel.workitem.id<x> : index
+  %pair_width = index.constant 2 : index
+  %half_width = index.constant 128 : index
+  %pair = index.div %item, %pair_width : index
+  %parity = index.rem %item, %pair_width : index
+  %half = index.mul %parity, %half_width : index
+  %lane = index.add %pair, %half : index
+  %initial_bits = view.load %source[%lane] : view<256xi8> -> i8
+  %expected_bits = view.load %expected_source[%lane] : view<256xi8> -> i8
+  %threshold = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %choice, %threshold : i32
+  %offset_f8e4m3 = index.constant 0 : offset
+  %cell_f8e4m3 = buffer.view %storage[%offset_f8e4m3] : buffer -> view<1xf8E4M3>
+  %initial_f8e4m3 = scalar.bitcast %initial_bits : i8 to f8E4M3
+  %expected_f8e4m3 = scalar.bitcast %expected_bits : i8 to f8E4M3
+  %replacement_f8e4m3 = scalar.constant 1.0 : f8E4M3
+  view.store %initial_f8e4m3, %cell_f8e4m3[0] : f8E4M3, view<1xf8E4M3>
+  %old_f8e4m3 = view.atomic.cmpxchg %expected_f8e4m3, %replacement_f8e4m3, %cell_f8e4m3[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : f8E4M3, view<1xf8E4M3> -> f8E4M3
+  %final_f8e4m3 = view.load %cell_f8e4m3[0] : view<1xf8E4M3> -> f8E4M3
+  %selected_f8e4m3 = scf.select %condition, %initial_f8e4m3, %replacement_f8e4m3 : f8E4M3
+  %old_f8e4m3_bits = scalar.bitcast %old_f8e4m3 : f8E4M3 to i8
+  view.store %old_f8e4m3_bits, %results[0, %lane] : i8, view<6x256xi8>
+  %final_f8e4m3_bits = scalar.bitcast %final_f8e4m3 : f8E4M3 to i8
+  view.store %final_f8e4m3_bits, %results[1, %lane] : i8, view<6x256xi8>
+  %selected_f8e4m3_bits = scalar.bitcast %selected_f8e4m3 : f8E4M3 to i8
+  view.store %selected_f8e4m3_bits, %results[2, %lane] : i8, view<6x256xi8>
+  %offset_f8e5m2 = index.constant 1 : offset
+  %cell_f8e5m2 = buffer.view %storage[%offset_f8e5m2] : buffer -> view<1xf8E5M2>
+  %initial_f8e5m2 = scalar.bitcast %initial_bits : i8 to f8E5M2
+  %expected_f8e5m2 = scalar.bitcast %expected_bits : i8 to f8E5M2
+  %replacement_f8e5m2 = scalar.constant 1.0 : f8E5M2
+  view.store %initial_f8e5m2, %cell_f8e5m2[0] : f8E5M2, view<1xf8E5M2>
+  %old_f8e5m2 = view.atomic.cmpxchg %expected_f8e5m2, %replacement_f8e5m2, %cell_f8e5m2[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : f8E5M2, view<1xf8E5M2> -> f8E5M2
+  %final_f8e5m2 = view.load %cell_f8e5m2[0] : view<1xf8E5M2> -> f8E5M2
+  %selected_f8e5m2 = scf.select %condition, %initial_f8e5m2, %replacement_f8e5m2 : f8E5M2
+  %old_f8e5m2_bits = scalar.bitcast %old_f8e5m2 : f8E5M2 to i8
+  view.store %old_f8e5m2_bits, %results[3, %lane] : i8, view<6x256xi8>
+  %final_f8e5m2_bits = scalar.bitcast %final_f8e5m2 : f8E5M2 to i8
+  view.store %final_f8e5m2_bits, %results[4, %lane] : i8, view<6x256xi8>
+  %selected_f8e5m2_bits = scalar.bitcast %selected_f8e5m2 : f8E5M2 to i8
+  view.store %selected_f8e5m2_bits, %results[5, %lane] : i8, view<6x256xi8>
+  kernel.return
+}
+
+check.case public @private_float8_negative_matches {
+  %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+  %comparisons = check.generate.iota offset(-128) step(1) period(128) : tensor<256xi8>
+  %choice = check.literal value(1) : i32
+  %output = check.generate.fill value(-85) : tensor<6x256xi8>
+  kernel.launch @private_float8_compare(%input, %comparisons, %choice, %output) : (tensor<256xi8>, tensor<256xi8>, i32, tensor<6x256xi8>)
+  %old_e4 = check.tensor.view %output offset(0) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e4) expected(%input) : tensor<256xi8>
+  %matched_e4 = check.tensor.view %output offset(256) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e4 = check.generate.fill value(56) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e4) expected(%expected_match_e4) : tensor<128xi8>
+  %unmatched_e4 = check.tensor.view %output offset(384) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e4 = check.generate.iota offset(0) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e4) expected(%expected_unmatched_e4) : tensor<128xi8>
+  %selected_e4 = check.tensor.view %output offset(512) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%selected_e4) expected(%input) : tensor<256xi8>
+  %old_e5 = check.tensor.view %output offset(768) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e5) expected(%input) : tensor<256xi8>
+  %matched_e5 = check.tensor.view %output offset(1024) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e5 = check.generate.fill value(60) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e5) expected(%expected_match_e5) : tensor<128xi8>
+  %unmatched_e5 = check.tensor.view %output offset(1152) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e5 = check.generate.iota offset(0) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e5) expected(%expected_unmatched_e5) : tensor<128xi8>
+  %selected_e5 = check.tensor.view %output offset(1280) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%selected_e5) expected(%input) : tensor<256xi8>
+  check.return
+}
+
+check.case public @private_float8_positive_matches {
+  %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+  %comparisons = check.generate.iota offset(0) step(1) period(128) : tensor<256xi8>
+  %choice = check.literal value(0) : i32
+  %output = check.generate.fill value(-85) : tensor<6x256xi8>
+  kernel.launch @private_float8_compare(%input, %comparisons, %choice, %output) : (tensor<256xi8>, tensor<256xi8>, i32, tensor<6x256xi8>)
+  %old_e4 = check.tensor.view %output offset(0) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e4) expected(%input) : tensor<256xi8>
+  %matched_e4 = check.tensor.view %output offset(384) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e4 = check.generate.fill value(56) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e4) expected(%expected_match_e4) : tensor<128xi8>
+  %unmatched_e4 = check.tensor.view %output offset(256) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e4 = check.generate.iota offset(-128) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e4) expected(%expected_unmatched_e4) : tensor<128xi8>
+  %selected_e4 = check.tensor.view %output offset(512) : tensor<6x256xi8> -> tensor<256xi8>
+  %expected_selection_e4 = check.generate.fill value(56) : tensor<256xi8>
+  check.expect.bitwise actual(%selected_e4) expected(%expected_selection_e4) : tensor<256xi8>
+  %old_e5 = check.tensor.view %output offset(768) : tensor<6x256xi8> -> tensor<256xi8>
+  check.expect.bitwise actual(%old_e5) expected(%input) : tensor<256xi8>
+  %matched_e5 = check.tensor.view %output offset(1152) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_match_e5 = check.generate.fill value(60) : tensor<128xi8>
+  check.expect.bitwise actual(%matched_e5) expected(%expected_match_e5) : tensor<128xi8>
+  %unmatched_e5 = check.tensor.view %output offset(1024) : tensor<6x256xi8> -> tensor<128xi8>
+  %expected_unmatched_e5 = check.generate.iota offset(-128) step(1) : tensor<128xi8>
+  check.expect.bitwise actual(%unmatched_e5) expected(%expected_unmatched_e5) : tensor<128xi8>
+  %selected_e5 = check.tensor.view %output offset(1280) : tensor<6x256xi8> -> tensor<256xi8>
+  %expected_selection_e5 = check.generate.fill value(60) : tensor<256xi8>
+  check.expect.bitwise actual(%selected_e5) expected(%expected_selection_e5) : tensor<256xi8>
+  check.return
+}
+
+// Narrow extrema preserve old NaN payloads and gradual underflow. Each
+// minimum-subnormal input must survive a minimum with the immediate 1.0.
+kernel.def @private_bf16_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 2 : offset
+  %storage = buffer.alloca<private> align(2) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xbf16>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi16>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi16>
+  %bits = view.load %source[0] : view<1xi16> -> i16
+  %initial = scalar.bitcast %bits : i16 to bf16
+  %update = scalar.constant 1.0 : bf16
+  view.store %initial, %cell[0] : bf16, view<1xbf16>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : bf16, view<1xbf16> -> bf16
+  %final = view.load %cell[0] : view<1xbf16> -> bf16
+  %old_bits = scalar.bitcast %old : bf16 to i16
+  %final_bits = scalar.bitcast %final : bf16 to i16
+  view.store %old_bits, %results[0] : i16, view<2xi16>
+  view.store %final_bits, %results[1] : i16, view<2xi16>
+  kernel.return
+}
+
+check.case public @private_bf16_number_snan {
+  %input = check.generate.fill value(32641) : tensor<1xi16>
+  %output = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @private_bf16_number(%input, %output) : (tensor<1xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi16> -> tensor<1xi16>
+  %expected_old = check.generate.fill value(32641) : tensor<1xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi16>
+  %final = check.tensor.view %output offset(2) : tensor<2xi16> -> tensor<1xi16>
+  %expected_final = check.generate.fill value(16256) : tensor<1xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
+  check.return
+}
+
+check.case public @private_bf16_number_subnormal {
+  %input = check.generate.fill value(1) : tensor<1xi16>
+  %output = check.generate.fill value(0) : tensor<2xi16>
+  kernel.launch @private_bf16_number(%input, %output) : (tensor<1xi16>, tensor<2xi16>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi16> -> tensor<1xi16>
+  %expected_old = check.generate.fill value(1) : tensor<1xi16>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi16>
+  %final = check.tensor.view %output offset(2) : tensor<2xi16> -> tensor<1xi16>
+  %expected_final = check.generate.fill value(1) : tensor<1xi16>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi16>
+  check.return
+}
+
+kernel.def @private_f8e4m3_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 1 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf8E4M3>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi8>
+  %bits = view.load %source[0] : view<1xi8> -> i8
+  %initial = scalar.bitcast %bits : i8 to f8E4M3
+  %update = scalar.constant 1.0 : f8E4M3
+  view.store %initial, %cell[0] : f8E4M3, view<1xf8E4M3>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : f8E4M3, view<1xf8E4M3> -> f8E4M3
+  %final = view.load %cell[0] : view<1xf8E4M3> -> f8E4M3
+  %old_bits = scalar.bitcast %old : f8E4M3 to i8
+  %final_bits = scalar.bitcast %final : f8E4M3 to i8
+  view.store %old_bits, %results[0] : i8, view<2xi8>
+  view.store %final_bits, %results[1] : i8, view<2xi8>
+  kernel.return
+}
+
+check.case public @private_f8e4m3_number_nan {
+  %input = check.generate.fill value(127) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e4m3_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(127) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(56) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
+
+check.case public @private_f8e4m3_number_subnormal {
+  %input = check.generate.fill value(1) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e4m3_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
+
+kernel.def @private_f8e5m2_number() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 1 : offset
+  %storage = buffer.alloca<private> align(1) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf8E5M2>
+  %source = buffer.view %input[%origin] : buffer -> view<1xi8>
+  %results = buffer.view %output[%origin] : buffer -> view<2xi8>
+  %bits = view.load %source[0] : view<1xi8> -> i8
+  %initial = scalar.bitcast %bits : i8 to f8E5M2
+  %update = scalar.constant 1.0 : f8E5M2
+  view.store %initial, %cell[0] : f8E5M2, view<1xf8E5M2>
+  %old = view.atomic.rmw<minnumf> %update, %cell[0] {ordering = relaxed, scope = device} : f8E5M2, view<1xf8E5M2> -> f8E5M2
+  %final = view.load %cell[0] : view<1xf8E5M2> -> f8E5M2
+  %old_bits = scalar.bitcast %old : f8E5M2 to i8
+  %final_bits = scalar.bitcast %final : f8E5M2 to i8
+  view.store %old_bits, %results[0] : i8, view<2xi8>
+  view.store %final_bits, %results[1] : i8, view<2xi8>
+  kernel.return
+}
+
+check.case public @private_f8e5m2_number_snan {
+  %input = check.generate.fill value(125) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e5m2_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(125) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(60) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}
+
+check.case public @private_f8e5m2_number_subnormal {
+  %input = check.generate.fill value(1) : tensor<1xi8>
+  %output = check.generate.fill value(0) : tensor<2xi8>
+  kernel.launch @private_f8e5m2_number(%input, %output) : (tensor<1xi8>, tensor<2xi8>)
+  %old = check.tensor.view %output offset(0) : tensor<2xi8> -> tensor<1xi8>
+  %expected_old = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%old) expected(%expected_old) : tensor<1xi8>
+  %final = check.tensor.view %output offset(1) : tensor<2xi8> -> tensor<1xi8>
+  %expected_final = check.generate.fill value(1) : tensor<1xi8>
+  check.expect.bitwise actual(%final) expected(%expected_final) : tensor<1xi8>
+  check.return
+}

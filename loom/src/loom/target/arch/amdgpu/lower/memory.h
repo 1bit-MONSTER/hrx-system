@@ -349,7 +349,6 @@ loom_amdgpu_memory_cache_policy_resolve(
 // the memory access.
 iree_string_view_t loom_amdgpu_memory_cache_policy_rejection_key(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_amdgpu_memory_access_t* access,
     const loom_vector_memory_cache_policy_t* policy);
 
 // Returns the stable diagnostic constraint key for target-specific
@@ -450,6 +449,12 @@ bool loom_amdgpu_atomic_has_native_candidate(
     loom_amdgpu_atomic_operation_kind_t operation_kind, uint8_t atomic_kind,
     uint8_t scope, loom_memory_access_flags_t access_flags,
     loom_type_t value_type);
+
+// Returns whether the analyzed access is an aligned adjacent half pair.
+// Legalization and final selection share this shape contract; descriptor and
+// numerical availability are checked separately by native candidate lookup.
+bool loom_amdgpu_atomic_packed_half_source_shape(
+    const loom_low_source_memory_access_plan_t* source, loom_type_t value_type);
 
 // Selects an AMDGPU atomic packet plan.
 iree_status_t loom_amdgpu_select_atomic_plan(

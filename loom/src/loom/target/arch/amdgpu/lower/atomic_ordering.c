@@ -69,14 +69,13 @@ bool loom_amdgpu_atomic_scope_supported(
     const loom_low_source_memory_access_plan_t* source,
     loom_type_t value_type) {
   if (source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
-    return source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP;
+    return true;
   }
   if (!loom_amdgpu_atomic_memory_space_is_device_visible(
           source->memory_space)) {
     return false;
   }
-  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
-      source->atomic.scope == LOOM_ATOMIC_SCOPE_DEVICE) {
+  if (source->atomic.scope <= LOOM_ATOMIC_SCOPE_DEVICE) {
     return true;
   }
   const int32_t bit_count =
@@ -290,14 +289,18 @@ bool loom_amdgpu_atomic_select_ordering(
   *ordering = (loom_amdgpu_atomic_ordering_selection_t){0};
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
-  if (!loom_amdgpu_atomic_source_has_release_ordering(source) &&
-      !loom_amdgpu_atomic_source_has_acquire_ordering(source)) {
+  if (source->atomic.scope <= LOOM_ATOMIC_SCOPE_SUBGROUP ||
+      (!loom_amdgpu_atomic_source_has_release_ordering(source) &&
+       !loom_amdgpu_atomic_source_has_acquire_ordering(source))) {
     return true;
   }
   if (rule == NULL) {
     return false;
   }
-  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP) {
+  // LDS limits the synchronization participants to its owning workgroup.
+  // Global payload accesses still participate in the workgroup recipe.
+  if (source->atomic.scope == LOOM_ATOMIC_SCOPE_WORKGROUP ||
+      source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     return loom_amdgpu_atomic_select_workgroup_ordering(
         descriptor_set, rule, source, operation_kind, ordering);
   }
@@ -340,8 +343,9 @@ loom_amdgpu_memory_coherence_attr_t loom_amdgpu_atomic_select_packet_attr(
     const loom_low_source_memory_access_plan_t* source) {
   const loom_amdgpu_memory_coherence_rule_t* rule =
       loom_amdgpu_memory_coherence_rule(descriptor_set);
-  if (!rule || !loom_amdgpu_atomic_memory_space_is_device_visible(
-                   source->memory_space)) {
+  if (!rule || source->atomic.scope <= LOOM_ATOMIC_SCOPE_SUBGROUP ||
+      !loom_amdgpu_atomic_memory_space_is_device_visible(
+          source->memory_space)) {
     return (loom_amdgpu_memory_coherence_attr_t){0};
   }
   loom_amdgpu_memory_coherence_attr_t

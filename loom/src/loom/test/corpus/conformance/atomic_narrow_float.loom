@@ -1,0 +1,220 @@
+// Exchanges return the original NaN payload; arithmetic keeps minimum
+// subnormals and signed zeros. Adjacent cells exercise independent word retries.
+kernel.def @narrow_float_updates() {
+  %unit = index.constant 1 : index
+  %width = index.constant 65 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%half: buffer, %brain: buffer, %e4m3: buffer, %e5m2: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %results = buffer.view %output[%origin] : buffer -> view<20x65xi16>
+  %memory_half = buffer.assume.memory_space<global> %half : buffer
+  %offset_half = index.constant 2 : offset
+  %cells_half = buffer.view %memory_half[%offset_half] : buffer -> view<65xf16>
+  %nan_bits_half = scalar.constant 31745 : i16
+  %subnormal_bits_half = scalar.constant 1 : i16
+  %negative_zero_bits_half = scalar.constant -32768 : i16
+  %nan_half = scalar.bitcast %nan_bits_half : i16 to f16
+  %subnormal_half = scalar.bitcast %subnormal_bits_half : i16 to f16
+  %negative_zero_half = scalar.bitcast %negative_zero_bits_half : i16 to f16
+  %positive_zero_half = scalar.constant 0.0 : f16
+  view.store %nan_half, %cells_half[%lane] : f16, view<65xf16>
+  %exchanged_half = view.atomic.rmw<xchgf> %subnormal_half, %cells_half[%lane] {ordering = acq_rel, scope = system} : f16, view<65xf16> -> f16
+  %added_half = view.atomic.rmw<addf, noftz> %subnormal_half, %cells_half[%lane] {ordering = acq_rel, scope = system} : f16, view<65xf16> -> f16
+  view.atomic.reduce<addf, noftz> %subnormal_half, %cells_half[%lane] {ordering = release, scope = device} : f16, view<65xf16>
+  %minimum_half = view.atomic.rmw<minnumf> %negative_zero_half, %cells_half[%lane] {ordering = relaxed, scope = device} : f16, view<65xf16> -> f16
+  %maximum_half = view.atomic.rmw<maximumf> %positive_zero_half, %cells_half[%lane] {ordering = relaxed, scope = subgroup} : f16, view<65xf16> -> f16
+  %final_half = view.atomic.load %cells_half[%lane] {ordering = acquire, scope = system} : view<65xf16> -> f16
+  %exchanged_bits_half = scalar.bitcast %exchanged_half : f16 to i16
+  view.store %exchanged_bits_half, %results[0, %lane] : i16, view<20x65xi16>
+  %added_bits_half = scalar.bitcast %added_half : f16 to i16
+  view.store %added_bits_half, %results[1, %lane] : i16, view<20x65xi16>
+  %minimum_bits_half = scalar.bitcast %minimum_half : f16 to i16
+  view.store %minimum_bits_half, %results[2, %lane] : i16, view<20x65xi16>
+  %maximum_bits_half = scalar.bitcast %maximum_half : f16 to i16
+  view.store %maximum_bits_half, %results[3, %lane] : i16, view<20x65xi16>
+  %final_bits_half = scalar.bitcast %final_half : f16 to i16
+  view.store %final_bits_half, %results[4, %lane] : i16, view<20x65xi16>
+  %memory_brain = buffer.assume.memory_space<generic> %brain : buffer
+  %offset_brain = index.constant 2 : offset
+  %cells_brain = buffer.view %memory_brain[%offset_brain] : buffer -> view<65xbf16>
+  %nan_bits_brain = scalar.constant 32641 : i16
+  %subnormal_bits_brain = scalar.constant 1 : i16
+  %negative_zero_bits_brain = scalar.constant -32768 : i16
+  %nan_brain = scalar.bitcast %nan_bits_brain : i16 to bf16
+  %subnormal_brain = scalar.bitcast %subnormal_bits_brain : i16 to bf16
+  %negative_zero_brain = scalar.bitcast %negative_zero_bits_brain : i16 to bf16
+  %positive_zero_brain = scalar.constant 0.0 : bf16
+  view.store %nan_brain, %cells_brain[%lane] : bf16, view<65xbf16>
+  %exchanged_brain = view.atomic.rmw<xchgf> %subnormal_brain, %cells_brain[%lane] {ordering = acq_rel, scope = system} : bf16, view<65xbf16> -> bf16
+  %added_brain = view.atomic.rmw<addf, noftz> %subnormal_brain, %cells_brain[%lane] {ordering = acq_rel, scope = system} : bf16, view<65xbf16> -> bf16
+  view.atomic.reduce<addf, noftz> %subnormal_brain, %cells_brain[%lane] {ordering = release, scope = device} : bf16, view<65xbf16>
+  %minimum_brain = view.atomic.rmw<minnumf> %negative_zero_brain, %cells_brain[%lane] {ordering = relaxed, scope = device} : bf16, view<65xbf16> -> bf16
+  %maximum_brain = view.atomic.rmw<maximumf> %positive_zero_brain, %cells_brain[%lane] {ordering = relaxed, scope = subgroup} : bf16, view<65xbf16> -> bf16
+  %final_brain = view.atomic.load %cells_brain[%lane] {ordering = acquire, scope = system} : view<65xbf16> -> bf16
+  %exchanged_bits_brain = scalar.bitcast %exchanged_brain : bf16 to i16
+  view.store %exchanged_bits_brain, %results[5, %lane] : i16, view<20x65xi16>
+  %added_bits_brain = scalar.bitcast %added_brain : bf16 to i16
+  view.store %added_bits_brain, %results[6, %lane] : i16, view<20x65xi16>
+  %minimum_bits_brain = scalar.bitcast %minimum_brain : bf16 to i16
+  view.store %minimum_bits_brain, %results[7, %lane] : i16, view<20x65xi16>
+  %maximum_bits_brain = scalar.bitcast %maximum_brain : bf16 to i16
+  view.store %maximum_bits_brain, %results[8, %lane] : i16, view<20x65xi16>
+  %final_bits_brain = scalar.bitcast %final_brain : bf16 to i16
+  view.store %final_bits_brain, %results[9, %lane] : i16, view<20x65xi16>
+  %memory_e4m3 = buffer.assume.memory_space<global> %e4m3 : buffer
+  %offset_e4m3 = index.constant 1 : offset
+  %cells_e4m3 = buffer.view %memory_e4m3[%offset_e4m3] : buffer -> view<65xf8E4M3>
+  %nan_bits_e4m3 = scalar.constant -1 : i8
+  %subnormal_bits_e4m3 = scalar.constant 1 : i8
+  %negative_zero_bits_e4m3 = scalar.constant -128 : i8
+  %nan_e4m3 = scalar.bitcast %nan_bits_e4m3 : i8 to f8E4M3
+  %subnormal_e4m3 = scalar.bitcast %subnormal_bits_e4m3 : i8 to f8E4M3
+  %negative_zero_e4m3 = scalar.bitcast %negative_zero_bits_e4m3 : i8 to f8E4M3
+  %positive_zero_e4m3 = scalar.constant 0.0 : f8E4M3
+  view.store %nan_e4m3, %cells_e4m3[%lane] : f8E4M3, view<65xf8E4M3>
+  %exchanged_e4m3 = view.atomic.rmw<xchgf> %subnormal_e4m3, %cells_e4m3[%lane] {ordering = acq_rel, scope = system} : f8E4M3, view<65xf8E4M3> -> f8E4M3
+  %added_e4m3 = view.atomic.rmw<addf, noftz> %subnormal_e4m3, %cells_e4m3[%lane] {ordering = acq_rel, scope = system} : f8E4M3, view<65xf8E4M3> -> f8E4M3
+  view.atomic.reduce<addf, noftz> %subnormal_e4m3, %cells_e4m3[%lane] {ordering = release, scope = device} : f8E4M3, view<65xf8E4M3>
+  %minimum_e4m3 = view.atomic.rmw<minnumf> %negative_zero_e4m3, %cells_e4m3[%lane] {ordering = relaxed, scope = device} : f8E4M3, view<65xf8E4M3> -> f8E4M3
+  %maximum_e4m3 = view.atomic.rmw<maximumf> %positive_zero_e4m3, %cells_e4m3[%lane] {ordering = relaxed, scope = subgroup} : f8E4M3, view<65xf8E4M3> -> f8E4M3
+  %final_e4m3 = view.atomic.load %cells_e4m3[%lane] {ordering = acquire, scope = system} : view<65xf8E4M3> -> f8E4M3
+  %exchanged_bits_e4m3 = scalar.bitcast %exchanged_e4m3 : f8E4M3 to i8
+  %exchanged_wide_e4m3 = scalar.extui %exchanged_bits_e4m3 : i8 to i16
+  view.store %exchanged_wide_e4m3, %results[10, %lane] : i16, view<20x65xi16>
+  %added_bits_e4m3 = scalar.bitcast %added_e4m3 : f8E4M3 to i8
+  %added_wide_e4m3 = scalar.extui %added_bits_e4m3 : i8 to i16
+  view.store %added_wide_e4m3, %results[11, %lane] : i16, view<20x65xi16>
+  %minimum_bits_e4m3 = scalar.bitcast %minimum_e4m3 : f8E4M3 to i8
+  %minimum_wide_e4m3 = scalar.extui %minimum_bits_e4m3 : i8 to i16
+  view.store %minimum_wide_e4m3, %results[12, %lane] : i16, view<20x65xi16>
+  %maximum_bits_e4m3 = scalar.bitcast %maximum_e4m3 : f8E4M3 to i8
+  %maximum_wide_e4m3 = scalar.extui %maximum_bits_e4m3 : i8 to i16
+  view.store %maximum_wide_e4m3, %results[13, %lane] : i16, view<20x65xi16>
+  %final_bits_e4m3 = scalar.bitcast %final_e4m3 : f8E4M3 to i8
+  %final_wide_e4m3 = scalar.extui %final_bits_e4m3 : i8 to i16
+  view.store %final_wide_e4m3, %results[14, %lane] : i16, view<20x65xi16>
+  %memory_e5m2 = buffer.assume.memory_space<generic> %e5m2 : buffer
+  %offset_e5m2 = index.constant 1 : offset
+  %cells_e5m2 = buffer.view %memory_e5m2[%offset_e5m2] : buffer -> view<65xf8E5M2>
+  %nan_bits_e5m2 = scalar.constant 125 : i8
+  %subnormal_bits_e5m2 = scalar.constant 1 : i8
+  %negative_zero_bits_e5m2 = scalar.constant -128 : i8
+  %nan_e5m2 = scalar.bitcast %nan_bits_e5m2 : i8 to f8E5M2
+  %subnormal_e5m2 = scalar.bitcast %subnormal_bits_e5m2 : i8 to f8E5M2
+  %negative_zero_e5m2 = scalar.bitcast %negative_zero_bits_e5m2 : i8 to f8E5M2
+  %positive_zero_e5m2 = scalar.constant 0.0 : f8E5M2
+  view.store %nan_e5m2, %cells_e5m2[%lane] : f8E5M2, view<65xf8E5M2>
+  %exchanged_e5m2 = view.atomic.rmw<xchgf> %subnormal_e5m2, %cells_e5m2[%lane] {ordering = acq_rel, scope = system} : f8E5M2, view<65xf8E5M2> -> f8E5M2
+  %added_e5m2 = view.atomic.rmw<addf, noftz> %subnormal_e5m2, %cells_e5m2[%lane] {ordering = acq_rel, scope = system} : f8E5M2, view<65xf8E5M2> -> f8E5M2
+  view.atomic.reduce<addf, noftz> %subnormal_e5m2, %cells_e5m2[%lane] {ordering = release, scope = device} : f8E5M2, view<65xf8E5M2>
+  %minimum_e5m2 = view.atomic.rmw<minnumf> %negative_zero_e5m2, %cells_e5m2[%lane] {ordering = relaxed, scope = device} : f8E5M2, view<65xf8E5M2> -> f8E5M2
+  %maximum_e5m2 = view.atomic.rmw<maximumf> %positive_zero_e5m2, %cells_e5m2[%lane] {ordering = relaxed, scope = subgroup} : f8E5M2, view<65xf8E5M2> -> f8E5M2
+  %final_e5m2 = view.atomic.load %cells_e5m2[%lane] {ordering = acquire, scope = system} : view<65xf8E5M2> -> f8E5M2
+  %exchanged_bits_e5m2 = scalar.bitcast %exchanged_e5m2 : f8E5M2 to i8
+  %exchanged_wide_e5m2 = scalar.extui %exchanged_bits_e5m2 : i8 to i16
+  view.store %exchanged_wide_e5m2, %results[15, %lane] : i16, view<20x65xi16>
+  %added_bits_e5m2 = scalar.bitcast %added_e5m2 : f8E5M2 to i8
+  %added_wide_e5m2 = scalar.extui %added_bits_e5m2 : i8 to i16
+  view.store %added_wide_e5m2, %results[16, %lane] : i16, view<20x65xi16>
+  %minimum_bits_e5m2 = scalar.bitcast %minimum_e5m2 : f8E5M2 to i8
+  %minimum_wide_e5m2 = scalar.extui %minimum_bits_e5m2 : i8 to i16
+  view.store %minimum_wide_e5m2, %results[17, %lane] : i16, view<20x65xi16>
+  %maximum_bits_e5m2 = scalar.bitcast %maximum_e5m2 : f8E5M2 to i8
+  %maximum_wide_e5m2 = scalar.extui %maximum_bits_e5m2 : i8 to i16
+  view.store %maximum_wide_e5m2, %results[18, %lane] : i16, view<20x65xi16>
+  %final_bits_e5m2 = scalar.bitcast %final_e5m2 : f8E5M2 to i8
+  %final_wide_e5m2 = scalar.extui %final_bits_e5m2 : i8 to i16
+  view.store %final_wide_e5m2, %results[19, %lane] : i16, view<20x65xi16>
+  kernel.return
+}
+
+check.case public @narrow_float_payloads {
+  %half = check.generate.fill value(77) : tensor<67xi16>
+  %brain = check.generate.fill value(77) : tensor<67xi16>
+  %e4m3 = check.generate.fill value(77) : tensor<67xi8>
+  %e5m2 = check.generate.fill value(77) : tensor<67xi8>
+  %output = check.generate.fill value(-1) : tensor<20x65xi16>
+  kernel.launch @narrow_float_updates(%half, %brain, %e4m3, %e5m2, %output) : (tensor<67xi16>, tensor<67xi16>, tensor<67xi8>, tensor<67xi8>, tensor<20x65xi16>)
+  %half_exchanged = check.tensor.view %output offset(0) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_half_exchanged = check.generate.fill value(31745) : tensor<65xi16>
+  check.expect.bitwise actual(%half_exchanged) expected(%expected_half_exchanged) : tensor<65xi16>
+  %half_added = check.tensor.view %output offset(130) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_half_added = check.generate.fill value(1) : tensor<65xi16>
+  check.expect.bitwise actual(%half_added) expected(%expected_half_added) : tensor<65xi16>
+  %half_minimum = check.tensor.view %output offset(260) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_half_minimum = check.generate.fill value(3) : tensor<65xi16>
+  check.expect.bitwise actual(%half_minimum) expected(%expected_half_minimum) : tensor<65xi16>
+  %half_maximum = check.tensor.view %output offset(390) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_half_maximum = check.generate.fill value(-32768) : tensor<65xi16>
+  check.expect.bitwise actual(%half_maximum) expected(%expected_half_maximum) : tensor<65xi16>
+  %half_final = check.tensor.view %output offset(520) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_half_final = check.generate.fill value(0) : tensor<65xi16>
+  check.expect.bitwise actual(%half_final) expected(%expected_half_final) : tensor<65xi16>
+  %prefix_half = check.tensor.view %half offset(0) : tensor<67xi16> -> tensor<1xi16>
+  %suffix_half = check.tensor.view %half offset(132) : tensor<67xi16> -> tensor<1xi16>
+  %guard_half = check.generate.fill value(77) : tensor<1xi16>
+  check.expect.bitwise actual(%prefix_half) expected(%guard_half) : tensor<1xi16>
+  check.expect.bitwise actual(%suffix_half) expected(%guard_half) : tensor<1xi16>
+  %brain_exchanged = check.tensor.view %output offset(650) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_brain_exchanged = check.generate.fill value(32641) : tensor<65xi16>
+  check.expect.bitwise actual(%brain_exchanged) expected(%expected_brain_exchanged) : tensor<65xi16>
+  %brain_added = check.tensor.view %output offset(780) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_brain_added = check.generate.fill value(1) : tensor<65xi16>
+  check.expect.bitwise actual(%brain_added) expected(%expected_brain_added) : tensor<65xi16>
+  %brain_minimum = check.tensor.view %output offset(910) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_brain_minimum = check.generate.fill value(3) : tensor<65xi16>
+  check.expect.bitwise actual(%brain_minimum) expected(%expected_brain_minimum) : tensor<65xi16>
+  %brain_maximum = check.tensor.view %output offset(1040) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_brain_maximum = check.generate.fill value(-32768) : tensor<65xi16>
+  check.expect.bitwise actual(%brain_maximum) expected(%expected_brain_maximum) : tensor<65xi16>
+  %brain_final = check.tensor.view %output offset(1170) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_brain_final = check.generate.fill value(0) : tensor<65xi16>
+  check.expect.bitwise actual(%brain_final) expected(%expected_brain_final) : tensor<65xi16>
+  %prefix_brain = check.tensor.view %brain offset(0) : tensor<67xi16> -> tensor<1xi16>
+  %suffix_brain = check.tensor.view %brain offset(132) : tensor<67xi16> -> tensor<1xi16>
+  %guard_brain = check.generate.fill value(77) : tensor<1xi16>
+  check.expect.bitwise actual(%prefix_brain) expected(%guard_brain) : tensor<1xi16>
+  check.expect.bitwise actual(%suffix_brain) expected(%guard_brain) : tensor<1xi16>
+  %e4m3_exchanged = check.tensor.view %output offset(1300) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e4m3_exchanged = check.generate.fill value(255) : tensor<65xi16>
+  check.expect.bitwise actual(%e4m3_exchanged) expected(%expected_e4m3_exchanged) : tensor<65xi16>
+  %e4m3_added = check.tensor.view %output offset(1430) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e4m3_added = check.generate.fill value(1) : tensor<65xi16>
+  check.expect.bitwise actual(%e4m3_added) expected(%expected_e4m3_added) : tensor<65xi16>
+  %e4m3_minimum = check.tensor.view %output offset(1560) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e4m3_minimum = check.generate.fill value(3) : tensor<65xi16>
+  check.expect.bitwise actual(%e4m3_minimum) expected(%expected_e4m3_minimum) : tensor<65xi16>
+  %e4m3_maximum = check.tensor.view %output offset(1690) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e4m3_maximum = check.generate.fill value(128) : tensor<65xi16>
+  check.expect.bitwise actual(%e4m3_maximum) expected(%expected_e4m3_maximum) : tensor<65xi16>
+  %e4m3_final = check.tensor.view %output offset(1820) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e4m3_final = check.generate.fill value(0) : tensor<65xi16>
+  check.expect.bitwise actual(%e4m3_final) expected(%expected_e4m3_final) : tensor<65xi16>
+  %prefix_e4m3 = check.tensor.view %e4m3 offset(0) : tensor<67xi8> -> tensor<1xi8>
+  %suffix_e4m3 = check.tensor.view %e4m3 offset(66) : tensor<67xi8> -> tensor<1xi8>
+  %guard_e4m3 = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%prefix_e4m3) expected(%guard_e4m3) : tensor<1xi8>
+  check.expect.bitwise actual(%suffix_e4m3) expected(%guard_e4m3) : tensor<1xi8>
+  %e5m2_exchanged = check.tensor.view %output offset(1950) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e5m2_exchanged = check.generate.fill value(125) : tensor<65xi16>
+  check.expect.bitwise actual(%e5m2_exchanged) expected(%expected_e5m2_exchanged) : tensor<65xi16>
+  %e5m2_added = check.tensor.view %output offset(2080) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e5m2_added = check.generate.fill value(1) : tensor<65xi16>
+  check.expect.bitwise actual(%e5m2_added) expected(%expected_e5m2_added) : tensor<65xi16>
+  %e5m2_minimum = check.tensor.view %output offset(2210) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e5m2_minimum = check.generate.fill value(3) : tensor<65xi16>
+  check.expect.bitwise actual(%e5m2_minimum) expected(%expected_e5m2_minimum) : tensor<65xi16>
+  %e5m2_maximum = check.tensor.view %output offset(2340) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e5m2_maximum = check.generate.fill value(128) : tensor<65xi16>
+  check.expect.bitwise actual(%e5m2_maximum) expected(%expected_e5m2_maximum) : tensor<65xi16>
+  %e5m2_final = check.tensor.view %output offset(2470) : tensor<20x65xi16> -> tensor<65xi16>
+  %expected_e5m2_final = check.generate.fill value(0) : tensor<65xi16>
+  check.expect.bitwise actual(%e5m2_final) expected(%expected_e5m2_final) : tensor<65xi16>
+  %prefix_e5m2 = check.tensor.view %e5m2 offset(0) : tensor<67xi8> -> tensor<1xi8>
+  %suffix_e5m2 = check.tensor.view %e5m2 offset(66) : tensor<67xi8> -> tensor<1xi8>
+  %guard_e5m2 = check.generate.fill value(77) : tensor<1xi8>
+  check.expect.bitwise actual(%prefix_e5m2) expected(%guard_e5m2) : tensor<1xi8>
+  check.expect.bitwise actual(%suffix_e5m2) expected(%guard_e5m2) : tensor<1xi8>
+  check.return
+}

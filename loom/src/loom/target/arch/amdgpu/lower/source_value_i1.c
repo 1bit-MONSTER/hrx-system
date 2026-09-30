@@ -249,7 +249,11 @@ static bool loom_amdgpu_i1_compare_values(
   }
   if (iree_any_bit_set(producer_flags,
                        LOOM_AMDGPU_SOURCE_PRODUCER_SCALAR_FLOAT_COMPARE)) {
+    const loom_scalar_type_t element_type =
+        loom_type_element_type(loom_module_value_type(module, out_values->lhs));
     if (analysis != NULL &&
+        (element_type == LOOM_SCALAR_TYPE_F16 ||
+         element_type == LOOM_SCALAR_TYPE_F32) &&
         iree_all_bits_set(
             analysis->descriptor_set_info_flags,
             LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_NATIVE_SCALAR_FLOAT_COMPARE)) {

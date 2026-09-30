@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/source_memory_plan.h"
 #include "loom/ir/module.h"
 #include "loom/ir/scalar_type.h"
 #include "loom/ops/atomic.h"
@@ -20,6 +21,7 @@
 #include "loom/ops/vector/memory.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/view/ops.h"
+#include "loom/target/arch/amdgpu/lower/atomic_ordering.h"
 #include "loom/target/arch/amdgpu/lower/encoding/vector_conversion.h"
 #include "loom/target/arch/amdgpu/lower/kinds.h"
 #include "loom/target/arch/amdgpu/lower/memory.h"
@@ -32,8 +34,7 @@
 #include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/shape_legalization.h"
 #include "loom/transforms/vector/table_legalization.h"
-#include "loom/transforms/vector/to_scalar.h"
-#include "loom/transforms/view/target_legalization.h"
+#include "loom/transforms/view/atomic.h"
 
 static bool loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
     const loom_low_descriptor_set_t* descriptor_set) {
@@ -401,7 +402,7 @@ static iree_status_t loom_amdgpu_legalize_vector_transform(
   return iree_ok_status();
 }
 
-static iree_status_t loom_amdgpu_legalize_atomic_float(
+static iree_status_t loom_amdgpu_legalize_atomic(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -418,16 +419,6 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
       loom_memory_access_cast(context->module, op);
   const uint8_t atomic_kind =
       loom_attr_as_enum(loom_memory_access_atomic_kind(access));
-  if (!loom_atomic_kind_accepts_float(atomic_kind) ||
-      loom_atomic_kind_is_exchange(atomic_kind)) {
-    return iree_ok_status();
-  }
-  const loom_type_t value_type =
-      loom_module_value_type(context->module, loom_memory_access_value(access));
-  if (!loom_type_equal(value_type, loom_type_scalar(LOOM_SCALAR_TYPE_F32))) {
-    return iree_ok_status();
-  }
-
   loom_value_fact_view_reference_t view_reference = {0};
   if (!loom_value_facts_query_view_reference(
           &context->fact_table->context,
@@ -436,6 +427,23 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
           &view_reference)) {
     return iree_ok_status();
   }
+  if (view_reference.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE) {
+    // Kernel metadata enables preserving scalar arithmetic for all float modes.
+    // Invocation-private updates need no memory atomicity or inter-thread
+    // order.
+    IREE_RETURN_IF_ERROR(
+        loom_view_atomic_rewrite_private(context->rewriter, op));
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+    return iree_ok_status();
+  }
+  const loom_type_t value_type =
+      loom_module_value_type(context->module, loom_memory_access_value(access));
+  if (!loom_scalar_type_set_contains(
+          LOOM_SCALAR_TYPE_SET_INTEGER_PAYLOAD | LOOM_SCALAR_TYPE_SET_FLOAT,
+          loom_type_element_type(value_type))) {
+    return iree_ok_status();
+  }
+
   const loom_amdgpu_atomic_operation_kind_t operation_kind =
       loom_view_atomic_reduce_isa(op) ? LOOM_AMDGPU_ATOMIC_OPERATION_REDUCE
                                       : LOOM_AMDGPU_ATOMIC_OPERATION_RMW;
@@ -449,14 +457,66 @@ static iree_status_t loom_amdgpu_legalize_atomic_float(
     };
     return iree_ok_status();
   }
+  // Narrow logical CAS uses a masked word packet and a full flat pointer for
+  // device-visible storage. Check the same physical carrier here while the
+  // shared rewrite retains the source payload and memory space.
+  const bool subword =
+      loom_scalar_type_bitwidth(loom_type_element_type(value_type)) < 32;
+  const loom_type_t cmpxchg_type =
+      subword ? loom_type_scalar(LOOM_SCALAR_TYPE_I32) : value_type;
+  const loom_value_fact_memory_space_t cmpxchg_space =
+      subword &&
+              view_reference.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL
+          ? LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC
+          : view_reference.memory_space;
   if (!loom_amdgpu_atomic_has_native_candidate(
-          context->descriptor_set, view_reference.memory_space,
+          context->descriptor_set, cmpxchg_space,
           LOOM_AMDGPU_ATOMIC_OPERATION_CMPXCHG, atomic_kind, scope,
-          /*access_flags=*/0, value_type)) {
+          /*access_flags=*/0, cmpxchg_type)) {
     return iree_ok_status();
   }
-  return loom_view_target_legalize_atomic_float_reference(context, op,
-                                                          out_result);
+  IREE_RETURN_IF_ERROR(loom_view_atomic_rewrite_cmpxchg(context->rewriter, op));
+  out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_amdgpu_legalize_packed_atomic(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+          context->descriptor_set)) {
+    return iree_ok_status();
+  }
+  const loom_memory_access_t access =
+      loom_memory_access_cast(context->module, op);
+  const loom_type_t value_type =
+      loom_module_value_type(context->module, loom_memory_access_value(access));
+  loom_low_source_memory_access_plan_t source = {0};
+  loom_low_source_memory_access_diagnostic_t diagnostic = {0};
+  if (!loom_low_source_memory_access_plan_build(context->view_regions, op,
+                                                &source, &diagnostic) ||
+      !loom_amdgpu_atomic_packed_half_source_shape(&source, value_type) ||
+      !loom_amdgpu_atomic_scope_supported(context->descriptor_set, &source,
+                                          value_type) ||
+      !loom_amdgpu_atomic_orderings_supported(context->descriptor_set,
+                                              &source)) {
+    return iree_ok_status();
+  }
+  const loom_amdgpu_atomic_operation_kind_t operation_kind =
+      loom_vector_atomic_reduce_isa(op) ? LOOM_AMDGPU_ATOMIC_OPERATION_REDUCE
+                                        : LOOM_AMDGPU_ATOMIC_OPERATION_RMW;
+  if (loom_amdgpu_atomic_has_native_candidate(
+          context->descriptor_set, source.memory_space, operation_kind,
+          loom_attr_as_enum(loom_memory_access_atomic_kind(access)),
+          source.atomic.scope, source.access_flags, value_type)) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+  }
+  return iree_ok_status();
 }
 
 static bool loom_amdgpu_match_value_type_is_supported(loom_type_t type) {
@@ -721,27 +781,27 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
         .root_kind = LOOM_OP_VECTOR_INSERT,
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
-    // Half-precision atomics require packed instructions. Preserve the vector
-    // footprint for native selection and its alignment/scope diagnostics.
+    // Retain native packed pairs. Other shapes and profiles use the shared
+    // per-element reference, with policy enforced by that provider.
     {
         .root_kind = LOOM_OP_VECTOR_ATOMIC_REDUCE,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_BF16,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_packed_atomic,
     },
     {
         .root_kind = LOOM_OP_VECTOR_ATOMIC_RMW,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_BF16,
-        .legalize = loom_amdgpu_retain_native_vector_op,
+        .legalize = loom_amdgpu_legalize_packed_atomic,
     },
     {
         .root_kind = LOOM_OP_VIEW_ATOMIC_REDUCE,
-        .legalize = loom_amdgpu_legalize_atomic_float,
+        .legalize = loom_amdgpu_legalize_atomic,
     },
     {
         .root_kind = LOOM_OP_VIEW_ATOMIC_RMW,
-        .legalize = loom_amdgpu_legalize_atomic_float,
+        .legalize = loom_amdgpu_legalize_atomic,
     },
     {
         .root_kind = LOOM_OP_VECTOR_STORE,

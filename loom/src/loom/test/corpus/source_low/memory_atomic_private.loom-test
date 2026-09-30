@@ -1,0 +1,41 @@
+func.def @private_counter(%initial: i64, %increment: i64, %expected: i64) -> (i64, i64, i64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old = view.atomic.rmw<addi> %increment, %cell[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %compared = view.atomic.cmpxchg %expected, %increment, %cell[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : i64, view<1xi64> -> i64
+  %final = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  func.return %old, %compared, %final : i64, i64, i64
+}
+
+// ====
+
+func.def @private_float(%initial: f64, %increment: f64) -> (f64, f64) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 8 : offset
+  %storage = buffer.alloca<private> align(8) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf64>
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = system} : f64, view<1xf64>
+  %old = view.atomic.rmw<addf, noftz> %increment, %cell[0] {ordering = acq_rel, scope = system} : f64, view<1xf64> -> f64
+  %final = view.atomic.load %cell[0] {ordering = acquire, scope = system} : view<1xf64> -> f64
+  func.return %old, %final : f64, f64
+}
+
+// ====
+
+func.def @private_half_vector(%initial: vector<2xf16>, %increment: vector<2xf16>, %mask: vector<2xi1>) -> (vector<2xf16>, vector<2xf16>, vector<2xf16>) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cells = buffer.view %storage[%origin] : buffer -> view<2xf16>
+  %first = index.constant 0 : index
+  %step = index.constant 1 : index
+  %offsets = vector.iota %first step %step : vector<2xindex>
+  vector.store %initial, %cells[0] : vector<2xf16>, view<2xf16>
+  %old = vector.atomic.rmw<addf, noftz> %increment, %cells[0][%offsets] {ordering = acq_rel, scope = system} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  %masked = vector.atomic.rmw.mask<addf, noftz> %increment, %cells[0][%offsets], %mask, %initial {ordering = relaxed, scope = thread} : vector<2xf16>, view<2xf16>, vector<2xindex>, vector<2xi1>, vector<2xf16>
+  %final = vector.load %cells[0] : view<2xf16> -> vector<2xf16>
+  func.return %old, %masked, %final : vector<2xf16>, vector<2xf16>, vector<2xf16>
+}
