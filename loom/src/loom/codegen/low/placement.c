@@ -96,6 +96,7 @@ typedef struct loom_low_placement_build_state_t {
   // Final whole-value edge relation indices in liveness operation order.
   uint32_t* edge_relation_indices;
   // Relation ranges indexed by result ordinal or hard-location storage owner.
+  // Before prefixing, start marks a reserved defining-transfer first slot.
   loom_low_placement_relation_range_t* ranges_by_result_ordinal;
   // Relation indices grouped by source ordinal or hard-location storage owner.
   uint32_t* relation_indices_by_source_ordinal;
@@ -181,6 +182,12 @@ static bool loom_low_placement_relation_is_edge_payload(
     const loom_low_placement_relation_t* relation) {
   return loom_low_placement_cause_is_edge(relation->cause) &&
          relation->kind == LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE;
+}
+
+static bool loom_low_placement_cause_is_defining_transfer(
+    loom_low_placement_cause_t cause) {
+  return cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_COPY ||
+         cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_MOVE;
 }
 
 static loom_value_ordinal_t loom_low_placement_value_ordinal(
@@ -310,9 +317,10 @@ static void loom_low_placement_prefix_range_array(
   uint32_t relation_start = 0;
   for (loom_value_ordinal_t i = 0; i < range_count; ++i) {
     loom_low_placement_relation_range_t* range = &ranges[i];
+    const uint32_t reserved_count = range->start;
     relation_start += range->count;
     range->start = relation_start - range->count;
-    range->count = 0;
+    range->count = reserved_count;
   }
 }
 
@@ -330,6 +338,9 @@ static void loom_low_placement_prefix_ranges(
     const loom_value_ordinal_t source_ordinal =
         loom_low_placement_relation_index_ordinal(state, relation,
                                                   relation->source_ordinal);
+    if (loom_low_placement_cause_is_defining_transfer(relation->cause)) {
+      state->ranges_by_result_ordinal[result_ordinal].start = 1;
+    }
     ++state->ranges_by_result_ordinal[result_ordinal].count;
     ++state->ranges_by_source_ordinal[source_ordinal].count;
   }
@@ -350,11 +361,16 @@ static void loom_low_placement_append_relation(
                                                 relation->source_ordinal);
   loom_low_placement_relation_range_t* result_range =
       &state->ranges_by_result_ordinal[result_ordinal];
+  // SSA gives each copy/move result exactly one defining transfer. Its slot
+  // was reserved during prefixing, even when block layout visited a use of
+  // the result first. Publish reverse and edge indexes at the final location.
   const iree_host_size_t relation_index =
-      (iree_host_size_t)result_range->start + result_range->count;
+      (iree_host_size_t)result_range->start +
+      (loom_low_placement_cause_is_defining_transfer(relation->cause)
+           ? 0
+           : result_range->count++);
   IREE_ASSERT_LT(relation_index, state->relation_count);
   state->relations[relation_index] = *relation;
-  ++result_range->count;
 
   loom_low_placement_relation_range_t* source_range =
       &state->ranges_by_source_ordinal[source_ordinal];
@@ -1078,6 +1094,22 @@ loom_low_placement_relation_range_for_value_ordinal(
   IREE_ASSERT_LT(result_ordinal, table->value_count);
   IREE_ASSERT(table->ranges_by_result_ordinal != NULL);
   return table->ranges_by_result_ordinal[result_ordinal];
+}
+
+const loom_low_placement_relation_t*
+loom_low_placement_defining_transfer_for_value_ordinal(
+    const loom_low_placement_table_t* table,
+    loom_value_ordinal_t value_ordinal) {
+  const loom_low_placement_relation_range_t range =
+      table->ranges_by_result_ordinal[value_ordinal];
+  if (range.count == 0) {
+    return NULL;
+  }
+  const loom_low_placement_relation_t* relation =
+      &table->relations[range.start];
+  return loom_low_placement_cause_is_defining_transfer(relation->cause)
+             ? relation
+             : NULL;
 }
 
 loom_low_placement_relation_range_t
