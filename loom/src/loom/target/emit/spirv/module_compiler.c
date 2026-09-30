@@ -489,20 +489,15 @@ static iree_status_t loom_spirv_module_emit(
   return status;
 }
 
-static const loom_target_emitter_t loom_spirv_module_emitter = {
+const loom_target_emitter_t loom_spirv_module_emitter = {
     .name = IREE_SVL("spirv"),
     .public_artifact_format = IREE_SVL("spirv"),
     .default_identifier = IREE_SVL("module.spv"),
     .target_artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY,
-    .emit = loom_spirv_module_emit,
-};
-
-const loom_target_provider_t loom_spirv_module_provider = {
-    .emitter_list =
+    .default_pipeline_options =
         {
-            .values =
-                (const loom_target_emitter_t* const[]){
-                    &loom_spirv_module_emitter},
-            .count = 1,
+            .control_flow_lowering =
+                LOOM_TARGET_CONTROL_FLOW_LOWERING_STRUCTURED_LOW,
         },
+    .emit = loom_spirv_module_emit,
 };

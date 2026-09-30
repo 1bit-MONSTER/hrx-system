@@ -30,7 +30,7 @@
 #include "loom/target/emit/native/amdgpu/hal_kernel_library.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#include "loom/tooling/target/spirv/artifact_provider.h"
+#include "loom/target/arch/spirv/compiler_provider.h"
 #endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
 #include "loom/target/arch/amd/xdna/aie2p/emit/artifact.h"
@@ -51,23 +51,6 @@ typedef struct loom_tooling_configured_compile_storage_t {
   loom_tooling_compile_environment_t environment;
 } loom_tooling_configured_compile_storage_t;
 
-#if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-static const loom_artifact_provider_t* const kConfiguredArtifactProviders[] = {
-    &loom_spirv_vulkan_artifact_provider,
-};
-#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-
-static const loom_artifact_provider_registry_t
-    kConfiguredArtifactProviderRegistry = {
-#if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-        .providers = kConfiguredArtifactProviders,
-        .provider_count = IREE_ARRAYSIZE(kConfiguredArtifactProviders),
-#else
-        .providers = NULL,
-        .provider_count = 0,
-#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-};
-
 static loom_tooling_configured_compile_storage_t configured_compile_storage;
 static iree_once_flag configured_compile_once = IREE_ONCE_FLAG_INIT;
 
@@ -82,6 +65,11 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
       &configured_compile_storage.target_provider_storage,
       &loom_amdgpu_hal_kernel_library_provider));
 #endif  // LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
+#if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
+  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
+      &configured_compile_storage.target_provider_storage,
+      &loom_spirv_compiler_provider));
+#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
 #if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
   IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
       &configured_compile_storage.target_provider_storage,
@@ -102,7 +90,6 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
       &configured_compile_storage.target_environment));
   configured_compile_storage.environment = (loom_tooling_compile_environment_t){
       .target_environment = &configured_compile_storage.target_environment,
-      .artifact_provider_registry = &kConfiguredArtifactProviderRegistry,
       .cleanup_pattern_provider_set =
           loom_cleanup_configured_pattern_provider_set(),
   };

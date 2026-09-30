@@ -52,8 +52,8 @@ iree_status_t loom_spirv_compile_module_binary(
     const loom_spirv_compile_options_t* options, iree_allocator_t allocator,
     bool* out_emitted, loom_spirv_module_binary_t* out_module);
 
-// Optional SPIR-V binary module emission for a target environment.
-extern const loom_target_provider_t loom_spirv_module_provider;
+// SPIR-V binary module emitter composed by target-owned provider joins.
+extern const loom_target_emitter_t loom_spirv_module_emitter;
 
 #ifdef __cplusplus
 }  // extern "C"

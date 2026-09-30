@@ -229,6 +229,20 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "compiler_provider",
+    srcs = ["compiler_provider.c"],
+    hdrs = ["compiler_provider.h"],
+    visibility = _SPIRV_C_API_VISIBILITY + [
+        "//loom/src/loom/tooling/compile:__pkg__",
+    ],
+    deps = [
+        ":facts",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/emit/spirv:module_compiler",
+    ],
+)
+
+loom_cc_library(
     name = "profile",
     srcs = ["profile.c"],
     hdrs = ["profile.h"],

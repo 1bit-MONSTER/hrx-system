@@ -4,14 +4,14 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "loom/target/arch/spirv/compiler_provider.h"
 #include "loom/target/arch/spirv/provider.h"
-#include "loom/target/emit/spirv/module_compiler.h"
 #include "loomc/target/spirv/base.h"
 #include "target.h"
 
 static const loom_target_provider_t* const kLoomcSpirvTargetProviders[] = {
     &loom_spirv_target_provider,
-    &loom_spirv_module_provider,
+    &loom_spirv_compiler_provider,
 };
 
 static const loom_target_provider_set_t loomc_spirv_target_provider_set = {

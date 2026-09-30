@@ -23,7 +23,7 @@ package(
 )
 
 _SPIRV_MODULE_COMPILER_VISIBILITY = [
-    "//loom/binding/c/target/spirv:__pkg__",
+    "//loom/src/loom/target/arch/spirv:__pkg__",
     "//loom/src/loom/tooling/target/spirv:__pkg__",
 ]
 

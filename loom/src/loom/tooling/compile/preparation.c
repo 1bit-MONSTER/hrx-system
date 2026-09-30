@@ -80,7 +80,7 @@ static iree_status_t loom_compile_specialize_kernel_roots(
           (loom_target_specialization_request_t){
               .function_name = loom_string_table_get(&(*inout_module)->strings,
                                                      symbol->name_id),
-              .target_profile = request->explicit_target.target_profile,
+              .target_profile = request->explicit_target.profile,
           };
     }
     IREE_ASSERT_EQ(specialization_ordinal, specialization_count);
@@ -119,7 +119,7 @@ iree_status_t loom_compile_materialize_request(
   IREE_RETURN_IF_ERROR(loom_compile_materialize_roots(
       request, sources, block_pool, allocator, inout_module));
   if (request->selection.product == LOOM_COMPILE_PRODUCT_KERNEL &&
-      request->explicit_target.target_profile != NULL) {
+      request->explicit_target.profile != NULL) {
     IREE_RETURN_IF_ERROR(loom_compile_specialize_kernel_roots(
         request, options, block_pool, allocator, inout_module,
         out_error_count));
@@ -148,7 +148,7 @@ iree_status_t loom_compile_run_request_pipeline(
   iree_arena_initialize(block_pool, &arena);
   iree_status_t status = iree_ok_status();
   if (request->selection.product == LOOM_COMPILE_PRODUCT_MODULE &&
-      request->explicit_target.target_profile != NULL) {
+      request->explicit_target.profile != NULL) {
     loom_target_specialization_request_t* specializations = NULL;
     status = iree_arena_allocate_array(&arena, module->symbols.count,
                                        sizeof(*specializations),
@@ -167,7 +167,7 @@ iree_status_t loom_compile_run_request_pipeline(
         specializations[count++] = (loom_target_specialization_request_t){
             .function_name =
                 loom_string_table_get(&module->strings, symbol->name_id),
-            .target_profile = request->explicit_target.target_profile,
+            .target_profile = request->explicit_target.profile,
         };
       }
       pipeline_options.target_specializations =

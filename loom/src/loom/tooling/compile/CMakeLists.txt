@@ -17,7 +17,6 @@ loom_cc_library(
   SRCS
     "request.c"
   DEPS
-    ::artifact
     iree::base
     loom::compile::product_selection
     loom::target::selection
@@ -133,7 +132,7 @@ if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
   list(APPEND _configured_platform_deps loom::target::emit::native::amdgpu::hal_kernel_library)
 endif()
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_deps loom::tooling::target::spirv::artifact_provider)
+  list(APPEND _configured_platform_deps loom::target::arch::spirv::compiler_provider)
 endif()
 if(LOOM_TARGET_ARCH_VM)
   list(APPEND _configured_platform_deps loom::target::emit::vm::module_compiler)
@@ -154,7 +153,6 @@ loom_cc_library(
   SRCS
     "configured.c"
   DEPS
-    ::artifact
     iree::base
     iree::base::threading
     loom::target::configured::provider_set

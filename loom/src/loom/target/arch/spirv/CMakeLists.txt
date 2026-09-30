@@ -241,6 +241,22 @@ endif()
 if(LOOM_TARGET_ARCH_SPIRV)
 loom_cc_library(
   NAME
+    compiler_provider
+  HDRS
+    "compiler_provider.h"
+  SRCS
+    "compiler_provider.c"
+  DEPS
+    ::facts
+    loom::target::emit::spirv::module_compiler
+    loom::target::provider
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
+loom_cc_library(
+  NAME
     profile
   HDRS
     "profile.h"

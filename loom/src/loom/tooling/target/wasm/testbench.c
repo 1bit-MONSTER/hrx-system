@@ -290,7 +290,7 @@ static iree_status_t loom_wasm_testbench_compile_product(
               .product = LOOM_COMPILE_PRODUCT_MODULE,
               .roots = {.count = IREE_ARRAYSIZE(roots), .values = roots},
           },
-      .explicit_target = {.target_profile = target_profile},
+      .explicit_target = {.profile = target_profile},
       .target_fact_type =
           target_profile != NULL ? target_profile->type->fact_type : NULL,
   };
