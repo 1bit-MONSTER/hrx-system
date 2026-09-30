@@ -63,7 +63,7 @@ sed -n '/^Source loop pipelines/,$p' guarded-rows.show.txt >guarded-pipeline-sch
 grep -Fq 'depth=3 queue_records=2' guarded-pipeline-schedule.txt
 grep -Fq 'scf.if producer iteration_lookahead=2' guarded-pipeline-schedule.txt
 "${loom_compile}" guarded-read-ahead.loombc --root=@guarded_rows_composed \
-  --target=spirv:vulkan1.3+bda --format=spirv-binary --output=guarded-rows.spv
+  --target=spirv:vulkan1.3+bda --format=spirv --output=guarded-rows.spv
 "${loom_benchmark}" guarded-read-ahead.loombc --benchmark=@guarded_rows_time \
   --dry-run --output=guarded-rows.plan.json
 
@@ -87,7 +87,7 @@ test -s vector-pipeline-suggest.txt
 grep -Fq 'depth=4 queue_records=3' composed-rows.show.txt
 grep -Fq 'depth=1 queue_records=0' composed-rows.show.txt
 "${loom_compile}" vector-read-ahead.loombc --root=@sum_vector_rows_composed \
-  --target=spirv:vulkan1.3+bda --format=spirv-binary --output=composed-rows.spv
+  --target=spirv:vulkan1.3+bda --format=spirv --output=composed-rows.spv
 "${loom_benchmark}" vector-read-ahead.loombc --benchmark=@sum_vector_rows_time \
   --dry-run --output=vector-rows.plan.json
 
@@ -271,7 +271,7 @@ sed -n '/^\[scf.compare_pipeline_depth\]/,/^$/p' paired/l4u4-r1u1.suggest.txt \
   >paired-pipeline-suggest.txt
 test -s paired-pipeline-suggest.txt
 "${loom_compile}" paired-read-ahead.loombc --root=@sum_paired_rows \
-  --target=spirv:vulkan1.3+bda --format=spirv-binary --output=paired-rows.spv
+  --target=spirv:vulkan1.3+bda --format=spirv --output=paired-rows.spv
 "${loom_benchmark}" paired-read-ahead.loombc --benchmark=@paired_rows_time \
   --dry-run --output=paired-rows.plan.json
 

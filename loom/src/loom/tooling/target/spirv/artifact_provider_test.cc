@@ -17,6 +17,7 @@
 #include "loom/ops/op_registry.h"
 #include "loom/target/arch/spirv/descriptors/low_registry.h"
 #include "loom/target/arch/spirv/ops/registry.h"
+#include "loom/target/arch/spirv/profile.h"
 #include "loom/testing/byte_sequence.h"
 #include "loom/testing/module_ptr.h"
 
@@ -104,16 +105,23 @@ class SpirvArtifactProviderTest : public ::testing::Test {
   loom_target_low_descriptor_registry_t low_registry_ = {};
 };
 
-TEST_F(SpirvArtifactProviderTest, EmitsAuthoredRawBdaArtifact) {
+TEST_F(SpirvArtifactProviderTest, EmitsRawBdaArtifactForExplicitTarget) {
   ModulePtr module;
   IREE_ASSERT_OK(ParseRawBdaRoundtripModule(&module));
   ASSERT_NE(module.get(), nullptr);
 
   loom_compile_options_t options = {};
   loom_compile_options_initialize(&options);
+  const loom_spirv_target_profile_t* target_profile = nullptr;
+  IREE_ASSERT_OK(loom_spirv_target_profile_select(IREE_SV("vulkan1.3+bda+hal"),
+                                                  &target_profile));
+  const loom_artifact_target_t target = {
+      /*.target_profile=*/&target_profile->base,
+      /*.target_key=*/IREE_SV("vulkan1.3+bda+hal"),
+  };
   loom_artifact_candidate_t candidate = {};
-  IREE_ASSERT_OK(loom_artifact_candidate_emit_module_target(
-      &loom_spirv_vulkan_artifact_provider, module.get(), &options,
+  IREE_ASSERT_OK(loom_artifact_candidate_emit_target(
+      &loom_spirv_vulkan_artifact_provider, &target, module.get(), &options,
       iree_allocator_system(), &candidate));
 
   ASSERT_TRUE(candidate.compiled);

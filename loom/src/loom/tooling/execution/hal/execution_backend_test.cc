@@ -254,8 +254,6 @@ pass.pipeline<module> @debug pipeline {
 
   loom_artifact_provider_t artifact_provider = {};
   artifact_provider.name = IREE_SV("fake-hal");
-  artifact_provider.public_artifact_format = IREE_SV("FakeExecutableFormat123");
-  artifact_provider.flags = LOOM_ARTIFACT_PROVIDER_FLAG_CANONICAL;
   artifact_provider.target_profile_type = &kFakeTargetProfileType;
   artifact_provider.artifact_kind =
       LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;

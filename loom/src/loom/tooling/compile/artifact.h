@@ -4,13 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Offline artifact compilation shared by command-line tools and live runners.
+// Loadable artifact production for live execution backends.
 //
-// Target providers own family selectors and immutable profiles. Artifact
-// providers consume those profiles and emit prepared target-low IR. They have
-// no device discovery or runtime loading responsibilities. Live execution
-// layers may project a device into an ordinary artifact target and then use the
-// same provider that deterministic offline compilation uses.
+// Device providers project runtime devices into immutable target profiles.
+// Artifact providers consume those profiles and prepared target-low IR to
+// produce the executable representation loaded by the execution backend.
 
 #ifndef LOOM_TOOLING_COMPILE_ARTIFACT_H_
 #define LOOM_TOOLING_COMPILE_ARTIFACT_H_
@@ -31,16 +29,9 @@ extern "C" {
 
 typedef struct loom_artifact_provider_t loom_artifact_provider_t;
 
-typedef uint32_t loom_artifact_provider_flags_t;
-enum loom_artifact_provider_flag_bits_e {
-  // Provider is the default format for its target family.
-  LOOM_ARTIFACT_PROVIDER_FLAG_CANONICAL = 1u << 0,
-};
-
-// Borrowed concrete compiler target selected independently of a runtime device.
+// Borrowed concrete artifact target selected for a runtime device.
 typedef struct loom_artifact_target_t {
-  // Immutable structured target profile. NULL requests the module's authored
-  // target records.
+  // Immutable structured target profile selected for the device.
   const loom_target_profile_t* target_profile;
   // Family-owned target selector used for diagnostics and artifact metadata.
   iree_string_view_t target_key;
@@ -52,7 +43,7 @@ static inline const loom_target_bundle_t* loom_artifact_target_bundle(
   return target ? loom_target_profile_bundle(target->target_profile) : NULL;
 }
 
-// Compiler artifact bytes produced without creating or querying a device.
+// Loadable artifact bytes produced for an already-selected target.
 typedef struct loom_artifact_t {
   // Provider-facing target key used to emit the artifact.
   iree_string_view_t target_key;
@@ -76,7 +67,7 @@ typedef struct loom_artifact_t {
   void* storage;
 } loom_artifact_t;
 
-// Emits a compiler artifact from verified, prepared target-low IR. Providers
+// Emits a loadable artifact from verified, prepared target-low IR. Providers
 // check emission-specific constraints without repeating structural or Low
 // verification. When |out_emitted| is true the artifact has a target bundle,
 // non-empty target-native and executable contents, and a valid
@@ -93,14 +84,10 @@ typedef void (*loom_artifact_provider_deinitialize_artifact_fn_t)(
     const loom_artifact_provider_t* provider, loom_artifact_t* artifact,
     iree_allocator_t allocator);
 
-// Linked offline compiler for one target artifact family.
+// Linked loadable-artifact compiler for one target family.
 struct loom_artifact_provider_t {
   // Stable provider name used in diagnostics and execution tooling.
   iree_string_view_t name;
-  // Public artifact format produced by this provider.
-  iree_string_view_t public_artifact_format;
-  // Format selection flags.
-  loom_artifact_provider_flags_t flags;
   // Required target-family profile representation.
   const loom_target_profile_type_t* target_profile_type;
   // Artifact kind recorded in structured compile reports.
@@ -113,7 +100,7 @@ struct loom_artifact_provider_t {
   loom_artifact_provider_deinitialize_artifact_fn_t deinitialize_artifact;
 };
 
-// Selects a borrowed offline artifact target from |target_environment|.
+// Selects a borrowed artifact target from |target_environment|.
 //
 // |target_specification| must use `family:selector` syntax and select the
 // target family required by |provider|. The returned profile has process
@@ -126,15 +113,7 @@ iree_status_t loom_artifact_target_select(
     iree_string_view_t target_specification,
     loom_artifact_target_t* out_target);
 
-// A registry of artifact providers linked into a compiler binary.
-typedef struct loom_artifact_provider_registry_t {
-  // Linked artifact provider table; entries are non-NULL when count is nonzero.
-  const loom_artifact_provider_t* const* providers;
-  // Number of entries in |providers|.
-  iree_host_size_t provider_count;
-} loom_artifact_provider_registry_t;
-
-// Artifact candidate produced by an offline compiler provider.
+// Artifact candidate produced for live execution.
 typedef struct loom_artifact_candidate_t {
   // Host allocator used for owned candidate storage.
   iree_allocator_t host_allocator;
@@ -150,12 +129,6 @@ typedef struct loom_artifact_candidate_t {
 iree_status_t loom_artifact_candidate_emit_target(
     const loom_artifact_provider_t* provider,
     const loom_artifact_target_t* target, loom_module_t* module,
-    const loom_compile_options_t* options, iree_allocator_t allocator,
-    loom_artifact_candidate_t* out_candidate);
-
-// Emits |module| using its authored target records.
-iree_status_t loom_artifact_candidate_emit_module_target(
-    const loom_artifact_provider_t* provider, loom_module_t* module,
     const loom_compile_options_t* options, iree_allocator_t allocator,
     loom_artifact_candidate_t* out_candidate);
 

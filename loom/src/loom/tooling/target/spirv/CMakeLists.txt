@@ -167,6 +167,7 @@ loom_cc_test(
     loom::ops::op_registry
     loom::target::arch::spirv::descriptors::low_registry
     loom::target::arch::spirv::ops
+    loom::target::arch::spirv::profile
     loom::testing::byte_sequence
     loom::testing::module_ptr
   LABELS

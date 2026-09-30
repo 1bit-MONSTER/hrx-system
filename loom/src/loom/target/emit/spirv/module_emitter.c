@@ -36,7 +36,8 @@ static iree_status_t loom_spirv_emit_module_state_initialize(
       .scratch_arena = scratch_arena,
   };
   IREE_RETURN_IF_ERROR(loom_spirv_module_builder_initialize(
-      program->functions[0].target_bundle, allocator, &out_state->builder));
+      loom_spirv_function_plan_target_bundle(&program->functions[0]), allocator,
+      &out_state->builder));
   out_state->builder_initialized = true;
   loom_spirv_type_context_initialize(&out_state->builder, scratch_arena,
                                      &out_state->type_context);

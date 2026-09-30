@@ -79,7 +79,6 @@ loom_cc_binary(
         "//loom/src/loom/target/arch/cmd:artifact_set",
         "//loom/src/loom/target/reporting:artifact_manifest",
         "//loom/src/loom/tooling/cli:help",
-        "//loom/src/loom/tooling/compile:artifact",
         "//loom/src/loom/tooling/compile:configured",
         "//loom/src/loom/tooling/compile:options",
         "//loom/src/loom/tooling/compile:pipeline",

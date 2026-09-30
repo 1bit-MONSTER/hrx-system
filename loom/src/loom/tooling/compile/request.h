@@ -11,7 +11,7 @@
 
 #include "iree/base/api.h"
 #include "loom/compile/product_selection.h"
-#include "loom/tooling/compile/artifact.h"
+#include "loom/target/selection.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,22 +21,23 @@ extern "C" {
 typedef enum loom_compile_producer_kind_e {
   LOOM_COMPILE_PRODUCER_INVALID = 0,
   LOOM_COMPILE_PRODUCER_COMMAND = 1,
-  LOOM_COMPILE_PRODUCER_ARTIFACT = 2,
-  LOOM_COMPILE_PRODUCER_TARGET_EMITTER = 3,
+  LOOM_COMPILE_PRODUCER_TARGET_EMITTER = 2,
 } loom_compile_producer_kind_t;
 
 typedef struct loom_compile_producer_t {
-  // Active member of |value|.
+  // Selected producer kind.
   loom_compile_producer_kind_t kind;
-
-  // Producer selected by |kind|.
-  union {
-    // Offline kernel artifact provider.
-    const loom_artifact_provider_t* artifact_provider;
-    // Target-owned module or kernel artifact emitter.
-    const loom_target_emitter_t* target_emitter;
-  } value;
+  // Target-owned module or kernel artifact emitter, or NULL for commands.
+  const loom_target_emitter_t* target_emitter;
 } loom_compile_producer_t;
+
+// Explicit target selected for one compile request.
+typedef struct loom_compile_target_selection_t {
+  // Immutable structured target profile selected from the environment.
+  const loom_target_profile_t* profile;
+  // Borrowed family and selector spelling supplied by the caller.
+  loom_target_specification_t specification;
+} loom_compile_target_selection_t;
 
 // User constraints applied while resolving one compilation request.
 typedef struct loom_compile_request_options_t {
@@ -62,20 +63,11 @@ typedef struct loom_compile_request_t {
   // Producer implementing |format| for |product|.
   loom_compile_producer_t producer;
   // Explicit target selected by --target, or empty for authored targets.
-  loom_artifact_target_t explicit_target;
+  loom_compile_target_selection_t explicit_target;
   // Effective target fact type after explicit target selection, or NULL for
   // target-independent products.
   const loom_target_fact_type_t* target_fact_type;
 } loom_compile_request_t;
-
-// Returns the selected artifact provider, or NULL for other producers.
-static inline const loom_artifact_provider_t*
-loom_compile_request_artifact_provider(const loom_compile_request_t* request) {
-  return request != NULL &&
-                 request->producer.kind == LOOM_COMPILE_PRODUCER_ARTIFACT
-             ? request->producer.value.artifact_provider
-             : NULL;
-}
 
 // Returns true when portable command emission was selected.
 static inline bool loom_compile_request_is_command(
@@ -90,7 +82,6 @@ static inline bool loom_compile_request_is_command(
 // the target-independent command format.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
-    const loom_artifact_provider_registry_t* artifact_provider_registry,
     const loom_target_environment_t* target_environment,
     iree_arena_allocator_t* arena, loom_compile_request_t* out_request);
 

@@ -62,7 +62,8 @@ static iree_string_view_t loom_spirv_emit_function_name(
 static iree_string_view_t loom_spirv_emit_export_name(
     const loom_spirv_emit_state_t* state) {
   const iree_string_view_t export_symbol =
-      state->function_plan->target_bundle->export_plan->export_symbol;
+      loom_spirv_function_plan_target_bundle(state->function_plan)
+          ->export_plan->export_symbol;
   if (!iree_string_view_is_empty(export_symbol)) {
     return export_symbol;
   }

@@ -101,6 +101,7 @@ loom_cc_library(
     iree::base
     loom::codegen::low::descriptors
     loom::ir
+    loom::target::facts
     loom::target::types
   PUBLIC
 )
@@ -237,11 +238,13 @@ loom_cc_library(
     loom::error::emitter
     loom::error::error_defs
     loom::ir
+    loom::ops::op_defs
     loom::target::arch::spirv::descriptors
     loom::target::arch::spirv::module_contract
     loom::target::facts
     loom::target::function_version
     loom::target::provider
+    loom::target::reporting::artifact_manifest_collect
     loom::target::types
   PUBLIC
 )

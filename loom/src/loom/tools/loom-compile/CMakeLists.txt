@@ -77,7 +77,6 @@ loom_cc_binary(
     loom::target::low_descriptor_registry
     loom::target::reporting::artifact_manifest
     loom::tooling::cli::help
-    loom::tooling::compile::artifact
     loom::tooling::compile::configured
     loom::tooling::compile::options
     loom::tooling::compile::pipeline

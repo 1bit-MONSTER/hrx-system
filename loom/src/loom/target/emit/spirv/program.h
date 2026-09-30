@@ -12,6 +12,7 @@
 #include "iree/base/api.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/ir/ir.h"
+#include "loom/target/facts.h"
 #include "loom/target/types.h"
 
 #ifdef __cplusplus
@@ -22,11 +23,18 @@ extern "C" {
 typedef struct loom_spirv_function_plan_t {
   // Structured Low function definition emitted into the SPIR-V module.
   loom_op_t* function_op;
-  // Function-specific target bundle carrying its export and ABI plan.
-  const loom_target_bundle_t* target_bundle;
+  // Function-specific target facts carrying its bundle and export plan.
+  const loom_target_facts_t* target_facts;
   // Dense descriptor set selected by the function's Low representation.
   const loom_low_descriptor_set_t* descriptor_set;
 } loom_spirv_function_plan_t;
+
+// Returns the target bundle retained by |function_plan|.
+static inline const loom_target_bundle_t*
+loom_spirv_function_plan_target_bundle(
+    const loom_spirv_function_plan_t* function_plan) {
+  return loom_target_facts_bundle(function_plan->target_facts);
+}
 
 // Immutable SPIR-V program produced by compiler preparation.
 //
