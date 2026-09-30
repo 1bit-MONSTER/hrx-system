@@ -970,13 +970,15 @@ int iree_test_loom_main(int argc, char** argv,
         scenario_execution_options.target =
             configuration->scenario_target_profile.fn(
                 configuration->scenario_target_profile.user_data,
-                &run_module.sources.table, &config_set);
+                &run_module.sources.table, &config_set,
+                iree_test_loom_diagnostic_capture_sink(&diagnostic_capture));
       }
       if (configuration->scenario_oracle_profile.fn != NULL) {
         scenario_execution_options.oracle =
             configuration->scenario_oracle_profile.fn(
                 configuration->scenario_oracle_profile.user_data,
-                &run_module.sources.table, &config_set);
+                &run_module.sources.table, &config_set,
+                iree_test_loom_diagnostic_capture_sink(&diagnostic_capture));
       }
     }
     execution_options.materializer.host_allocator = allocator;

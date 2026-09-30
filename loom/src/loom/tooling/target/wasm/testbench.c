@@ -67,6 +67,7 @@ void loom_wasm_testbench_initialize(
   *out_testbench = (loom_wasm_testbench_t){
       .target_environment = target_environment,
       .cleanup_pattern_provider_set = cleanup_pattern_provider_set,
+      .diagnostic_sink = {.fn = loom_diagnostic_stderr_sink},
       .host_allocator = host_allocator,
   };
 }
@@ -273,6 +274,7 @@ static iree_status_t loom_wasm_testbench_compile_product(
   }
   loom_compile_pipeline_options_t pipeline_options;
   loom_compile_pipeline_options_initialize(&pipeline_options);
+  pipeline_options.diagnostic_sink = testbench->diagnostic_sink;
   pipeline_options.target_pipeline_options =
       loom_wasm_artifact_emitter_provider.canonical_module_emitter
           ->default_pipeline_options;
@@ -796,10 +798,12 @@ static iree_status_t loom_wasm_testbench_product_prepare(
 
 loom_testbench_execution_profile_t loom_wasm_testbench_execution_profile(
     void* user_data, const loom_source_table_resolver_t* sources,
-    const loom_tooling_config_set_t* config_set) {
+    const loom_tooling_config_set_t* config_set,
+    loom_diagnostic_sink_t diagnostic_sink) {
   loom_wasm_testbench_t* testbench = user_data;
   testbench->sources = sources;
   testbench->config_set = config_set;
+  testbench->diagnostic_sink = diagnostic_sink;
   return (loom_testbench_execution_profile_t){
       .name = IREE_SV("wasm:simd128"),
       .prepare = loom_wasm_testbench_product_prepare,

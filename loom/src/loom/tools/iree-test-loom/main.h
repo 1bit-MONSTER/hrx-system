@@ -45,7 +45,8 @@ typedef struct iree_test_loom_populate_requirement_providers_callback_t {
 typedef loom_testbench_execution_profile_t (
     *iree_test_loom_bind_scenario_profile_fn_t)(
     void* user_data, const loom_source_table_resolver_t* sources,
-    const loom_tooling_config_set_t* config_set);
+    const loom_tooling_config_set_t* config_set,
+    loom_diagnostic_sink_t diagnostic_sink);
 
 typedef struct iree_test_loom_bind_scenario_profile_callback_t {
   // Profile binding callback, or NULL when the profile is unavailable.

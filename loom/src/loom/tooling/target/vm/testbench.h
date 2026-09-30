@@ -41,6 +41,8 @@ typedef struct loom_vm_testbench_t {
   const loom_source_table_resolver_t* sources;
   // Borrowed invocation configuration, live through the final function call.
   const loom_tooling_config_set_t* config_set;
+  // Borrowed diagnostic sink receiving compilation diagnostics.
+  loom_diagnostic_sink_t diagnostic_sink;
   // Allocator for bytecode and runtime objects.
   iree_allocator_t host_allocator;
   // Whether compilation semantically rejected the selected source module.
@@ -90,7 +92,8 @@ loom_testbench_invocation_provider_t loom_vm_testbench_invocation_provider(
 // product execution only marshals batches through that prepared process.
 loom_testbench_execution_profile_t loom_vm_testbench_execution_profile(
     void* user_data, const loom_source_table_resolver_t* sources,
-    const loom_tooling_config_set_t* config_set);
+    const loom_tooling_config_set_t* config_set,
+    loom_diagnostic_sink_t diagnostic_sink);
 
 #ifdef __cplusplus
 }  // extern "C"

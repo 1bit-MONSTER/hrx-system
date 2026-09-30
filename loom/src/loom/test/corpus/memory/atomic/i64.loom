@@ -160,8 +160,6 @@ kernel.def @workgroup_integer_atomic_i64() {
 
 // Returned values, final memory, and untouched boundary guards are checked
 // independently across all three memory spaces.
-
-
 check.case public @integer_atomic_i64_values {
   %initial = check.literal value(-4294967297) : i64
   %value = check.literal value(4294967299) : i64

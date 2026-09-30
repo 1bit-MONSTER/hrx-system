@@ -28,16 +28,21 @@ typedef struct loom_corpus_diagnostic_id_t {
 iree_status_t loom_corpus_diagnostic_id_parse(
     iree_string_view_t value, loom_corpus_diagnostic_id_t* out_diagnostic_id);
 
-// Verifies one compiler result against its expected diagnostic identity.
+// Validates a non-empty comma-separated set of canonical diagnostic identities.
+// Duplicate identities are rejected.
+iree_status_t loom_corpus_diagnostic_id_list_validate(iree_string_view_t value);
+
+// Verifies one compiler result against its accepted diagnostic identities.
 //
 // A zero exit code is an XPASS. A nonzero exit code succeeds only when
 // |compile_report_json| is a details-mode Loom compile report containing
-// |expected_diagnostic_id|. Additional errors may describe other unsupported
-// operations in the same root. Missing reports, reports with no error
-// diagnostic, and reports without the expected identity fail distinctly.
-iree_status_t loom_corpus_compile_report_expect_diagnostic(
+// one identity from |expected_diagnostics|. Additional errors may describe
+// other unsupported operations in the same root. Missing reports, reports with
+// no error diagnostic, and reports without an accepted identity fail
+// distinctly.
+iree_status_t loom_corpus_compile_report_expect_diagnostics(
     int compiler_exit_code, iree_string_view_t compile_report_json,
-    loom_corpus_diagnostic_id_t expected_diagnostic_id);
+    iree_string_view_t expected_diagnostics);
 
 #ifdef __cplusplus
 }  // extern "C"

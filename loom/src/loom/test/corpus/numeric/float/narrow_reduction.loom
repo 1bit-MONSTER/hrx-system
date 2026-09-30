@@ -1,4 +1,9 @@
-func.decl @bf16_reduce_add(%values: vector<2xbf16>, %initial: bf16) -> (bf16)
+// Scalar additions are introduced by reduction legalization. Each step rounds
+// to the element type before the next lane is accumulated.
+func.def public inline @bf16_reduce_add(%values: vector<2xbf16>, %initial: bf16) -> (bf16) {
+  %sum = vector.reduce<addf> %values, %initial : vector<2xbf16>, bf16
+  func.return %sum : bf16
+}
 
 kernel.def @narrow_reduction() {
   %unit = index.constant 1 : index

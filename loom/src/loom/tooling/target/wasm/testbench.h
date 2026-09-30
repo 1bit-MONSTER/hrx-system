@@ -37,6 +37,8 @@ typedef struct loom_wasm_testbench_t {
   const loom_source_table_resolver_t* sources;
   // Borrowed invocation configuration, live through the final prepare.
   const loom_tooling_config_set_t* config_set;
+  // Borrowed diagnostic sink receiving compilation diagnostics.
+  loom_diagnostic_sink_t diagnostic_sink;
   // Allocator for compiler scratch and emitted module storage.
   iree_allocator_t host_allocator;
 } loom_wasm_testbench_t;
@@ -52,7 +54,8 @@ void loom_wasm_testbench_initialize(
 // module. Product preparation finishes before trial-local values exist.
 loom_testbench_execution_profile_t loom_wasm_testbench_execution_profile(
     void* user_data, const loom_source_table_resolver_t* sources,
-    const loom_tooling_config_set_t* config_set);
+    const loom_tooling_config_set_t* config_set,
+    loom_diagnostic_sink_t diagnostic_sink);
 
 #ifdef __cplusplus
 }  // extern "C"
