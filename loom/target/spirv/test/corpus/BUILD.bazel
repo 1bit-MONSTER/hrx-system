@@ -17,3 +17,15 @@ loom_test(
     srcs = ["//loom/src/loom/test/corpus/control:schedule/address_domains.loom"],
     execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
 )
+
+loom_test(
+    name = "predicate_selection_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/selection.loom"],
+    execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "predicate_truncation_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/truncation.loom"],
+    execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
+)

@@ -4,8 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build")
+load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_test")
 load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
+load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -34,8 +35,11 @@ loom_corpus_build(
             "numeric/float/logarithm.loom",
             "numeric/conversion/narrow.loom",
             "numeric/conversion/narrow_arithmetic.loom",
+            "numeric/conversion/scalar_float.loom",
             "numeric/float/roots.loom",
             "numeric/float/turns.loom",
+            "numeric/predicate/truncation.loom",
+            "numeric/vector/packed_selection.loom",
         ],
     },
     catalog = LOOM_CORPUS,
@@ -124,6 +128,11 @@ loom_corpus_build(
             "numeric/conversion/paths.loom:@float_conversion_paths": "WASM/001",
             "numeric/conversion/paths.loom:@small_integer_float": "TARGET/001",
             "numeric/conversion/paths.loom:@wide_integer_narrow_bits": "TARGET/001",
+            "numeric/conversion/scalar_float.loom:@narrow_f64_samples": "TARGET/001",
+            "numeric/conversion/scalar_float.loom:@narrow_scalar_arguments": "WASM/001",
+            "numeric/conversion/scalar_float.loom:@narrow_scalar_bitcasts": "WASM/001",
+            "numeric/conversion/scalar_float.loom:@widen_all_narrow_bits": "WASM/001",
+            "numeric/conversion/scalar_float.loom:@widen_f32_samples": "WASM/001",
             "numeric/float/arithmetic.loom:@float_arithmetic_f32": "TARGET/001",
             "numeric/float/arithmetic.loom:@float_arithmetic_f64": "LOWERING/036",
             "numeric/float/comparison.loom:@compare_f32": "TARGET/003",
@@ -164,7 +173,34 @@ loom_corpus_build(
             "numeric/integer/boundaries.loom:@shift_boundaries_i32": "TARGET/001",
             "numeric/integer/boundaries.loom:@shift_boundaries_i64": "TARGET/001",
             "numeric/integer/constants.loom:@integer_constants_narrow": "WASM/001",
+            "numeric/predicate/truncation.loom:@truncate_integer_predicates": "WASM/001",
             "numeric/vector/fields.loom:@vector_fields": "WASM/005",
+            "numeric/vector/packed_selection.loom:@select_packed_bytes": "WASM/001",
+            "numeric/vector/packed_selection.loom:@select_packed_words": "WASM/001",
         },
     },
+)
+
+loom_test(
+    name = "numeric_vector_f32_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:vector/f32.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "predicate_logic_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/vector_logic.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "scalar_integer_address_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:integer/scalar_observations.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "vector_integer_bitwise_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
 )

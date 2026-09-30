@@ -6,7 +6,6 @@
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test")
-load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 load("//loom/target:execution_profiles.bzl", "GPU_HARDWARE_PROFILES")
 load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_ACCESS_PROFILE", "AMDGPU_HARDWARE_PROFILE")
 
@@ -23,18 +22,10 @@ _CONFIGURED_CASES = [
 _SCENARIO_CASES = [
     "atomic_float64.loom",
     "half_float_extrema.loom",
-    "numeric_vector_f32.loom",
-    "packed_vector_select.loom",
-    "predicate_logic.loom",
-    "predicate_selection.loom",
-    "predicate_truncation.loom",
-    "scalar_integer_address.loom",
-    "scalar_float_conversion.loom",
     "scalar_float64.loom",
     "subgroup_shuffle_participation.loom",
     "subgroup_transport.loom",
     "subgroup_transport_carrier.loom",
-    "vector_integer_bitwise.loom",
 ]
 
 _CASES = glob(
@@ -60,24 +51,6 @@ loom_test(
         "//loom/target/amdgpu:gfx1200",
         "//loom/target/amdgpu:gfx1250",
     ],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
-
-loom_test(
-    name = "predicate_selection_test",
-    srcs = ["predicate_selection.loom"],
-    execution_profiles = GPU_HARDWARE_PROFILES,
-)
-
-loom_test(
-    name = "predicate_truncation_test",
-    srcs = ["predicate_truncation.loom"],
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
-    name = "scalar_float_conversion_test",
-    srcs = ["scalar_float_conversion.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
@@ -125,45 +98,6 @@ loom_test(
         "//loom/target/spirv:vulkan1.3+bda+extended-types",
     ],
     execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
-    name = "numeric_vector_f32_test",
-    srcs = [
-        "numeric_vector_f32.loom",
-        "//loom/src/loom/test/corpus/source_low:numeric_vector_f32_values.loom",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        WASM_HOSTED_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "vector_integer_bitwise_test",
-    srcs = ["vector_integer_bitwise.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        WASM_HOSTED_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "predicate_logic_test",
-    srcs = ["predicate_logic.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        WASM_HOSTED_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "scalar_integer_address_test",
-    srcs = ["scalar_integer_address.loom"],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        WASM_HOSTED_PROFILE,
-    ],
 )
 
 loom_test(
@@ -697,12 +631,6 @@ loom_test(
         AMDGPU_HARDWARE_PROFILE,
         AMDGPU_ACCESS_PROFILE,
     ],
-)
-
-loom_test(
-    name = "packed_vector_select_test",
-    srcs = ["packed_vector_select.loom"],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
 
 loom_module(

@@ -27,3 +27,54 @@ loom_test(
     srcs = ["//loom/src/loom/test/corpus/memory:storage/word.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )
+
+loom_test(
+    name = "numeric_vector_f32_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:vector/f32.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "packed_vector_select_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:vector/packed_selection.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "predicate_logic_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/vector_logic.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "predicate_selection_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/selection.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "predicate_truncation_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/truncation.loom"],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "scalar_float_conversion_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:conversion/scalar_float.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "scalar_integer_address_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:integer/scalar_observations.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "vector_integer_bitwise_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
