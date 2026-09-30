@@ -372,6 +372,48 @@ loom_value_facts_t loom_value_facts_sign_extend(loom_value_facts_t source_facts,
   return result_facts;
 }
 
+loom_value_facts_t loom_value_facts_zero_extend(loom_value_facts_t source_facts,
+                                                int32_t source_bit_count) {
+  if (source_bit_count <= 0 || source_bit_count >= 63 ||
+      loom_value_facts_is_float(source_facts)) {
+    return loom_value_facts_unknown();
+  }
+
+  uint64_t raw_bits = 0;
+  loom_value_facts_t result_facts = loom_value_facts_unknown();
+  if (loom_value_facts_as_exact_raw_bits(source_facts, source_bit_count,
+                                         &raw_bits)) {
+    if (!loom_value_facts_make_unsigned_raw_bits(raw_bits, source_bit_count,
+                                                 &result_facts)) {
+      return loom_value_facts_unknown();
+    }
+    loom_value_facts_propagate_unary_distribution(source_facts, &result_facts);
+    return result_facts;
+  }
+
+  const loom_value_facts_t source_domain =
+      source_bit_count == 1
+          ? loom_value_facts_make(0, 1, 1)
+          : loom_value_facts_make_signed_bit_count_range(source_bit_count);
+  const loom_value_facts_t clamped = loom_value_facts_clamp_domain(
+      source_facts, source_domain.range_lo, source_domain.range_hi);
+  if (clamped.range_lo >= 0) {
+    return clamped;
+  }
+
+  const int64_t unsigned_extent = INT64_C(1) << source_bit_count;
+  if (clamped.range_hi < 0) {
+    result_facts = loom_value_facts_make(
+        clamped.range_lo + unsigned_extent, clamped.range_hi + unsigned_extent,
+        iree_math_gcd_i64(clamped.known_divisor, unsigned_extent));
+  } else {
+    result_facts =
+        loom_value_facts_make(0, unsigned_extent - 1, /*known_divisor=*/1);
+  }
+  loom_value_facts_propagate_unary_distribution(source_facts, &result_facts);
+  return result_facts;
+}
+
 loom_value_facts_t loom_value_facts_wrap_integer(
     loom_value_facts_t source_facts, int32_t bit_count) {
   const int64_t signed_maximum =
