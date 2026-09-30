@@ -10,7 +10,7 @@
 #define LOOM_TARGET_ARCH_AMDGPU_PLANNING_VOPD_DATA_H_
 
 #include "iree/base/api.h"
-#include "loom/codegen/low/placement_pair.h"
+#include "loom/codegen/low/placement_recipe.h"
 #include "loom/target/arch/amdgpu/planning/vopd_component.h"
 
 #ifdef __cplusplus

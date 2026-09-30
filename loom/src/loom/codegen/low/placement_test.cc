@@ -134,6 +134,17 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
   descriptor_set.constraints = &constraint;
   descriptor_set.constraint_count = 1;
 
+  const loom_low_placement_value_ref_t values[] = {
+      {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 0},
+      {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 1}};
+  const loom_low_placement_predicate_t predicate = {
+      0, 1, 0, 0, 1, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, 1};
+  const loom_low_placement_clause_t clause = {0, 1, 1,
+                                              LOOM_LOW_PLACEMENT_CLAUSE_ANY};
+  const loom_low_placement_preference_t preference = {values, &predicate,
+                                                      &clause, 2, 1};
+  const uint16_t preference_indices[] = {1};
+
   for (bool is_move : {false, true}) {
     loom_module_t* module = nullptr;
     IREE_ASSERT_OK(loom_module_allocate(&context, IREE_SV("transfer"), &pool,
@@ -209,9 +220,15 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
       ASSERT_NE(liveness.operation_points[i].op, transfer);
     }
     loom_low_placement_table_t placement = {};
+    loom_low_placement_preference_index_t preferences = {};
     IREE_ASSERT_OK(loom_low_placement_analyze_region(
-        module, body, &descriptor_set, &domain, &liveness, {}, &module->arena,
-        &placement));
+        module, body, &descriptor_set, &domain, &liveness, {},
+        {preference_indices, &preference}, &module->arena, &module->arena,
+        &placement, &preferences));
+    // Explicit physical IDs are not linear bank coordinates. This target
+    // preference is inapplicable even though both inputs are registers.
+    EXPECT_EQ(preferences.use_count, 0u);
+    EXPECT_EQ(preferences.offsets_by_origin, nullptr);
     const auto ordinal = loom_local_value_domain_try_ordinal(&domain, result);
     const auto range = placement.ranges_by_result_ordinal[ordinal];
     ASSERT_EQ(range.count, 2u);
@@ -265,6 +282,8 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
   for (auto& reg_class : classes) {
     reg_class.alloc_unit_bits = 32;
   }
+  classes[0].flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL;
+  classes[0].allocatable_count = 7;
   const loom_low_reg_class_alt_t alternatives[] = {
       {0, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED, 0},
       {1, 0, 0},
@@ -302,7 +321,43 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
   descriptor_set.constraints = &tie_constraint;
   descriptor_set.constraint_count = 1;
 
-  for (uint16_t class_id : {0, 1}) {
+  const loom_low_placement_value_ref_t values[] = {
+      {0, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+      {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 0},
+      {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 0}};
+  loom_low_placement_predicate_t predicate = {
+      0, 1, 0, 0, 1, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, 1};
+  const loom_low_placement_clause_t clause = {0, 1, 1,
+                                              LOOM_LOW_PLACEMENT_CLAUSE_ANY};
+  const loom_low_placement_preference_t instruction_preferences[] = {
+      {values, &predicate, &clause, 3, 1},
+      {values + 1, &predicate, &clause, 2, 1}};
+  const uint16_t preference_indices[] = {1, 2};
+
+  struct PreferenceCase {
+    // Selected descriptor class: finite physical zero or unbounded virtual one.
+    uint16_t class_id;
+    // Actual predicate semantics, independent of allocation strategy.
+    loom_low_placement_relation_kind_t kind;
+    // Original predicate mask, potentially noncontiguous or full-width.
+    uint32_t location_mask;
+    // Expected carry-closed dependency mask.
+    uint32_t dependency_mask;
+    // Expected power-of-two domain cap, or zero for direct evaluation.
+    uint32_t entry_count;
+  };
+  const PreferenceCase cases[] = {
+      {0, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, 1, 1, 2},
+      {0, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, 5, 7, 4},
+      {0, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, UINT32_MAX,
+       UINT32_MAX, 4},
+      {1, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, 5, 7, 0},
+      {0, LOOM_LOW_PLACEMENT_RELATION_DISJOINT_STORAGE, 0, 0, 0},
+  };
+  for (const auto& test_case : cases) {
+    const uint16_t class_id = test_case.class_id;
+    predicate.kind = test_case.kind;
+    predicate.location_mask = test_case.location_mask;
     loom_module_t* module = nullptr;
     IREE_ASSERT_OK(loom_module_allocate(&context, IREE_SV("alignment"), &pool,
                                         nullptr, iree_allocator_system(),
@@ -350,9 +405,46 @@ TEST(LowPlacementTest, RetainsOperandAlignmentAcrossExactTiesOnly) {
     IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
         &domain, loom_liveness_order_empty(), &module->arena, &liveness));
     loom_low_placement_table_t placement = {};
+    loom_low_placement_preference_index_t preferences = {};
     IREE_ASSERT_OK(loom_low_placement_analyze_region(
-        module, body, &descriptor_set, &domain, &liveness, {}, &module->arena,
-        &placement));
+        module, body, &descriptor_set, &domain, &liveness, {},
+        {preference_indices, instruction_preferences}, &module->arena,
+        &module->arena, &placement, &preferences));
+    ASSERT_EQ(preferences.use_count, 3u);
+    ASSERT_EQ(preferences.binding_count, 8u);
+    EXPECT_EQ(preferences.max_incident_use_count, 3u);
+    EXPECT_EQ(preferences.max_incident_binding_count, 8u);
+    EXPECT_EQ(preferences.max_memo_entry_count, test_case.entry_count);
+    const auto origin = loom_local_value_domain_ordinal(&domain, chain[0]);
+    for (uint32_t i = 0; i < preferences.use_count; ++i) {
+      EXPECT_EQ(preferences.use_indices[i], i);
+      const auto& use = preferences.uses[i];
+      if (test_case.entry_count == 0) {
+        EXPECT_EQ(use.memo.location_bit_count, 0u);
+      } else {
+        EXPECT_EQ(UINT32_MAX >> (32 - use.memo.location_bit_count),
+                  test_case.dependency_mask);
+        EXPECT_EQ(UINT32_C(1) << use.memo.index_bit_count,
+                  test_case.entry_count);
+      }
+      for (uint16_t j = 0; j < use.preference->value_count; ++j) {
+        const auto& binding = preferences.bindings[use.binding_start + j];
+        EXPECT_EQ(binding.representative, 0u);
+        EXPECT_EQ(
+            placement
+                .tied_storage_origins_by_value_ordinal[binding.value_ordinal],
+            origin);
+      }
+    }
+    // Incidence is per mandatory origin, but bindings keep the actual values.
+    EXPECT_EQ(preferences.bindings[0].value_ordinal,
+              loom_local_value_domain_ordinal(&domain, chain[1]));
+    EXPECT_EQ(preferences.bindings[1].value_ordinal, origin);
+    for (uint32_t i = 0; i < placement.value_count; ++i) {
+      EXPECT_EQ(preferences.offsets_by_origin[i + 1] -
+                    preferences.offsets_by_origin[i],
+                i == origin ? 3u : 0u);
+    }
     ASSERT_NE(placement.unit_alignment_log2_by_interval, nullptr);
     ASSERT_NE(placement.tied_storage_origins_by_value_ordinal, nullptr);
     const auto chain_origin =

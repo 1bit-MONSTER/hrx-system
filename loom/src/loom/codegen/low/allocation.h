@@ -63,6 +63,8 @@ typedef struct loom_low_allocation_options_t {
   // Function-local residency view. Direct resources are dense by descriptor
   // register-class ID for the resolved low target.
   loom_target_residency_view_t residency;
+  // Immutable instruction preferences for the resolved descriptor set.
+  loom_low_placement_instruction_preferences_t instruction_preferences;
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;

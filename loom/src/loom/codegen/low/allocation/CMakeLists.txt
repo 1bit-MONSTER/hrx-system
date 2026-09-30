@@ -148,6 +148,39 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    preference
+  HDRS
+    "preference.h"
+  SRCS
+    "preference.c"
+  DEPS
+    ::assignment
+    ::assignment_map
+    ::storage
+    ::target_constraints
+    iree::base
+    iree::base::internal
+    iree::base::internal::arena
+    loom::analysis::liveness
+    loom::codegen::low::descriptors
+    loom::codegen::low::placement
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    preference_test
+  SRCS
+    "preference_test.cc"
+  DEPS
+    ::preference
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     search
   HDRS
     "search.h"
@@ -159,6 +192,7 @@ loom_cc_library(
     ::assignment_map
     ::live_range
     ::physical_domains
+    ::preference
     ::scalar_packing
     ::spill_plan
     ::spill_traffic
@@ -260,6 +294,8 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::ops::low
+    loom::target::residency
 )
 
 loom_cc_library(
@@ -698,6 +734,7 @@ loom_cc_library(
     ::interval_order
     ::live_range
     ::physical_domains
+    ::preference
     ::scalar_packing
     ::search
     ::spill_plan

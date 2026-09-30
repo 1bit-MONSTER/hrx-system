@@ -57,6 +57,8 @@ typedef struct loom_low_allocation_interval_assignment_context_t {
   const struct loom_low_schedule_table_t* schedule;
   // Function-local placement relations over |liveness|.
   const loom_low_placement_table_t* placement;
+  // Bound instruction preferences owned by the enclosing allocation pass.
+  const loom_low_placement_preference_index_t* preferences;
   // Mutable target storage budgets, fixed values, and reserved ranges.
   loom_low_allocation_target_constraints_t* target_constraints;
   // Per-allocation-unit liveness facts for |liveness|.

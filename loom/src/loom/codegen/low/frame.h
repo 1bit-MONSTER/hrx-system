@@ -58,6 +58,8 @@ typedef struct loom_low_emission_frame_options_t {
   loom_low_emission_frame_residency_query_fn_t residency_query;
   // Optional target-provided descriptor pair-affinity table.
   loom_low_schedule_pair_affinity_list_t schedule_pair_affinities;
+  // Immutable instruction preferences for the selected representation contract.
+  loom_low_placement_instruction_preferences_t instruction_preferences;
   // Optional target-provided implicit state reads for structural low
   // materializations that emit target packets without descriptor rows.
   loom_low_schedule_structural_state_read_list_t

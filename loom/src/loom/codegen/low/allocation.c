@@ -46,6 +46,8 @@ typedef struct loom_low_allocation_build_state_t {
   loom_liveness_analysis_t liveness;
   // Function-local placement relations over |liveness|.
   loom_low_placement_table_t placement;
+  // Allocation-only instruction preferences shared by assignment attempts.
+  loom_low_placement_preference_index_t preferences;
   // Mutable per-allocation-unit live end points.
   loom_low_allocation_unit_liveness_t unit_liveness;
   // Completed interval assignment, spill plan, and remark rows.
@@ -110,6 +112,7 @@ loom_low_allocation_make_interval_assignment_context(
       .value_domain = &model->value_domain,
       .schedule = state->options->schedule,
       .placement = &state->placement,
+      .preferences = &state->preferences,
       .target_constraints = target_constraints,
       .required_register_values = state->options->required_register_values,
       .unit_liveness = &state->unit_liveness,
@@ -274,6 +277,8 @@ iree_status_t loom_low_allocate_function(
   };
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_validate_synthesis_mode(model->function_op));
+  iree_arena_allocator_t decision_arena;
+  iree_arena_initialize(arena->block_pool, &decision_arena);
   iree_status_t status = loom_low_allocation_target_constraints_initialize(
       model->module, model->function_op, &state.target, options->budgets,
       options->budget_count, options->reserved_ranges,
@@ -295,7 +300,8 @@ iree_status_t loom_low_allocate_function(
                                   : loom_low_placement_pair_use_list_empty();
     status = loom_low_placement_analyze_region(
         model->module, state.body, state.target.descriptor_set, value_domain,
-        &state.liveness, placement_pair_uses, arena, &state.placement);
+        &state.liveness, placement_pair_uses, options->instruction_preferences,
+        arena, &decision_arena, &state.placement, &state.preferences);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_unit_liveness_initialize(
@@ -350,6 +356,7 @@ iree_status_t loom_low_allocate_function(
     status = loom_low_allocation_repair_fragmentation(
         &state, model, value_domain, &interval_assignment_checkpoint);
   }
+  iree_arena_deinitialize(&decision_arena);
   // Backedge placement belongs to the final physical assignment. Spill repair
   // rewrites the IR and rebuilds the frame, so relocating a provisional spill
   // assignment would be discarded.

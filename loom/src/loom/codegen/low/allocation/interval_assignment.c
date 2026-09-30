@@ -38,6 +38,8 @@ typedef struct loom_low_allocation_interval_assignment_state_t {
   loom_low_allocation_scalar_packing_t scalar_packing;
   // Full-scalar physical candidate preferences retained before assignment.
   loom_low_allocation_physical_domains_t physical_domains;
+  // Reusable peer snapshots, private to this assignment attempt.
+  loom_low_allocation_preference_workspace_t preference_workspace;
   // Reusable consumed-value query for the allocated function body.
   loom_consumption_region_query_t function_consumption_query;
   // Reusable consumed-value query for the current nested relation region.
@@ -102,6 +104,8 @@ loom_low_allocation_interval_assignment_search_context(
       .residency = state->context->residency,
       .assignment_map = &state->result.assignment_map,
       .placement = state->context->placement,
+      .preferences = state->context->preferences,
+      .preference_workspace = &state->preference_workspace,
       .active_set = &state->active,
       .storage_leases = state->context->storage_leases,
       .required_register_values = state->context->required_register_values,
@@ -700,6 +704,9 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
   if (order.interval_count == 0) {
     return iree_ok_status();
   }
+  IREE_RETURN_IF_ERROR(loom_low_allocation_preference_workspace_initialize(
+      context->preferences, state->scratch_arena,
+      &state->preference_workspace));
   IREE_RETURN_IF_ERROR(loom_low_allocation_physical_domains_build(
       context->target->descriptor_set, context->liveness,
       context->unit_liveness, context->placement, state->scratch_arena,

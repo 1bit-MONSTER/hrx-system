@@ -252,6 +252,7 @@ static iree_status_t loom_low_emission_frame_build_impl(
       .required_register_values = required_register_values,
       .residency = out_frame->residency,
       .storage_leases = storage_leases,
+      .instruction_preferences = options->instruction_preferences,
       .emitter = options->emitter,
   };
   if (iree_status_is_ok(status) && out_frame->schedule.error_count == 0) {

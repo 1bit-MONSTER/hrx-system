@@ -40,6 +40,34 @@ _AMDGPU_NATIVE_PLANNING_VISIBILITY = (
 )
 
 loom_cc_library(
+    name = "placement",
+    srcs = ["placement.c"],
+    hdrs = ["placement.h"],
+    textual_hdrs = ["//loom/src/loom/target/arch/amdgpu/descriptors:placement_bindings.inl"],
+    visibility = _AMDGPU_NATIVE_PLANNING_VISIBILITY,
+    deps = [
+        "//loom/src/loom/codegen/low:placement_recipe",
+        "//loom/src/loom/codegen/low:target_binding",
+        "//loom/src/loom/target/arch/amdgpu:facts",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "placement_test",
+    srcs = ["placement_test.cc"],
+    deps = [
+        ":placement",
+        "//loom/src/loom/codegen/low/allocation:preference",
+        "//loom/src/loom/target/arch/amdgpu:facts",
+        "//loom/src/loom/target/arch/amdgpu:target_info",
+        "//loom/src/loom/target/arch/amdgpu/descriptors:low_registry",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "address_state",
     srcs = ["address_state.c"],
     hdrs = ["address_state.h"],
@@ -407,7 +435,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:allocation",
         "//loom/src/loom/codegen/low:diagnostics",
         "//loom/src/loom/codegen/low:packet",
-        "//loom/src/loom/codegen/low:placement_pair",
+        "//loom/src/loom/codegen/low:placement_recipe",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",

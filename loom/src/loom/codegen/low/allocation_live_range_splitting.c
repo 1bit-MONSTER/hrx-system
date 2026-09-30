@@ -123,34 +123,21 @@ static bool loom_low_allocation_value_can_split_after_definition(
 }
 
 static bool loom_low_allocation_pair_value_ref_equal(
-    const loom_low_placement_pair_value_ref_t* lhs,
-    const loom_low_placement_pair_value_ref_t* rhs) {
-  return lhs->component == rhs->component && lhs->kind == rhs->kind &&
-         lhs->index == rhs->index;
-}
-
-static loom_op_t* loom_low_allocation_pair_component_op(
-    const loom_low_placement_pair_use_t* use,
-    loom_low_placement_pair_component_t component) {
-  switch (component) {
-    case LOOM_LOW_PLACEMENT_PAIR_COMPONENT_FIRST:
-      return (loom_op_t*)use->first_op;
-    case LOOM_LOW_PLACEMENT_PAIR_COMPONENT_SECOND:
-      return (loom_op_t*)use->second_op;
-    default:
-      IREE_ASSERT_UNREACHABLE("unknown low placement pair component");
-      return NULL;
-  }
+    const loom_low_placement_value_ref_t* lhs,
+    const loom_low_placement_value_ref_t* rhs) {
+  return lhs->operation_index == rhs->operation_index &&
+         lhs->kind == rhs->kind && lhs->index == rhs->index;
 }
 
 static bool loom_low_allocation_pair_relation_is_satisfied(
     const loom_low_allocation_table_t* table,
     const loom_low_placement_pair_use_t* use,
-    const loom_low_placement_pair_relation_t* relation) {
-  const loom_value_id_t result_value_id =
-      loom_low_placement_pair_value_id(use, &relation->result);
-  const loom_value_id_t source_value_id =
-      loom_low_placement_pair_value_id(use, &relation->source);
+    const loom_low_placement_preference_t* preference) {
+  const loom_low_placement_predicate_t* relation = preference->predicates;
+  const loom_value_id_t result_value_id = loom_low_placement_pair_value_id(
+      use, &preference->values[relation->result]);
+  const loom_value_id_t source_value_id = loom_low_placement_pair_value_id(
+      use, &preference->values[relation->source]);
   const loom_low_allocation_assignment_t* result_assignment =
       loom_low_allocation_try_map_active_value_assignment(
           table, result_value_id, /*out_assignment_index=*/NULL);
@@ -160,32 +147,21 @@ static bool loom_low_allocation_pair_relation_is_satisfied(
   if (result_assignment == NULL || source_assignment == NULL) {
     return false;
   }
-  IREE_ASSERT_LE(relation->result.unit_offset, result_assignment->unit_count);
-  IREE_ASSERT_LE(relation->unit_count,
-                 result_assignment->unit_count - relation->result.unit_offset);
-  IREE_ASSERT_LE(relation->source.unit_offset, source_assignment->unit_count);
-  IREE_ASSERT_LE(relation->unit_count,
-                 source_assignment->unit_count - relation->source.unit_offset);
-  const loom_low_placement_relation_t concrete_relation = {
-      .result_unit_offset = relation->result.unit_offset,
-      .source_unit_offset = relation->source.unit_offset,
-      .unit_count = relation->unit_count,
-      .location_mask = relation->location_mask,
-      .kind = relation->kind,
-  };
-  return loom_low_allocation_storage_placement_relation_satisfied(
-      table->target.descriptor_set, &concrete_relation, result_assignment,
+  return loom_low_allocation_storage_relation_satisfied(
+      table->target.descriptor_set, relation->kind,
+      relation->result_unit_offset, relation->source_unit_offset,
+      relation->unit_count, relation->location_mask, result_assignment,
       source_assignment);
 }
 
 static bool loom_low_allocation_pair_alternative_is_satisfied(
     const loom_low_allocation_table_t* table,
     const loom_low_placement_pair_use_t* use,
-    const loom_low_placement_pair_relation_t* relations,
-    uint16_t relation_count) {
-  for (uint16_t i = 0; i < relation_count; ++i) {
+    const loom_low_placement_preference_t* const* preferences,
+    uint16_t preference_count) {
+  for (uint16_t i = 0; i < preference_count; ++i) {
     if (!loom_low_allocation_pair_relation_is_satisfied(table, use,
-                                                        &relations[i])) {
+                                                        preferences[i])) {
       return false;
     }
   }
@@ -198,10 +174,10 @@ static bool loom_low_allocation_pair_use_is_satisfied(
     const loom_low_placement_pair_recipe_t* recipe) {
   for (uint16_t alternative_index = 0;
        alternative_index < recipe->alternative_count; ++alternative_index) {
-    const loom_low_placement_pair_relation_t* relations =
-        &recipe->relations[alternative_index * recipe->relation_count];
+    const loom_low_placement_preference_t* const* preferences =
+        &recipe->preferences[alternative_index * recipe->preference_count];
     if (loom_low_allocation_pair_alternative_is_satisfied(
-            table, use, relations, recipe->relation_count)) {
+            table, use, preferences, recipe->preference_count)) {
       return true;
     }
   }
@@ -249,55 +225,52 @@ static bool loom_low_allocation_pair_try_select_replica_operand(
   *out_operand_index = 0;
   *out_source_value_id = LOOM_VALUE_ID_INVALID;
 
-  const loom_low_placement_pair_component_t preferred_components[] = {
-      LOOM_LOW_PLACEMENT_PAIR_COMPONENT_SECOND,
-      LOOM_LOW_PLACEMENT_PAIR_COMPONENT_FIRST,
-  };
+  const uint8_t preferred_operations[] = {1, 0};
   for (uint16_t alternative_index = 0;
        alternative_index < recipe->alternative_count; ++alternative_index) {
-    const loom_low_placement_pair_relation_t* relations =
-        &recipe->relations[alternative_index * recipe->relation_count];
+    const loom_low_placement_preference_t* const* preferences =
+        &recipe->preferences[alternative_index * recipe->preference_count];
     for (iree_host_size_t component_index = 0;
-         component_index < IREE_ARRAYSIZE(preferred_components);
+         component_index < IREE_ARRAYSIZE(preferred_operations);
          ++component_index) {
-      const loom_low_placement_pair_component_t preferred_component =
-          preferred_components[component_index];
-      for (uint16_t relation_index = 0; relation_index < recipe->relation_count;
-           ++relation_index) {
-        const loom_low_placement_pair_relation_t* relation =
-            &relations[relation_index];
+      const uint8_t preferred_operation = preferred_operations[component_index];
+      for (uint16_t relation_index = 0;
+           relation_index < recipe->preference_count; ++relation_index) {
+        const loom_low_placement_preference_t* preference =
+            preferences[relation_index];
+        const loom_low_placement_predicate_t* relation = preference->predicates;
+        const loom_low_placement_value_ref_t* result =
+            &preference->values[relation->result];
+        const loom_low_placement_value_ref_t* source =
+            &preference->values[relation->source];
         if (relation->kind !=
                 LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION &&
             relation->kind != LOOM_LOW_PLACEMENT_RELATION_DISJOINT_STORAGE) {
           continue;
         }
         const loom_value_id_t result_value_id =
-            loom_low_placement_pair_value_id(use, &relation->result);
+            loom_low_placement_pair_value_id(use, result);
         const loom_value_id_t source_value_id =
-            loom_low_placement_pair_value_id(use, &relation->source);
+            loom_low_placement_pair_value_id(use, source);
         if (result_value_id != source_value_id ||
             loom_low_allocation_pair_relation_is_satisfied(table, use,
-                                                           relation)) {
+                                                           preference)) {
           continue;
         }
-        const loom_low_placement_pair_value_ref_t* refs[] = {
-            &relation->result,
-            &relation->source,
-        };
+        const loom_low_placement_value_ref_t* refs[] = {result, source};
         for (iree_host_size_t ref_index = 0; ref_index < IREE_ARRAYSIZE(refs);
              ++ref_index) {
-          const loom_low_placement_pair_value_ref_t* repair_ref =
-              refs[ref_index];
-          if (repair_ref->component != preferred_component ||
-              repair_ref->kind != LOOM_LOW_PLACEMENT_PAIR_VALUE_OPERAND ||
-              loom_low_allocation_pair_value_ref_equal(&relation->result,
-                                                       &relation->source) ||
+          const loom_low_placement_value_ref_t* repair_ref = refs[ref_index];
+          if (repair_ref->operation_index != preferred_operation ||
+              repair_ref->kind != LOOM_LOW_PLACEMENT_VALUE_OPERAND ||
+              loom_low_allocation_pair_value_ref_equal(result, source) ||
               !loom_low_placement_pair_alternative_can_separate_ref(
-                  use, relations, recipe->relation_count, repair_ref)) {
+                  use, preferences, recipe->preference_count, repair_ref)) {
             continue;
           }
           loom_op_t* user_op =
-              loom_low_allocation_pair_component_op(use, repair_ref->component);
+              (loom_op_t*)(repair_ref->operation_index == 0 ? use->first_op
+                                                            : use->second_op);
           IREE_ASSERT(user_op != NULL);
           IREE_ASSERT_LT(repair_ref->index, user_op->operand_count);
           *out_user_op = user_op;

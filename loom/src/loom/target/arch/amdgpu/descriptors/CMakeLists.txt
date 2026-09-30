@@ -76,12 +76,14 @@ loom_generated_file_family(
     "lower_capabilities.h"
     "wait_packet_data.c"
     "vopd_data.c"
+    "placement_bindings.inl"
     "target_refs_data.c"
     "target_refs_tables.h"
   OUTPUT_FLAGS
     "--lower-capabilities-header"
     "--wait-packet-source"
     "--vopd-source"
+    "--placement-bindings"
     "--target-ref-source"
     "--target-ref-header"
   ARGS

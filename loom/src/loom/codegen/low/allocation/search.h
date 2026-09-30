@@ -17,6 +17,7 @@
 #include "loom/codegen/low/allocation/assignment.h"
 #include "loom/codegen/low/allocation/assignment_map.h"
 #include "loom/codegen/low/allocation/physical_domains.h"
+#include "loom/codegen/low/allocation/preference.h"
 #include "loom/codegen/low/allocation/scalar_packing.h"
 #include "loom/codegen/low/allocation/spill_plan.h"
 #include "loom/codegen/low/allocation/storage_lease.h"
@@ -49,6 +50,10 @@ typedef struct loom_low_allocation_search_context_t {
   const loom_low_allocation_assignment_map_t* assignment_map;
   // Function-local structural and concrete-location placement relations.
   const loom_low_placement_table_t* placement;
+  // Allocation-owned bound instruction preferences, or NULL when absent.
+  const loom_low_placement_preference_index_t* preferences;
+  // Reusable attempt-local preference query storage.
+  loom_low_allocation_preference_workspace_t* preference_workspace;
   // Active assignment window at the interval currently being assigned.
   loom_low_allocation_active_set_t* active_set;
   // Materialized storage leases and release eligibility.
@@ -131,6 +136,12 @@ bool loom_low_allocation_search_find_free_location(
 uint32_t loom_low_allocation_search_linear_candidate_base(
     uint64_t candidate_index, uint32_t last_base, uint32_t required_alignment,
     uint32_t preferred_alignment);
+
+// Attainable residency after extending the current physical frontier to cover
+// this candidate. An absent resource model returns zero for every candidate.
+uint32_t loom_low_allocation_search_assignment_residency_tier(
+    const loom_low_allocation_search_context_t* context,
+    const loom_low_allocation_assignment_t* candidate);
 
 // Returns whether an active assignment may be spilled, and the capacity needed
 // to materialize its spill slot when requested.

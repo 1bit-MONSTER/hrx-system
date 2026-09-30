@@ -498,9 +498,9 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
-    placement_pair
+    placement_recipe
   HDRS
-    "placement_pair.h"
+    "placement_recipe.h"
   DEPS
     iree::base
   PUBLIC
@@ -515,10 +515,11 @@ loom_cc_library(
     "placement.c"
   DEPS
     ::descriptors
-    ::placement_pair
+    ::placement_recipe
     ::representation_binding
     ::storage_relation
     iree::base
+    iree::base::internal
     iree::base::internal::arena
     loom::analysis::liveness
     loom::ir

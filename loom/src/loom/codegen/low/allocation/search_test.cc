@@ -303,6 +303,45 @@ uint32_t FindFreeLocationWithPlacement(
   context.active_set = &active_set;
   context.storage_leases = &storage_leases;
 
+  const loom_low_placement_value_ref_t refs[] = {
+      {0, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+      {1, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+  };
+  loom_low_placement_predicate_t predicate = {};
+  predicate.result = 0;
+  predicate.source = 1;
+  predicate.unit_count = 1;
+  const loom_low_placement_clause_t clause = {0, 1, 1,
+                                              LOOM_LOW_PLACEMENT_CLAUSE_ANY};
+  const loom_low_placement_preference_t preference = {refs, &predicate, &clause,
+                                                      2, 1};
+  loom_low_placement_preference_use_t use = {&preference, 0, 1};
+  loom_low_placement_preference_binding_t bindings[2] = {};
+  const uint32_t use_indices[] = {0, 0};
+  const uint32_t offsets[] = {0, 1, 2};
+  loom_low_placement_preference_index_t preferences = {};
+  loom_low_allocation_preference_workspace_t workspace = {};
+  if (relation &&
+      relation->cause == LOOM_LOW_PLACEMENT_CAUSE_SCHEDULE_PAIR_AFFINITY) {
+    predicate.kind = relation->kind;
+    predicate.location_mask = relation->location_mask;
+    use.priority = relation->priority;
+    bindings[0] = {relation->result_ordinal, 0};
+    bindings[1] = {relation->source_ordinal, 1};
+    preferences.uses = &use;
+    preferences.bindings = bindings;
+    preferences.use_indices = use_indices;
+    preferences.offsets_by_origin = offsets;
+    preferences.use_count = 1;
+    preferences.binding_count = 2;
+    preferences.max_incident_use_count = 1;
+    preferences.max_incident_binding_count = 2;
+    IREE_CHECK_OK(loom_low_allocation_preference_workspace_initialize(
+        &preferences, arena, &workspace));
+    context.preferences = &preferences;
+    context.preference_workspace = &workspace;
+  }
+
   uint32_t location_base = UINT32_MAX;
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(max_units), &location_base));

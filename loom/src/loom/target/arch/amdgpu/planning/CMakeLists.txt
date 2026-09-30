@@ -12,6 +12,44 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_cc_library(
   NAME
+    placement
+  HDRS
+    "placement.h"
+  TEXTUAL_HDRS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/descriptors/placement_bindings.inl"
+  SRCS
+    "placement.c"
+  DEPS
+    iree::base
+    loom::codegen::low::placement_recipe
+    loom::codegen::low::target_binding
+    loom::target::arch::amdgpu::facts
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_test(
+  NAME
+    placement_test
+  SRCS
+    "placement_test.cc"
+  DEPS
+    ::placement
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::codegen::low::allocation::preference
+    loom::target::arch::amdgpu::descriptors::low_registry
+    loom::target::arch::amdgpu::facts
+    loom::target::arch::amdgpu::target_info
+  LABELS
+    "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_library(
+  NAME
     address_state
   HDRS
     "address_state.h"
@@ -459,7 +497,7 @@ loom_cc_library(
     loom::codegen::low::allocation
     loom::codegen::low::diagnostics
     loom::codegen::low::packet
-    loom::codegen::low::placement_pair
+    loom::codegen::low::placement_recipe
     loom::codegen::low::schedule
     loom::ir
     loom::ops::low
