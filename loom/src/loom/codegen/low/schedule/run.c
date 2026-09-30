@@ -660,7 +660,7 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
   }
   iree_host_size_t call_index = 0;
   const bool is_repair =
-      iree_bitmap_any_set(state->options->per_user_rematerialized_values);
+      iree_bitmap_any_set(state->options->per_user_placement_values);
   for (iree_host_size_t node_index = 0; node_index < node_count; ++node_index) {
     loom_low_schedule_node_t* node = &state->nodes[node_index];
     loom_low_schedule_setup_order_classify_node(state, node, is_repair);

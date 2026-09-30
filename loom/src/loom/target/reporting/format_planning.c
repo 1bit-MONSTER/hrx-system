@@ -19,7 +19,8 @@ iree_status_t loom_target_compile_report_append_low_planning_text_fields(
       builder,
       " frame_builds=%" PRIu64 " allocation_runs=%" PRIu64
       " repair_iterations=%" PRIu64 " spill_traffic_lowerings=%" PRIu64
-      " rematerialized_operands=%" PRIu64 " live_range_split_operands=%" PRIu64
+      " rematerialized_operands=%" PRIu64 " retained_placements=%" PRIu64
+      " live_range_split_operands=%" PRIu64
       " pair_replication_attempts=%" PRIu64 " pair_replication_edits=%" PRIu64
       " pair_replication_rejections=%" PRIu64
       " spill_materialization_batches=%" PRIu64
@@ -28,7 +29,7 @@ iree_status_t loom_target_compile_report_append_low_planning_text_fields(
       " scratch_arena_used_peak=%" PRIu64 " scratch_arena_owned_peak=%" PRIu64,
       statistics->frame_build_count, statistics->allocation_run_count,
       repair->iteration_count, repair->spill_traffic_lowering_count,
-      repair->rematerialized_operand_count,
+      repair->rematerialized_operand_count, repair->retained_placement_count,
       repair->live_range_split_operand_count,
       repair->pair_replication_attempt_count,
       repair->pair_replication_edit_count,
@@ -97,6 +98,9 @@ iree_status_t loom_target_compile_report_format_low_planning_json(
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &repair_object, IREE_SV("rematerialized_operand_count"),
       repair->rematerialized_operand_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
+      &repair_object, IREE_SV("retained_placement_count"),
+      repair->retained_placement_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &repair_object, IREE_SV("live_range_split_operand_count"),
       repair->live_range_split_operand_count));

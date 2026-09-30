@@ -513,6 +513,7 @@ TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
     planning->frame_build_count = i;
     planning->allocation_run_count = i + 1;
     planning->repair.iteration_count = i + 2;
+    planning->repair.retained_placement_count = i + 3;
     planning->memory.frame_arena.used_bytes_high_water = i * 100;
     planning->memory.frame_arena.owned_bytes_high_water = i * 200;
     planning->memory.block_system_allocation_count = i;
@@ -527,6 +528,8 @@ TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
   EXPECT_EQ(report.low_planning.frame_build_count, 3u);
   EXPECT_EQ(report.low_planning.allocation_run_count, 5u);
   EXPECT_EQ(report.low_planning.repair.iteration_count, 7u);
+  EXPECT_EQ(report.low_planning.repair.retained_placement_count, 9u);
+  EXPECT_EQ(report.low_planning.repair.rematerialized_operand_count, 0u);
   EXPECT_EQ(report.low_planning.memory.frame_arena.used_bytes_high_water, 200u);
   EXPECT_EQ(report.low_planning.memory.block_system_allocation_count, 3u);
 
@@ -546,6 +549,8 @@ TEST(CompileReportFormatTest, FormatsAndAggregatesLowPlanningStatistics) {
   ExpectObjectUint64Equals(planning, IREE_SV("allocation_run_count"), 5);
   const iree_string_view_t repair = LookupObject(planning, IREE_SV("repair"));
   ExpectObjectUint64Equals(repair, IREE_SV("iteration_count"), 7);
+  ExpectObjectUint64Equals(repair, IREE_SV("retained_placement_count"), 9);
+  ExpectObjectUint64Equals(repair, IREE_SV("rematerialized_operand_count"), 0);
   const iree_string_view_t memory = LookupObject(planning, IREE_SV("memory"));
   const iree_string_view_t frame_arena =
       LookupObject(memory, IREE_SV("frame_arena"));

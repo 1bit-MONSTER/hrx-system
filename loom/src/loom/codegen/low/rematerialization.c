@@ -14,6 +14,7 @@
 #include "loom/codegen/low/descriptor_traits.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/representation_binding.h"
+#include "loom/codegen/low/schedule/types.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/module.h"
@@ -81,6 +82,25 @@ typedef struct loom_low_rematerialization_recipe_t {
   // Number of packets in the ownership chain.
   iree_host_size_t packet_count;
 } loom_low_rematerialization_recipe_t;
+
+typedef enum loom_low_rematerialization_action_e {
+  LOOM_LOW_REMATERIALIZATION_ACTION_NONE = 0,
+  LOOM_LOW_REMATERIALIZATION_ACTION_RETAIN_PLACEMENT,
+  LOOM_LOW_REMATERIALIZATION_ACTION_CLONE,
+} loom_low_rematerialization_action_t;
+
+// One prepared value repair. Its recipe and captured uses remain valid until
+// application rewrites IR; placement retention leaves the snapshot unchanged.
+typedef struct loom_low_rematerialization_plan_t {
+  // Descriptor-backed ownership chain to recreate for each user.
+  loom_low_rematerialization_recipe_t recipe;
+  // Existing uses captured once before deciding whether mutation is required.
+  const loom_use_t* uses;
+  // Number of captured operand uses.
+  uint32_t use_count;
+  // Repair selected by recipe eligibility and source/scheduled placement.
+  loom_low_rematerialization_action_t action;
+} loom_low_rematerialization_plan_t;
 
 static bool loom_low_rematerialization_packet_is_eligible(
     loom_module_t* module, const loom_low_resolved_target_t* target,
@@ -210,7 +230,7 @@ static bool loom_low_rematerialization_use_is_eligible(
 static bool loom_low_rematerialization_use_shortens_live_range(
     const loom_op_t* defining_op, loom_use_t use) {
   const loom_op_t* user_op = loom_use_user_op(use);
-  // Cloning an already-adjacent producer cannot reduce pressure and can cycle.
+  // An already-adjacent producer needs placement retention, not another clone.
   return user_op != NULL &&
          (user_op->parent_block != defining_op->parent_block ||
           user_op->prev_op != defining_op);
@@ -267,12 +287,12 @@ static iree_status_t loom_low_rematerialization_clone_for_use(
   return iree_ok_status();
 }
 
-iree_status_t loom_low_rematerialize_value_uses(
+static iree_status_t loom_low_rematerialization_prepare_value(
     loom_module_t* module, const loom_low_resolved_target_t* target,
-    loom_value_id_t value_id, loom_low_rematerialization_state_t* state,
-    iree_arena_allocator_t* arena,
-    loom_low_value_rematerialization_result_t* out_result) {
-  *out_result = loom_low_value_rematerialization_result_empty();
+    loom_value_id_t value_id, const loom_low_schedule_table_t* schedule,
+    loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
+    loom_low_rematerialization_plan_t* out_plan) {
+  *out_plan = (loom_low_rematerialization_plan_t){0};
   if (value_id == LOOM_VALUE_ID_INVALID) {
     return iree_ok_status();
   }
@@ -312,9 +332,61 @@ iree_status_t loom_low_rematerialize_value_uses(
                           loom_low_rematerialization_use_shortens_live_range(
                               defining_op, uses[i]);
   }
+  loom_low_rematerialization_action_t action =
+      LOOM_LOW_REMATERIALIZATION_ACTION_CLONE;
   if (!shortens_live_range) {
+    // All eligible uses name the immediately following operation. Source
+    // adjacency does not bound the lifetime in a reordered allocation: retain
+    // this private producer exactly as a per-user clone when it was separated
+    // from its consumer. Input-free materializations remain pressure-scheduled.
+    if (schedule == NULL || defining_op->operand_count == 0) {
+      return iree_ok_status();
+    }
+    const loom_low_schedule_node_t* producer =
+        loom_low_schedule_node_for_op(schedule, defining_op);
+    // Allocation includes nested regions; scheduling covers direct body ops.
+    if (producer == NULL) {
+      return iree_ok_status();
+    }
+    const loom_low_schedule_node_t* consumer =
+        loom_low_schedule_node_for_op(schedule, loom_use_user_op(uses[0]));
+    if (consumer->scheduled_ordinal <= producer->scheduled_ordinal + 1u) {
+      return iree_ok_status();
+    }
+    action = LOOM_LOW_REMATERIALIZATION_ACTION_RETAIN_PLACEMENT;
+  }
+  *out_plan = (loom_low_rematerialization_plan_t){
+      .recipe = recipe,
+      .uses = uses,
+      .use_count = use_count,
+      .action = action,
+  };
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_rematerialization_apply_value(
+    loom_module_t* module, loom_value_id_t value_id,
+    const loom_low_rematerialization_plan_t* plan,
+    loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
+    loom_low_value_rematerialization_result_t* out_result) {
+  if (plan->action == LOOM_LOW_REMATERIALIZATION_ACTION_NONE) {
     return iree_ok_status();
   }
+  if (plan->action == LOOM_LOW_REMATERIALIZATION_ACTION_RETAIN_PLACEMENT) {
+    IREE_RETURN_IF_ERROR(loom_low_rematerialization_reserve_values(
+        module->values.count, state->arena, &state->per_user_values));
+    iree_bitmap_set(state->per_user_values, value_id);
+    *out_result = (loom_low_value_rematerialization_result_t){
+        .value_id = value_id,
+        .retained_placement_count = 1,
+    };
+    return iree_ok_status();
+  }
+
+  const loom_low_rematerialization_recipe_t* recipe = &plan->recipe;
+  loom_op_t* defining_op = recipe->packets[0];
+  const loom_use_t* uses = plan->uses;
+  const uint32_t use_count = plan->use_count;
 
   // Verified SSA makes every packet input and external type/attribute capture
   // available at its definition, which dominates each existing operand use.
@@ -324,13 +396,13 @@ iree_status_t loom_low_rematerialize_value_uses(
   // private predecessor instead of consuming one source several times. Each
   // eligible packet has one result and no regions. Reserve membership for the
   // worst-case per-use clones before mutation changes the module value count.
-  if (recipe.packet_count > UINT32_MAX / use_count) {
+  if (recipe->packet_count > UINT32_MAX / use_count) {
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
         "rematerialization clone count exceeds uint32 capacity");
   }
   const uint32_t maximum_clone_count =
-      (uint32_t)(recipe.packet_count * use_count);
+      (uint32_t)(recipe->packet_count * use_count);
   if (maximum_clone_count > LOOM_VALUE_ID_INVALID - module->values.count) {
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -376,7 +448,7 @@ iree_status_t loom_low_rematerialize_value_uses(
     loom_value_id_t cloned_value_id = LOOM_VALUE_ID_INVALID;
     if (first_user_use) {
       status = loom_low_rematerialization_clone_for_use(
-          &rewriter, &recipe, uses[i], state, arena, &cloned_value_id);
+          &rewriter, recipe, uses[i], state, arena, &cloned_value_id);
     } else {
       const loom_use_t first_use = uses[user_uses[user_slot] - 1];
       cloned_value_id =
@@ -389,7 +461,7 @@ iree_status_t loom_low_rematerialize_value_uses(
     if (iree_status_is_ok(status)) {
       if (first_user_use) {
         user_uses[user_slot] = i + 1;
-        result.cloned_packet_count += (uint32_t)recipe.packet_count;
+        result.cloned_packet_count += (uint32_t)recipe->packet_count;
       }
       ++result.rewritten_operand_count;
     }
@@ -397,17 +469,17 @@ iree_status_t loom_low_rematerialize_value_uses(
   if (iree_status_is_ok(status)) {
     // Cloning the chain may give external inputs additional users in other
     // blocks. Those inputs no longer retain a per-user placement guarantee.
-    for (iree_host_size_t packet_index = 0; packet_index < recipe.packet_count;
+    for (iree_host_size_t packet_index = 0; packet_index < recipe->packet_count;
          ++packet_index) {
-      const loom_op_t* packet = recipe.packets[packet_index];
+      const loom_op_t* packet = recipe->packets[packet_index];
       const loom_value_id_t* operands = loom_op_const_operands(packet);
       for (uint16_t operand_index = 0; operand_index < packet->operand_count;
            ++operand_index) {
         const loom_value_id_t operand = operands[operand_index];
         bool is_recipe_result = false;
-        for (iree_host_size_t i = 0; i < recipe.packet_count; ++i) {
+        for (iree_host_size_t i = 0; i < recipe->packet_count; ++i) {
           is_recipe_result |=
-              operand == loom_op_const_results(recipe.packets[i])[0];
+              operand == loom_op_const_results(recipe->packets[i])[0];
         }
         if (!is_recipe_result && operand < state->per_user_values.bit_count) {
           iree_bitmap_reset(state->per_user_values, operand);
@@ -418,8 +490,8 @@ iree_status_t loom_low_rematerialize_value_uses(
     // its removal. Stop at the first predecessor retained by another use.
     IREE_ASSERT(loom_op_results_unused(module, defining_op));
     for (iree_host_size_t i = 0;
-         i < recipe.packet_count && iree_status_is_ok(status); ++i) {
-      loom_op_t* packet = recipe.packets[i];
+         i < recipe->packet_count && iree_status_is_ok(status); ++i) {
+      loom_op_t* packet = recipe->packets[i];
       if (!loom_op_results_unused(module, packet)) {
         break;
       }
@@ -433,16 +505,17 @@ iree_status_t loom_low_rematerialize_value_uses(
   return status;
 }
 
-static iree_status_t loom_low_allocation_try_rematerialize_value(
+iree_status_t loom_low_rematerialize_value_uses(
     loom_module_t* module, const loom_low_resolved_target_t* target,
-    loom_value_id_t value_id, loom_low_rematerialization_state_t* state,
-    iree_arena_allocator_t* arena,
-    loom_low_allocation_rematerialization_result_t* result) {
-  loom_low_value_rematerialization_result_t value_result = {0};
-  IREE_RETURN_IF_ERROR(loom_low_rematerialize_value_uses(
-      module, target, value_id, state, arena, &value_result));
-  result->value = value_result;
-  return iree_ok_status();
+    loom_value_id_t value_id, const loom_low_schedule_table_t* schedule,
+    loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
+    loom_low_value_rematerialization_result_t* out_result) {
+  *out_result = loom_low_value_rematerialization_result_empty();
+  loom_low_rematerialization_plan_t plan = {0};
+  IREE_RETURN_IF_ERROR(loom_low_rematerialization_prepare_value(
+      module, target, value_id, schedule, state, arena, &plan));
+  return loom_low_rematerialization_apply_value(module, value_id, &plan, state,
+                                                arena, out_result);
 }
 
 // Returns true when any storage unit in |assignment| is live at |point|.
@@ -553,11 +626,14 @@ static bool loom_low_allocation_rematerialization_frontier_contains(
 // concrete collision, but that assignment is not necessarily the live value
 // dominating the failure frontier. Candidates are ordered by remaining live
 // unit-points so a successful rewrite removes the largest conservative
-// pressure area first.
+// pressure area first. Placement-only repairs preserve this snapshot and can
+// accumulate before rebuilding; an IR rewrite ends its use immediately.
 static iree_status_t loom_low_allocation_try_rematerialize_live_frontier(
     loom_module_t* module, const loom_low_allocation_table_t* table,
+    const loom_low_schedule_table_t* schedule,
     loom_low_allocation_rematerialization_frontier_t frontier,
     loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
+    loom_low_rematerialization_batch_result_t* out_batch,
     loom_low_allocation_rematerialization_result_t* out_result) {
   const loom_low_allocation_failure_t* failure = &table->failure;
   uint64_t previous_pressure_area = UINT64_MAX;
@@ -600,9 +676,24 @@ static iree_status_t loom_low_allocation_try_rematerialize_live_frontier(
 
     const loom_low_allocation_assignment_t* assignment =
         &table->assignments[best_assignment_index];
-    IREE_RETURN_IF_ERROR(loom_low_allocation_try_rematerialize_value(
-        module, &table->target, assignment->value_id, state, arena,
-        out_result));
+    out_result->value = loom_low_value_rematerialization_result_empty();
+    loom_low_rematerialization_plan_t plan = {0};
+    IREE_RETURN_IF_ERROR(loom_low_rematerialization_prepare_value(
+        module, &table->target, assignment->value_id, schedule, state, arena,
+        &plan));
+    // Retained placement already warrants a fresh schedule. Try that order
+    // before paying for a clone that its allocation may no longer require.
+    if (plan.action == LOOM_LOW_REMATERIALIZATION_ACTION_CLONE &&
+        out_batch->retained_placement_count != 0) {
+      return iree_ok_status();
+    }
+    IREE_RETURN_IF_ERROR(loom_low_rematerialization_apply_value(
+        module, assignment->value_id, &plan, state, arena, &out_result->value));
+    out_batch->cloned_packet_count += out_result->value.cloned_packet_count;
+    out_batch->rewritten_operand_count +=
+        out_result->value.rewritten_operand_count;
+    out_batch->retained_placement_count +=
+        out_result->value.retained_placement_count;
     if (out_result->value.rewritten_operand_count != 0) {
       out_result->value_class = &assignment->value_class;
       return iree_ok_status();
@@ -614,15 +705,18 @@ static iree_status_t loom_low_allocation_try_rematerialize_live_frontier(
 
 static iree_status_t loom_low_allocation_rematerialize_failure_value(
     loom_module_t* module, const loom_low_allocation_table_t* table,
+    const loom_low_schedule_table_t* schedule,
     loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
+    loom_low_rematerialization_batch_result_t* out_batch,
     loom_low_allocation_rematerialization_result_t* out_result) {
   *out_result = loom_low_allocation_rematerialization_result_empty();
   const loom_low_allocation_failure_t* failure = &table->failure;
   IREE_RETURN_IF_ERROR(loom_low_allocation_try_rematerialize_live_frontier(
-      module, table,
+      module, table, schedule,
       LOOM_LOW_ALLOCATION_REMATERIALIZATION_FRONTIER_PRESSURE_CLASS, state,
-      arena, out_result));
-  if (out_result->value.rewritten_operand_count != 0) {
+      arena, out_batch, out_result));
+  if (out_batch->rewritten_operand_count != 0 ||
+      out_batch->retained_placement_count != 0) {
     return iree_ok_status();
   }
 
@@ -630,18 +724,26 @@ static iree_status_t loom_low_allocation_rematerialize_failure_value(
   // locations. Exhaust the whole allocatable storage domain instead of only
   // the first concrete collision selected for diagnostics.
   IREE_RETURN_IF_ERROR(loom_low_allocation_try_rematerialize_live_frontier(
-      module, table,
+      module, table, schedule,
       LOOM_LOW_ALLOCATION_REMATERIALIZATION_FRONTIER_OVERLAPPING_STORAGE, state,
-      arena, out_result));
-  if (out_result->value.rewritten_operand_count != 0) {
+      arena, out_batch, out_result));
+  if (out_batch->rewritten_operand_count != 0 ||
+      out_batch->retained_placement_count != 0) {
     return iree_ok_status();
   }
 
   // The failed value may not have an assignment in the partial table and is
   // therefore the only pressure candidate not covered by the live frontier.
-  IREE_RETURN_IF_ERROR(loom_low_allocation_try_rematerialize_value(
-      module, &table->target, failure->value_id, state, arena, out_result));
-  if (out_result->value.rewritten_operand_count != 0) {
+  IREE_RETURN_IF_ERROR(loom_low_rematerialize_value_uses(
+      module, &table->target, failure->value_id, schedule, state, arena,
+      &out_result->value));
+  out_batch->cloned_packet_count += out_result->value.cloned_packet_count;
+  out_batch->rewritten_operand_count +=
+      out_result->value.rewritten_operand_count;
+  out_batch->retained_placement_count +=
+      out_result->value.retained_placement_count;
+  if (out_result->value.rewritten_operand_count != 0 ||
+      out_result->value.retained_placement_count != 0) {
     out_result->value_class = &failure->value_class;
     return iree_ok_status();
   }
@@ -768,6 +870,7 @@ static iree_status_t loom_low_rematerialization_plan_cross_block_batch(
 
 iree_status_t loom_low_allocation_rematerialize_failure(
     loom_module_t* module, const loom_low_allocation_table_t* table,
+    const loom_low_schedule_table_t* schedule,
     loom_low_rematerialization_state_t* state,
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* arena,
     loom_low_rematerialization_batch_result_t* out_result) {
@@ -787,9 +890,9 @@ iree_status_t loom_low_allocation_rematerialize_failure(
     loom_low_allocation_rematerialization_result_t result = {
         .value_class = &candidate->interval->value_class,
     };
-    status = loom_low_rematerialize_value_uses(module, &table->target,
-                                               candidate->interval->value_id,
-                                               state, arena, &result.value);
+    status = loom_low_rematerialize_value_uses(
+        module, &table->target, candidate->interval->value_id,
+        /*schedule=*/NULL, state, arena, &result.value);
     if (iree_status_is_ok(status)) {
       out_result->cloned_packet_count += result.value.cloned_packet_count;
       out_result->rewritten_operand_count +=
@@ -803,11 +906,8 @@ iree_status_t loom_low_allocation_rematerialize_failure(
   if (iree_status_is_ok(status) && out_result->rewritten_operand_count == 0) {
     loom_low_allocation_rematerialization_result_t result = {0};
     status = loom_low_allocation_rematerialize_failure_value(
-        module, table, state, arena, &result);
+        module, table, schedule, state, arena, out_result, &result);
     if (iree_status_is_ok(status)) {
-      out_result->cloned_packet_count = result.value.cloned_packet_count;
-      out_result->rewritten_operand_count =
-          result.value.rewritten_operand_count;
       status = loom_low_allocation_rematerialization_emit_decision(
           table,
           LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_ALLOCATION_FAILURE,
@@ -824,9 +924,9 @@ iree_status_t loom_low_allocation_rematerialize_spill_plan(
   *out_result = loom_low_allocation_rematerialization_result_empty();
   for (iree_host_size_t i = 0; i < table->spill_plan_count; ++i) {
     const loom_low_allocation_spill_plan_t* spill_plan = &table->spill_plans[i];
-    IREE_RETURN_IF_ERROR(loom_low_allocation_try_rematerialize_value(
-        module, &table->target, spill_plan->value_id, state, arena,
-        out_result));
+    IREE_RETURN_IF_ERROR(loom_low_rematerialize_value_uses(
+        module, &table->target, spill_plan->value_id, /*schedule=*/NULL, state,
+        arena, &out_result->value));
     if (out_result->value.rewritten_operand_count != 0) {
       out_result->value_class =
           &table->assignments[spill_plan->assignment_index].value_class;

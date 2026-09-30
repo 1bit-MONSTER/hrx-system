@@ -1658,7 +1658,7 @@ void loom_low_schedule_pressure_score_candidate(
   uint32_t killed_live_value_count = 0;
   uint64_t produced_live_units = 0;
   uint32_t produced_live_value_count = 0;
-  bool is_per_user_rematerialization = false;
+  bool has_per_user_placement = false;
   bool rematerializable_leaf =
       node->descriptor != NULL && node->operand_count == 0 &&
       !iree_any_bit_set(node->traits, LOOM_TRAIT_OBSERVABLE_EFFECT);
@@ -1702,8 +1702,8 @@ void loom_low_schedule_pressure_score_candidate(
   }
   const loom_value_ordinal_t* result_ordinals =
       loom_low_schedule_node_const_result_ordinals(node);
-  const iree_bitmap_t per_user_rematerialized_values =
-      state->options->per_user_rematerialized_values;
+  const iree_bitmap_t per_user_placement_values =
+      state->options->per_user_placement_values;
   for (uint16_t result_index = 0; result_index < node->result_count;
        ++result_index) {
     const loom_low_schedule_value_record_t* value =
@@ -1720,12 +1720,12 @@ void loom_low_schedule_pressure_score_candidate(
     const uint32_t unit_count = value->unit_count - alias_units;
     produced_live_units += unit_count;
     if (unit_count != 0) {
-      // Repair shortened this result's lifetime by placing it next to its
-      // consumer. Keep that placement for input-free clones too; the ready
-      // policy can still advance them to complete live storage groups.
-      is_per_user_rematerialization |=
-          value->value_id < per_user_rematerialized_values.bit_count &&
-          iree_bitmap_test(per_user_rematerialized_values, value->value_id);
+      // Repair retained this result's private consumer placement. Keep that
+      // placement for input-free clones too; the ready policy can still
+      // advance them to complete live storage groups.
+      has_per_user_placement |=
+          value->value_id < per_user_placement_values.bit_count &&
+          iree_bitmap_test(per_user_placement_values, value->value_id);
       ++produced_live_value_count;
       rematerializable_leaf =
           rematerializable_leaf &&
@@ -1819,7 +1819,7 @@ void loom_low_schedule_pressure_score_candidate(
                (uint16_t)((node->flags &
                            LOOM_LOW_SCHEDULE_NODE_FLAG_PAIR_TRANSPARENT)
                           << 1u) |
-               ((is_storage_setup || is_per_user_rematerialization)
+               ((is_storage_setup || has_per_user_placement)
                     ? LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_STORAGE_SETUP
                     : 0) |
                (rematerializable_leaf && produced_live_value_count != 0

@@ -427,3 +427,108 @@ low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: 
 // ----
 CHECK: issue cycles: 129
 CHECK: code bytes: 476
+
+// ====
+
+// These source-adjacent store indices can move ahead of the load's address
+// prerequisites while memory ordering keeps their stores blocked. Allocation
+// repair retains their private placement without cloning unchanged producers.
+// Four resident accumulator fragments keep the loaded-C storage shape intact.
+// RUN: emit aie2p-leaf @effect_blocked_store_indices report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @effect_blocked_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %accumulator00: reg<aie2p.mbms x4>, %accumulator01: reg<aie2p.mbms x4>, %accumulator10: reg<aie2p.mbms x4>, %accumulator11: reg<aie2p.mbms x4>, %resident_piece: reg<aie2p.mbms>) -> (reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %cell_offset = mov.static-byte-offset 256
+  %cell_stride = mov.i32 256
+  %load_position = mac %cell_offset, %cell, %cell_stride
+  %load_index = mov.address-index %load_position
+  %loaded_piece = vlda.acc.index %source, %load_index
+  vst.acc %loaded_piece, %destination, 0
+  %store_index0 = mov.address-index %position0
+  vst.acc.index %resident_piece, %destination, %store_index0
+  %store_index1 = mov.address-index %position1
+  vst.acc.index %resident_piece, %destination, %store_index1
+  %store_index2 = mov.address-index %position2
+  vst.acc.index %resident_piece, %destination, %store_index2
+  %store_index3 = mov.address-index %position3
+  vst.acc.index %resident_piece, %destination, %store_index3
+  %store_index4 = mov.address-index %position4
+  vst.acc.index %resident_piece, %destination, %store_index4
+  %store_index5 = mov.address-index %position5
+  vst.acc.index %resident_piece, %destination, %store_index5
+  %store_index6 = mov.address-index %position6
+  vst.acc.index %resident_piece, %destination, %store_index6
+  %store_index7 = mov.address-index %position7
+  vst.acc.index %resident_piece, %destination, %store_index7
+  %store_index8 = mov.address-index %position8
+  vst.acc.index %resident_piece, %destination, %store_index8
+  return %accumulator00, %accumulator01, %accumulator10, %accumulator11
+}
+
+// ----
+issue cycles: 33
+code bytes: 122
+coissued bundles: 2
+coissued components: 4
+
+// ====
+
+// Loading the store payload leaves a feasible initial schedule. Private
+// indices retain normal latency scheduling until allocation requires repair.
+// Eagerly forcing every index next to its store would serialize this control.
+// RUN: emit aie2p-leaf @payload_dependent_store_indices report=emission
+
+low.func.def target<amd.xdna.aie2p.core> @payload_dependent_store_indices(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %cell: reg<aie2p.er>, %position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) asm {
+  %cell_offset = mov.static-byte-offset 256
+  %cell_stride = mov.i32 256
+  %load_position = mac %cell_offset, %cell, %cell_stride
+  %load_index = mov.address-index %load_position
+  %payload = vlda.acc.index %source, %load_index
+  %store_index0 = mov.address-index %position0
+  vst.acc.index %payload, %destination, %store_index0
+  %store_index1 = mov.address-index %position1
+  vst.acc.index %payload, %destination, %store_index1
+  %store_index2 = mov.address-index %position2
+  vst.acc.index %payload, %destination, %store_index2
+  %store_index3 = mov.address-index %position3
+  vst.acc.index %payload, %destination, %store_index3
+  %store_index4 = mov.address-index %position4
+  vst.acc.index %payload, %destination, %store_index4
+  %store_index5 = mov.address-index %position5
+  vst.acc.index %payload, %destination, %store_index5
+  %store_index6 = mov.address-index %position6
+  vst.acc.index %payload, %destination, %store_index6
+  %store_index7 = mov.address-index %position7
+  vst.acc.index %payload, %destination, %store_index7
+  %store_index8 = mov.address-index %position8
+  vst.acc.index %payload, %destination, %store_index8
+  return
+}
+
+// ----
+issue cycles: 27
+code bytes: 110
+coissued bundles: 4
+coissued components: 8
+
+// ====
+
+// Source-order allocation has no scheduling consumer for retained placement.
+// Each data-dependent index has one user, but all nine results must coexist:
+// genuine per-user cloning cannot make them fit the eight-register class.
+// RUN: pass low-materialize-allocation
+
+low.func.def target<amd.xdna.aie2p.core> @irreducible_private_indices(%position0: reg<aie2p.er>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>) -> (reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>) asm {
+  %index0 = mov.address-index %position0
+  %index1 = mov.address-index %position1
+  %index2 = mov.address-index %position2
+  %index3 = mov.address-index %position3
+  %index4 = mov.address-index %position4
+  %index5 = mov.address-index %position5
+  %index6 = mov.address-index %position6
+  %index7 = mov.address-index %position7
+  // ERROR@+1: BACKEND/005 "aie2p.edj" "budget 8" "peak 9" "unspillable-register-exhausted"
+  %index8 = mov.address-index %position8
+  return %index0, %index1, %index2, %index3, %index4, %index5, %index6, %index7, %index8
+}
+
+// ----
