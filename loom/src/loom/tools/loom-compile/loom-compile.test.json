@@ -275,6 +275,31 @@
       ]
     },
     {
+      "name": "rejects an unknown explicit command pipeline",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--root=@increment_then_double",
+          "--pipeline=not-a-pass",
+          "--output={tmp}/manifest.json",
+          "--emit-command-artifacts={tmp}/commands"
+        ]
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": ["unknown pass 'not-a-pass' at pipeline entry 0"]
+      },
+      "files": [
+        {
+          "path": "{tmp}/manifest.json",
+          "exists": false
+        }
+      ]
+    },
+    {
       "name": "preserves command root order and duplicates",
       "run": {
         "tool": "loom-compile",

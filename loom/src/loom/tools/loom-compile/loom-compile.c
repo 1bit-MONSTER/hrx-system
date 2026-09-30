@@ -1045,7 +1045,12 @@ int main(int argc, char** argv) {
       status = loom_compile_validate_request_flags(&request);
     }
   }
-  if (iree_status_is_ok(status)) {
+  // Default command planning selectively materializes from the indexed source.
+  // Explicit pipelines still run over the selected linked closure.
+  const bool run_eager_pipeline =
+      !loom_compile_request_is_command(&request) ||
+      !loom_compile_pipeline_is_default(iree_make_cstring_view(FLAG_pipeline));
+  if (iree_status_is_ok(status) && run_eager_pipeline) {
     status = loom_compile_materialize_module(
         compile_environment->target_environment, &session, &run_module,
         &request, &compile_report_capture, allocator);
@@ -1121,14 +1126,7 @@ int main(int argc, char** argv) {
     }
   }
   if (iree_status_is_ok(status)) {
-    // Command compilation owns selective source preparation after indexing.
-    // Eagerly expanding the whole input here would erase unresolved kernel
-    // decisions before command planning can classify launch sites and emit
-    // independent kernel requests. Explicit user pipelines remain honored.
-    const bool run_pipeline = !loom_compile_request_is_command(&request) ||
-                              !loom_compile_pipeline_is_default(
-                                  iree_make_cstring_view(FLAG_pipeline));
-    if (run_pipeline) {
+    if (run_eager_pipeline) {
       status = loom_compile_run_pass_pipeline(
           compile_environment->target_environment, &session, &run_module,
           LOOM_COMPILE_DEFAULT_PIPELINE_PREPARED_LOW, &request,
