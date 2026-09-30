@@ -34,6 +34,7 @@ loom_corpus_sources(
     "atomic/float_extrema.loom"
     "atomic/float64.loom"
     "atomic/global_add_f32.loom"
+    "atomic/i32.loom"
     "atomic/i64.loom"
     "atomic/narrow/cmpxchg.loom"
     "atomic/narrow/contention.loom"

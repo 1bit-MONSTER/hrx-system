@@ -55,6 +55,7 @@ _KERNEL_SOURCES = [
     "memory/atomic/float_extrema.loom",
     "memory/atomic/float64.loom",
     "memory/atomic/global_add_f32.loom",
+    "memory/atomic/i32.loom",
     "memory/atomic/i64.loom",
     "memory/atomic/narrow/cmpxchg.loom",
     "memory/atomic/narrow/contention.loom",
