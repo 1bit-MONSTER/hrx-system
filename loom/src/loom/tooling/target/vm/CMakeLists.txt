@@ -119,9 +119,9 @@ loom_cc_test(
     loom::ops::func::location_capture_test_data
     loom::ops::op_defs
     loom::ops::op_registry
-    loom::target::arch::vm::provider
     loom::target::emit::vm::module_compiler
     loom::target::provider
+    loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::input
     loom::transforms::cleanup::configured
@@ -197,9 +197,9 @@ loom_cc_test(
     loom::ir
     loom::ops::func
     loom::ops::op_registry
-    loom::target::arch::vm::provider
     loom::target::emit::vm::module_compiler
     loom::target::provider
+    loom::target::selection
     loom::tooling::compile::pipeline
     loom::tooling::input
     loom::transforms::cleanup::configured

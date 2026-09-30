@@ -37,6 +37,7 @@ loom_cc_library(
         ":module_binary",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/arch/vm:program_build",
+        "//loom/src/loom/target/arch/vm:provider",
         "//loom/src/loom/target/arch/vm/ops",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

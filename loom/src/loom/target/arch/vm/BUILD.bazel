@@ -179,6 +179,7 @@ loom_cc_library(
     visibility = [
         "//loom/src/loom/target/all:__pkg__",
         "//loom/src/loom/target/configured:__pkg__",
+        "//loom/src/loom/target/emit/vm:__pkg__",
         "//loom/src/loom/tooling/target/vm:__pkg__",
         "//loom/src/loom/tools/iree-benchmark-loom:__pkg__",
         "//loom/src/loom/tools/iree-test-loom:__pkg__",

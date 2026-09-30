@@ -40,6 +40,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::target::arch::vm::ops
     loom::target::arch::vm::program_build
+    loom::target::arch::vm::provider
     loom::target::provider
   PUBLIC
 )

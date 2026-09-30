@@ -21,6 +21,10 @@ extern const loom_target_emitter_t loom_vm_module_emitter;
 // VM binary module emission composed with the VM target fact type.
 extern const loom_target_provider_t loom_vm_module_provider;
 
+// Complete VM compiler provider set containing the target architecture and
+// canonical module emitter.
+extern const loom_target_provider_set_t loom_vm_compiler_provider_set;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

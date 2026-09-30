@@ -8,6 +8,7 @@
 
 #include "loom/target/arch/vm/ops/ops.h"
 #include "loom/target/arch/vm/program_build.h"
+#include "loom/target/arch/vm/provider.h"
 #include "loom/target/emit/vm/module_binary.h"
 
 static iree_status_t loom_vm_module_emit(
@@ -55,4 +56,14 @@ const loom_target_provider_t loom_vm_module_provider = {
         },
     .canonical_module_emitter = &loom_vm_module_emitter,
     .canonical_module_fact_type = &loom_vm_target_fact_type,
+};
+
+static const loom_target_provider_t* const kVmCompilerProviders[] = {
+    &loom_vm_target_provider,
+    &loom_vm_module_provider,
+};
+
+const loom_target_provider_set_t loom_vm_compiler_provider_set = {
+    .providers = kVmCompilerProviders,
+    .provider_count = IREE_ARRAYSIZE(kVmCompilerProviders),
 };

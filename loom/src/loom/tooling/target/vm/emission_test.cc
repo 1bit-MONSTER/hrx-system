@@ -13,8 +13,8 @@
 #include "loom/ir/context.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/op_registry.h"
-#include "loom/target/arch/vm/provider.h"
 #include "loom/target/emit/vm/module_compiler.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
 #include "loom/tooling/target/vm/emission_test_data.h"
@@ -69,12 +69,8 @@ class VMEmissionTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(128 * 1024, iree_allocator_system(),
                                      &pool_);
-    static const loom_target_provider_t* const providers[] = {
-        &loom_vm_target_provider};
-    static const auto provider_set =
-        loom_target_provider_set_make(providers, 1);
-    IREE_ASSERT_OK(
-        loom_target_environment_initialize(&provider_set, &environment_));
+    IREE_ASSERT_OK(loom_target_environment_initialize(
+        &loom_vm_compiler_provider_set, &environment_));
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context_));
     IREE_ASSERT_OK(
@@ -100,9 +96,13 @@ class VMEmissionTest : public ::testing::Test {
                                           &context_, &pool_,
                                           iree_allocator_system(), &input_));
     ASSERT_NE(input_.module, nullptr);
+    const loom_target_specification_t specification = {
+        /*.family=*/IREE_SVL("vm"),
+        /*.selector=*/IREE_SVL("core"),
+    };
     const loom_target_profile_t* profile = nullptr;
-    IREE_ASSERT_OK(
-        loom_vm_target_provider.select_profile(IREE_SV("core"), &profile));
+    IREE_ASSERT_OK(loom_target_environment_select_profile(
+        &environment_, &specification, &profile));
     std::vector<loom_target_specialization_request_t> specializations;
     for (uint32_t i = 0; i < input_.module->symbols.count; ++i) {
       const auto& symbol = input_.module->symbols.entries[i];
