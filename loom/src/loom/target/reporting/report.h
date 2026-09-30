@@ -1850,6 +1850,8 @@ typedef struct loom_target_compile_report_legalization_row_t {
   loom_target_compile_report_legalization_policy_t policy;
   // Legalization decision recorded for this source operation.
   loom_target_compile_report_legalization_action_t action;
+  // Whether the rewrite expanded vector semantics into scalar lane operations.
+  bool scalarized;
   // Terminal outcome after applying the selected legalization action.
   loom_target_compile_report_legalization_outcome_t legalization_outcome;
   // Read-only target-contract query outcome observed before rewriting.
@@ -2020,6 +2022,8 @@ typedef struct loom_target_compile_report_t {
   uint64_t target_legalization_legal_op_count;
   // Number of source ops rewritten by target legalization.
   uint64_t target_legalization_rewritten_op_count;
+  // Number of source vector ops expanded into scalar lane operations.
+  uint64_t target_legalization_scalarized_op_count;
   // Number of target-specific native-path rewrites.
   uint64_t target_legalization_target_rewritten_op_count;
   // Number of portable reference fallback rewrites.
@@ -2370,7 +2374,8 @@ iree_status_t loom_target_compile_report_record_math_row(
 void loom_target_compile_report_record_legalization_summary(
     loom_target_compile_report_t* report,
     loom_target_compile_report_legalization_action_t action,
-    loom_target_compile_report_legalizer_strategy_t legalizer_strategy);
+    loom_target_compile_report_legalizer_strategy_t legalizer_strategy,
+    bool scalarized);
 
 // Records one target-legalization row.
 iree_status_t loom_target_compile_report_record_legalization_row(

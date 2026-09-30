@@ -789,6 +789,7 @@ loom_check_test_suite(
     "test/source_low/vector_slice.loom-test"
     "test/source_low/vector_splat.loom-test"
     "test/source_low/vector_structural.loom-test"
+    "test/target_legalize_report.loom-test"
   RUNNER
     ::loom-check
   TEST_NAME_PREFIX_TO_STRIP

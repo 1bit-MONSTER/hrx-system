@@ -295,6 +295,8 @@ typedef struct loom_low_target_legalize_report_decision_t {
   loom_target_compile_report_legalization_action_t action;
   // Provider strategy for the latest decision.
   loom_target_compile_report_legalizer_strategy_t strategy;
+  // Whether the latest rewrite expanded vector semantics into scalar lanes.
+  bool scalarized;
   // Optional detailed row in the function arena, absent for summary collection.
   loom_target_compile_report_legalization_row_t* row;
   // Next decision in first-observation order, independent of pointer ordering.
@@ -973,7 +975,7 @@ static iree_status_t loom_low_target_legalize_retain_report_decision(
     iree_string_view_t source_op_name, uint32_t source_op_kind,
     loom_target_compile_report_legalization_action_t action,
     const loom_target_contract_query_result_t* query_result,
-    const loom_target_legalizer_entry_t* legalizer_entry,
+    const loom_target_legalizer_entry_t* legalizer_entry, bool scalarized,
     uint64_t created_op_count, uint64_t erased_op_count) {
   if (loom_low_target_legalize_report_wants_rows(state) && !decision->row) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate(state->query_scope_arena,
@@ -995,6 +997,7 @@ static iree_status_t loom_low_target_legalize_retain_report_decision(
                       : LOOM_TARGET_COMPILE_REPORT_LEGALIZER_STRATEGY_NONE;
   decision->action = action;
   decision->strategy = legalizer_strategy;
+  decision->scalarized = scalarized;
   if (!decision->row) {
     return iree_ok_status();
   }
@@ -1018,6 +1021,7 @@ static iree_status_t loom_low_target_legalize_retain_report_decision(
       .policy = loom_low_target_legalize_report_policy(
           state->legalization_context.policy),
       .action = action,
+      .scalarized = scalarized,
       .legalization_outcome =
           loom_low_target_legalize_report_legalization_outcome(
               action, legalizer_strategy),
@@ -1046,6 +1050,7 @@ static void loom_low_target_legalize_report_accept_native(
       decision->action !=
           LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN) {
     decision->action = LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_LEGAL;
+    decision->scalarized = false;
   }
 }
 
@@ -1069,7 +1074,8 @@ static iree_status_t loom_low_target_legalize_publish_report(
           state->compile_report, decision->row);
     } else {
       loom_target_compile_report_record_legalization_summary(
-          state->compile_report, decision->action, decision->strategy);
+          state->compile_report, decision->action, decision->strategy,
+          decision->scalarized);
     }
   }
   return status;
@@ -1477,7 +1483,8 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
       IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
           state, report_decision, source_op_name, source_op_kind,
           LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REJECT_INVALID_IR,
-          &query_result, /*legalizer_entry=*/NULL, /*created_op_count=*/0,
+          &query_result, /*legalizer_entry=*/NULL, /*scalarized=*/false,
+          /*created_op_count=*/0,
           /*erased_op_count=*/0));
     }
     ++state->statistics->ops_deferred;
@@ -1505,6 +1512,8 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     driver->rewriter.flags = 0;
     const uint64_t created_op_count_before = driver->rewriter.created_op_count;
     const uint64_t erased_op_count_before = driver->rewriter.erased_op_count;
+    const uint64_t scalarized_op_count_before =
+        driver->rewriter.scalarized_op_count;
     loom_target_legalizer_result_t legalizer_result = {
         .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
     };
@@ -1547,6 +1556,8 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
               state, report_decision, source_op_name, source_op_kind,
               LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN,
               &rewritten_report_result, entry,
+              driver->rewriter.scalarized_op_count !=
+                  scalarized_op_count_before,
               driver->rewriter.created_op_count - created_op_count_before,
               driver->rewriter.erased_op_count - erased_op_count_before));
         }
@@ -1562,7 +1573,7 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
           IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
               state, report_decision, source_op_name, source_op_kind,
               LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_DEFERRED,
-              &deferred_report_result, entry,
+              &deferred_report_result, entry, /*scalarized=*/false,
               /*created_op_count=*/0, /*erased_op_count=*/0));
         }
         ++state->statistics->ops_deferred;
@@ -1578,7 +1589,7 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
           IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
               state, report_decision, source_op_name, source_op_kind,
               LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REJECT_INVALID_IR,
-              &invalid_report_result, entry,
+              &invalid_report_result, entry, /*scalarized=*/false,
               /*created_op_count=*/0, /*erased_op_count=*/0));
         }
         ++state->statistics->ops_deferred;
@@ -1594,7 +1605,7 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
           IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
               state, report_decision, source_op_name, source_op_kind,
               LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REJECT_UNSUPPORTED_FINAL,
-              &unsupported_report_result, entry,
+              &unsupported_report_result, entry, /*scalarized=*/false,
               /*created_op_count=*/0, /*erased_op_count=*/0));
         }
         ++state->statistics->ops_deferred;
@@ -1618,7 +1629,8 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
     IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
         state, report_decision, source_op_name, source_op_kind,
         LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_UNHANDLED, &query_result,
-        /*legalizer_entry=*/NULL, /*created_op_count=*/0,
+        /*legalizer_entry=*/NULL, /*scalarized=*/false,
+        /*created_op_count=*/0,
         /*erased_op_count=*/0));
   }
   return iree_ok_status();

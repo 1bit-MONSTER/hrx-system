@@ -1572,7 +1572,11 @@ iree_status_t loom_target_compile_report_record_math_row(
 static void loom_target_compile_report_count_legalization_action(
     loom_target_compile_report_t* report,
     loom_target_compile_report_legalization_action_t action,
-    loom_target_compile_report_legalizer_strategy_t legalizer_strategy) {
+    loom_target_compile_report_legalizer_strategy_t legalizer_strategy,
+    bool scalarized) {
+  if (scalarized) {
+    ++report->target_legalization_scalarized_op_count;
+  }
   switch (action) {
     case LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_LEGAL:
       ++report->target_legalization_legal_op_count;
@@ -1612,18 +1616,19 @@ static void loom_target_compile_report_count_legalization_action(
 void loom_target_compile_report_record_legalization_summary(
     loom_target_compile_report_t* report,
     loom_target_compile_report_legalization_action_t action,
-    loom_target_compile_report_legalizer_strategy_t legalizer_strategy) {
+    loom_target_compile_report_legalizer_strategy_t legalizer_strategy,
+    bool scalarized) {
   report->detail_flags |=
       LOOM_TARGET_COMPILE_REPORT_DETAIL_TARGET_LEGALIZATION_ROWS;
-  loom_target_compile_report_count_legalization_action(report, action,
-                                                       legalizer_strategy);
+  loom_target_compile_report_count_legalization_action(
+      report, action, legalizer_strategy, scalarized);
 }
 
 iree_status_t loom_target_compile_report_record_legalization_row(
     loom_target_compile_report_t* report,
     const loom_target_compile_report_legalization_row_t* row) {
   loom_target_compile_report_record_legalization_summary(
-      report, row->action, row->legalizer_strategy);
+      report, row->action, row->legalizer_strategy, row->scalarized);
   return loom_target_compile_report_row_list_append(
       &report->target_legalization_rows, sizeof(*row), report->allocator, row);
 }
