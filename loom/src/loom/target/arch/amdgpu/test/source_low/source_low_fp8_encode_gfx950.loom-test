@@ -147,3 +147,35 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @scalar_fptrunc_
   %7 = v_bfe_u32_offset_0_width_16_low16 %converted
   return %7
 }
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @store_scalar_float8(%input: f32, %output: buffer) {
+  %e4 = scalar.fptrunc %input : f32 to f8E4M3
+  %e5 = scalar.fptrunc %input : f32 to f8E5M2
+  %e4_base = index.constant 0 : offset
+  %e5_base = index.constant 1 : offset
+  %e4_view = buffer.view %output[%e4_base] : buffer -> view<1xf8E4M3>
+  %e5_view = buffer.view %output[%e5_base] : buffer -> view<1xf8E5M2>
+  view.store %e4, %e4_view[0] : f8E4M3, view<1xf8E4M3>
+  view.store %e5, %e5_view[0] : f8E5M2, view<1xf8E5M2>
+  func.return
+}
+
+// ----
+low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @store_scalar_float8(%input: reg<amdgpu.vgpr>) asm {
+  %e5_view = resource<hal_binding> {extent = 2, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %10 = v_mov_b32 1138753536
+  %11 = v_mov_b32 3286237184
+  %12 = v_med3_f32 %input, %10, %11
+  %13 = v_cmp_u_f32 %input, %input
+  %14 = v_cndmask_b32 %12, %input, %13
+  %e4 = v_cvt_pk_fp8_f32_low %14, %14
+  %e5 = v_cvt_pk_bf8_f32_low %input, %input
+  %20 = v_mov_b32 0
+  global_store_b8_saddr %20, %e4, %e5_view
+  global_store_b8_saddr %20, %e5, %e5_view {offset = 1}
+  return
+}

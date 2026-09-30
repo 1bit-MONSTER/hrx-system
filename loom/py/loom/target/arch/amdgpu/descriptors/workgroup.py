@@ -177,8 +177,8 @@ def _ds_write_narrow_overlay(
 ) -> AmdgpuDescriptorOverlay:
     suffix = f"b{width_bits}"
     if width_bits == 8:
-        value_operand = _vgpr_operand("value")
-        value_size_exception_reason = "byte-store-reads-low-8-bits-of-b32-source"
+        value_operand = _vgpr_operand("value", register_part=_REG_PART_VGPR_LOW16)
+        value_size_exception_reason = _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
     elif width_bits == 16:
         value_operand = _vgpr_operand("value", register_part=_REG_PART_VGPR_LOW16)
         value_size_exception_reason = None
