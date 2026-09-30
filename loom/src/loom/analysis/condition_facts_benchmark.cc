@@ -7,8 +7,10 @@
 // Benchmarks condition derivation, proof, and structured-edge projection.
 // Shared boolean DAGs arise after inlining and canonicalization, where the same
 // predicate can feed many composed guards. Duplicate edge payloads arise when
-// one source fact is forwarded into several successor arguments. Both must stay
-// compact instead of scaling with the number of producer paths or target pairs.
+// one source fact is forwarded into several successor arguments. Deeply nested
+// structured guards must also compose in linear time. These cases must stay
+// compact instead of scaling with path, payload-pair, or lexical-depth
+// products.
 
 #include <cstdint>
 #include <vector>
@@ -19,8 +21,10 @@
 #include "loom/analysis/condition_facts.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/func/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/scf/ops.h"
+#include "loom/pass/value_facts.h"
 #include "loom/util/fact_table.h"
 
 namespace {
@@ -342,5 +346,171 @@ static void BM_QueryConditionEdgeProjection(benchmark::State& state) {
   fixture.SetCounters(state);
 }
 BENCHMARK(BM_QueryConditionEdgeProjection)->Apply(ProjectionWidths);
+
+class NestedStructuredBranchFactsBenchmark {
+ public:
+  explicit NestedStructuredBranchFactsBenchmark(int64_t depth) : depth_(depth) {
+    iree_arena_block_pool_initialize(65536, iree_allocator_system(),
+                                     &block_pool_);
+    loom_context_initialize(iree_allocator_system(), &context_);
+    RegisterDialect(LOOM_DIALECT_FUNC, loom_func_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_SCALAR, loom_scalar_dialect_vtables);
+    RegisterDialect(LOOM_DIALECT_SCF, loom_scf_dialect_vtables);
+    IREE_CHECK_OK(loom_context_finalize(&context_));
+
+    IREE_CHECK_OK(loom_module_allocate(
+        &context_, IREE_SV("nested_structured_branch_facts"), &block_pool_,
+        nullptr, iree_allocator_system(), &module_));
+    loom_builder_t builder;
+    loom_builder_initialize(module_, &module_->arena,
+                            loom_module_block(module_), &builder);
+    loom_string_id_t name = LOOM_STRING_ID_INVALID;
+    IREE_CHECK_OK(
+        loom_builder_intern_string(&builder, IREE_SV("nested"), &name));
+    loom_symbol_id_t symbol = LOOM_SYMBOL_ID_INVALID;
+    IREE_CHECK_OK(loom_module_add_symbol(module_, name, &symbol));
+    const loom_type_t i32 = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+    loom_op_t* function_op = nullptr;
+    IREE_CHECK_OK(loom_func_def_build(
+        &builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0, /*cc=*/0,
+        /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+        loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
+        /*export_symbol=*/LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
+        {/*module_id=*/0, /*symbol_id=*/symbol}, &i32, /*arg_types_count=*/1,
+        /*result_types=*/nullptr, /*result_count=*/0,
+        /*tied_results=*/nullptr, /*tied_result_count=*/0,
+        /*predicates=*/nullptr, /*predicates_count=*/0, LOOM_LOCATION_UNKNOWN,
+        &function_op));
+    function_ = loom_func_like_cast(module_, function_op);
+    uint16_t argument_count = 0;
+    const loom_value_id_t* arguments =
+        loom_func_like_arg_ids(function_, &argument_count);
+    IREE_ASSERT_EQ(argument_count, 1);
+    const loom_value_id_t input = arguments[0];
+
+    loom_builder_initialize(
+        module_, &module_->arena,
+        loom_region_entry_block(loom_func_like_body(function_)), &builder);
+    builder.ip.parent_op = function_op;
+    std::vector<loom_builder_ip_t> saved_ips;
+    saved_ips.reserve(depth_);
+    for (int64_t i = 0; i < depth_; ++i) {
+      loom_op_t* count = nullptr;
+      IREE_CHECK_OK(loom_scalar_cttzi_build(&builder, input, i32,
+                                            LOOM_LOCATION_UNKNOWN, &count));
+      loom_op_t* bound = nullptr;
+      IREE_CHECK_OK(loom_scalar_constant_build(&builder, loom_attr_i64(i), i32,
+                                               LOOM_LOCATION_UNKNOWN, &bound));
+      loom_op_t* comparison = nullptr;
+      IREE_CHECK_OK(
+          loom_scalar_cmpi_build(&builder, LOOM_SCALAR_CMPI_PREDICATE_SGT,
+                                 input, loom_scalar_constant_result(bound),
+                                 LOOM_LOCATION_UNKNOWN, &comparison));
+      loom_op_t* branch = nullptr;
+      IREE_CHECK_OK(loom_scf_if_build(
+          &builder, /*build_flags=*/0, loom_scalar_cmpi_result(comparison),
+          /*result_types=*/nullptr, /*result_count=*/0,
+          /*tied_results=*/nullptr, /*tied_result_count=*/0,
+          LOOM_LOCATION_UNKNOWN, &branch));
+      saved_ips.push_back(loom_builder_enter_region(
+          &builder, branch, loom_scf_if_then_region(branch)));
+    }
+    loom_op_t* deepest_count = nullptr;
+    IREE_CHECK_OK(loom_scalar_cttzi_build(
+        &builder, input, i32, LOOM_LOCATION_UNKNOWN, &deepest_count));
+    for (int64_t i = depth_; i > 0; --i) {
+      loom_op_t* yield = nullptr;
+      IREE_CHECK_OK(loom_scf_yield_build(&builder, /*values=*/nullptr,
+                                         /*values_count=*/0,
+                                         LOOM_LOCATION_UNKNOWN, &yield));
+      loom_builder_restore(&builder, saved_ips[i - 1]);
+    }
+    loom_op_t* return_op = nullptr;
+    IREE_CHECK_OK(loom_func_return_build(&builder, /*values=*/nullptr,
+                                         /*values_count=*/0,
+                                         LOOM_LOCATION_UNKNOWN, &return_op));
+    loom_pass_value_fact_owner_initialize(&block_pool_, &owner_);
+  }
+
+  NestedStructuredBranchFactsBenchmark(
+      const NestedStructuredBranchFactsBenchmark&) = delete;
+  NestedStructuredBranchFactsBenchmark& operator=(
+      const NestedStructuredBranchFactsBenchmark&) = delete;
+
+  ~NestedStructuredBranchFactsBenchmark() {
+    loom_pass_value_fact_owner_deinitialize(&owner_);
+    loom_module_free(module_);
+    loom_context_deinitialize(&context_);
+    iree_arena_block_pool_deinitialize(&block_pool_);
+  }
+
+  void Acquire(loom_pass_value_fact_scope_kind_t kind) {
+    loom_pass_value_fact_owner_invalidate(&owner_);
+    loom_pass_value_fact_scope_t scope =
+        loom_pass_value_fact_scope_function(function_);
+    scope.kind = kind;
+    loom_value_fact_table_t* facts = nullptr;
+    IREE_CHECK_OK(
+        loom_pass_value_fact_owner_acquire(&owner_, module_, scope, &facts));
+    benchmark::DoNotOptimize(facts->touched_count);
+  }
+
+  void SetCounters(benchmark::State& state) const {
+    iree_arena_block_pool_statistics_t pool_statistics = {};
+    iree_arena_block_pool_query_statistics(&block_pool_, &pool_statistics);
+    state.counters["branch_depth"] = (double)depth_;
+    state.counters["pool_system_allocation_bytes"] =
+        (double)(pool_statistics.block_system_allocation_bytes +
+                 pool_statistics.oversized_allocation_bytes);
+    state.counters["storage_arena_used_bytes"] =
+        (double)owner_.storage_arena.used_allocation_size;
+    state.counters["transient_arena_used_bytes"] =
+        (double)owner_.transient_arena.used_allocation_size;
+  }
+
+ private:
+  void RegisterDialect(loom_dialect_id_t id, const loom_op_vtable_t* const* (
+                                                 *dialect)(iree_host_size_t*)) {
+    iree_host_size_t count = 0;
+    const loom_op_vtable_t* const* vtables = dialect(&count);
+    IREE_CHECK_OK(
+        loom_context_register_dialect(&context_, id, vtables, (uint16_t)count));
+  }
+
+  int64_t depth_;
+  iree_arena_block_pool_t block_pool_;
+  loom_context_t context_;
+  loom_module_t* module_ = nullptr;
+  loom_func_like_t function_ = {};
+  loom_pass_value_fact_owner_t owner_ = {};
+};
+
+static void StructuredBranchDepths(::benchmark::Benchmark* benchmark) {
+  benchmark->Arg(8)->Arg(32)->Arg(128)->Arg(512);
+}
+
+static void BM_AcquireOrdinaryNestedStructuredBranchFacts(
+    benchmark::State& state) {
+  NestedStructuredBranchFactsBenchmark fixture(state.range(0));
+  for (auto _ : state) {
+    fixture.Acquire(LOOM_PASS_VALUE_FACT_SCOPE_FUNCTION);
+  }
+  fixture.SetCounters(state);
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_AcquireOrdinaryNestedStructuredBranchFacts)
+    ->Apply(StructuredBranchDepths);
+
+static void BM_AcquireConditionedNestedStructuredBranchFacts(
+    benchmark::State& state) {
+  NestedStructuredBranchFactsBenchmark fixture(state.range(0));
+  for (auto _ : state) {
+    fixture.Acquire(LOOM_PASS_VALUE_FACT_SCOPE_CONDITIONED_FUNCTION);
+  }
+  fixture.SetCounters(state);
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_AcquireConditionedNestedStructuredBranchFacts)
+    ->Apply(StructuredBranchDepths);
 
 }  // namespace

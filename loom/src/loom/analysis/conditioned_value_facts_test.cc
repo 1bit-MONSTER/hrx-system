@@ -39,7 +39,7 @@ class ConditionedValueFactsTest : public ::testing::Test {
         loom_builder_intern_string(&builder_, IREE_SV("count"), &name));
     uint16_t symbol = LOOM_SYMBOL_ID_INVALID;
     IREE_ASSERT_OK(loom_module_add_symbol(module_, name, &symbol));
-    const loom_type_t argument_types[] = {i32_, i1_};
+    const loom_type_t argument_types[] = {i32_, i32_, i1_};
     loom_op_t* function = nullptr;
     IREE_ASSERT_OK(loom_test_func_build(
         &builder_, 0, 0, 0, {0, symbol}, argument_types,
@@ -50,7 +50,8 @@ class ConditionedValueFactsTest : public ::testing::Test {
     body_->flags |= LOOM_REGION_INSTANCE_FLAG_CFG;
     SetBlock(loom_region_entry_block(body_));
     input_ = loom_block_arg_id(builder_.ip.block, 0);
-    gate_ = loom_block_arg_id(builder_.ip.block, 1);
+    other_ = loom_block_arg_id(builder_.ip.block, 1);
+    gate_ = loom_block_arg_id(builder_.ip.block, 2);
     loom_pass_value_fact_owner_initialize(&pool_, &owner_);
   }
 
@@ -172,6 +173,8 @@ class ConditionedValueFactsTest : public ::testing::Test {
   loom_region_t* body_ = nullptr;
   // Argument with no authored range or nonzero assumptions.
   loom_value_id_t input_ = LOOM_VALUE_ID_INVALID;
+  // Independent numeric argument used to exercise value-to-value relations.
+  loom_value_id_t other_ = LOOM_VALUE_ID_INVALID;
   // Arbitrary Boolean argument used by structured conservative controls.
   loom_value_id_t gate_ = LOOM_VALUE_ID_INVALID;
   // Reusable owner whose scope transitions are part of the contract under test.
@@ -395,6 +398,42 @@ TEST_F(ConditionedValueFactsTest, NestedStructuredIfsComposeIntegerRelations) {
   ExpectRange(table, inner_high, 7, 7);
 }
 
+TEST_F(ConditionedValueFactsTest,
+       StructuredIfRefinesBothValueRelationOperands) {
+  body_->flags &= ~LOOM_REGION_INSTANCE_FLAG_CFG;
+  const auto zero = Constant(0);
+  const auto eight = Constant(8);
+  loom_op_t* left_op = nullptr;
+  IREE_ASSERT_OK(loom_scalar_maxsi_build(&builder_, input_, zero, i32_,
+                                         LOOM_LOCATION_UNKNOWN, &left_op));
+  const auto left = loom_scalar_maxsi_result(left_op);
+  loom_op_t* right_op = nullptr;
+  IREE_ASSERT_OK(loom_scalar_minsi_build(&builder_, other_, eight, i32_,
+                                         LOOM_LOCATION_UNKNOWN, &right_op));
+  const auto right = loom_scalar_minsi_result(right_op);
+  loom_op_t* comparison = nullptr;
+  IREE_ASSERT_OK(
+      loom_scalar_cmpi_build(&builder_, LOOM_SCALAR_CMPI_PREDICATE_SLT, left,
+                             right, LOOM_LOCATION_UNKNOWN, &comparison));
+  loom_op_t* branch = nullptr;
+  IREE_ASSERT_OK(loom_scf_if_build(
+      &builder_, /*build_flags=*/0, loom_scalar_cmpi_result(comparison),
+      /*result_types=*/nullptr, /*result_count=*/0, /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &branch));
+
+  loom_builder_ip_t saved = loom_builder_enter_region(
+      &builder_, branch, loom_scf_if_then_region(branch));
+  const auto left_high = RangeHigh(left);
+  const auto right_low = RangeLow(right);
+  YieldScf();
+  loom_builder_restore(&builder_, saved);
+  YieldBlock();
+
+  auto* table = Acquire(LOOM_PASS_VALUE_FACT_SCOPE_CONDITIONED_FUNCTION);
+  ExpectRange(table, left_high, 7, 7);
+  ExpectRange(table, right_low, 1, 1);
+}
+
 TEST_F(ConditionedValueFactsTest, StructuredIfPreservesForwardedCfgIdentity) {
   auto* guarded = AppendBlock();
   auto* exit = AppendBlock();
@@ -424,6 +463,31 @@ TEST_F(ConditionedValueFactsTest, StructuredIfPreservesForwardedCfgIdentity) {
 
   auto* table = Acquire(LOOM_PASS_VALUE_FACT_SCOPE_CONDITIONED_FUNCTION);
   ExpectRange(table, guarded_count, 0, 31);
+}
+
+TEST_F(ConditionedValueFactsTest, CfgGuardRefinesInsideNestedStructuredRegion) {
+  auto* guarded = AppendBlock();
+  auto* exit = AppendBlock();
+  Guard(input_, Constant(0), guarded, exit);
+
+  SetBlock(guarded);
+  loom_op_t* nested = nullptr;
+  IREE_ASSERT_OK(loom_scf_if_build(
+      &builder_, /*build_flags=*/0, gate_, /*result_types=*/nullptr,
+      /*result_count=*/0, /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &nested));
+  loom_builder_ip_t saved = loom_builder_enter_region(
+      &builder_, nested, loom_scf_if_then_region(nested));
+  const auto nested_count = Count(input_);
+  YieldScf();
+  loom_builder_restore(&builder_, saved);
+  Branch(exit);
+
+  SetBlock(exit);
+  YieldBlock();
+
+  auto* table = Acquire(LOOM_PASS_VALUE_FACT_SCOPE_CONDITIONED_FUNCTION);
+  ExpectRange(table, nested_count, 0, 31);
 }
 
 TEST_F(ConditionedValueFactsTest, StructuredBodyProjectionRefinesDerivedFacts) {

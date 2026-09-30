@@ -452,8 +452,10 @@ loom_cc_benchmark(
     iree::base::internal::arena
     iree::testing::benchmark_main
     loom::ir
+    loom::ops::func
     loom::ops::scalar
     loom::ops::scf
+    loom::pass::value_facts
     loom::util::fact_table
   TESTONLY
 )
