@@ -10,6 +10,25 @@ func.def @float64_add_extrema(%lhs: f64, %rhs: f64) -> (f64, f64, f64, f64, f64)
 
 // ====
 
+// Uniform f64 values retain SGPR storage until a packet requires a VGPR source.
+func.def @float64_uniform_add(%lhs_bits: i64, %rhs_bits: i64) -> (f64) {
+  %lhs = scalar.bitcast %lhs_bits : i64 to f64
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %sum = scalar.addf %lhs, %rhs : f64
+  func.return %sum : f64
+}
+
+// ====
+
+// A mixed VGPR/SGPR pair already consumes only one VOP3 scalar source.
+func.def @float64_mixed_add(%lhs: f64, %rhs_bits: i64) -> (f64) {
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %sum = scalar.addf %lhs, %rhs : f64
+  func.return %sum : f64
+}
+
+// ====
+
 func.def @float64_predicates(%lhs: f64, %rhs: f64) -> (i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1) {
   %oeq = scalar.cmpf oeq, %lhs, %rhs : f64
   %ogt = scalar.cmpf ogt, %lhs, %rhs : f64

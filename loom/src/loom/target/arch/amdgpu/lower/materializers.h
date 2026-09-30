@@ -29,6 +29,19 @@ iree_status_t loom_amdgpu_lookup_or_materialize_vgpr_registers(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t source_value, loom_value_id_t* out_low_value);
 
+// Returns true when a source value can occupy the second operand of a binary
+// VOP3 packet after applying the active target's scalar-source limit.
+iree_status_t loom_amdgpu_value_can_materialize_as_vop3_binary_rhs(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t value_id, bool* out_can_materialize);
+
+// Reuses the source value when the target permits two VOP3 scalar sources.
+// Targets limited to one scalar source copy an SGPR source into VGPRs; an
+// existing VGPR source is reused.
+iree_status_t loom_amdgpu_lookup_or_materialize_vop3_binary_rhs(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_value, loom_value_id_t* out_low_value);
+
 // Returns true when a source i32 scalar or vector value can be materialized as
 // a VGPR operand for vector-style packets.
 iree_status_t loom_amdgpu_value_can_materialize_as_vgpr_i32(

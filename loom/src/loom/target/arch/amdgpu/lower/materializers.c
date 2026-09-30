@@ -13,6 +13,7 @@
 #include "loom/target/arch/amdgpu/lower/emit.h"
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
+#include "loom/target/arch/amdgpu/target_info_defs.h"
 
 static bool loom_amdgpu_low_type_can_materialize_as_vgpr_registers(
     loom_low_lower_context_t* context, loom_type_t low_type) {
@@ -46,6 +47,30 @@ iree_status_t loom_amdgpu_lookup_or_materialize_vgpr_registers(
       loom_low_lower_lookup_value(context, source_value, &low_value));
   return loom_amdgpu_materialize_low_vgpr_b32_registers(
       context, source_op, low_value, out_low_value);
+}
+
+iree_status_t loom_amdgpu_value_can_materialize_as_vop3_binary_rhs(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t value_id, bool* out_can_materialize) {
+  return loom_amdgpu_value_can_materialize_as_vgpr_registers(
+      context, source_op, value_id, out_can_materialize);
+}
+
+iree_status_t loom_amdgpu_lookup_or_materialize_vop3_binary_rhs(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_value, loom_value_id_t* out_low_value) {
+  const loom_low_descriptor_set_t* descriptor_set =
+      loom_low_lower_context_descriptor_set(context);
+  const loom_amdgpu_descriptor_set_info_t* descriptor_set_info =
+      loom_amdgpu_target_info_descriptor_set_at(
+          descriptor_set->descriptor_set_ordinal);
+  if (loom_amdgpu_descriptor_set_info_has_flags(
+          descriptor_set_info,
+          LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOP3_TWO_SCALAR_SOURCES)) {
+    return loom_low_lower_lookup_value(context, source_value, out_low_value);
+  }
+  return loom_amdgpu_lookup_or_materialize_vgpr_registers(
+      context, source_op, source_value, out_low_value);
 }
 
 iree_status_t loom_amdgpu_value_can_materialize_as_vgpr_i32(

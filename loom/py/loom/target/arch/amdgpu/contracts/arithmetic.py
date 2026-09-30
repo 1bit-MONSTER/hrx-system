@@ -24,6 +24,7 @@ from loom.target.arch.amdgpu.contracts.materializers import (
     ADDRESS_VGPR_MATERIALIZER,
     F32_VGPR_MATERIALIZER,
     REGISTERS_VGPR_MATERIALIZER,
+    VOP3_BINARY_RHS_MATERIALIZER,
 )
 from loom.target.arch.amdgpu.contracts.packed_i8 import (
     PACKED_I8_TYPE as _VEC_I8_PACKED,
@@ -647,17 +648,24 @@ def _binary_rule(
     source_rhs: str = "rhs",
     f32_operands: bool = False,
     f32_rhs: bool = False,
+    rhs_materializer: ValueMaterializer | None = None,
     extra_guards: tuple[Guard, ...] = (),
     report_key: str = "",
 ) -> DescriptorRule:
+    if rhs_materializer is not None and (f32_operands or f32_rhs):
+        raise ValueError("binary RHS cannot use two materializers")
     descriptor = _descriptor(descriptor_key)
+    if f32_operands or f32_rhs:
+        rhs_operand = _f32_vgpr_operand(source_rhs)
+    elif rhs_materializer is not None:
+        rhs_operand = _materialized_operand(source_rhs, rhs_materializer)
+    else:
+        rhs_operand = ValueRef.operand(source_rhs)
     operands = {
         descriptor_lhs: _f32_vgpr_operand(source_lhs)
         if f32_operands
         else ValueRef.operand(source_lhs),
-        descriptor_rhs: _f32_vgpr_operand(source_rhs)
-        if f32_operands or f32_rhs
-        else ValueRef.operand(source_rhs),
+        descriptor_rhs: rhs_operand,
     }
     return DescriptorRule(
         source_op=source_op,
@@ -2973,6 +2981,39 @@ def _commutative_f32_binary_rules(
     )
 
 
+def _commutative_f64_vop3_binary_rules(
+    source_op: Op,
+    type_pattern: TypePattern,
+    descriptor_key: str,
+    *,
+    extra_guards: tuple[Guard, ...] = (),
+    report_key: str = "",
+) -> tuple[DescriptorRule, DescriptorRule]:
+    return (
+        _binary_rule(
+            source_op,
+            type_pattern,
+            descriptor_key,
+            source_lhs="rhs",
+            source_rhs="lhs",
+            extra_guards=(
+                *extra_guards,
+                _register_class("lhs", "amdgpu.vgpr"),
+                _register_class("rhs", "amdgpu.sgpr"),
+            ),
+            report_key=report_key,
+        ),
+        _binary_rule(
+            source_op,
+            type_pattern,
+            descriptor_key,
+            rhs_materializer=VOP3_BINARY_RHS_MATERIALIZER,
+            extra_guards=extra_guards,
+            report_key=report_key,
+        ),
+    )
+
+
 def _f32_fma_rule(
     source_op: Op,
     type_pattern: TypePattern,
@@ -3511,6 +3552,12 @@ def _number_extrema_rules(
                         source_op, type_pattern, descriptor_key
                     )
                 )
+            elif type_suffix == "f64":
+                native_rules.extend(
+                    _commutative_f64_vop3_binary_rules(
+                        source_op, type_pattern, descriptor_key
+                    )
+                )
             else:
                 native_rules.append(vector_rule)
             for native_rule in native_rules:
@@ -3580,12 +3627,13 @@ def _minmax_family_rules() -> tuple[DescriptorRule, ...]:
             (_F32, "f32"),
             (_F64, "f64"),
         ):
-            rules.append(
-                _binary_rule(
-                    source_op,
-                    type_pattern,
-                    f"amdgpu.v_{descriptor_operation}_{type_suffix}",
+            descriptor_key = f"amdgpu.v_{descriptor_operation}_{type_suffix}"
+            rules.extend(
+                _commutative_f64_vop3_binary_rules(
+                    source_op, type_pattern, descriptor_key
                 )
+                if type_suffix == "f64"
+                else (_binary_rule(source_op, type_pattern, descriptor_key),)
             )
     for source_op, descriptor_operation in (
         (vector.vector_minimumf, "minimum"),
@@ -3596,12 +3644,13 @@ def _minmax_family_rules() -> tuple[DescriptorRule, ...]:
             (_VEC_F32_STATIC, "f32"),
             (_VEC_F64_STATIC, "f64"),
         ):
-            rules.append(
-                _binary_rule(
-                    source_op,
-                    type_pattern,
-                    f"amdgpu.v_{descriptor_operation}_{type_suffix}",
+            descriptor_key = f"amdgpu.v_{descriptor_operation}_{type_suffix}"
+            rules.extend(
+                _commutative_f64_vop3_binary_rules(
+                    source_op, type_pattern, descriptor_key
                 )
+                if type_suffix == "f64"
+                else (_binary_rule(source_op, type_pattern, descriptor_key),)
             )
 
     for source_op, type_pattern, type_suffix in (
@@ -3816,7 +3865,11 @@ def _rules() -> tuple[ContractCase, ...]:
     rules.extend(_number_extrema_rules("f16", _F16, _VEC_F16_PACKED_STORAGE))
     rules.extend(_number_extrema_rules("f32", _F32, _VEC_F32_STATIC))
     rules.extend(_number_extrema_rules("f64", _F64, _VEC_F64_STATIC))
-    rules.append(_binary_rule(scalar_arithmetic.scalar_addf, _F64, "amdgpu.v_add_f64"))
+    rules.extend(
+        _commutative_f64_vop3_binary_rules(
+            scalar_arithmetic.scalar_addf, _F64, "amdgpu.v_add_f64"
+        )
+    )
     for source_op, descriptor_key in (
         (vector.vector_addf, "amdgpu.v_add_f32.lit"),
         (vector.vector_mulf, "amdgpu.v_mul_f32.lit"),
@@ -4379,6 +4432,7 @@ AMDGPU_ARITHMETIC_CONTRACT_FRAGMENT = ContractFragment(
         ADDRESS_VGPR_MATERIALIZER,
         F32_VGPR_MATERIALIZER,
         REGISTERS_VGPR_MATERIALIZER,
+        VOP3_BINARY_RHS_MATERIALIZER,
     ),
     cases=_rules(),
 )
