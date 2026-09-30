@@ -81,9 +81,6 @@ static iree_status_t loom_compile_request_classify_symbol(
       case LOOM_PIPELINE_DEF_SCOPE_KERNEL:
         *out_product = LOOM_COMPILE_PRODUCT_KERNEL;
         return iree_ok_status();
-      case LOOM_PIPELINE_DEF_SCOPE_COMMAND:
-        *out_product = LOOM_COMPILE_PRODUCT_COMMAND;
-        return iree_ok_status();
       default: {
         const iree_string_view_t symbol_name =
             loom_string_table_get(&module->strings, symbol->name_id);
@@ -213,7 +210,7 @@ static iree_status_t loom_compile_request_merge_root(
   return iree_ok_status();
 }
 
-static bool loom_compile_request_is_concrete_public_command(
+static bool loom_compile_request_is_concrete_public_command_program(
     const loom_symbol_t* symbol) {
   return symbol->defining_op != NULL &&
          loom_symbol_implements(symbol,
@@ -223,12 +220,13 @@ static bool loom_compile_request_is_concrete_public_command(
                           LOOM_SYMBOL_FLAG_PUBLIC | LOOM_SYMBOL_FLAG_RETAIN);
 }
 
-static bool loom_compile_request_is_concrete_scoped_pipeline(
-    const loom_symbol_t* symbol, loom_pipeline_def_scope_t scope) {
+static bool loom_compile_request_is_concrete_kernel_pipeline(
+    const loom_symbol_t* symbol) {
   return symbol->defining_op != NULL &&
          loom_symbol_implements(symbol, LOOM_SYMBOL_INTERFACE_PIPELINE) &&
          loom_symbol_definition_product_carrier(symbol->definition,
-                                                symbol->defining_op) == scope &&
+                                                symbol->defining_op) ==
+             LOOM_PIPELINE_DEF_SCOPE_KERNEL &&
          !loom_symbol_definition_is_declaration(symbol->definition) &&
          iree_any_bit_set(symbol->flags,
                           LOOM_SYMBOL_FLAG_PUBLIC | LOOM_SYMBOL_FLAG_RETAIN);
@@ -273,13 +271,10 @@ static bool loom_compile_request_default_root_set_contains(
     const loom_symbol_t* symbol) {
   switch (product) {
     case LOOM_COMPILE_PRODUCT_COMMAND:
-      return loom_compile_request_is_concrete_public_command(symbol) ||
-             loom_compile_request_is_concrete_scoped_pipeline(
-                 symbol, LOOM_PIPELINE_DEF_SCOPE_COMMAND);
+      return loom_compile_request_is_concrete_public_command_program(symbol);
     case LOOM_COMPILE_PRODUCT_KERNEL:
       return loom_compile_request_is_concrete_kernel_entry(module, symbol) ||
-             loom_compile_request_is_concrete_scoped_pipeline(
-                 symbol, LOOM_PIPELINE_DEF_SCOPE_KERNEL);
+             loom_compile_request_is_concrete_kernel_pipeline(symbol);
     case LOOM_COMPILE_PRODUCT_MODULE:
       return loom_compile_request_is_concrete_module_function(module, symbol);
     case LOOM_COMPILE_PRODUCT_INVALID:
@@ -533,7 +528,7 @@ static iree_status_t loom_compile_request_resolve_selection(
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
             "product 'command' requires a nonempty set of public or retained "
-            "command roots");
+            "command-program roots");
       }
       break;
     case LOOM_COMPILE_PRODUCT_KERNEL:

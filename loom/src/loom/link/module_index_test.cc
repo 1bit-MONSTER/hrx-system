@@ -435,10 +435,6 @@ pipeline.def<kernel> @kernel_pipeline() launch() {
   pipeline.return
 }
 
-pipeline.def<command> @command_pipeline() launch() {
-  pipeline.return
-}
-
 pipeline.def @generic_pipeline() launch() {
   pipeline.return
 }
@@ -453,18 +449,12 @@ pipeline.def @generic_pipeline() launch() {
     const loom_link_module_index_symbol_t* kernel_pipeline =
         loom_link_module_index_lookup_private(index, indexed_module,
                                               IREE_SV("kernel_pipeline"));
-    const loom_link_module_index_symbol_t* command_pipeline =
-        loom_link_module_index_lookup_private(index, indexed_module,
-                                              IREE_SV("command_pipeline"));
     const loom_link_module_index_symbol_t* generic_pipeline =
         loom_link_module_index_lookup_private(index, indexed_module,
                                               IREE_SV("generic_pipeline"));
     ASSERT_NE(kernel_pipeline, nullptr);
-    ASSERT_NE(command_pipeline, nullptr);
     ASSERT_NE(generic_pipeline, nullptr);
     EXPECT_EQ(kernel_pipeline->product_carrier, LOOM_PIPELINE_DEF_SCOPE_KERNEL);
-    EXPECT_EQ(command_pipeline->product_carrier,
-              LOOM_PIPELINE_DEF_SCOPE_COMMAND);
     EXPECT_EQ(generic_pipeline->product_carrier, 0u);
   };
 

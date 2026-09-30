@@ -613,15 +613,12 @@ command.program.def public @Command123() launch() {
       iree_string_view_equal(request.roots.values[0], IREE_SV("Command123")));
 }
 
-TEST_F(CompileRequestTest, RoutesPipelineScopesThroughProductBoundaries) {
+TEST_F(CompileRequestTest, RoutesKernelPipelineThroughProductBoundary) {
   ModulePtr module = Parse(R"(
 target.generic<reference> @Target789 {
   subgroup_size = 32
 }
 pipeline.def<kernel> public retain target(@Target789) @KernelPipeline() launch() {
-  pipeline.return
-}
-pipeline.def<command> public retain @CommandPipeline() launch() {
   pipeline.return
 }
 pipeline.def @GenericPipeline() launch() {
@@ -643,15 +640,6 @@ pipeline.def @GenericPipeline() launch() {
   ASSERT_EQ(request.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.roots.values[0],
                                      IREE_SV("KernelPipeline")));
-
-  options.product = IREE_SV("command");
-  request = Resolve(module.get(), options, nullptr, 0);
-  EXPECT_EQ(request.product, LOOM_COMPILE_PRODUCT_COMMAND);
-  EXPECT_EQ(request.producer.kind, LOOM_COMPILE_PRODUCER_COMMAND);
-  EXPECT_EQ(request.target_fact_type, nullptr);
-  ASSERT_EQ(request.roots.count, 1u);
-  EXPECT_TRUE(iree_string_view_equal(request.roots.values[0],
-                                     IREE_SV("CommandPipeline")));
 
   const iree_string_view_t generic_roots[] = {IREE_SV("@GenericPipeline")};
   options.roots = {
