@@ -66,6 +66,7 @@ class GuardKind(Enum):
     VALUE_EXACT_POWER_OF_TWO_I64 = "value_exact_power_of_two_i64"
     VALUE_U32_DIVISOR_MAGIC_IS_ADD = "value_u32_divisor_magic_is_add"
     VALUE_EXACT_FLOAT = "value_exact_float"
+    VALUE_NOT_NAN = "value_not_nan"
     VALUE_I64_RANGE = "value_i64_range"
     VALUE_I64_RANGE_LE = "value_i64_range_le"
     VALUE_I64_RANGE_GE = "value_i64_range_ge"
@@ -437,6 +438,19 @@ class Guard:
     ) -> Self:
         return cls(
             kind=GuardKind.VALUE_EXACT_FLOAT,
+            field=field,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
+    def value_not_nan(
+        cls,
+        field: str,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        return cls(
+            kind=GuardKind.VALUE_NOT_NAN,
             field=field,
             diagnostic=diagnostic,
         )
@@ -833,6 +847,7 @@ class Guard:
             GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
             GuardKind.VALUE_U32_DIVISOR_MAGIC_IS_ADD,
             GuardKind.VALUE_EXACT_FLOAT,
+            GuardKind.VALUE_NOT_NAN,
             GuardKind.VALUE_I64_RANGE,
             GuardKind.VALUE_I64_RANGE_LE,
             GuardKind.VALUE_I64_RANGE_GE,

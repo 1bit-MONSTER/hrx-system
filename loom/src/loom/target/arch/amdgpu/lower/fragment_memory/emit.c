@@ -317,7 +317,7 @@ loom_amdgpu_emit_fragment_memory_crosslane_packed_b16_prepare_store(
         &low_source_register));
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_f32_to_bf16_lane_with_descriptors(
         context, source_op, pre_narrow_bf16_descriptors, low_source_register,
-        vgpr_type, &low_source_register));
+        /*source_flags=*/0, vgpr_type, &low_source_register));
   }
   out_pending_store->low_source_register = low_source_register;
 
@@ -388,7 +388,8 @@ loom_amdgpu_emit_fragment_memory_flush_crosslane_packed_b16_stores(
               LOOM_AMDGPU_FRAGMENT_MEMORY_PAYLOAD_FORM_STORE_NARROW_F32_TO_BF16);
           status = loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
               context, source_op, float16_pack_descriptors, low_source_register,
-              low_paired_source_register, vgpr_type, &low_payload_packet);
+              low_paired_source_register, /*source_flags=*/0, vgpr_type,
+              &low_payload_packet);
         }
         break;
       case LOOM_AMDGPU_FRAGMENT_MEMORY_PENDING_STORE_PAYLOAD_FORM_B16:

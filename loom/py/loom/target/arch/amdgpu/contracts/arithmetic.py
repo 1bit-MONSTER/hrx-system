@@ -20,6 +20,7 @@ from loom.dialect.scalar import math as scalar_math
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
+from loom.target.arch.amdgpu.contracts.bfloat import bfloat_narrow_rules
 from loom.target.arch.amdgpu.contracts.materializers import (
     ADDRESS_VGPR_MATERIALIZER,
     F32_VGPR_MATERIALIZER,
@@ -201,6 +202,8 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_and_b32.lit",
     "amdgpu.v_or_b32",
     "amdgpu.v_or_b32.lit",
+    "amdgpu.v_cmp_uno_f32",
+    "amdgpu.v_cndmask_b32",
     "amdgpu.v_xor_b32",
     "amdgpu.v_xor_b32.lit",
     "amdgpu.v_lshlrev_b32",
@@ -330,7 +333,6 @@ _INDEX = Scalar("index")
 _F32_ABS_MASK = 0x7FFFFFFF
 _F32_ONE_BITS = 0x3F800000
 _F32_SIGN_MASK = 0x80000000
-_BF16_ROUND_BIAS = 0x7FFF
 
 _VEC_I32_DIAGNOSTIC = GuardDiagnostic(
     subject_role="type",
@@ -2356,68 +2358,6 @@ def _bf16_extf_rule() -> DescriptorRule:
     )
 
 
-def _bf16_fptrunc_rule() -> DescriptorRule:
-    shift_down = _descriptor("amdgpu.v_lshrrev_b32.src0_inline")
-    and_bits = _descriptor("amdgpu.v_and_b32.lit")
-    add_literal = _descriptor("amdgpu.v_add_u32.lit")
-    add = _descriptor("amdgpu.v_add_u32")
-    return DescriptorRule(
-        source_op=scalar_conversion.scalar_fptrunc,
-        descriptor=shift_down,
-        guards=(
-            _value_type("input", _F32),
-            _value_type("result", _BF16),
-            Guard.descriptor_available(shift_down),
-            Guard.descriptor_available(and_bits),
-            Guard.descriptor_available(add_literal),
-            Guard.descriptor_available(add),
-        ),
-        emit=(
-            EmitDescriptorOp(
-                descriptor=shift_down,
-                operands={"value": _f32_vgpr_operand("input")},
-                results={"dst": ValueRef.temporary("upper")},
-                result_types={"dst": ValueRef.result("result")},
-                immediates={"imm32": 16},
-                form=DescriptorEmitForm.OP,
-            ),
-            EmitDescriptorOp(
-                descriptor=and_bits,
-                operands={"rhs": ValueRef.temporary("upper")},
-                results={"dst": ValueRef.temporary("lsb")},
-                result_types={"dst": ValueRef.result("result")},
-                immediates={"imm32": 1},
-                form=DescriptorEmitForm.OP,
-            ),
-            EmitDescriptorOp(
-                descriptor=add_literal,
-                operands={"rhs": ValueRef.temporary("lsb")},
-                results={"dst": ValueRef.temporary("bias")},
-                result_types={"dst": ValueRef.result("result")},
-                immediates={"imm32": _BF16_ROUND_BIAS},
-                form=DescriptorEmitForm.OP,
-            ),
-            EmitDescriptorOp(
-                descriptor=add,
-                operands={
-                    "lhs": _f32_vgpr_operand("input"),
-                    "rhs": ValueRef.temporary("bias"),
-                },
-                results={"dst": ValueRef.temporary("rounded")},
-                result_types={"dst": ValueRef.result("result")},
-                form=DescriptorEmitForm.OP,
-            ),
-            EmitDescriptorOp(
-                descriptor=shift_down,
-                operands={"value": ValueRef.temporary("rounded")},
-                results={"dst": ValueRef.result("result")},
-                immediates={"imm32": 16},
-                form=DescriptorEmitForm.OP,
-            ),
-        ),
-    )
-
-
 def _constant_binary_rule(
     source_op: Op,
     descriptor_key: str,
@@ -4296,7 +4236,7 @@ def _rules() -> tuple[ContractCase, ...]:
                 "amdgpu.v_cvt_f16_f32",
                 input_materializer=F32_VGPR_MATERIALIZER,
             ),
-            _bf16_fptrunc_rule(),
+            *bfloat_narrow_rules(_DESCRIPTOR_SET),
             _cast_rule(
                 scalar_conversion.scalar_sitofp,
                 _I32,

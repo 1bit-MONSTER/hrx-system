@@ -816,6 +816,7 @@ iree_status_t loom_scalar_sitofp_facts(loom_fact_context_t* context,
                                        loom_value_facts_t* result_facts) {
   if (!loom_value_facts_is_exact(operand_facts[0])) {
     result_facts[0] = loom_value_facts_unknown();
+    result_facts[0].flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN;
     return iree_ok_status();
   }
   result_facts[0] =
@@ -831,6 +832,7 @@ iree_status_t loom_scalar_uitofp_facts(loom_fact_context_t* context,
                                        loom_value_facts_t* result_facts) {
   if (!loom_value_facts_is_exact(operand_facts[0])) {
     result_facts[0] = loom_value_facts_unknown();
+    result_facts[0].flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN;
     return iree_ok_status();
   }
   loom_type_t source_type =

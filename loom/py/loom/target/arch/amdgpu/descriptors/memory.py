@@ -2086,6 +2086,8 @@ def _buffer_store_vaddr_offset_overlay(
     cache_fields: tuple[tuple[str, int], ...] = (),
     fixed_soffset: AmdgpuFixedEncodingValue = _MUBUF_SOFFSET_INLINE_ZERO,
     fixed_soffset_native_spelling: str = "0",
+    data_register_part: str | None = None,
+    data_size_exception_reason: str | None = None,
 ) -> AmdgpuDescriptorOverlay:
     return AmdgpuDescriptorOverlay(
         descriptor_key=descriptor_key,
@@ -2095,7 +2097,13 @@ def _buffer_store_vaddr_offset_overlay(
         semantic_tag=semantic_tag,
         schedule_class=_SCHEDULE_VMEM_STORE,
         operands=(
-            AmdgpuOperandOverlay("VDATA", _vgpr_operand("value", units=payload_units)),
+            AmdgpuOperandOverlay(
+                "VDATA",
+                _vgpr_operand(
+                    "value", units=payload_units, register_part=data_register_part
+                ),
+                size_exception_reason=data_size_exception_reason,
+            ),
             AmdgpuOperandOverlay(
                 resource_field_name, _sgpr_resource("resource", units=4)
             ),
@@ -2297,7 +2305,11 @@ def _buffer_store_b8_overlay(
         semantic_tag="memory.store.u8",
         schedule_class=_SCHEDULE_VMEM_STORE,
         operands=(
-            AmdgpuOperandOverlay("VDATA", _vgpr_operand("value")),
+            AmdgpuOperandOverlay(
+                "VDATA",
+                _vgpr_operand("value", register_part=_REG_PART_VGPR_LOW16),
+                size_exception_reason=_BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON,
+            ),
             AmdgpuOperandOverlay(
                 resource_field_name, _sgpr_resource("resource", units=4)
             ),
@@ -2335,6 +2347,8 @@ def _buffer_store_b8_vaddr_offset_overlay(
         mnemonic="buffer_store_b8",
         semantic_tag="memory.store.u8",
         payload_units=1,
+        data_register_part=_REG_PART_VGPR_LOW16,
+        data_size_exception_reason=_BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON,
         memory_effect=_global_write_effect(8),
         implicit_memory=_ignore_global_write_memory(8),
         encoding_name=encoding_name,
@@ -3672,9 +3686,11 @@ def _scratch_store_narrow_overlays(
             offset_signed=offset_signed,
             width_bits=width_bits,
             units=1,
-            data_register_part=(_REG_PART_VGPR_LOW16 if width_bits == 16 else None),
+            data_register_part=_REG_PART_VGPR_LOW16,
             data_size_exception_reason=(
-                _D16_PARTIAL_REGISTER_SIZE_REASON if width_bits == 16 else None
+                _D16_PARTIAL_REGISTER_SIZE_REASON
+                if width_bits == 16
+                else _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
             ),
             fixed_vaddr=fixed_vaddr,
             fixed_saddr=fixed_saddr,
@@ -3845,7 +3861,17 @@ def _global_store_overlay(
         _global_addr_operand(
             address_field_name, units=address_units, has_saddr=saddr_off is None
         ),
-        AmdgpuOperandOverlay(data_field_name, _vgpr_operand("value", units=units)),
+        AmdgpuOperandOverlay(
+            data_field_name,
+            _vgpr_operand(
+                "value",
+                units=units,
+                register_part=_REG_PART_VGPR_LOW16 if width_bits == 8 else None,
+            ),
+            size_exception_reason=(
+                _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON if width_bits == 8 else None
+            ),
+        ),
     )
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = ()
     if saddr_off is None:

@@ -31,3 +31,17 @@ loom_cc_test(
         "//runtime/src/iree/testing:gtest_main",
     ],
 )
+
+loom_cc_library(
+    name = "target_legalization",
+    srcs = ["target_legalization.c"],
+    hdrs = ["target_legalization.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//runtime/src/iree/base",
+    ],
+)

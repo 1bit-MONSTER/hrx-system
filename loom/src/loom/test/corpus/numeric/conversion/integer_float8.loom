@@ -1,0 +1,417 @@
+// Integer inputs exercise FP8 rounding, finite saturation and IEEE overflow.
+// Periodic byte inputs cover every finite FP8 payload for integer truncation;
+// exceptional float-to-integer inputs remain outside the defined result domain.
+
+func.def @i8_to_float_1(%input: buffer, %s_f8E5M2: buffer, %u_f8E5M2: buffer, %s_f8E4M3: buffer, %u_f8E4M3: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<256xi8>
+  %s_f8E5M2_view = buffer.view %s_f8E5M2[%base] : buffer -> view<256xf8E5M2>
+  %u_f8E5M2_view = buffer.view %u_f8E5M2[%base] : buffer -> view<256xf8E5M2>
+  %s_f8E4M3_view = buffer.view %s_f8E4M3[%base] : buffer -> view<256xf8E4M3>
+  %u_f8E4M3_view = buffer.view %u_f8E4M3[%base] : buffer -> view<256xf8E4M3>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<256xi8> -> i8
+    %s_f8E5M2_value = scalar.sitofp %value : i8 to f8E5M2
+    view.store %s_f8E5M2_value, %s_f8E5M2_view[%i] : f8E5M2, view<256xf8E5M2>
+    %u_f8E5M2_value = scalar.uitofp %value : i8 to f8E5M2
+    view.store %u_f8E5M2_value, %u_f8E5M2_view[%i] : f8E5M2, view<256xf8E5M2>
+    %s_f8E4M3_value = scalar.sitofp %value : i8 to f8E4M3
+    view.store %s_f8E4M3_value, %s_f8E4M3_view[%i] : f8E4M3, view<256xf8E4M3>
+    %u_f8E4M3_value = scalar.uitofp %value : i8 to f8E4M3
+    view.store %u_f8E4M3_value, %u_f8E4M3_view[%i] : f8E4M3, view<256xf8E4M3>
+  }
+  func.return
+}
+
+check.scenario @i8_to_float_1_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<256xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<256xf8E5M2>
+    %s_f8E4M3 = check.generate.fill value(0.0) : tensor<256xf8E4M3>
+    %u_f8E4M3 = check.generate.fill value(0.0) : tensor<256xf8E4M3>
+    check.compare<@i8_to_float_1>(%input, %s_f8E5M2, %u_f8E5M2, %s_f8E4M3, %u_f8E4M3) : (tensor<256xi8>, tensor<256xf8E5M2>, tensor<256xf8E5M2>, tensor<256xf8E4M3>, tensor<256xf8E4M3>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<256xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<256xf8E5M2>
+      check.expect.bitwise actual(%s_f8E4M3) expected(%s_f8E4M3) : tensor<256xf8E4M3>
+      check.expect.bitwise actual(%u_f8E4M3) expected(%u_f8E4M3) : tensor<256xf8E4M3>
+    }
+  }
+  check.return
+}
+
+func.def @i8_to_float_4(%input: buffer, %s_f8E5M2: buffer, %u_f8E5M2: buffer, %s_f8E4M3: buffer, %u_f8E4M3: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<256xi8>
+  %s_f8E5M2_view = buffer.view %s_f8E5M2[%base] : buffer -> view<256xf8E5M2>
+  %u_f8E5M2_view = buffer.view %u_f8E5M2[%base] : buffer -> view<256xf8E5M2>
+  %s_f8E4M3_view = buffer.view %s_f8E4M3[%base] : buffer -> view<256xf8E4M3>
+  %u_f8E4M3_view = buffer.view %u_f8E4M3[%base] : buffer -> view<256xf8E4M3>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<256xi8> -> vector<4xi8>
+    %s_f8E5M2_value = vector.sitofp %value : vector<4xi8> to vector<4xf8E5M2>
+    vector.store %s_f8E5M2_value, %s_f8E5M2_view[%i] : vector<4xf8E5M2>, view<256xf8E5M2>
+    %u_f8E5M2_value = vector.uitofp %value : vector<4xi8> to vector<4xf8E5M2>
+    vector.store %u_f8E5M2_value, %u_f8E5M2_view[%i] : vector<4xf8E5M2>, view<256xf8E5M2>
+    %s_f8E4M3_value = vector.sitofp %value : vector<4xi8> to vector<4xf8E4M3>
+    vector.store %s_f8E4M3_value, %s_f8E4M3_view[%i] : vector<4xf8E4M3>, view<256xf8E4M3>
+    %u_f8E4M3_value = vector.uitofp %value : vector<4xi8> to vector<4xf8E4M3>
+    vector.store %u_f8E4M3_value, %u_f8E4M3_view[%i] : vector<4xf8E4M3>, view<256xf8E4M3>
+  }
+  func.return
+}
+
+check.scenario @i8_to_float_4_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<256xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<256xf8E5M2>
+    %s_f8E4M3 = check.generate.fill value(0.0) : tensor<256xf8E4M3>
+    %u_f8E4M3 = check.generate.fill value(0.0) : tensor<256xf8E4M3>
+    check.compare<@i8_to_float_4>(%input, %s_f8E5M2, %u_f8E5M2, %s_f8E4M3, %u_f8E4M3) : (tensor<256xi8>, tensor<256xf8E5M2>, tensor<256xf8E5M2>, tensor<256xf8E4M3>, tensor<256xf8E4M3>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<256xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<256xf8E5M2>
+      check.expect.bitwise actual(%s_f8E4M3) expected(%s_f8E4M3) : tensor<256xf8E4M3>
+      check.expect.bitwise actual(%u_f8E4M3) expected(%u_f8E4M3) : tensor<256xf8E4M3>
+    }
+  }
+  check.return
+}
+
+func.def @i16_to_float_1(%input: buffer, %s_f8E5M2: buffer, %u_f8E5M2: buffer, %s_f8E4M3: buffer, %u_f8E4M3: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %s_f8E5M2_view = buffer.view %s_f8E5M2[%base] : buffer -> view<65536xf8E5M2>
+  %u_f8E5M2_view = buffer.view %u_f8E5M2[%base] : buffer -> view<65536xf8E5M2>
+  %s_f8E4M3_view = buffer.view %s_f8E4M3[%base] : buffer -> view<65536xf8E4M3>
+  %u_f8E4M3_view = buffer.view %u_f8E4M3[%base] : buffer -> view<65536xf8E4M3>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<65536xi16> -> i16
+    %s_f8E5M2_value = scalar.sitofp %value : i16 to f8E5M2
+    view.store %s_f8E5M2_value, %s_f8E5M2_view[%i] : f8E5M2, view<65536xf8E5M2>
+    %u_f8E5M2_value = scalar.uitofp %value : i16 to f8E5M2
+    view.store %u_f8E5M2_value, %u_f8E5M2_view[%i] : f8E5M2, view<65536xf8E5M2>
+    %s_f8E4M3_value = scalar.sitofp %value : i16 to f8E4M3
+    view.store %s_f8E4M3_value, %s_f8E4M3_view[%i] : f8E4M3, view<65536xf8E4M3>
+    %u_f8E4M3_value = scalar.uitofp %value : i16 to f8E4M3
+    view.store %u_f8E4M3_value, %u_f8E4M3_view[%i] : f8E4M3, view<65536xf8E4M3>
+  }
+  func.return
+}
+
+check.scenario @i16_to_float_1_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<65536xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<65536xf8E5M2>
+    %s_f8E4M3 = check.generate.fill value(0.0) : tensor<65536xf8E4M3>
+    %u_f8E4M3 = check.generate.fill value(0.0) : tensor<65536xf8E4M3>
+    check.compare<@i16_to_float_1>(%input, %s_f8E5M2, %u_f8E5M2, %s_f8E4M3, %u_f8E4M3) : (tensor<65536xi16>, tensor<65536xf8E5M2>, tensor<65536xf8E5M2>, tensor<65536xf8E4M3>, tensor<65536xf8E4M3>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<65536xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<65536xf8E5M2>
+      check.expect.bitwise actual(%s_f8E4M3) expected(%s_f8E4M3) : tensor<65536xf8E4M3>
+      check.expect.bitwise actual(%u_f8E4M3) expected(%u_f8E4M3) : tensor<65536xf8E4M3>
+    }
+  }
+  check.return
+}
+
+func.def @i16_to_float_4(%input: buffer, %s_f8E5M2: buffer, %u_f8E5M2: buffer, %s_f8E4M3: buffer, %u_f8E4M3: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %s_f8E5M2_view = buffer.view %s_f8E5M2[%base] : buffer -> view<65536xf8E5M2>
+  %u_f8E5M2_view = buffer.view %u_f8E5M2[%base] : buffer -> view<65536xf8E5M2>
+  %s_f8E4M3_view = buffer.view %s_f8E4M3[%base] : buffer -> view<65536xf8E4M3>
+  %u_f8E4M3_view = buffer.view %u_f8E4M3[%base] : buffer -> view<65536xf8E4M3>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<65536xi16> -> vector<4xi16>
+    %s_f8E5M2_value = vector.sitofp %value : vector<4xi16> to vector<4xf8E5M2>
+    vector.store %s_f8E5M2_value, %s_f8E5M2_view[%i] : vector<4xf8E5M2>, view<65536xf8E5M2>
+    %u_f8E5M2_value = vector.uitofp %value : vector<4xi16> to vector<4xf8E5M2>
+    vector.store %u_f8E5M2_value, %u_f8E5M2_view[%i] : vector<4xf8E5M2>, view<65536xf8E5M2>
+    %s_f8E4M3_value = vector.sitofp %value : vector<4xi16> to vector<4xf8E4M3>
+    vector.store %s_f8E4M3_value, %s_f8E4M3_view[%i] : vector<4xf8E4M3>, view<65536xf8E4M3>
+    %u_f8E4M3_value = vector.uitofp %value : vector<4xi16> to vector<4xf8E4M3>
+    vector.store %u_f8E4M3_value, %u_f8E4M3_view[%i] : vector<4xf8E4M3>, view<65536xf8E4M3>
+  }
+  func.return
+}
+
+check.scenario @i16_to_float_4_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<65536xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<65536xf8E5M2>
+    %s_f8E4M3 = check.generate.fill value(0.0) : tensor<65536xf8E4M3>
+    %u_f8E4M3 = check.generate.fill value(0.0) : tensor<65536xf8E4M3>
+    check.compare<@i16_to_float_4>(%input, %s_f8E5M2, %u_f8E5M2, %s_f8E4M3, %u_f8E4M3) : (tensor<65536xi16>, tensor<65536xf8E5M2>, tensor<65536xf8E5M2>, tensor<65536xf8E4M3>, tensor<65536xf8E4M3>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<65536xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<65536xf8E5M2>
+      check.expect.bitwise actual(%s_f8E4M3) expected(%s_f8E4M3) : tensor<65536xf8E4M3>
+      check.expect.bitwise actual(%u_f8E4M3) expected(%u_f8E4M3) : tensor<65536xf8E4M3>
+    }
+  }
+  check.return
+}
+
+func.def @i32_to_float_1(%input: buffer, %s_f8E5M2: buffer, %u_f8E5M2: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %s_f8E5M2_view = buffer.view %s_f8E5M2[%base] : buffer -> view<64xf8E5M2>
+  %u_f8E5M2_view = buffer.view %u_f8E5M2[%base] : buffer -> view<64xf8E5M2>
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %source[%i] : view<64xi32> -> i32
+    %s_f8E5M2_value = scalar.sitofp %value : i32 to f8E5M2
+    view.store %s_f8E5M2_value, %s_f8E5M2_view[%i] : f8E5M2, view<64xf8E5M2>
+    %u_f8E5M2_value = scalar.uitofp %value : i32 to f8E5M2
+    view.store %u_f8E5M2_value, %u_f8E5M2_view[%i] : f8E5M2, view<64xf8E5M2>
+  }
+  func.return
+}
+
+check.scenario @i32_to_float_1_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(61408) step(1) : tensor<64xi32>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    check.compare<@i32_to_float_1>(%input, %s_f8E5M2, %u_f8E5M2) : (tensor<64xi32>, tensor<64xf8E5M2>, tensor<64xf8E5M2>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<64xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<64xf8E5M2>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_1_values_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-61471) step(1) : tensor<64xi32>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    check.compare<@i32_to_float_1>(%input, %s_f8E5M2, %u_f8E5M2) : (tensor<64xi32>, tensor<64xf8E5M2>, tensor<64xf8E5M2>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<64xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<64xf8E5M2>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_1_values_2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2147483584) step(1) : tensor<64xi32>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    check.compare<@i32_to_float_1>(%input, %s_f8E5M2, %u_f8E5M2) : (tensor<64xi32>, tensor<64xf8E5M2>, tensor<64xf8E5M2>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<64xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<64xf8E5M2>
+    }
+  }
+  check.return
+}
+
+func.def @i32_to_float_4(%input: buffer, %s_f8E5M2: buffer, %u_f8E5M2: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 4 : index
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %s_f8E5M2_view = buffer.view %s_f8E5M2[%base] : buffer -> view<64xf8E5M2>
+  %u_f8E5M2_view = buffer.view %u_f8E5M2[%base] : buffer -> view<64xf8E5M2>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<64xi32> -> vector<4xi32>
+    %s_f8E5M2_value = vector.sitofp %value : vector<4xi32> to vector<4xf8E5M2>
+    vector.store %s_f8E5M2_value, %s_f8E5M2_view[%i] : vector<4xf8E5M2>, view<64xf8E5M2>
+    %u_f8E5M2_value = vector.uitofp %value : vector<4xi32> to vector<4xf8E5M2>
+    vector.store %u_f8E5M2_value, %u_f8E5M2_view[%i] : vector<4xf8E5M2>, view<64xf8E5M2>
+  }
+  func.return
+}
+
+check.scenario @i32_to_float_4_values_0 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(61408) step(1) : tensor<64xi32>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    check.compare<@i32_to_float_4>(%input, %s_f8E5M2, %u_f8E5M2) : (tensor<64xi32>, tensor<64xf8E5M2>, tensor<64xf8E5M2>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<64xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<64xf8E5M2>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_4_values_1 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-61471) step(1) : tensor<64xi32>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    check.compare<@i32_to_float_4>(%input, %s_f8E5M2, %u_f8E5M2) : (tensor<64xi32>, tensor<64xf8E5M2>, tensor<64xf8E5M2>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<64xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<64xf8E5M2>
+    }
+  }
+  check.return
+}
+
+check.scenario @i32_to_float_4_values_2 {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2147483584) step(1) : tensor<64xi32>
+    %s_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    %u_f8E5M2 = check.generate.fill value(0.0) : tensor<64xf8E5M2>
+    check.compare<@i32_to_float_4>(%input, %s_f8E5M2, %u_f8E5M2) : (tensor<64xi32>, tensor<64xf8E5M2>, tensor<64xf8E5M2>) -> () {
+      check.expect.bitwise actual(%s_f8E5M2) expected(%s_f8E5M2) : tensor<64xf8E5M2>
+      check.expect.bitwise actual(%u_f8E5M2) expected(%u_f8E5M2) : tensor<64xf8E5M2>
+    }
+  }
+  check.return
+}
+
+func.def @f8E4M3_to_integer_1(%positive_input: buffer, %negative_input: buffer, %signed_output: buffer, %unsigned_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %positive = buffer.view %positive_input[%base] : buffer -> view<128xf8E4M3>
+  %negative = buffer.view %negative_input[%base] : buffer -> view<128xf8E4M3>
+  %signed = buffer.view %signed_output[%base] : buffer -> view<128xi32>
+  %unsigned = buffer.view %unsigned_output[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %positive_value = view.load %positive[%i] : view<128xf8E4M3> -> f8E4M3
+    %negative_value = view.load %negative[%i] : view<128xf8E4M3> -> f8E4M3
+    %signed_value = scalar.fptosi %negative_value : f8E4M3 to i32
+    %unsigned_value = scalar.fptoui %positive_value : f8E4M3 to i32
+    view.store %signed_value, %signed[%i] : i32, view<128xi32>
+    view.store %unsigned_value, %unsigned[%i] : i32, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @f8E4M3_to_integer_1_finite_payloads {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive = check.generate.iota offset(0) step(1) period(127) : tensor<128xi8>
+    %negative = check.generate.iota offset(-128) step(1) period(127) : tensor<128xi8>
+    %signed = check.generate.fill value(42) : tensor<128xi32>
+    %unsigned = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@f8E4M3_to_integer_1>(%positive, %negative, %signed, %unsigned) : (tensor<128xi8>, tensor<128xi8>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%signed) expected(%signed) : tensor<128xi32>
+      check.expect.bitwise actual(%unsigned) expected(%unsigned) : tensor<128xi32>
+    }
+  }
+  check.return
+}
+
+func.def @f8E4M3_to_integer_4(%positive_input: buffer, %negative_input: buffer, %signed_output: buffer, %unsigned_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 4 : index
+  %positive = buffer.view %positive_input[%base] : buffer -> view<128xf8E4M3>
+  %negative = buffer.view %negative_input[%base] : buffer -> view<128xf8E4M3>
+  %signed = buffer.view %signed_output[%base] : buffer -> view<128xi32>
+  %unsigned = buffer.view %unsigned_output[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %positive_value = vector.load %positive[%i] : view<128xf8E4M3> -> vector<4xf8E4M3>
+    %negative_value = vector.load %negative[%i] : view<128xf8E4M3> -> vector<4xf8E4M3>
+    %signed_value = vector.fptosi %negative_value : vector<4xf8E4M3> to vector<4xi32>
+    %unsigned_value = vector.fptoui %positive_value : vector<4xf8E4M3> to vector<4xi32>
+    vector.store %signed_value, %signed[%i] : vector<4xi32>, view<128xi32>
+    vector.store %unsigned_value, %unsigned[%i] : vector<4xi32>, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @f8E4M3_to_integer_4_finite_payloads {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive = check.generate.iota offset(0) step(1) period(127) : tensor<128xi8>
+    %negative = check.generate.iota offset(-128) step(1) period(127) : tensor<128xi8>
+    %signed = check.generate.fill value(42) : tensor<128xi32>
+    %unsigned = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@f8E4M3_to_integer_4>(%positive, %negative, %signed, %unsigned) : (tensor<128xi8>, tensor<128xi8>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%signed) expected(%signed) : tensor<128xi32>
+      check.expect.bitwise actual(%unsigned) expected(%unsigned) : tensor<128xi32>
+    }
+  }
+  check.return
+}
+
+func.def @f8E5M2_to_integer_1(%positive_input: buffer, %negative_input: buffer, %signed_output: buffer, %unsigned_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 1 : index
+  %positive = buffer.view %positive_input[%base] : buffer -> view<128xf8E5M2>
+  %negative = buffer.view %negative_input[%base] : buffer -> view<128xf8E5M2>
+  %signed = buffer.view %signed_output[%base] : buffer -> view<128xi32>
+  %unsigned = buffer.view %unsigned_output[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %positive_value = view.load %positive[%i] : view<128xf8E5M2> -> f8E5M2
+    %negative_value = view.load %negative[%i] : view<128xf8E5M2> -> f8E5M2
+    %signed_value = scalar.fptosi %negative_value : f8E5M2 to i32
+    %unsigned_value = scalar.fptoui %positive_value : f8E5M2 to i32
+    view.store %signed_value, %signed[%i] : i32, view<128xi32>
+    view.store %unsigned_value, %unsigned[%i] : i32, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @f8E5M2_to_integer_1_finite_payloads {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive = check.generate.iota offset(0) step(1) period(124) : tensor<128xi8>
+    %negative = check.generate.iota offset(-128) step(1) period(124) : tensor<128xi8>
+    %signed = check.generate.fill value(42) : tensor<128xi32>
+    %unsigned = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@f8E5M2_to_integer_1>(%positive, %negative, %signed, %unsigned) : (tensor<128xi8>, tensor<128xi8>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%signed) expected(%signed) : tensor<128xi32>
+      check.expect.bitwise actual(%unsigned) expected(%unsigned) : tensor<128xi32>
+    }
+  }
+  check.return
+}
+
+func.def @f8E5M2_to_integer_4(%positive_input: buffer, %negative_input: buffer, %signed_output: buffer, %unsigned_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 128 : index
+  %step = index.constant 4 : index
+  %positive = buffer.view %positive_input[%base] : buffer -> view<128xf8E5M2>
+  %negative = buffer.view %negative_input[%base] : buffer -> view<128xf8E5M2>
+  %signed = buffer.view %signed_output[%base] : buffer -> view<128xi32>
+  %unsigned = buffer.view %unsigned_output[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %positive_value = vector.load %positive[%i] : view<128xf8E5M2> -> vector<4xf8E5M2>
+    %negative_value = vector.load %negative[%i] : view<128xf8E5M2> -> vector<4xf8E5M2>
+    %signed_value = vector.fptosi %negative_value : vector<4xf8E5M2> to vector<4xi32>
+    %unsigned_value = vector.fptoui %positive_value : vector<4xf8E5M2> to vector<4xi32>
+    vector.store %signed_value, %signed[%i] : vector<4xi32>, view<128xi32>
+    vector.store %unsigned_value, %unsigned[%i] : vector<4xi32>, view<128xi32>
+  }
+  func.return
+}
+
+check.scenario @f8E5M2_to_integer_4_finite_payloads {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive = check.generate.iota offset(0) step(1) period(124) : tensor<128xi8>
+    %negative = check.generate.iota offset(-128) step(1) period(124) : tensor<128xi8>
+    %signed = check.generate.fill value(42) : tensor<128xi32>
+    %unsigned = check.generate.fill value(42) : tensor<128xi32>
+    check.compare<@f8E5M2_to_integer_4>(%positive, %negative, %signed, %unsigned) : (tensor<128xi8>, tensor<128xi8>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%signed) expected(%signed) : tensor<128xi32>
+      check.expect.bitwise actual(%unsigned) expected(%unsigned) : tensor<128xi32>
+    }
+  }
+  check.return
+}

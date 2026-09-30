@@ -42,10 +42,12 @@ static iree_status_t loom_amdgpu_extract_vector_fp8_lane(
   IREE_RETURN_IF_ERROR(loom_amdgpu_extract_low_register_unit(
       context, source_op, low_source, extract_plan->register_count,
       register_offset, source_lane_type, &source_register));
+  loom_type_t result_lane_type = loom_type_none();
+  IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &result_lane_type));
   return loom_amdgpu_extract_vgpr_bitfield(
       context, source_op, source_register, register_bit_offset,
       extract_plan->lane_bit_count,
-      LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED, source_lane_type,
+      LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED, result_lane_type,
       out_low_byte);
 }
 
@@ -494,7 +496,8 @@ static iree_status_t loom_amdgpu_vector_fp8_pack_f32_lanes(
     }
     return loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
         state->context, state->source_op, state->float16_pack_descriptors,
-        low_f32_lanes[0], high_lane, state->result_lane_type, out_low_packed);
+        low_f32_lanes[0], high_lane, /*source_flags=*/0,
+        state->result_lane_type, out_low_packed);
   }
 
   IREE_ASSERT_EQ(state->plan->result_element_type, LOOM_SCALAR_TYPE_F16);

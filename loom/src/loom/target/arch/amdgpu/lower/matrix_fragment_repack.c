@@ -793,7 +793,7 @@ loom_amdgpu_emit_fragment_repack_narrow_source_registers_to_bf16(
   for (uint16_t i = 0; i < plan->source_register_count; ++i) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_f32_to_bf16_lane_with_descriptors(
         context, source_op, bf16_pack_descriptors, inout_source_registers[i],
-        vgpr_type, &inout_source_registers[i]));
+        /*source_flags=*/0, vgpr_type, &inout_source_registers[i]));
   }
   return iree_ok_status();
 }
@@ -1027,7 +1027,7 @@ static iree_status_t loom_amdgpu_emit_fragment_repack_packed_source_registers(
       IREE_RETURN_IF_ERROR(
           loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
               context, source_op, bf16_pack_descriptors, source_registers[i],
-              paired_source_registers[i], vgpr_type,
+              paired_source_registers[i], /*source_flags=*/0, vgpr_type,
               &out_packed_source_registers[i]));
     }
   }
@@ -1628,7 +1628,8 @@ loom_amdgpu_emit_fragment_repack_result_to_lhs_bf16_bpermute(
       IREE_RETURN_IF_ERROR(
           loom_amdgpu_emit_f32_pair_to_packed_bf16_with_descriptors(
               context, source_op, bf16_pack_descriptors, elements[0],
-              elements[1], vgpr_type, &result_registers[register_index]));
+              elements[1], /*source_flags=*/0, vgpr_type,
+              &result_registers[register_index]));
     }
   }
 

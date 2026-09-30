@@ -185,6 +185,8 @@ static iree_status_t loom_amdgpu_extract_vgpr_bitfield_fallback(
     loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,
     loom_value_id_t* out_value) {
   *out_value = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+      context, source_op, low_source, &low_source));
   switch (mode) {
     case LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED:
       if (bit_offset == 0) {
@@ -238,8 +240,8 @@ iree_status_t loom_amdgpu_extract_vgpr_bitfield(
   IREE_ASSERT(bit_offset + bit_count <= 32);
 
   if (bit_offset == 0 && bit_count == 32) {
-    *out_value = low_source;
-    return iree_ok_status();
+    return loom_amdgpu_materialize_low_vgpr_b32(context, source_op, low_source,
+                                                out_value);
   }
 
   if (mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED) {

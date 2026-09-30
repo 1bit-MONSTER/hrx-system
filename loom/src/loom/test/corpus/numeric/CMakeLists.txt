@@ -15,9 +15,14 @@ loom_corpus_sources(
   MANIFEST
     "numeric"
   SRCS
+    "conversion/bfloat_rounding.loom"
     "conversion/conversion.loom"
+    "conversion/integer_float8.loom"
     "conversion/narrow.loom"
     "conversion/narrow_arithmetic.loom"
+    "conversion/narrow_integer_float.loom"
+    "conversion/packed_integer_float.loom"
+    "conversion/packed_integer_float8.loom"
     "conversion/paths.loom"
     "conversion/scalar_float.loom"
     "float/approximate_extended.loom"

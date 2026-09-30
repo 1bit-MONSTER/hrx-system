@@ -240,6 +240,10 @@ def _exact_float_diagnostic(field: str) -> DiagnosticRef:
     return _named_constraint_diagnostic("value_fact", field, "exact_float")
 
 
+def _not_nan_diagnostic(field: str) -> DiagnosticRef:
+    return _named_constraint_diagnostic("value_fact", field, "not_nan")
+
+
 def _integer_range_diagnostic(
     field: str,
     minimum: int,

@@ -660,6 +660,7 @@ loom_check_test_suite(
     "test/source_low/function_storage.loom-test"
     "test/source_low/fused_packet_memory.loom-test"
     "test/source_low/index_conversion.loom-test"
+    "test/source_low/integer_float_conversion.loom-test"
     "test/source_low/lookup_table.loom-test"
     "test/source_low/lookup_table_vector.loom-test"
     "test/source_low/loop_counter_offset.loom-test"

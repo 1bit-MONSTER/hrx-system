@@ -15,6 +15,7 @@ iree_py_library(
   SRCS
     "__init__.py"
     "atomic.py"
+    "bfloat.py"
     "descriptor_rule.py"
     "extended_math.py"
     "index.py"

@@ -185,7 +185,24 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @subtract_bf16_1
   %11 = OpFConvert.bf16.f32 %lhs
   %12 = OpFConvert.bf16.f32 %rhs
   %13 = OpFSub.f32 %11, %12
-  %difference = OpFConvert.f32.bf16 %13
+  %14 = OpConstant.i32 16
+  %15 = OpConstant.i32 1
+  %16 = OpConstant.i32 32767
+  %17 = OpConstant.i32 2147483647
+  %18 = OpConstant.i32 2139095040
+  %19 = OpConstant.i32 64
+  %20 = OpBitcast.f32.i32 %13 : reg<spirv.id>
+  %21 = OpShiftRightLogical %20, %14 : reg<spirv.id>
+  %22 = OpBitwiseAnd %21, %15 : reg<spirv.id>
+  %23 = OpIAdd %22, %16 : reg<spirv.id>
+  %24 = OpIAdd %20, %23 : reg<spirv.id>
+  %25 = OpShiftRightLogical %24, %14 : reg<spirv.id>
+  %26 = OpBitwiseAnd %20, %17 : reg<spirv.id>
+  %27 = OpSGreaterThan %26, %18 : reg<spirv.id>
+  %28 = OpBitwiseOr %21, %19 : reg<spirv.id>
+  %29 = OpSelect %27, %28, %25 : reg<spirv.id>
+  %30 = OpSConvert.i32.i16 %29 : reg<spirv.id>
+  %difference = OpBitcast.i16.bf16 %30
   return %difference
 }
 
@@ -218,15 +235,43 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @subtract_bf16_2
   %43 = OpFConvert.bf16.f32 %33
   %44 = OpFConvert.bf16.f32 %39
   %45 = OpFSub.f32 %43, %44
-  %46 = OpFConvert.f32.bf16 %45
-  %47 = OpFConvert.bf16.f32 %36
-  %48 = OpFConvert.bf16.f32 %42
-  %49 = OpFSub.f32 %47, %48
-  %50 = OpFConvert.f32.bf16 %49
-  %52 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %31
-  OpStore.storage_buffer.bf16 %52, %46
-  %54 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %34
-  OpStore.storage_buffer.bf16 %54, %50
+  %46 = OpConstant.i32 16
+  %47 = OpConstant.i32 1
+  %48 = OpConstant.i32 32767
+  %49 = OpConstant.i32 2147483647
+  %50 = OpConstant.i32 2139095040
+  %51 = OpConstant.i32 64
+  %52 = OpBitcast.f32.i32 %45 : reg<spirv.id>
+  %53 = OpShiftRightLogical %52, %46 : reg<spirv.id>
+  %54 = OpBitwiseAnd %53, %47 : reg<spirv.id>
+  %55 = OpIAdd %54, %48 : reg<spirv.id>
+  %56 = OpIAdd %52, %55 : reg<spirv.id>
+  %57 = OpShiftRightLogical %56, %46 : reg<spirv.id>
+  %58 = OpBitwiseAnd %52, %49 : reg<spirv.id>
+  %59 = OpSGreaterThan %58, %50 : reg<spirv.id>
+  %60 = OpBitwiseOr %53, %51 : reg<spirv.id>
+  %61 = OpSelect %59, %60, %57 : reg<spirv.id>
+  %62 = OpSConvert.i32.i16 %61 : reg<spirv.id>
+  %63 = OpBitcast.i16.bf16 %62
+  %64 = OpFConvert.bf16.f32 %36
+  %65 = OpFConvert.bf16.f32 %42
+  %66 = OpFSub.f32 %64, %65
+  %73 = OpBitcast.f32.i32 %66 : reg<spirv.id>
+  %74 = OpShiftRightLogical %73, %46 : reg<spirv.id>
+  %75 = OpBitwiseAnd %74, %47 : reg<spirv.id>
+  %76 = OpIAdd %75, %48 : reg<spirv.id>
+  %77 = OpIAdd %73, %76 : reg<spirv.id>
+  %78 = OpShiftRightLogical %77, %46 : reg<spirv.id>
+  %79 = OpBitwiseAnd %73, %49 : reg<spirv.id>
+  %80 = OpSGreaterThan %79, %50 : reg<spirv.id>
+  %81 = OpBitwiseOr %74, %51 : reg<spirv.id>
+  %82 = OpSelect %80, %81, %78 : reg<spirv.id>
+  %83 = OpSConvert.i32.i16 %82 : reg<spirv.id>
+  %84 = OpBitcast.i16.bf16 %83
+  %86 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %31
+  OpStore.storage_buffer.bf16 %86, %63
+  %88 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %34
+  OpStore.storage_buffer.bf16 %88, %84
   return
 }
 
@@ -264,21 +309,60 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @subtract_bf16_3
   %55 = OpFConvert.bf16.f32 %39
   %56 = OpFConvert.bf16.f32 %48
   %57 = OpFSub.f32 %55, %56
-  %58 = OpFConvert.f32.bf16 %57
-  %59 = OpFConvert.bf16.f32 %42
-  %60 = OpFConvert.bf16.f32 %51
-  %61 = OpFSub.f32 %59, %60
-  %62 = OpFConvert.f32.bf16 %61
-  %63 = OpFConvert.bf16.f32 %45
-  %64 = OpFConvert.bf16.f32 %54
-  %65 = OpFSub.f32 %63, %64
-  %66 = OpFConvert.f32.bf16 %65
-  %68 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %37
-  OpStore.storage_buffer.bf16 %68, %58
-  %70 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %40
-  OpStore.storage_buffer.bf16 %70, %62
-  %72 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %43
-  OpStore.storage_buffer.bf16 %72, %66
+  %58 = OpConstant.i32 16
+  %59 = OpConstant.i32 1
+  %60 = OpConstant.i32 32767
+  %61 = OpConstant.i32 2147483647
+  %62 = OpConstant.i32 2139095040
+  %63 = OpConstant.i32 64
+  %64 = OpBitcast.f32.i32 %57 : reg<spirv.id>
+  %65 = OpShiftRightLogical %64, %58 : reg<spirv.id>
+  %66 = OpBitwiseAnd %65, %59 : reg<spirv.id>
+  %67 = OpIAdd %66, %60 : reg<spirv.id>
+  %68 = OpIAdd %64, %67 : reg<spirv.id>
+  %69 = OpShiftRightLogical %68, %58 : reg<spirv.id>
+  %70 = OpBitwiseAnd %64, %61 : reg<spirv.id>
+  %71 = OpSGreaterThan %70, %62 : reg<spirv.id>
+  %72 = OpBitwiseOr %65, %63 : reg<spirv.id>
+  %73 = OpSelect %71, %72, %69 : reg<spirv.id>
+  %74 = OpSConvert.i32.i16 %73 : reg<spirv.id>
+  %75 = OpBitcast.i16.bf16 %74
+  %76 = OpFConvert.bf16.f32 %42
+  %77 = OpFConvert.bf16.f32 %51
+  %78 = OpFSub.f32 %76, %77
+  %85 = OpBitcast.f32.i32 %78 : reg<spirv.id>
+  %86 = OpShiftRightLogical %85, %58 : reg<spirv.id>
+  %87 = OpBitwiseAnd %86, %59 : reg<spirv.id>
+  %88 = OpIAdd %87, %60 : reg<spirv.id>
+  %89 = OpIAdd %85, %88 : reg<spirv.id>
+  %90 = OpShiftRightLogical %89, %58 : reg<spirv.id>
+  %91 = OpBitwiseAnd %85, %61 : reg<spirv.id>
+  %92 = OpSGreaterThan %91, %62 : reg<spirv.id>
+  %93 = OpBitwiseOr %86, %63 : reg<spirv.id>
+  %94 = OpSelect %92, %93, %90 : reg<spirv.id>
+  %95 = OpSConvert.i32.i16 %94 : reg<spirv.id>
+  %96 = OpBitcast.i16.bf16 %95
+  %97 = OpFConvert.bf16.f32 %45
+  %98 = OpFConvert.bf16.f32 %54
+  %99 = OpFSub.f32 %97, %98
+  %106 = OpBitcast.f32.i32 %99 : reg<spirv.id>
+  %107 = OpShiftRightLogical %106, %58 : reg<spirv.id>
+  %108 = OpBitwiseAnd %107, %59 : reg<spirv.id>
+  %109 = OpIAdd %108, %60 : reg<spirv.id>
+  %110 = OpIAdd %106, %109 : reg<spirv.id>
+  %111 = OpShiftRightLogical %110, %58 : reg<spirv.id>
+  %112 = OpBitwiseAnd %106, %61 : reg<spirv.id>
+  %113 = OpSGreaterThan %112, %62 : reg<spirv.id>
+  %114 = OpBitwiseOr %107, %63 : reg<spirv.id>
+  %115 = OpSelect %113, %114, %111 : reg<spirv.id>
+  %116 = OpSConvert.i32.i16 %115 : reg<spirv.id>
+  %117 = OpBitcast.i16.bf16 %116
+  %119 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %37
+  OpStore.storage_buffer.bf16 %119, %75
+  %121 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %40
+  OpStore.storage_buffer.bf16 %121, %96
+  %123 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %43
+  OpStore.storage_buffer.bf16 %123, %117
   return
 }
 
@@ -341,50 +425,144 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @subtract_bf16_8
   %131 = OpFConvert.bf16.f32 %85
   %132 = OpFConvert.bf16.f32 %109
   %133 = OpFSub.f32 %131, %132
-  %134 = OpFConvert.f32.bf16 %133
-  %135 = OpFConvert.bf16.f32 %88
-  %136 = OpFConvert.bf16.f32 %112
-  %137 = OpFSub.f32 %135, %136
-  %138 = OpFConvert.f32.bf16 %137
-  %139 = OpFConvert.bf16.f32 %91
-  %140 = OpFConvert.bf16.f32 %115
-  %141 = OpFSub.f32 %139, %140
-  %142 = OpFConvert.f32.bf16 %141
-  %143 = OpFConvert.bf16.f32 %94
-  %144 = OpFConvert.bf16.f32 %118
-  %145 = OpFSub.f32 %143, %144
-  %146 = OpFConvert.f32.bf16 %145
-  %147 = OpFConvert.bf16.f32 %97
-  %148 = OpFConvert.bf16.f32 %121
-  %149 = OpFSub.f32 %147, %148
-  %150 = OpFConvert.f32.bf16 %149
-  %151 = OpFConvert.bf16.f32 %100
-  %152 = OpFConvert.bf16.f32 %124
-  %153 = OpFSub.f32 %151, %152
-  %154 = OpFConvert.f32.bf16 %153
-  %155 = OpFConvert.bf16.f32 %103
-  %156 = OpFConvert.bf16.f32 %127
-  %157 = OpFSub.f32 %155, %156
-  %158 = OpFConvert.f32.bf16 %157
-  %159 = OpFConvert.bf16.f32 %106
-  %160 = OpFConvert.bf16.f32 %130
-  %161 = OpFSub.f32 %159, %160
-  %162 = OpFConvert.f32.bf16 %161
-  %164 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %83
-  OpStore.storage_buffer.bf16 %164, %134
-  %166 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %86
-  OpStore.storage_buffer.bf16 %166, %138
-  %168 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %89
-  OpStore.storage_buffer.bf16 %168, %142
-  %170 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %92
-  OpStore.storage_buffer.bf16 %170, %146
-  %172 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %95
-  OpStore.storage_buffer.bf16 %172, %150
-  %174 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %98
-  OpStore.storage_buffer.bf16 %174, %154
-  %176 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %101
-  OpStore.storage_buffer.bf16 %176, %158
-  %178 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %104
-  OpStore.storage_buffer.bf16 %178, %162
+  %134 = OpConstant.i32 16
+  %135 = OpConstant.i32 1
+  %136 = OpConstant.i32 32767
+  %137 = OpConstant.i32 2147483647
+  %138 = OpConstant.i32 2139095040
+  %139 = OpConstant.i32 64
+  %140 = OpBitcast.f32.i32 %133 : reg<spirv.id>
+  %141 = OpShiftRightLogical %140, %134 : reg<spirv.id>
+  %142 = OpBitwiseAnd %141, %135 : reg<spirv.id>
+  %143 = OpIAdd %142, %136 : reg<spirv.id>
+  %144 = OpIAdd %140, %143 : reg<spirv.id>
+  %145 = OpShiftRightLogical %144, %134 : reg<spirv.id>
+  %146 = OpBitwiseAnd %140, %137 : reg<spirv.id>
+  %147 = OpSGreaterThan %146, %138 : reg<spirv.id>
+  %148 = OpBitwiseOr %141, %139 : reg<spirv.id>
+  %149 = OpSelect %147, %148, %145 : reg<spirv.id>
+  %150 = OpSConvert.i32.i16 %149 : reg<spirv.id>
+  %151 = OpBitcast.i16.bf16 %150
+  %152 = OpFConvert.bf16.f32 %88
+  %153 = OpFConvert.bf16.f32 %112
+  %154 = OpFSub.f32 %152, %153
+  %161 = OpBitcast.f32.i32 %154 : reg<spirv.id>
+  %162 = OpShiftRightLogical %161, %134 : reg<spirv.id>
+  %163 = OpBitwiseAnd %162, %135 : reg<spirv.id>
+  %164 = OpIAdd %163, %136 : reg<spirv.id>
+  %165 = OpIAdd %161, %164 : reg<spirv.id>
+  %166 = OpShiftRightLogical %165, %134 : reg<spirv.id>
+  %167 = OpBitwiseAnd %161, %137 : reg<spirv.id>
+  %168 = OpSGreaterThan %167, %138 : reg<spirv.id>
+  %169 = OpBitwiseOr %162, %139 : reg<spirv.id>
+  %170 = OpSelect %168, %169, %166 : reg<spirv.id>
+  %171 = OpSConvert.i32.i16 %170 : reg<spirv.id>
+  %172 = OpBitcast.i16.bf16 %171
+  %173 = OpFConvert.bf16.f32 %91
+  %174 = OpFConvert.bf16.f32 %115
+  %175 = OpFSub.f32 %173, %174
+  %182 = OpBitcast.f32.i32 %175 : reg<spirv.id>
+  %183 = OpShiftRightLogical %182, %134 : reg<spirv.id>
+  %184 = OpBitwiseAnd %183, %135 : reg<spirv.id>
+  %185 = OpIAdd %184, %136 : reg<spirv.id>
+  %186 = OpIAdd %182, %185 : reg<spirv.id>
+  %187 = OpShiftRightLogical %186, %134 : reg<spirv.id>
+  %188 = OpBitwiseAnd %182, %137 : reg<spirv.id>
+  %189 = OpSGreaterThan %188, %138 : reg<spirv.id>
+  %190 = OpBitwiseOr %183, %139 : reg<spirv.id>
+  %191 = OpSelect %189, %190, %187 : reg<spirv.id>
+  %192 = OpSConvert.i32.i16 %191 : reg<spirv.id>
+  %193 = OpBitcast.i16.bf16 %192
+  %194 = OpFConvert.bf16.f32 %94
+  %195 = OpFConvert.bf16.f32 %118
+  %196 = OpFSub.f32 %194, %195
+  %203 = OpBitcast.f32.i32 %196 : reg<spirv.id>
+  %204 = OpShiftRightLogical %203, %134 : reg<spirv.id>
+  %205 = OpBitwiseAnd %204, %135 : reg<spirv.id>
+  %206 = OpIAdd %205, %136 : reg<spirv.id>
+  %207 = OpIAdd %203, %206 : reg<spirv.id>
+  %208 = OpShiftRightLogical %207, %134 : reg<spirv.id>
+  %209 = OpBitwiseAnd %203, %137 : reg<spirv.id>
+  %210 = OpSGreaterThan %209, %138 : reg<spirv.id>
+  %211 = OpBitwiseOr %204, %139 : reg<spirv.id>
+  %212 = OpSelect %210, %211, %208 : reg<spirv.id>
+  %213 = OpSConvert.i32.i16 %212 : reg<spirv.id>
+  %214 = OpBitcast.i16.bf16 %213
+  %215 = OpFConvert.bf16.f32 %97
+  %216 = OpFConvert.bf16.f32 %121
+  %217 = OpFSub.f32 %215, %216
+  %224 = OpBitcast.f32.i32 %217 : reg<spirv.id>
+  %225 = OpShiftRightLogical %224, %134 : reg<spirv.id>
+  %226 = OpBitwiseAnd %225, %135 : reg<spirv.id>
+  %227 = OpIAdd %226, %136 : reg<spirv.id>
+  %228 = OpIAdd %224, %227 : reg<spirv.id>
+  %229 = OpShiftRightLogical %228, %134 : reg<spirv.id>
+  %230 = OpBitwiseAnd %224, %137 : reg<spirv.id>
+  %231 = OpSGreaterThan %230, %138 : reg<spirv.id>
+  %232 = OpBitwiseOr %225, %139 : reg<spirv.id>
+  %233 = OpSelect %231, %232, %229 : reg<spirv.id>
+  %234 = OpSConvert.i32.i16 %233 : reg<spirv.id>
+  %235 = OpBitcast.i16.bf16 %234
+  %236 = OpFConvert.bf16.f32 %100
+  %237 = OpFConvert.bf16.f32 %124
+  %238 = OpFSub.f32 %236, %237
+  %245 = OpBitcast.f32.i32 %238 : reg<spirv.id>
+  %246 = OpShiftRightLogical %245, %134 : reg<spirv.id>
+  %247 = OpBitwiseAnd %246, %135 : reg<spirv.id>
+  %248 = OpIAdd %247, %136 : reg<spirv.id>
+  %249 = OpIAdd %245, %248 : reg<spirv.id>
+  %250 = OpShiftRightLogical %249, %134 : reg<spirv.id>
+  %251 = OpBitwiseAnd %245, %137 : reg<spirv.id>
+  %252 = OpSGreaterThan %251, %138 : reg<spirv.id>
+  %253 = OpBitwiseOr %246, %139 : reg<spirv.id>
+  %254 = OpSelect %252, %253, %250 : reg<spirv.id>
+  %255 = OpSConvert.i32.i16 %254 : reg<spirv.id>
+  %256 = OpBitcast.i16.bf16 %255
+  %257 = OpFConvert.bf16.f32 %103
+  %258 = OpFConvert.bf16.f32 %127
+  %259 = OpFSub.f32 %257, %258
+  %266 = OpBitcast.f32.i32 %259 : reg<spirv.id>
+  %267 = OpShiftRightLogical %266, %134 : reg<spirv.id>
+  %268 = OpBitwiseAnd %267, %135 : reg<spirv.id>
+  %269 = OpIAdd %268, %136 : reg<spirv.id>
+  %270 = OpIAdd %266, %269 : reg<spirv.id>
+  %271 = OpShiftRightLogical %270, %134 : reg<spirv.id>
+  %272 = OpBitwiseAnd %266, %137 : reg<spirv.id>
+  %273 = OpSGreaterThan %272, %138 : reg<spirv.id>
+  %274 = OpBitwiseOr %267, %139 : reg<spirv.id>
+  %275 = OpSelect %273, %274, %271 : reg<spirv.id>
+  %276 = OpSConvert.i32.i16 %275 : reg<spirv.id>
+  %277 = OpBitcast.i16.bf16 %276
+  %278 = OpFConvert.bf16.f32 %106
+  %279 = OpFConvert.bf16.f32 %130
+  %280 = OpFSub.f32 %278, %279
+  %287 = OpBitcast.f32.i32 %280 : reg<spirv.id>
+  %288 = OpShiftRightLogical %287, %134 : reg<spirv.id>
+  %289 = OpBitwiseAnd %288, %135 : reg<spirv.id>
+  %290 = OpIAdd %289, %136 : reg<spirv.id>
+  %291 = OpIAdd %287, %290 : reg<spirv.id>
+  %292 = OpShiftRightLogical %291, %134 : reg<spirv.id>
+  %293 = OpBitwiseAnd %287, %137 : reg<spirv.id>
+  %294 = OpSGreaterThan %293, %138 : reg<spirv.id>
+  %295 = OpBitwiseOr %288, %139 : reg<spirv.id>
+  %296 = OpSelect %294, %295, %292 : reg<spirv.id>
+  %297 = OpSConvert.i32.i16 %296 : reg<spirv.id>
+  %298 = OpBitcast.i16.bf16 %297
+  %300 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %83
+  OpStore.storage_buffer.bf16 %300, %151
+  %302 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %86
+  OpStore.storage_buffer.bf16 %302, %172
+  %304 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %89
+  OpStore.storage_buffer.bf16 %304, %193
+  %306 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %92
+  OpStore.storage_buffer.bf16 %306, %214
+  %308 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %95
+  OpStore.storage_buffer.bf16 %308, %235
+  %310 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %98
+  OpStore.storage_buffer.bf16 %310, %256
+  %312 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %101
+  OpStore.storage_buffer.bf16 %312, %277
+  %314 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output, %104
+  OpStore.storage_buffer.bf16 %314, %298
   return
 }

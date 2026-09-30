@@ -11,3 +11,10 @@ func.def @store_narrow_bfloat(%input: f32, %output: buffer) {
   view.store %narrow, %target[0] : bf16, view<1xbf16>
   func.return
 }
+
+// ====
+func.def @narrow_bfloat_bits(%input: f32) -> (i16) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  func.return %bits : i16
+}

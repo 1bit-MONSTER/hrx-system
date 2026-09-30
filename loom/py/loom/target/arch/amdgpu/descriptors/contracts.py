@@ -54,6 +54,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     **_contract_overlay_builders_from_overlays(_s_float_conversion_overlays()),
     "amdgpu.v_mov_b32": _v_mov_b32_literal_overlay,
     "amdgpu.v_mov_b32_copy": _v_mov_b32_copy_overlay,
+    "amdgpu.v_cndmask_b32": _v_cndmask_b32_overlay,
     "amdgpu.v_add_u32": lambda: _v_add_u32_overlay("V_ADD_NC_U32"),
     "amdgpu.v_add_u32.rhs_tied": lambda: _v_add_u32_rhs_tied_overlay("V_ADD_NC_U32"),
     "amdgpu.v_add_u32.src0_inline": lambda: _v_add_u32_src0_inline_overlay(

@@ -79,6 +79,7 @@ from loom.target.contracts.lower_rule_diagnostics import (
     _integer_range_relation_diagnostic,
     _materializer_diagnostic,
     _named_constraint_diagnostic,
+    _not_nan_diagnostic,
     _operand_segment_count_diagnostic,
     _register_class_diagnostic,
     _register_unit_count_diagnostic,
@@ -897,6 +898,7 @@ class _LowerRuleSetCompiler:
             GuardKind.VALUE_EXACT_POWER_OF_TWO_I64,
             GuardKind.VALUE_U32_DIVISOR_MAGIC_IS_ADD,
             GuardKind.VALUE_EXACT_FLOAT,
+            GuardKind.VALUE_NOT_NAN,
             GuardKind.VALUE_I64_RANGE,
             GuardKind.VALUE_I64_RANGE_LE,
             GuardKind.VALUE_I64_RANGE_GE,
@@ -1210,7 +1212,7 @@ class _LowerRuleSetCompiler:
                 )
             )
             return
-        if guard.kind == GuardKind.VALUE_EXACT_FLOAT:
+        if guard.kind in (GuardKind.VALUE_EXACT_FLOAT, GuardKind.VALUE_NOT_NAN):
             self._guards.append(
                 LowerGuard(
                     kind=guard.kind,
@@ -1219,7 +1221,9 @@ class _LowerRuleSetCompiler:
                         source_op,
                         _guard_diagnostic(
                             guard,
-                            _exact_float_diagnostic(guard.field),
+                            _exact_float_diagnostic(guard.field)
+                            if guard.kind == GuardKind.VALUE_EXACT_FLOAT
+                            else _not_nan_diagnostic(guard.field),
                         ),
                     ),
                 )
