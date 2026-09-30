@@ -1550,6 +1550,66 @@ TEST_LOW_STATE_READ_BOTH_I32_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_STATE_ASSIGN_I32_DESCRIPTOR = Descriptor(
+    key="test.state.assign.i32",
+    mnemonic="test.state.assign.i32",
+    semantic_tag="test.state.assign.i32",
+    operands=(_i32_operand("value"), _special_state_write()),
+    asm_forms=_asm(operands=("value",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.STATE_ASSIGNMENT),
+)
+
+TEST_LOW_STATE_ASSIGN_I32_IMMEDIATE_DESCRIPTOR = Descriptor(
+    key="test.state.assign.i32.immediate",
+    mnemonic="test.state.assign.i32.immediate",
+    semantic_tag="test.state.assign.i32.immediate",
+    operands=(_special_state_write(),),
+    immediates=(_I32_VALUE_IMMEDIATE,),
+    asm_forms=_asm(immediates=("i32_value",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+    flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.STATE_ASSIGNMENT),
+)
+
+TEST_LOW_STATE_UPDATE_I32_DESCRIPTOR = Descriptor(
+    key="test.state.update.i32",
+    mnemonic="test.state.update.i32",
+    semantic_tag="test.state.update.i32",
+    operands=(
+        _i32_result(),
+        _i32_operand("value"),
+        replace(
+            _special_state_write(),
+            flags=(
+                OperandFlag.IMPLICIT,
+                OperandFlag.STATE_WRITE,
+                OperandFlag.COMMUTATIVE_STATE_UPDATE,
+            ),
+        ),
+    ),
+    asm_forms=_asm(results=("dst",), operands=("value",)),
+    schedule_class=_SCHEDULE_SCALAR_ALU,
+)
+
+TEST_LOW_SCHEDULE_STATE_UPDATE_I32_DESCRIPTOR = replace(
+    TEST_LOW_STATE_UPDATE_I32_DESCRIPTOR,
+    key="test.schedule_state.update.i32",
+    mnemonic="test.schedule_state.update.i32",
+    semantic_tag="test.schedule_state.update.i32",
+    operands=(
+        _i32_result(),
+        _i32_operand("value"),
+        replace(
+            _schedule_state_write(),
+            flags=(
+                OperandFlag.IMPLICIT,
+                OperandFlag.STATE_WRITE,
+                OperandFlag.COMMUTATIVE_STATE_UPDATE,
+            ),
+        ),
+    ),
+)
+
 TEST_LOW_STATE_ADD_I32_DESCRIPTOR = Descriptor(
     key="test.state.add.i32",
     mnemonic="test.state.add.i32",
@@ -2472,6 +2532,10 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_CONVERGENT_EXPLICIT_STATE_READ_I32_DESCRIPTOR,
         TEST_LOW_STATE_SAMPLE_I32_DESCRIPTOR,
         TEST_LOW_STATE_READ_BOTH_I32_DESCRIPTOR,
+        TEST_LOW_STATE_ASSIGN_I32_DESCRIPTOR,
+        TEST_LOW_STATE_ASSIGN_I32_IMMEDIATE_DESCRIPTOR,
+        TEST_LOW_STATE_UPDATE_I32_DESCRIPTOR,
+        TEST_LOW_SCHEDULE_STATE_UPDATE_I32_DESCRIPTOR,
         TEST_LOW_STATE_ADD_I32_DESCRIPTOR,
         TEST_LOW_STATE_ADD_I32_RHS_ZERO_DESCRIPTOR,
         TEST_LOW_STATE_READ_I32_DESCRIPTOR,

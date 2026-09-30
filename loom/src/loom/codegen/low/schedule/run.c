@@ -622,6 +622,10 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
                                   (void**)&state->state_first_writes));
     IREE_RETURN_IF_ERROR(
         iree_arena_allocate_array(state->scratch_arena, reg_class_count,
+                                  sizeof(*state->state_requires_write_order),
+                                  (void**)&state->state_requires_write_order));
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(state->scratch_arena, reg_class_count,
                                   sizeof(*state->state_ordering_frontiers),
                                   (void**)&state->state_ordering_frontiers));
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -643,19 +647,8 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
       continue;
     }
     const uint32_t alt_index = operand->reg_class_alt_start;
-    if (alt_index >= descriptor_set->reg_class_alt_count) {
-      return iree_make_status(
-          IREE_STATUS_OUT_OF_RANGE,
-          "low schedule state operand register-class alternative is out of "
-          "range");
-    }
     const loom_low_reg_class_alt_t* alt =
         &descriptor_set->reg_class_alts[alt_index];
-    if (alt->reg_class_id >= descriptor_set->reg_class_count) {
-      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "low schedule state operand register class is "
-                              "out of range");
-    }
     state->reg_class_state_flags[alt->reg_class_id] |= access_flags;
   }
   IREE_RETURN_IF_ERROR(loom_low_schedule_initialize_pressure_limits(state));
@@ -667,7 +660,7 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
   }
   iree_host_size_t call_index = 0;
   const bool is_repair =
-      iree_bitmap_any_set(state->options->per_user_rematerialized_values);
+      iree_bitmap_any_set(state->options->per_user_placement_values);
   for (iree_host_size_t node_index = 0; node_index < node_count; ++node_index) {
     loom_low_schedule_node_t* node = &state->nodes[node_index];
     loom_low_schedule_setup_order_classify_node(state, node, is_repair);

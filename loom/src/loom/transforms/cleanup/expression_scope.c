@@ -68,8 +68,8 @@ uint32_t loom_expression_hash(const loom_module_t* module,
 // same kind, operands (same value IDs in same order), result types
 // (checked via the module's value table), attributes (structurally
 // equal via loom_attribute_equal), instance flags, and no regions.
-static bool loom_expression_equal(const loom_module_t* module,
-                                  const loom_op_t* a, const loom_op_t* b) {
+bool loom_expression_equal(const loom_module_t* module, const loom_op_t* a,
+                           const loom_op_t* b) {
   if (a->kind != b->kind) {
     return false;
   }
@@ -515,13 +515,17 @@ static bool loom_expression_result_is_consumed(const loom_module_t* module,
   return false;
 }
 
+bool loom_expression_can_share_result_ownership(const loom_module_t* module,
+                                                const loom_op_t* op) {
+  return !loom_expression_op_transfers_operand_ownership(module, op) &&
+         !loom_expression_result_is_consumed(module, op);
+}
+
 bool loom_expression_is_reusable(const loom_expression_cursor_t* cursor) {
   return cursor->op->result_count != 0 && cursor->op->region_count == 0 &&
          !loom_traits_has_side_effects(cursor->traits) &&
          !loom_traits_has_unique_identity(cursor->traits) &&
-         !loom_expression_op_transfers_operand_ownership(cursor->module,
-                                                         cursor->op) &&
-         !loom_expression_result_is_consumed(cursor->module, cursor->op);
+         loom_expression_can_share_result_ownership(cursor->module, cursor->op);
 }
 
 iree_status_t loom_expression_replace(loom_module_t* module, loom_op_t* op,

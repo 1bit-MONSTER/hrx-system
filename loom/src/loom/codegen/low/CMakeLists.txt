@@ -686,6 +686,7 @@ loom_cc_library(
     loom::analysis::consumption
     loom::codegen::low::allocation::live_range
     loom::codegen::low::allocation::storage
+    loom::codegen::low::schedule
     loom::error::emitter
     loom::error::error_defs
     loom::ir

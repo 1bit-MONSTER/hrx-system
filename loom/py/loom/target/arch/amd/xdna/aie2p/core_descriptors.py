@@ -94,6 +94,23 @@ _MACHINE_IMMEDIATES = {
     immediate.name: immediate for immediate in CORE_MACHINE_TABLE.immediates
 }
 
+# Reserved sticky status registers from AIE2PRegisterInfo::isReservedStickyReg.
+# Native implicit definitions accumulate status; explicit definitions replace
+# it and must not acquire the commutative-update contract.
+_STICKY_STATUS_REGISTERS = frozenset(
+    (
+        "srSparse_of",
+        "srF2FFlags",
+        "srF2BFlags",
+        "srF2IFlags",
+        "srFPFlags",
+        "srSRS_of",
+        "srUPS_of",
+        "srFifo_of",
+        "srFifo_uf",
+    )
+)
+
 # LLVM's mW*/mX* names describe instruction-operand encoding roles, not
 # distinct storage domains. W registers are the architectural 256-bit storage
 # units. Each X register is an ordered pair of W subregisters and each Y
@@ -991,6 +1008,9 @@ def _implicit_operands(spec: descriptor_specs._DescriptorSpec) -> tuple[Operand,
         read_stage, ready_stage = _implicit_operand_stage(
             spec, register_name, is_definition=True
         )
+        flags = (OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE)
+        if register_name in _STICKY_STATUS_REGISTERS:
+            flags += (OperandFlag.COMMUTATIVE_STATE_UPDATE,)
         result.append(
             Operand(
                 field_name=(
@@ -1005,7 +1025,7 @@ def _implicit_operands(spec: descriptor_specs._DescriptorSpec) -> tuple[Operand,
                         flags=(RegClassAltFlag.PHYSICAL_ONLY,),
                     ),
                 ),
-                flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE),
+                flags=flags,
                 read_stage=read_stage,
                 ready_stage=ready_stage,
                 write_event=_register_timing_event(spec, operand_ordinal, "write"),

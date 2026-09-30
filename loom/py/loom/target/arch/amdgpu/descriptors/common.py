@@ -2044,7 +2044,7 @@ def _manual_scalar_descriptors(
             schedule_class=_SCHEDULE_SALU,
             encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP1,
             encoding_id=s_mov_b32_opcode,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+            flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.STATE_ASSIGNMENT),
         ),
         Descriptor(
             key="amdgpu.s_mov_b32_m0.imm",
@@ -2072,7 +2072,7 @@ def _manual_scalar_descriptors(
             schedule_class=_SCHEDULE_SALU,
             encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP1,
             encoding_id=s_mov_b32_opcode,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+            flags=(DescriptorFlag.DEAD_REMOVABLE, DescriptorFlag.STATE_ASSIGNMENT),
         ),
         Descriptor(
             key="amdgpu.s_mov_b64_exec",

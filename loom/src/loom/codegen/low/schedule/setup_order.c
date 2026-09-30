@@ -57,9 +57,8 @@ static bool loom_low_schedule_setup_order_is_member(
   const loom_value_id_t value_id =
       state->values[loom_low_schedule_node_const_result_ordinals(node)[0]]
           .value_id;
-  return value_id < state->options->per_user_rematerialized_values.bit_count &&
-         iree_bitmap_test(state->options->per_user_rematerialized_values,
-                          value_id);
+  return value_id < state->options->per_user_placement_values.bit_count &&
+         iree_bitmap_test(state->options->per_user_placement_values, value_id);
 }
 
 void loom_low_schedule_setup_order_classify_node(

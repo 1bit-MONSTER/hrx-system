@@ -460,7 +460,8 @@ iree_status_t loom_low_materialize_allocation_run(loom_pass_t* pass,
               ? pass->diagnostic_emitter
               : (iree_diagnostic_emitter_t){0};
       IREE_RETURN_IF_ERROR(loom_low_allocation_rematerialize_failure(
-          module, &table, &rematerialization, emitter, pass->arena, &result));
+          module, &table, /*schedule=*/NULL, &rematerialization, emitter,
+          pass->arena, &result));
       if (result.rewritten_operand_count != 0) {
         loom_low_materialize_allocation_statistics_t* statistics =
             loom_low_materialize_allocation_statistics(pass);

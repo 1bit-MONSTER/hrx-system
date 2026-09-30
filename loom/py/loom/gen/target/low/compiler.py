@@ -1068,6 +1068,7 @@ def compile_descriptor_set(
     for descriptor in spec.descriptors:
         operand_layout = validation.validate_descriptor_operands(descriptor)
         validation.validate_descriptor_speculation(descriptor)
+        validation.validate_descriptor_state_assignment(descriptor, reg_class_inputs)
         operand_layouts_by_descriptor[descriptor.key] = operand_layout
         result_count = operand_layout.result_count
         source_value_indices_by_descriptor[descriptor.key] = validation.descriptor_operand_source_value_indices(

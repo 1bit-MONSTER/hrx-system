@@ -42,7 +42,6 @@ low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @matrix_b
   %39 = vconv.fp32.bf16 %35
   %41 = vconv.fp32.bf16 %36
   %42 = concat(%39, %41) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
-  set.rounding 12
   %rhs_fragment = vconv.bfp16ebs8.fp32 %42
   %44 = mova.i32 780
   %product = mmul.bfp16ebs8.m8n8k8 %lhs_fragment, %rhs_fragment, %44
@@ -124,7 +123,6 @@ low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @matrix_b
   %86 = vconv.fp32.bf16 %77
   %88 = vconv.fp32.bf16 %83
   %89 = concat(%86, %88) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
-  set.rounding 12
   %rhs_fragment = vconv.bfp16ebs8.fp32 %89
   %91 = mova.i32 780
   %next = mma.bfp16ebs8.m8n8k8 %accumulator, %lhs_fragment, %rhs_fragment, %91

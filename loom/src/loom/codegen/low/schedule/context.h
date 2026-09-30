@@ -162,6 +162,8 @@ enum loom_low_schedule_value_flag_bits_e {
   LOOM_LOW_SCHEDULE_VALUE_FLAG_ACTIVE_PRESSURE_ALIAS = 1u << 4,
   // Value ordinal is present in the pressure state's touched-value list.
   LOOM_LOW_SCHEDULE_VALUE_FLAG_PRESSURE_TOUCHED = 1u << 5,
+  // The current block's endpoint forwards this value's storage ownership.
+  LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED = 1u << 6,
 };
 typedef uint16_t loom_low_schedule_value_flags_t;
 
@@ -341,6 +343,9 @@ typedef struct loom_low_schedule_build_state_t {
   // First architectural-state writer in the current block, dense by register
   // class.
   loom_low_schedule_state_access_t* state_first_writes;
+  // Current-block observations or replacements requiring ordered state writes,
+  // dense by register class. Zero permits commutative write reordering.
+  uint8_t* state_requires_write_order;
   // Most recent non-writing state-ordering access, dense by register class.
   loom_low_schedule_state_access_t* state_ordering_frontiers;
   // Readers retained until the next actual writer, dense by register class.

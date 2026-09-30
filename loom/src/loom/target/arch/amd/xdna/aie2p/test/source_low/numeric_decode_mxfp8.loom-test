@@ -124,7 +124,6 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @decode_mxfp8_e4m3
   %120 = vmul.i16x32 %106, %118, %119
   set.rounding 0
   set.srs-mode 1
-  set.saturation 0
   %121 = vsrs.trunc.s16x32 %120, %97
   %122 = eq %55, %58
   %123 = select.mask %122, -1

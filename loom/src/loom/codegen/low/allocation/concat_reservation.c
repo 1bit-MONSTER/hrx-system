@@ -463,18 +463,22 @@ iree_status_t loom_low_allocation_concat_reservation_find(
           context, result_range, result_unit_start_points);
   // Scalar sources can cheaply reserve a future aggregate, and packet-local
   // or tied in-place sources must reserve before independently allocated
-  // temporaries fragment their required span.
+  // temporaries fragment their required span. Explicit physical views also
+  // require choosing the aggregate before its first source: an independently
+  // placed vector can occupy the wrong subrange even when all sources fit.
   if (source_interval->unit_count != 1 && result_lifetime != 1) {
-    const bool favor_result_reservation =
-        sources_form_compact_assembly || has_fragmented_tied_source_assembly;
+    const bool uses_explicit_physical_registers =
+        loom_low_reg_class_uses_explicit_physical_registers(
+            &context->descriptor_set
+                 ->reg_classes[capacity.descriptor_reg_class_id]);
+    const bool favor_result_reservation = uses_explicit_physical_registers ||
+                                          sources_form_compact_assembly ||
+                                          has_fragmented_tied_source_assembly;
     if (loom_low_allocation_concat_reservation_has_assigned_source(
             context, result_range)) {
       return iree_ok_status();
     }
-    if (favor_result_reservation &&
-        !loom_low_reg_class_uses_explicit_physical_registers(
-            &context->descriptor_set
-                 ->reg_classes[capacity.descriptor_reg_class_id])) {
+    if (favor_result_reservation && !uses_explicit_physical_registers) {
       IREE_RETURN_IF_ERROR(
           loom_low_allocation_target_constraints_interval_capacity(
               context->target_constraints, source_interval, &source_capacity));
