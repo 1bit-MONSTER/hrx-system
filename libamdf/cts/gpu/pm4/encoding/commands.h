@@ -83,7 +83,8 @@ class Pm4CommandWriter {
   // backing stays immutable and retained through final use and checked queue
   // removal; return alone does not join shader completion.
   void CallIndirectBuffer(uint64_t buffer_address, uint32_t word_count);
-  // Confirmed TC/L2 memory transfers; width does not imply atomicity.
+  // Confirmed TC/L2 memory transfers; width does not imply atomicity. A 32-bit
+  // source retains readable trailing backing for native reads beyond its DWORD.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);
   // Atomic STORE via single-pass TC/L2 swap, without exposing a prior value.

@@ -74,13 +74,20 @@ class Pm4CopyWidthTest : public Pm4CommandTest,
 TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
   constexpr size_t kWordCount = 4096 / sizeof(uint32_t);
   const size_t copy_byte_length = GetParam();
+  // A 32-bit COPY_DATA at the last source DWORD can read into the next page
+  // on gfx1100. Keep that page owned and readable while retaining the exact
+  // destination extent and all transfer positions. The 64-bit source still
+  // ends at the last selected QWORD.
+  const size_t source_word_count =
+      copy_byte_length == 4 ? 2 * kWordCount : kWordCount;
   const std::array<size_t, 4> positions =
       copy_byte_length == 4 ? std::array<size_t, 4>{1, 15, 17, kWordCount - 1}
                             : std::array<size_t, 4>{2, 14, 16, kWordCount - 2};
   GpuMemory* source = nullptr;
   GpuMemory* target = nullptr;
   GpuMemory* completion = nullptr;
-  ASSERT_NO_FATAL_FAILURE(CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &source));
+  ASSERT_NO_FATAL_FAILURE(CreateMemory(
+      AMDF_MEMORY_ACCESS_READ, source_word_count * sizeof(uint32_t), &source));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
       AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &target));
   ASSERT_NO_FATAL_FAILURE(CreateMemory(
@@ -89,8 +96,10 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
   auto* output = static_cast<uint32_t*>(target->host.pointer);
   *static_cast<uint32_t*>(completion->host.pointer) = 0;
   std::array<uint32_t, kWordCount> expected;
-  for (size_t i = 0; i < kWordCount; ++i) {
+  for (size_t i = 0; i < source_word_count; ++i) {
     input[i] = 0x13579bdfu + static_cast<uint32_t>(i) * 0x10203041u;
+  }
+  for (size_t i = 0; i < kWordCount; ++i) {
     expected[i] = output[i] = ~input[i];
   }
 
@@ -121,11 +130,14 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
                          1);
   // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount> observed_output;
-  std::array<uint32_t, kWordCount> observed_input;
+  std::array<uint32_t, 2 * kWordCount> observed_input;
   std::memcpy(observed_output.data(), output, sizeof(observed_output));
-  std::memcpy(observed_input.data(), input, sizeof(observed_input));
+  std::memcpy(observed_input.data(), input,
+              source_word_count * sizeof(uint32_t));
   for (size_t i = 0; i < kWordCount; ++i) {
     EXPECT_EQ(observed_output[i], expected[i]) << i;
+  }
+  for (size_t i = 0; i < source_word_count; ++i) {
     const uint32_t expected_input =
         0x13579bdfu + static_cast<uint32_t>(i) * 0x10203041u;
     EXPECT_EQ(observed_input[i], expected_input) << "source word " << i;

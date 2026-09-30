@@ -81,6 +81,12 @@ confirmation; it is not a replacement for surrounding payload fences or the
 host's acquired completion observation. [Address checks][pal-copy] ·
 [WRITE_DATA confirmation][pal-write]
 
+Address alignment is separate from source backing. The [COPY_DATA source-read
+observation](../pm4/memory-commands.md#copy-source-backing) shows why a 32-bit
+result is insufficient evidence for a four-byte native read footprint. The AQL
+carrier adds publication and completion rules; its representation does not
+specify a different source-fetch width for the embedded PM4 command.
+
 ## Mapping and visibility
 
 System-memory placement does not alone select a cache policy. For native

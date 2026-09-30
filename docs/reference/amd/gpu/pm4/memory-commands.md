@@ -39,6 +39,34 @@ confirmation; Mesa's ordinary WRITE_DATA emitter also requests confirmation.
 [Header builder][header-builder] [Write construction][write-builder]
 [Mesa write][mesa-write]
 
+## Copy source backing
+
+COPY_DATA's selected result width and address alignment do not establish the
+source read footprint. PAL checks four-byte alignment for a 32-bit copy and
+eight-byte alignment for a 64-bit copy; its builder does not describe trailing
+source backing. [Copy address checks][copy-builder]
+
+An experiment on gfx1100 (PCI `1002:744c`, revision `0xc8`, Linux
+`6.17.0-41-generic`, KFD topology `fw_version` 2650) observed a CPC read into the
+following page when a confirmed TC/L2-to-TC/L2 32-bit copy selected the final
+DWORD of a system-memory source mapping. Earlier copies in the same sequence
+completed, but this copy and the subsequent completion write did not.
+
+Keeping the following 4 KiB source page explicitly owned, initialized and
+GPU-readable allowed the same copy positions and packet fields to complete.
+The destination remained a single 4 KiB mapping: only the selected DWORDs
+changed, including its last DWORD, and all source words remained unchanged.
+The corresponding 64-bit copies completed with a single source page and the
+last selected QWORD ending at its boundary.
+
+This observation establishes a source-backing requirement for that deployment,
+not an exact fetch width, minimum padding size or firmware fix version. In
+particular, a 64-bit source fetch for a 32-bit result is a possible explanation,
+not a measured bound. A layout using the 32-bit form keeps its readable trailing
+backing alive through completion instead of deriving source reach from count
+bit 16. Other generations, firmware revisions and queue transports need their
+own evidence for that boundary.
+
 ## Waits, signaling and visibility
 
 The function enumeration is always-pass 0, LT 1, LE 2, EQ 3, NE 4, GE 5 and

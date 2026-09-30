@@ -30,6 +30,13 @@ without activating hardware. They do not replace native field or composition
 cases. Hardware counters and calibrated performance are separate observation
 surfaces; correctness timestamps alone supply neither.
 
+The COPY_DATA width cases check the destination extent and every source word,
+including explicitly owned trailing source backing for the 32-bit form. They
+retain the final destination DWORD at a mapping boundary. They do not assert
+that the result width bounds the native source read footprint; the
+[source-read observation](../../../docs/reference/amd/gpu/pm4/memory-commands.md#copy-source-backing)
+describes why those are separate contracts.
+
 ## Deployment paths
 
 The existing case fixtures distinguish these paths. Exact admission also checks

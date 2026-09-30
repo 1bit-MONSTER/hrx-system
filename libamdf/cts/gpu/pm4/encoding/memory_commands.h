@@ -39,8 +39,9 @@ size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
 
 // Encodes one confirmed TC/L2-to-TC/L2 copy into six caller-owned DWORDs and
 // returns six. Both addresses are aligned to four bytes for k32Bit and eight
-// bytes for k64Bit. Queue admission and execution visibility belong to the
-// caller.
+// bytes for k64Bit. The k32Bit result width does not bound native source reads;
+// readable trailing backing belongs to the source's lifetime. Queue admission
+// and execution visibility belong to the caller.
 size_t CopyData(uint32_t* words, uint64_t source_address,
                 uint64_t target_address, CopyDataWidth width);
 
