@@ -495,7 +495,7 @@ iree_status_t loom_check_low_emit_packetize_function(
     iree_host_size_t allocation_budget_count,
     const loom_check_low_emit_fixed_value_spec_t* allocation_fixed_specs,
     iree_host_size_t allocation_fixed_spec_count,
-    const loom_target_residency_model_t* residency_model,
+    loom_low_emission_frame_residency_query_fn_t residency_query,
     loom_low_schedule_pair_affinity_list_t schedule_pair_affinities,
     loom_low_schedule_structural_state_read_list_t
         schedule_structural_state_reads,
@@ -540,7 +540,7 @@ iree_status_t loom_check_low_emit_packetize_function(
       .schedule_strategy = schedule_strategy,
       .schedule_diagnostic_flags = schedule_diagnostic_flags,
       .allocation_diagnostic_flags = allocation_diagnostic_flags,
-      .residency_model = residency_model,
+      .residency_query = residency_query,
       .schedule_pair_affinities = schedule_pair_affinities,
       .schedule_structural_state_reads = schedule_structural_state_reads,
       .allocation_budgets = allocation_budgets,

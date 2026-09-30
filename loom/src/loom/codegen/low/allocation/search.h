@@ -25,12 +25,11 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/placement.h"
 #include "loom/ir/ir.h"
+#include "loom/target/residency.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct loom_target_residency_model_t;
 
 // Borrowed allocator facts used when probing physical storage.
 typedef struct loom_low_allocation_search_context_t {
@@ -57,8 +56,8 @@ typedef struct loom_low_allocation_search_context_t {
   // Cached predicted spill traffic, dense by liveness value ordinal. A
   // store_count of UINT32_MAX means the entry is not computed yet.
   loom_low_allocation_spill_plan_traffic_t* spill_traffic_by_value_ordinal;
-  // Optional target residency model used for physical extent decisions.
-  const struct loom_target_residency_model_t* residency_model;
+  // Function-local residency view used for physical extent decisions.
+  loom_target_residency_view_t residency;
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;

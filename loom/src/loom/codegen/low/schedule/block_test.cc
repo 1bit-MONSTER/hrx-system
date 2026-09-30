@@ -187,6 +187,9 @@ TEST(ScheduleBlockTest, MergesRoundedClassPeaksWithoutDoubleCountingCliffs) {
                                                                  {1, 1}};
   const loom_target_residency_cliff_t cliffs[] = {{0, 9, 4, 3}, {0, 13, 3, 2}};
   loom_target_residency_derived_resource_t resource = {};
+  resource.name = IREE_SV("shared_register_file");
+  resource.pool_units = 64;
+  resource.allocation_granularity = 1;
   resource.member_count = 2;
   resource.cliff_count = 2;
   loom_target_residency_derived_resource_table_t table = {};
@@ -201,35 +204,68 @@ TEST(ScheduleBlockTest, MergesRoundedClassPeaksWithoutDoubleCountingCliffs) {
   loom_low_descriptor_set_t descriptors = {};
   descriptors.reg_class_count = 2;
   const uint64_t retained_peaks[] = {5, 2, 2, 5, 1, 1};
-  uint64_t result_peaks[6] = {};
   loom_low_schedule_table_t previous = {};
   previous.block_pressure_peaks = retained_peaks;
+  const iree_string_view_t direct_names[] = {IREE_SV("first"),
+                                             IREE_SV("second")};
+  const loom_target_residency_cliff_range_t direct_ranges[] = {{0, 2}, {2, 0}};
+  const loom_target_residency_model_t residency_model = {
+      /*.best_tier=*/4,
+      /*.direct_resources=*/
+      {direct_names, cliffs, IREE_ARRAYSIZE(cliffs), direct_ranges, 2},
+      /*.derived_resources=*/table};
+  loom_low_schedule_options_t options = {};
+  options.strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL;
+  iree_arena_block_pool_t pool;
+  iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&pool, &arena);
+  loom_region_t body = {};
+  loom_local_value_domain_t value_domain = {};
   loom_low_schedule_build_state_t state = {};
+  state.options = &options;
+  state.scratch_arena = &arena;
+  state.body = &body;
+  state.value_domain = &value_domain;
   state.target.descriptor_set = &descriptors;
+  state.pressure_cliffs = &residency_model.direct_resources;
   state.pressure_resources = &table;
-  state.block_pressure_peaks = result_peaks;
-  uint64_t high_water[] = {0, 0};
-  loom_low_schedule_resource_pressure_record_t record = {};
-  record.next_cliff_index = 1;
-  loom_low_schedule_pressure_state_t pressure = {};
-  pressure.resources.peak_live_units_by_reg_class = high_water;
-  pressure.resources.records = &record;
+  for (uint32_t tier_limit : {2u, 3u, 4u}) {
+    SCOPED_TRACE(tier_limit);
+    options.residency =
+        loom_target_residency_view(&residency_model, tier_limit);
+    uint64_t result_peaks[6] = {};
+    state.block_pressure_peaks = result_peaks;
+    loom_low_schedule_pressure_state_t pressure = {};
+    IREE_ASSERT_OK(loom_low_schedule_pressure_initialize(&state, 0, &pressure));
+    auto& record = pressure.resources.records[0];
+    EXPECT_EQ(pressure.first_actionable_pressure_cliff_indices[0],
+              4u - tier_limit);
+    EXPECT_EQ(pressure.first_actionable_pressure_cliff_indices[1], 2u);
+    EXPECT_EQ(record.next_cliff_index, 4u - tier_limit);
+    // Source-order analysis can advance the cursor but never reopen a cliff
+    // already excluded by the function's fixed ceiling.
+    record.next_cliff_index = iree_max(record.next_cliff_index, 1u);
 
-  loom_low_schedule_pressure_retain_block(&state, &pressure, &previous, 0);
-  EXPECT_EQ(record.current_peak_units, 12u);
-  EXPECT_EQ(pressure.resources.pressure_cliff_penalty, 0u);
-  loom_low_schedule_pressure_retain_block(&state, &pressure, &previous, 1);
-  EXPECT_EQ(record.current_peak_units, 16u);
-  EXPECT_EQ(record.next_cliff_index, 2u);
-  EXPECT_EQ(pressure.resources.pressure_cliff_penalty, 1u);
-  loom_low_schedule_pressure_retain_block(&state, &pressure, &previous, 2);
-  EXPECT_EQ(record.current_peak_units, 16u);
-  EXPECT_EQ(pressure.resources.pressure_cliff_penalty, 1u);
-  EXPECT_EQ(high_water[0], 5u);
-  EXPECT_EQ(high_water[1], 5u);
-  for (uint32_t i = 0; i < IREE_ARRAYSIZE(result_peaks); ++i) {
-    EXPECT_EQ(result_peaks[i], retained_peaks[i]);
+    loom_low_schedule_pressure_retain_block(&state, &pressure, &previous, 0);
+    EXPECT_EQ(record.current_peak_units, 12u);
+    EXPECT_EQ(pressure.resources.pressure_cliff_penalty, 0u);
+    loom_low_schedule_pressure_retain_block(&state, &pressure, &previous, 1);
+    EXPECT_EQ(record.current_peak_units, 16u);
+    EXPECT_EQ(record.next_cliff_index, 2u);
+    const uint32_t expected_penalty = tier_limit == 2 ? 0 : 1;
+    EXPECT_EQ(pressure.resources.pressure_cliff_penalty, expected_penalty);
+    loom_low_schedule_pressure_retain_block(&state, &pressure, &previous, 2);
+    EXPECT_EQ(record.current_peak_units, 16u);
+    EXPECT_EQ(pressure.resources.pressure_cliff_penalty, expected_penalty);
+    EXPECT_EQ(pressure.resources.peak_live_units_by_reg_class[0], 5u);
+    EXPECT_EQ(pressure.resources.peak_live_units_by_reg_class[1], 5u);
+    for (uint32_t i = 0; i < IREE_ARRAYSIZE(result_peaks); ++i) {
+      EXPECT_EQ(result_peaks[i], retained_peaks[i]);
+    }
   }
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&pool);
 }
 
 }  // namespace

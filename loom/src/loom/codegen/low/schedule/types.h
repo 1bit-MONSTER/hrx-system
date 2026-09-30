@@ -715,8 +715,8 @@ typedef struct loom_low_schedule_options_t {
   // Optional source-derived memory summaries for the modeled function. Empty
   // uses conservative descriptor effect summaries.
   const loom_low_memory_access_map_t* memory_accesses;
-  // Optional immutable target residency policy.
-  const loom_target_residency_model_t* residency_model;
+  // Function-local view of the immutable target residency policy.
+  loom_target_residency_view_t residency;
   // Optional explicit allocation budgets. These are interpreted as hard
   // pressure limits by the scheduler so resource-stall scheduling can shorten
   // live ranges before allocation reaches the final physical storage ceiling.

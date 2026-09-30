@@ -665,8 +665,6 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
 
   loom_low_schedule_pair_affinity_list_t schedule_pair_affinities =
       loom_low_schedule_pair_affinity_list_empty();
-  const loom_target_residency_model_t* residency_model =
-      loom_amdgpu_occupancy_residency_model(&plan->target);
   IREE_RETURN_IF_ERROR(loom_amdgpu_vopd_build_schedule_pair_affinities(
       &plan->target, table_arena, &schedule_pair_affinities));
   loom_low_schedule_structural_state_read_list_t schedule_state_reads =
@@ -679,7 +677,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_build_kernel(
   const loom_low_emission_frame_options_t frame_options = {
       .descriptor_registry = &low_registry->registry,
       .function_target_facts = plan->target.target_facts,
-      .residency_model = residency_model,
+      .residency_query = loom_amdgpu_occupancy_residency_view,
       .schedule_pair_affinities = schedule_pair_affinities,
       .schedule_structural_state_reads = schedule_state_reads,
       .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL,

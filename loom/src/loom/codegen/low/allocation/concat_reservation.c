@@ -507,7 +507,7 @@ iree_status_t loom_low_allocation_concat_reservation_find(
         return iree_ok_status();
       }
     } else if (!favor_result_reservation &&
-               loom_target_residency_model_is_empty(context->residency_model)) {
+               loom_target_residency_model_is_empty(context->residency.model)) {
       return iree_ok_status();
     }
   }
@@ -538,7 +538,7 @@ iree_status_t loom_low_allocation_concat_reservation_find(
   // residency; within the current tier, a second location search has no value.
   // Resources with no direct cliffs or derived consumers cannot lower a tier.
   const loom_target_residency_model_t* residency_model =
-      context->residency_model;
+      context->residency.model;
   const uint16_t reg_class_id = capacity.descriptor_reg_class_id;
   const uint32_t* current_units_by_reg_class =
       context->target_constraints->max_assigned_location_end_by_reg_class;
@@ -562,11 +562,11 @@ iree_status_t loom_low_allocation_concat_reservation_find(
            &residency_model->derived_resources))) {
     const uint32_t current_tier =
         loom_target_residency_evaluate_tier_with_direct_resource_override(
-            residency_model, current_units_by_reg_class, reg_class_id,
+            context->residency, current_units_by_reg_class, reg_class_id,
             current_location_end);
     const uint32_t result_tier =
         loom_target_residency_evaluate_tier_with_direct_resource_override(
-            residency_model, current_units_by_reg_class, reg_class_id,
+            context->residency, current_units_by_reg_class, reg_class_id,
             result_location_end);
     if (result_tier < current_tier &&
         source_location_state == SOURCE_LOCATION_UNQUERIED) {
@@ -594,7 +594,7 @@ iree_status_t loom_low_allocation_concat_reservation_find(
       if (result_location_end > source_location_end) {
         const uint32_t source_tier =
             loom_target_residency_evaluate_tier_with_direct_resource_override(
-                residency_model, current_units_by_reg_class, reg_class_id,
+                context->residency, current_units_by_reg_class, reg_class_id,
                 source_location_end);
         if (result_tier < source_tier) {
           *out_assignment = source_assignment;

@@ -716,6 +716,7 @@ loom_cc_library(
     loom::codegen::low::placement
     loom::codegen::low::target_binding
     loom::ir
+    loom::target::residency
     loom::util::cfg_graph
   PUBLIC
 )

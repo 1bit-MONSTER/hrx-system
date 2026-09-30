@@ -22,13 +22,13 @@
 #include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ir/ir.h"
+#include "loom/target/residency.h"
 #include "loom/util/cfg_graph.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct loom_target_residency_model_t;
 struct loom_low_schedule_table_t;
 
 // Concrete-location ordering used for one whole-function assignment attempt.
@@ -67,8 +67,8 @@ typedef struct loom_low_allocation_interval_assignment_context_t {
   iree_arena_allocator_t* arena;
   // Shared read-only control-flow graph for |body|.
   const loom_cfg_graph_t* function_cfg_graph;
-  // Optional target residency model used for physical extent decisions.
-  const struct loom_target_residency_model_t* residency_model;
+  // Function-local residency view used for physical extent decisions.
+  loom_target_residency_view_t residency;
   // Borrowed bitmap indexed by module value ID. Set values require register
   // storage throughout allocation.
   iree_bitmap_t required_register_values;

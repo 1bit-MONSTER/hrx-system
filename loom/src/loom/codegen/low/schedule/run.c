@@ -1656,14 +1656,14 @@ static iree_status_t loom_low_schedule_build(
   loom_low_schedule_build_state_t state = {
       .module = model->module,
       .options = options,
-      .pressure_cliffs = options->residency_model != NULL
-                             ? &options->residency_model->direct_resources
+      .pressure_cliffs = options->residency.model != NULL
+                             ? &options->residency.model->direct_resources
                              : NULL,
       .pressure_resources =
-          options->residency_model != NULL &&
+          options->residency.model != NULL &&
                   !loom_target_residency_derived_resource_table_is_empty(
-                      &options->residency_model->derived_resources)
-              ? &options->residency_model->derived_resources
+                      &options->residency.model->derived_resources)
+              ? &options->residency.model->derived_resources
               : NULL,
       .arena = arena,
       .scratch_arena = scratch_arena,

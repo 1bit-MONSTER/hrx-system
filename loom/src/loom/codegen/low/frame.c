@@ -197,10 +197,15 @@ static iree_status_t loom_low_emission_frame_build_impl(
       module, low_func_op, options->function_target_facts,
       options->descriptor_registry, options->emitter,
       LOOM_LOW_FUNCTION_MODEL_FLAG_REGION_TREE, arena, &model);
+  if (iree_status_is_ok(status) && model.error_count == 0 &&
+      options->residency_query != NULL) {
+    out_frame->residency = options->residency_query(
+        &model.target, &model.requirements.storage_layout.space_sizes);
+  }
   loom_low_schedule_options_t schedule_options = {
       .retained_blocks = retained_blocks,
       .memory_accesses = options->memory_accesses,
-      .residency_model = options->residency_model,
+      .residency = out_frame->residency,
       .allocation_budgets = options->allocation_budgets,
       .allocation_budget_count = options->allocation_budget_count,
       .pair_affinities = options->schedule_pair_affinities,
@@ -245,7 +250,7 @@ static iree_status_t loom_low_emission_frame_build_impl(
       .reserved_ranges = options->allocation_reserved_ranges,
       .reserved_range_count = options->allocation_reserved_range_count,
       .required_register_values = required_register_values,
-      .residency_model = options->residency_model,
+      .residency = out_frame->residency,
       .storage_leases = storage_leases,
       .emitter = options->emitter,
   };
@@ -387,9 +392,10 @@ static uint64_t loom_low_emission_frame_residency_resource_units(
 }
 
 static bool loom_low_emission_frame_crosses_new_pressure_cliff(
-    const loom_target_residency_model_t* residency_model,
+    loom_target_residency_view_t residency,
     const uint32_t* baseline_units_by_reg_class,
     const loom_low_allocation_table_t* allocation) {
+  const loom_target_residency_model_t* residency_model = residency.model;
   if (loom_target_residency_model_is_empty(residency_model)) {
     return false;
   }
@@ -406,11 +412,11 @@ static bool loom_low_emission_frame_crosses_new_pressure_cliff(
         range.count == 0 ? NULL : &direct_resources->cliffs[range.start];
     loom_target_residency_cliff_evaluation_t baseline_evaluation;
     loom_target_residency_evaluate_cliffs(
-        cliffs, range.count, residency_model->best_tier,
+        cliffs, range.count, residency.tier_limit,
         baseline_units_by_reg_class[resource_id], &baseline_evaluation);
     loom_target_residency_cliff_evaluation_t allocated_evaluation;
     loom_target_residency_evaluate_cliffs(
-        cliffs, range.count, residency_model->best_tier,
+        cliffs, range.count, residency.tier_limit,
         allocation->physical_extents.ends_by_reg_class[resource_id],
         &allocated_evaluation);
     if (allocated_evaluation.tier < baseline_evaluation.tier) {
@@ -438,11 +444,11 @@ static bool loom_low_emission_frame_crosses_new_pressure_cliff(
             : &resource_table->cliffs[resource->cliff_start];
     loom_target_residency_cliff_evaluation_t baseline_evaluation;
     loom_target_residency_evaluate_cliffs(
-        cliffs, resource->cliff_count, residency_model->best_tier,
+        cliffs, resource->cliff_count, residency.tier_limit,
         baseline_resource_units, &baseline_evaluation);
     loom_target_residency_cliff_evaluation_t allocated_evaluation;
     loom_target_residency_evaluate_cliffs(
-        cliffs, resource->cliff_count, residency_model->best_tier,
+        cliffs, resource->cliff_count, residency.tier_limit,
         allocated_resource_units, &allocated_evaluation);
     if (allocated_evaluation.tier < baseline_evaluation.tier) {
       return true;
@@ -481,14 +487,13 @@ static iree_status_t loom_low_emission_frame_try_pair_replication(
       module, low_func_op, frame_options, NULL,
       frame->schedule.placement_pair_uses, required_register_values,
       per_user_placement_values, scratch_arena, statistics, &trial));
-  bool rejected = trial.schedule.error_count != 0 ||
-                  trial.allocation.error_count != 0 ||
-                  trial.allocation.spill_plan_count != 0 ||
-                  trial.allocation.spill_count != 0 ||
-                  loom_low_emission_frame_crosses_new_pressure_cliff(
-                      frame_options->residency_model,
-                      frame->allocation.physical_extents.ends_by_reg_class,
-                      &trial.allocation);
+  bool rejected =
+      trial.schedule.error_count != 0 || trial.allocation.error_count != 0 ||
+      trial.allocation.spill_plan_count != 0 ||
+      trial.allocation.spill_count != 0 ||
+      loom_low_emission_frame_crosses_new_pressure_cliff(
+          trial.residency, frame->allocation.physical_extents.ends_by_reg_class,
+          &trial.allocation);
   if (!rejected) {
     uint64_t satisfied_packet_savings = 0;
     IREE_RETURN_IF_ERROR(loom_low_allocation_satisfied_pair_packet_savings(
@@ -566,13 +571,13 @@ static iree_status_t loom_low_emission_frame_try_guarded_motion(
                     trial.allocation.packet_move_count >
                         frame->allocation.packet_move_count ||
                     loom_low_emission_frame_crosses_new_pressure_cliff(
-                        options->residency_model,
+                        trial.residency,
                         frame->allocation.physical_extents.ends_by_reg_class,
                         &trial.allocation) ||
                     !loom_low_guarded_motion_improves_schedule(
                         &plan, &frame->schedule, &trial.schedule);
     if (!rejected &&
-        loom_target_residency_model_is_empty(options->residency_model)) {
+        loom_target_residency_model_is_empty(trial.residency.model)) {
       for (uint16_t i = 0; i < trial.allocation.physical_extents.count; ++i) {
         rejected |= trial.allocation.physical_extents.ends_by_reg_class[i] >
                     frame->allocation.physical_extents.ends_by_reg_class[i];

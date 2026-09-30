@@ -315,7 +315,7 @@ uint32_t FindFreeLocationWithPlacement(
 
 struct StorageLeaseSearchOptions {
   // Optional residency tiers used to decide whether releasing is worthwhile.
-  const loom_target_residency_model_t* residency_model = nullptr;
+  loom_target_residency_view_t residency = {};
   // Width of the candidate register tuple.
   uint32_t unit_count = 1;
   // Base of the single leased register.
@@ -459,7 +459,7 @@ uint32_t FindFreeLocationWithStorageLease(
   context.liveness = &liveness;
   context.unit_liveness = &unit_liveness;
   context.target_constraints = &target_constraints;
-  context.residency_model = options.residency_model;
+  context.residency = options.residency;
   context.assignment_map = &assignment_map;
   context.active_set = &active_set;
   context.storage_leases = &storage_leases;
@@ -475,8 +475,8 @@ uint32_t FindFreeLocationWithStorageLease(
 }
 
 uint32_t FindFreeLocationWithStorageLeaseAtResidencyCliff(
-    loom_module_t* module, iree_arena_allocator_t* arena,
-    uint32_t cliff_units) {
+    loom_module_t* module, iree_arena_allocator_t* arena, uint32_t cliff_units,
+    uint32_t tier_limit = UINT32_MAX) {
   const iree_string_view_t resource_names[] = {IREE_SVL("register")};
   const loom_target_residency_cliff_t cliffs[] = {
       {
@@ -501,7 +501,7 @@ uint32_t FindFreeLocationWithStorageLeaseAtResidencyCliff(
       },
   };
   StorageLeaseSearchOptions options;
-  options.residency_model = &residency_model;
+  options.residency = loom_target_residency_view(&residency_model, tier_limit);
   return FindFreeLocationWithStorageLease(module, arena, options);
 }
 
@@ -756,6 +756,17 @@ TEST_F(LowAllocationSearchTest, ReleasesStorageLeaseBeforeResidencyCliff) {
   loom_module_t* module = AllocateModule();
   EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(module, &arena_,
                                                              /*cliff_units=*/2),
+            0u);
+  loom_module_free(module);
+}
+
+TEST_F(LowAllocationSearchTest, KeepsLeaseWhenLaunchAlreadyLimitsResidency) {
+  loom_module_t* module = AllocateModule();
+  EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(
+                module, &arena_, /*cliff_units=*/2, /*tier_limit=*/2),
+            1u);
+  EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(
+                module, &arena_, /*cliff_units=*/2, /*tier_limit=*/3),
             0u);
   loom_module_free(module);
 }

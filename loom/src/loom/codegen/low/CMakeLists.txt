@@ -591,6 +591,7 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::target::registers
+    loom::target::residency
   PUBLIC
 )
 

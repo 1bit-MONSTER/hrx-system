@@ -113,7 +113,7 @@ loom_low_allocation_make_interval_assignment_context(
       .target_constraints = target_constraints,
       .required_register_values = state->options->required_register_values,
       .unit_liveness = &state->unit_liveness,
-      .residency_model = state->options->residency_model,
+      .residency = state->options->residency,
       .storage_leases = storage_leases,
       .arena = arena,
       .function_cfg_graph = &model->cfg_graph,

@@ -966,8 +966,8 @@ static iree_status_t loom_check_emit_write_low_schedule_json(
       .direct_resources = pressure_cliffs,
   };
   loom_low_schedule_options_t options = {
-      .residency_model =
-          pressure_cliff_spec_count != 0 ? &residency_model : NULL,
+      .residency = loom_target_residency_view(
+          pressure_cliff_spec_count != 0 ? &residency_model : NULL, UINT32_MAX),
       .allocation_budgets = budgets,
       .allocation_budget_count = budget_count,
       .emitter = emitter,

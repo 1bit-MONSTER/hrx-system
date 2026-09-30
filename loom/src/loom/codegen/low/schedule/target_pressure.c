@@ -120,11 +120,12 @@ static void loom_low_schedule_score_candidate_resource_pressure(
     const loom_target_residency_cliff_t* cliffs =
         &state->pressure_resources->cliffs[record->next_cliff_index];
     const iree_host_size_t cliff_count = cliff_end - record->next_cliff_index;
+    const uint32_t initial_tier =
+        iree_min(cliffs[0].tier_before, state->options->residency.tier_limit);
     loom_target_residency_cliff_evaluation_t evaluation;
-    loom_target_residency_evaluate_cliffs(cliffs, cliff_count,
-                                          cliffs[0].tier_before,
+    loom_target_residency_evaluate_cliffs(cliffs, cliff_count, initial_tier,
                                           projected_peak_units, &evaluation);
-    const uint32_t penalty = cliffs[0].tier_before - evaluation.tier;
+    const uint32_t penalty = initial_tier - evaluation.tier;
     resource_penalty = iree_math_saturating_add_u32(resource_penalty, penalty);
     if (penalty != 0) {
       loom_low_schedule_record_crossed_pressure_cliff(
@@ -170,14 +171,16 @@ static void loom_low_schedule_score_candidate_pressure_cliffs_for_class(
   }
   const loom_target_residency_cliff_t* cliffs =
       &state->pressure_cliffs->cliffs[first_actionable_cliff];
+  const uint32_t initial_tier =
+      iree_min(cliffs[0].tier_before, state->options->residency.tier_limit);
   loom_target_residency_cliff_evaluation_t evaluation;
   loom_target_residency_evaluate_cliffs(
-      cliffs, cliff_end - first_actionable_cliff, cliffs[0].tier_before,
+      cliffs, cliff_end - first_actionable_cliff, initial_tier,
       projected_live_units, &evaluation);
   // Protect target tiers that the source order preserves. Cliffs already
   // crossed by the authored function are excluded so greedy local decisions
   // do not attempt a global residency recovery.
-  const uint32_t penalty = cliffs[0].tier_before - evaluation.tier;
+  const uint32_t penalty = initial_tier - evaluation.tier;
   score->pressure_cliff_penalty =
       iree_math_saturating_add_u32(score->pressure_cliff_penalty, penalty);
   if (penalty != 0) {

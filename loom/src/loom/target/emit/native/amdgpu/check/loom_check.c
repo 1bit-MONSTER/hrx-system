@@ -373,10 +373,8 @@ static iree_status_t loom_amdgpu_loom_check_build_schedule_models(
     const loom_check_emit_provider_request_t* request,
     loom_symbol_fact_table_t* symbol_facts,
     iree_string_view_t function_symbol_name,
-    const loom_target_residency_model_t** out_residency_model,
     loom_low_schedule_pair_affinity_list_t* out_affinities,
     loom_low_schedule_structural_state_read_list_t* out_state_reads) {
-  *out_residency_model = NULL;
   *out_affinities = loom_low_schedule_pair_affinity_list_empty();
   *out_state_reads = loom_low_schedule_structural_state_read_list_empty();
   loom_check_diagnostic_emitter_capture_t diagnostic_capture = {
@@ -408,7 +406,6 @@ static iree_status_t loom_amdgpu_loom_check_build_schedule_models(
   if (target.descriptor_set == NULL) {
     return iree_ok_status();
   }
-  *out_residency_model = loom_amdgpu_occupancy_residency_model(&target);
   IREE_RETURN_IF_ERROR(loom_amdgpu_vopd_build_schedule_pair_affinities(
       &target, request->case_arena, out_affinities));
   *out_state_reads = loom_amdgpu_descriptor_structural_state_reads();
@@ -507,13 +504,12 @@ static iree_status_t loom_amdgpu_loom_check_emit_provider_execute(
                                                   &options)
           ? &storage_lease_provider
           : NULL;
-  const loom_target_residency_model_t* residency_model = NULL;
   loom_low_schedule_pair_affinity_list_t schedule_pair_affinities =
       loom_low_schedule_pair_affinity_list_empty();
   loom_low_schedule_structural_state_read_list_t schedule_state_reads =
       loom_low_schedule_structural_state_read_list_empty();
   IREE_RETURN_IF_ERROR(loom_amdgpu_loom_check_build_schedule_models(
-      request, &symbol_facts, options.function_symbol_name, &residency_model,
+      request, &symbol_facts, options.function_symbol_name,
       &schedule_pair_affinities, &schedule_state_reads));
   if (request->diagnostic_collector != NULL &&
       request->diagnostic_collector->count != 0) {
@@ -524,10 +520,10 @@ static iree_status_t loom_amdgpu_loom_check_emit_provider_execute(
       options.schedule_diagnostic_flags, options.allocation_diagnostic_flags,
       options.allocation_budgets, options.allocation_budget_count,
       options.allocation_fixed_value_specs,
-      options.allocation_fixed_value_spec_count, residency_model,
-      schedule_pair_affinities, schedule_state_reads,
-      selected_storage_lease_provider, &spill_free_options, &frame,
-      &frame_accepted));
+      options.allocation_fixed_value_spec_count,
+      loom_amdgpu_occupancy_residency_view, schedule_pair_affinities,
+      schedule_state_reads, selected_storage_lease_provider,
+      &spill_free_options, &frame, &frame_accepted));
   if (request->diagnostic_collector != NULL &&
       request->diagnostic_collector->count != 0) {
     return iree_ok_status();

@@ -544,12 +544,12 @@ loom_cc_library(
     iree::base::internal::arena
     loom::codegen::low::allocation
     loom::codegen::low::diagnostics
+    loom::codegen::low::storage_layout
     loom::error::error_defs
     loom::ir
     loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info_defs
-    loom::target::launch
     loom::target::residency
     loom::target::types
     loom::util::json
@@ -569,6 +569,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::target_info
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"

@@ -20,6 +20,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/base/string_builder.h"
 #include "loom/codegen/low/allocation.h"
+#include "loom/codegen/low/storage_layout.h"
 #include "loom/target/arch/amdgpu/target_info_defs.h"
 #include "loom/target/residency.h"
 
@@ -209,9 +210,12 @@ iree_status_t loom_amdgpu_occupancy_build_target_resources(
     loom_amdgpu_occupancy_target_resources_t* out_resources,
     loom_target_residency_constraint_list_t* out_constraints);
 
-// Returns the generated target residency model for |target|.
-const loom_target_residency_model_t* loom_amdgpu_occupancy_residency_model(
-    const loom_low_resolved_target_t* target);
+// Binds the target's immutable register curves to the residency ceiling from
+// the verified function launch and retained storage footprint. Unknown launch
+// sizes keep the hardware upper bound; no IR is inspected or state allocated.
+loom_target_residency_view_t loom_amdgpu_occupancy_residency_view(
+    const loom_low_resolved_target_t* target,
+    const loom_low_storage_layout_space_sizes_t* storage_sizes);
 
 // Appends a compact JSON representation of |table| to |builder|.
 iree_status_t loom_amdgpu_occupancy_format_json(

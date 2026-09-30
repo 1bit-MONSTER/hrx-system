@@ -723,7 +723,7 @@ static uint32_t loom_low_allocation_search_location_residency_tier(
     const loom_low_allocation_search_context_t* context,
     const loom_low_allocation_assignment_t* candidate_template,
     const loom_low_allocation_search_location_choice_t* choice) {
-  const loom_target_residency_model_t* model = context->residency_model;
+  const loom_target_residency_model_t* model = context->residency.model;
   const uint16_t reg_class_id = candidate_template->descriptor_reg_class_id;
   IREE_ASSERT_EQ(model->direct_resources.resource_count,
                  context->descriptor_set->reg_class_count);
@@ -737,7 +737,7 @@ static uint32_t loom_low_allocation_search_location_residency_tier(
       current_units, loom_low_allocation_storage_assignment_pressure_extent(
                          context->descriptor_set, &choice_assignment));
   return loom_target_residency_evaluate_tier_with_direct_resource_override(
-      model,
+      context->residency,
       context->target_constraints->max_assigned_location_end_by_reg_class,
       reg_class_id, choice_units);
 }
@@ -752,7 +752,7 @@ static bool loom_low_allocation_search_location_crosses_residency_cliff(
       context->target_constraints->max_assigned_location_end_by_reg_class;
   const uint32_t current_tier =
       loom_target_residency_evaluate_tier_with_direct_resource_override(
-          context->residency_model, current_units_by_reg_class, reg_class_id,
+          context->residency, current_units_by_reg_class, reg_class_id,
           current_units_by_reg_class[reg_class_id]);
   *out_choice_tier = loom_low_allocation_search_location_residency_tier(
       context, candidate_template, choice);
@@ -855,7 +855,7 @@ bool loom_low_allocation_search_find_free_location(
   loom_low_allocation_search_location_choice_t release_allowed = {0};
   bool searched_release_allowed = false;
   if (release_free.found && has_storage_release_records &&
-      !loom_target_residency_model_is_empty(context->residency_model)) {
+      !loom_target_residency_model_is_empty(context->residency.model)) {
     uint32_t release_free_tier = 0;
     if (loom_low_allocation_search_location_crosses_residency_cliff(
             context, &candidate_template, &release_free, &release_free_tier)) {

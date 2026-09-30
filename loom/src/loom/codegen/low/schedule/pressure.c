@@ -204,7 +204,10 @@ iree_status_t loom_low_schedule_pressure_initialize(
                 state->pressure_cliffs, reg_class_id);
         out_pressure_state
             ->first_actionable_pressure_cliff_indices[reg_class_id] =
-            range.start;
+            range.start +
+            (uint32_t)loom_target_residency_cliff_start_below_tier(
+                &state->pressure_cliffs->cliffs[range.start], range.count,
+                state->options->residency.tier_limit);
       }
     }
     memset(out_pressure_state->candidate_delta_units_by_reg_class, 0,
@@ -307,8 +310,16 @@ iree_status_t loom_low_schedule_pressure_initialize(
            resource_count * sizeof(*out_pressure_state->resources.records));
     for (uint16_t resource_id = 0; resource_id < resource_count;
          ++resource_id) {
+      const loom_target_residency_derived_resource_t* resource =
+          &state->pressure_resources->resources[resource_id];
       out_pressure_state->resources.records[resource_id].next_cliff_index =
-          state->pressure_resources->resources[resource_id].cliff_start;
+          resource->cliff_start;
+      if (resource->cliff_count != 0) {
+        out_pressure_state->resources.records[resource_id].next_cliff_index +=
+            (uint16_t)loom_target_residency_cliff_start_below_tier(
+                &state->pressure_resources->cliffs[resource->cliff_start],
+                resource->cliff_count, state->options->residency.tier_limit);
+      }
     }
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         state->scratch_arena, resource_count,
@@ -427,7 +438,9 @@ static void loom_low_schedule_advance_resource_cliffs(
       break;
     }
     if (mode == LOOM_LOW_SCHEDULE_RESOURCE_HIGH_WATER_SCHEDULED) {
-      const uint32_t penalty = cliff->tier_before - cliff->tier_after;
+      const uint32_t penalty =
+          iree_min(cliff->tier_before, state->options->residency.tier_limit) -
+          cliff->tier_after;
       record->pressure_cliff_penalty =
           iree_math_saturating_add_u32(record->pressure_cliff_penalty, penalty);
       pressure_state->resources.pressure_cliff_penalty =
