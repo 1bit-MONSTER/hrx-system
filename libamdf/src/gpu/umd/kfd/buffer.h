@@ -18,6 +18,10 @@ extern "C" {
 
 typedef struct amdf_gpu_kfd_buffer_t amdf_gpu_kfd_buffer_t;
 
+// KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE spells bit 31 as a signed shift in the
+// native UAPI. Use its unsigned wire value when constructing allocation flags.
+#define AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE (UINT32_C(1) << 31)
+
 // Host-view ownership selected for one native KFD allocation.
 typedef uint32_t amdf_gpu_kfd_buffer_host_access_t;
 enum amdf_gpu_kfd_buffer_host_access_e {

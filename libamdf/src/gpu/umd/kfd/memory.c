@@ -57,11 +57,9 @@ static void amdf_gpu_kfd_memory_plan(
     const amdf_memory_native_create_info_t* create_info,
     amdf_gpu_kfd_memory_plan_t* plan) {
   plan->flags = profile->guaranteed_flags | create_info->required_flags;
-  // KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE uses a signed shift into bit 31 in the
-  // UAPI header. Construct that bit with an unsigned operand for defined C.
   plan->native_flags =
       (create_info->device_access & AMDF_MEMORY_ACCESS_WRITE) != 0
-          ? UINT32_C(1) << 31
+          ? AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE
           : 0;
   if (profile->memory_class == AMDF_MEMORY_CLASS_LOCAL) {
     plan->native_flags |= KFD_IOC_ALLOC_MEM_FLAGS_VRAM;

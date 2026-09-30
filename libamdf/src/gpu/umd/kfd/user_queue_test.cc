@@ -437,7 +437,7 @@ TEST_F(KfdUserQueueTest, PublishesExactNativeQueueAndHostMapping) {
   EXPECT_EQ(native_state_.LiveBufferCount(), 5u);
 
   const uint32_t host_storage_flags =
-      KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+      KFD_IOC_ALLOC_MEM_FLAGS_GTT | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
   EXPECT_EQ(native_state_.buffers[0].create_info.native_flags,
             host_storage_flags);
@@ -452,7 +452,8 @@ TEST_F(KfdUserQueueTest, PublishesExactNativeQueueAndHostMapping) {
   EXPECT_EQ(native_state_.buffers[1].create_info.host_access,
             AMDF_GPU_KFD_BUFFER_HOST_ACCESS_MAPPED);
   EXPECT_EQ(native_state_.buffers[2].create_info.native_flags,
-            KFD_IOC_ALLOC_MEM_FLAGS_VRAM | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+            KFD_IOC_ALLOC_MEM_FLAGS_VRAM |
+                AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                 KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE);
   EXPECT_EQ(native_state_.buffers[2].create_info.byte_length, 4096u);
   EXPECT_EQ(native_state_.buffers[2].create_info.alignment, 4096u);
@@ -465,7 +466,8 @@ TEST_F(KfdUserQueueTest, PublishesExactNativeQueueAndHostMapping) {
   EXPECT_EQ(native_state_.buffers[3].create_info.host_access,
             AMDF_GPU_KFD_BUFFER_HOST_ACCESS_MAPPED);
   EXPECT_EQ(native_state_.buffers[4].create_info.native_flags,
-            KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+            KFD_IOC_ALLOC_MEM_FLAGS_GTT |
+                AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                 KFD_IOC_ALLOC_MEM_FLAGS_COHERENT);
   EXPECT_EQ(native_state_.buffers[4].create_info.byte_length, 4096u);
   EXPECT_EQ(native_state_.buffers[4].create_info.alignment, 4096u);
@@ -620,7 +622,7 @@ TEST_F(KfdUserQueueTest, PublishesExactSdmaQueueAndHostMapping) {
   ASSERT_EQ(native_state_.buffer_create_count, 3);
 
   const uint32_t host_storage_flags =
-      KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+      KFD_IOC_ALLOC_MEM_FLAGS_GTT | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
   EXPECT_EQ(native_state_.buffers[0].create_info.native_flags,
             host_storage_flags);
@@ -629,7 +631,8 @@ TEST_F(KfdUserQueueTest, PublishesExactSdmaQueueAndHostMapping) {
             host_storage_flags | KFD_IOC_ALLOC_MEM_FLAGS_UNCACHED);
   EXPECT_EQ(native_state_.buffers[1].create_info.byte_length, 4096u);
   EXPECT_EQ(native_state_.buffers[2].create_info.native_flags,
-            KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+            KFD_IOC_ALLOC_MEM_FLAGS_GTT |
+                AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                 KFD_IOC_ALLOC_MEM_FLAGS_COHERENT);
   EXPECT_EQ(native_state_.buffers[2].create_info.byte_length, 4096u);
   EXPECT_EQ(native_state_.buffers[2].create_info.host_access,

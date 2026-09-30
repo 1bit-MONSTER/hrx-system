@@ -62,7 +62,7 @@ bool amdf_gpu_kfd_sdma_queue_plan(const amdf_gpu_kfd_topology_t* topology,
     return false;
   }
   const uint32_t host_storage_flags =
-      KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+      KFD_IOC_ALLOC_MEM_FLAGS_GTT | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
   const bool user_gcr =
       (format_features & AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR) != 0;
@@ -121,7 +121,7 @@ bool amdf_gpu_kfd_sdma_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .flush_trigger_storage =
                   {
                       .native_flags = KFD_IOC_ALLOC_MEM_FLAGS_GTT |
-                                      KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+                                      AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                                       KFD_IOC_ALLOC_MEM_FLAGS_COHERENT,
                       .byte_length = AMDF_GPU_KFD_SDMA_PAGE_SIZE,
                       .alignment = AMDF_GPU_KFD_SDMA_PAGE_SIZE,

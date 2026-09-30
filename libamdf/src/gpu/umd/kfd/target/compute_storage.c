@@ -88,7 +88,7 @@ bool amdf_gpu_kfd_compute_storage_plan(
       .context_storage =
           {
               .native_flags = KFD_IOC_ALLOC_MEM_FLAGS_GTT |
-                              KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+                              AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                               KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE |
                               KFD_IOC_ALLOC_MEM_FLAGS_COHERENT,
               .byte_length = (size_t)((all_contexts_byte_length +
@@ -109,7 +109,7 @@ bool amdf_gpu_kfd_compute_storage_plan(
         properties->gfx_ip.minor == 4)) {
     plan.end_of_pipe_storage = (amdf_gpu_kfd_buffer_create_info_t){
         .native_flags = KFD_IOC_ALLOC_MEM_FLAGS_VRAM |
-                        KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+                        AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                         KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE,
         .byte_length = 4096,
         .alignment = page_size,

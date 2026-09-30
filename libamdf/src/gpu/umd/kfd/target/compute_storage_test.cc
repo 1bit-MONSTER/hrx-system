@@ -45,6 +45,9 @@ TEST(KfdComputeStorageTest, RdnaUsesNativeSaveSizesForBothPacketLanguages) {
       EXPECT_EQ(plan.debug_byte_offset, 19013632u);
       EXPECT_EQ(plan.debug_byte_length, 40960u);
       EXPECT_EQ(plan.context_storage.byte_length, 19054592u);
+      // Writable, executable, coherent GTT and writable, executable VRAM.
+      EXPECT_EQ(plan.context_storage.native_flags, UINT32_C(0xc4000002));
+      EXPECT_EQ(plan.end_of_pipe_storage.native_flags, UINT32_C(0xc0000001));
       EXPECT_EQ(plan.context_storage.host_access,
                 AMDF_GPU_KFD_BUFFER_HOST_ACCESS_MAPPED);
       EXPECT_EQ(plan.end_of_pipe_storage.byte_length, 4096u);

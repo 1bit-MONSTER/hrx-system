@@ -68,7 +68,7 @@ bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
     return false;
   }
   const uint32_t host_storage_flags =
-      KFD_IOC_ALLOC_MEM_FLAGS_GTT | KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+      KFD_IOC_ALLOC_MEM_FLAGS_GTT | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
   const amdf_gpu_kfd_user_queue_plan_t plan = {
       .family = amdf_gpu_kfd_pm4_queue_family_properties(),
@@ -107,7 +107,7 @@ bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
               .flush_trigger_storage =
                   {
                       .native_flags = KFD_IOC_ALLOC_MEM_FLAGS_GTT |
-                                      KFD_IOC_ALLOC_MEM_FLAGS_WRITABLE |
+                                      AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
                                       KFD_IOC_ALLOC_MEM_FLAGS_COHERENT,
                       .byte_length = AMDF_GPU_KFD_PM4_PAGE_SIZE,
                       .alignment = AMDF_GPU_KFD_PM4_PAGE_SIZE,
