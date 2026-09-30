@@ -41,6 +41,10 @@ typedef struct PipelineRunCounts {
   int last_source_combination_ordinal = 0;
   // First target legalization pass that selects physical representations.
   int first_target_legalization_ordinal = 0;
+  // Number of sanitizer-driven vector-memory scalarization pass runs.
+  int vector_memory_to_scalar = 0;
+  // Lexical pass-run ordinal of vector-memory scalarization.
+  int vector_memory_to_scalar_ordinal = 0;
   // Number of source-loop unrolling pass runs.
   int source_loop_unrolling = 0;
   // Lexical pass-run ordinal of source-loop unrolling.
@@ -168,6 +172,10 @@ iree_status_t InspectPipelineRun(void* user_data, loom_op_t* op,
       counts->first_target_legalization_ordinal =
           count_context->current_run_ordinal;
     }
+  } else if (iree_string_view_equal(key, IREE_SV("vector-memory-to-scalar"))) {
+    ++counts->vector_memory_to_scalar;
+    counts->vector_memory_to_scalar_ordinal =
+        count_context->current_run_ordinal;
   } else if (iree_string_view_equal(key, IREE_SV("unroll-scf-for"))) {
     ++counts->source_loop_unrolling;
     counts->source_loop_unrolling_ordinal = count_context->current_run_ordinal;
@@ -320,6 +328,7 @@ TEST_F(TargetPipelineTest, ZeroChecksStillMaterializesAuthoredAssertions) {
   EXPECT_TRUE(iree_string_view_is_empty(counts.source_to_low_diagnostics));
   EXPECT_TRUE(
       iree_string_view_is_empty(counts.source_to_low_sanitizer_reporting));
+  EXPECT_EQ(counts.vector_memory_to_scalar, 0);
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 0);
   EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
@@ -475,6 +484,7 @@ TEST_F(TargetPipelineTest, EnabledChecksBuildSanitizerPassSlots) {
   EXPECT_EQ(counts.source_to_low, 1);
   EXPECT_TRUE(
       iree_string_view_is_empty(counts.source_to_low_sanitizer_reporting));
+  EXPECT_EQ(counts.vector_memory_to_scalar, 1);
   EXPECT_EQ(counts.sanitizer_insert_assertions, 1);
   EXPECT_TRUE(iree_string_view_equal(counts.sanitizer_insert_checks,
                                      IREE_SV("access|value|operation")));
@@ -482,6 +492,8 @@ TEST_F(TargetPipelineTest, EnabledChecksBuildSanitizerPassSlots) {
   EXPECT_EQ(counts.sanitizer_materialize_assertions, 1);
   EXPECT_LT(counts.sanitizer_insert_assertions_ordinal,
             counts.sanitizer_materialize_assertions_ordinal);
+  EXPECT_LT(counts.vector_memory_to_scalar_ordinal,
+            counts.sanitizer_insert_assertions_ordinal);
   EXPECT_LT(counts.sanitizer_materialize_assertions_ordinal,
             counts.source_to_low_ordinal);
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
@@ -506,6 +518,7 @@ TEST_F(TargetPipelineTest, RaceChecksBuildRaceObservationPassSlot) {
 
   const PipelineRunCounts counts = CountPipelineRuns(module.get(), pipeline_op);
   EXPECT_EQ(counts.source_to_low, 1);
+  EXPECT_EQ(counts.vector_memory_to_scalar, 1);
   EXPECT_EQ(counts.sanitizer_insert_assertions, 0);
   EXPECT_EQ(counts.sanitizer_insert_race_observations, 1);
   EXPECT_TRUE(iree_string_view_equal(counts.sanitizer_insert_race_checks,

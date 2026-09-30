@@ -109,7 +109,7 @@ static iree_status_t loom_vector_legalize_descriptor(
   return iree_ok_status();
 }
 
-static iree_status_t loom_vector_legalize_gather_scatter(
+static iree_status_t loom_vector_legalize_non_dense_memory(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -511,6 +511,22 @@ static iree_status_t loom_vector_legalize_ieee_extrema(
 
 static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     {
+        .root_kind = LOOM_OP_VECTOR_LOAD_MASK,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_STORE_MASK,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_LOAD_EXPAND,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_STORE_COMPRESS,
+        .legalize = loom_vector_legalize_non_dense_memory,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_MINIMUMF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_F32,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
@@ -524,19 +540,19 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_GATHER,
-        .legalize = loom_vector_legalize_gather_scatter,
+        .legalize = loom_vector_legalize_non_dense_memory,
     },
     {
         .root_kind = LOOM_OP_VECTOR_GATHER_MASK,
-        .legalize = loom_vector_legalize_gather_scatter,
+        .legalize = loom_vector_legalize_non_dense_memory,
     },
     {
         .root_kind = LOOM_OP_VECTOR_SCATTER,
-        .legalize = loom_vector_legalize_gather_scatter,
+        .legalize = loom_vector_legalize_non_dense_memory,
     },
     {
         .root_kind = LOOM_OP_VECTOR_SCATTER_MASK,
-        .legalize = loom_vector_legalize_gather_scatter,
+        .legalize = loom_vector_legalize_non_dense_memory,
     },
     {
         .root_kind = LOOM_OP_VECTOR_ATOMIC_REDUCE,
