@@ -510,6 +510,20 @@ func.def target(@target) @index_shift_requires_u5_amount(%input: index, %amount0
 
 spirv.target<vulkan1_3> @target
 
+func.def target(@target) @index_shift_requires_bounded_amount(%input: index, %amount: index) -> (index, index, index) {
+  // ERROR@+1: SPIRV/027 {op_name="index.shli", field_name="rhs", constraint_key="spirv.index.shift_amount.u5"}
+  %left = index.shli %input, %amount : index
+  // ERROR@+1: SPIRV/027 {op_name="index.shrui", field_name="rhs", constraint_key="spirv.index.shift_amount.u5"}
+  %logical = index.shrui %input, %amount : index
+  // ERROR@+1: SPIRV/027 {op_name="index.shrsi", field_name="rhs", constraint_key="spirv.index.shift_amount.u5"}
+  %signed = index.shrsi %input, %amount : index
+  func.return %left, %logical, %signed : index, index, index
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
 func.def target(@target) @ordinary_vector_rejects_five_lanes() -> (vector<5xi32>) {
   // ERROR@+1: TARGET/002 {field_name="result", actual_type="vector<5xi32>"}
   %value = vector.constant 0 : vector<5xi32>
