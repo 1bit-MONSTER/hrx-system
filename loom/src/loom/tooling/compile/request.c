@@ -6,6 +6,8 @@
 
 #include "loom/tooling/compile/request.h"
 
+#include <string.h>
+
 #include "loom/ops/op_defs.h"
 #include "loom/ops/pipeline/ops.h"
 #include "loom/target/entry_selection.h"
@@ -152,6 +154,8 @@ typedef struct loom_compile_selection_summary_t {
   loom_compile_product_t product;
   // Number of explicit or default roots, or zero for whole-module selection.
   iree_host_size_t root_count;
+  // Total bytes required to retain default root names.
+  iree_host_size_t root_name_bytes;
   // Common authored kernel target type.
   const loom_target_fact_type_t* target_fact_type;
   // Number of selected kernel roots without an authored target.
@@ -325,6 +329,14 @@ static iree_status_t loom_compile_request_summarize_default_roots(
         loom_compile_request_name_is_excluded(module, excluded_roots, symbol)) {
       continue;
     }
+    const iree_string_view_t symbol_name =
+        loom_string_table_get(&module->strings, symbol->name_id);
+    if (!iree_host_size_checked_add(out_summary->root_name_bytes,
+                                    symbol_name.size,
+                                    &out_summary->root_name_bytes)) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "compile root names are too large");
+    }
     ++out_summary->root_count;
     if (product == LOOM_COMPILE_PRODUCT_KERNEL) {
       IREE_RETURN_IF_ERROR(loom_compile_request_merge_kernel_target(
@@ -354,7 +366,8 @@ static loom_compile_product_t loom_compile_request_infer_default_product(
 static iree_status_t loom_compile_request_collect_default_root_names(
     const loom_module_t* module, loom_compile_product_t product,
     iree_string_view_list_t excluded_roots, iree_host_size_t root_count,
-    iree_arena_allocator_t* arena, iree_string_view_list_t* out_roots) {
+    iree_host_size_t root_name_bytes, iree_arena_allocator_t* arena,
+    iree_string_view_list_t* out_roots) {
   *out_roots = iree_string_view_list_empty();
   if (root_count == 0) {
     return iree_ok_status();
@@ -362,6 +375,10 @@ static iree_status_t loom_compile_request_collect_default_root_names(
   iree_string_view_t* root_names = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, root_count, sizeof(*root_names), (void**)&root_names));
+  char* root_name_storage = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, root_name_bytes, (void**)&root_name_storage));
+  char* next_root_name = root_name_storage;
   iree_host_size_t root_ordinal = 0;
   for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
     const loom_symbol_t* symbol = &module->symbols.entries[i];
@@ -370,9 +387,16 @@ static iree_status_t loom_compile_request_collect_default_root_names(
         loom_compile_request_name_is_excluded(module, excluded_roots, symbol)) {
       continue;
     }
-    root_names[root_ordinal++] =
+    const iree_string_view_t symbol_name =
         loom_string_table_get(&module->strings, symbol->name_id);
+    memcpy(next_root_name, symbol_name.data, symbol_name.size);
+    root_names[root_ordinal] =
+        iree_make_string_view(next_root_name, symbol_name.size);
+    next_root_name += symbol_name.size;
+    ++root_ordinal;
   }
+  IREE_ASSERT_EQ(root_ordinal, root_count);
+  IREE_ASSERT_EQ(next_root_name, root_name_storage + root_name_bytes);
   *out_roots = (iree_string_view_list_t){
       .count = root_ordinal,
       .values = root_names,
@@ -541,8 +565,8 @@ static iree_status_t loom_compile_request_resolve_selection(
                             "compile product selection is invalid");
   }
   return loom_compile_request_collect_default_root_names(
-      module, selected_product, excluded_roots, out_summary->root_count, arena,
-      out_roots);
+      module, selected_product, excluded_roots, out_summary->root_count,
+      out_summary->root_name_bytes, arena, out_roots);
 }
 
 static iree_status_t loom_compile_request_select_explicit_target(

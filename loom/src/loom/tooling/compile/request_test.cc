@@ -608,6 +608,7 @@ command.program.def public @Command123() launch() {
   EXPECT_EQ(request.producer.kind, LOOM_COMPILE_PRODUCER_COMMAND);
   EXPECT_EQ(request.target_fact_type, nullptr);
   ASSERT_EQ(request.roots.count, 1u);
+  module.reset();
   EXPECT_TRUE(
       iree_string_view_equal(request.roots.values[0], IREE_SV("Command123")));
 }

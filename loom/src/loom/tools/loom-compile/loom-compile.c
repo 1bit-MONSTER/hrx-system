@@ -586,6 +586,7 @@ static void loom_compile_record_terminal_report_status(
 
 static iree_status_t loom_compile_emit_command(
     loom_run_session_t* session, loom_run_module_t* run_module,
+    const loom_compile_request_t* request,
     const loom_compile_options_t* compile_options,
     loom_compile_report_capture_t* compile_report_capture,
     iree_allocator_t allocator, bool* out_emitted) {
@@ -607,6 +608,7 @@ static iree_status_t loom_compile_emit_command(
   return loom_compile_command_backend_emit(
       session, run_module,
       &(loom_compile_command_backend_options_t){
+          .root_symbols = request->roots,
           .artifact_directory =
               iree_make_cstring_view(FLAG_emit_command_artifacts),
           .kernel_request_directory =
@@ -1170,8 +1172,8 @@ int main(int argc, char** argv) {
         break;
       case LOOM_COMPILE_PRODUCER_COMMAND:
         status = loom_compile_emit_command(
-            &session, &run_module, &compile_options, &compile_report_capture,
-            allocator, &emitted);
+            &session, &run_module, &request, &compile_options,
+            &compile_report_capture, allocator, &emitted);
         break;
       case LOOM_COMPILE_PRODUCER_INVALID:
         status = iree_make_status(IREE_STATUS_INTERNAL,

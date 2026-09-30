@@ -19,6 +19,10 @@ extern "C" {
 #endif
 
 typedef struct loom_compile_command_backend_options_t {
+  // Nonempty resolved command roots in requested artifact order. Repeated
+  // roots produce repeated artifacts.
+  iree_string_view_list_t root_symbols;
+
   // Directory receiving canonical root artifact files.
   iree_string_view_t artifact_directory;
 
@@ -38,7 +42,7 @@ typedef struct loom_compile_command_backend_options_t {
   uint32_t max_errors;
 } loom_compile_command_backend_options_t;
 
-// Emits all retained public command roots from an indexed source module.
+// Emits the resolved command roots from an indexed source module.
 //
 // Root artifacts are written to |options->artifact_directory| using canonical
 // ordinal filenames. The schema-versioned manifest at |manifest_path| maps

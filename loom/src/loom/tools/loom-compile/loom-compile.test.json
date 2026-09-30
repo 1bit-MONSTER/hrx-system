@@ -275,6 +275,36 @@
       ]
     },
     {
+      "name": "preserves command root order and duplicates",
+      "run": {
+        "tool": "loom-compile",
+        "args": [
+          "{srcdir}/testdata/command_artifacts.loom",
+          "--product=command",
+          "--format=loom-command",
+          "--root=@increment_then_double",
+          "--root=@increment_once",
+          "--root=@increment_then_double",
+          "--output={tmp}/ordered-manifest.json",
+          "--emit-command-artifacts={tmp}/ordered-commands"
+        ]
+      },
+      "files": [
+        {
+          "path": "{tmp}/ordered-manifest.json",
+          "contains": [
+            "\"symbol\":\"increment_then_double\"",
+            "\"symbol\":\"increment_once\"",
+            "\"symbol\":\"increment_then_double\""
+          ]
+        },
+        {
+          "path": "{tmp}/ordered-commands/program-2.loomcmd",
+          "non_empty": true
+        }
+      ]
+    },
+    {
       "name": "requires command artifact directory",
       "run": {
         "tool": "loom-compile",
