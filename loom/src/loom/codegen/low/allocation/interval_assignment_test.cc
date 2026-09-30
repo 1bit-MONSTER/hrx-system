@@ -176,8 +176,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.remarks, nullptr);
   EXPECT_TRUE(result.has_packable_aggregates);
 
-  loom_module_value_ordinal_scratch_clear(module, value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 
@@ -397,10 +396,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.assignments[2].location_base, 3u);
   EXPECT_EQ(result.assignments[2].location_count, 2u);
 
-  loom_module_value_ordinal_scratch_clear(module, first_value);
-  loom_module_value_ordinal_scratch_clear(module, second_value);
-  loom_module_value_ordinal_scratch_clear(module, aggregate_value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 
@@ -569,9 +565,7 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.assignments[1].location_base, 3u);
   EXPECT_FALSE(result.has_packable_aggregates);
 
-  loom_module_value_ordinal_scratch_clear(module, source_value);
-  loom_module_value_ordinal_scratch_clear(module, result_value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 

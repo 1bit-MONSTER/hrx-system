@@ -492,7 +492,21 @@ def test_compiler_descriptor_rows_span_source_tables() -> None:
         )
 
 
-def test_compiler_rejects_contradictory_storage_lease_boundary_flags() -> None:
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        ((), "must start at issue"),
+        (
+            (
+                StorageLeaseFlag.STARTS_AT_ISSUE,
+                StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY,
+                StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY,
+            ),
+            "cannot both release before and carry across a boundary",
+        ),
+    ],
+)
+def test_compiler_rejects_invalid_storage_lease_flags(flags: tuple[StorageLeaseFlag, ...], message: str) -> None:
     lease = StorageLease(
         kind=StorageLeaseKind.RESULT_WRITE,
         attachment=StorageLeaseAttachment.RESULT,
@@ -506,10 +520,7 @@ def test_compiler_rejects_contradictory_storage_lease_boundary_flags() -> None:
         release_action_name="test.release",
         release_reason_id=1,
         release_reason_name="test.result_reuse",
-        flags=(
-            StorageLeaseFlag.RELEASE_BEFORE_BOUNDARY,
-            StorageLeaseFlag.MAY_CARRY_ACROSS_BOUNDARY,
-        ),
+        flags=flags,
     )
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
@@ -522,7 +533,7 @@ def test_compiler_rejects_contradictory_storage_lease_boundary_flags() -> None:
 
     with pytest.raises(
         ValueError,
-        match=re.escape("descriptor 'test.add.i32' storage lease 0 cannot both release before and carry across a boundary"),
+        match=re.escape(f"descriptor 'test.add.i32' storage lease 0 {message}"),
     ):
         compiler.compile_descriptor_set(descriptor_set)
 

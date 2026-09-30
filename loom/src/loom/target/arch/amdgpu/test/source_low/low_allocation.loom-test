@@ -1,3 +1,25 @@
+// A pending load and its non-writing identities share one register. The real
+// arithmetic consumer still waits for the memory result before reading it.
+// RUN: emit amdgpu-assembly @loaded_identity_chain strategy=source
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @loaded_identity_chain(%address: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %loaded = ds_read_b32 %address
+  %first_identity = low.assume %loaded [range(%loaded, 0, 1024)] : reg<amdgpu.vgpr>
+  %second_identity = low.assume %first_identity [range(%first_identity, 0, 1024)] : reg<amdgpu.vgpr>
+  %result = v_add_f32 %loaded, %second_identity
+  return %result
+}
+
+// ----
+  ds_read_b32 v0, v0 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_add_f32 v0, v0, v0
+  s_endpgm
+
+// ====
+
 // RUN: with-checks emit low-allocation-json @dead_sgpr_result_preserves_live_predicate
 
 amdgpu.target<gfx1100> @target

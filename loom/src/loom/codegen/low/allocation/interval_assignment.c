@@ -20,6 +20,7 @@
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/diagnostics.h"
+#include "loom/ir/local_value_domain.h"
 
 typedef struct loom_low_allocation_spill_decision_t {
   // Assignment selected for spilling, in decision order.
@@ -57,13 +58,6 @@ typedef struct loom_low_allocation_interval_assignment_state_t {
   // Mutable assignment, spill, remark, and lookup state being built.
   loom_low_allocation_interval_assignment_result_t result;
 } loom_low_allocation_interval_assignment_state_t;
-
-static bool loom_low_allocation_interval_assignment_value_ordinal_for_value(
-    const loom_low_allocation_interval_assignment_state_t* state,
-    loom_value_id_t value_id, loom_value_ordinal_t* out_value_ordinal) {
-  return loom_low_allocation_assignment_map_value_ordinal_for_value(
-      &state->result.assignment_map, value_id, out_value_ordinal);
-}
 
 static uint32_t
 loom_low_allocation_interval_assignment_unit_point_start_for_value_ordinal(
@@ -365,28 +359,31 @@ static iree_status_t loom_low_allocation_interval_assignment_record_failure(
 }
 
 static const loom_low_allocation_assignment_t*
-loom_low_allocation_interval_assignment_current_assignment_for_value_ordinal(
+loom_low_allocation_interval_assignment_tied_source_assignment(
     const loom_low_allocation_interval_assignment_state_t* state,
     loom_value_ordinal_t value_ordinal) {
-  return loom_low_allocation_assignment_map_assignment_for_value_ordinal(
-      &state->result.assignment_map, value_ordinal, NULL);
-}
-
-static iree_status_t
-loom_low_allocation_interval_assignment_value_ordinal_for_interval(
-    const loom_low_allocation_interval_assignment_state_t* state,
-    const loom_liveness_interval_t* interval,
-    loom_value_ordinal_t* out_value_ordinal) {
-  loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-  if (!loom_low_allocation_interval_assignment_value_ordinal_for_value(
-          state, interval->value_id, &value_ordinal)) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "low allocation interval value %u is outside the local value domain",
-        (unsigned)interval->value_id);
+  const loom_low_placement_table_t* placement = state->context->placement;
+  const loom_low_placement_relation_range_t range =
+      loom_low_placement_relation_range_for_value_ordinal(placement,
+                                                          value_ordinal);
+  for (uint32_t i = 0; i < range.count; ++i) {
+    const loom_low_placement_relation_t* relation =
+        &placement->relations[range.start + i];
+    if (relation->cause != LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
+      continue;
+    }
+    const uint32_t assignment_index =
+        state->result
+            .assignment_indices_by_value_ordinal[relation->source_ordinal];
+    IREE_ASSERT_NE(assignment_index, UINT32_MAX,
+                   "a tied source must be assigned before its result");
+    const loom_low_allocation_assignment_t* assignment =
+        &state->result.assignments[assignment_index];
+    return loom_low_allocation_assignment_is_register_like(assignment)
+               ? assignment
+               : NULL;
   }
-  *out_value_ordinal = value_ordinal;
-  return iree_ok_status();
+  return NULL;
 }
 
 static iree_status_t loom_low_allocation_interval_assignment_consumption_query(
@@ -488,36 +485,11 @@ loom_low_allocation_interval_assignment_spill_active_assignment_set(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_allocation_interval_assignment_append_assignment(
-    loom_low_allocation_interval_assignment_state_t* state,
+static loom_low_allocation_assignment_t
+loom_low_allocation_interval_assignment_prepare_assignment(
+    const loom_low_allocation_interval_assignment_state_t* state,
     const loom_low_allocation_assignment_t* assignment,
-    const loom_value_id_t* ignored_storage_lease_value_ids,
-    uint16_t ignored_storage_lease_value_count,
-    uint32_t* out_assignment_index) {
-  if (state->result.assignment_count >= UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "allocation table exceeds uint32_t range");
-  }
-  loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-  if (!loom_low_allocation_interval_assignment_value_ordinal_for_value(
-          state, assignment->value_id, &value_ordinal)) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "low allocation saw assignment for value %u outside the analyzed "
-        "liveness value range",
-        (unsigned)assignment->value_id);
-  }
-  if (state->result.assignment_indices_by_value_ordinal[value_ordinal] !=
-      UINT32_MAX) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "low allocation saw duplicate assignment for value "
-                            "%u",
-                            (unsigned)assignment->value_id);
-  }
-  // Fixed locations are validated when resolved; search and coalescing only
-  // select locations within the resolved capacity. Committing that selection
-  // updates allocation state without repeating the input-boundary checks.
-  const uint32_t assignment_index = (uint32_t)state->result.assignment_count;
+    loom_value_ordinal_t value_ordinal) {
   loom_low_allocation_assignment_t stored_assignment = *assignment;
   if (stored_assignment.start_point ==
       state->context->unit_liveness->values[value_ordinal]
@@ -539,36 +511,63 @@ static iree_status_t loom_low_allocation_interval_assignment_append_assignment(
       loom_low_allocation_live_range_assignment_max_unit_end_point(
           state->context->unit_liveness->end_points,
           state->context->unit_liveness->point_count, &stored_assignment);
+  return stored_assignment;
+}
+
+// Publishes one value's assignment and attached lease records. Required ties
+// inherit an existing physical reservation; only fresh acquisitions release
+// conflicting leases before reaching this common owner.
+static uint32_t loom_low_allocation_interval_assignment_publish_assignment(
+    loom_low_allocation_interval_assignment_state_t* state,
+    const loom_low_allocation_assignment_t* assignment,
+    loom_value_ordinal_t value_ordinal) {
+  const uint32_t assignment_index = (uint32_t)state->result.assignment_count;
+  state->result.assignments[state->result.assignment_count++] = *assignment;
+  state->result.assignment_map.assignment_count =
+      state->result.assignment_count;
+  state->result.assignment_indices_by_value_ordinal[value_ordinal] =
+      assignment_index;
+  loom_low_allocation_target_constraints_record_location_extent(
+      state->context->target_constraints, assignment->descriptor_reg_class_id,
+      assignment->location_kind, assignment->location_base,
+      assignment->location_count);
+  loom_low_allocation_storage_lease_state_record_assignment(
+      state->context->storage_leases, state->context->target->descriptor_set,
+      state->context->liveness, assignment, assignment_index, value_ordinal);
+  // Spill slots are unique, monotonically assigned storage. They cannot
+  // conflict with register candidates and need no active-set membership.
+  if (loom_low_allocation_assignment_is_register_like(assignment)) {
+    loom_low_allocation_active_set_insert(
+        &state->active, state->context->target->descriptor_set,
+        state->result.assignments, state->result.assignment_count,
+        assignment_index);
+  }
+  return assignment_index;
+}
+
+static iree_status_t loom_low_allocation_interval_assignment_append_assignment(
+    loom_low_allocation_interval_assignment_state_t* state,
+    const loom_low_allocation_assignment_t* assignment,
+    const loom_value_id_t* ignored_storage_lease_value_ids,
+    uint16_t ignored_storage_lease_value_count,
+    uint32_t* out_assignment_index) {
+  const loom_value_ordinal_t value_ordinal = loom_local_value_domain_ordinal(
+      state->context->value_domain, assignment->value_id);
+  const loom_low_allocation_assignment_t stored_assignment =
+      loom_low_allocation_interval_assignment_prepare_assignment(
+          state, assignment, value_ordinal);
+  // Fixed locations are validated when resolved; search and coalescing only
+  // select locations within the resolved capacity. Acquiring that selection
+  // records completion actions without repeating input-boundary checks.
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_storage_lease_state_record_release_actions(
           state->context->storage_leases,
           state->context->target->descriptor_set, state->context->liveness,
           &stored_assignment, ignored_storage_lease_value_ids,
           ignored_storage_lease_value_count));
-  state->result.assignments[state->result.assignment_count++] =
-      stored_assignment;
-  state->result.assignment_map.assignment_count =
-      state->result.assignment_count;
-  state->result.assignment_indices_by_value_ordinal[value_ordinal] =
-      assignment_index;
-  loom_low_allocation_target_constraints_record_location_extent(
-      state->context->target_constraints,
-      stored_assignment.descriptor_reg_class_id,
-      stored_assignment.location_kind, stored_assignment.location_base,
-      stored_assignment.location_count);
-  IREE_RETURN_IF_ERROR(
-      loom_low_allocation_storage_lease_state_record_assignment(
-          state->context->storage_leases,
-          state->context->target->descriptor_set, state->context->liveness,
-          &stored_assignment, assignment_index, value_ordinal));
-  // Spill slots are unique, monotonically assigned storage. They cannot
-  // conflict with register candidates and need no active-set membership.
-  if (loom_low_allocation_assignment_is_register_like(&stored_assignment)) {
-    loom_low_allocation_active_set_insert(
-        &state->active, state->context->target->descriptor_set,
-        state->result.assignments, state->result.assignment_count,
-        assignment_index);
-  }
+  const uint32_t assignment_index =
+      loom_low_allocation_interval_assignment_publish_assignment(
+          state, &stored_assignment, value_ordinal);
   if (out_assignment_index) {
     *out_assignment_index = assignment_index;
   }
@@ -579,12 +578,11 @@ static iree_status_t
 loom_low_allocation_interval_assignment_append_assignment_callback(
     void* user_data, const loom_low_allocation_assignment_t* assignment,
     const loom_value_id_t* ignored_storage_lease_value_ids,
-    uint16_t ignored_storage_lease_value_count,
-    uint32_t* out_assignment_index) {
+    uint16_t ignored_storage_lease_value_count) {
   return loom_low_allocation_interval_assignment_append_assignment(
       (loom_low_allocation_interval_assignment_state_t*)user_data, assignment,
       ignored_storage_lease_value_ids, ignored_storage_lease_value_count,
-      out_assignment_index);
+      /*out_assignment_index=*/NULL);
 }
 
 static iree_status_t
@@ -721,12 +719,38 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
         &state->active, state->result.assignments,
         state->result.assignment_count, entry->acquisition_start_point);
 
-    loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-    IREE_RETURN_IF_ERROR(
-        loom_low_allocation_interval_assignment_value_ordinal_for_interval(
-            state, interval, &value_ordinal));
-    if (loom_low_allocation_interval_assignment_current_assignment_for_value_ordinal(
-            state, value_ordinal)) {
+    const loom_value_ordinal_t value_ordinal = loom_local_value_domain_ordinal(
+        context->value_domain, interval->value_id);
+    if (state->result.assignment_indices_by_value_ordinal[value_ordinal] !=
+        UINT32_MAX) {
+      continue;
+    }
+
+    const loom_low_allocation_assignment_t* tied_source =
+        loom_low_allocation_interval_assignment_tied_source_assignment(
+            state, value_ordinal);
+    if (tied_source != NULL) {
+      // Placement and unit liveness established the whole component's location
+      // constraints and reservation before its first member was assigned.
+      // Verified ties preserve the source's complete register class and width.
+      const loom_low_allocation_assignment_t inherited_assignment = {
+          .value_id = interval->value_id,
+          .value_class = interval->value_class,
+          .descriptor_reg_class_id = tied_source->descriptor_reg_class_id,
+          .start_point = entry->acquisition_start_point,
+          .end_point =
+              loom_low_allocation_live_range_interval_storage_end_point(
+                  interval),
+          .unit_count = interval->unit_count,
+          .location_kind = tied_source->location_kind,
+          .location_base = tied_source->location_base,
+          .location_count = tied_source->location_count,
+      };
+      const loom_low_allocation_assignment_t assignment =
+          loom_low_allocation_interval_assignment_prepare_assignment(
+              state, &inherited_assignment, value_ordinal);
+      loom_low_allocation_interval_assignment_publish_assignment(
+          state, &assignment, value_ordinal);
       continue;
     }
 
@@ -746,13 +770,6 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
             loom_low_allocation_interval_assignment_consumption_query_callback,
         .user_data = state,
     };
-
-    bool assigned_tied_interval = false;
-    IREE_RETURN_IF_ERROR(loom_low_allocation_coalescing_assign_tied_interval(
-        &coalescing_context, interval, &assigned_tied_interval));
-    if (assigned_tied_interval) {
-      continue;
-    }
 
     bool assigned_concat_source_interval = false;
     IREE_RETURN_IF_ERROR(
