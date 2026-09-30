@@ -73,8 +73,6 @@ static const loom_target_profile_t kOtherProfile = {
 };
 static const loom_artifact_provider_t kFakeArtifactProvider = {
     /*.name=*/IREE_SVL("fake-artifact"),
-    /*.public_artifact_format=*/IREE_SVL("FakeExecutableFormat123"),
-    /*.flags=*/LOOM_ARTIFACT_PROVIDER_FLAG_CANONICAL,
     /*.target_profile_type=*/&kFakeProfileType,
 };
 

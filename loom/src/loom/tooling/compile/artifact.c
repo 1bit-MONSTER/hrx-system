@@ -139,23 +139,6 @@ iree_status_t loom_artifact_candidate_emit_target(
   return status;
 }
 
-iree_status_t loom_artifact_candidate_emit_module_target(
-    const loom_artifact_provider_t* provider, loom_module_t* module,
-    const loom_compile_options_t* options, iree_allocator_t allocator,
-    loom_artifact_candidate_t* out_candidate) {
-  loom_artifact_candidate_initialize(provider, options, allocator,
-                                     out_candidate);
-  const loom_artifact_target_t authored_target = {0};
-  iree_status_t status = loom_artifact_candidate_emit(
-      provider, &authored_target, module, options, allocator, out_candidate);
-  loom_artifact_candidate_record_report_status(options, out_candidate,
-                                               iree_status_code(status));
-  if (!iree_status_is_ok(status)) {
-    loom_artifact_candidate_deinitialize(out_candidate);
-  }
-  return status;
-}
-
 void loom_artifact_candidate_deinitialize(
     loom_artifact_candidate_t* candidate) {
   if (candidate == NULL) {
