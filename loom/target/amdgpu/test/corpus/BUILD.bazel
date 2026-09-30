@@ -75,6 +75,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "control/schedule/address_domains.loom",
     "memory/address/tiled_channel.loom",
     "memory/buffer/selection.loom",
+    "memory/packed/transport.loom",
     "memory/storage/word.loom",
     "numeric/conversion/bfloat_rounding.loom",
     "numeric/conversion/integer_float8.loom",
