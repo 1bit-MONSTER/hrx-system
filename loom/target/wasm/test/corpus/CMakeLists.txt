@@ -600,6 +600,12 @@ loom_corpus_build(
     "numeric/vector/packed_selection.loom"
   EXCLUDES
     "loom::target::wasm::simd128"
+    "control/schedule/ordered_read_ahead.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "control/schedule/unroll_scope.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
     "kernel/subgroup/active_predicate.loom"
     "Wasm has no kernel artifact format."
     "loom::target::wasm::simd128"

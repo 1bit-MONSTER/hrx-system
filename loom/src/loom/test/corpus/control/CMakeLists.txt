@@ -18,6 +18,8 @@ loom_corpus_sources(
     "branch/structured.loom"
     "loop/vector_recurrence.loom"
     "schedule/address_domains.loom"
+    "schedule/ordered_read_ahead.loom"
+    "schedule/unroll_scope.loom"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

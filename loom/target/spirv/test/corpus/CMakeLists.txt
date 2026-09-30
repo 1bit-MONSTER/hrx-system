@@ -43,6 +43,88 @@ endif()
 
 loom_test_module(
   NAME
+    ordered_read_ahead_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/schedule/ordered_read_ahead.loom"
+)
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    ordered_read_ahead_test_execute_spirv_vulkan_hardware_test
+  MODULE
+    "::ordered_read_ahead_test_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+loom_check_compile_tests(
+  NAME
+    "ordered_read_ahead_test"
+  SRC
+    "::ordered_read_ahead_test_module"
+  TARGETS
+    loom::target::spirv::vulkan1.3+bda
+)
+
+loom_test_module(
+  NAME
+    scheduled_unroll_scope_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/schedule/unroll_scope.loom"
+)
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    scheduled_unroll_scope_test_execute_spirv_vulkan_hardware_test
+  MODULE
+    "::scheduled_unroll_scope_test_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+loom_check_compile_tests(
+  NAME
+    "scheduled_unroll_scope_test"
+  SRC
+    "::scheduled_unroll_scope_test_module"
+  TARGETS
+    loom::target::spirv::vulkan1.3+bda+extended-types
+)
+
+loom_test_module(
+  NAME
     predicate_selection_test_module
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/selection.loom"

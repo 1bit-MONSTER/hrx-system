@@ -10,7 +10,9 @@ load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_
 
 package(default_visibility = ["//visibility:public"])
 
-_KERNEL_EXCLUDES = {
+_NO_KERNEL_ARTIFACT_EXCLUDES = {
+    "control/schedule/ordered_read_ahead.loom": "Wasm has no kernel artifact format.",
+    "control/schedule/unroll_scope.loom": "Wasm has no kernel artifact format.",
     "kernel/subgroup/active_predicate.loom": "Wasm has no kernel artifact format.",
     "kernel/subgroup/ballot.loom": "Wasm has no kernel artifact format.",
     "kernel/subgroup/shuffle_dynamic.loom": "Wasm has no kernel artifact format.",
@@ -55,7 +57,7 @@ loom_corpus_build(
         ],
     },
     catalog = LOOM_CORPUS,
-    excludes = {"//loom/target/wasm:simd128": _KERNEL_EXCLUDES},
+    excludes = {"//loom/target/wasm:simd128": _NO_KERNEL_ARTIFACT_EXCLUDES},
     profiles = ["//loom/target/wasm:all"],
     xfails = {
         "//loom/target/wasm:simd128": {

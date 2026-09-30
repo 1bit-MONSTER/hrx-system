@@ -22,6 +22,12 @@ loom_corpus_build(
     loom::target::vm::all
   EXCLUDES
     "loom::target::vm::all"
+    "control/schedule/ordered_read_ahead.loom"
+    "VM has no kernel artifact format."
+    "loom::target::vm::all"
+    "control/schedule/unroll_scope.loom"
+    "VM has no kernel artifact format."
+    "loom::target::vm::all"
     "kernel/subgroup/active_predicate.loom"
     "VM has no kernel artifact format."
     "loom::target::vm::all"
@@ -62,6 +68,10 @@ loom_corpus_test(
     "kernel"
     "function"
   EXCLUDES
+    "control/schedule/ordered_read_ahead.loom"
+    "VM has no kernel artifact format."
+    "control/schedule/unroll_scope.loom"
+    "VM has no kernel artifact format."
     "kernel/subgroup/active_predicate.loom"
     "VM has no kernel artifact format."
     "kernel/subgroup/ballot.loom"

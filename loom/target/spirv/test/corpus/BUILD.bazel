@@ -19,6 +19,20 @@ loom_test(
 )
 
 loom_test(
+    name = "ordered_read_ahead_test",
+    srcs = ["//loom/src/loom/test/corpus/control:schedule/ordered_read_ahead.loom"],
+    compile_targets = ["//loom/target/spirv:vulkan1.3+bda"],
+    execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "scheduled_unroll_scope_test",
+    srcs = ["//loom/src/loom/test/corpus/control:schedule/unroll_scope.loom"],
+    compile_targets = ["//loom/target/spirv:vulkan1.3+bda+extended-types"],
+    execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],
+)
+
+loom_test(
     name = "predicate_selection_test",
     srcs = ["//loom/src/loom/test/corpus/numeric:predicate/selection.loom"],
     execution_profiles = [SPIRV_VULKAN_HARDWARE_PROFILE],

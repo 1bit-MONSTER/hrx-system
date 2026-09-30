@@ -42,6 +42,32 @@ loom_test(
 )
 
 loom_test(
+    name = "ordered_read_ahead_test",
+    srcs = ["//loom/src/loom/test/corpus/control:schedule/ordered_read_ahead.loom"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx1151",
+    ],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "scheduled_unroll_scope_test",
+    srcs = ["//loom/src/loom/test/corpus/control:schedule/unroll_scope.loom"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx1151",
+    ],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
     name = "word_test",
     srcs = ["//loom/src/loom/test/corpus/memory:storage/word.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],

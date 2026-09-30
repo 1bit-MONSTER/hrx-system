@@ -15,5 +15,7 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "branch/structured.loom",
         "loop/vector_recurrence.loom",
         "schedule/address_domains.loom",
+        "schedule/ordered_read_ahead.loom",
+        "schedule/unroll_scope.loom",
     ],
 )

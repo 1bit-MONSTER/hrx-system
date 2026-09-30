@@ -113,7 +113,7 @@ barrier in their original order inside a fixed-bound `scf.for pipeline(%depth)`.
 The compiler advances only global loads and their independent prerequisites;
 the same shared allocation serves each consumer iteration.
 
-The [checked workgroup-staging example](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/conformance/ordered_read_ahead.loom)
+The [checked workgroup-staging example](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/control/schedule/ordered_read_ahead.loom)
 uses 128 work-items to publish two stripes, read another work-item's values, and
 reuse one shared allocation. Its inner `unroll` exposes each global load
 separately from its workgroup store. The template receives depth and unroll
