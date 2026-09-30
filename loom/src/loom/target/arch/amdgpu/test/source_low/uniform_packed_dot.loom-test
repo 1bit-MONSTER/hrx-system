@@ -1,0 +1,275 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/uniform_packed_dot.loom-test
+// TEMPLATE-EXCLUDE: @fp8_pairs This profile checks the remaining descriptor forms.
+// RUN: emit source-low target=amdgpu:gfx1100 output=low
+
+// Uniform, stable sources can retain scalar-register storage until the dot.
+kernel.def @f16_pairs() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<4xf16>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<4xf16>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xf32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xf16> -> vector<4xf16>
+  %rhs = vector.load %rhs_view[0] : view<4xf16> -> vector<4xf16>
+  %seed = vector.load %seed_view[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xf16>, vector<4xf16>, vector<2xf32>
+  vector.store %result, %output_view[0] : vector<2xf32>, view<2xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @f16_pairs() asm {
+  %lhs_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %seed_view = resource<hal_binding> {extent = 8, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {extent = 8, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %25 = s_mov_b32 0
+  %lhs = s_load_dwordx2 %lhs_view, %25
+  %rhs = s_load_dwordx2 %rhs_view, %25
+  %seed = s_load_dwordx2 %seed_view, %25
+  %31 = slice %lhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = v_mov_b32_copy %31
+  %33 = slice %lhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = v_mov_b32_copy %33
+  %36 = slice %rhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = v_mov_b32_copy %36
+  %38 = slice %rhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = v_mov_b32_copy %38
+  %41 = slice %seed[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = v_mov_b32_copy %41
+  %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = v_mov_b32_copy %43
+  %45 = concat(%42, %44) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %46 = copy %45 : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
+  %49 = slice %46[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %50 = v_dot2_f32_f16 %32, %37, %49
+  %53 = slice %46[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %54 = v_dot2_f32_f16 %34, %39, %53
+  %result = concat(%50, %54) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %56 = v_mov_b32 0
+  global_store_b64_saddr %56, %result, %output_view
+  return
+}
+
+// ====
+
+kernel.def @bf16_pairs() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<4xbf16>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<4xbf16>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xf32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xf32>
+  %lhs = vector.load %lhs_view[0] : view<4xbf16> -> vector<4xbf16>
+  %rhs = vector.load %rhs_view[0] : view<4xbf16> -> vector<4xbf16>
+  %seed = vector.load %seed_view[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xbf16>, vector<4xbf16>, vector<2xf32>
+  vector.store %result, %output_view[0] : vector<2xf32>, view<2xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @bf16_pairs() asm {
+  %lhs_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %seed_view = resource<hal_binding> {extent = 8, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {extent = 8, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %25 = s_mov_b32 0
+  %lhs = s_load_dwordx2 %lhs_view, %25
+  %rhs = s_load_dwordx2 %rhs_view, %25
+  %seed = s_load_dwordx2 %seed_view, %25
+  %31 = slice %lhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = v_mov_b32_copy %31
+  %33 = slice %lhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = v_mov_b32_copy %33
+  %36 = slice %rhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = v_mov_b32_copy %36
+  %38 = slice %rhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = v_mov_b32_copy %38
+  %41 = slice %seed[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = v_mov_b32_copy %41
+  %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = v_mov_b32_copy %43
+  %45 = concat(%42, %44) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %46 = copy %45 : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
+  %49 = slice %46[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %50 = v_dot2_f32_bf16 %32, %37, %49
+  %53 = slice %46[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %54 = v_dot2_f32_bf16 %34, %39, %53
+  %result = concat(%50, %54) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %56 = v_mov_b32 0
+  global_store_b64_saddr %56, %result, %output_view
+  return
+}
+
+// ====
+
+kernel.def @signed_bytes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<8xi8>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<8xi8>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xi32>
+  %lhs = vector.load %lhs_view[0] : view<8xi8> -> vector<8xi8>
+  %rhs = vector.load %rhs_view[0] : view<8xi8> -> vector<8xi8>
+  %seed = vector.load %seed_view[0] : view<2xi32> -> vector<2xi32>
+  %result = vector.dot4i<s8s8> %lhs, %rhs, %seed : vector<8xi8>, vector<8xi8>, vector<2xi32>
+  vector.store %result, %output_view[0] : vector<2xi32>, view<2xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @signed_bytes() asm {
+  %lhs_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %seed_view = resource<hal_binding> {extent = 8, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {extent = 8, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %25 = s_mov_b32 0
+  %lhs = s_load_dwordx2 %lhs_view, %25
+  %rhs = s_load_dwordx2 %rhs_view, %25
+  %seed = s_load_dwordx2 %seed_view, %25
+  %31 = slice %lhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = v_mov_b32_copy %31
+  %33 = slice %lhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = v_mov_b32_copy %33
+  %36 = slice %rhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = v_mov_b32_copy %36
+  %38 = slice %rhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = v_mov_b32_copy %38
+  %41 = slice %seed[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = v_mov_b32_copy %41
+  %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = v_mov_b32_copy %43
+  %49 = v_dot4_i32_i8 %32, %37, %42
+  %53 = v_dot4_i32_i8 %34, %39, %44
+  %result = concat(%49, %53) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = v_mov_b32 0
+  global_store_b64_saddr %55, %result, %output_view
+  return
+}
+
+// ====
+
+kernel.def @mixed_bytes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<8xi8>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<8xi8>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xi32>
+  %lhs = vector.load %lhs_view[0] : view<8xi8> -> vector<8xi8>
+  %rhs = vector.load %rhs_view[0] : view<8xi8> -> vector<8xi8>
+  %seed = vector.load %seed_view[0] : view<2xi32> -> vector<2xi32>
+  %result = vector.dot4i<u8s8> %lhs, %rhs, %seed : vector<8xi8>, vector<8xi8>, vector<2xi32>
+  vector.store %result, %output_view[0] : vector<2xi32>, view<2xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @mixed_bytes() asm {
+  %lhs_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %seed_view = resource<hal_binding> {extent = 8, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {extent = 8, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %25 = s_mov_b32 0
+  %lhs = s_load_dwordx2 %lhs_view, %25
+  %rhs = s_load_dwordx2 %rhs_view, %25
+  %seed = s_load_dwordx2 %seed_view, %25
+  %31 = slice %lhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = v_mov_b32_copy %31
+  %33 = slice %lhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = v_mov_b32_copy %33
+  %36 = slice %rhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = v_mov_b32_copy %36
+  %38 = slice %rhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = v_mov_b32_copy %38
+  %41 = slice %seed[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = v_mov_b32_copy %41
+  %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = v_mov_b32_copy %43
+  %49 = v_dot4_i32_iu8_u8s8 %32, %37, %42
+  %53 = v_dot4_i32_iu8_u8s8 %34, %39, %44
+  %result = concat(%49, %53) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = v_mov_b32 0
+  global_store_b64_saddr %55, %result, %output_view
+  return
+}
+
+// ====
+
+kernel.def @unsigned_nibbles() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %seed_buffer: buffer, %output: buffer) {
+  %aligned_lhs = buffer.assume.alignment %lhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_rhs = buffer.assume.alignment %rhs_buffer {minimum_alignment = 64} : buffer
+  %aligned_seed = buffer.assume.alignment %seed_buffer {minimum_alignment = 64} : buffer
+  %lhs_source, %rhs_source, %seed_source, %destination = buffer.assume.noalias %aligned_lhs, %aligned_rhs, %aligned_seed, %output : buffer, buffer, buffer, buffer
+  %base = index.constant 0 : offset
+  %lhs_view = buffer.view %lhs_source[%base] : buffer -> view<2xi32>
+  %rhs_view = buffer.view %rhs_source[%base] : buffer -> view<2xi32>
+  %seed_view = buffer.view %seed_source[%base] : buffer -> view<2xi32>
+  %output_view = buffer.view %destination[%base] : buffer -> view<2xi32>
+  %lhs = vector.load %lhs_view[0] : view<2xi32> -> vector<2xi32>
+  %rhs = vector.load %rhs_view[0] : view<2xi32> -> vector<2xi32>
+  %seed = vector.load %seed_view[0] : view<2xi32> -> vector<2xi32>
+  %result = vector.dot8i4<u4u4> %lhs, %rhs, %seed : vector<2xi32>
+  vector.store %result, %output_view[0] : vector<2xi32>, view<2xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @unsigned_nibbles() asm {
+  %lhs_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %rhs_view = resource<hal_binding> {extent = 8, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %seed_view = resource<hal_binding> {extent = 8, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %output_view = resource<hal_binding> {extent = 8, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %25 = s_mov_b32 0
+  %lhs = s_load_dwordx2 %lhs_view, %25
+  %rhs = s_load_dwordx2 %rhs_view, %25
+  %seed = s_load_dwordx2 %seed_view, %25
+  %31 = slice %lhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %32 = v_mov_b32_copy %31
+  %33 = slice %lhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %34 = v_mov_b32_copy %33
+  %36 = slice %rhs[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %37 = v_mov_b32_copy %36
+  %38 = slice %rhs[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %39 = v_mov_b32_copy %38
+  %41 = slice %seed[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %42 = v_mov_b32_copy %41
+  %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %44 = v_mov_b32_copy %43
+  %49 = v_dot8_u32_u4 %32, %37, %42
+  %53 = v_dot8_u32_u4 %34, %39, %44
+  %result = concat(%49, %53) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = v_mov_b32 0
+  global_store_b64_saddr %55, %result, %output_view
+  return
+}
