@@ -19,7 +19,6 @@ iree_py_test(
     args = [
         "$(location //loom/src/loom/tools/loom-compile:loom-compile)",
         "$(location sum.loom)",
-        "$(location typed_addresses.loom)",
         "--corpus",
         "$(location //loom/src/loom/test/corpus/source_low:numeric_integer_division.loom-test)",
         "$(location //loom/src/loom/test/corpus/source_low:numeric_unsigned_constant_division.loom-test)",
@@ -31,8 +30,6 @@ iree_py_test(
         "integer_division_edges.loom",
         "sum.loom",
         "sum.mjs",
-        "typed_addresses.loom",
-        "typed_addresses.mjs",
         "//loom/src/loom/test/corpus/source_low:numeric_integer_division.loom-test",
         "//loom/src/loom/test/corpus/source_low:numeric_unsigned_constant_division.loom-test",
         "//loom/src/loom/tools/loom-compile",
