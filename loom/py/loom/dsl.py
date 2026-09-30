@@ -5879,6 +5879,14 @@ class RegionBranchInterface(NamedTuple):
     # is the i1 condition; for scf.switch this is the index selector.
     selector: str
 
+    # Region entered when a Boolean selector is true. None when the selector
+    # has keyed or otherwise non-Boolean branch semantics.
+    true_region: str | None = None
+
+    # Region entered when a Boolean selector is false. None when the selector
+    # has keyed or otherwise non-Boolean branch semantics.
+    false_region: str | None = None
+
 
 _DEFAULT_INTERFACE_FIELD = object()
 

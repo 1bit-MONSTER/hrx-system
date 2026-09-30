@@ -1255,6 +1255,11 @@ loom_region_branch_t loom_region_branch_cast(const loom_module_t* module,
 // the i1 condition; for scf.switch this is the index selector.
 loom_value_id_t loom_region_branch_selector(loom_region_branch_t branch);
 
+// Returns the Boolean selector truth established by entering |region_index|.
+// Selector-only branches such as keyed switch tables return UNKNOWN.
+loom_region_branch_truth_t loom_region_branch_region_truth(
+    loom_region_branch_t branch, uint8_t region_index);
+
 // Returns the branch region at |region_index|, or NULL for malformed inputs.
 // Region 0 is the first physical region on the op; dialect-specific accessors
 // define whether that is a default, then, or other semantic branch.

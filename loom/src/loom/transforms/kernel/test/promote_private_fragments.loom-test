@@ -418,20 +418,19 @@ kernel.def @forward_imported_branch_accumulator() {
   %row = index.madd %workgroup, %workgroup_size, %workitem : index
   %in_bounds = index.cmp slt, %row, %limit : index
   scf.if %in_bounds {
-    %bounded_row = index.assume %row [lt(%row, %limit)] : index
     %lane = index.constant 1 : index
-    %lhs = view.load %input_view[%bounded_row, %slot_index] : view<[%limit]x2xf32, %layout> -> f32
-    %rhs = view.load %input_view[%bounded_row, %lane] : view<[%limit]x2xf32, %layout> -> f32
+    %lhs = view.load %input_view[%row, %slot_index] : view<[%limit]x2xf32, %layout> -> f32
+    %rhs = view.load %input_view[%row, %lane] : view<[%limit]x2xf32, %layout> -> f32
     %loaded_initial = view.load %slot[%slot_index] : view<1xf32, %layout> -> f32
     %sum = scalar.addf %loaded_initial, %lhs : f32
     view.store %sum, %slot[%slot_index] : f32, view<1xf32, %layout>
     %result = scalar.addf %sum, %rhs : f32
     view.store %result, %slot[%slot_index] : f32, view<1xf32, %layout>
-    view.store %result, %sum_output_view[%bounded_row] : f32, view<[%limit]xf32, %layout>
+    view.store %result, %sum_output_view[%row] : f32, view<[%limit]xf32, %layout>
     %lhs_normalized = scalar.divf %lhs, %result : f32
-    view.store %lhs_normalized, %normalized_output_view[%bounded_row, %slot_index] : f32, view<[%limit]x2xf32, %layout>
+    view.store %lhs_normalized, %normalized_output_view[%row, %slot_index] : f32, view<[%limit]x2xf32, %layout>
     %rhs_normalized = scalar.divf %rhs, %result : f32
-    view.store %rhs_normalized, %normalized_output_view[%bounded_row, %lane] : f32, view<[%limit]x2xf32, %layout>
+    view.store %rhs_normalized, %normalized_output_view[%row, %lane] : f32, view<[%limit]x2xf32, %layout>
   }
   kernel.return
 }
@@ -454,17 +453,16 @@ kernel.def @forward_imported_branch_accumulator() {
   %row = index.madd %workgroup, %workgroup_size, %workitem : index
   %in_bounds = index.cmp slt, %row, %limit : index
   scf.if %in_bounds {
-    %bounded_row = index.assume %row [lt(%row, %limit)] : index
     %lane = index.constant 1 : index
-    %lhs = view.load %input_view[%bounded_row, %slot_index] : view<[%limit]x2xf32, %layout> -> f32
-    %rhs = view.load %input_view[%bounded_row, %lane] : view<[%limit]x2xf32, %layout> -> f32
+    %lhs = view.load %input_view[%row, %slot_index] : view<[%limit]x2xf32, %layout> -> f32
+    %rhs = view.load %input_view[%row, %lane] : view<[%limit]x2xf32, %layout> -> f32
     %sum = scalar.addf %initial, %lhs : f32
     %result = scalar.addf %sum, %rhs : f32
-    view.store %result, %sum_output_view[%bounded_row] : f32, view<[%limit]xf32, %layout>
+    view.store %result, %sum_output_view[%row] : f32, view<[%limit]xf32, %layout>
     %lhs_normalized = scalar.divf %lhs, %result : f32
-    view.store %lhs_normalized, %normalized_output_view[%bounded_row, %slot_index] : f32, view<[%limit]x2xf32, %layout>
+    view.store %lhs_normalized, %normalized_output_view[%row, %slot_index] : f32, view<[%limit]x2xf32, %layout>
     %rhs_normalized = scalar.divf %rhs, %result : f32
-    view.store %rhs_normalized, %normalized_output_view[%bounded_row, %lane] : f32, view<[%limit]x2xf32, %layout>
+    view.store %rhs_normalized, %normalized_output_view[%row, %lane] : f32, view<[%limit]x2xf32, %layout>
   }
   kernel.return
 }
@@ -495,11 +493,10 @@ kernel.def @forward_fragment_and_accumulator() {
   %row = index.madd %workgroup, %workgroup_size, %workitem : index
   %in_bounds = index.cmp slt, %row, %limit : index
   scf.if %in_bounds {
-    %bounded_row = index.assume %row [lt(%row, %limit)] : index
     %end = index.constant 2 : index
     %step = index.constant 1 : index
     scf.for %lane = [%slot_index to %end step %step] {
-      %copy = view.load %input_view[%bounded_row, %lane] : view<[%limit]x2xf32, %layout> -> f32
+      %copy = view.load %input_view[%row, %lane] : view<[%limit]x2xf32, %layout> -> f32
       view.store %copy, %fragment[%lane] : f32, view<2xf32, %layout>
     }
     %lhs = view.load %fragment[%slot_index] : view<2xf32, %layout> -> f32
@@ -510,11 +507,11 @@ kernel.def @forward_fragment_and_accumulator() {
     %rhs = view.load %fragment[%lane] : view<2xf32, %layout> -> f32
     %result = scalar.addf %sum, %rhs : f32
     view.store %result, %slot[%slot_index] : f32, view<1xf32, %layout>
-    view.store %result, %sum_output_view[%bounded_row] : f32, view<[%limit]xf32, %layout>
+    view.store %result, %sum_output_view[%row] : f32, view<[%limit]xf32, %layout>
     scf.for %output_lane = [%slot_index to %end step %step] {
       %numerator = view.load %fragment[%output_lane] : view<2xf32, %layout> -> f32
       %normalized = scalar.divf %numerator, %result : f32
-      view.store %normalized, %normalized_output_view[%bounded_row, %output_lane] : f32, view<[%limit]x2xf32, %layout>
+      view.store %normalized, %normalized_output_view[%row, %output_lane] : f32, view<[%limit]x2xf32, %layout>
     }
   }
   kernel.return
@@ -538,20 +535,19 @@ kernel.def @forward_fragment_and_accumulator() {
   %row = index.madd %workgroup, %workgroup_size, %workitem : index
   %in_bounds = index.cmp slt, %row, %limit : index
   scf.if %in_bounds {
-    %bounded_row = index.assume %row [lt(%row, %limit)] : index
     %end = index.constant 2 : index
     %step = index.constant 1 : index
-    %fragment_vector = vector.load %input_view[%bounded_row, 0] : view<[%limit]x2xf32, %layout> -> vector<2xf32>
+    %fragment_vector = vector.load %input_view[%row, 0] : view<[%limit]x2xf32, %layout> -> vector<2xf32>
     %lhs = vector.extract %fragment_vector[%slot_index] : vector<2xf32> -> f32
     %sum = scalar.addf %initial, %lhs : f32
     %lane = index.constant 1 : index
     %rhs = vector.extract %fragment_vector[%lane] : vector<2xf32> -> f32
     %result = scalar.addf %sum, %rhs : f32
-    view.store %result, %sum_output_view[%bounded_row] : f32, view<[%limit]xf32, %layout>
+    view.store %result, %sum_output_view[%row] : f32, view<[%limit]xf32, %layout>
     scf.for %output_lane = [%slot_index to %end step %step] {
       %numerator = vector.extract %fragment_vector[%output_lane] : vector<2xf32> -> f32
       %normalized = scalar.divf %numerator, %result : f32
-      view.store %normalized, %normalized_output_view[%bounded_row, %output_lane] : f32, view<[%limit]x2xf32, %layout>
+      view.store %normalized, %normalized_output_view[%row, %output_lane] : f32, view<[%limit]x2xf32, %layout>
     }
   }
   kernel.return

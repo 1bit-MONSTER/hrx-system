@@ -35,6 +35,7 @@ from loom.dsl import (
     Op,
     Operand,
     Reads,
+    RegionBranchInterface,
     RegionDef,
     Result,
     TargetFactSpecialization,
@@ -336,6 +337,42 @@ def test_generate_tables_rejects_condition_loop_using_body_as_condition() -> Non
         match=r"LoopLikeInterface on 'test\.while': condition and body must be distinct regions",
     ):
         _generate_condition_loop_tables(op)
+
+
+def _region_branch_test_op(interface: RegionBranchInterface) -> Op:
+    return Op(
+        "test.branch",
+        group=Dialect("test"),
+        operands=[Operand("condition", INTEGER)],
+        regions=[RegionDef("then_region"), RegionDef("else_region")],
+        interfaces=[interface],
+    )
+
+
+def test_generate_tables_rejects_partial_boolean_region_branch_contract() -> None:
+    op = _region_branch_test_op(RegionBranchInterface(selector="condition", true_region="then_region"))
+
+    with pytest.raises(
+        ValueError,
+        match=r"RegionBranchInterface on 'test\.branch': true_region and false_region must be declared together",
+    ):
+        generate_tables_c("test", 0, [op])
+
+
+def test_generate_tables_rejects_aliased_boolean_region_branch_contract() -> None:
+    op = _region_branch_test_op(
+        RegionBranchInterface(
+            selector="condition",
+            true_region="then_region",
+            false_region="then_region",
+        )
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"RegionBranchInterface on 'test\.branch': true_region and false_region must be distinct",
+    ):
+        generate_tables_c("test", 0, [op])
 
 
 def _cache_policy_test_op(

@@ -1341,12 +1341,29 @@ typedef struct loom_loop_like_t {
 // is an alternative of the same decision. Ops with iterating body
 // regions do NOT implement this interface — their regions are
 // iterated, not branched.
+typedef enum loom_region_branch_truth_e {
+  // Region entry does not establish a Boolean truth value for the selector.
+  LOOM_REGION_BRANCH_TRUTH_UNKNOWN = 0,
+  // Region entry establishes that the selector is false.
+  LOOM_REGION_BRANCH_TRUTH_FALSE = 1,
+  // Region entry establishes that the selector is true.
+  LOOM_REGION_BRANCH_TRUTH_TRUE = 2,
+} loom_region_branch_truth_t;
+
 typedef struct loom_region_branch_vtable_t {
   // Index of the operand that drives the branch decision. For
   // scf.if this is the i1 condition; for scf.switch this is the
   // index selector. LOOM_OPERAND_INDEX_NONE is not valid — every
   // branch-like op has a selector operand.
   uint8_t selector_operand_index;
+
+  // Region entered when a Boolean selector is true, or LOOM_REGION_INDEX_NONE
+  // for keyed or otherwise non-Boolean branch semantics.
+  uint8_t true_region_index;
+
+  // Region entered when a Boolean selector is false, or LOOM_REGION_INDEX_NONE
+  // for keyed or otherwise non-Boolean branch semantics.
+  uint8_t false_region_index;
 } loom_region_branch_vtable_t;
 
 // Fat reference to a region-branch op. 16 bytes, passed by value.

@@ -79,8 +79,7 @@ kernel.def target(@authoring_wave64) @wave64_workgroup_reduce_loop_accumulation(
   %leader_lane = index.constant 0 : index
   %column_count = index.constant 3072 : index
   %workgroup_size = index.constant 512 : index
-  %lane0 = kernel.workitem.id<x> : index
-  %lane = index.assume %lane0 [range(%lane0, 0, 511)] : index
+  %lane = kernel.workitem.id<x> : index
   %sum_initial = scalar.constant 0.0 : f32
   %input_view = buffer.view %input[%base] : buffer -> view<3072xf32>
   %output_view = buffer.view %output[%base] : buffer -> view<1xf32>
@@ -108,8 +107,7 @@ kernel.def target(@authoring_wave64) @wave64_workgroup_reduce_sparse_loop_accumu
   %block_lane_count = index.constant 64 : index
   %workgroup_size = index.constant 256 : index
   %block_count = index.constant 2 : index
-  %lane0 = kernel.workitem.id<x> : index
-  %lane = index.assume %lane0 [range(%lane0, 0, 255)] : index
+  %lane = kernel.workitem.id<x> : index
   %block_slot = index.div %lane, %block_lane_count : index
   %block_step = index.div %workgroup_size, %block_lane_count : index
   %sum_initial = scalar.constant 0.0 : f32
@@ -136,8 +134,7 @@ kernel.def target(@authoring_wave64) @wave64_workgroup_reduce_loop_all_workitems
   %base = index.constant 0 : offset
   %column_count = index.constant 3072 : index
   %workgroup_size = index.constant 512 : index
-  %lane0 = kernel.workitem.id<x> : index
-  %lane = index.assume %lane0 [range(%lane0, 0, 511)] : index
+  %lane = kernel.workitem.id<x> : index
   %sum_initial = scalar.constant 0.0 : f32
   %column_count_i32 = scalar.constant 3072 : i32
   %column_count_f32 = scalar.sitofp %column_count_i32 : i32 to f32
@@ -168,8 +165,7 @@ kernel.def target(@authoring_wave64) @wave64_workgroup_reduce_two_rows() {
   %leader_lane = index.constant 0 : index
   %row0 = index.constant 0 : index
   %row1 = index.constant 1 : index
-  %lane0 = kernel.workitem.id<x> : index
-  %lane = index.assume %lane0 [range(%lane0, 0, 63)] : index
+  %lane = kernel.workitem.id<x> : index
   %input0_view = buffer.view %input0[%base] : buffer -> view<64xf32>
   %input1_view = buffer.view %input1[%base] : buffer -> view<64xf32>
   %bias_view = buffer.view %bias[%base] : buffer -> view<2xf32>

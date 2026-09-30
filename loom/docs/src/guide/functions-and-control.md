@@ -512,6 +512,13 @@ silently leaving a loop that the author required to be unrolled. More specific
 unroll schedules can express linear, interleaved, or recurrence-aware body
 ordering without changing the logical loop.
 
+An enclosing structured condition participates in that proof. Inside the true
+region of `%remaining >= %tile_size`, a loop ending at
+`index.min %remaining, %tile_size` has the exact full-tile bound. Bare `unroll`
+can materialize it directly; the source does not need to restate the guard with
+`index.assume`. The complementary region remains a runtime tail unless another
+visible fact makes its trip count exact.
+
 `unroll(%factor)` requests partial unrolling with a specialized positive factor.
 The two-slot example uses factor two with a runtime trip count. Each copied
 iteration advances the whole carried tuple once. Empty ranges execute no body,
@@ -663,6 +670,11 @@ cannot determine a read-ahead address or guard, and a conditional that cannot
 form this interior cut receives a diagnostic. Runtime bounds on the requested
 collective loop also receive a diagnostic; depth one preserves the original
 loop.
+
+Exactness may come from an enclosing structured edge. A full-tile `scf.if`
+guard can make a derived inner bound exact in its true region without an
+`index.assume`; its false region only proves a partial tail and cannot safely
+pipeline a convergent loop at depth greater than one from that fact alone.
 
 The [checked collective recurrence](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/conformance/collective_loop_state.loom)
 applies one template with serial and pipelined policies. It combines 16-lane
