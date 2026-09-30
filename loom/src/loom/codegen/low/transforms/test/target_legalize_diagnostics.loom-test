@@ -227,7 +227,7 @@ kernel.def target(@test_target) @rejects_cast_workitem_id_assume_excluding_stati
 
 test.target<low_core> @test_target
 
-kernel.def target(@test_target) @allows_guarded_workitem_id_assume_excluding_static_workgroup() {
+kernel.def target(@test_target) @allows_structured_guarded_workitem_id_excluding_static_workgroup() {
   %c1 = index.constant 1 : index
   %c32 = index.constant 32 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c32, %c1, %c1) : index
@@ -236,8 +236,7 @@ kernel.def target(@test_target) @allows_guarded_workitem_id_assume_excluding_sta
   %c16 = index.constant 16 : index
   %inside = index.cmp ult, %lane, %c16 : index
   scf.if %inside {
-    %guarded_lane = index.assume %lane [range(%lane, 0, 15)] : index
-    test.use %guarded_lane : index
+    test.use %lane : index
   }
   kernel.return
 }

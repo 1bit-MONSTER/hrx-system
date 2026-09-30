@@ -142,9 +142,8 @@ kernel.def retain target(@attention_prefill_gfx11_wave64) export("attention_pref
     %query_token = index.add %query_origin, %local_query_row : index
     %query_valid = index.cmp ult, %query_token, %token_count : index
     %query_value = scf.if %query_valid -> (f16) {
-      %bounded_query_token = index.assume %query_token [lt(%query_token, %token_count)] : index
       %global_query_channel = index.add %query_head_base, %query_channel : index
-      %loaded = view.load %query_view[%bounded_query_token, %global_query_channel] : view<[%token_count]x6144xf32> -> f32
+      %loaded = view.load %query_view[%query_token, %global_query_channel] : view<[%token_count]x6144xf32> -> f32
       %scaled = scalar.mulf<reassoc|nnan|ninf|nsz|contract> %loaded, %attention_scale : f32
       %truncated = scalar.fptrunc %scaled : f32 to f16
       scf.yield %truncated : f16
@@ -267,9 +266,8 @@ kernel.def retain target(@attention_prefill_gfx11_wave64) export("attention_pref
       %tail_key_valid = index.cmp ult, %tail_key_row, %tail_key_count : index
       %tail_key_value = scf.if %tail_key_valid -> (f16) {
         %tail_key_token0 = index.add %tail_key_origin, %tail_key_row : index
-        %tail_key_token = index.assume %tail_key_token0 [lt(%tail_key_token0, %context_count)] : index
         %global_key_channel = index.add %key_value_head_base, %tail_key_channel : index
-        %loaded = view.load %key_view[%tail_key_token, %global_key_channel] : view<[%cache_capacity]x1024xf16> -> f16
+        %loaded = view.load %key_view[%tail_key_token0, %global_key_channel] : view<[%cache_capacity]x1024xf16> -> f16
         scf.yield %loaded : f16
       } else {
         scf.yield %c0_f16 : f16
@@ -339,9 +337,8 @@ kernel.def retain target(@attention_prefill_gfx11_wave64) export("attention_pref
       %tail_value_valid = index.cmp ult, %tail_value_row, %tail_key_count : index
       %tail_value = scf.if %tail_value_valid -> (f16) {
         %tail_value_token0 = index.add %tail_key_origin, %tail_value_row : index
-        %tail_value_token = index.assume %tail_value_token0 [lt(%tail_value_token0, %context_count)] : index
         %global_value_channel = index.add %key_value_head_base, %tail_value_channel : index
-        %loaded = view.load %value_view[%tail_value_token, %global_value_channel] : view<[%cache_capacity]x1024xf16> -> f16
+        %loaded = view.load %value_view[%tail_value_token0, %global_value_channel] : view<[%cache_capacity]x1024xf16> -> f16
         scf.yield %loaded : f16
       } else {
         scf.yield %c0_f16 : f16
@@ -421,28 +418,24 @@ kernel.def retain target(@attention_prefill_gfx11_wave64) export("attention_pref
   %normalized3 = vector.extf %normalized3_f16 : vector<4xf16> to vector<4xf32>
   %output_channel = index.add %query_head_base, %lane_output_channel : index
   scf.if %query_valid0 {
-    %bounded_query_token = index.assume %query_token0 [lt(%query_token0, %token_count)] : index
-    %gate_values = vector.load %gate_view[%bounded_query_token, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
+    %gate_values = vector.load %gate_view[%query_token0, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
     %gated = vector.mulf<nnan|ninf|nsz> %normalized0, %gate_values : vector<4xf32>
-    vector.store %gated, %output_view[%bounded_query_token, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
+    vector.store %gated, %output_view[%query_token0, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
   }
   scf.if %query_valid1 {
-    %bounded_query_token = index.assume %query_token1 [lt(%query_token1, %token_count)] : index
-    %gate_values = vector.load %gate_view[%bounded_query_token, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
+    %gate_values = vector.load %gate_view[%query_token1, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
     %gated = vector.mulf<nnan|ninf|nsz> %normalized1, %gate_values : vector<4xf32>
-    vector.store %gated, %output_view[%bounded_query_token, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
+    vector.store %gated, %output_view[%query_token1, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
   }
   scf.if %query_valid2 {
-    %bounded_query_token = index.assume %query_token2 [lt(%query_token2, %token_count)] : index
-    %gate_values = vector.load %gate_view[%bounded_query_token, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
+    %gate_values = vector.load %gate_view[%query_token2, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
     %gated = vector.mulf<nnan|ninf|nsz> %normalized2, %gate_values : vector<4xf32>
-    vector.store %gated, %output_view[%bounded_query_token, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
+    vector.store %gated, %output_view[%query_token2, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
   }
   scf.if %query_valid3 {
-    %bounded_query_token = index.assume %query_token3 [lt(%query_token3, %token_count)] : index
-    %gate_values = vector.load %gate_view[%bounded_query_token, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
+    %gate_values = vector.load %gate_view[%query_token3, %output_channel] : view<[%token_count]x6144xf32> -> vector<4xf32>
     %gated = vector.mulf<nnan|ninf|nsz> %normalized3, %gate_values : vector<4xf32>
-    vector.store %gated, %output_view[%bounded_query_token, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
+    vector.store %gated, %output_view[%query_token3, %output_channel] : vector<4xf32>, view<[%token_count]x6144xf32>
   }
   kernel.return
 }

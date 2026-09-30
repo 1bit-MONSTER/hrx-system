@@ -62,11 +62,9 @@ kernel.def @q8_block_unroll_wg64() {
   // Loom spelling: `scf.for ... unroll`. The lower bound is lane-dependent,
   // but facts prove `%block_slot in [0,7]`, upper `16`, and step `8`, so
   // `unroll-scf-for` reports a dynamic-lower proof with trip_count = 2.
-  %sum = scf.for %block_idx_raw = [%block_slot to %blocks_per_row step %block_step](%acc = %dot_initial : f32) -> (f32) unroll {
-    // HIP concept: local block index stays in the q8 row domain.
-    // Loom spelling: attach the post-IV range fact so address math and later
-    // lowering know the packed block index is bounded.
-    %block_idx = index.assume %block_idx_raw [range(%block_idx_raw, 0, 15)] : index
+  %sum = scf.for %block_idx = [%block_slot to %blocks_per_row step %block_step](%acc = %dot_initial : f32) -> (f32) unroll {
+    // The loop domain proves the local block index stays in the q8 row domain;
+    // address math and later lowering consume that fact directly.
     %src_base_block = index.mul %block_idx, %qk : index
     %src_base = index.add %src_base_block, %in_block_base : index
     %linear_block = index.add %row_block_base, %block_idx : index
