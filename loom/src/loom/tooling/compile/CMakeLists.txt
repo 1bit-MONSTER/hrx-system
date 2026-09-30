@@ -19,6 +19,7 @@ loom_cc_library(
   DEPS
     ::artifact
     iree::base
+    iree::base::internal::arena
     loom::ir
     loom::ops::op_defs
     loom::ops::pipeline
@@ -40,7 +41,6 @@ loom_cc_library(
     ::pipeline
     ::request
     loom::link::linker
-    loom::ops::op_defs
     loom::target::entry_selection
     loom::target::module_specialization
   PUBLIC

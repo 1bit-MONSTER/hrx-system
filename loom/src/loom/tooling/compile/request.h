@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Allocation-free compiler product and format request resolution.
+// Compiler product, root, target, and format request resolution.
 
 #ifndef LOOM_TOOLING_COMPILE_REQUEST_H_
 #define LOOM_TOOLING_COMPILE_REQUEST_H_
@@ -27,16 +27,6 @@ typedef enum loom_compile_product_e {
 
 // Returns the stable public name of |product|.
 iree_string_view_t loom_compile_product_name(loom_compile_product_t product);
-
-// Returns true when |symbol| belongs to |product|'s default root set. Explicit
-// roots are classified independently and need not belong to the default set.
-// The kernel set includes Low kernel entries and public or retained array
-// programs as well as source kernels and kernel-scoped pipelines. The module
-// set includes public or retained ordinary functions and module-scoped
-// pipelines.
-bool loom_compile_request_default_root_set_contains(
-    const loom_module_t* module, loom_compile_product_t product,
-    const loom_symbol_t* symbol);
 
 // Concrete producer selected for one compile request.
 typedef enum loom_compile_producer_kind_e {
@@ -78,8 +68,9 @@ typedef struct loom_compile_request_options_t {
 typedef struct loom_compile_request_t {
   // Product inferred from selected roots.
   loom_compile_product_t product;
-  // Explicit root names, or an empty list when selection was derived from the
-  // module.
+  // Selected root names. Explicit roots preserve authored order and storage;
+  // derived roots use module order and arena-owned list storage. Names borrow
+  // the input module. Empty only when selecting an entire module.
   iree_string_view_list_t roots;
   // Exact public artifact format.
   iree_string_view_t format;
@@ -89,18 +80,7 @@ typedef struct loom_compile_request_t {
   loom_artifact_target_t explicit_target;
   // Effective target fact type, or NULL for target-independent products.
   const loom_target_fact_type_t* target_fact_type;
-  // Canonical roots omitted before specialization and materialization.
-  iree_string_view_list_t excluded_roots;
 } loom_compile_request_t;
-
-// Returns true when |symbol| is excluded by the resolved |request|.
-//
-// Request resolution validates every excluded name and rejects duplicates, so
-// callers may use this as an infallible selection query while preparing the
-// trusted compiler request.
-bool loom_compile_request_symbol_is_excluded(
-    const loom_module_t* module, const loom_compile_request_t* request,
-    const loom_symbol_t* symbol);
 
 // Returns the selected artifact provider, or NULL for other producers.
 static inline const loom_artifact_provider_t*
@@ -120,21 +100,22 @@ static inline bool loom_compile_request_is_command(
 
 // Resolves roots, product, target, format, and producer exactly once.
 //
-// All inputs and outputs are borrowed. Resolution performs no allocation and
-// never probes a producer by compiling. With explicit roots, an explicit
-// product only validates the inferred product and cannot reinterpret them. With
-// no explicit roots, an explicit command or kernel product selects its complete
-// default root set and an explicit module product selects the whole module.
-// Otherwise the product is inferred from the complete unfiltered command and
-// kernel root sets, falling back to the whole module. Inference precedes
-// exclusions so they cannot silently select another product. An omitted format
+// Explicit roots are borrowed without allocation. Derived roots allocate their
+// list from |arena| and borrow names from |module|; both must remain live until
+// root materialization. An explicit product only validates explicit roots and
+// cannot reinterpret them. With no explicit roots, an explicit command or
+// kernel product selects its complete default root set and an explicit module
+// product selects the whole module. Otherwise the product is inferred from the
+// complete unfiltered command and kernel root sets, falling back to the whole
+// module. Inference precedes exclusions so they cannot silently select another
+// product. Resolution never probes a producer by compiling. An omitted format
 // selects the unique configured kernel artifact provider, the selected target
 // family's canonical module emitter, or the target-independent command format.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_artifact_provider_registry_t* artifact_provider_registry,
     const loom_target_environment_t* target_environment,
-    loom_compile_request_t* out_request);
+    iree_arena_allocator_t* arena, loom_compile_request_t* out_request);
 
 #ifdef __cplusplus
 }  // extern "C"

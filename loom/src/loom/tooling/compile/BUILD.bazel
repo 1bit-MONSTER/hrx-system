@@ -98,6 +98,7 @@ loom_cc_library(
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target:selection",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
     ],
 )
 
@@ -109,7 +110,6 @@ loom_cc_library(
         ":pipeline",
         ":request",
         "//loom/src/loom/link:linker",
-        "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:module_specialization",
     ],

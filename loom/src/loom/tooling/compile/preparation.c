@@ -7,7 +7,6 @@
 #include "loom/tooling/compile/preparation.h"
 
 #include "loom/link/linker.h"
-#include "loom/ops/op_defs.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/module_specialization.h"
 
@@ -17,40 +16,7 @@ static iree_status_t loom_compile_materialize_roots(
     iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
     loom_module_t** inout_module) {
   loom_module_t* module = *inout_module;
-  iree_string_view_list_t roots = request->roots;
-  iree_string_view_t* default_root_names = NULL;
-  if (roots.count == 0 && (request->product == LOOM_COMPILE_PRODUCT_KERNEL ||
-                           request->excluded_roots.count != 0)) {
-    for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
-      if (loom_compile_request_default_root_set_contains(
-              module, request->product, &module->symbols.entries[i]) &&
-          !loom_compile_request_symbol_is_excluded(
-              module, request, &module->symbols.entries[i])) {
-        ++roots.count;
-      }
-    }
-    if (roots.count == 0) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "kernel product requires a nonempty root set of kernel entries, "
-          "public or retained kernel-scoped pipelines, or array programs");
-    }
-    IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-        allocator, roots.count, sizeof(*default_root_names),
-        (void**)&default_root_names));
-    iree_host_size_t root_ordinal = 0;
-    for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
-      const loom_symbol_t* symbol = &module->symbols.entries[i];
-      if (loom_compile_request_default_root_set_contains(
-              module, request->product, symbol) &&
-          !loom_compile_request_symbol_is_excluded(module, request, symbol)) {
-        default_root_names[root_ordinal++] =
-            loom_string_table_get(&module->strings, symbol->name_id);
-      }
-    }
-    roots.values = default_root_names;
-  }
-  if (roots.count == 0) {
+  if (request->roots.count == 0) {
     return iree_ok_status();
   }
 
@@ -65,12 +31,11 @@ static iree_status_t loom_compile_materialize_roots(
       source_modules, IREE_ARRAYSIZE(source_modules),
       &(loom_link_options_t){
           .module_name = module_name,
-          .root_symbols = roots,
+          .root_symbols = request->roots,
           .source_callback = {.fn = loom_source_table_project,
                               .user_data = sources},
       },
       block_pool, allocator, &linked_module);
-  iree_allocator_free(allocator, default_root_names);
   if (iree_status_is_ok(status)) {
     loom_module_free(module);
     *inout_module = linked_module;

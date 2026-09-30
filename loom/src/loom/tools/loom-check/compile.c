@@ -241,7 +241,7 @@ iree_status_t loom_check_execute_compile(
     status = loom_compile_request_resolve(
         input.module, &request_options,
         options->environment->artifact_provider_registry,
-        options->environment->target_environment, &request);
+        options->environment->target_environment, &arena, &request);
     if (iree_status_is_ok(status) &&
         loom_compile_request_is_command(&request)) {
       status = iree_make_status(
@@ -265,15 +265,10 @@ iree_status_t loom_check_execute_compile(
       // Testbench launches are independent deployment units. Compiling their
       // roots separately also preserves targets with per-artifact dispatch
       // ABIs.
-      for (iree_host_size_t i = 0;
-           iree_status_is_ok(status) && i < input.module->symbols.count; ++i) {
-        const loom_symbol_t* symbol = &input.module->symbols.entries[i];
-        if (!loom_compile_request_default_root_set_contains(
-                input.module, request.product, symbol)) {
-          continue;
-        }
-        const iree_string_view_t root =
-            loom_string_table_get(&input.module->strings, symbol->name_id);
+      const iree_string_view_list_t roots = request.roots;
+      for (iree_host_size_t i = 0; iree_status_is_ok(status) && i < roots.count;
+           ++i) {
+        const iree_string_view_t root = roots.values[i];
         request.roots = (iree_string_view_list_t){.count = 1, .values = &root};
         status = loom_check_compile_request(
             &request, input.module, &input.sources.table, &pipeline_options,

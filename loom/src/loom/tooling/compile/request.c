@@ -264,7 +264,7 @@ static bool loom_compile_request_is_concrete_module_function(
          !loom_compile_request_is_array_program(module, symbol);
 }
 
-bool loom_compile_request_default_root_set_contains(
+static bool loom_compile_request_default_root_set_contains(
     const loom_module_t* module, loom_compile_product_t product,
     const loom_symbol_t* symbol) {
   switch (product) {
@@ -298,18 +298,6 @@ static bool loom_compile_request_root_list_contains(
     }
   }
   return false;
-}
-
-bool loom_compile_request_symbol_is_excluded(
-    const loom_module_t* module, const loom_compile_request_t* request,
-    const loom_symbol_t* symbol) {
-  if (request->excluded_roots.count == 0) {
-    return false;
-  }
-  const iree_string_view_t symbol_name =
-      loom_string_table_get(&module->strings, symbol->name_id);
-  return loom_compile_request_root_list_contains(request->excluded_roots,
-                                                 symbol_name);
 }
 
 static bool loom_compile_request_name_is_excluded(
@@ -346,29 +334,50 @@ static iree_status_t loom_compile_request_summarize_default_roots(
   return iree_ok_status();
 }
 
-static iree_host_size_t loom_compile_request_count_default_roots(
-    const loom_module_t* module, loom_compile_product_t product) {
-  iree_host_size_t root_count = 0;
-  for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
-    if (loom_compile_request_default_root_set_contains(
-            module, product, &module->symbols.entries[i])) {
-      ++root_count;
-    }
-  }
-  return root_count;
-}
-
 static loom_compile_product_t loom_compile_request_infer_default_product(
     const loom_module_t* module) {
-  if (loom_compile_request_count_default_roots(
-          module, LOOM_COMPILE_PRODUCT_COMMAND) != 0) {
-    return LOOM_COMPILE_PRODUCT_COMMAND;
+  bool has_kernel_root = false;
+  for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
+    const loom_symbol_t* symbol = &module->symbols.entries[i];
+    if (loom_compile_request_default_root_set_contains(
+            module, LOOM_COMPILE_PRODUCT_COMMAND, symbol)) {
+      return LOOM_COMPILE_PRODUCT_COMMAND;
+    }
+    has_kernel_root =
+        has_kernel_root || loom_compile_request_default_root_set_contains(
+                               module, LOOM_COMPILE_PRODUCT_KERNEL, symbol);
   }
-  if (loom_compile_request_count_default_roots(
-          module, LOOM_COMPILE_PRODUCT_KERNEL) != 0) {
-    return LOOM_COMPILE_PRODUCT_KERNEL;
+  return has_kernel_root ? LOOM_COMPILE_PRODUCT_KERNEL
+                         : LOOM_COMPILE_PRODUCT_MODULE;
+}
+
+static iree_status_t loom_compile_request_collect_default_root_names(
+    const loom_module_t* module, loom_compile_product_t product,
+    iree_string_view_list_t excluded_roots, iree_host_size_t root_count,
+    iree_arena_allocator_t* arena, iree_string_view_list_t* out_roots) {
+  *out_roots = iree_string_view_list_empty();
+  if (root_count == 0) {
+    return iree_ok_status();
   }
-  return LOOM_COMPILE_PRODUCT_MODULE;
+  iree_string_view_t* root_names = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, root_count, sizeof(*root_names), (void**)&root_names));
+  iree_host_size_t root_ordinal = 0;
+  for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
+    const loom_symbol_t* symbol = &module->symbols.entries[i];
+    if (!loom_compile_request_default_root_set_contains(module, product,
+                                                        symbol) ||
+        loom_compile_request_name_is_excluded(module, excluded_roots, symbol)) {
+      continue;
+    }
+    root_names[root_ordinal++] =
+        loom_string_table_get(&module->strings, symbol->name_id);
+  }
+  *out_roots = (iree_string_view_list_t){
+      .count = root_ordinal,
+      .values = root_names,
+  };
+  return iree_ok_status();
 }
 
 static iree_status_t loom_compile_request_validate_product(
@@ -449,8 +458,10 @@ static iree_status_t loom_compile_request_validate_excluded_roots(
 static iree_status_t loom_compile_request_resolve_selection(
     const loom_module_t* module, iree_string_view_list_t roots,
     iree_string_view_list_t excluded_roots,
-    loom_compile_product_t explicit_product,
+    loom_compile_product_t explicit_product, iree_arena_allocator_t* arena,
+    iree_string_view_list_t* out_roots,
     loom_compile_selection_summary_t* out_summary) {
+  *out_roots = roots;
   *out_summary = (loom_compile_selection_summary_t){0};
   if (roots.count != 0 && roots.values == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -500,7 +511,7 @@ static iree_status_t loom_compile_request_resolve_selection(
             "product 'command' requires a nonempty set of public or retained "
             "command roots");
       }
-      return iree_ok_status();
+      break;
     case LOOM_COMPILE_PRODUCT_KERNEL:
       if (out_summary->root_count == 0) {
         if (excluded_roots.count != 0) {
@@ -513,20 +524,25 @@ static iree_status_t loom_compile_request_resolve_selection(
             "product 'kernel' requires a nonempty root set of kernel entries, "
             "public or retained kernel-scoped pipelines, or array programs");
       }
-      return iree_ok_status();
+      break;
     case LOOM_COMPILE_PRODUCT_MODULE:
       if (out_summary->root_count == 0) {
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
             "excluded roots empty the default module root set");
       }
-      return iree_ok_status();
+      break;
     case LOOM_COMPILE_PRODUCT_INVALID:
       break;
   }
 
-  return iree_make_status(IREE_STATUS_INTERNAL,
-                          "compile product selection is invalid");
+  if (selected_product == LOOM_COMPILE_PRODUCT_INVALID) {
+    return iree_make_status(IREE_STATUS_INTERNAL,
+                            "compile product selection is invalid");
+  }
+  return loom_compile_request_collect_default_root_names(
+      module, selected_product, excluded_roots, out_summary->root_count, arena,
+      out_roots);
 }
 
 static iree_status_t loom_compile_request_select_explicit_target(
@@ -772,21 +788,23 @@ iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_artifact_provider_registry_t* artifact_provider_registry,
     const loom_target_environment_t* target_environment,
-    loom_compile_request_t* out_request) {
+    iree_arena_allocator_t* arena, loom_compile_request_t* out_request) {
   IREE_ASSERT_ARGUMENT(module);
   IREE_ASSERT_ARGUMENT(options);
   IREE_ASSERT_ARGUMENT(artifact_provider_registry);
   IREE_ASSERT_ARGUMENT(target_environment);
+  IREE_ASSERT_ARGUMENT(arena);
   IREE_ASSERT_ARGUMENT(out_request);
   *out_request = (loom_compile_request_t){0};
 
   loom_compile_product_t explicit_product = LOOM_COMPILE_PRODUCT_INVALID;
   IREE_RETURN_IF_ERROR(
       loom_compile_request_parse_product(options->product, &explicit_product));
+  iree_string_view_list_t roots = iree_string_view_list_empty();
   loom_compile_selection_summary_t selection_summary = {0};
   IREE_RETURN_IF_ERROR(loom_compile_request_resolve_selection(
-      module, options->roots, options->excluded_roots, explicit_product,
-      &selection_summary));
+      module, options->roots, options->excluded_roots, explicit_product, arena,
+      &roots, &selection_summary));
 
   loom_artifact_target_t explicit_target = {0};
   IREE_RETURN_IF_ERROR(loom_compile_request_select_explicit_target(
@@ -842,10 +860,9 @@ iree_status_t loom_compile_request_resolve(
 
   loom_compile_request_t request = {
       .product = selection_summary.product,
-      .roots = options->roots,
+      .roots = roots,
       .explicit_target = explicit_target,
       .target_fact_type = target_fact_type,
-      .excluded_roots = options->excluded_roots,
   };
   IREE_RETURN_IF_ERROR(loom_compile_request_select_format(
       request.product, options->format, request.target_fact_type,

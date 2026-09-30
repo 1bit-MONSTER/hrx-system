@@ -1037,7 +1037,8 @@ int main(int argc, char** argv) {
     status = loom_compile_request_resolve(
         run_module.module, &request_options,
         compile_environment->artifact_provider_registry,
-        compile_environment->target_environment, &request);
+        compile_environment->target_environment, &run_module.sources.arena,
+        &request);
     if (iree_status_is_ok(status)) {
       status = loom_compile_validate_request_flags(&request);
     }
