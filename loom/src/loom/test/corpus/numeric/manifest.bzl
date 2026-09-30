@@ -18,6 +18,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "conversion/narrow.loom",
         "conversion/narrow_arithmetic.loom",
         "conversion/narrow_integer_float.loom",
+        "conversion/narrow_widening.loom",
         "conversion/packed_integer_float.loom",
         "conversion/packed_integer_float8.loom",
         "conversion/paths.loom",
