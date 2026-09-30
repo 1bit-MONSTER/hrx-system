@@ -44,9 +44,7 @@ void loom_target_residency_evaluate_cliffs(
       .tier = initial_tier,
   };
   const loom_target_residency_cliff_t* last_crossed_cliff = NULL;
-  for (iree_host_size_t i = loom_target_residency_cliff_start_below_tier(
-           cliffs, cliff_count, initial_tier);
-       i < cliff_count; ++i) {
+  for (iree_host_size_t i = 0; i < cliff_count; ++i) {
     const loom_target_residency_cliff_t* cliff = &cliffs[i];
     if (units < cliff->cliff_units) {
       out_evaluation->worse_tier = cliff->tier_after;
@@ -82,6 +80,8 @@ uint32_t loom_target_residency_evaluate_tier_with_direct_resource_override(
     loom_target_residency_view_t view, const uint32_t* direct_resource_units,
     uint16_t direct_resource_id, uint32_t override_units) {
   const loom_target_residency_model_t* model = view.model;
+  // Only the combined tier is consumed here. Evaluate complete chains from
+  // the model's best tier and apply the function ceiling through this minimum.
   uint32_t tier = view.tier_limit;
   for (uint16_t resource_id = 0;
        resource_id < model->direct_resources.resource_count; ++resource_id) {
@@ -94,7 +94,7 @@ uint32_t loom_target_residency_evaluate_tier_with_direct_resource_override(
             direct_resource_units, resource_id, direct_resource_id,
             override_units);
     loom_target_residency_cliff_evaluation_t evaluation;
-    loom_target_residency_evaluate_cliffs(cliffs, range.count, view.tier_limit,
+    loom_target_residency_evaluate_cliffs(cliffs, range.count, model->best_tier,
                                           units, &evaluation);
     tier = iree_min(tier, evaluation.tier);
   }
@@ -122,7 +122,7 @@ uint32_t loom_target_residency_evaluate_tier_with_direct_resource_override(
             : &model->derived_resources.cliffs[resource->cliff_start];
     loom_target_residency_cliff_evaluation_t evaluation;
     loom_target_residency_evaluate_cliffs(cliffs, resource->cliff_count,
-                                          view.tier_limit, resource_units,
+                                          model->best_tier, resource_units,
                                           &evaluation);
     tier = iree_min(tier, evaluation.tier);
   }

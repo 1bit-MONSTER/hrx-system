@@ -410,12 +410,14 @@ loom_target_residency_derived_resource_member_range(
   return table->member_ranges_by_direct_resource[direct_resource_id];
 }
 
-// Evaluates one complete or suffix residency-cliff chain.
+// Evaluates one actionable residency-cliff chain.
 //
-// |initial_tier| bounds the tier before the first supplied cliff. Cliffs whose
-// destination is at or above that bound are not actionable and are skipped.
-// The underlying chain must be strictly ordered, contiguous and descending;
-// it is never rewritten to represent a function-local ceiling.
+// |initial_tier| bounds the tier before the first supplied cliff. Every
+// supplied cliff must lead below that bound. Incremental planners pass their
+// retained actionable suffix; complete model chains use the model's best tier.
+// The chain must be strictly ordered, contiguous and descending. Evaluation
+// does not rediscover the suffix or rewrite the chain to represent a function
+// ceiling.
 void loom_target_residency_evaluate_cliffs(
     const loom_target_residency_cliff_t* cliffs, iree_host_size_t cliff_count,
     uint32_t initial_tier, uint64_t units,

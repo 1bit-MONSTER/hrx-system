@@ -217,12 +217,13 @@ TEST_F(ResidencyTest, ViewPreservesUnavailableAndZeroLimits) {
 }
 
 TEST_F(ResidencyTest, CeilingSkipsUnattainableCliffsAndCutsTierJumps) {
-  EXPECT_EQ(
-      loom_target_residency_cliff_start_below_tier(kDirectResourceCliffs, 2, 2),
-      1u);
+  const auto first_actionable_cliff =
+      loom_target_residency_cliff_start_below_tier(kDirectResourceCliffs, 2, 2);
+  ASSERT_EQ(first_actionable_cliff, 1u);
   loom_target_residency_cliff_evaluation_t evaluation;
-  loom_target_residency_evaluate_cliffs(kDirectResourceCliffs, 2, 2, 6,
-                                        &evaluation);
+  loom_target_residency_evaluate_cliffs(
+      kDirectResourceCliffs + first_actionable_cliff,
+      2 - first_actionable_cliff, 2, 6, &evaluation);
   EXPECT_EQ(evaluation.tier, 2u);
   EXPECT_EQ(evaluation.flags,
             LOOM_TARGET_RESIDENCY_CLIFF_EVALUATION_FLAG_HAS_WORSE_TIER);
@@ -238,13 +239,14 @@ TEST_F(ResidencyTest, CeilingSkipsUnattainableCliffsAndCutsTierJumps) {
   EXPECT_EQ(evaluation.reduction_units_to_better_tier, 1u);
   EXPECT_EQ(evaluation.worse_tier, 1u);
 
-  loom_target_residency_evaluate_cliffs(kDirectResourceCliffs, 2, 0, UINT64_MAX,
+  const auto empty_suffix =
+      loom_target_residency_cliff_start_below_tier(kDirectResourceCliffs, 2, 0);
+  ASSERT_EQ(empty_suffix, 2u);
+  loom_target_residency_evaluate_cliffs(kDirectResourceCliffs + empty_suffix,
+                                        2 - empty_suffix, 0, UINT64_MAX,
                                         &evaluation);
   EXPECT_EQ(evaluation.tier, 0u);
   EXPECT_EQ(evaluation.flags, 0u);
-  EXPECT_EQ(
-      loom_target_residency_cliff_start_below_tier(kDirectResourceCliffs, 2, 0),
-      2u);
 }
 
 TEST_F(ResidencyTest, CappedOverridesRespectAllDirectAndDerivedLimits) {
