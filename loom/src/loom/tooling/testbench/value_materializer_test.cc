@@ -363,6 +363,69 @@ check.case @generated {
   loom_module_free(module);
 }
 
+TEST_F(ValueMaterializerTest, MaterializesFullWidthRandomIntegers) {
+  loom_module_t* module = ParseModule(R"(
+check.case @wide_random {
+  %seed = check.param.seed base(7) count(1) : i64
+  %full = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to 9223372036854775807) : tensor<128xi64>
+  %crossing = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to 1) : tensor<128xi64>
+  %positive = check.generate.random.uniform seed(%seed) range(-1 to 9223372036854775807) : tensor<128xi64>
+  %minimum = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to -9223372036854775808) : tensor<128xi64>
+  %maximum = check.generate.random.uniform seed(%seed) range(9223372036854775807 to 9223372036854775807) : tensor<128xi64>
+  %small = check.generate.random.uniform seed(%seed) range(-3 to 3) : tensor<128xi64>
+  check.return
+}
+)");
+  ASSERT_NE(module, nullptr);
+  loom_testbench_module_plan_t plan = PlanModule(module);
+  ASSERT_EQ(plan.case_count, 1u);
+  ASSERT_EQ(plan.issue_count, 0u);
+  const loom_testbench_case_plan_t& case_plan = plan.cases[0];
+  ASSERT_EQ(case_plan.value_source_count, 6u);
+  const int64_t lower[] = {INT64_MIN, INT64_MIN, -1, INT64_MIN, INT64_MAX, -3};
+  const int64_t upper[] = {INT64_MAX, 1, INT64_MAX, INT64_MIN, INT64_MAX, 3};
+  std::vector<std::vector<int64_t>> first_realization(6);
+
+  loom_testbench_value_table_t table = {};
+  IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
+      module, &case_plan, host_allocator_, &table));
+  loom_testbench_value_materializer_options_t options = MaterializerOptions();
+  for (int realization = 0; realization < 2; ++realization) {
+    loom_testbench_value_table_reset(&table);
+    IREE_ASSERT_OK(loom_testbench_materialize_case_sample(
+        &options, &case_plan, /*sample_ordinal=*/0, &table));
+    for (iree_host_size_t i = 0; i < case_plan.value_source_count; ++i) {
+      loom_testbench_value_t value = {};
+      iree_hal_buffer_view_t* view =
+          LookupBufferView(&table, case_plan.value_sources[i].value_id, &value);
+      std::vector<int64_t> contents(128);
+      IREE_ASSERT_OK(iree_hal_buffer_map_read(
+          iree_hal_buffer_view_buffer(view), /*source_offset=*/0,
+          contents.data(), contents.size() * sizeof(int64_t)));
+      bool has_negative = false;
+      bool has_positive = false;
+      for (int64_t element : contents) {
+        EXPECT_GE(element, lower[i]);
+        EXPECT_LE(element, upper[i]);
+        has_negative |= element < 0;
+        has_positive |= element > 0;
+      }
+      if (i == 0) {
+        EXPECT_TRUE(has_negative);
+        EXPECT_TRUE(has_positive);
+      }
+      if (realization == 0) {
+        first_realization[i] = contents;
+      } else {
+        EXPECT_EQ(contents, first_realization[i]);
+      }
+      loom_testbench_value_deinitialize(&value);
+    }
+  }
+  loom_testbench_value_table_deinitialize(&table);
+  loom_module_free(module);
+}
+
 TEST_F(ValueMaterializerTest, MaterializesTypedTensorSubspanViews) {
   loom_module_t* module = ParseModule(R"(
 check.case @tensor_view {

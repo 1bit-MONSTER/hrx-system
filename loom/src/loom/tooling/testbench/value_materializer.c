@@ -884,10 +884,25 @@ static iree_status_t loom_testbench_get_entropy_value(
 
 static uint64_t loom_testbench_random_bounded_u64(
     iree_prng_xoroshiro128_state_t* state, uint64_t bound) {
+  // A wrapped interval width represents the full 64-bit domain.
   if (bound == 0) {
-    return 0;
+    return iree_prng_xoroshiro128starstar_next_uint64(state);
   }
-  return iree_prng_xoroshiro128starstar_next_uint64(state) % bound;
+  const uint64_t threshold = (UINT64_C(0) - bound) % bound;
+  uint64_t value = 0;
+  do {
+    value = iree_prng_xoroshiro128starstar_next_uint64(state);
+  } while (value < threshold);
+  return value % bound;
+}
+
+static int64_t loom_testbench_random_integer(
+    iree_prng_xoroshiro128_state_t* state, int64_t lower, uint64_t width) {
+  const uint64_t bits =
+      (uint64_t)lower + loom_testbench_random_bounded_u64(state, width);
+  int64_t value = 0;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
 }
 
 static double loom_testbench_random_unit_f64(
@@ -1041,34 +1056,30 @@ static iree_status_t loom_testbench_generate_integer_buffer(
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                 "random integer upper bound is below lower");
       }
-      if (second_value == INT64_MAX && first_value == INT64_MIN) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "random integer range is too wide");
-      }
-      uint64_t width = (uint64_t)(second_value - first_value) + 1;
+      const uint64_t width = (uint64_t)second_value - (uint64_t)first_value + 1;
       switch (state->scalar_type) {
         case LOOM_SCALAR_TYPE_I8:
           LOOM_TESTBENCH_FILL_INT_TYPED(
               contents, int8_t, INT8_MIN, INT8_MAX,
-              first_value + (int64_t)loom_testbench_random_bounded_u64(
-                                &state->prng_state, width));
+              loom_testbench_random_integer(&state->prng_state, first_value,
+                                            width));
         case LOOM_SCALAR_TYPE_I16:
           LOOM_TESTBENCH_FILL_INT_TYPED(
               contents, int16_t, INT16_MIN, INT16_MAX,
-              first_value + (int64_t)loom_testbench_random_bounded_u64(
-                                &state->prng_state, width));
+              loom_testbench_random_integer(&state->prng_state, first_value,
+                                            width));
         case LOOM_SCALAR_TYPE_I32:
           LOOM_TESTBENCH_FILL_INT_TYPED(
               contents, int32_t, INT32_MIN, INT32_MAX,
-              first_value + (int64_t)loom_testbench_random_bounded_u64(
-                                &state->prng_state, width));
+              loom_testbench_random_integer(&state->prng_state, first_value,
+                                            width));
         case LOOM_SCALAR_TYPE_INDEX:
         case LOOM_SCALAR_TYPE_OFFSET:
         case LOOM_SCALAR_TYPE_I64:
           LOOM_TESTBENCH_FILL_INT_TYPED(
               contents, int64_t, min_value, max_value,
-              first_value + (int64_t)loom_testbench_random_bounded_u64(
-                                &state->prng_state, width));
+              loom_testbench_random_integer(&state->prng_state, first_value,
+                                            width));
         default:
           break;
       }
