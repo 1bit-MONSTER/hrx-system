@@ -4,19 +4,23 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Benchmarks condition derivation and proof over deeply shared boolean DAGs.
-// These shapes arise after inlining and canonicalization, where the same
-// predicate can feed many composed guards. Traversal must scale with unique SSA
-// values rather than the exponential number of producer paths.
+// Benchmarks condition derivation, proof, and structured-edge projection.
+// Shared boolean DAGs arise after inlining and canonicalization, where the same
+// predicate can feed many composed guards. Duplicate edge payloads arise when
+// one source fact is forwarded into several successor arguments. Both must stay
+// compact instead of scaling with the number of producer paths or target pairs.
 
 #include <cstdint>
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "iree/base/internal/arena.h"
+#include "loom/analysis/condition_edge_projection.h"
 #include "loom/analysis/condition_facts.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/scalar/ops.h"
+#include "loom/ops/scf/ops.h"
 #include "loom/util/fact_table.h"
 
 namespace {
@@ -170,5 +174,173 @@ static void BM_ProveSharedBooleanDag(benchmark::State& state) {
   state.SetItemsProcessed(state.iterations() * (state.range(0) + 1));
 }
 BENCHMARK(BM_ProveSharedBooleanDag)->Apply(SharedDagDepths);
+
+class ConditionEdgeProjectionBenchmark {
+ public:
+  explicit ConditionEdgeProjectionBenchmark(int64_t payload_width)
+      : payload_width_(payload_width) {
+    iree_arena_block_pool_initialize(65536, iree_allocator_system(),
+                                     &block_pool_);
+    iree_arena_initialize(&block_pool_, &analysis_arena_);
+    loom_context_initialize(iree_allocator_system(), &context_);
+
+    iree_host_size_t scalar_vtable_count = 0;
+    const loom_op_vtable_t* const* scalar_vtables =
+        loom_scalar_dialect_vtables(&scalar_vtable_count);
+    IREE_CHECK_OK(loom_context_register_dialect(&context_, LOOM_DIALECT_SCALAR,
+                                                scalar_vtables,
+                                                (uint16_t)scalar_vtable_count));
+    iree_host_size_t scf_vtable_count = 0;
+    const loom_op_vtable_t* const* scf_vtables =
+        loom_scf_dialect_vtables(&scf_vtable_count);
+    IREE_CHECK_OK(loom_context_register_dialect(
+        &context_, LOOM_DIALECT_SCF, scf_vtables, (uint16_t)scf_vtable_count));
+    IREE_CHECK_OK(loom_context_finalize(&context_));
+
+    IREE_CHECK_OK(loom_module_allocate(&context_, IREE_SV("edge_projection"),
+                                       &block_pool_, nullptr,
+                                       iree_allocator_system(), &module_));
+    loom_builder_t builder;
+    loom_builder_initialize(module_, &module_->arena,
+                            loom_module_block(module_), &builder);
+    const loom_type_t i32 = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+    loom_value_id_t initial_values[2] = {LOOM_VALUE_ID_INVALID,
+                                         LOOM_VALUE_ID_INVALID};
+    IREE_CHECK_OK(loom_builder_define_value(&builder, i32, &initial_values[0]));
+    IREE_CHECK_OK(loom_builder_define_value(&builder, i32, &initial_values[1]));
+    const std::vector<loom_type_t> result_types(payload_width_, i32);
+    loom_op_t* loop = nullptr;
+    IREE_CHECK_OK(loom_scf_while_build(
+        &builder, initial_values, IREE_ARRAYSIZE(initial_values),
+        /*iter_args_types=*/nullptr, result_types.data(), result_types.size(),
+        /*tied_results=*/nullptr, /*tied_result_count=*/0,
+        LOOM_LOCATION_UNKNOWN, &loop));
+    source_region_ = loom_scf_while_before(loop);
+    loom_region_t* target_region = loom_scf_while_after(loop);
+    target_block_ = loom_region_entry_block(target_region);
+    const loom_value_id_t source_left =
+        loom_region_entry_arg_id(source_region_, 0);
+    const loom_value_id_t source_right =
+        loom_region_entry_arg_id(source_region_, 1);
+
+    sources_.reserve(payload_width_);
+    for (int64_t i = 0; i < payload_width_; ++i) {
+      sources_.push_back((i & 1) == 0 ? source_left : source_right);
+    }
+
+    loom_builder_ip_t saved =
+        loom_builder_enter_region(&builder, loop, source_region_);
+    loom_op_t* compare = nullptr;
+    IREE_CHECK_OK(loom_scalar_cmpi_build(
+        &builder, LOOM_SCALAR_CMPI_PREDICATE_SLT, source_left, source_right,
+        LOOM_LOCATION_UNKNOWN, &compare));
+    loom_op_t* condition = nullptr;
+    IREE_CHECK_OK(loom_scf_condition_build(
+        &builder, loom_scalar_cmpi_result(compare), sources_.data(),
+        sources_.size(), LOOM_LOCATION_UNKNOWN, &condition));
+    loom_builder_restore(&builder, saved);
+
+    saved = loom_builder_enter_region(&builder, loop, target_region);
+    const loom_value_id_t yielded_values[] = {
+        loom_block_arg_id(target_block_, 0),
+        loom_block_arg_id(target_block_, 1),
+    };
+    loom_op_t* yield = nullptr;
+    IREE_CHECK_OK(loom_scf_yield_build(&builder, yielded_values,
+                                       IREE_ARRAYSIZE(yielded_values),
+                                       LOOM_LOCATION_UNKNOWN, &yield));
+    loom_builder_restore(&builder, saved);
+
+    loom_condition_edge_projection_initialize(&analysis_arena_, &projection_);
+    loom_condition_query_t query;
+    loom_condition_query_initialize(module_, /*value_domain=*/nullptr,
+                                    &analysis_arena_, &query);
+    IREE_CHECK_OK(loom_condition_facts_query_complete(
+        &query, /*fact_table=*/nullptr, loom_scalar_cmpi_result(compare),
+        /*assumed_truth=*/true, &projection_.source_derivation));
+    Update();
+  }
+
+  ConditionEdgeProjectionBenchmark(const ConditionEdgeProjectionBenchmark&) =
+      delete;
+  ConditionEdgeProjectionBenchmark& operator=(
+      const ConditionEdgeProjectionBenchmark&) = delete;
+
+  ~ConditionEdgeProjectionBenchmark() {
+    loom_module_free(module_);
+    loom_context_deinitialize(&context_);
+    iree_arena_deinitialize(&analysis_arena_);
+    iree_arena_block_pool_deinitialize(&block_pool_);
+  }
+
+  void Update() {
+    IREE_CHECK_OK(loom_condition_edge_projection_update_mapping(
+        &projection_, module_, source_region_, target_block_, sources_.data(),
+        sources_.size()));
+  }
+
+  bool Prove() const {
+    const loom_condition_integer_relation_t query = {
+        /*.relation=*/LOOM_SYMBOLIC_INTEGER_RELATION_LT,
+        /*.left=*/ValueOperand(loom_block_arg_id(target_block_, 0)),
+        /*.right=*/ValueOperand(loom_block_arg_id(target_block_, 1)),
+    };
+    bool result = false;
+    const bool proven = loom_condition_edge_projection_proves_integer_relation(
+        &projection_, /*fact_table=*/nullptr, &query, &result);
+    IREE_ASSERT(proven && result);
+    return result;
+  }
+
+  void SetCounters(benchmark::State& state) const {
+    state.counters["payload_values"] = (double)payload_width_;
+    state.counters["analysis_arena_used_bytes"] =
+        (double)analysis_arena_.used_allocation_size;
+    state.counters["analysis_arena_owned_bytes"] =
+        (double)analysis_arena_.total_allocation_size;
+  }
+
+ private:
+  static loom_condition_integer_operand_t ValueOperand(
+      loom_value_id_t value_id) {
+    return loom_condition_integer_operand_t{
+        /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+        /*.value_id=*/value_id,
+    };
+  }
+
+  int64_t payload_width_;
+  iree_arena_block_pool_t block_pool_;
+  iree_arena_allocator_t analysis_arena_;
+  loom_context_t context_;
+  loom_module_t* module_ = nullptr;
+  loom_region_t* source_region_ = nullptr;
+  loom_block_t* target_block_ = nullptr;
+  std::vector<loom_value_id_t> sources_;
+  loom_condition_edge_projection_t projection_;
+};
+
+static void ProjectionWidths(::benchmark::Benchmark* benchmark) {
+  benchmark->Arg(8)->Arg(64)->Arg(512)->Arg(4096);
+}
+
+static void BM_UpdateConditionEdgeProjection(benchmark::State& state) {
+  ConditionEdgeProjectionBenchmark fixture(state.range(0));
+  for (auto _ : state) {
+    fixture.Update();
+  }
+  fixture.SetCounters(state);
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_UpdateConditionEdgeProjection)->Apply(ProjectionWidths);
+
+static void BM_QueryConditionEdgeProjection(benchmark::State& state) {
+  ConditionEdgeProjectionBenchmark fixture(state.range(0));
+  for (auto _ : state) {
+    benchmark::DoNotOptimize(fixture.Prove());
+  }
+  fixture.SetCounters(state);
+}
+BENCHMARK(BM_QueryConditionEdgeProjection)->Apply(ProjectionWidths);
 
 }  // namespace

@@ -50,6 +50,10 @@ extern "C" {
 //===----------------------------------------------------------------------===//
 
 typedef struct loom_value_fact_region_entry_t loom_value_fact_region_entry_t;
+typedef struct loom_value_fact_condition_scratch_t
+    loom_value_fact_condition_scratch_t;
+typedef struct loom_condition_edge_projection_t
+    loom_condition_edge_projection_t;
 typedef struct loom_cfg_graph_t loom_cfg_graph_t;
 typedef struct loom_target_facts_t loom_target_facts_t;
 
@@ -317,6 +321,8 @@ struct loom_value_fact_table_t {
       // Allocated ordinal entry count.
       iree_host_size_t capacity;
     } alias_ordinals;
+    // Lazily allocated query scratch for condition-loop edge projections.
+    loom_value_fact_condition_scratch_t* condition;
   } scratch;
 };
 
@@ -398,6 +404,26 @@ iree_status_t loom_value_fact_table_set_region_temporal_scope(
 // a detached op cannot establish uniformity across unknown enclosing cycles.
 loom_value_facts_t loom_value_fact_table_block_temporal_scope(
     const loom_value_fact_table_t* table, const loom_block_t* block);
+
+// Publishes condition facts and their SSA mapping onto |region| arguments. The
+// projection must use the table's transient arena and remains producer-owned.
+// Recomputing a structured summary updates it in place.
+iree_status_t loom_value_fact_table_set_region_condition_projection(
+    loom_value_fact_table_t* table, const loom_region_t* region,
+    loom_condition_edge_projection_t* projection);
+
+// Returns retained condition-projection storage for |region|, or NULL when no
+// condition facts have been established. Recomputing a condition may leave the
+// projection empty so later rewrites can reuse its capacity.
+const loom_condition_edge_projection_t*
+loom_value_fact_table_lookup_region_condition_projection(
+    const loom_value_fact_table_t* table, const loom_region_t* region);
+
+// Returns mutable retained condition-projection storage for an owning fact
+// producer. Consumers query the const view above.
+loom_condition_edge_projection_t*
+loom_value_fact_table_lookup_mutable_region_condition_projection(
+    loom_value_fact_table_t* table, const loom_region_t* region);
 
 // Receives a borrowed graph from a populated fact scope. The callback must not
 // mutate that scope or its graphs; any retained pointer has the same lifetime

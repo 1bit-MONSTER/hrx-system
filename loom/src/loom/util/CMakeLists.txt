@@ -282,6 +282,8 @@ loom_cc_library(
     iree::base
     iree::base::internal
     iree::base::internal::arena
+    loom::analysis::condition_edge_projection
+    loom::analysis::condition_facts
     loom::analysis::loop_domain
     loom::analysis::scc
     loom::ir
@@ -328,6 +330,8 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::analysis::condition_edge_projection
+    loom::analysis::condition_facts
     loom::ir
     loom::ops::index
     loom::ops::scf

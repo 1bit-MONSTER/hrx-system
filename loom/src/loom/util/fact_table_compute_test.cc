@@ -9,6 +9,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/analysis/condition_edge_projection.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/index/ops.h"
@@ -538,6 +539,218 @@ TEST_F(FactTableComputeTest, DependentResultsPublishOnlyFinalChanges) {
     EXPECT_TRUE(changed);
     EXPECT_TRUE(loom_value_facts_is_unknown(
         loom_value_fact_table_lookup(&table_, results[extent_index])));
+  }
+}
+
+TEST_F(FactTableComputeTest, ConditionLoopRetainsAndReplacesBodyEntryFacts) {
+  loom_op_t* bound_op = nullptr;
+  IREE_ASSERT_OK(loom_index_add_build(&builder_, inputs_[1], inputs_[1], type_,
+                                      LOOM_LOCATION_UNKNOWN, &bound_op));
+  const loom_value_id_t bound = loom_index_add_result(bound_op);
+  // Keep the dynamic upper bound in the signed carrier range so the true edge
+  // of the unsigned comparison also proves that its lower operand is
+  // nonnegative.
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &table_, bound, loom_value_facts_make(0, 100, 1)));
+
+  loom_op_t* loop = nullptr;
+  const loom_type_t result_types[] = {
+      type_,
+      type_,
+      loom_type_scalar(LOOM_SCALAR_TYPE_I1),
+  };
+  IREE_ASSERT_OK(loom_scf_while_build(
+      &builder_, &inputs_[0], 1, /*iter_args_types=*/nullptr, result_types,
+      IREE_ARRAYSIZE(result_types), /*tied_results=*/nullptr,
+      /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN, &loop));
+  loom_region_t* before = loom_scf_while_before(loop);
+  loom_region_t* body = loom_scf_while_after(loop);
+  const loom_value_id_t before_argument = loom_region_entry_arg_id(before, 0);
+  const loom_value_id_t body_arguments[] = {
+      loom_region_entry_arg_id(body, 0),
+      loom_region_entry_arg_id(body, 1),
+  };
+  const loom_value_id_t body_condition = loom_region_entry_arg_id(body, 2);
+
+  loom_builder_ip_t saved = loom_builder_enter_region(&builder_, loop, before);
+  loom_op_t* compare = nullptr;
+  IREE_ASSERT_OK(loom_index_cmp_build(&builder_, LOOM_INDEX_CMP_PREDICATE_ULT,
+                                      before_argument, bound,
+                                      LOOM_LOCATION_UNKNOWN, &compare));
+  const loom_value_id_t forwarded[] = {
+      before_argument,
+      before_argument,
+      loom_index_cmp_result(compare),
+  };
+  loom_op_t* condition = nullptr;
+  IREE_ASSERT_OK(loom_scf_condition_build(
+      &builder_, loom_index_cmp_result(compare), forwarded,
+      IREE_ARRAYSIZE(forwarded), LOOM_LOCATION_UNKNOWN, &condition));
+  loom_builder_restore(&builder_, saved);
+
+  saved = loom_builder_enter_region(&builder_, loop, body);
+  loom_op_t* yield = nullptr;
+  IREE_ASSERT_OK(loom_scf_yield_build(&builder_, body_arguments, 1,
+                                      LOOM_LOCATION_UNKNOWN, &yield));
+  loom_builder_restore(&builder_, saved);
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  const loom_condition_edge_projection_t* projection =
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body);
+  ASSERT_NE(projection, nullptr);
+
+  auto expect_relation = [&](loom_symbolic_integer_relation_t relation,
+                             loom_value_id_t left,
+                             loom_condition_integer_operand_t right,
+                             bool expected_proven, bool expected_result) {
+    const loom_condition_integer_relation_t queried = {
+        /*.relation=*/relation,
+        /*.left=*/
+        {
+            /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+            /*.value_id=*/left,
+            /*.constant=*/0,
+        },
+        /*.right=*/right,
+    };
+    bool result = false;
+    EXPECT_EQ(loom_condition_edge_projection_proves_integer_relation(
+                  projection, &table_, &queried, &result),
+              expected_proven);
+    if (expected_proven) {
+      EXPECT_EQ(result, expected_result);
+    }
+  };
+  const loom_condition_integer_operand_t upper_bound = {
+      /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+      /*.value_id=*/bound,
+      /*.constant=*/0,
+  };
+  const loom_condition_integer_operand_t zero = {
+      /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_CONSTANT,
+      /*.value_id=*/LOOM_VALUE_ID_INVALID,
+      /*.constant=*/0,
+  };
+  for (loom_value_id_t body_argument : body_arguments) {
+    expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_LT, body_argument,
+                    upper_bound, /*expected_proven=*/true,
+                    /*expected_result=*/true);
+    expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_GE, body_argument, zero,
+                    /*expected_proven=*/true, /*expected_result=*/true);
+  }
+  bool projected_condition = false;
+  EXPECT_TRUE(loom_condition_edge_projection_query_boolean(
+      projection, body_condition, &projected_condition));
+  EXPECT_TRUE(projected_condition);
+
+  // Replacing one duplicate payload must replace its projected relation. The
+  // retained object is updated in place so consumers never observe stale facts
+  // and repeated rewrites reuse its high-water storage.
+  const loom_value_id_t* target_sources = projection->target_sources;
+  const loom_condition_edge_mapping_t* mappings = projection->mappings;
+  const loom_condition_integer_relation_t* relations =
+      projection->source_derivation.integer_facts.integer_relations;
+  const loom_condition_boolean_fact_t* boolean_facts =
+      projection->source_derivation.boolean_facts;
+  IREE_ASSERT_OK(loom_op_set_operand(module_, condition, 2, bound));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  EXPECT_EQ(
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body),
+      projection);
+  EXPECT_EQ(projection->target_sources, target_sources);
+  EXPECT_EQ(projection->mappings, mappings);
+  EXPECT_EQ(projection->source_derivation.integer_facts.integer_relations,
+            relations);
+  EXPECT_EQ(projection->source_derivation.boolean_facts, boolean_facts);
+  expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_LT, body_arguments[0],
+                  upper_bound, /*expected_proven=*/true,
+                  /*expected_result=*/true);
+  expect_relation(LOOM_SYMBOLIC_INTEGER_RELATION_LT, body_arguments[1],
+                  upper_bound, /*expected_proven=*/false,
+                  /*expected_result=*/false);
+
+  loom_value_fact_table_clear_scope(&table_);
+  EXPECT_EQ(
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body),
+      nullptr);
+  EXPECT_EQ(table_.scratch.condition, nullptr);
+}
+
+TEST_F(FactTableComputeTest, ConditionLoopFactorsDuplicatePayloadRelations) {
+  const loom_type_t result_types[] = {type_, type_, type_, type_};
+  loom_op_t* loop = nullptr;
+  IREE_ASSERT_OK(loom_scf_while_build(
+      &builder_, inputs_, IREE_ARRAYSIZE(inputs_),
+      /*iter_args_types=*/nullptr, result_types, IREE_ARRAYSIZE(result_types),
+      /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
+      &loop));
+  loom_region_t* before = loom_scf_while_before(loop);
+  loom_region_t* body = loom_scf_while_after(loop);
+  const loom_value_id_t before_arguments[] = {
+      loom_region_entry_arg_id(before, 0),
+      loom_region_entry_arg_id(before, 1),
+  };
+  const loom_value_id_t body_arguments[] = {
+      loom_region_entry_arg_id(body, 0),
+      loom_region_entry_arg_id(body, 1),
+      loom_region_entry_arg_id(body, 2),
+      loom_region_entry_arg_id(body, 3),
+  };
+
+  loom_builder_ip_t saved = loom_builder_enter_region(&builder_, loop, before);
+  loom_op_t* compare = nullptr;
+  IREE_ASSERT_OK(loom_index_cmp_build(&builder_, LOOM_INDEX_CMP_PREDICATE_SLT,
+                                      before_arguments[0], before_arguments[1],
+                                      LOOM_LOCATION_UNKNOWN, &compare));
+  const loom_value_id_t forwarded[] = {
+      before_arguments[0],
+      before_arguments[0],
+      before_arguments[1],
+      before_arguments[1],
+  };
+  loom_op_t* condition = nullptr;
+  IREE_ASSERT_OK(loom_scf_condition_build(
+      &builder_, loom_index_cmp_result(compare), forwarded,
+      IREE_ARRAYSIZE(forwarded), LOOM_LOCATION_UNKNOWN, &condition));
+  loom_builder_restore(&builder_, saved);
+
+  saved = loom_builder_enter_region(&builder_, loop, body);
+  const loom_value_id_t yielded[] = {body_arguments[0], body_arguments[2]};
+  loom_op_t* yield = nullptr;
+  IREE_ASSERT_OK(loom_scf_yield_build(&builder_, yielded,
+                                      IREE_ARRAYSIZE(yielded),
+                                      LOOM_LOCATION_UNKNOWN, &yield));
+  loom_builder_restore(&builder_, saved);
+
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, loop));
+  const loom_condition_edge_projection_t* projection =
+      loom_value_fact_table_lookup_region_condition_projection(&table_, body);
+  ASSERT_NE(projection, nullptr);
+  EXPECT_EQ(projection->mapping_count, IREE_ARRAYSIZE(forwarded));
+  // The source relation remains singular instead of expanding into every
+  // pair of duplicate body arguments.
+  EXPECT_EQ(projection->source_derivation.integer_facts.integer_relation_count,
+            1u);
+  for (iree_host_size_t left = 0; left < 2; ++left) {
+    for (iree_host_size_t right = 2; right < 4; ++right) {
+      const loom_condition_integer_relation_t query = {
+          /*.relation=*/LOOM_SYMBOLIC_INTEGER_RELATION_LT,
+          /*.left=*/
+          {
+              /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+              /*.value_id=*/body_arguments[left],
+          },
+          /*.right=*/
+          {
+              /*.kind=*/LOOM_CONDITION_INTEGER_OPERAND_VALUE,
+              /*.value_id=*/body_arguments[right],
+          },
+      };
+      bool result = false;
+      EXPECT_TRUE(loom_condition_edge_projection_proves_integer_relation(
+          projection, &table_, &query, &result));
+      EXPECT_TRUE(result);
+    }
   }
 }
 

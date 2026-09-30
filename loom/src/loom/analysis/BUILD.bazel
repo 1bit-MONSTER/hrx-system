@@ -320,11 +320,25 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "condition_edge_projection",
+    srcs = ["condition_edge_projection.c"],
+    hdrs = ["condition_edge_projection.h"],
+    deps = [
+        ":condition_facts",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/util:adaptive_sort",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "condition_fact_scope",
     srcs = ["condition_fact_scope.c"],
     hdrs = ["condition_fact_scope.h"],
     deps = [
         ":cfg_condition_facts",
+        ":condition_edge_projection",
         ":condition_facts",
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base",
@@ -378,9 +392,11 @@ loom_cc_benchmark(
     name = "condition_facts_benchmark",
     srcs = ["condition_facts_benchmark.cc"],
     deps = [
+        ":condition_edge_projection",
         ":condition_facts",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
         "//loom/src/loom/util:fact_table",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:benchmark_main",

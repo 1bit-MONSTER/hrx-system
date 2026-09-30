@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "loom/analysis/condition_edge_projection.h"
 #include "loom/analysis/loop_domain.h"
 #include "loom/analysis/scc.h"
 #include "loom/ir/module.h"
@@ -15,6 +16,13 @@
 #include "loom/util/fact_induction.h"
 
 #define LOOM_VALUE_FACT_LOOP_MAX_ITERATIONS 8
+
+struct loom_value_fact_condition_scratch_t {
+  // Module bound to the reusable query state.
+  const loom_module_t* module;
+  // Reusable complete condition query state.
+  loom_condition_query_t query;
+};
 
 static loom_op_t* loom_value_fact_region_terminator(loom_region_t* region) {
   if (!region || region->block_count == 0) {
@@ -528,6 +536,60 @@ static iree_status_t loom_value_fact_table_compute_counted_loop_summary(
                                               result_facts, count, out_changed);
 }
 
+static iree_status_t loom_value_fact_condition_scratch_get(
+    loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_value_fact_condition_scratch_t** out_scratch) {
+  loom_value_fact_condition_scratch_t* scratch = table->scratch.condition;
+  if (!scratch) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(
+        table->transient_arena, sizeof(*scratch), (void**)&scratch));
+    memset(scratch, 0, sizeof(*scratch));
+    scratch->module = module;
+    loom_condition_query_initialize(module, /*value_domain=*/NULL,
+                                    table->transient_arena, &scratch->query);
+    table->scratch.condition = scratch;
+  }
+  IREE_ASSERT_EQ(scratch->module, module,
+                 "fact scope condition query must remain module-local");
+  *out_scratch = scratch;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_value_fact_table_retain_condition_body_facts(
+    loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_region_t* condition_region, loom_region_t* body,
+    const loom_op_t* condition) {
+  const loom_block_t* body_block = loom_region_const_entry_block(body);
+  loom_condition_edge_projection_t* projection =
+      loom_value_fact_table_lookup_mutable_region_condition_projection(table,
+                                                                       body);
+  if (!condition || !body_block ||
+      condition->operand_count != body_block->arg_count + 1) {
+    if (projection) {
+      loom_condition_edge_projection_reset(projection);
+    }
+    return iree_ok_status();
+  }
+
+  if (!projection) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(
+        table->transient_arena, sizeof(*projection), (void**)&projection));
+    loom_condition_edge_projection_initialize(table->transient_arena,
+                                              projection);
+    IREE_RETURN_IF_ERROR(loom_value_fact_table_set_region_condition_projection(
+        table, body, projection));
+  }
+  loom_value_fact_condition_scratch_t* scratch = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_value_fact_condition_scratch_get(table, module, &scratch));
+  IREE_RETURN_IF_ERROR(loom_condition_facts_query_complete(
+      &scratch->query, table, loom_op_const_operands(condition)[0],
+      /*assumed_truth=*/true, &projection->source_derivation));
+  return loom_condition_edge_projection_update_mapping(
+      projection, module, condition_region, body_block,
+      loom_op_const_operands(condition) + 1, body_block->arg_count);
+}
+
 // The condition's tuple has separate true-edge and false-edge observations.
 // Only directly forwarded counter identities receive its recurrence bounds;
 // facts for computations in the before region still cover every header visit.
@@ -708,6 +770,8 @@ static iree_status_t loom_value_fact_table_compute_condition_loop_summary(
 
   const loom_op_t* condition =
       loom_value_fact_region_terminator(condition_region);
+  IREE_RETURN_IF_ERROR(loom_value_fact_table_retain_condition_body_facts(
+      table, module, condition_region, body, condition));
   loom_value_fact_table_collect_condition_operands(
       table, condition, induction.value, recurrence.exit_value, forwarded_facts,
       result_count);

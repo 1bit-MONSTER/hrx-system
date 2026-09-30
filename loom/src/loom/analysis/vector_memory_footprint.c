@@ -1875,8 +1875,12 @@ static iree_status_t loom_vector_memory_footprint_push_op_regions(
 
   loom_region_t** regions = loom_op_regions(op);
   for (uint8_t i = op->region_count; i > 0; --i) {
+    const loom_condition_fact_scope_t* region_scope = NULL;
+    IREE_RETURN_IF_ERROR(loom_condition_fact_scope_extend_region(
+        state->fact_table, regions[i - 1], condition_scope, state->arena,
+        &region_scope));
     IREE_RETURN_IF_ERROR(loom_vector_memory_footprint_push_region(
-        state, stack, regions[i - 1], condition_scope));
+        state, stack, regions[i - 1], region_scope));
   }
   return iree_ok_status();
 }
