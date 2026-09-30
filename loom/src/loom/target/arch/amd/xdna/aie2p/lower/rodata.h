@@ -15,6 +15,12 @@
 extern "C" {
 #endif
 
+// Materializes the local address of |symbol| as one AIE2P pointer register.
+iree_status_t loom_aie2p_emit_rodata_address(loom_low_lower_context_t* context,
+                                             loom_symbol_ref_t symbol,
+                                             loom_location_id_t location,
+                                             loom_value_id_t* out_address);
+
 // Returns true when |plan| is owned by read-only data lowering.
 bool loom_aie2p_rodata_plan_isa(loom_low_lower_plan_t plan);
 

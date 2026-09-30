@@ -145,6 +145,22 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "gather",
+    srcs = ["gather.c"],
+    hdrs = ["gather.h"],
+    deps = [
+        "//loom/src/loom/codegen/low:source_memory_plan",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ir:facts",
+        "//loom/src/loom/ops/global",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/target:contract",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "descriptor_encoding",
     srcs = ["descriptors/encoding.c"],
     hdrs = ["descriptors/encoding.h"],
@@ -174,6 +190,8 @@ loom_cc_library(
     ],
     deps = [
         ":core_descriptors",
+        ":gather",
+        "//loom/src/loom/codegen/low:source_memory_plan",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/scalar",
         "//loom/src/loom/ops/vector",
@@ -346,12 +364,14 @@ loom_cc_library(
 loom_cc_library(
     name = "lower",
     srcs = [
+        "lower/gather.c",
         "lower/matrix.c",
         "lower/registry.c",
         "lower/rodata.c",
         "lower/storage.c",
     ],
     hdrs = [
+        "lower/gather.h",
         "lower/lower.h",
         "lower/matrix.h",
         "lower/rodata.h",
@@ -360,6 +380,7 @@ loom_cc_library(
     textual_hdrs = ["//loom/src/loom/target/arch/amd/xdna/aie2p/contracts:core_index.inl"],
     deps = [
         ":core_descriptors",
+        ":gather",
         "//loom/src/loom/analysis:contract_vector",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/error:error_defs",
@@ -581,6 +602,7 @@ loom_check_test_suite(
         "test/source_low/carried_counter_store.loom-test",
         "test/source_low/function_storage.loom-test",
         "test/source_low/fused_packet_memory.loom-test",
+        "test/source_low/immutable_gather.loom-test",
         "test/source_low/index_conversion.loom-test",
         "test/source_low/integer_float_conversion.loom-test",
         "test/source_low/lookup_table.loom-test",

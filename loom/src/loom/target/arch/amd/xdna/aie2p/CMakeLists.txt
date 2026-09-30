@@ -170,6 +170,27 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    gather
+  HDRS
+    "gather.h"
+  SRCS
+    "gather.c"
+  DEPS
+    iree::base
+    loom::codegen::low::source_memory_plan
+    loom::ir
+    loom::ir::facts
+    loom::ops::global
+    loom::ops::vector
+    loom::target::contract
+    loom::util::fact_table
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     descriptor_encoding
   HDRS
     "descriptors/encoding.h"
@@ -202,7 +223,9 @@ loom_cc_library(
     "legalization_table.c"
   DEPS
     ::core_descriptors
+    ::gather
     iree::base
+    loom::codegen::low::source_memory_plan
     loom::ir
     loom::ops::scalar
     loom::ops::vector
@@ -408,6 +431,7 @@ loom_cc_library(
   NAME
     lower
   HDRS
+    "lower/gather.h"
     "lower/lower.h"
     "lower/matrix.h"
     "lower/rodata.h"
@@ -415,12 +439,14 @@ loom_cc_library(
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amd/xdna/aie2p/contracts/core_index.inl"
   SRCS
+    "lower/gather.c"
     "lower/matrix.c"
     "lower/registry.c"
     "lower/rodata.c"
     "lower/storage.c"
   DEPS
     ::core_descriptors
+    ::gather
     iree::base
     loom::analysis::contract_vector
     loom::codegen::low::lower
@@ -658,6 +684,7 @@ loom_check_test_suite(
     "test/source_low/carried_counter_store.loom-test"
     "test/source_low/function_storage.loom-test"
     "test/source_low/fused_packet_memory.loom-test"
+    "test/source_low/immutable_gather.loom-test"
     "test/source_low/index_conversion.loom-test"
     "test/source_low/integer_float_conversion.loom-test"
     "test/source_low/lookup_table.loom-test"

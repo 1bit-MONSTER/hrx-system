@@ -1,0 +1,55 @@
+global.rodata.def @bf16_pairs = align(32) bytes("803f004040408040a040c040e040004110412041304140415041604170418041884190419841a041a841b041b841c041c841d041d841e041e841f041f8410042")
+
+aie2p.target<array> @array_target
+aie2p.target<core> @core_target
+
+pipeline.def<kernel> public retain target(@array_target) @immutable_gather_packets() launch(%input: buffer, %output: buffer) {
+  %count = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %workers = group.create %count : index -> group
+  %input_view = buffer.view %input[%origin] : buffer -> view<1x4x256xi8>
+  %output_view = buffer.view %output[%origin] : buffer -> view<1x4x192xi8>
+  %packets = pipeline.scatter %input_view across %workers : view<1x4x256xi8>, group -> pipeline.flow<tile<256xi8>>
+  %results = pipeline.stage @gather_decode_dot on %workers(%packets) : (group, pipeline.flow<tile<256xi8>>) -> (pipeline.flow<tile<192xi8>>)
+  pipeline.write %results to %output_view : pipeline.flow<tile<192xi8>>, view<1x4x192xi8>
+  pipeline.return
+}
+
+func.def target(@core_target) @gather_decode_dot(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %table = global.load @bf16_pairs : buffer
+  %origin = index.constant 0 : offset
+  %table_i32 = buffer.view %table[%origin] : buffer -> view<16xi32>
+  %table_bf16 = buffer.view %table[%origin] : buffer -> view<32xbf16>
+  %table_f64 = buffer.view %table[%origin] : buffer -> view<8xf64>
+  %source_i8 = buffer.view %source[%origin] : buffer -> view<256xi8>
+  %source_i32 = buffer.view %source[%origin] : buffer -> view<64xi32>
+  %source_bf16 = buffer.view %source[%origin] : buffer -> view<128xbf16>
+  %source_f32 = buffer.view %source[%origin] : buffer -> view<64xf32>
+  %destination_bf16 = buffer.view %destination[%origin] : buffer -> view<96xbf16>
+  %destination_f32 = buffer.view %destination[%origin] : buffer -> view<48xf32>
+  %destination_f64 = buffer.view %destination[%origin] : buffer -> view<24xf64>
+  %raw_indices = vector.load %source_i32[0] : view<64xi32> -> vector<16xi32>
+  %index_mask = vector.constant 15 : vector<16xi32>
+  %indices = vector.andi %raw_indices, %index_mask : vector<16xi32>
+  %packed_values = vector.gather %table_i32[0][%indices] : view<16xi32>, vector<16xi32> -> vector<16xi32>
+  %values = vector.bitcast %packed_values : vector<16xi32> to vector<32xbf16>
+  %rhs = vector.load %source_bf16[64] : view<128xbf16> -> vector<32xbf16>
+  %initial = vector.load %source_f32[48] : view<64xf32> -> vector<16xf32>
+  %result = vector.dot2f %values, %rhs, %initial : vector<32xbf16>, vector<32xbf16>, vector<16xf32>
+  vector.store %result, %destination_f32[0] : vector<16xf32>, view<48xf32>
+
+  %raw_bf16_indices = vector.load %source_i8[64] : view<256xi8> -> vector<32xi8>
+  %bf16_index_mask = vector.constant 31 : vector<32xi8>
+  %bounded_bf16_indices = vector.andi %raw_bf16_indices, %bf16_index_mask : vector<32xi8>
+  %bf16_indices = vector.extui %bounded_bf16_indices : vector<32xi8> to vector<32xi32>
+  %bf16_values = vector.gather %table_bf16[0][%bf16_indices] : view<32xbf16>, vector<32xi32> -> vector<32xbf16>
+  vector.store %bf16_values, %destination_bf16[32] : vector<32xbf16>, view<96xbf16>
+
+  %raw_f64_indices = vector.load %source_i32[24] : view<64xi32> -> vector<8xi32>
+  %f64_index_mask = vector.constant 7 : vector<8xi32>
+  %f64_indices = vector.andi %raw_f64_indices, %f64_index_mask : vector<8xi32>
+  %f64_values = vector.gather %table_f64[0][%f64_indices] : view<8xf64>, vector<8xi32> -> vector<8xf64>
+  vector.store %f64_values, %destination_f64[16] : vector<8xf64>, view<24xf64>
+  func.return
+}

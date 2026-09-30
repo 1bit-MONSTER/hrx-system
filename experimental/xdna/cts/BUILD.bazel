@@ -145,6 +145,33 @@ iree_py_binary(
     main = "read_only_data_cases.py",
 )
 
+iree_py_binary(
+    name = "immutable_gather_cases",
+    testonly = True,
+    srcs = ["immutable_gather_cases.py"],
+    main = "immutable_gather_cases.py",
+)
+
+xdna_execution_test_suite(
+    name = "immutable_gather_npu2_test",
+    data = ["testdata/immutable_gather.loom"],
+    manifests = ["immutable_gather_npu2.test.json"],
+    tags = ["manual"],
+    target_compatible_with = select({
+        "//loom/config/target:xdna_artifacts": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }) + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "generate-cases": ":immutable_gather_cases",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
+)
+
 xdna_execution_test_suite(
     name = "read_only_data_npu2_test",
     data = ["testdata/read_only_data.loom"],
