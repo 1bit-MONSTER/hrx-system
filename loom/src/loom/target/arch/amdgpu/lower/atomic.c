@@ -38,11 +38,10 @@ typedef uint32_t loom_amdgpu_atomic_rejection_flags_t;
 #define LOOM_AMDGPU_ATOMIC_REJECTION_VALUE_PLACEMENT ((uint32_t)1u << 7)
 #define LOOM_AMDGPU_ATOMIC_REJECTION_ORDERING ((uint32_t)1u << 8)
 #define LOOM_AMDGPU_ATOMIC_REJECTION_SCOPE ((uint32_t)1u << 9)
-#define LOOM_AMDGPU_ATOMIC_REJECTION_CACHE_POLICY ((uint32_t)1u << 10)
-#define LOOM_AMDGPU_ATOMIC_REJECTION_DESCRIPTOR_MISSING ((uint32_t)1u << 11)
-#define LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_IMMEDIATE ((uint32_t)1u << 12)
-#define LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_RANGE ((uint32_t)1u << 13)
-#define LOOM_AMDGPU_ATOMIC_REJECTION_NATIVE_SEMANTICS ((uint32_t)1u << 14)
+#define LOOM_AMDGPU_ATOMIC_REJECTION_DESCRIPTOR_MISSING ((uint32_t)1u << 10)
+#define LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_IMMEDIATE ((uint32_t)1u << 11)
+#define LOOM_AMDGPU_ATOMIC_REJECTION_OFFSET_RANGE ((uint32_t)1u << 12)
+#define LOOM_AMDGPU_ATOMIC_REJECTION_NATIVE_SEMANTICS ((uint32_t)1u << 13)
 
 typedef struct loom_amdgpu_atomic_diagnostic_t {
   // Rejection bits explaining why a source atomic is not legal.
@@ -148,10 +147,6 @@ static const loom_amdgpu_atomic_rejection_key_t kAmdgpuAtomicRejectionKeys[] = {
     {
         .rejection_bit = LOOM_AMDGPU_ATOMIC_REJECTION_SCOPE,
         .constraint_key = IREE_SVL("atomic.scope"),
-    },
-    {
-        .rejection_bit = LOOM_AMDGPU_ATOMIC_REJECTION_CACHE_POLICY,
-        .constraint_key = IREE_SVL("atomic.cache_policy"),
     },
     {
         .rejection_bit = LOOM_AMDGPU_ATOMIC_REJECTION_DESCRIPTOR_MISSING,
@@ -941,11 +936,6 @@ static bool loom_amdgpu_atomic_select(
     diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_SHAPE;
     return false;
   }
-  if (loom_amdgpu_memory_cache_policy_is_present(
-          &out_selection->source.cache_policy)) {
-    diagnostic->rejection_bits |= LOOM_AMDGPU_ATOMIC_REJECTION_CACHE_POLICY;
-    return false;
-  }
   const uint32_t packet_byte_count = out_selection->source.element_byte_count *
                                      out_selection->source.vector_lane_count;
   const loom_type_t packet_type = packet_byte_count < 4
@@ -1343,8 +1333,10 @@ iree_status_t loom_amdgpu_lower_atomic(loom_low_lower_context_t* context,
 
   loom_named_attr_t attrs[2] = {0};
   iree_host_size_t attr_count = 0;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_make_memory_attrs(
-      context, &access, attrs, IREE_ARRAYSIZE(attrs), &attr_count));
+  // Atomic coherence owns the packet fields independently of cache hints.
+  IREE_RETURN_IF_ERROR(loom_amdgpu_append_i64_attr(
+      context, IREE_SV("offset"), access.immediate_offset, attrs,
+      IREE_ARRAYSIZE(attrs), &attr_count));
   if (plan->coherence_attr.name_id != LOOM_STRING_ID_INVALID) {
     attrs[attr_count++] = (loom_named_attr_t){
         .name_id = plan->coherence_attr.name_id,
@@ -1564,6 +1556,17 @@ iree_status_t loom_amdgpu_low_legality_verify_atomic(
       alloca_layout, &atomic_source, &selection, &source_diagnostic,
       &memory_diagnostic, &diagnostic);
   if (selected) {
+    // Atomic coherence takes priority over advisory locality hints.
+    if (iree_any_bit_set(loom_target_low_legality_diagnostic_flags(context),
+                         LOOM_TARGET_LOW_LEGALITY_DIAGNOSTIC_MEMORY_ACCESS) &&
+        loom_amdgpu_memory_cache_policy_is_present(
+            &selection.source.cache_policy)) {
+      const loom_amdgpu_memory_access_t access = {.source = selection.source};
+      return loom_amdgpu_record_memory_cache_policy_diagnostic(
+          context, op, loom_target_low_legality_descriptor_set(context),
+          &access, LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_DROPPED,
+          /*cache_attrs=*/NULL);
+    }
     return iree_ok_status();
   }
 

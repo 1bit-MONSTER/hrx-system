@@ -1,3 +1,4 @@
+// Advisory CU cache hints cannot narrow the authored atomic coherence scope.
 // Each lane publishes to its neighbor in one converged subgroup. Global and
 // LDS payloads are independent of the atomic flags and their returned values.
 kernel.def @subgroup_atomic_handoff() {
@@ -24,14 +25,14 @@ kernel.def @subgroup_atomic_handoff() {
   %increment = scalar.constant 1 : i32
   view.store %value, %data[%lane] : i32, view<32xi32>
   view.store %value, %local[0, %lane] : i32, view<2x32xi32>
-  view.atomic.store %increment, %flag[%lane] {ordering = release, scope = subgroup} : i32, view<32xi32>
-  %observed = view.atomic.load %flag[%neighbor] {ordering = acquire, scope = subgroup} : view<32xi32> -> i32
-  %failed = view.atomic.cmpxchg %unpublished, %unpublished, %generic_flag[%neighbor] {failure_ordering = acquire, scope = subgroup, success_ordering = acq_rel} : i32, view<32xi32> -> i32
-  view.atomic.store %unpublished, %local[1, %lane] {ordering = relaxed, scope = subgroup} : i32, view<2x32xi32>
-  %old = view.atomic.rmw<addi> %increment, %local[1, %lane] {ordering = acq_rel, scope = subgroup} : i32, view<2x32xi32> -> i32
-  view.atomic.reduce<addi> %increment, %local[1, %lane] {ordering = release, scope = subgroup} : i32, view<2x32xi32>
+  view.atomic.store %increment, %flag[%lane] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = subgroup} : i32, view<32xi32>
+  %observed = view.atomic.load %flag[%neighbor] {cache_scope = cu, cache_temporal = non_temporal, ordering = acquire, scope = subgroup} : view<32xi32> -> i32
+  %failed = view.atomic.cmpxchg %unpublished, %unpublished, %generic_flag[%neighbor] {cache_scope = cu, cache_temporal = non_temporal, failure_ordering = acquire, scope = subgroup, success_ordering = acq_rel} : i32, view<32xi32> -> i32
+  view.atomic.store %unpublished, %local[1, %lane] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = subgroup} : i32, view<2x32xi32>
+  %old = view.atomic.rmw<addi> %increment, %local[1, %lane] {cache_scope = cu, cache_temporal = non_temporal, ordering = acq_rel, scope = subgroup} : i32, view<2x32xi32> -> i32
+  view.atomic.reduce<addi> %increment, %local[1, %lane] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = subgroup} : i32, view<2x32xi32>
   buffer.fence scope(subgroup) ordering(release)
-  %local_flag = view.atomic.load %local[1, %neighbor] {ordering = relaxed, scope = subgroup} : view<2x32xi32> -> i32
+  %local_flag = view.atomic.load %local[1, %neighbor] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = subgroup} : view<2x32xi32> -> i32
   buffer.fence scope(subgroup) ordering(acquire)
   %global_value = view.load %data[%neighbor] : view<32xi32> -> i32
   %local_value = view.load %local[0, %neighbor] : view<2x32xi32> -> i32
@@ -60,15 +61,15 @@ kernel.def @thread_atomic_sequence() {
   %results = buffer.view %output[%origin] : buffer -> view<4xi64>
   %initial = scalar.constant 4294967297 : i64
   %increment = scalar.constant 1 : i64
-  view.atomic.store %initial, %word[0] {ordering = seq_cst, scope = thread} : i64, view<1xi64>
-  %discarded = view.atomic.load %word[0] {ordering = relaxed, scope = thread} : view<1xi64> -> i64
-  %observed = view.atomic.load %word[0] {ordering = seq_cst, scope = thread} : view<1xi64> -> i64
-  %old = view.atomic.rmw<addi> %increment, %generic_word[0] {ordering = acq_rel, scope = thread} : i64, view<1xi64> -> i64
-  view.atomic.reduce<addi> %increment, %word[0] {ordering = release, scope = thread} : i64, view<1xi64>
-  view.atomic.store %initial, %local[0] {ordering = release, scope = thread} : i64, view<1xi64>
-  %exchanged = view.atomic.cmpxchg %initial, %increment, %local[0] {failure_ordering = acquire, scope = thread, success_ordering = seq_cst} : i64, view<1xi64> -> i64
+  view.atomic.store %initial, %word[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = seq_cst, scope = thread} : i64, view<1xi64>
+  %discarded = view.atomic.load %word[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = thread} : view<1xi64> -> i64
+  %observed = view.atomic.load %word[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = seq_cst, scope = thread} : view<1xi64> -> i64
+  %old = view.atomic.rmw<addi> %increment, %generic_word[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = acq_rel, scope = thread} : i64, view<1xi64> -> i64
+  view.atomic.reduce<addi> %increment, %word[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = thread} : i64, view<1xi64>
+  view.atomic.store %initial, %local[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = thread} : i64, view<1xi64>
+  %exchanged = view.atomic.cmpxchg %initial, %increment, %local[0] {cache_scope = cu, cache_temporal = non_temporal, failure_ordering = acquire, scope = thread, success_ordering = seq_cst} : i64, view<1xi64> -> i64
   buffer.fence scope(thread) ordering(seq_cst)
-  %final = view.atomic.load %generic_word[0] {ordering = acquire, scope = thread} : view<1xi64> -> i64
+  %final = view.atomic.load %generic_word[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = acquire, scope = thread} : view<1xi64> -> i64
   view.store %observed, %results[0] : i64, view<4xi64>
   view.store %old, %results[1] : i64, view<4xi64>
   view.store %exchanged, %results[2] : i64, view<4xi64>
@@ -93,12 +94,12 @@ kernel.def @lds_broad_scope() {
   %increment = scalar.constant 1 : i32
   %value = scalar.constant 65537 : i32
   view.store %value, %data[0] : i32, view<1xi32>
-  view.atomic.store %increment, %flag[0] {ordering = release, scope = system} : i32, view<1xi32>
-  %observed = view.atomic.load %flag[0] {ordering = acquire, scope = device} : view<1xi32> -> i32
-  %failed = view.atomic.cmpxchg %unpublished, %unpublished, %flag[0] {failure_ordering = acquire, scope = system, success_ordering = acq_rel} : i32, view<1xi32> -> i32
+  view.atomic.store %increment, %flag[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = system} : i32, view<1xi32>
+  %observed = view.atomic.load %flag[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = acquire, scope = device} : view<1xi32> -> i32
+  %failed = view.atomic.cmpxchg %unpublished, %unpublished, %flag[0] {cache_scope = cu, cache_temporal = non_temporal, failure_ordering = acquire, scope = system, success_ordering = acq_rel} : i32, view<1xi32> -> i32
   %acquired = view.load %data[0] : view<1xi32> -> i32
-  view.atomic.reduce<addi> %increment, %flag[0] {ordering = release, scope = device} : i32, view<1xi32>
-  %old = view.atomic.rmw<addi> %increment, %flag[0] {ordering = seq_cst, scope = system} : i32, view<1xi32> -> i32
+  view.atomic.reduce<addi> %increment, %flag[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = device} : i32, view<1xi32>
+  %old = view.atomic.rmw<addi> %increment, %flag[0] {cache_scope = cu, cache_temporal = non_temporal, ordering = seq_cst, scope = system} : i32, view<1xi32> -> i32
   view.store %observed, %results[0] : i32, view<4xi32>
   view.store %failed, %results[1] : i32, view<4xi32>
   view.store %old, %results[2] : i32, view<4xi32>

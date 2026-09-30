@@ -1,3 +1,4 @@
+// Advisory CU cache hints cannot narrow the authored atomic coherence scope.
 kernel.def @half_vector_four() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
@@ -9,7 +10,7 @@ kernel.def @half_vector_four() {
   %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
   %scratch_view = buffer.view %scratch[%scratch_base] : buffer -> view<32xf16>
   %offsets = vector.iota %first step %unit : vector<4xindex>
-  vector.atomic.reduce<addf> %value, %scratch_view[0][%offsets] {ordering = relaxed, scope = workgroup} : vector<4xf16>, view<32xf16>, vector<4xindex>
+  vector.atomic.reduce<addf> %value, %scratch_view[0][%offsets] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = workgroup} : vector<4xf16>, view<32xf16>, vector<4xindex>
   kernel.return
 }
 
@@ -26,7 +27,7 @@ kernel.def @half_vector_strided() {
   %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
   %scratch_view = buffer.view %scratch[%scratch_base] : buffer -> view<32xf16>
   %offsets = vector.iota %first step %stride : vector<2xindex>
-  vector.atomic.reduce<addf> %value, %scratch_view[0][%offsets] {ordering = relaxed, scope = workgroup} : vector<2xf16>, view<32xf16>, vector<2xindex>
+  vector.atomic.reduce<addf> %value, %scratch_view[0][%offsets] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = workgroup} : vector<2xf16>, view<32xf16>, vector<2xindex>
   kernel.return
 }
 
@@ -43,7 +44,7 @@ kernel.def @half_vector_misaligned() {
   %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
   %scratch_view = buffer.view %scratch[%scratch_base] : buffer -> view<32xf16>
   %offsets = vector.iota %first step %unit : vector<2xindex>
-  vector.atomic.reduce<addf> %value, %scratch_view[1][%offsets] {ordering = relaxed, scope = workgroup} : vector<2xf16>, view<32xf16>, vector<2xindex>
+  vector.atomic.reduce<addf> %value, %scratch_view[1][%offsets] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = workgroup} : vector<2xf16>, view<32xf16>, vector<2xindex>
   kernel.return
 }
 
@@ -60,7 +61,7 @@ kernel.def @half_vector_pair() {
   %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
   %scratch_view = buffer.view %scratch[%scratch_base] : buffer -> view<32xf16>
   %offsets = vector.iota %first step %unit : vector<2xindex>
-  vector.atomic.reduce<addf> %value, %scratch_view[0][%offsets] {ordering = relaxed, scope = workgroup} : vector<2xf16>, view<32xf16>, vector<2xindex>
+  vector.atomic.reduce<addf> %value, %scratch_view[0][%offsets] {cache_scope = cu, cache_temporal = non_temporal, ordering = relaxed, scope = workgroup} : vector<2xf16>, view<32xf16>, vector<2xindex>
   kernel.return
 }
 
@@ -74,6 +75,6 @@ func.def @brain_vector_system(%input: buffer, %update: vector<2xbf16>) -> (vecto
   %first = index.constant 0 : index
   %stride = index.constant 1 : index
   %offsets = vector.iota %first step %stride : vector<2xindex>
-  %old = vector.atomic.rmw<addf, noftz> %update, %view[0][%offsets] {ordering = acq_rel, scope = system} : vector<2xbf16>, view<2xbf16>, vector<2xindex>
+  %old = vector.atomic.rmw<addf, noftz> %update, %view[0][%offsets] {cache_scope = cu, cache_temporal = non_temporal, ordering = acq_rel, scope = system} : vector<2xbf16>, view<2xbf16>, vector<2xindex>
   func.return %old : vector<2xbf16>
 }

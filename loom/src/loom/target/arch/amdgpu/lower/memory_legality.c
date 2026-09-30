@@ -40,9 +40,8 @@ static iree_status_t loom_amdgpu_emit_memory_cache_policy_rejection(
   loom_diagnostic_param_t
       params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 5];
   loom_amdgpu_low_legality_make_context_params(context, op, params);
-  params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT] =
-      loom_param_string(loom_amdgpu_memory_cache_policy_rejection_key(
-          descriptor_set, access, policy));
+  params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT] = loom_param_string(
+      loom_amdgpu_memory_cache_policy_rejection_key(descriptor_set, policy));
   params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 1] = loom_param_string(
       loom_amdgpu_memory_space_name(access->source.memory_space));
   params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 2] =

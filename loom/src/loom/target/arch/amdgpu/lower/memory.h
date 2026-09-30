@@ -349,7 +349,6 @@ loom_amdgpu_memory_cache_policy_resolve(
 // the memory access.
 iree_string_view_t loom_amdgpu_memory_cache_policy_rejection_key(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_amdgpu_memory_access_t* access,
     const loom_vector_memory_cache_policy_t* policy);
 
 // Returns the stable diagnostic constraint key for target-specific

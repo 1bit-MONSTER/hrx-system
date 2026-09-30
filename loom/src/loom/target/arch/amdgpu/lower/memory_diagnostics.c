@@ -551,7 +551,7 @@ iree_status_t loom_amdgpu_record_memory_cache_policy_rejection_diagnostic(
   return loom_amdgpu_record_memory_cache_policy(
       context, op, descriptor_set, access, kind,
       loom_amdgpu_memory_cache_policy_rejection_key(
-          descriptor_set, access, &access->source.cache_policy),
+          descriptor_set, &access->source.cache_policy),
       IREE_SV("rejected"), /*cache_attrs=*/NULL);
 }
 

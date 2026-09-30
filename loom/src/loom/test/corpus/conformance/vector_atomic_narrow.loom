@@ -1,3 +1,4 @@
+// Advisory CU cache hints cannot narrow the authored atomic coherence scope.
 // Misaligned and reversed half pairs consume the original loaded snapshot.
 // Duplicate destinations serialize independently of vector lane order.
 kernel.def @half_snapshot_and_duplicates() {
@@ -13,10 +14,10 @@ kernel.def @half_snapshot_and_duplicates() {
   %first = index.constant 0 : index
   %last = index.constant 1 : index
   %reverse = vector.from_elements %last, %first : vector<2xindex>
-  vector.atomic.reduce<addf, noftz> %captured, %cells[0][%reverse] {ordering = release, scope = device} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  vector.atomic.reduce<addf, noftz> %captured, %cells[0][%reverse] {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = device} : vector<2xf16>, view<2xf16>, vector<2xindex>
   %duplicate = vector.from_elements %first, %first : vector<2xindex>
   %increment = vector.constant 1.0 : vector<2xf16>
-  %old = vector.atomic.rmw<addf, noftz> %increment, %cells[0][%duplicate] {ordering = acq_rel, scope = device} : vector<2xf16>, view<2xf16>, vector<2xindex>
+  %old = vector.atomic.rmw<addf, noftz> %increment, %cells[0][%duplicate] {cache_scope = cu, cache_temporal = non_temporal, ordering = acq_rel, scope = device} : vector<2xf16>, view<2xf16>, vector<2xindex>
   %left = vector.extract %old[0] : vector<2xf16> -> f16
   %right = vector.extract %old[1] : vector<2xf16> -> f16
   %lower = scalar.minnumf %left, %right : f16
@@ -70,8 +71,8 @@ kernel.def @masked_brain_payloads() {
   %subnormal = vector.bitcast %subnormal_bits : vector<3xi16> to vector<3xbf16>
   %passthrough_bits = vector.constant 32709 : vector<3xi16>
   %passthrough = vector.bitcast %passthrough_bits : vector<3xi16> to vector<3xbf16>
-  %old = vector.atomic.rmw.mask<xchgf> %subnormal, %cells[0][%offsets], %mask, %passthrough {ordering = acq_rel, scope = workgroup} : vector<3xbf16>, view<2xbf16>, vector<3xindex>, vector<3xi1>, vector<3xbf16>
-  vector.atomic.reduce.mask<addf, noftz> %subnormal, %cells[0][%offsets], %mask {ordering = release, scope = workgroup} : vector<3xbf16>, view<2xbf16>, vector<3xindex>, vector<3xi1>
+  %old = vector.atomic.rmw.mask<xchgf> %subnormal, %cells[0][%offsets], %mask, %passthrough {cache_scope = cu, cache_temporal = non_temporal, ordering = acq_rel, scope = workgroup} : vector<3xbf16>, view<2xbf16>, vector<3xindex>, vector<3xi1>, vector<3xbf16>
+  vector.atomic.reduce.mask<addf, noftz> %subnormal, %cells[0][%offsets], %mask {cache_scope = cu, cache_temporal = non_temporal, ordering = release, scope = workgroup} : vector<3xbf16>, view<2xbf16>, vector<3xindex>, vector<3xi1>
   %old_bits = vector.bitcast %old : vector<3xbf16> to vector<3xi16>
   vector.store %old_bits, %results[0] : vector<3xi16>, view<9xi16>
   %pair_offsets = vector.from_elements %first, %last : vector<2xindex>
@@ -82,8 +83,8 @@ kernel.def @masked_brain_payloads() {
   %expected = vector.bitcast %expected_bits : vector<2xi16> to vector<2xbf16>
   %replacement_bits = vector.constant -32768 : vector<2xi16>
   %replacement = vector.bitcast %replacement_bits : vector<2xi16> to vector<2xbf16>
-  %observed = vector.atomic.cmpxchg %expected, %replacement, %cells[0][%pair_offsets] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : vector<2xbf16>, view<2xbf16>, vector<2xindex> -> vector<2xbf16>
-  %failed = vector.atomic.cmpxchg %expected, %nan, %cells[0][%pair_offsets] {failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : vector<2xbf16>, view<2xbf16>, vector<2xindex> -> vector<2xbf16>
+  %observed = vector.atomic.cmpxchg %expected, %replacement, %cells[0][%pair_offsets] {cache_scope = cu, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : vector<2xbf16>, view<2xbf16>, vector<2xindex> -> vector<2xbf16>
+  %failed = vector.atomic.cmpxchg %expected, %nan, %cells[0][%pair_offsets] {cache_scope = cu, cache_temporal = non_temporal, failure_ordering = acquire, scope = workgroup, success_ordering = acq_rel} : vector<2xbf16>, view<2xbf16>, vector<2xindex> -> vector<2xbf16>
   %final = vector.load %cells[0] : view<2xbf16> -> vector<2xbf16>
   %observed_bits = vector.bitcast %observed : vector<2xbf16> to vector<2xi16>
   %failed_bits = vector.bitcast %failed : vector<2xbf16> to vector<2xi16>
