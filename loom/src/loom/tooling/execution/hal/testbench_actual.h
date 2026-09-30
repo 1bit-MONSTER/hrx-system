@@ -17,6 +17,7 @@
 #include "iree/base/api.h"
 #include "iree/hal/api.h"
 #include "loom/analysis/kernel_launch_config.h"
+#include "loom/pass/pipeline_snapshot.h"
 #include "loom/sanitizer/options.h"
 #include "loom/target/provider.h"
 #include "loom/tooling/compile/options.h"
@@ -149,6 +150,8 @@ typedef struct loom_run_hal_testbench_actual_provider_t {
   const loom_run_module_t* run_module;
   // User-selected pass pipeline.
   iree_string_view_t pipeline;
+  // Selected named pipeline closure retained across deferred compilation.
+  loom_pass_pipeline_snapshot_t pipeline_snapshot;
   // Optional explicit `family:selector` compiler target.
   iree_string_view_t target;
   // Sanitizer checks inserted by the target pipeline.

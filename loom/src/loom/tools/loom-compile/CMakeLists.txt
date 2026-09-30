@@ -70,6 +70,7 @@ loom_cc_binary(
     loom::error::diagnostic
     loom::format::text::printer
     loom::ir
+    loom::pass::pipeline_snapshot
     loom::sanitizer::options
     loom::target::arch::cmd::artifact_set
     loom::target::entry_selection

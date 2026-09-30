@@ -308,6 +308,7 @@ void loom_run_hal_testbench_actual_provider_deinitialize(
   loom_compile_pipeline_result_deinitialize(
       &provider->launch_config_pipeline_result);
   loom_module_free(provider->launch_config_module);
+  loom_pass_pipeline_snapshot_deinitialize(&provider->pipeline_snapshot);
   if (provider->compile_module_initialized) {
     loom_run_module_deinitialize(&provider->compile_module);
   }
@@ -609,6 +610,15 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
 
   IREE_RETURN_IF_ERROR(loom_run_hal_testbench_clone_compile_module(provider));
   IREE_RETURN_IF_ERROR(loom_run_hal_testbench_materialize_config_set(provider));
+  const bool has_named_pipeline =
+      loom_compile_pipeline_is_named(provider->pipeline);
+  if (has_named_pipeline && provider->pipeline_snapshot.module == NULL) {
+    IREE_RETURN_IF_ERROR(loom_pass_pipeline_snapshot_initialize(
+        provider->compile_module.module, provider->pipeline,
+        IREE_SV("__loom_testbench_pipeline"),
+        loom_run_session_block_pool(provider->session),
+        provider->context->host_allocator, &provider->pipeline_snapshot));
+  }
   IREE_RETURN_IF_ERROR(
       loom_run_hal_testbench_select_compile_root(provider, entry_symbol));
 
@@ -668,6 +678,11 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
   loom_compile_pipeline_options_t pipeline_options = {0};
   loom_compile_pipeline_options_initialize(&pipeline_options);
   pipeline_options.pipeline = provider->pipeline;
+  if (has_named_pipeline) {
+    pipeline_options.named_pipeline.module = provider->pipeline_snapshot.module;
+    pipeline_options.named_pipeline.pipeline_op =
+        provider->pipeline_snapshot.pipeline_op;
+  }
   pipeline_options.target_pipeline_options =
       provider->context->device_provider->artifact_provider
           ->default_pipeline_options;
@@ -697,6 +712,8 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
   loom_compile_pipeline_options_t launch_config_pipeline_options =
       pipeline_options;
   launch_config_pipeline_options.pipeline = IREE_SV("default");
+  launch_config_pipeline_options.named_pipeline.module = NULL;
+  launch_config_pipeline_options.named_pipeline.pipeline_op = NULL;
   launch_config_pipeline_options.default_pipeline =
       LOOM_COMPILE_DEFAULT_PIPELINE_EXPANDED_SOURCE;
   launch_config_pipeline_options.report = NULL;
