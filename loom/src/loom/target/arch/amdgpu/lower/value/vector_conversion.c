@@ -547,10 +547,12 @@ static iree_status_t loom_amdgpu_extract_packed_register_lane(
   const uint32_t register_offset = lane_offset / lanes_per_register;
   const uint32_t register_bit_offset =
       (lane_offset % lanes_per_register) * plan->lane_bit_count;
+  const loom_type_t source_lane_type = loom_amdgpu_low_register_lane_type(
+      loom_low_lower_context_module(context), low_source);
   loom_value_id_t source_register = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_amdgpu_extract_low_register_unit(
       context, source_op, low_source, plan->register_count, register_offset,
-      lane_type, &source_register));
+      source_lane_type, &source_register));
   return loom_amdgpu_extract_vgpr_bitfield(
       context, source_op, source_register, register_bit_offset,
       plan->lane_bit_count, mode, lane_type, out_lane);

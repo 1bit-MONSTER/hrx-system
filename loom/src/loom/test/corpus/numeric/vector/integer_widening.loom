@@ -8,7 +8,9 @@ kernel.def @vector_widen_i8() {
 } launch(%input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
   %signed_base = index.constant 128 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi8>
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %independent = buffer.assume.noalias %aligned : buffer
+  %input_view = buffer.view %independent[%base] : buffer -> view<16xi8>
   %unsigned_view = buffer.view %output[%base] : buffer -> view<16xi64>
   %signed_view = buffer.view %output[%signed_base] : buffer -> view<16xi64>
   %packed = vector.load %input_view[0] : view<16xi8> -> vector<16xi8>
@@ -100,7 +102,9 @@ kernel.def @vector_widen_i16() {
 } launch(%input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
   %signed_base = index.constant 128 : offset
-  %input_view = buffer.view %input[%base] : buffer -> view<16xi16>
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %independent = buffer.assume.noalias %aligned : buffer
+  %input_view = buffer.view %independent[%base] : buffer -> view<16xi16>
   %unsigned_view = buffer.view %output[%base] : buffer -> view<16xi64>
   %signed_view = buffer.view %output[%signed_base] : buffer -> view<16xi64>
   %packed = vector.load %input_view[0] : view<16xi16> -> vector<16xi16>
