@@ -48,8 +48,11 @@ argument offsets, lengths and kinds with that layout and check compiler
 alignment and launch requirements.
 
 The [build declarations](BUILD.bazel) and [CMake equivalent](CMakeLists.txt)
-produce each ordinary kernel for every exact physical target and encoding
-overlay in Loom's target catalog. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
+produce each ordinary kernel for the exact physical targets and encoding
+overlays supported by the descriptor sets linked into Loom. The default build
+includes the full target catalog; a target-limited compiler builds the matching
+subset. Unsupported products are incompatible build targets and are absent from
+the embedded set. The CTS [build rule](../../../build_tools/bazel/cts_gpu_kernel.bzl)
 uses ordinary `loom_kernel_binary` compilation followed by [embed.py](embed.py)
 on the actual HSACO. A small generated header declares each behavior's
 immutable [kernel set](kernel.h); one generated implementation stores all
@@ -194,8 +197,10 @@ Prestart ABORT acknowledges without accessing the request, response or
 transcript allocations. The recipe checks full payloads, immutable storage,
 guards and final drain; raw device-clock observations accompany each exchange.
 
-The shared [clock module](completed_tick.loom) uses ordinary Loom templates to
-select the completion counters for the target ISA. It drains the resident
+The shared [clock declaration](completed_tick.loom) uses ordinary Loom templates
+with one provider module per physical instruction representation. The
+[build declarations](BUILD.bazel) include only providers whose descriptor sets
+are linked into Loom. The selected template drains the resident
 program's vector loads and stores before sampling the low 32 bits of the
 reference clock, then waits for the message result. These are raw ticks,
 independent of the caller's release/acquire visibility operations. The complete
@@ -229,8 +234,8 @@ on the same image and queue. Completion-visible payloads are captured before
 queue retirement.
 
 The LDS product set covers every exact physical target and encoding overlay
-in Loom's target catalog. Each variant retains its compiled wave size, 512 fixed
-LDS bytes and zero private bytes. [Kernel metadata](kernel.h) travels with the
+available in the configured compiler. Each variant retains its compiled wave
+size, 512 fixed LDS bytes and zero private bytes. [Kernel metadata](kernel.h) travels with the
 selected image; the [host product test](kernel_test.cc) checks every variant
 against the typed ABI. Physical selection preserves the gfx1250 A0 overlay
 instead of treating its base code-object name as a sufficient identity. The

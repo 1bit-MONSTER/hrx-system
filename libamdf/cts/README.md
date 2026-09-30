@@ -110,8 +110,10 @@ python build_tools/devtools/ci.py iree-bazel-amdgpu --amdgpu-target "${GPU_TARGE
 python build_tools/devtools/ci.py iree-cmake-amdgpu --amdgpu-target "${GPU_TARGET}"
 ```
 
-The runner target controls HAL compilation; the command corpora retain the
-physical-target kernel catalog and select the discovered device. Bazel's
+The runner target controls HAL compilation and the descriptor sets linked into
+Loom. The command corpora build the physical kernel variants supported by those
+descriptor sets and select the discovered device at execution. The default Loom
+configuration includes the full physical-target catalog. Bazel's
 explicit `--target` override preserves a narrower package selection. CMake
 builds `libamdf/all` and includes its GPU resource labels in hardware execution.
 Manual lifecycle cases remain outside these ordinary jobs. Resource admission

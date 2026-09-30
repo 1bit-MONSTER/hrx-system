@@ -33,8 +33,8 @@ function(amdf_cts_binary)
   )
 endfunction()
 
-# Compiles one authored behavior for its physical targets, then embeds all
-# products into a single object with a small declaration-only header.
+# Compiles one authored behavior for its available physical target profiles,
+# then embeds those products with a small declaration-only header.
 function(amdf_cts_gpu_kernel_set)
   if(NOT IREE_BUILD_TESTS)
     return()
@@ -46,7 +46,13 @@ function(amdf_cts_gpu_kernel_set)
     message(FATAL_ERROR "Incomplete GPU CTS kernel set declaration")
   endif()
   set(_INPUTS)
+  set(_SELECTORS)
   foreach(_SELECTOR IN LISTS _RULE_TARGETS)
+    iree_package_target_name(_PROFILE "::${_SELECTOR}")
+    get_target_property(_AVAILABLE "${_PROFILE}" LOOM_PROFILE_AVAILABLE)
+    if(NOT _AVAILABLE)
+      continue()
+    endif()
     set(_PRODUCT "${_RULE_NAME}_${_SELECTOR}")
     loom_kernel_binary(
       NAME "${_PRODUCT}"
@@ -57,6 +63,7 @@ function(amdf_cts_gpu_kernel_set)
       TESTONLY
     )
     list(APPEND _INPUTS "${CMAKE_CURRENT_BINARY_DIR}/${_PRODUCT}.hsaco")
+    list(APPEND _SELECTORS "${_SELECTOR}")
   endforeach()
   amdf_cts_embed_gpu_kernel_set(
     NAME "${_RULE_NAME}_embed"
@@ -65,7 +72,7 @@ function(amdf_cts_gpu_kernel_set)
     ENTRY_POINT "${_RULE_ENTRY_POINT}"
     NAMESPACE "${_RULE_NAMESPACE}"
     INPUTS ${_INPUTS}
-    SELECTORS ${_RULE_TARGETS}
+    SELECTORS ${_SELECTORS}
   )
   iree_cc_library(
     NAME "${_RULE_NAME}"

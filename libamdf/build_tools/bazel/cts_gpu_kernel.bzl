@@ -7,6 +7,8 @@
 """Source-built GPU images consumed by native libamdf conformance tests."""
 
 load("//libamdf/requirements:package_policy.bzl", "apply_amdf_target_policy")
+load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_selected_descriptor_set_values")
+load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET")
 load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary")
 load(":cc.bzl", "amdf_cc_library")
 
@@ -57,8 +59,12 @@ def amdf_cts_gpu_kernel_set(name, srcs, targets, entry_point, namespace, visibil
       visibility: Visibility of the generated kernel library.
     """
     policy = apply_amdf_target_policy({})
-    products = []
+    products = {}
+    selectors = {}
+    compatibility = {"//conditions:default": ["@platforms//:incompatible"]}
     for target in targets:
+        capability = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET[target]
+        compatibility["//loom/config/target/amdgpu:" + capability] = []
         product_name = name + "_" + target
         loom_kernel_binary(
             name = product_name,
@@ -69,12 +75,15 @@ def amdf_cts_gpu_kernel_set(name, srcs, targets, entry_point, namespace, visibil
             target = ":" + target,
             **policy
         )
-        products.append(":" + product_name)
+        products.setdefault(capability, []).append(":" + product_name)
+        selectors.setdefault(capability, []).append(target)
+    selected_compatibility = select(compatibility)
+    policy["target_compatible_with"] += selected_compatibility
     _embed_gpu_kernel_set(
         name = name + "_embed",
         testonly = True,
-        srcs = products,
-        selectors = targets,
+        srcs = loom_amdgpu_selected_descriptor_set_values(products),
+        selectors = loom_amdgpu_selected_descriptor_set_values(selectors),
         header = name + ".h",
         implementation = name + ".cc",
         entry_point = entry_point,
@@ -87,5 +96,6 @@ def amdf_cts_gpu_kernel_set(name, srcs, targets, entry_point, namespace, visibil
         srcs = [name + ".cc"],
         hdrs = [name + ".h"],
         deps = ["//libamdf/cts/gpu/kernels:kernel"],
+        target_compatible_with = selected_compatibility,
         visibility = visibility,
     )

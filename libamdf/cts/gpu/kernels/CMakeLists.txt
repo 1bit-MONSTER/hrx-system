@@ -16,6 +16,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1100"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE
 )
 
 loom_target_profile(
@@ -25,6 +27,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1101"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE
 )
 
 loom_target_profile(
@@ -34,6 +38,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1102"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE
 )
 
 loom_target_profile(
@@ -43,6 +49,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1103"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE
 )
 
 loom_target_profile(
@@ -52,6 +60,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1150"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE
 )
 
 loom_target_profile(
@@ -61,6 +71,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1151"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE
 )
 
 loom_target_profile(
@@ -70,6 +82,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1152"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE
 )
 
 loom_target_profile(
@@ -79,6 +93,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1153"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE
 )
 
 loom_target_profile(
@@ -88,6 +104,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1170"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE
 )
 
 loom_target_profile(
@@ -97,6 +115,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1171"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE
 )
 
 loom_target_profile(
@@ -106,6 +126,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1172"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE
 )
 
 loom_target_profile(
@@ -115,6 +137,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1200"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE
 )
 
 loom_target_profile(
@@ -124,6 +148,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1201"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE
 )
 
 loom_target_profile(
@@ -133,6 +159,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1250"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE
 )
 
 loom_target_profile(
@@ -142,6 +170,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1250-a0"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE
 )
 
 loom_target_profile(
@@ -151,6 +181,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx1251"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE
 )
 
 loom_target_profile(
@@ -160,6 +192,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx940"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE
 )
 
 loom_target_profile(
@@ -169,6 +203,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx941"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE
 )
 
 loom_target_profile(
@@ -178,6 +214,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx942"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE
 )
 
 loom_target_profile(
@@ -187,6 +225,8 @@ loom_target_profile(
     "amdgpu"
   SELECTOR
     "gfx950"
+  REQUIRES
+    LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE
 )
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
@@ -244,7 +284,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "byte_copy_unaligned_kernels"
@@ -291,7 +331,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "pattern_fill_unaligned_kernels"
@@ -325,7 +365,7 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "transform_kernels"
@@ -359,7 +399,7 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "transform_alternate_kernels"
@@ -393,13 +433,48 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE))
+set(_resident_exchange_kernels_platform_srcs "")
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna3.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna4.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna4_gfx125x.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna3_5.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna4m.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna4_gfx1251.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _resident_exchange_kernels_platform_srcs "completed_tick_rdna4_gfx1250_a0.loom")
+endif()
 amdf_cts_gpu_kernel_set(
   NAME
     "resident_exchange_kernels"
   SRCS
     "completed_tick.loom"
     "resident_exchange.loom"
+    ${_resident_exchange_kernels_platform_srcs}
   TARGETS
     "gfx1100"
     "gfx1101"
@@ -424,13 +499,48 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE))
+set(_resident_channels_kernels_platform_srcs "")
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna3.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna4.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna4_gfx125x.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna3_5.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna4m.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna4_gfx1251.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _resident_channels_kernels_platform_srcs "completed_tick_rdna4_gfx1250_a0.loom")
+endif()
 amdf_cts_gpu_kernel_set(
   NAME
     "resident_channels_kernels"
   SRCS
     "completed_tick.loom"
     "resident_channels.loom"
+    ${_resident_channels_kernels_platform_srcs}
   TARGETS
     "gfx1100"
     "gfx1101"
@@ -455,13 +565,48 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE))
+set(_resident_npu_initiated_kernels_platform_srcs "")
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna3.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna4.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna4_gfx125x.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna3_5.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna4m.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna4_gfx1251.loom")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _resident_npu_initiated_kernels_platform_srcs "completed_tick_rdna4_gfx1250_a0.loom")
+endif()
 amdf_cts_gpu_kernel_set(
   NAME
     "resident_npu_initiated_kernels"
   SRCS
     "completed_tick.loom"
     "resident_npu_initiated.loom"
+    ${_resident_npu_initiated_kernels_platform_srcs}
   TARGETS
     "gfx1100"
     "gfx1101"
@@ -486,7 +631,7 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "geometry_ids_kernels"
@@ -533,7 +678,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "lds_exchange_kernels"
@@ -568,6 +713,22 @@ amdf_cts_gpu_kernel_set(
 endif()
 
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+set(_kernel_test_platform_deps "")
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+elseif(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+elseif(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+elseif(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+elseif(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+elseif(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+elseif(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _kernel_test_platform_deps ::resident_kernel_test)
+endif()
 iree_cc_test(
   NAME
     kernel_test
@@ -585,23 +746,56 @@ iree_cc_test(
     ::pattern_fill_unaligned_kernels
     ::private_roundtrip
     ::private_roundtrip_kernels
-    ::resident_channels
-    ::resident_channels_kernels
-    ::resident_exchange
-    ::resident_exchange_kernels
-    ::resident_npu_initiated
-    ::resident_npu_initiated_kernels
+    ::product_test
     ::transform
     ::transform_alternate_kernels
     ::transform_kernels
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
+    ${_kernel_test_platform_deps}
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
+    product_test
+  HDRS
+    "product_test.h"
+  DEPS
+    ::kernel
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE))
+iree_cc_library(
+  NAME
+    resident_kernel_test
+  SRCS
+    "resident_kernel_test.cc"
+  DEPS
+    ::product_test
+    ::resident_channels
+    ::resident_channels_kernels
+    ::resident_exchange
+    ::resident_exchange_kernels
+    ::resident_npu_initiated
+    ::resident_npu_initiated_kernels
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
 )
 endif()
 
@@ -618,7 +812,7 @@ iree_cc_library(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE))
 amdf_cts_gpu_kernel_set(
   NAME
     "private_roundtrip_kernels"
@@ -652,7 +846,101 @@ amdf_cts_gpu_kernel_set(
 )
 endif()
 
-if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE OR LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE))
+set(_embed_test_platform_args "")
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx940={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx941={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx942={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx950={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1100={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1101={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1102={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1103={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1200={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1201={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1250={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1150={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1152={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1153={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1170={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1171={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco}}")
+  list(APPEND _embed_test_platform_args "--variant=gfx1172={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1251={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco}}")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _embed_test_platform_args "--variant=gfx1250-a0={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco}}")
+endif()
+set(_embed_test_platform_data "")
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_CDNA4_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX125X_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA3_5_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco")
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1251_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco")
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX9_4_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE)
+endif()
+if(LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4_GFX1250_A0_CORE)
+  list(APPEND _embed_test_platform_data "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco")
+endif()
 iree_py_test(
   NAME
     embed_test
@@ -662,47 +950,9 @@ iree_py_test(
     "embed.py"
     "embed_test.py"
   ARGS
-    "--variant=gfx1100={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco}}"
-    "--variant=gfx1101={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco}}"
-    "--variant=gfx1102={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco}}"
-    "--variant=gfx1103={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco}}"
-    "--variant=gfx1150={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco}}"
-    "--variant=gfx1151={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco}}"
-    "--variant=gfx1152={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco}}"
-    "--variant=gfx1153={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco}}"
-    "--variant=gfx1170={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco}}"
-    "--variant=gfx1171={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco}}"
-    "--variant=gfx1172={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco}}"
-    "--variant=gfx1200={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco}}"
-    "--variant=gfx1201={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco}}"
-    "--variant=gfx1250={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco}}"
-    "--variant=gfx1250-a0={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco}}"
-    "--variant=gfx1251={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco}}"
-    "--variant=gfx940={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco}}"
-    "--variant=gfx941={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco}}"
-    "--variant=gfx942={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco}}"
-    "--variant=gfx950={{${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco}}"
+    ${_embed_test_platform_args}
   DATA
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1100.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1101.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1102.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1103.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1150.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1151.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1152.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1153.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1170.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1171.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1172.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1200.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1201.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250-a0.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1250.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx1251.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx940.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx941.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx942.hsaco"
-    "${CMAKE_CURRENT_BINARY_DIR}/transform_kernels_gfx950.hsaco"
+    ${_embed_test_platform_data}
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"

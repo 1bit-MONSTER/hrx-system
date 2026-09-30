@@ -1024,8 +1024,13 @@ class BuildFileFunctions(object):
         )
 
     def _convert_data_list_block(self, data, block_name="DATA"):
+        return self._convert_string_list_block(
+            block_name, self._convert_data_locations(data), sort=True, quote=True
+        )
+
+    def _convert_data_locations(self, data):
         if data is None:
-            return ""
+            return None
 
         converted_data = []
         target_file_prefix = "$<TARGET_FILE:"
@@ -1043,12 +1048,26 @@ class BuildFileFunctions(object):
                 else:
                     converted_data.append(path)
 
-        converted_data = list(dict.fromkeys(filter(None, converted_data)))
-        if not converted_data:
-            return ""
-        return self._convert_string_list_block(
-            block_name, converted_data, sort=True, quote=True
-        )
+        return list(dict.fromkeys(filter(None, converted_data))) or None
+
+    def _map_configurable_list(self, values, transform):
+        """Transforms list values while preserving their configuration branches."""
+        if isinstance(values, ConditionSelect):
+            return ConditionSelect(
+                {
+                    key: transform(items) or []
+                    for key, items in values.conditions.items()
+                }
+            )
+        if isinstance(values, MixedDeps):
+            return MixedDeps(
+                unconditional=transform(values.unconditional) or [],
+                selects=[
+                    self._map_configurable_list(selection, transform)
+                    for selection in values.selects
+                ],
+            )
+        return transform(values)
 
     def _convert_amdgpu_bitcode_deps_block(self, deps):
         if deps is None:
@@ -1336,12 +1355,6 @@ class BuildFileFunctions(object):
         self._check_no_unhandled_kwargs("iree_py_test", kwargs)
         if env:
             raise NotImplementedError(f"iree_py_test env: {name}")
-        if data:
-            if not isinstance(data, list):
-                if self._has_only_external_targets(data):
-                    data = None
-                else:
-                    raise NotImplementedError(f"iree_py_test data: {name}")
         # CTest already inherits the invoking environment, including env_inherit.
         source_list = list(srcs or [])
         main_source = None
@@ -1366,10 +1379,17 @@ class BuildFileFunctions(object):
             [self._python_file_cmake_path(source) for source in source_list],
             sort=False,
         )
-        args_block = self._convert_string_list_block(
-            "ARGS", self._convert_test_location_args(args), sort=False
+        args_block, args_var_block = self._convert_platform_select_strings(
+            name,
+            "ARGS",
+            self._map_configurable_list(args, self._convert_test_location_args),
         )
-        data_block = self._convert_data_list_block(data)
+        data_block, data_var_block = self._convert_platform_select_strings(
+            name,
+            "DATA",
+            self._map_configurable_list(data, self._convert_data_locations),
+            sort=True,
+        )
         deps_block, deps_var_block = self._convert_python_target_list_blocks(
             name, "DEPS", deps
         )
@@ -1382,6 +1402,7 @@ class BuildFileFunctions(object):
         )
         timeout_block = self._convert_test_timeout_arg_block("TIMEOUT", timeout, size)
         self._emit_platform_guard_begin(target_compatible_with)
+        self._converter.body += args_var_block + data_var_block
         if deps_var_block:
             self._converter.body += deps_var_block
         self._converter.body += (

@@ -25,6 +25,9 @@ _AMDF_CONFIG_CMAKE_OPTIONS = {
 class AmdfBuildFileFunctions(
     LoomBinaryBuildFileFunctions, bazel_to_cmake_converter.BuildFileFunctions
 ):
+    def _declarative_load_bindings(self):
+        return {**super()._declarative_load_bindings(), "select": self.select}
+
     def _custom_initialize(self):
         self._amdf_requirement_policy = bazel_to_cmake_requirements.load_project_policy(
             self._repo_root,
@@ -71,6 +74,10 @@ class AmdfBuildFileFunctions(
     def _convert_select_condition(self, label):
         if label in _AMDF_CONFIG_CMAKE_OPTIONS:
             return _AMDF_CONFIG_CMAKE_OPTIONS[label]
+        if isinstance(label, str) and label.startswith(
+            "//loom/config/target/amdgpu:descriptor_set_"
+        ):
+            return "LOOM_TARGET_AMDGPU_" + label.split(":", 1)[1].upper()
         return super()._convert_select_condition(label)
 
     def apply_amdf_target_policy(self, kwargs, name=None):
@@ -103,6 +110,11 @@ class AmdfBuildFileFunctions(
         self, name, srcs, targets, entry_point, namespace, visibility=None
     ):
         del visibility
+        capabilities = self._loaded_modules.symbol(
+            "//loom/build_tools/amdgpu:target_config.bzl",
+            "LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_TARGET",
+            self._build_dir,
+        )
         for target in targets:
             product = f"{name}_{target}"
             path = f"${{CMAKE_CURRENT_BINARY_DIR}}/{product}.hsaco"
@@ -110,12 +122,23 @@ class AmdfBuildFileFunctions(
             self._target_file_paths[self._current_target_label(product + ".hsaco")] = (
                 path
             )
-        policy = self._apply_amdf_cmake_policy({})
+        compatibility = {
+            "//loom/config/target/amdgpu:" + capabilities[target]: []
+            for target in targets
+        }
+        compatibility["//conditions:default"] = ["@platforms//:incompatible"]
+        policy = self._apply_amdf_cmake_policy(
+            {"target_compatible_with": self.select(compatibility)}
+        )
         self._emit_platform_guard_begin(policy["target_compatible_with"])
+        srcs_block, srcs_selection = self._convert_platform_select_strings(
+            name, "SRCS", srcs
+        )
         self._converter.body += (
-            "amdf_cts_gpu_kernel_set(\n"
+            srcs_selection
+            + "amdf_cts_gpu_kernel_set(\n"
             + self._convert_string_arg_block("NAME", name)
-            + self._convert_string_list_block("SRCS", srcs)
+            + srcs_block
             + self._convert_string_list_block("TARGETS", targets)
             + self._convert_string_arg_block("ENTRY_POINT", entry_point)
             + self._convert_string_arg_block("NAMESPACE", namespace)

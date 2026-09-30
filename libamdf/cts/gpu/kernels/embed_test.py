@@ -52,14 +52,7 @@ class EmbedTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.products = {target: path.read_bytes() for target, path in cls.variants}
-        # Descriptor mutation cases exercise both wave encodings independently
-        # of the physical processors supplying the build's fixture products.
-        by_wave = {
-            embed.extract_image(data, cls.symbol).metadata[".wavefront_size"]: data
-            for data in cls.products.values()
-        }
-        cls.wave32_data = by_wave[32]
-        cls.wave64_data = by_wave[64]
+        cls.product_data = next(iter(cls.products.values()))
 
     def test_real_products_keep_transform_abi_and_compiler_resources(self):
         for target, data in self.products.items():
@@ -125,7 +118,7 @@ class EmbedTest(unittest.TestCase):
                 self.assertEqual(len(kernel.image), entry + text[5])
 
     def test_nonzero_descriptor_phase_is_retained(self):
-        data = bytearray(self.wave32_data)
+        data = bytearray(self.product_data)
         table = sections(data)
         section_position, rodata = table[".rodata"]
         descriptor = bytes(data[rodata[4] : rodata[4] + 64])
@@ -159,7 +152,7 @@ class EmbedTest(unittest.TestCase):
         )
 
     def test_rejects_truncated_or_wrong_format_products(self):
-        original = self.wave64_data
+        original = self.product_data
         for data in (original[:32], original[:-64]):
             with self.subTest(size=len(data)), self.assertRaises(embed.ImageError):
                 embed.extract_image(data, self.symbol)
@@ -170,7 +163,7 @@ class EmbedTest(unittest.TestCase):
                 embed.extract_image(bytes(data), self.symbol)
 
     def test_rejects_relocations_extra_backing_and_external_dependencies(self):
-        original = self.wave32_data
+        original = self.product_data
         table = sections(original)
         mutations = [
             (table[".symtab"][0] + 4, "<I", 4, "relocation"),
@@ -189,28 +182,30 @@ class EmbedTest(unittest.TestCase):
                 embed.extract_image(bytes(data), self.symbol)
 
     def test_rejects_descriptor_disagreement(self):
-        original = self.wave32_data
-        descriptor = sections(original)[".rodata"][1][4]
-        mutations = [
-            (0, "<I", 512, "group_segment"),
-            (4, "<I", 16, "private_segment"),
-            (8, "<I", 32, "kernarg_segment"),
-            (16, "<q", 64, "entry offset"),
-            (24, "<I", 1, "reserved"),
-            (56, "<H", 8, "wavefront"),
-            (56, "<H", 0xC08, "dynamic private stack"),
-        ]
-        for offset, format_string, value, message in mutations:
-            data = bytearray(original)
-            struct.pack_into(format_string, data, descriptor + offset, value)
-            with (
-                self.subTest(message=message),
-                self.assertRaisesRegex(embed.ImageError, message),
-            ):
-                embed.extract_image(bytes(data), self.symbol)
+        for target, original in self.products.items():
+            with self.subTest(target=target):
+                descriptor = sections(original)[".rodata"][1][4]
+                properties = struct.unpack_from("<H", original, descriptor + 56)[0]
+                mutations = [
+                    (0, "<I", 512, "group_segment"),
+                    (4, "<I", 16, "private_segment"),
+                    (8, "<I", 32, "kernarg_segment"),
+                    (16, "<q", 64, "entry offset"),
+                    (24, "<I", 1, "reserved"),
+                    (56, "<H", properties ^ 0x400, "wavefront"),
+                    (56, "<H", properties | 0x800, "dynamic private stack"),
+                ]
+                for offset, format_string, value, message in mutations:
+                    data = bytearray(original)
+                    struct.pack_into(format_string, data, descriptor + offset, value)
+                    with (
+                        self.subTest(message=message),
+                        self.assertRaisesRegex(embed.ImageError, message),
+                    ):
+                        embed.extract_image(bytes(data), self.symbol)
 
     def metadata(self):
-        data = self.wave64_data
+        data = self.product_data
         return embed.read_metadata(embed.Elf(data)), embed.extract_image(
             data, self.symbol
         )

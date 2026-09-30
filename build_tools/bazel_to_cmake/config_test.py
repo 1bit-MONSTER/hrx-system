@@ -761,6 +761,56 @@ cc_library(
             'DATA\n    "${CMAKE_CURRENT_BINARY_DIR}/generated_data.spv"', converter.body
         )
 
+    def test_py_test_preserves_configured_generated_arguments_and_data(self):
+        converter = SimpleNamespace(body="")
+        functions = _PythonBuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/pkg",
+            repo_root="/repo",
+        )
+        functions.iree_spirv_asm_module(name="generated_data", src="input.spvasm")
+        functions.iree_py_test(
+            name="configured_data_test",
+            srcs=["test.py"],
+            args=["--common"]
+            + functions.select(
+                {
+                    "@platforms//os:linux": ["--input=$(rootpath :generated_data)"],
+                    "//conditions:default": ["--no-input"],
+                }
+            ),
+            data=functions.select(
+                {
+                    "@platforms//os:linux": [":generated_data"],
+                    "//conditions:default": [],
+                }
+            ),
+        )
+        self.assertIn(
+            'if(CMAKE_SYSTEM_NAME STREQUAL "Linux")\n'
+            "  list(APPEND _configured_data_test_platform_args "
+            '"--input={{${CMAKE_CURRENT_BINARY_DIR}/generated_data.spv}}")\n'
+            "else()\n"
+            '  list(APPEND _configured_data_test_platform_args "--no-input")\n'
+            "endif()",
+            converter.body,
+        )
+        self.assertIn(
+            'if(CMAKE_SYSTEM_NAME STREQUAL "Linux")\n'
+            "  list(APPEND _configured_data_test_platform_data "
+            '"${CMAKE_CURRENT_BINARY_DIR}/generated_data.spv")\n'
+            "endif()",
+            converter.body,
+        )
+        self.assertIn(
+            'ARGS\n    "--common"\n    ${_configured_data_test_platform_args}',
+            converter.body,
+        )
+        self.assertIn(
+            "DATA\n    ${_configured_data_test_platform_data}", converter.body
+        )
+
     def test_private_executable_test_can_skip_cmake(self):
         converter = SimpleNamespace(body="")
         functions = bazel_to_cmake_converter.BuildFileFunctions(

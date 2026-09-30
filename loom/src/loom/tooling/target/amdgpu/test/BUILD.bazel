@@ -6,6 +6,7 @@
 
 load("//build_tools/bazel:python.bzl", "iree_py_test")
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
+load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_descriptor_set_compatible_with")
 load("//loom/build_tools/amdgpu:target_config.bzl", "LOOM_AMDGPU_SUPPORTED_TARGETS")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load(
@@ -95,6 +96,7 @@ loom_check_compile_tests(
     name = "loop_entry_access",
     src = "//loom/src/loom/tooling/target/amdgpu/test/corpus:gfx11_loop_entry_module",
     args = ["--sanitizer=access"],
+    target_compatible_with = loom_amdgpu_descriptor_set_compatible_with("descriptor_set_gfx11_generic_core"),
     targets = ["//loom/target/amdgpu:gfx1151"],
 )
 

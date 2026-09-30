@@ -53,6 +53,7 @@ _GFX11_ARTIFACT_COMPATIBLE_WITH = loom_amdgpu_descriptor_set_compatible_with(
 
 _GFX11_COMPATIBLE_WITH = (
     _GENERIC_COMPATIBLE_WITH +
+    _GFX11_ARTIFACT_COMPATIBLE_WITH +
     loom_amdgpu_iree_hal_representation_compatible_with(
         _GFX11_GENERIC_REPRESENTATION,
     )

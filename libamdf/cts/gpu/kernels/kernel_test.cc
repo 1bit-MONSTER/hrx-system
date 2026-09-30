@@ -21,33 +21,14 @@
 #include "libamdf/cts/gpu/kernels/pattern_fill_unaligned_kernels.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip.h"
 #include "libamdf/cts/gpu/kernels/private_roundtrip_kernels.h"
-#include "libamdf/cts/gpu/kernels/resident_channels.h"
-#include "libamdf/cts/gpu/kernels/resident_channels_kernels.h"
-#include "libamdf/cts/gpu/kernels/resident_exchange.h"
-#include "libamdf/cts/gpu/kernels/resident_exchange_kernels.h"
-#include "libamdf/cts/gpu/kernels/resident_npu_initiated.h"
-#include "libamdf/cts/gpu/kernels/resident_npu_initiated_kernels.h"
+#include "libamdf/cts/gpu/kernels/product_test.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
 #include "libamdf/cts/gpu/kernels/transform_alternate_kernels.h"
 #include "libamdf/cts/gpu/kernels/transform_kernels.h"
 
 namespace {
 
-void CheckArgumentLayout(const kernels::Kernel& kernel,
-                         std::span<const uint32_t> offsets,
-                         std::span<const uint32_t> lengths,
-                         std::span<const std::string_view> kinds,
-                         uint32_t slot_byte_length, uint32_t slot_alignment) {
-  EXPECT_TRUE(std::ranges::equal(kernel.arguments.byte_offsets, offsets));
-  EXPECT_TRUE(std::ranges::equal(kernel.arguments.byte_lengths, lengths));
-  EXPECT_TRUE(std::ranges::equal(kernel.arguments.value_kinds, kinds));
-  EXPECT_LE(kernel.arguments.byte_length, slot_byte_length);
-  EXPECT_EQ(slot_alignment % kernel.arguments.alignment, 0u);
-  EXPECT_TRUE(kernel.wavefront_size == 32 || kernel.wavefront_size == 64);
-  EXPECT_EQ(kernel.entry_byte_offset % 256, 0u);
-  EXPECT_LT(kernel.entry_byte_offset, kernel.executable.byte_length);
-  EXPECT_GE(kernel.text_byte_length, kernel.entry_byte_length);
-}
+using kernels::testing::CheckArgumentLayout;
 
 TEST(KernelTest, TransformProductsPreserveTheCallerContract) {
   using Arguments = kernels::transform::Arguments;
@@ -220,78 +201,31 @@ TEST(KernelTest, EveryLdsProductPreservesTheCallerContract) {
   }
 }
 
-void CheckResidentProducts(const kernels::KernelSet& products,
-                           std::span<const uint32_t> offsets,
-                           std::span<const uint32_t> lengths,
-                           std::span<const std::string_view> kinds,
-                           uint32_t semantic_byte_length,
-                           uint32_t slot_byte_length, uint32_t slot_alignment) {
-  ASSERT_FALSE(products.variants.empty());
-  for (const auto& kernel : products.variants) {
-    SCOPED_TRACE(kernel.target);
-    CheckArgumentLayout(kernel, offsets, lengths, kinds, slot_byte_length,
-                        slot_alignment);
-    EXPECT_GE(kernel.arguments.byte_length, semantic_byte_length);
-    EXPECT_EQ(kernel.required_workgroup_size,
-              (std::array<uint32_t, 3>{1, 1, 1}));
-    EXPECT_EQ(kernel.wavefront_size, 32u);
-    EXPECT_EQ(kernel.private_segment_byte_length, 0u);
-    EXPECT_EQ(kernel.group_segment_byte_length, 0u);
-    // PM4 supplies the kernarg pointer. A single workitem needs no group or
-    // local ID inputs, private-segment state, or kernarg preload registers.
-    EXPECT_EQ(kernel.program.code_properties, 0x408u);
-    EXPECT_EQ(kernel.program.argument_preload, 0u);
-    EXPECT_EQ(kernel.program.resource2 & 0x1fffu, 4u);
-  }
-}
-
-TEST(KernelTest, ResidentExchangeProductsPreserveTheCallerContract) {
-  namespace protocol = kernels::resident_exchange;
-  CheckResidentProducts(
-      protocol::kKernels, protocol::kArgumentByteOffsets,
-      protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
-      protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
-}
-
-TEST(KernelTest, ResidentChannelProductsPreserveTheCallerContract) {
-  namespace protocol = kernels::resident_channels;
-  CheckResidentProducts(
-      protocol::kKernels, protocol::kArgumentByteOffsets,
-      protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
-      protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
-}
-
-TEST(KernelTest, ResidentNpuInitiatedProductsPreserveTheCallerContract) {
-  namespace protocol = kernels::resident_npu_initiated;
-  CheckResidentProducts(
-      protocol::kKernels, protocol::kArgumentByteOffsets,
-      protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
-      protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
-}
-
 TEST(KernelTest, PhysicalRevisionSelectsTheInstructionEncodingOverlay) {
+  constexpr kernels::Kernel kVariants[] = {{.target = "gfx1250"},
+                                           {.target = "gfx1250-a0"}};
+  const kernels::KernelSet products = {kVariants};
   amdf_gpu_endpoint_info_t endpoint = {};
   endpoint.gfx_ip = {12, 5, 0};
   endpoint.asic_revision = 0;
-  const auto* a0 = kernels::lds_exchange::kKernels.Find(endpoint);
+  const auto* a0 = products.Find(endpoint);
   ASSERT_NE(a0, nullptr);
   EXPECT_STREQ(a0->target, "gfx1250-a0");
   endpoint.asic_revision = 1;
-  const auto* b0 = kernels::lds_exchange::kKernels.Find(endpoint);
+  const auto* b0 = products.Find(endpoint);
   ASSERT_NE(b0, nullptr);
   EXPECT_STREQ(b0->target, "gfx1250");
   EXPECT_NE(a0, b0);
   endpoint.asic_revision = 2;
-  EXPECT_EQ(kernels::lds_exchange::kKernels.Find(endpoint), nullptr);
+  EXPECT_EQ(products.Find(endpoint), nullptr);
 }
 
 TEST(KernelTest, MissingPhysicalProductDoesNotSelectANearbyProcessor) {
+  constexpr kernels::Kernel kVariants[] = {{.target = "gfx1151"}};
+  const kernels::KernelSet products = {kVariants};
   amdf_gpu_endpoint_info_t endpoint = {};
   endpoint.gfx_ip = {11, 5, 15};
-  EXPECT_EQ(kernels::lds_exchange::kKernels.Find(endpoint), nullptr);
+  EXPECT_EQ(products.Find(endpoint), nullptr);
 }
 
 }  // namespace
