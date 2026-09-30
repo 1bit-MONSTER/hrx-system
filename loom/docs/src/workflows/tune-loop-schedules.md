@@ -56,13 +56,17 @@ explains this shape and its diagnostics.
 
 ### Derive full tiles from a ragged loop
 
-A dynamic work count can still expose fixed collective tiles. Test for one
-complete tile in an outer `scf.while`, forward the checked count into the body,
-and derive the inner bound from that value. On the successful edge below,
-`%active_remaining` is at least `%tile_size`, so `%tile_end` is exactly eight.
-The inner loop therefore has the fixed participation required for pipelining
-the subgroup reduction, and bare `unroll` can materialize all eight rows. No
-duplicate `index.assume` is needed in the body.
+A dynamic work count can still expose fixed collective tiles. A one-shot
+`scf.if` can guard one candidate tile; a repeated outer `scf.while` can forward
+the checked count through each successful continuation. On either true edge,
+`%remaining >= %tile_size` makes `index.min %remaining, %tile_size` exact in the
+enclosed region. The inner loop therefore has the fixed participation required
+for pipelining a subgroup reduction, and bare `unroll` can materialize every
+row. No duplicate `index.assume` is needed in the guarded region. The false
+edge only bounds the partial tail, which keeps its runtime cleanup schedule.
+
+The following repeated form forwards the checked count as
+`%active_remaining`; `%tile_end` is exactly eight in the body:
 
 ```loom
 template.decl @guide.sum_full_tiles(%values: view<63x32xf32>, %lane: index, %count: index, %initial: f32) -> (index, index, f32)

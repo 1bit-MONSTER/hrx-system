@@ -169,6 +169,12 @@ compile-time application site a stronger context. This lets a structured
 program preserve the reason a specialization is valid instead of cloning a
 function under an opaque generated name.
 
+The same path facts feed bounds proofs and explicit loop schedules. For
+example, a true `%remaining >= %tile_size` edge makes
+`index.min %remaining, %tile_size` exact inside that region, so an enclosed
+fixed-tile pipeline or full unroll needs no duplicate `index.assume`. The false
+region retains the complementary relation but still has a dynamic tail length.
+
 ## A template family selects an implementation
 
 [`template.decl`](../reference/dialects/template/ops/decl.md) defines the
