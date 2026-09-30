@@ -1,0 +1,145 @@
+// RUN: with-checks emit aie2p-array-plan @private_atomic_array
+
+// Shared corpus programs own atomic result semantics. This target test checks
+// that private provenance and the shared rewrites survive the AIE2P array ABI,
+// resident materialization, and final machine lowering.
+aie2p.target<array> @array_target
+
+aie2p.target<core> @core_target
+
+func.def target(@core_target) @private_atomic_worker(%input_arg: buffer, %output_arg: buffer) {
+  %input, %output = buffer.assume.alignment %input_arg, %output_arg {minimum_alignment = 8} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %private_bytes = index.constant 24 : offset
+  %storage = buffer.alloca<private> align(8) %private_bytes : buffer
+
+  %cell_i64 = buffer.view %storage[%origin] : buffer -> view<1xi64>
+  %input_i64 = buffer.view %input[%origin] : buffer -> view<3xi64>
+  %output_i64 = buffer.view %output[%origin] : buffer -> view<4xi64>
+  %initial_i64 = view.load %input_i64[0] : view<3xi64> -> i64
+  %update_i64 = view.load %input_i64[1] : view<3xi64> -> i64
+  %expected_i64 = view.load %input_i64[2] : view<3xi64> -> i64
+  view.atomic.store %initial_i64, %cell_i64[0] {ordering = release, scope = system} : i64, view<1xi64>
+  %old_i64 = view.atomic.rmw<addi> %update_i64, %cell_i64[0] {ordering = acq_rel, scope = system} : i64, view<1xi64> -> i64
+  %compared_i64 = view.atomic.cmpxchg %expected_i64, %update_i64, %cell_i64[0] {failure_ordering = acquire, scope = system, success_ordering = seq_cst} : i64, view<1xi64> -> i64
+  view.atomic.reduce<xori> %update_i64, %cell_i64[0] {ordering = seq_cst, scope = system} : i64, view<1xi64>
+  %final_i64 = view.atomic.load %cell_i64[0] {ordering = acquire, scope = system} : view<1xi64> -> i64
+  view.store %old_i64, %output_i64[0] : i64, view<4xi64>
+  view.store %compared_i64, %output_i64[1] : i64, view<4xi64>
+  view.store %final_i64, %output_i64[2] : i64, view<4xi64>
+  view.store %update_i64, %output_i64[3] : i64, view<4xi64>
+
+  %vector_offset = index.constant 8 : offset
+  %input_vector_offset = index.constant 24 : offset
+  %output_vector_offset = index.constant 32 : offset
+  %cells_i32 = buffer.view %storage[%vector_offset] : buffer -> view<2xi32>
+  %input_i32 = buffer.view %input[%input_vector_offset] : buffer -> view<2xi32>
+  %output_i32 = buffer.view %output[%output_vector_offset] : buffer -> view<4xi32>
+  %initial_i32 = vector.load %input_i32[0] : view<2xi32> -> vector<2xi32>
+  vector.store %initial_i32, %cells_i32[0] : vector<2xi32>, view<2xi32>
+  %first = index.constant 0 : index
+  %step = index.constant 1 : index
+  %offsets = vector.iota %first step %step : vector<2xindex>
+  %enabled = scalar.constant true : i1
+  %disabled = scalar.constant false : i1
+  %mask = vector.from_elements %enabled, %disabled : vector<2xi1>
+  %increment_i32 = vector.constant 1 : vector<2xi32>
+  %passthrough_i32 = vector.constant -101 : vector<2xi32>
+  %old_i32 = vector.atomic.rmw.mask<addi> %increment_i32, %cells_i32[0][%offsets], %mask, %passthrough_i32 {ordering = acq_rel, scope = system} : vector<2xi32>, view<2xi32>, vector<2xindex>, vector<2xi1>, vector<2xi32>
+  %final_i32 = vector.load %cells_i32[0] : view<2xi32> -> vector<2xi32>
+  vector.store %old_i32, %output_i32[0] : vector<2xi32>, view<4xi32>
+  vector.store %final_i32, %output_i32[2] : vector<2xi32>, view<4xi32>
+
+  %f32_offset = index.constant 16 : offset
+  %input_f32_offset = index.constant 32 : offset
+  %output_f32_offset = index.constant 48 : offset
+  %cell_f32 = buffer.view %storage[%f32_offset] : buffer -> view<1xf32>
+  %input_f32 = buffer.view %input[%input_f32_offset] : buffer -> view<2xf32>
+  %output_f32 = buffer.view %output[%output_f32_offset] : buffer -> view<2xf32>
+  %initial_f32 = view.load %input_f32[0] : view<2xf32> -> f32
+  %increment_f32 = view.load %input_f32[1] : view<2xf32> -> f32
+  view.atomic.store %initial_f32, %cell_f32[0] {ordering = release, scope = system} : f32, view<1xf32>
+  %old_f32 = view.atomic.rmw<addf> %increment_f32, %cell_f32[0] {ordering = acq_rel, scope = system} : f32, view<1xf32> -> f32
+  %final_f32 = view.atomic.load %cell_f32[0] {ordering = acquire, scope = system} : view<1xf32> -> f32
+  view.store %old_f32, %output_f32[0] : f32, view<2xf32>
+  view.store %final_f32, %output_f32[1] : f32, view<2xf32>
+  func.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @private_atomic_array() launch(%input: buffer, %output: buffer) {
+  %worker_count = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %workers = group.create %worker_count : index -> group
+  %input_view = buffer.view %input[%origin] : buffer -> view<1x1x40xi8>
+  %output_view = buffer.view %output[%origin] : buffer -> view<1x1x56xi8>
+  %input_flow = pipeline.scatter %input_view across %workers : view<1x1x40xi8>, group -> pipeline.flow<tile<40xi8>>
+  %output_flow = pipeline.stage @private_atomic_worker on %workers(%input_flow) : (group, pipeline.flow<tile<40xi8>>) -> (pipeline.flow<tile<56xi8>>)
+  pipeline.write %output_flow to %output_view : pipeline.flow<tile<56xi8>>, view<1x1x56xi8>
+  pipeline.return
+}
+
+// ----
+CHECK: array @private_atomic_array * workers=1 * channels=2 *
+CHECK: worker index=0 * entry=@private_atomic_worker * storage-domains=1
+CHECK: worker-storage worker=0 space=2 * bytes=24
+CHECK: resident worker=0 entry=@private_atomic_array$worker$0 *
+CHECK: low.func.def retain target<amd.xdna.aie2p.core> @private_atomic_array$worker$0() asm {
+CHECK: * = storage {byte_alignment = 8, byte_length = 24} : low.storage<private>
+CHECK: * = add.carry *
+CHECK: * = adc *
+CHECK: * = eq *
+CHECK: * = and *
+CHECK: * = sel.nez *
+CHECK: * = xor *
+CHECK: * = add.rr *
+CHECK: * = mov.short -101
+CHECK: * = vadd.f32x64 *
+CHECK-NOT: *view.atomic.*
+CHECK-NOT: *vector.atomic.*
+
+// ====
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// The shared private rewrite must not weaken atomicity for a second observer.
+func.def @workgroup_atomics(%initial: i32, %update: i32, %expected: i32, %replacement: i32) -> (i32, i32, i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  view.atomic.store %initial, %cell[0] {ordering = release, scope = workgroup} : i32, view<1xi32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %loaded = view.atomic.load %cell[0] {ordering = acquire, scope = workgroup} : view<1xi32> -> i32
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  view.atomic.reduce<xori> %update, %cell[0] {ordering = seq_cst, scope = workgroup} : i32, view<1xi32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %old = view.atomic.rmw<addi> %update, %cell[0] {ordering = acq_rel, scope = workgroup} : i32, view<1xi32> -> i32
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %compared = view.atomic.cmpxchg %expected, %replacement, %cell[0] {failure_ordering = acquire, scope = workgroup, success_ordering = seq_cst} : i32, view<1xi32> -> i32
+  func.return %loaded, %old, %compared : i32, i32, i32
+}
+
+// ====
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// noftz requires proven subnormal preservation from target arithmetic.
+func.def @private_noftz(%initial: f32, %update: f32) -> (f32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %cell = buffer.view %storage[%origin] : buffer -> view<1xf32>
+  view.store %initial, %cell[0] : f32, view<1xf32>
+  // ERROR@+1: TARGET/032 {op_constraint="target_contract.memory_atomic.provider_required"}
+  %old = view.atomic.rmw<addf, noftz> %update, %cell[0] {ordering = acq_rel, scope = system} : f32, view<1xf32> -> f32
+  func.return %old : f32
+}
+
+// ====
+// RUN: emit source-low target=amd.xdna.aie2p:core output=none
+
+// A local scheduler barrier or channel completion is not a memory fence.
+func.def @unsupported_fence() {
+  // ERROR@+1: TARGET/001 {op_name="buffer.fence"}
+  buffer.fence scope(workgroup) ordering(acq_rel)
+  func.return
+}
