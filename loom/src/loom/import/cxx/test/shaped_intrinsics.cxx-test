@@ -12,7 +12,6 @@ func.def public @entry(%table: vector<16xi32>, %indices: vector<4xi16>) -> (vect
 }
 
 // ====
-// RUN: roundtrip
 // Dot products retain all source signedness combinations and widened results.
 typedef signed char SignedBytes __attribute__((vector_size(16)));
 typedef unsigned char UnsignedBytes __attribute__((vector_size(16)));
@@ -61,4 +60,25 @@ func.def public @signed_unsigned_product(%lhs: vector<16xi8>, %rhs: vector<16xi8
 func.def public @unsigned_product(%lhs: vector<16xi8>, %rhs: vector<16xi8>, %accumulator: vector<4xi32>) -> (vector<4xi32>) {
   %19 = vector.dot4i<u8u8> %lhs, %rhs, %accumulator : vector<16xi8>, vector<16xi8>, vector<4xi32>
   func.return %19 : vector<4xi32>
+}
+
+// ====
+// Lookup and mixed-signedness dots also retain lazily deduced signatures.
+template <class Result, class Table, class Indices>
+[[loom::op("vector.table.lookup")]] Result lookup(Table, Indices);
+template <class Left, class Right, class Accumulator>
+[[loom::op("vector.dot4i", "u8s8")]] Accumulator dot(Left, Right, Accumulator);
+using Table = signed char __attribute__((ext_vector_type(16)));
+using Bytes8 = signed char __attribute__((ext_vector_type(8)));
+using Indices8 = unsigned char __attribute__((ext_vector_type(8)));
+using Int2 = int __attribute__((ext_vector_type(2)));
+Int2 entry(Table table, Indices8 indices, Int2 seed) {
+  return dot(indices, lookup<Bytes8>(table, indices), seed);
+}
+
+// ----
+func.def public @entry(%table: vector<16xi8>, %indices: vector<8xi8>, %seed: vector<2xi32>) -> (vector<2xi32>) {
+  %4 = vector.table.lookup %table[%indices] : vector<16xi8>, vector<8xi8> -> vector<8xi8>
+  %5 = vector.dot4i<u8s8> %indices, %4, %seed : vector<8xi8>, vector<8xi8>, vector<2xi32>
+  func.return %5 : vector<2xi32>
 }

@@ -12,7 +12,6 @@
 
 #include "iree/testing/gtest.h"
 #include "loom/import/cxx/source/source.h"
-#include "loom/import/cxx/value/types.h"
 
 namespace loom::cxx_import {
 namespace {
@@ -31,11 +30,9 @@ TEST(ShapedTest, OtherOperationsRemainUnclaimed) {
       cxx::ast_cast<cxx::SimpleDeclarationAST>(declarations->value);
   auto* declarator = declaration->initDeclaratorList->value;
   auto* function = cxx::symbol_cast<cxx::FunctionSymbol>(declarator->symbol);
-  Types types(source.unit(), source.diagnostics());
-  EXPECT_FALSE(ShapedIntrinsic::resolve(
-      source.unit(), source.diagnostics(), types,
-      cxx::type_cast<cxx::FunctionType>(function->type()),
-      (*function->attributes())[0], declarator));
+  EXPECT_FALSE(ShapedIntrinsic::admit(source.unit(), source.diagnostics(),
+                                      (*function->attributes())[0],
+                                      declarator));
 }
 
 }  // namespace

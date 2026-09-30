@@ -111,10 +111,13 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
     }
   }
   if (function->isTemplatePattern()) {
-    TemplateBinding binding{selected, std::nullopt};
+    TemplateBinding binding{selected, {}};
     if (auto* scalar = loom_cxx_scalar_binding_find(
             view(selected->arguments[0]->name()))) {
-      binding.scalar = resolve_scalar_operation(scalar, *selected, owner);
+      binding.operation = resolve_scalar_operation(scalar, *selected, owner);
+    } else if (auto shaped = ShapedIntrinsic::admit(unit_, diagnostics_,
+                                                    *selected, owner)) {
+      binding.operation = *shaped;
     } else if (selected->arguments.size() != 1 ||
                (!ViewIntrinsic::supports(selected->arguments[0]->name()) &&
                 !AtomicIntrinsic::supports(selected->arguments[0]->name()) &&
@@ -164,9 +167,10 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
     return resolve_scalar(resolve_scalar_operation(scalar, attribute, owner),
                           signature, owner);
   }
-  if (auto shaped = ShapedIntrinsic::resolve(unit_, diagnostics_, types_,
-                                             signature, attribute, owner)) {
-    return *shaped;
+  if (auto shaped =
+          ShapedIntrinsic::admit(unit_, diagnostics_, attribute, owner)) {
+    return ShapedIntrinsic::resolve(*shaped, unit_, diagnostics_, types_,
+                                    signature, owner);
   }
   if (auto assembly = AssemblyIntrinsic::resolve(unit_, diagnostics_, types_,
                                                  function, attribute, owner)) {
@@ -265,12 +269,20 @@ Intrinsics::Binding* Intrinsics::concrete_binding(cxx::FunctionSymbol* function,
         unit_, owner,
         "intrinsic specialization does not preserve its template binding");
   }
-  Binding binding =
-      pattern->second.scalar
-          ? resolve_scalar(*pattern->second.scalar,
-                           cxx::type_cast<cxx::FunctionType>(function->type()),
-                           owner)
-          : resolve(function, *attribute, owner);
+  Binding binding = std::visit(
+      [&](auto operation) -> Binding {
+        using T = decltype(operation);
+        auto* signature = cxx::type_cast<cxx::FunctionType>(function->type());
+        if constexpr (std::is_same_v<T, ScalarOperation>) {
+          return resolve_scalar(operation, signature, owner);
+        } else if constexpr (std::is_same_v<T, ShapedIntrinsic::Operation>) {
+          return ShapedIntrinsic::resolve(operation, unit_, diagnostics_,
+                                          types_, signature, owner);
+        } else {
+          return resolve(function, *attribute, owner);
+        }
+      },
+      pattern->second.operation);
   auto inserted =
       bindings_.try_emplace(function->canonical(), std::move(binding));
   return &inserted.first->second;
@@ -323,7 +335,7 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
     return {Value(loom_op_results(op)[0])};
   }
   const auto& shaped = std::get<ShapedIntrinsic>(admitted);
-  return {Value(shaped.call(flattened, builder, location))};
+  return {Value(shaped.call(flattened, math_flags, builder, location))};
 }
 
 }  // namespace loom::cxx_import

@@ -142,9 +142,11 @@ loom_cc_library(
   SRCS
     "shaped.cc"
   DEPS
+    ::scalar_bindings
     iree::third_party::cxx_parser
     loom::import::cxx::source::error
     loom::import::cxx::value::types
+    loom::ops::combining
     loom::ops::vector
   PUBLIC
 )

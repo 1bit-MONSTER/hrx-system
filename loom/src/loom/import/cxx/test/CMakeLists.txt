@@ -113,6 +113,8 @@ loom_check_test_suite(
     "vector_list_assignment.cxx-test"
     "vector_list_assignment_invalid.cxx-test"
     "vector_lookup.cxx-test"
+    "vector_math.cxx-test"
+    "vector_math_invalid.cxx-test"
     "vectors.cxx-test"
     "vectors_invalid.cxx-test"
     "view_values.cxx-test"
