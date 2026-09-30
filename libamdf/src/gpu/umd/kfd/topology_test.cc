@@ -120,6 +120,9 @@ class KfdTopologyTest : public ::testing::Test {
                                             "\nflags " + std::to_string(flags) +
                                             "\n");
     WriteAttribute(target / "gpu_id", std::to_string(gpu_id) + "\n");
+    if (gpu_id != 0) {
+      WriteAttribute(target / "properties", "drm_render_minor 168\n");
+    }
   }
 
   // Temporary native metadata directory owned by this case.
@@ -436,6 +439,21 @@ TEST_F(KfdTopologyTest, MissingCpuRouteDoesNotImplyAtomicSupport) {
     EXPECT_FALSE(topology.host_atomics.supports_64);
     amdf_gpu_kfd_topology_deinitialize(&topology, amdf_allocator_system());
   }
+}
+
+TEST_F(KfdTopologyTest, MissingEndpointLeavesOutputUnchanged) {
+  WriteProperties("");
+  WriteIoLink(0, 8, 42, 1);
+  // A missing endpoint makes discovery inspect every GPU node, independent
+  // of the filesystem's directory iteration order.
+  endpoint_.info.id.words[0] = (UINT64_C(226) << 32) | 176;
+  amdf_gpu_kfd_topology_t topology;
+  std::memset(&topology, 0xA5, sizeof(topology));
+  const auto original = topology;
+  EXPECT_EQ(amdf_gpu_kfd_topology_initialize(
+                &endpoint_, amdf_allocator_system(), &topology),
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(std::memcmp(&topology, &original, sizeof(topology)), 0);
 }
 
 TEST_F(KfdTopologyTest, IncompleteCpuRouteDoesNotPublishTopology) {
