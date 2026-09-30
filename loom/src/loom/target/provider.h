@@ -378,6 +378,25 @@ typedef struct loom_target_provider_set_t {
 } loom_target_provider_set_t;
 
 enum {
+  // Maximum number of providers retained by mutable provider-set storage.
+  LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY = 64,
+};
+
+// Fixed-capacity storage for assembling a target provider set.
+//
+// The storage must not move or be copied after initialization because
+// |provider_set| points into |providers|. Provider order and duplicates are
+// preserved exactly. Static provider sets may exceed this capacity when they
+// do not require composition.
+typedef struct loom_target_provider_set_storage_t {
+  // Mutable provider table owned by this storage.
+  const loom_target_provider_t*
+      providers[LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY];
+  // Provider-set view over the initialized prefix of |providers|.
+  loom_target_provider_set_t provider_set;
+} loom_target_provider_set_storage_t;
+
+enum {
   LOOM_TARGET_PROVIDER_DESCRIPTOR_SET_PROVIDER_CAPACITY = 256,
   LOOM_TARGET_PROVIDER_LOW_LOWER_POLICY_CAPACITY = 128,
   LOOM_TARGET_PROVIDER_MATH_POLICY_CAPACITY = 128,
@@ -458,6 +477,22 @@ static inline loom_target_provider_set_t loom_target_provider_set_make(
       /*.provider_count=*/provider_count,
   };
 }
+
+// Initializes empty provider-set |storage|.
+void loom_target_provider_set_storage_initialize(
+    loom_target_provider_set_storage_t* storage);
+
+// Appends non-NULL |provider| to |storage|. Fails without changing |storage|
+// when full.
+iree_status_t loom_target_provider_set_storage_append(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_t* provider);
+
+// Appends every provider in |provider_set| to |storage| in order. Fails
+// without changing |storage| when the complete set cannot fit.
+iree_status_t loom_target_provider_set_storage_append_set(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_set_t* provider_set);
 
 // Initializes |out_environment| from |provider_set|. The environment borrows
 // |provider_set| until deinitialized.

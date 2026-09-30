@@ -96,6 +96,68 @@ static iree_status_t BuildContributedPipeline(loom_builder_t* builder,
       loom_pass_environment_empty(), builder);
 }
 
+TEST(TargetProviderSetStorageTest, AppendsProvidersInExactOrder) {
+  static const loom_target_provider_t first_provider = {};
+  static const loom_target_provider_t second_provider = {};
+  static const loom_target_provider_t* const initial_providers[] = {
+      &first_provider,
+      &second_provider,
+  };
+  const loom_target_provider_set_t initial_provider_set =
+      loom_target_provider_set_make(initial_providers,
+                                    IREE_ARRAYSIZE(initial_providers));
+  loom_target_provider_set_storage_t storage;
+  loom_target_provider_set_storage_initialize(&storage);
+  const loom_target_provider_set_t* provider_set = &storage.provider_set;
+
+  IREE_ASSERT_OK(loom_target_provider_set_storage_append_set(
+      &storage, &initial_provider_set));
+  IREE_ASSERT_OK(loom_target_provider_set_storage_append(&storage, nullptr));
+  IREE_ASSERT_OK(
+      loom_target_provider_set_storage_append(&storage, &second_provider));
+  IREE_ASSERT_OK(loom_target_provider_set_storage_append_set(
+      &storage, &storage.provider_set));
+
+  EXPECT_EQ(provider_set->providers, storage.providers);
+  ASSERT_EQ(provider_set->provider_count, 6u);
+  EXPECT_EQ(provider_set->providers[0], &first_provider);
+  EXPECT_EQ(provider_set->providers[1], &second_provider);
+  EXPECT_EQ(provider_set->providers[2], &second_provider);
+  EXPECT_EQ(provider_set->providers[3], &first_provider);
+  EXPECT_EQ(provider_set->providers[4], &second_provider);
+  EXPECT_EQ(provider_set->providers[5], &second_provider);
+}
+
+TEST(TargetProviderSetStorageTest, CapacityFailureDoesNotPartiallyAppend) {
+  static const loom_target_provider_t provider = {};
+  loom_target_provider_set_storage_t storage;
+  loom_target_provider_set_storage_initialize(&storage);
+  for (iree_host_size_t i = 0;
+       i < LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY - 1; ++i) {
+    IREE_ASSERT_OK(
+        loom_target_provider_set_storage_append(&storage, &provider));
+  }
+  static const loom_target_provider_t* const providers[] = {
+      &provider,
+      &provider,
+  };
+  const loom_target_provider_set_t provider_set =
+      loom_target_provider_set_make(providers, IREE_ARRAYSIZE(providers));
+
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_RESOURCE_EXHAUSTED,
+      loom_target_provider_set_storage_append_set(&storage, &provider_set));
+  EXPECT_EQ(storage.provider_set.provider_count,
+            LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY - 1);
+
+  IREE_ASSERT_OK(loom_target_provider_set_storage_append(&storage, &provider));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_RESOURCE_EXHAUSTED,
+      loom_target_provider_set_storage_append(&storage, &provider));
+  EXPECT_EQ(storage.provider_set.provider_count,
+            LOOM_TARGET_PROVIDER_SET_STORAGE_CAPACITY);
+}
+
 class TargetProviderTest : public ::testing::Test {
  protected:
   void SetUp() override {

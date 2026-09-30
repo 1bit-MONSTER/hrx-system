@@ -24,6 +24,48 @@ void loom_target_emit_artifact_release(loom_target_emit_artifact_t* artifact) {
   *artifact = (loom_target_emit_artifact_t){0};
 }
 
+void loom_target_provider_set_storage_initialize(
+    loom_target_provider_set_storage_t* storage) {
+  IREE_ASSERT_ARGUMENT(storage);
+  *storage = (loom_target_provider_set_storage_t){
+      .provider_set = loom_target_provider_set_make(storage->providers, 0),
+  };
+}
+
+iree_status_t loom_target_provider_set_storage_append(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_t* provider) {
+  IREE_ASSERT_ARGUMENT(storage);
+  if (provider == NULL) {
+    return iree_ok_status();
+  }
+  if (storage->provider_set.provider_count >=
+      IREE_ARRAYSIZE(storage->providers)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "target provider set storage capacity exceeded");
+  }
+  storage->providers[storage->provider_set.provider_count++] = provider;
+  return iree_ok_status();
+}
+
+iree_status_t loom_target_provider_set_storage_append_set(
+    loom_target_provider_set_storage_t* storage,
+    const loom_target_provider_set_t* provider_set) {
+  IREE_ASSERT_ARGUMENT(storage);
+  IREE_ASSERT_ARGUMENT(provider_set);
+  const iree_host_size_t append_count = provider_set->provider_count;
+  if (append_count > IREE_ARRAYSIZE(storage->providers) -
+                         storage->provider_set.provider_count) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "target provider set storage capacity exceeded");
+  }
+  for (iree_host_size_t i = 0; i < append_count; ++i) {
+    storage->providers[storage->provider_set.provider_count++] =
+        provider_set->providers[i];
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_target_environment_append_low_descriptor_registry(
     loom_target_environment_t* environment,
     const loom_target_provider_t* provider) {

@@ -6,22 +6,6 @@
 
 #include "loom/tooling/execution/execution_provider.h"
 
-static iree_status_t loom_run_execution_environment_append_target_provider(
-    loom_run_execution_environment_t* environment,
-    const loom_run_execution_provider_t* provider) {
-  if (provider->target_provider == NULL) {
-    return iree_ok_status();
-  }
-  if (environment->target_provider_count >=
-      IREE_ARRAYSIZE(environment->target_providers)) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "loom execution target provider capacity exceeded");
-  }
-  environment->target_providers[environment->target_provider_count++] =
-      provider->target_provider;
-  return iree_ok_status();
-}
-
 static iree_status_t loom_run_execution_environment_append_execution_backends(
     loom_run_execution_environment_t* environment,
     const loom_run_execution_provider_t* provider) {
@@ -43,21 +27,20 @@ iree_status_t loom_run_execution_environment_initialize(
   *out_environment = (loom_run_execution_environment_t){
       .provider_set = provider_set,
   };
+  loom_target_provider_set_storage_initialize(
+      &out_environment->target_provider_storage);
 
   for (iree_host_size_t i = 0; i < provider_set->provider_count; ++i) {
     const loom_run_execution_provider_t* provider = provider_set->providers[i];
-    IREE_RETURN_IF_ERROR(loom_run_execution_environment_append_target_provider(
-        out_environment, provider));
+    IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
+        &out_environment->target_provider_storage, provider->target_provider));
     IREE_RETURN_IF_ERROR(
         loom_run_execution_environment_append_execution_backends(
             out_environment, provider));
   }
-  out_environment->target_provider_set =
-      loom_target_provider_set_make(out_environment->target_providers,
-                                    out_environment->target_provider_count);
-  IREE_RETURN_IF_ERROR(
-      loom_target_environment_initialize(&out_environment->target_provider_set,
-                                         &out_environment->target_environment));
+  IREE_RETURN_IF_ERROR(loom_target_environment_initialize(
+      &out_environment->target_provider_storage.provider_set,
+      &out_environment->target_environment));
   loom_run_execution_backend_registry_initialize_from_entries(
       out_environment->execution_backends,
       out_environment->execution_backend_count,
