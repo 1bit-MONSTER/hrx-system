@@ -20,62 +20,19 @@ iree_py_test(
   ARGS
     "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.loom}}"
     "--corpus"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_integer_division.loom-test}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_unsigned_constant_division.loom-test}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division_edges.loom}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division.mjs}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/byte_access.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/memory_biased_offsets.mjs}}"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/byte_access.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division.mjs"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division_edges.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/loop_state.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/memory_biased_offsets.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/scalar_memory.mjs"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/sum.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/typed_addresses.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_biased_offsets.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_integer_division.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_unsigned_constant_division.loom-test"
     "loom::tools::loom-compile::loom-compile"
-  PACKAGE_DIRS
-    "${PROJECT_SOURCE_DIR}/loom/py"
-    "${PROJECT_BINARY_DIR}/loom/py"
-    "${PROJECT_SOURCE_DIR}"
-)
-endif()
-
-if(LOOM_IMPORT_CXX AND LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-iree_py_test(
-  NAME
-    cxx_artifact_test
-  MAIN
-    "artifact_test.py"
-  SRCS
-    "artifact_test.py"
-  ARGS
-    "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
-    "--cxx-importer"
-    "{{$<TARGET_FILE:loom::tools::loom-import-cxx::loom-import-cxx>}}"
-    "--cxx"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/wasm_pointer_origins.cxx}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/cxx_pointer_origins.mjs}}"
-  DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/wasm_pointer_origins.cxx"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/cxx_pointer_origins.mjs"
-    "loom::tools::loom-compile::loom-compile"
-    "loom::tools::loom-import-cxx::loom-import-cxx"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

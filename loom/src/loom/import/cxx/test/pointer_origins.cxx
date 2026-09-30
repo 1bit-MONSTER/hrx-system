@@ -30,11 +30,3 @@ int exchange(int* pointer, int index, int replacement) {
   pointer[index] = replacement;
   return previous;
 }
-
-unsigned read_byte(const unsigned char* buffer, unsigned position) {
-  return buffer[position];
-}
-
-void write_byte(unsigned char* buffer, unsigned position, unsigned char value) {
-  buffer[position] = value;
-}

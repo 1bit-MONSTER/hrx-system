@@ -72,11 +72,14 @@ _NO_DEVICE_SUBJECTS = [
 ]
 
 _ADAPTER_ONLY_SCENARIOS = [
+    "control/loop/scalar_state.loom",
     "control/schedule/address_domains.loom",
+    "memory/address/biased_offsets.loom",
     "memory/address/tiled_channel.loom",
     "memory/buffer/selection.loom",
     "memory/packed/transport.loom",
     "memory/storage/word.loom",
+    "memory/view/scalar_exchange.loom",
     "numeric/conversion/bfloat_rounding.loom",
     "numeric/conversion/integer_float8.loom",
     "numeric/conversion/narrow_integer_float.loom",
@@ -103,6 +106,7 @@ _ACCESS_SOURCES = [
     "control/branch/uniform_predicate.loom",
     "control/loop/condition.loom",
     "control/loop/count.loom",
+    "control/loop/scalar_state.loom",
     "control/loop/termination.loom",
     "control/loop/wide_index_recurrence.loom",
     "control/schedule/address_domains.loom",
@@ -152,6 +156,7 @@ _ACCESS_SOURCES = [
     "memory/storage/stability/selection.loom",
     "memory/storage/stability/switch.loom",
     "memory/storage/workgroup.loom",
+    "memory/view/scalar_exchange.loom",
     "memory/view/shrinking.loom",
     "memory/view/strided_recurrence.loom",
     "memory/view/subview.loom",

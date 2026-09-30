@@ -261,6 +261,7 @@ loom_test(
     for module in [
         "packed_byte_arithmetic",
         "packed_float8_conversion",
+        "pointer_origins",
         "vector_lookup",
     ]
 ]

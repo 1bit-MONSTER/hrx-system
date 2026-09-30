@@ -1007,12 +1007,39 @@ loom_test_module(
 
 loom_test_module(
   NAME
+    scalar_loop_state_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/loop/scalar_state.loom"
+)
+
+# scalar_loop_state_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    scalar_memory_exchange_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/view/scalar_exchange.loom"
+)
+
+# scalar_memory_exchange_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
     vector_integer_bitwise_test_module
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/integer_bitwise.loom"
 )
 
 # vector_integer_bitwise_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    biased_offsets_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/address/biased_offsets.loom"
+)
+
+# biased_offsets_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
 
 loom_test_module(
   NAME

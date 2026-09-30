@@ -314,6 +314,35 @@ loom_execution_test(
 endif()
 endif()
 
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    pointer_origins_module
+  SRCS
+    "pointer_origins.cxx"
+    "pointer_origins.loom"
+  INPUTOPTS
+    "cxx:data-model=ilp32"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    pointer_origins_test_execute_vm_reference_test
+  MODULE
+    "::pointer_origins_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
 if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
 loom_test_module(
   NAME

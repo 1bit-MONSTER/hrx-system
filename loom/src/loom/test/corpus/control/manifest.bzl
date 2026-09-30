@@ -25,6 +25,7 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "loop/rotation/offsets.loom",
         "loop/rotation/values.loom",
         "loop/rotation/views.loom",
+        "loop/scalar_state.loom",
         "loop/sequential_slices.loom",
         "loop/termination.loom",
         "loop/vector_recurrence.loom",

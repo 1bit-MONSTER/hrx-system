@@ -328,8 +328,26 @@ loom_test(
 )
 
 loom_test(
+    name = "scalar_loop_state_test",
+    srcs = ["//loom/src/loom/test/corpus/control:loop/scalar_state.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "scalar_memory_exchange_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:view/scalar_exchange.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
     name = "vector_integer_bitwise_test",
     srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
+    name = "biased_offsets_test",
+    srcs = ["//loom/src/loom/test/corpus/memory:address/biased_offsets.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],
 )
 

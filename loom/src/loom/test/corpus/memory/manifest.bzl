@@ -13,6 +13,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
     package = "//loom/src/loom/test/corpus/memory",
     srcs = [
         "address/address.loom",
+        "address/biased_offsets.loom",
         "address/carrier_casts.loom",
         "address/carrier_loops.loom",
         "address/generic.loom",
@@ -71,6 +72,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "view/nested_selection.loom",
         "view/offset_recurrence.loom",
         "view/rotation.loom",
+        "view/scalar_exchange.loom",
         "view/selected_crops.loom",
         "view/selection.loom",
         "view/shrinking.loom",
