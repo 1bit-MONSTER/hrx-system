@@ -451,6 +451,12 @@ bool loom_amdgpu_atomic_has_native_candidate(
     uint8_t scope, loom_memory_access_flags_t access_flags,
     loom_type_t value_type);
 
+// Returns whether the analyzed access is an aligned adjacent half pair.
+// Legalization and final selection share this shape contract; descriptor and
+// numerical availability are checked separately by native candidate lookup.
+bool loom_amdgpu_atomic_packed_half_source_shape(
+    const loom_low_source_memory_access_plan_t* source, loom_type_t value_type);
+
 // Selects an AMDGPU atomic packet plan.
 iree_status_t loom_amdgpu_select_atomic_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,

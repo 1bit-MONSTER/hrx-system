@@ -447,6 +447,24 @@ loom_test(
 )
 
 loom_test(
+    name = "vector_atomic_narrow_test",
+    srcs = ["vector_atomic_narrow.loom"],
+    compile_targets = [
+        "//loom/target/amdgpu:gfx942",
+        "//loom/target/amdgpu:gfx950",
+        "//loom/target/amdgpu:gfx1100",
+        "//loom/target/amdgpu:gfx1151",
+        "//loom/target/amdgpu:gfx1170",
+        "//loom/target/amdgpu:gfx1200",
+        "//loom/target/amdgpu:gfx1250",
+    ],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
     name = "atomic_subword_cmpxchg_test",
     srcs = ["atomic_subword_cmpxchg.loom"],
     compile_targets = [

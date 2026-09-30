@@ -49,11 +49,6 @@ typedef struct loom_amdgpu_atomic_diagnostic_t {
   loom_amdgpu_atomic_rejection_flags_t rejection_bits;
 } loom_amdgpu_atomic_diagnostic_t;
 
-typedef uint32_t loom_amdgpu_atomic_source_flags_t;
-
-// Source atomic operates on vector lanes.
-#define LOOM_AMDGPU_ATOMIC_SOURCE_VECTOR ((uint32_t)1u << 0)
-
 typedef uint32_t loom_amdgpu_atomic_payload_placement_flags_t;
 
 // Source update payload prefers VGPR storage.
@@ -66,8 +61,6 @@ typedef uint32_t loom_amdgpu_atomic_payload_placement_flags_t;
 typedef struct loom_amdgpu_atomic_source_t {
   // Generic memory-access interface for the source op.
   loom_memory_access_t access;
-  // Source form flags used by AMDGPU lowering.
-  loom_amdgpu_atomic_source_flags_t flags;
   // Source atomic operation family.
   loom_amdgpu_atomic_operation_kind_t operation_kind;
   // Source atomic update kind, or LOOM_AMDGPU_ATOMIC_KIND_NONE for cmpxchg.
@@ -179,14 +172,6 @@ static uint8_t loom_amdgpu_atomic_u8_attr(loom_attribute_t attr) {
   return (uint8_t)loom_attr_as_i64(attr);
 }
 
-static bool loom_amdgpu_atomic_value_is_vector(const loom_module_t* module,
-                                               loom_value_id_t value) {
-  if (value == LOOM_VALUE_ID_INVALID || value >= module->values.count) {
-    return false;
-  }
-  return loom_type_is_vector(loom_module_value_type(module, value));
-}
-
 static bool loom_amdgpu_atomic_operation_kind_from_memory_access(
     loom_memory_access_operation_kind_t access_kind,
     loom_amdgpu_atomic_operation_kind_t* out_kind) {
@@ -215,10 +200,8 @@ static bool loom_amdgpu_atomic_operation_kind_from_memory_access(
 
 static void loom_amdgpu_atomic_source_describe_update(
     loom_memory_access_t access,
-    loom_amdgpu_atomic_operation_kind_t operation_kind,
-    loom_amdgpu_atomic_source_flags_t flags, loom_value_id_t result,
+    loom_amdgpu_atomic_operation_kind_t operation_kind, loom_value_id_t result,
     loom_amdgpu_atomic_source_t* out_source) {
-  out_source->flags = flags;
   out_source->operation_kind = operation_kind;
   out_source->atomic_kind =
       loom_amdgpu_atomic_u8_attr(loom_memory_access_atomic_kind(access));
@@ -263,19 +246,9 @@ static bool loom_amdgpu_atomic_source_describe(
            out_source->replacement != LOOM_VALUE_ID_INVALID;
   }
 
-  loom_amdgpu_atomic_source_flags_t flags = 0;
-  if (loom_amdgpu_atomic_value_is_vector(module,
-                                         loom_memory_access_value(access))) {
-    flags |= LOOM_AMDGPU_ATOMIC_SOURCE_VECTOR;
-  }
   loom_amdgpu_atomic_source_describe_update(access, out_source->operation_kind,
-                                            flags, result, out_source);
+                                            result, out_source);
   return true;
-}
-
-static bool loom_amdgpu_atomic_source_is_vector(
-    const loom_amdgpu_atomic_source_t* source) {
-  return iree_any_bit_set(source->flags, LOOM_AMDGPU_ATOMIC_SOURCE_VECTOR);
 }
 
 static bool loom_amdgpu_atomic_prefers_global_saddr(
@@ -369,12 +342,10 @@ static bool loom_amdgpu_atomic_packed_half_value_type(loom_type_t value_type) {
                                        loom_type_element_type(value_type));
 }
 
-static bool loom_amdgpu_atomic_packed_half_source_shape(
-    const loom_amdgpu_atomic_source_t* atomic_source,
+bool loom_amdgpu_atomic_packed_half_source_shape(
     const loom_low_source_memory_access_plan_t* source,
     loom_type_t value_type) {
-  return loom_amdgpu_atomic_source_is_vector(atomic_source) &&
-         source->element_byte_count == 2 && source->vector_lane_count == 2 &&
+  return source->element_byte_count == 2 && source->vector_lane_count == 2 &&
          source->vector_lane_byte_stride == 2 &&
          source->vector_offset_kind ==
              LOOM_LOW_SOURCE_MEMORY_VECTOR_OFFSET_IDENTITY_IOTA &&
@@ -404,8 +375,7 @@ static bool loom_amdgpu_atomic_source_shape_supported(
          ((loom_amdgpu_type_is_i64(value_type) ||
            loom_amdgpu_type_is_f64(value_type)) &&
           loom_amdgpu_atomic_scalar_source_shape(source, 8)) ||
-         loom_amdgpu_atomic_packed_half_source_shape(atomic_source, source,
-                                                     value_type);
+         loom_amdgpu_atomic_packed_half_source_shape(source, value_type);
 }
 
 static bool loom_amdgpu_atomic_value_can_feed_vgpr(
