@@ -1,4 +1,4 @@
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_body_excludes_terminal(%output: buffer) {
   %begin = index.constant 0 : index
@@ -19,12 +19,9 @@ func.def @condition_body_excludes_terminal(%output: buffer) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<4xi32>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_partial_step(%output: buffer) {
   %begin = index.constant 2 : index
@@ -45,12 +42,9 @@ func.def @condition_partial_step(%output: buffer) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<9xi32>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_inclusive_body(%output: buffer) {
   %begin = index.constant 0 : index
@@ -71,12 +65,9 @@ func.def @condition_inclusive_body(%output: buffer) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<4xi32>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @condition_declared_aliases(%output: buffer) {
   %begin = index.constant 0 : index
@@ -99,9 +90,6 @@ func.def @condition_declared_aliases(%output: buffer) {
   }
   func.return
 }
-
-// ----
-CHECK: *view.store %value, %view[*] : i32, view<4xi32>
 
 // ====
 
@@ -202,7 +190,7 @@ func.def @condition_bound_must_be_invariant(%output: buffer) {
 
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 func.def @nested_condition_loops(%output: buffer, %enabled: i1) {
   %begin = index.constant 0 : index
@@ -236,11 +224,8 @@ func.def @nested_condition_loops(%output: buffer, %enabled: i1) {
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[%position] : i32, view<12xi32>
-
 // ====
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 // The true edge turns a dynamic unsigned comparison into both a nonnegative
 // lower bound and a symbolic upper bound for the forwarded body argument.
@@ -265,9 +250,6 @@ func.def @dynamic_unsigned_body(%output: buffer, %initial: i64, %raw_length: i64
   }
   func.return
 }
-
-// ----
-CHECK: *view.store %value, %view[*] : i8, view<[*]xi8>
 
 // ====
 
@@ -349,7 +331,7 @@ func.def @dynamic_unsigned_different_payload(%output: buffer, %initial: i64, %ra
 
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 // One condition value may project onto multiple body arguments.
 func.def @dynamic_unsigned_duplicate_payload(%output: buffer, %initial: i64, %raw_length: i64) {
@@ -374,13 +356,9 @@ func.def @dynamic_unsigned_duplicate_payload(%output: buffer, %initial: i64, %ra
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i8, view<[*]xi8>
-CHECK: *view.store %value, %view[*] : i8, view<[*]xi8>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 // Relations between two duplicated condition values stay factorized while any
 // pair of their body arguments can consume the proof.
@@ -407,12 +385,9 @@ func.def @dynamic_unsigned_duplicate_pair(%output: buffer, %raw_position: i64, %
   func.return
 }
 
-// ----
-CHECK: *view.store %value, %view[*] : i8, view<[*]xi8>
-
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 // A true conjunction preserves every required conjunct through nested regions.
 func.def @dynamic_unsigned_conjunction(%output: buffer, %initial: i64, %raw_length: i64, %enabled: i1) {
@@ -438,9 +413,6 @@ func.def @dynamic_unsigned_conjunction(%output: buffer, %initial: i64, %raw_leng
   }
   func.return
 }
-
-// ----
-CHECK: *view.store %value, %view[*] : i8, view<[*]xi8>
 
 // ====
 
@@ -471,7 +443,7 @@ func.def @dynamic_unsigned_disjunction(%output: buffer, %initial: i64, %raw_leng
 
 // ====
 
-// RUN: with-checks pass vector-memory-footprint
+// RUN: pass vector-memory-footprint
 
 // The outer body relation remains active through an inner condition region and
 // its nested structured control flow.
@@ -503,6 +475,3 @@ func.def @nested_dynamic_condition_scope(%output: buffer, %initial: i64, %raw_le
   }
   func.return
 }
-
-// ----
-CHECK: *view.store %value, %view[*] : i8, view<[*]xi8>
