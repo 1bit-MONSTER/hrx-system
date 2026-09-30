@@ -61,6 +61,7 @@ _MODULES = [
     "packed_float16_conversion",
     "packed_float8_conversion",
     "packed_memory",
+    "pointer_origins",
     "pointer_walk",
     "record_memory",
     "record_values",

@@ -10,6 +10,8 @@
 
 load("//build_tools/bazel:executable.bzl", "iree_executable_test")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:defs.bzl", "loom_test")
+load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 
 package(
     default_visibility = ["//visibility:private"],
@@ -27,5 +29,14 @@ iree_executable_test(
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
         "//loom/config/target/arch:wasm",
+    ]),
+)
+
+loom_test(
+    name = "cxx_pointer_origins_test",
+    execution_profiles = [WASM_HOSTED_PROFILE],
+    module = "//loom/src/loom/import/cxx/test:pointer_origins_module",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/import:cxx",
     ]),
 )

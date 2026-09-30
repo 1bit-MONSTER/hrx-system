@@ -52,38 +52,11 @@ class WasmArtifactTest(unittest.TestCase):
                     bound_source.write_text(source)
                     self._execute_source(str(bound_source), oracle)
 
-    def test_cxx_sources(self):
-        for source, oracle in _ARGS.cxx:
-            with self.subTest(source=source):
-                with tempfile.TemporaryDirectory() as directory:
-                    imported = Path(directory) / "module.loom"
-                    subprocess.run(
-                        [
-                            _ARGS.cxx_importer,
-                            source,
-                            "--data-model=ilp32",
-                            f"--output={imported}",
-                        ],
-                        check=True,
-                    )
-                    self._execute_source(
-                        str(imported), oracle, ["--target=wasm:simd128"]
-                    )
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("compiler")
     parser.add_argument("sources", nargs="*")
-    parser.add_argument("--cxx-importer")
-    parser.add_argument(
-        "--cxx",
-        action="append",
-        nargs=2,
-        default=[],
-        metavar=("SOURCE", "ORACLE"),
-        help="An ILP32 C/C++ source file and its JavaScript oracle.",
-    )
     parser.add_argument(
         "--corpus",
         action="append",
@@ -95,6 +68,4 @@ if __name__ == "__main__":
     _ARGS = parser.parse_args()
     if any(len(corpus) < 2 for corpus in _ARGS.corpus):
         parser.error("--corpus requires source files followed by an oracle")
-    if _ARGS.cxx and not _ARGS.cxx_importer:
-        parser.error("--cxx requires --cxx-importer")
     unittest.main(argv=[sys.argv[0]])
