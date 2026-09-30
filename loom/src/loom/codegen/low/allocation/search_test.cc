@@ -303,6 +303,45 @@ uint32_t FindFreeLocationWithPlacement(
   context.active_set = &active_set;
   context.storage_leases = &storage_leases;
 
+  const loom_low_placement_value_ref_t refs[] = {
+      {0, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+      {1, LOOM_LOW_PLACEMENT_VALUE_RESULT, 0},
+  };
+  loom_low_placement_predicate_t predicate = {};
+  predicate.result = 0;
+  predicate.source = 1;
+  predicate.unit_count = 1;
+  const loom_low_placement_clause_t clause = {0, 1, 1,
+                                              LOOM_LOW_PLACEMENT_CLAUSE_ANY};
+  const loom_low_placement_preference_t preference = {refs, &predicate, &clause,
+                                                      2, 1};
+  loom_low_placement_preference_use_t use = {&preference, 0, 1};
+  loom_low_placement_preference_binding_t bindings[2] = {};
+  const uint32_t use_indices[] = {0, 0};
+  const uint32_t offsets[] = {0, 1, 2};
+  loom_low_placement_preference_index_t preferences = {};
+  loom_low_allocation_preference_workspace_t workspace = {};
+  if (relation &&
+      relation->cause == LOOM_LOW_PLACEMENT_CAUSE_SCHEDULE_PAIR_AFFINITY) {
+    predicate.kind = relation->kind;
+    predicate.location_mask = relation->location_mask;
+    use.priority = relation->priority;
+    bindings[0] = {relation->result_ordinal, 0};
+    bindings[1] = {relation->source_ordinal, 1};
+    preferences.uses = &use;
+    preferences.bindings = bindings;
+    preferences.use_indices = use_indices;
+    preferences.offsets_by_origin = offsets;
+    preferences.use_count = 1;
+    preferences.binding_count = 2;
+    preferences.max_incident_use_count = 1;
+    preferences.max_incident_binding_count = 2;
+    IREE_CHECK_OK(loom_low_allocation_preference_workspace_initialize(
+        &preferences, arena, &workspace));
+    context.preferences = &preferences;
+    context.preference_workspace = &workspace;
+  }
+
   uint32_t location_base = UINT32_MAX;
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(max_units), &location_base));
@@ -315,7 +354,7 @@ uint32_t FindFreeLocationWithPlacement(
 
 struct StorageLeaseSearchOptions {
   // Optional residency tiers used to decide whether releasing is worthwhile.
-  const loom_target_residency_model_t* residency_model = nullptr;
+  loom_target_residency_view_t residency = {};
   // Width of the candidate register tuple.
   uint32_t unit_count = 1;
   // Base of the single leased register.
@@ -459,7 +498,7 @@ uint32_t FindFreeLocationWithStorageLease(
   context.liveness = &liveness;
   context.unit_liveness = &unit_liveness;
   context.target_constraints = &target_constraints;
-  context.residency_model = options.residency_model;
+  context.residency = options.residency;
   context.assignment_map = &assignment_map;
   context.active_set = &active_set;
   context.storage_leases = &storage_leases;
@@ -475,8 +514,8 @@ uint32_t FindFreeLocationWithStorageLease(
 }
 
 uint32_t FindFreeLocationWithStorageLeaseAtResidencyCliff(
-    loom_module_t* module, iree_arena_allocator_t* arena,
-    uint32_t cliff_units) {
+    loom_module_t* module, iree_arena_allocator_t* arena, uint32_t cliff_units,
+    uint32_t tier_limit = UINT32_MAX) {
   const iree_string_view_t resource_names[] = {IREE_SVL("register")};
   const loom_target_residency_cliff_t cliffs[] = {
       {
@@ -501,7 +540,7 @@ uint32_t FindFreeLocationWithStorageLeaseAtResidencyCliff(
       },
   };
   StorageLeaseSearchOptions options;
-  options.residency_model = &residency_model;
+  options.residency = loom_target_residency_view(&residency_model, tier_limit);
   return FindFreeLocationWithStorageLease(module, arena, options);
 }
 
@@ -760,6 +799,17 @@ TEST_F(LowAllocationSearchTest, ReleasesStorageLeaseBeforeResidencyCliff) {
   loom_module_free(module);
 }
 
+TEST_F(LowAllocationSearchTest, KeepsLeaseWhenLaunchAlreadyLimitsResidency) {
+  loom_module_t* module = AllocateModule();
+  EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(
+                module, &arena_, /*cliff_units=*/2, /*tier_limit=*/2),
+            1u);
+  EXPECT_EQ(FindFreeLocationWithStorageLeaseAtResidencyCliff(
+                module, &arena_, /*cliff_units=*/2, /*tier_limit=*/3),
+            0u);
+  loom_module_free(module);
+}
+
 TEST_F(LowAllocationSearchTest, PressureReleaseComparesLegalMinimaNotPacking) {
   for (uint32_t width : {1u, 2u, 4u}) {
     for (uint32_t reserved_prefix = 0; reserved_prefix <= 8 - width;
@@ -981,8 +1031,9 @@ TEST_F(LowAllocationSearchTest, FindsFreeLocationAfterActiveAndReservedRanges) {
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(/*max_units=*/7), &location_base));
   EXPECT_EQ(location_base, 5u);
-  const uint8_t alignment_log2[] = {1, 0};
-  placement.unit_alignment_log2_by_interval = alignment_log2;
+  const loom_low_placement_operand_constraints_t operands[] = {{0, 1, false},
+                                                               {0, 0, false}};
+  placement.operand_constraints_by_interval = operands;
   EXPECT_FALSE(loom_low_allocation_search_find_free_location(
       &context, &intervals[0], Capacity(/*max_units=*/7), &location_base));
   EXPECT_TRUE(loom_low_allocation_search_find_free_location(

@@ -148,6 +148,73 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    numbering
+  HDRS
+    "numbering.h"
+  SRCS
+    "numbering.c"
+  DEPS
+    ::interval_assignment
+    ::move
+    ::storage
+    ::storage_lease
+    ::storage_lease_index
+    ::target_constraints
+    ::unit_liveness
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::placement
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    numbering_test
+  SRCS
+    "numbering_test.cc"
+  DEPS
+    ::numbering
+    ::storage_lease_index
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
+    preference
+  HDRS
+    "preference.h"
+  SRCS
+    "preference.c"
+  DEPS
+    ::assignment
+    ::assignment_map
+    ::storage
+    ::target_constraints
+    iree::base
+    iree::base::internal
+    iree::base::internal::arena
+    loom::analysis::liveness
+    loom::codegen::low::descriptors
+    loom::codegen::low::placement
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    preference_test
+  SRCS
+    "preference_test.cc"
+  DEPS
+    ::preference
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     search
   HDRS
     "search.h"
@@ -159,6 +226,7 @@ loom_cc_library(
     ::assignment_map
     ::live_range
     ::physical_domains
+    ::preference
     ::scalar_packing
     ::spill_plan
     ::spill_traffic
@@ -260,6 +328,8 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::target::registers
+    loom::target::residency
 )
 
 loom_cc_library(
@@ -698,6 +768,7 @@ loom_cc_library(
     ::interval_order
     ::live_range
     ::physical_domains
+    ::preference
     ::scalar_packing
     ::search
     ::spill_plan
@@ -716,6 +787,7 @@ loom_cc_library(
     loom::codegen::low::placement
     loom::codegen::low::target_binding
     loom::ir
+    loom::target::residency
     loom::util::cfg_graph
   PUBLIC
 )
@@ -809,7 +881,10 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::codegen::low::builder
     loom::ir
+    loom::ops::low
+    loom::target::registers
 )
 
 loom_cc_library(

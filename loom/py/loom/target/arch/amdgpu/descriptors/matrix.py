@@ -17,6 +17,14 @@ from ..matrix_formats import (
 )
 from .common import *
 
+# Measured register-operand placement qualifications, expressed in existing
+# processor/instruction identities. The ordinary form still permits a literal
+# accumulator; shared placement binds this rule only when all values are registers.
+MATRIX_OPERAND_PLACEMENT_QUALIFICATIONS = (
+    ("gfx1100", 32, "amdgpu.v_wmma_f32_16x16x16_bf16"),
+    ("gfx1151", 32, "amdgpu.v_wmma_f32_16x16x16_bf16"),
+)
+
 _WMMA_GFX11_WAVE64_ACCUMULATOR_SIZE_REASON = "gfx11-wave64-wmma-half-width-accumulator"
 _GFX12_WAVE64_MATRIX_OPERAND_SIZE_REASON = "gfx12-wave64-matrix-half-width-operands"
 _CDNA4_F8F6F4_VARIABLE_OPERAND_WIDTH_REASON = (

@@ -35,6 +35,15 @@
 extern "C" {
 #endif
 
+// Computes the immutable residency view for one function snapshot. Called once
+// after target resolution and storage inventory, before scheduling. The target
+// interprets retained facts only; it does not inspect IR or retain pass state.
+// The returned model is borrowed and must outlive the frame.
+typedef loom_target_residency_view_t (
+    *loom_low_emission_frame_residency_query_fn_t)(
+    const loom_low_resolved_target_t* target,
+    const loom_low_storage_layout_space_sizes_t* storage_sizes);
+
 // Options controlling emission frame construction for one low function.
 typedef struct loom_low_emission_frame_options_t {
   // Descriptor registry available to scheduling and allocation.
@@ -45,10 +54,12 @@ typedef struct loom_low_emission_frame_options_t {
   const loom_target_facts_t* function_target_facts;
   // Optional analysis-derived memory summaries for the scheduled low function.
   const loom_low_memory_access_map_t* memory_accesses;
-  // Optional immutable target residency policy.
-  const loom_target_residency_model_t* residency_model;
+  // Optional target query for the function-local residency view.
+  loom_low_emission_frame_residency_query_fn_t residency_query;
   // Optional target-provided descriptor pair-affinity table.
   loom_low_schedule_pair_affinity_list_t schedule_pair_affinities;
+  // Immutable instruction preferences for the selected representation contract.
+  loom_low_placement_instruction_preferences_t instruction_preferences;
   // Optional target-provided implicit state reads for structural low
   // materializations that emit target packets without descriptor rows.
   loom_low_schedule_structural_state_read_list_t
@@ -95,6 +106,8 @@ typedef struct loom_low_emission_frame_t {
   const loom_op_t* function_op;
   // Resolved target context shared by the nested schedule/allocation tables.
   loom_low_resolved_target_t target;
+  // Residency policy and fixed ceiling used by this frame and its comparisons.
+  loom_target_residency_view_t residency;
   // Schedule table for the prepared function.
   loom_low_schedule_table_t schedule;
   // Allocation table for the prepared function.

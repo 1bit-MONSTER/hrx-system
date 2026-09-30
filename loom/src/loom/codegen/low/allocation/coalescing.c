@@ -127,24 +127,6 @@ loom_low_allocation_coalescing_select_ignored_counterpart_value(
   return iree_ok_status();
 }
 
-static const loom_low_placement_relation_t*
-loom_low_allocation_coalescing_transfer_relation_for_result_ordinal(
-    const loom_low_allocation_coalescing_context_t* context,
-    loom_value_ordinal_t result_ordinal) {
-  const loom_low_placement_relation_range_t range =
-      loom_low_placement_relation_range_for_value_ordinal(context->placement,
-                                                          result_ordinal);
-  for (uint32_t i = 0; i < range.count; ++i) {
-    const loom_low_placement_relation_t* relation =
-        &context->placement->relations[range.start + i];
-    if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_COPY ||
-        relation->cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_MOVE) {
-      return relation;
-    }
-  }
-  return NULL;
-}
-
 // Returns whether the semantic SSA value itself has a direct use after
 // |consuming_op|. Tied-result successors are distinct SSA identities and are
 // intentionally not followed.
@@ -526,7 +508,8 @@ static iree_status_t loom_low_allocation_coalescing_append_interval_at_location(
   }
   loom_low_allocation_class_capacity_t capacity = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_target_constraints_interval_capacity(
-      context->target_constraints, interval, &capacity));
+      context->target_constraints, context->liveness, context->placement,
+      interval, &capacity));
   if (!loom_low_allocation_storage_reg_classes_share(
           context->search_context->descriptor_set,
           capacity.descriptor_reg_class_id, descriptor_reg_class_id)) {
@@ -770,8 +753,8 @@ loom_low_allocation_coalescing_transfer_ignored_aliases_for_tied_consume(
       continue;
     }
     const loom_low_placement_relation_t* tied_operand_copy_relation =
-        loom_low_allocation_coalescing_transfer_relation_for_result_ordinal(
-            context, tied_relation->source_ordinal);
+        loom_low_placement_defining_transfer_for_value_ordinal(
+            context->placement, tied_relation->source_ordinal);
     if (tied_operand_copy_relation != copy_relation) {
       continue;
     }

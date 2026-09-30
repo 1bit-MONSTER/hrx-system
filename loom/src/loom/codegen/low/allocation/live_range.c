@@ -53,10 +53,11 @@ uint32_t loom_low_allocation_live_range_interval_alignment(
       &descriptor_set->reg_classes[interval->value_class.register_class_id],
       interval->unit_count);
   const uint32_t operand_alignment =
-      placement->unit_alignment_log2_by_interval != NULL
+      placement->operand_constraints_by_interval != NULL
           ? 1u << placement
-                      ->unit_alignment_log2_by_interval[interval -
+                      ->operand_constraints_by_interval[interval -
                                                         liveness->intervals]
+                      .unit_alignment_log2
           : 1u;
   return iree_max(class_alignment, operand_alignment);
 }

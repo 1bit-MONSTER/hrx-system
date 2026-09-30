@@ -12,12 +12,13 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
+#include "loom/target/registers.h"
+#include "loom/target/residency.h"
 
 namespace loom {
 namespace {
 
-TEST(LowAllocationConcatReservationTest,
-     DefaultAssemblyIncludesTheResultLifetime) {
+TEST(LowAllocationConcatReservationTest, ChoosesOnlyLegalAssemblies) {
   iree_arena_block_pool_t pool;
   iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);
   iree_arena_allocator_t arena;
@@ -30,9 +31,9 @@ TEST(LowAllocationConcatReservationTest,
                                      nullptr, iree_allocator_system(),
                                      &module));
   loom_value_id_t value_ids[4];
-  for (loom_value_id_t& value_id : value_ids) {
+  for (uint32_t i = 0; i < IREE_ARRAYSIZE(value_ids); ++i) {
     IREE_CHECK_OK(loom_module_define_value(
-        module, loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), &value_id));
+        module, loom_low_register_type(17, 0, i == 2 ? 4 : 2), &value_ids[i]));
   }
   loom_module_value_ordinal_scratch_acquire(module);
   for (uint32_t i = 0; i < IREE_ARRAYSIZE(value_ids); ++i) {
@@ -99,6 +100,9 @@ TEST(LowAllocationConcatReservationTest,
   placement.ranges_by_result_ordinal = result_ranges;
   placement.ranges_by_source_ordinal = source_ranges;
   placement.relation_indices_by_source_ordinal = source_relations;
+  loom_low_placement_operand_constraints_t operands[4] = {};
+  operands[0].addressable_unit_count = 16;
+  placement.operand_constraints_by_interval = operands;
 
   loom_low_reg_class_t reg_class = {};
   reg_class.flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL;
@@ -151,6 +155,34 @@ TEST(LowAllocationConcatReservationTest,
   context.placement = &placement;
   context.storage_leases = &leases;
 
+  const loom_low_placement_value_ref_t values[] = {
+      {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 0},
+      {0, LOOM_LOW_PLACEMENT_VALUE_OPERAND, 1}};
+  const loom_low_placement_predicate_t predicate = {
+      0, 1, 0, 0, 1, LOOM_LOW_PLACEMENT_RELATION_DIFFERENT_MASKED_LOCATION, 3};
+  const loom_low_placement_clause_t clause = {0, 1, 1,
+                                              LOOM_LOW_PLACEMENT_CLAUSE_ANY};
+  const loom_low_placement_preference_t preference = {values, &predicate,
+                                                      &clause, 2, 1};
+  const loom_low_placement_preference_use_t use = {&preference, 0, 1, {2, 3}};
+  const loom_low_placement_preference_binding_t bindings[] = {{2, 0}, {3, 1}};
+  const uint32_t use_indices[] = {0, 0};
+  const uint32_t offsets[] = {0, 0, 0, 1, 2};
+  loom_low_placement_preference_index_t preferences = {};
+  preferences.uses = &use;
+  preferences.bindings = bindings;
+  preferences.use_indices = use_indices;
+  preferences.offsets_by_origin = offsets;
+  preferences.use_count = 1;
+  preferences.binding_count = 2;
+  preferences.max_incident_use_count = 1;
+  preferences.max_incident_binding_count = 2;
+  preferences.max_memo_entry_count = 4;
+  loom_low_allocation_preference_workspace_t workspace = {};
+  IREE_ASSERT_OK(loom_low_allocation_preference_workspace_initialize(
+      &preferences, &arena, &workspace));
+  context.preference_workspace = &workspace;
+
   // Both two-unit sources fit at 2 and 4 before the future reservation starts.
   // Their four-unit result must also fit from point 4 through point 10. A
   // reservation starting at 10 is disjoint and must not force preferred
@@ -171,23 +203,86 @@ TEST(LowAllocationConcatReservationTest,
       loom_low_allocation_active_set_insert(&active_set, &descriptors, &future,
                                             1, 0);
       context.active_set = &active_set;
-      loom_low_allocation_assignment_t reservation;
-      IREE_EXPECT_OK(loom_low_allocation_concat_reservation_find(
-          &context, &intervals[0], &relations[0], &intervals[2],
-          &result_ranges[2], value_ids, 2, &reservation));
-      if (future_start == 5) {
-        EXPECT_EQ(reservation.value_id, value_ids[2]);
-        EXPECT_EQ(reservation.location_count, 4u);
-        EXPECT_GE(reservation.location_base, prefix.location_count);
-        EXPECT_TRUE(reservation.location_base + reservation.location_count <=
-                        future_base ||
-                    reservation.location_base >=
-                        future_base + future.location_count);
-      } else {
-        EXPECT_EQ(reservation.value_id, LOOM_VALUE_ID_INVALID);
+      for (bool prefer_aggregate : {false, true}) {
+        context.preferences = prefer_aggregate ? &preferences : nullptr;
+        loom_low_allocation_assignment_t reservation;
+        IREE_EXPECT_OK(loom_low_allocation_concat_reservation_find(
+            &context, &intervals[0], &relations[0], &intervals[2],
+            &result_ranges[2], value_ids, 2, &reservation));
+        if (future_start == 5) {
+          EXPECT_EQ(reservation.value_id, value_ids[2]);
+          EXPECT_EQ(reservation.location_count, 4u);
+          EXPECT_GE(reservation.location_base, prefix.location_count);
+          EXPECT_TRUE(reservation.location_base + reservation.location_count <=
+                          future_base ||
+                      reservation.location_base >=
+                          future_base + future.location_count);
+        } else if (prefer_aggregate && future_base == 2) {
+          // The ordinary base-2 assembly is legal, but its aggregate violates
+          // the preference. Base4 wins without changing either live range.
+          EXPECT_EQ(reservation.value_id, value_ids[2]);
+          EXPECT_EQ(reservation.location_base, 4u);
+        } else {
+          // Equal preference cost preserves the ordinary packing choice.
+          EXPECT_EQ(reservation.value_id, LOOM_VALUE_ID_INVALID);
+        }
+        EXPECT_EQ(assignments.assignment_count, 1u);
       }
-      EXPECT_EQ(assignments.assignment_count, 1u);
     }
+  }
+
+  // The zero-cost preferred base 4 crosses the register cliff. Base 3 has
+  // the same score while preserving the attainable tier. A launch ceiling
+  // at or below the lower tier makes the full domain uniform instead.
+  future.location_base = 2;
+  high_water[0] = 4;
+  loom_low_allocation_active_set_t active_set = {};
+  IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(1, 16, 16, &arena,
+                                                           &active_set));
+  loom_low_allocation_active_set_insert(&active_set, &descriptors, &future, 1,
+                                        0);
+  context.active_set = &active_set;
+  context.preferences = &preferences;
+  const iree_string_view_t resource_names[] = {IREE_SVL("register")};
+  const loom_target_residency_cliff_t cliffs[] = {{0, 8, 8, 4}};
+  const loom_target_residency_cliff_range_t cliff_ranges[] = {{0, 1}};
+  loom_target_residency_model_t residency_model = {};
+  residency_model.best_tier = 8;
+  residency_model.direct_resources = {resource_names, cliffs, 1, cliff_ranges,
+                                      1};
+  for (uint32_t tier_limit : {8u, 4u, 0u}) {
+    context.residency =
+        loom_target_residency_view(&residency_model, tier_limit);
+    loom_low_allocation_assignment_t reservation;
+    IREE_ASSERT_OK(loom_low_allocation_concat_reservation_find(
+        &context, &intervals[0], &relations[0], &intervals[2],
+        &result_ranges[2], value_ids, 2, &reservation));
+    EXPECT_EQ(reservation.value_id, value_ids[2]);
+    EXPECT_EQ(reservation.location_base, tier_limit == 8 ? 3u : 4u);
+  }
+
+  // A shared register class does not imply the same addressable window. The
+  // source can only occupy base 2, while the longer-lived aggregate conflicts
+  // there. Its wider result domain cannot justify moving that source above 3.
+  operands[0].addressable_unit_count = 4;
+  context.residency = {};
+  future.location_base = 4;
+  future.start_point = intervals[3].start_point = 5;
+  unit_start_points[8] = unit_start_points[9] = 5;
+  loom_low_allocation_active_set_t window_active_set = {};
+  IREE_ASSERT_OK(loom_low_allocation_active_set_initialize(1, 16, 16, &arena,
+                                                           &window_active_set));
+  loom_low_allocation_active_set_insert(&window_active_set, &descriptors,
+                                        &future, 1, 0);
+  context.active_set = &window_active_set;
+  for (bool prefer_aggregate : {false, true}) {
+    SCOPED_TRACE(prefer_aggregate);
+    context.preferences = prefer_aggregate ? &preferences : nullptr;
+    loom_low_allocation_assignment_t reservation;
+    IREE_ASSERT_OK(loom_low_allocation_concat_reservation_find(
+        &context, &intervals[0], &relations[0], &intervals[2],
+        &result_ranges[2], value_ids, 2, &reservation));
+    EXPECT_EQ(reservation.value_id, LOOM_VALUE_ID_INVALID);
   }
 
   for (loom_value_id_t value_id : value_ids) {

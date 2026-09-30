@@ -35,7 +35,6 @@ loom_cc_library(
     "occupancy.c"
   DEPS
     iree::base
-    loom::codegen::low::target_binding
     loom::target::arch::amdgpu::planning::occupancy
     loom::target::arch::amdgpu::planning::storage_lease
     loom::tools::loom-check::execute

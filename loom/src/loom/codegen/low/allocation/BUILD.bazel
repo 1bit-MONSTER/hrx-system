@@ -136,6 +136,65 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "numbering",
+    srcs = ["numbering.c"],
+    hdrs = ["numbering.h"],
+    deps = [
+        ":interval_assignment",
+        ":move",
+        ":storage",
+        ":storage_lease",
+        ":storage_lease_index",
+        ":target_constraints",
+        ":unit_liveness",
+        "//loom/src/loom/codegen/low:placement",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "numbering_test",
+    srcs = ["numbering_test.cc"],
+    deps = [
+        ":numbering",
+        ":storage_lease_index",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "preference",
+    srcs = ["preference.c"],
+    hdrs = ["preference.h"],
+    deps = [
+        ":assignment",
+        ":assignment_map",
+        ":storage",
+        ":target_constraints",
+        "//loom/src/loom/analysis:liveness",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/codegen/low:placement",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "preference_test",
+    srcs = ["preference_test.cc"],
+    deps = [
+        ":preference",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "search",
     srcs = ["search.c"],
     hdrs = ["search.h"],
@@ -145,6 +204,7 @@ loom_cc_library(
         ":assignment_map",
         ":live_range",
         ":physical_domains",
+        ":preference",
         ":scalar_packing",
         ":spill_plan",
         ":spill_traffic",
@@ -233,6 +293,8 @@ loom_cc_test(
         ":active_set",
         ":concat_reservation",
         "//loom/src/loom/ir",
+        "//loom/src/loom/target:registers",
+        "//loom/src/loom/target:residency",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
@@ -619,6 +681,7 @@ loom_cc_library(
         ":interval_order",
         ":live_range",
         ":physical_domains",
+        ":preference",
         ":scalar_packing",
         ":search",
         ":spill_plan",
@@ -635,6 +698,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:placement",
         "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/ir",
+        "//loom/src/loom/target:residency",
         "//loom/src/loom/util:cfg_graph",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -716,7 +780,10 @@ loom_cc_test(
     srcs = ["unit_liveness_test.cc"],
     deps = [
         ":unit_liveness",
+        "//loom/src/loom/codegen/low:builder",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

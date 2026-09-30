@@ -490,8 +490,8 @@ loom_cc_test(
 )
 
 loom_cc_library(
-    name = "placement_pair",
-    hdrs = ["placement_pair.h"],
+    name = "placement_recipe",
+    hdrs = ["placement_recipe.h"],
     deps = ["//runtime/src/iree/base"],
 )
 
@@ -501,12 +501,13 @@ loom_cc_library(
     hdrs = ["placement.h"],
     deps = [
         ":descriptors",
-        ":placement_pair",
+        ":placement_recipe",
         ":representation_binding",
         ":storage_relation",
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/ir",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",
     ],
 )
@@ -555,6 +556,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/allocation:loop_edge_relocation",
         "//loom/src/loom/codegen/low/allocation:move_plan",
         "//loom/src/loom/codegen/low/allocation:move_topology",
+        "//loom/src/loom/codegen/low/allocation:numbering",
         "//loom/src/loom/codegen/low/allocation:packet_move",
         "//loom/src/loom/codegen/low/allocation:search",
         "//loom/src/loom/codegen/low/allocation:spill_plan",
@@ -571,6 +573,7 @@ loom_cc_library(
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",
         "//loom/src/loom/target:registers",
+        "//loom/src/loom/target:residency",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],

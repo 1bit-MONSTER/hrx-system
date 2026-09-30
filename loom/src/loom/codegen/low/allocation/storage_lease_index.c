@@ -224,6 +224,21 @@ void loom_low_allocation_storage_lease_unit_index_insert(
   }
 }
 
+void loom_low_allocation_storage_lease_unit_index_rebuild(
+    loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    iree_host_size_t lease_count) {
+  index->unit_roots[0] = index->unit_roots[1] = UINT32_MAX;
+  index->node_count = 0;
+  for (iree_host_size_t i = 0; i < lease_count; ++i) {
+    index->first_nodes_by_lease[i] = UINT32_MAX;
+  }
+  for (iree_host_size_t i = 0; i < lease_count; ++i) {
+    loom_low_allocation_storage_lease_unit_index_insert(index, descriptor_set,
+                                                        (uint32_t)i);
+  }
+}
+
 void loom_low_allocation_storage_lease_unit_index_update(
     loom_low_allocation_storage_lease_unit_index_t* index,
     uint32_t storage_lease_index) {

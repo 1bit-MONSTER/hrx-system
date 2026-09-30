@@ -111,6 +111,31 @@ low.func.def target<test.low.core> @structural_model() -> (reg<test.i32 x4>) asm
   iree_arena_allocator_t arena_ = {};
 };
 
+TEST_F(LowEmissionFrameTest, ResidencyQueryConsumesRetainedFunctionFacts) {
+  ModulePtr module = ParseModule();
+  static const loom_target_residency_model_t model = {/*.best_tier=*/4};
+  loom_low_emission_frame_options_t options = {};
+  options.descriptor_registry = &registry_.registry;
+  options.residency_query =
+      [](const loom_low_resolved_target_t* target,
+         const loom_low_storage_layout_space_sizes_t* storage_sizes) {
+        EXPECT_EQ(target->descriptor_set, loom_test_low_core_descriptor_set());
+        EXPECT_EQ(storage_sizes->workgroup_bytes, 64u);
+        return loom_target_residency_view(&model, 2);
+      };
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(
+      module.get(), loom_block_op(loom_module_block(module.get()), 0), &options,
+      &arena_, &frame, &accepted));
+  ASSERT_TRUE(accepted);
+  // The function model has been released; the frame retains only the borrowed
+  // immutable policy and its value ceiling, not analysis-owned storage.
+  iree_arena_block_pool_trim(&block_pool_);
+  EXPECT_EQ(frame.residency.model, &model);
+  EXPECT_EQ(frame.residency.tier_limit, 2u);
+}
+
 TEST_F(LowEmissionFrameTest, ReusedRegisterWaitsForPreviousPhysicalRead) {
   const auto strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY;
   ModulePtr module = ParseModule(R"(

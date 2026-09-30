@@ -19,7 +19,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/descriptors.h"
-#include "loom/codegen/low/placement_pair.h"
+#include "loom/codegen/low/placement_recipe.h"
 #include "loom/ir/ir.h"
 #include "loom/ir/local_value_domain.h"
 
@@ -98,16 +98,16 @@ typedef struct loom_low_placement_pair_use_list_t {
 // Resolves one recipe value reference against a concrete scheduled pair.
 loom_value_id_t loom_low_placement_pair_value_id(
     const loom_low_placement_pair_use_t* use,
-    const loom_low_placement_pair_value_ref_t* ref);
+    const loom_low_placement_value_ref_t* ref);
 
 // Returns true when assigning |separated_ref| a fresh SSA value removes every
 // structural identity contradiction from one placement-recipe alternative.
 // Physical-location feasibility remains an allocation decision.
 bool loom_low_placement_pair_alternative_can_separate_ref(
     const loom_low_placement_pair_use_t* use,
-    const loom_low_placement_pair_relation_t* relations,
-    uint16_t relation_count,
-    const loom_low_placement_pair_value_ref_t* separated_ref);
+    const loom_low_placement_preference_t* const* preferences,
+    uint16_t preference_count,
+    const loom_low_placement_value_ref_t* separated_ref);
 
 // Counts placement-recipe alternatives that are structurally possible for a
 // concrete scheduled pair. This only considers SSA identity contradictions;
@@ -188,6 +188,17 @@ typedef struct loom_low_placement_relation_range_t {
   uint32_t count;
 } loom_low_placement_relation_range_t;
 
+// Operand requirements combined across every use of one live interval.
+typedef struct loom_low_placement_operand_constraints_t {
+  // Smallest LOW_SUBSET addressable extent, or zero for no low-window bound.
+  uint16_t addressable_unit_count;
+  // Strongest required base alignment exponent in allocation units.
+  uint8_t unit_alignment_log2;
+  // An operand uses a target-selected address window. Renumbering preserves
+  // its concrete location so it cannot change address-state transitions.
+  bool has_target_address_state;
+} loom_low_placement_operand_constraints_t;
+
 // Placement analysis table for one target-low function body.
 typedef struct loom_low_placement_table_t {
   // Module containing the analyzed low function.
@@ -200,8 +211,9 @@ typedef struct loom_low_placement_table_t {
   loom_value_ordinal_t value_count;
   // Placement relations grouped by result index key. Hard register-ordinal
   // relations use the result's tied storage origin; all other relations use
-  // their authored result ordinal. Allocation refines optional alias
-  // permissions before assigning any concrete locations.
+  // their authored result ordinal. A defining copy or move, when present,
+  // is first in its result's range; other relations retain collection order.
+  // Allocation refines optional alias permissions before assigning locations.
   loom_low_placement_relation_t* relations;
   // Number of relation records.
   iree_host_size_t relation_count;
@@ -247,12 +259,67 @@ typedef struct loom_low_placement_table_t {
   // ordinal. Unconnected values name themselves. NULL when the function has no
   // tied storage.
   const loom_value_ordinal_t* tied_storage_origins_by_value_ordinal;
-  // Required instruction alignment exponents indexed by liveness interval.
-  // Exact tied-storage components share their strongest requirement. NULL
-  // when no packet requires alignment beyond one allocation unit.
-  // Optional slice/concat aliases are checked at their concrete derived base.
-  const uint8_t* unit_alignment_log2_by_interval;
+  // Operand requirements indexed by liveness interval. Exact tied-storage
+  // components share their strongest requirements. NULL when unconstrained;
+  // optional slice/concat aliases are checked at their concrete derived base.
+  const loom_low_placement_operand_constraints_t*
+      operand_constraints_by_interval;
 } loom_low_placement_table_t;
+
+// One allocation-local instruction preference bound during placement analysis.
+typedef struct loom_low_placement_preference_use_t {
+  // Borrowed target recipe.
+  const loom_low_placement_preference_t* preference;
+  // First entry in the containing index's bindings array.
+  uint32_t binding_start;
+  // Instruction unit weight or retained 16-bit scheduled-pair priority.
+  uint16_t priority;
+  // Retained periodic-cost facts for allocation-local score reuse.
+  struct {
+    // Low candidate bits needed by the predicates, including offset carries.
+    // Structural predicates are invariant after storage assignment; only the
+    // masked predicates contribute location dependencies during renumbering.
+    uint8_t location_bit_count;
+    // One plus log2 of the cell bound, capped by finite register domains.
+    // Zero disables assignment-time memoization for nonperiodic costs.
+    uint8_t index_bit_count_plus_one;
+  } memo;
+} loom_low_placement_preference_use_t;
+
+typedef struct loom_low_placement_preference_binding_t {
+  // Actual value named by the recipe, even when another value is tied to it.
+  loom_value_ordinal_t value_ordinal;
+  // First slot in a scheduled-pair use with the same mandatory storage
+  // origin. Deferred instruction uses retain their own slot index.
+  uint32_t representative;
+} loom_low_placement_preference_binding_t;
+
+// Working index for allocation decisions, not part of the returned placement
+// or allocation table. Its owner releases it after final register numbering.
+typedef struct loom_low_placement_preference_index_t {
+  // Bound uses in collection order.
+  const loom_low_placement_preference_use_t* uses;
+  // Bound real values, grouped by use.
+  const loom_low_placement_preference_binding_t* bindings;
+  // Scheduled-pair use indexes, grouped by mandatory storage origin and
+  // deduplicated within each origin. Instruction uses are numbered only after
+  // storage assignment and do not participate in assignment queries.
+  const uint32_t* use_indices;
+  // Offsets into use_indices, with value_count + 1 entries; NULL when inert.
+  const uint32_t* offsets_by_origin;
+  // Number of bound uses.
+  uint32_t use_count;
+  // Leading instruction uses deferred until final register numbering.
+  uint32_t instruction_use_count;
+  // Number of bound values.
+  uint32_t binding_count;
+  // Maximum uses incident to any one origin, for reusable query storage.
+  uint32_t max_incident_use_count;
+  // Maximum total binding slots of uses incident to any one origin.
+  uint32_t max_incident_binding_count;
+  // Maximum periodic-use cell bound, for one reusable assignment-attempt memo.
+  uint32_t max_memo_entry_count;
+} loom_low_placement_preference_index_t;
 
 // Returns true when |relation| can justify overlapping target-visible storage.
 bool loom_low_placement_relation_can_alias(
@@ -264,13 +331,19 @@ bool loom_low_placement_cause_is_edge(loom_low_placement_cause_t cause);
 // Builds a function-local placement relation table over an acquired value
 // domain and its liveness analysis. |descriptor_set| is the function's
 // verified representation contract and supplies target packet constraints.
+// Instruction and pair preferences are bound in the same operation visits.
+// |preference_arena| owns allocation-only working data in |out_preferences|;
+// it must not be promoted or retained with the returned relation table.
 iree_status_t loom_low_placement_analyze_region(
     loom_module_t* module, const loom_region_t* region,
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_local_value_domain_t* value_domain,
     const loom_liveness_analysis_t* liveness,
-    loom_low_placement_pair_use_list_t pair_uses, iree_arena_allocator_t* arena,
-    loom_low_placement_table_t* out_table);
+    loom_low_placement_pair_use_list_t pair_uses,
+    loom_low_placement_instruction_preferences_t instruction_preferences,
+    iree_arena_allocator_t* arena, iree_arena_allocator_t* preference_arena,
+    loom_low_placement_table_t* out_table,
+    loom_low_placement_preference_index_t* out_preferences);
 
 // Returns the relation range keyed by |result_ordinal|. Hard register-ordinal
 // constraints are keyed by the endpoint's tied storage origin; all other
@@ -280,6 +353,15 @@ loom_low_placement_relation_range_t
 loom_low_placement_relation_range_for_value_ordinal(
     const loom_low_placement_table_t* table,
     loom_value_ordinal_t result_ordinal);
+
+// Returns the defining low.copy or low.move relation for |value_ordinal|, or
+// NULL for values not produced by a retained transfer. This is a constant-time
+// lookup of the producer-reserved first relation, not a copy-chain walk. The
+// relation's current flags determine whether it permits coalescing.
+const loom_low_placement_relation_t*
+loom_low_placement_defining_transfer_for_value_ordinal(
+    const loom_low_placement_table_t* table,
+    loom_value_ordinal_t value_ordinal);
 
 // Returns the relation range keyed by |source_ordinal|, using the same storage-
 // origin projection as result ranges. The returned range indexes

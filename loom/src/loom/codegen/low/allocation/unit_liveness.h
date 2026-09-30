@@ -49,6 +49,11 @@ typedef struct loom_low_allocation_unit_liveness_t {
   // Values whose concrete storage lifetime is not fully represented by their
   // semantic sparse segments.
   iree_bitmap_t values_with_incomplete_storage_segments;
+  // Linear physical units implicitly read or written at location zero,
+  // indexed by descriptor register class. NULL when no such operands occur.
+  // Retaining reads as well as writes anchors every implicit location during
+  // final numbering, independently of the write-point conflict index.
+  uint16_t* implicit_location_counts_by_reg_class;
   // Sparse physical reservations, separate from semantic SSA liveness.
   struct {
     // Borrowed semantic segments, or arena-owned semantic prefix followed by

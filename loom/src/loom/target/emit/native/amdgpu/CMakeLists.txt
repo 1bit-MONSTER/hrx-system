@@ -148,6 +148,7 @@ loom_check_test_suite(
     "test/message_completion.loom-test"
     "test/packet.loom-test"
     "test/packet_json.loom-test"
+    "test/register_numbering.loom-test"
     "test/spill_lowering.loom-test"
     "test/structural_delay_alu.loom-test"
     "test/tensor_completion.loom-test"
@@ -377,6 +378,7 @@ loom_cc_benchmark(
     loom::target::arch::amdgpu::planning::descriptor_semantics
     loom::target::arch::amdgpu::planning::occupancy
     loom::target::arch::amdgpu::planning::packet_plan
+    loom::target::arch::amdgpu::planning::placement
     loom::target::arch::amdgpu::planning::storage_lease
     loom::target::arch::amdgpu::planning::vopd_plan
     loom::target::arch::amdgpu::provider
@@ -675,6 +677,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::matrix::contract
     loom::target::arch::amdgpu::planning::descriptor_semantics
     loom::target::arch::amdgpu::planning::occupancy
+    loom::target::arch::amdgpu::planning::placement
     loom::target::arch::amdgpu::planning::storage_lease
     loom::target::arch::amdgpu::planning::vopd_plan
     loom::target::arch::amdgpu::profile

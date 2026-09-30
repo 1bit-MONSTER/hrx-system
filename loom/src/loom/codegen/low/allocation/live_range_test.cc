@@ -175,9 +175,10 @@ TEST(LowAllocationLiveRangeTest, CombinesRetainedOperandAndClassAlignment) {
   loom_liveness_analysis_t liveness = {};
   liveness.intervals = intervals;
   liveness.interval_count = IREE_ARRAYSIZE(intervals);
-  const uint8_t alignment_log2[] = {0, 1, 3};
+  const loom_low_placement_operand_constraints_t operands[] = {
+      {0, 0, false}, {0, 1, false}, {0, 3, false}};
   loom_low_placement_table_t placement = {};
-  placement.unit_alignment_log2_by_interval = alignment_log2;
+  placement.operand_constraints_by_interval = operands;
   const uint32_t expected[] = {2, 2, 8};
   for (size_t i = 0; i < IREE_ARRAYSIZE(intervals); ++i) {
     EXPECT_EQ(loom_low_allocation_live_range_interval_alignment(

@@ -498,9 +498,9 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
-    placement_pair
+    placement_recipe
   HDRS
-    "placement_pair.h"
+    "placement_recipe.h"
   DEPS
     iree::base
   PUBLIC
@@ -515,10 +515,11 @@ loom_cc_library(
     "placement.c"
   DEPS
     ::descriptors
-    ::placement_pair
+    ::placement_recipe
     ::representation_binding
     ::storage_relation
     iree::base
+    iree::base::internal
     iree::base::internal::arena
     loom::analysis::liveness
     loom::ir
@@ -575,6 +576,7 @@ loom_cc_library(
     loom::codegen::low::allocation::loop_edge_relocation
     loom::codegen::low::allocation::move_plan
     loom::codegen::low::allocation::move_topology
+    loom::codegen::low::allocation::numbering
     loom::codegen::low::allocation::packet_move
     loom::codegen::low::allocation::search
     loom::codegen::low::allocation::spill_plan
@@ -591,6 +593,7 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::target::registers
+    loom::target::residency
   PUBLIC
 )
 

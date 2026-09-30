@@ -508,10 +508,12 @@ class AllocationBenchmark {
           loom_liveness_order_empty(), &base_arena_, &liveness_));
     }
     if (phase_ == Phase::kUnitLiveness) {
+      loom_low_placement_preference_index_t preferences = {};
       IREE_CHECK_OK(loom_low_placement_analyze_region(
           module_, model_.body, model_.target.descriptor_set,
           &model_.value_domain, &liveness_,
-          loom_low_placement_pair_use_list_empty(), &base_arena_, &placement_));
+          loom_low_placement_pair_use_list_empty(), {}, &base_arena_,
+          &base_arena_, &placement_, &preferences));
     }
   }
 
@@ -547,10 +549,12 @@ class AllocationBenchmark {
       benchmark::DoNotOptimize(liveness.intervals);
     } else if (phase_ == Phase::kPlacement) {
       loom_low_placement_table_t placement = {};
+      loom_low_placement_preference_index_t preferences = {};
       IREE_CHECK_OK(loom_low_placement_analyze_region(
           module_, model_.body, model_.target.descriptor_set,
           &model_.value_domain, &liveness_,
-          loom_low_placement_pair_use_list_empty(), &arena, &placement));
+          loom_low_placement_pair_use_list_empty(), {}, &arena, &arena,
+          &placement, &preferences));
       result.value_count = placement.value_count;
       benchmark::DoNotOptimize(placement.relations);
     } else if (phase_ == Phase::kUnitLiveness) {
