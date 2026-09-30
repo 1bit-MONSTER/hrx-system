@@ -175,23 +175,23 @@
       }
     },
     {
-      "name": "rejects an unknown expected diagnostic",
+      "name": "reports an unknown expected diagnostic as a mismatch",
       "run": {
         "tool": "iree-test-loom",
         "args": [
-          "{srcdir}/testdata/scalar_cases.loom",
-          "--case=@sampled_choice",
-          "--xfail=@sampled_choice=EXPECT/999"
+          "{srcdir}/testdata/xfail_cases.loom",
+          "--xfail=@equal_mismatch=EXPECT/999"
         ]
       },
       "exit": {
         "nonzero": true
       },
       "stdout": {
-        "empty": true
-      },
-      "stderr": {
-        "contains": ["unknown diagnostic identity 'EXPECT/999'"]
+        "contains": [
+          "\"xfail_count\":0",
+          "\"xfail_mismatch_count\":1",
+          "\"record\":\"@equal_mismatch\",\"diagnostic\":\"EXPECT/999\",\"outcome\":\"diagnostic_mismatch\",\"observed_diagnostic\":\"EXPECT/001\""
+        ]
       }
     },
     {

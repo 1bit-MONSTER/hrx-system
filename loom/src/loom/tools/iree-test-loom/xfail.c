@@ -48,12 +48,10 @@ static iree_status_t iree_test_loom_parse_diagnostic_ref(
                             "spelling, got '%.*s'",
                             (int)code_text.size, code_text.data);
   }
+  // Target diagnostics live in optional catalog shards that the test runner
+  // does not own. Execution still fails loud for an unknown identity because
+  // no emitted diagnostic can match the parsed reference.
   const loom_error_ref_t ref = LOOM_ERROR_REF(domain, code);
-  if (loom_error_def_lookup_ref(ref) == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "unknown diagnostic identity '%.*s'",
-                            (int)value.size, value.data);
-  }
   *out_ref = ref;
   return iree_ok_status();
 }
