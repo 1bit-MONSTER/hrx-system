@@ -10,14 +10,28 @@ load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
 
+_KERNEL_EXCLUDES = {
+    "kernel/subgroup/active_predicate.loom": "VM has no kernel artifact format.",
+    "kernel/subgroup/ballot.loom": "VM has no kernel artifact format.",
+    "kernel/subgroup/shuffle_dynamic.loom": "VM has no kernel artifact format.",
+    "kernel/subgroup/shuffle_participation.loom": "VM has no kernel artifact format.",
+    "kernel/subgroup/transport.loom": "VM has no kernel artifact format.",
+    "kernel/subgroup/transport_carrier.loom": "VM has no kernel artifact format.",
+    "kernel/workgroup/loop_state.loom": "VM has no kernel artifact format.",
+    "kernel/workgroup/reduce_partial.loom": "VM has no kernel artifact format.",
+    "kernel/workgroup/reduce_tree.loom": "VM has no kernel artifact format.",
+}
+
 loom_corpus_build(
     name = "all",
     catalog = LOOM_CORPUS,
+    excludes = {"//loom/target/vm:all": _KERNEL_EXCLUDES},
     profiles = ["//loom/target/vm:all"],
 )
 
 loom_corpus_test(
     name = "execution",
     catalog = LOOM_CORPUS,
+    excludes = _KERNEL_EXCLUDES,
     execution_profiles = [VM_REFERENCE_PROFILE],
 )

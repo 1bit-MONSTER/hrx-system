@@ -9,69 +9,15 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
-file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_66B557A7})
-file(GLOB _GLOB_ATOMIC_FLOAT64_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS atomic_float64.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_ATOMIC_FLOAT64_LOOM_66B557A7})
-file(GLOB _GLOB_HALF_FLOAT_EXTREMA_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS half_float_extrema.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_HALF_FLOAT_EXTREMA_LOOM_66B557A7})
-file(GLOB _GLOB_SCALAR_FLOAT64_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS scalar_float64.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_SCALAR_FLOAT64_LOOM_66B557A7})
-file(GLOB _GLOB_SUBGROUP_SHUFFLE_PARTICIPATION_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_shuffle_participation.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_SUBGROUP_SHUFFLE_PARTICIPATION_LOOM_66B557A7})
-file(GLOB _GLOB_SUBGROUP_TRANSPORT_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_transport.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_SUBGROUP_TRANSPORT_LOOM_66B557A7})
-file(GLOB _GLOB_SUBGROUP_TRANSPORT_CARRIER_LOOM_66B557A7 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS subgroup_transport_carrier.loom)
-list(REMOVE_ITEM _GLOB_X_LOOM_66B557A7 ${_GLOB_SUBGROUP_TRANSPORT_CARRIER_LOOM_66B557A7})
-loom_test_module(
-  NAME
-    subgroup_transport_test_module
-  SRCS
-    "subgroup_shuffle_participation.loom"
-    "subgroup_transport.loom"
-    "subgroup_transport_carrier.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_transport_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_transport_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_transport_test"
-  SRC
-    "::subgroup_transport_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1100
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
+file(GLOB _GLOB_X_LOOM_12027912 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_12027912 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS pipelined_guarded_recurrence.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_12027912 ${_GLOB_PIPELINED_GUARDED_RECURRENCE_LOOM_12027912})
+file(GLOB _GLOB_ATOMIC_FLOAT64_LOOM_12027912 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS atomic_float64.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_12027912 ${_GLOB_ATOMIC_FLOAT64_LOOM_12027912})
+file(GLOB _GLOB_HALF_FLOAT_EXTREMA_LOOM_12027912 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS half_float_extrema.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_12027912 ${_GLOB_HALF_FLOAT_EXTREMA_LOOM_12027912})
+file(GLOB _GLOB_SCALAR_FLOAT64_LOOM_12027912 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS scalar_float64.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_12027912 ${_GLOB_SCALAR_FLOAT64_LOOM_12027912})
 if(LOOM_TARGET_ARCH_VM)
 loom_test_module(
   NAME
@@ -1260,174 +1206,6 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx942
     loom::target::amdgpu::gfx950
     loom::target::spirv::vulkan1.3+bda+extended-types
-)
-
-loom_test_module(
-  NAME
-    subgroup_active_predicate_test_module
-  SRCS
-    "subgroup_active_predicate.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_active_predicate_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_active_predicate_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_active_predicate_test_execute_amdgpu_access_test
-  MODULE
-    "::subgroup_active_predicate_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_active_predicate_test"
-  SRC
-    "::subgroup_active_predicate_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-)
-
-loom_test_module(
-  NAME
-    subgroup_ballot_test_module
-  SRCS
-    "subgroup_ballot.loom"
-)
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_ballot_test_execute_amdgpu_hardware_test
-  MODULE
-    "::subgroup_ballot_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-  LABELS
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_hardware"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
-loom_execution_test(
-  NAME
-    subgroup_ballot_test_execute_spirv_vulkan_hardware_test
-  MODULE
-    "::subgroup_ballot_test_module"
-  RUNNER_ARGS
-    "--device=vulkan"
-    "--vulkan_validation_layers=false"
-  LABELS
-    "iree-build-requirement=loom.target.arch.spirv"
-    "iree-build-requirement=loom.emit.spirv"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.vulkan"
-    "iree-run-requirement=vulkan.resource.device"
-    "runtime-resource=vulkan-device"
-    "loom-execution-profile=spirv_vulkan_hardware"
-    "loom-target-family=spirv"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
-loom_execution_test(
-  NAME
-    subgroup_ballot_test_execute_amdgpu_access_test
-  MODULE
-    "::subgroup_ballot_test_module"
-  RUNNER_ARGS
-    "--device=amdgpu"
-    "--sanitizer=access"
-  LABELS
-    "notsan"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-build-requirement=loom.execute.iree_hal"
-    "iree-build-requirement=runtime.hal.amdgpu"
-    "iree-run-requirement=runtime.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-    "loom-execution-profile=amdgpu_access"
-    "loom-target-family=amdgpu"
-    "loom-target-class=gpu"
-    "loom-executor=hardware"
-  RESOURCE_GROUP
-    "gpu-device"
-)
-endif()
-
-loom_check_compile_tests(
-  NAME
-    "subgroup_ballot_test"
-  SRC
-    "::subgroup_ballot_test_module"
-  TARGETS
-    loom::target::amdgpu::gfx1151
-    loom::target::amdgpu::gfx1170
-    loom::target::amdgpu::gfx1200
-    loom::target::amdgpu::gfx1250
-    loom::target::amdgpu::gfx942
-    loom::target::amdgpu::gfx950
-    loom::target::spirv::vulkan1.3+bda+subgroup32+ballot+hal
 )
 
 loom_test_module(
@@ -2920,7 +2698,7 @@ loom_module(
   NAME
     conformance_cases
   SRCS
-    "${_GLOB_X_LOOM_66B557A7}"
+    "${_GLOB_X_LOOM_12027912}"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/byte_memory_banks.loom-test"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_i64.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/memory_atomic_narrow_scopes.loom"

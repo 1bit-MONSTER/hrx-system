@@ -13,6 +13,25 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
+_SUBGROUP_COMPILE_TARGETS = [
+    "//loom/target/amdgpu:gfx942",
+    "//loom/target/amdgpu:gfx950",
+    "//loom/target/amdgpu:gfx1151",
+    "//loom/target/amdgpu:gfx1170",
+    "//loom/target/amdgpu:gfx1200",
+    "//loom/target/amdgpu:gfx1250",
+]
+
+_SUBGROUP_TRANSPORT_COMPILE_TARGETS = [
+    "//loom/target/amdgpu:gfx942",
+    "//loom/target/amdgpu:gfx950",
+    "//loom/target/amdgpu:gfx1100",
+    "//loom/target/amdgpu:gfx1151",
+    "//loom/target/amdgpu:gfx1170",
+    "//loom/target/amdgpu:gfx1200",
+    "//loom/target/amdgpu:gfx1250",
+]
+
 loom_test(
     name = "pipelined_address_domains_test",
     srcs = ["//loom/src/loom/test/corpus/control:schedule/address_domains.loom"],
@@ -76,5 +95,73 @@ loom_test(
 loom_test(
     name = "vector_integer_bitwise_test",
     srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "subgroup_active_predicate_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:subgroup/active_predicate.loom"],
+    compile_targets = _SUBGROUP_COMPILE_TARGETS,
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "subgroup_ballot_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:subgroup/ballot.loom"],
+    compile_targets = _SUBGROUP_COMPILE_TARGETS,
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "subgroup_shuffle_dynamic_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:subgroup/shuffle_dynamic.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "subgroup_shuffle_participation_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:subgroup/shuffle_participation.loom"],
+    compile_targets = _SUBGROUP_TRANSPORT_COMPILE_TARGETS,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "subgroup_transport_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:subgroup/transport.loom"],
+    compile_targets = _SUBGROUP_TRANSPORT_COMPILE_TARGETS,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "subgroup_transport_carrier_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:subgroup/transport_carrier.loom"],
+    compile_targets = _SUBGROUP_TRANSPORT_COMPILE_TARGETS,
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "workgroup_loop_state_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:workgroup/loop_state.loom"],
+    execution_profiles = [
+        AMDGPU_HARDWARE_PROFILE,
+        AMDGPU_ACCESS_PROFILE,
+    ],
+)
+
+loom_test(
+    name = "workgroup_reduce_partial_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:workgroup/reduce_partial.loom"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+)
+
+loom_test(
+    name = "workgroup_reduce_tree_test",
+    srcs = ["//loom/src/loom/test/corpus/kernel:workgroup/reduce_tree.loom"],
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
 )

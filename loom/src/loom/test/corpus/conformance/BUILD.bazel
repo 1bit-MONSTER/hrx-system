@@ -23,9 +23,6 @@ _SCENARIO_CASES = [
     "atomic_float64.loom",
     "half_float_extrema.loom",
     "scalar_float64.loom",
-    "subgroup_shuffle_participation.loom",
-    "subgroup_transport.loom",
-    "subgroup_transport_carrier.loom",
 ]
 
 _CASES = glob(
@@ -34,25 +31,6 @@ _CASES = glob(
 )
 
 exports_files(_CASES + _CONFIGURED_CASES + _SCENARIO_CASES)
-
-loom_test(
-    name = "subgroup_transport_test",
-    srcs = [
-        "subgroup_shuffle_participation.loom",
-        "subgroup_transport.loom",
-        "subgroup_transport_carrier.loom",
-    ],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1100",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
-)
 
 loom_test(
     name = "atomic_float64_test",
@@ -237,38 +215,6 @@ loom_test(
         "//loom/target/amdgpu:gfx1200",
         "//loom/target/amdgpu:gfx1250",
         "//loom/target/spirv:vulkan1.3+bda+extended-types",
-    ],
-    execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
-)
-
-loom_test(
-    name = "subgroup_active_predicate_test",
-    srcs = ["subgroup_active_predicate.loom"],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-    ],
-    execution_profiles = [
-        AMDGPU_HARDWARE_PROFILE,
-        AMDGPU_ACCESS_PROFILE,
-    ],
-)
-
-loom_test(
-    name = "subgroup_ballot_test",
-    srcs = ["subgroup_ballot.loom"],
-    compile_targets = [
-        "//loom/target/amdgpu:gfx942",
-        "//loom/target/amdgpu:gfx950",
-        "//loom/target/amdgpu:gfx1151",
-        "//loom/target/amdgpu:gfx1170",
-        "//loom/target/amdgpu:gfx1200",
-        "//loom/target/amdgpu:gfx1250",
-        "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal",
     ],
     execution_profiles = GPU_HARDWARE_PROFILES + [AMDGPU_ACCESS_PROFILE],
 )

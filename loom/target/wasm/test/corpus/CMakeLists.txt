@@ -16,6 +16,7 @@ loom_corpus_build(
     "numeric"
     "control"
     "memory"
+    "kernel"
     "function"
   PROFILES
     loom::target::wasm::all
@@ -597,6 +598,34 @@ loom_corpus_build(
     "numeric/predicate/truncation.loom"
     "loom::target::wasm::simd128"
     "numeric/vector/packed_selection.loom"
+  EXCLUDES
+    "loom::target::wasm::simd128"
+    "kernel/subgroup/active_predicate.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/subgroup/ballot.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/subgroup/shuffle_dynamic.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/subgroup/shuffle_participation.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/subgroup/transport.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/subgroup/transport_carrier.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/workgroup/loop_state.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/workgroup/reduce_partial.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
+    "kernel/workgroup/reduce_tree.loom"
+    "Wasm has no kernel artifact format."
 )
 
 loom_test_module(

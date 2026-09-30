@@ -10,6 +10,18 @@ load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_
 
 package(default_visibility = ["//visibility:public"])
 
+_KERNEL_EXCLUDES = {
+    "kernel/subgroup/active_predicate.loom": "Wasm has no kernel artifact format.",
+    "kernel/subgroup/ballot.loom": "Wasm has no kernel artifact format.",
+    "kernel/subgroup/shuffle_dynamic.loom": "Wasm has no kernel artifact format.",
+    "kernel/subgroup/shuffle_participation.loom": "Wasm has no kernel artifact format.",
+    "kernel/subgroup/transport.loom": "Wasm has no kernel artifact format.",
+    "kernel/subgroup/transport_carrier.loom": "Wasm has no kernel artifact format.",
+    "kernel/workgroup/loop_state.loom": "Wasm has no kernel artifact format.",
+    "kernel/workgroup/reduce_partial.loom": "Wasm has no kernel artifact format.",
+    "kernel/workgroup/reduce_tree.loom": "Wasm has no kernel artifact format.",
+}
+
 loom_corpus_build(
     name = "all",
     all_roots_xfail = {
@@ -43,6 +55,7 @@ loom_corpus_build(
         ],
     },
     catalog = LOOM_CORPUS,
+    excludes = {"//loom/target/wasm:simd128": _KERNEL_EXCLUDES},
     profiles = ["//loom/target/wasm:all"],
     xfails = {
         "//loom/target/wasm:simd128": {

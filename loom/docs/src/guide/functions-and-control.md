@@ -676,7 +676,7 @@ guard can make a derived inner bound exact in its true region without an
 `index.assume`; its false region only proves a partial tail and cannot safely
 pipeline a convergent loop at depth greater than one from that fact alone.
 
-The [checked collective recurrence](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/conformance/collective_loop_state.loom)
+The [checked collective recurrence](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/test/corpus/kernel/workgroup/loop_state.loom)
 applies one template with serial and pipelined policies. It combines 16-lane
 cluster reductions, workgroup reductions, ragged reads, and a nested runtime
 consumer loop, checking each schedule against independent integer results.

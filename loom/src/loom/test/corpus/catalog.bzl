@@ -9,6 +9,7 @@
 load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_catalog")
 load("//loom/src/loom/test/corpus/control:manifest.bzl", "CONTROL_CORPUS")
 load("//loom/src/loom/test/corpus/function:manifest.bzl", "FUNCTION_CORPUS")
+load("//loom/src/loom/test/corpus/kernel:manifest.bzl", "KERNEL_CORPUS")
 load("//loom/src/loom/test/corpus/memory:manifest.bzl", "MEMORY_CORPUS")
 load("//loom/src/loom/test/corpus/numeric:manifest.bzl", "NUMERIC_CORPUS")
 
@@ -16,5 +17,6 @@ LOOM_CORPUS = loom_corpus_catalog([
     NUMERIC_CORPUS,
     CONTROL_CORPUS,
     MEMORY_CORPUS,
+    KERNEL_CORPUS,
     FUNCTION_CORPUS,
 ])
