@@ -219,6 +219,79 @@ TEST(ConstantArchiveTest, EvaluatesAggregateDefaultsAfterSourceDestruction) {
   }
 }
 
+TEST(ConstantArchiveTest, ExecutesNestedConstructorsAfterSourceDestruction) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(IREE_SV("struct Format {"
+                          "  unsigned elements = 32;"
+                          "  unsigned words = elements / 8;"
+                          "};"
+                          "struct Configuration : Format { Format groups[2]; };"
+                          "constexpr unsigned read(const Format& format) {"
+                          "  return format.words;"
+                          "}"
+                          "constexpr unsigned count(unsigned extra) {"
+                          "  Configuration config = Configuration();"
+                          "  return config.words + read(Format()) +"
+                          "         config.groups[1].words + extra;"
+                          "}"
+                          "struct Matrix { Format groups[2][2]; };"
+                          "constexpr Matrix matrix = Matrix();"),
+                  IREE_SV("configuration.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::ArchiveReader reader;
+  ASSERT_TRUE(reader(bytes)) << reader.error();
+  cxx::SemanticArchiveRoots restored;
+  cxx::SemanticDecoder decoder(&destination.unit());
+  ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+  auto symbols = restored.globalScope->find("count");
+  ASSERT_FALSE(symbols.begin() == symbols.end());
+  auto functions = cxx::views::each_function(*symbols.begin());
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+
+  cxx::ASTInterpreter interpreter(&destination.unit());
+  for (std::intmax_t extra : {16, 32, 64}) {
+    SCOPED_TRACE(extra);
+    auto value = interpreter.evaluateCall(*functions.begin(), {extra});
+    ASSERT_TRUE(value);
+    EXPECT_EQ(std::get<std::intmax_t>(*value), 12 + extra);
+  }
+
+  // Construction retains every element's initialized fields across the archive.
+  auto matrix_symbols = restored.globalScope->find("matrix");
+  ASSERT_FALSE(matrix_symbols.begin() == matrix_symbols.end());
+  auto* matrix = cxx::symbol_cast<cxx::VariableSymbol>(*matrix_symbols.begin());
+  ASSERT_NE(matrix, nullptr);
+  ASSERT_TRUE(matrix->constValue());
+  auto object =
+      std::get<std::shared_ptr<cxx::ConstObject>>(*matrix->constValue());
+  ASSERT_EQ(object->members().size(), 1u);
+  auto rows = std::get<std::shared_ptr<cxx::InitializerList>>(
+      object->members().front().value);
+  ASSERT_EQ(rows->elements.size(), 2u);
+  for (const auto& [row, row_type] : rows->elements) {
+    auto columns = std::get<std::shared_ptr<cxx::InitializerList>>(row);
+    ASSERT_EQ(columns->elements.size(), 2u);
+    for (const auto& [column, column_type] : columns->elements) {
+      auto format = std::get<std::shared_ptr<cxx::ConstObject>>(column);
+      ASSERT_EQ(format->members().size(), 2u);
+      EXPECT_EQ(std::get<std::intmax_t>(format->members()[0].value), 32);
+      EXPECT_EQ(std::get<std::intmax_t>(format->members()[1].value), 4);
+    }
+  }
+}
+
 TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
   loom_cxx_import_options_t options;
   loom_cxx_import_options_initialize(&options);

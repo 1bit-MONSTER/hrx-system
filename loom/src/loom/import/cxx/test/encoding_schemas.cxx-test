@@ -111,3 +111,19 @@ func.def public @two_groups() -> (encoding<schema>) {
   %1 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=64, payload_packing=little_endian_nibbles, payload_registers=8, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
   func.return %1 : encoding<schema>
 }
+
+// ====
+// Value initialization runs defaults inside nested configuration arrays.
+#include <loomcxx/encoding.h>
+struct Configuration {
+  loom::encoding::f4e2m1 groups[2];
+};
+loom::type::encoding<loom::encoding::role::schema> nested_group() {
+  return loom::encoding::define<Configuration().groups[1]>();
+}
+
+// ----
+func.def public @nested_group() -> (encoding<schema>) {
+  %1 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=32, payload_packing=little_endian_nibbles, payload_registers=4, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+  func.return %1 : encoding<schema>
+}
