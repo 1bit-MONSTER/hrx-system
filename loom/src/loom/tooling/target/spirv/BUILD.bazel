@@ -333,7 +333,6 @@ loom_generated_file(
     testonly = True,
     args = [
         "$(location test/multiple_entries.loom)",
-        "--product=kernel",
         "--target=spirv:vulkan1.3+bda",
     ],
     generator = "//loom/src/loom/tools/loom-compile:loom-compile",
@@ -382,7 +381,6 @@ loom_generated_file(
     testonly = True,
     args = [
         "$(location //loom/src/loom/test/corpus/source_low:memory_float8_conversion.loom)",
-        "--product=kernel",
         "--target=spirv:vulkan1.3+bda+extended-types",
     ],
     generator = "//loom/src/loom/tools/loom-compile:loom-compile",

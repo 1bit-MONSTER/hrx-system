@@ -4,15 +4,19 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from argparse import Namespace
 from typing import Any
+from unittest import SkipTest
 
 from loom.importers.check.tilelang import TileLangHarness
+from loom.importers.check.tilelang.backend import TileLangBackend
 from loom.importers.tilelang.analysis import (
     collect_address_layout_preferences,
 )
 
 
 def test_marks_wmma_gfx11_profile_dense_gemm_rhs_shared_layout() -> None:
+    _require_tilelang()
     harness = TileLangHarness()
     T: Any = harness.T
     gemm_kernel = _build_gemm_kernel(T)
@@ -29,6 +33,7 @@ def test_marks_wmma_gfx11_profile_dense_gemm_rhs_shared_layout() -> None:
 
 
 def test_ignores_gemm_variants_outside_current_bridge() -> None:
+    _require_tilelang()
     harness = TileLangHarness()
     T: Any = harness.T
     gemm_kernel = _build_gemm_kernel(T)
@@ -68,3 +73,12 @@ def _build_gemm_kernel(T: Any, *, transpose_b: bool = False) -> Any:
             T.copy(c_local, c)
 
     return gemm_kernel
+
+
+def _require_tilelang() -> None:
+    backend = TileLangBackend()
+    availability = backend.probe()
+    if availability.available:
+        availability = backend.prepare(Namespace())
+    if not availability.available:
+        raise SkipTest(availability.message())

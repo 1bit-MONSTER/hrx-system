@@ -18,10 +18,3 @@ assert_elf() {
 }
 
 assert_elf "${product_root}/elementwise_kernel.hsaco"
-assert_elf "${product_root}/elementwise_command.kernels.hsaco"
-
-command_manifest="${product_root}/elementwise_command.commands.json"
-command_artifacts="${product_root}/elementwise_command.commands"
-grep -q '"format":"loom-command-set"' "${command_manifest}"
-grep -q '"symbol":"elementwise_transform"' "${command_manifest}"
-test "$(find -L "${command_artifacts}" -maxdepth 1 -type f -name '*.loomcmd' | wc -l)" -eq 1

@@ -7,7 +7,6 @@
         "tool": "loom-compile",
         "args": [
           "{srcdir}/wave64_reductions.loom",
-          "--product=kernel",
           "--format=amdgpu-hsaco",
           "--target=amdgpu:gfx1151",
           "--output={tmp}/wave64_reductions.hal",
@@ -57,7 +56,6 @@
         "tool": "loom-compile",
         "args": [
           "{srcdir}/shared_memory_vector_tile.loom",
-          "--product=kernel",
           "--format=amdgpu-hsaco",
           "--target=amdgpu:gfx11-generic",
           "--output={tmp}/shared_memory_vector_tile.hal",
@@ -99,7 +97,6 @@
         "tool": "loom-compile",
         "args": [
           "{srcdir}/cluster_b128_multicast.loom",
-          "--product=kernel",
           "--format=amdgpu-hsaco",
           "--target=amdgpu:gfx1250",
           "--output={tmp}/cluster_b128_multicast.hal",

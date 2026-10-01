@@ -308,35 +308,21 @@ classification state. A request transfers to its recipient as it is published
 and can outlive the producer workspace; the parent operation's terminal result
 determines whether its provisional bindings are committed or cancelled.
 
-## Emit the portable deployment artifacts
+## Build one complete deployment transaction
 
-`loom-compile` plans and serializes selected command roots without binding
-them to one device runtime:
+The public LoomC API plans and serializes selected command roots while
+publishing each live source-backed kernel request. Every request carries its
+exact parent requirement binding, so an embedding can enqueue compilation and
+bind the completed executable without rediscovering correspondence from names
+or files. Bodyless entries publish only binding requirements for executables
+the embedding already owns.
 
-```shell
-loom-compile model.loombc \
-  --root=@two_layer \
-  --format=loom-command \
-  --output=commands.json \
-  --emit-command-artifacts=commands/ \
-  --emit-kernel-requests=kernel-requests/
-```
-
-The manifest maps `@two_layer` to its `.loomcmd` artifact and lists the logical
-kernel entries required by that schedule. The portable artifact contains the
-closed command topology, resource bindings, dispatch counts, and executable
-slots. Each source-backed entry names a `.loombc` request under
-`kernel-requests/`; launch sites whose facts select the same semantic class
-share one request across every selected command root. Each request is an
-ordinary rooted Loom module that can enter the normal target compilation and
-caching workflow. Bodyless entries have no source request and can be supplied
-by an embedding that already owns a compatible executable entry.
-
-In Bazel, [`loom_command_binary`](../workflows/build-with-bazel.md#command-binaries-package-schedules-with-their-kernels)
-performs one selective link and emits the command manifest, `.loomcmd` files,
-and target-specific kernel executable together. Emission stops at the portable
-artifact boundary: loading buffers, binding executables, and issuing the
-schedule remain runtime responsibilities.
+Command construction and kernel request publication are one transaction.
+`loom-compile` deliberately does not expose a command output mode: separate
+invocations could emit bytes for both sides, but could not preserve the exact
+planner-owned correspondence between them. [Parallelize kernel JIT
+compilation](../integration/product-frontier.md) walks the LoomC lifecycle end
+to end.
 
 ## Keep failures in their owning contract
 
@@ -354,8 +340,6 @@ schedule remain runtime responsibilities.
 [Source modules and canonical text](source-modules.md) explains declaration
 and library ownership. [Facts and specialization](facts-and-specialization.md)
 shows how configuration, assumptions, and target facts constrain the values
-used here. [Split command and kernel
-compilation](../workflows/product-frontiers.md) follows local, linked, classified,
-and external kernels through one checked product. [Compile
-artifacts](../workflows/compile-artifacts.md#emit-portable-command-programs)
-covers the public command-line artifact workflow.
+used here. [Parallelize kernel JIT
+compilation](../integration/product-frontier.md) follows local, linked,
+classified, and external kernels through one checked LoomC transaction.

@@ -228,264 +228,67 @@
       }
     },
     {
-      "name": "writes command artifact outputs",
+      "name": "rejects command-program roots",
       "run": {
         "tool": "loom-compile",
         "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands"
-        ]
-      },
-      "files": [
-        {
-          "path": "{tmp}/manifest.json",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/commands/program-0.loomcmd",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/commands/program-1.loomcmd",
-          "non_empty": true
+          "--root=@program",
+          "--output={tmp}/command.bin"
+        ],
+        "stdin": {
+          "text": "command.program.def public @program() launch() {\n  command.return\n}\n"
         }
-      ]
-    },
-    {
-      "name": "writes kernel request outputs",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_kernel_requests.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands",
-          "--emit-kernel-requests={tmp}/requests"
-        ]
-      },
-      "files": [
-        {
-          "path": "{tmp}/requests/kernel-0.loombc",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/requests/kernel-1.loombc",
-          "non_empty": true
-        }
-      ]
-    },
-    {
-      "name": "selects a command root",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--root=@increment_then_double",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands"
-        ]
-      },
-      "files": [
-        {
-          "path": "{tmp}/commands/program-0.loomcmd",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/commands/program-1.loomcmd",
-          "exists": false
-        }
-      ]
-    },
-    {
-      "name": "runs a named pipeline over a selected command root",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--root=@increment_then_double",
-          "--pipeline=@debug",
-          "--output={tmp}/named-pipeline-manifest.json",
-          "--emit-command-artifacts={tmp}/named-pipeline-commands"
-        ]
-      },
-      "files": [
-        {
-          "path": "{tmp}/named-pipeline-commands/program-0.loomcmd",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/named-pipeline-commands/program-1.loomcmd",
-          "exists": false
-        }
-      ]
-    },
-    {
-      "name": "runs a flat pipeline over a selected command root",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--root=@increment_then_double",
-          "--pipeline=canonicalize",
-          "--output={tmp}/flat-pipeline-manifest.json",
-          "--emit-command-artifacts={tmp}/flat-pipeline-commands"
-        ]
-      },
-      "files": [
-        {
-          "path": "{tmp}/flat-pipeline-commands/program-0.loomcmd",
-          "non_empty": true
-        },
-        {
-          "path": "{tmp}/flat-pipeline-commands/program-1.loomcmd",
-          "exists": false
-        }
-      ]
-    },
-    {
-      "name": "rejects an unknown explicit command pipeline",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--root=@increment_then_double",
-          "--pipeline=not-a-pass",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands"
-        ]
       },
       "exit": 1,
       "stderr": {
-        "contains": ["unknown pass 'not-a-pass' at pipeline entry 0"]
+        "contains": ["command-program roots require loomc_cmd_program_product_build"]
       },
       "files": [
         {
-          "path": "{tmp}/manifest.json",
+          "path": "{tmp}/command.bin",
           "exists": false
         }
       ]
     },
     {
-      "name": "preserves command root order and duplicates",
+      "name": "rejects mixed inputs containing command programs",
       "run": {
         "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--root=@increment_then_double",
-          "--root=@increment_once",
-          "--root=@increment_then_double",
-          "--output={tmp}/ordered-manifest.json",
-          "--emit-command-artifacts={tmp}/ordered-commands"
-        ]
+        "args": ["--output={tmp}/mixed.bin"],
+        "stdin": {
+          "text": "kernel.def @kernel() {\n  %one = index.constant 1 : index\n  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index\n} launch() {\n  kernel.return\n}\ncommand.program.def public @program() launch() {\n  command.return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": ["mixed default entry categories"]
       },
       "files": [
         {
-          "path": "{tmp}/ordered-manifest.json",
-          "contains": [
-            "\"symbol\":\"increment_then_double\"",
-            "\"symbol\":\"increment_once\"",
-            "\"symbol\":\"increment_then_double\""
-          ]
-        },
-        {
-          "path": "{tmp}/ordered-commands/program-2.loomcmd",
-          "non_empty": true
+          "path": "{tmp}/mixed.bin",
+          "exists": false
         }
       ]
     },
     {
-      "name": "requires command artifact directory",
+      "name": "rejects mixed kernel and module inputs",
       "run": {
         "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json"
-        ]
+        "args": ["--output={tmp}/mixed-kernel-module.bin"],
+        "stdin": {
+          "text": "kernel.def @kernel() {\n  %one = index.constant 1 : index\n  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index\n} launch() {\n  kernel.return\n}\nfunc.def public @function() {\n  func.return\n}\n"
+        }
       },
-      "exit": {
-        "nonzero": true
-      },
+      "exit": 1,
       "stderr": {
-        "contains": [
-          "format 'loom-command' requires --emit-command-artifacts=<directory>"
-        ]
-      }
-    },
-    {
-      "name": "requires a filesystem command artifact directory",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts=-"
-        ]
+        "contains": ["mixed default entry categories"]
       },
-      "exit": {
-        "nonzero": true
-      },
-      "stderr": {
-        "contains": [
-          "format 'loom-command' requires --emit-command-artifacts=<directory>"
-        ]
-      }
-    },
-    {
-      "name": "requires a filesystem kernel request directory",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--product=command",
-          "--format=loom-command",
-          "--output={tmp}/manifest.json",
-          "--emit-command-artifacts={tmp}/commands",
-          "--emit-kernel-requests=-"
-        ]
-      },
-      "exit": {
-        "nonzero": true
-      },
-      "stderr": {
-        "contains": [
-          "--emit-kernel-requests requires a filesystem directory"
-        ]
-      }
-    },
-    {
-      "name": "rejects the removed backend flag",
-      "run": {
-        "tool": "loom-compile",
-        "args": [
-          "{srcdir}/testdata/command_artifacts.loom",
-          "--backend=command",
-          "--output={tmp}/manifest.json"
-        ]
-      },
-      "exit": {
-        "nonzero": true
-      },
-      "stderr": {
-        "contains": ["flag 'backend' not recognized"]
-      }
+      "files": [
+        {
+          "path": "{tmp}/mixed-kernel-module.bin",
+          "exists": false
+        }
+      ]
     }
   ]
 }

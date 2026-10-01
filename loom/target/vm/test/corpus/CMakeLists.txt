@@ -20,6 +20,14 @@ loom_corpus_build(
     "function"
   PROFILES
     loom::target::vm::all
+  XFAILS
+    "loom::target::vm::all"
+    "memory/atomic/float64.loom"
+    "@atomic_f64_values"
+    "TARGET/003"
+  ALL_ROOTS_XFAIL
+    "loom::target::vm::all"
+    "memory/atomic/float64.loom"
   EXCLUDES
     "loom::target::vm::all"
     "control/branch/cfg.loom"
@@ -145,7 +153,7 @@ loom_corpus_build(
     "memory/atomic/add_f32_subnormals.loom"
     "VM has no kernel artifact format."
     "loom::target::vm::all"
-    "memory/atomic/float64.loom"
+    "memory/atomic/float64_contention.loom"
     "VM has no kernel artifact format."
     "loom::target::vm::all"
     "memory/atomic/float_bitwise.loom"
@@ -402,7 +410,7 @@ loom_corpus_test(
     "VM has no kernel artifact format."
     "memory/atomic/add_f32_subnormals.loom"
     "VM has no kernel artifact format."
-    "memory/atomic/float64.loom"
+    "memory/atomic/float64_contention.loom"
     "VM has no kernel artifact format."
     "memory/atomic/float_bitwise.loom"
     "VM has no kernel artifact format."
@@ -510,6 +518,13 @@ loom_corpus_test(
     "VM has no kernel artifact format."
     "numeric/vector/integer_widening.loom"
     "VM has no kernel artifact format."
+  XFAILS
+    "memory/atomic/float64.loom"
+    "@atomic_f64_random_values"
+    "TARGET/003"
+    "memory/atomic/float64.loom"
+    "@atomic_f64_special_values"
+    "TARGET/003"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"

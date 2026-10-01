@@ -74,6 +74,21 @@ bool HasInstruction(const std::vector<Instruction>& instructions,
   return false;
 }
 
+bool HasExtension(const std::vector<Instruction>& instructions,
+                  const std::string& extension_name) {
+  for (const Instruction& instruction : instructions) {
+    if (instruction.opcode != LOOM_SPIRV_OP_EXTENSION) {
+      continue;
+    }
+    iree_host_size_t next_operand_index = 0;
+    if (DecodeStringOperand(instruction.operands, 0, &next_operand_index) ==
+        extension_name) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const Instruction* FindInstruction(const std::vector<Instruction>& instructions,
                                    uint16_t opcode,
                                    std::initializer_list<uint32_t> prefix) {
@@ -643,6 +658,37 @@ TEST(SpirvModuleBuilderTest, EmitsTransitiveSubgroupBallotCapabilities) {
   EXPECT_TRUE(HasInstruction(instructions, LOOM_SPIRV_OP_CAPABILITY,
                              {LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT}));
 
+  loom_spirv_module_binary_deinitialize(&module, iree_allocator_system());
+}
+
+TEST(SpirvModuleBuilderTest, EmitsFloatControlsOnlyWhenRequired) {
+  loom_spirv_module_builder_t builder;
+  IREE_ASSERT_OK(loom_spirv_module_builder_initialize(
+      &loom_spirv_low_target_bundle_extended_types, iree_allocator_system(),
+      &builder));
+
+  loom_spirv_module_binary_t module;
+  IREE_ASSERT_OK(loom_spirv_module_builder_finalize(&builder, &module));
+  loom_spirv_module_builder_deinitialize(&builder);
+
+  std::vector<Instruction> instructions = ParseInstructions(module);
+  EXPECT_FALSE(HasInstruction(instructions, LOOM_SPIRV_OP_CAPABILITY,
+                              {LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE}));
+  EXPECT_FALSE(HasExtension(instructions, "SPV_KHR_float_controls"));
+  loom_spirv_module_binary_deinitialize(&module, iree_allocator_system());
+
+  IREE_ASSERT_OK(loom_spirv_module_builder_initialize(
+      &loom_spirv_low_target_bundle_extended_types, iree_allocator_system(),
+      &builder));
+  loom_spirv_module_builder_require_feature_bits(
+      &builder, LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE);
+  IREE_ASSERT_OK(loom_spirv_module_builder_finalize(&builder, &module));
+  loom_spirv_module_builder_deinitialize(&builder);
+
+  instructions = ParseInstructions(module);
+  EXPECT_TRUE(HasInstruction(instructions, LOOM_SPIRV_OP_CAPABILITY,
+                             {LOOM_SPIRV_CAPABILITY_DENORM_PRESERVE}));
+  EXPECT_TRUE(HasExtension(instructions, "SPV_KHR_float_controls"));
   loom_spirv_module_binary_deinitialize(&module, iree_allocator_system());
 }
 

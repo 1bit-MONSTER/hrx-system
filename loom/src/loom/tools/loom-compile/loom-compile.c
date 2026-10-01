@@ -19,7 +19,6 @@
 #include "loom/ir/module.h"
 #include "loom/pass/pipeline_snapshot.h"
 #include "loom/sanitizer/options.h"
-#include "loom/target/arch/cmd/artifact_set.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/reporting/artifact_manifest.h"
 #include "loom/tooling/cli/help.h"
@@ -32,8 +31,6 @@
 #include "loom/tooling/io/file.h"
 #include "loom/tooling/io/source_path.h"
 #include "loom/tooling/pass/trace_cli.h"
-#include "loom/tools/loom-compile/command_backend.h"
-#include "loom/tools/loom-compile/command_manifest.h"
 #include "loom/verify/verify.h"
 
 typedef struct loom_compile_diagnostic_sink_t {
@@ -85,35 +82,30 @@ static iree_status_t loom_compile_diagnostic_sink(
   return status;
 }
 
-IREE_FLAG(string, product, "",
-          "Optional product: 'kernel', 'command', or 'module'. With explicit "
-          "--root values this validates their inferred product. With no "
-          "roots this selects the complete default root set for a command or "
-          "kernel product, or the whole module for a module product.");
 IREE_FLAG(string, format, "",
           "Optional exact artifact format, such as 'amdgpu-hsaco', "
-          "'spirv', 'loom-command', or 'wasm-binary'. Omit this to "
-          "select the canonical format for the inferred product and target.");
+          "'spirv', or 'wasm-binary'. Omit this to "
+          "select the canonical format for the selected entries and target.");
 IREE_FLAG(string, target, "",
           "Optional compilation target in family:selector form, such as "
           "'amdgpu:gfx11-generic' or 'spirv:vulkan1.3+bda'. Selects the exact "
           "profile for kernel entries or the public/retained functions of a "
           "module and their callees. Authored targets remain compatibility "
           "requirements; target-free source needs no target attributes.");
-IREE_FLAG_LIST(string, root,
-               "Root symbol to materialize before compilation. Repeat for "
-               "multiple roots. Roots must infer one homogeneous product. "
-               "When omitted, --product derives selection from the module; "
-               "without either, public or retained command programs take "
-               "precedence, then kernel entries and public or retained "
-               "kernel-scoped pipelines or array programs, then the whole "
-               "module.");
+IREE_FLAG_LIST(
+    string, root,
+    "Root symbol to materialize before compilation. Repeat for "
+    "multiple roots. Roots must have one homogeneous entry category. "
+    "When omitted, the module must have at most one category of "
+    "default entries; mixed categories require explicit roots. "
+    "Command-program roots require the LoomC command-program "
+    "transaction.");
 IREE_FLAG_LIST_NAMED(
     string, exclude_root, "exclude-root",
     "Member of the selected default root set to omit before target "
     "specialization and dependency materialization. Repeat for multiple "
-    "roots. Product inference occurs before exclusions are applied. Cannot "
-    "be combined with --root.");
+    "roots. Entry category inference occurs before exclusions are applied. "
+    "Cannot be combined with --root.");
 IREE_FLAG(string, pipeline, "default",
           "Pass pipeline to run before artifact emission. Use 'default' or "
           "empty for the selected format's default compile pipeline. 'none' "
@@ -137,21 +129,11 @@ IREE_FLAG_LIST_NAMED(
     "JSON/JSONC config object file. Repeat for multiple files. Nested object "
     "keys are flattened with '.' separators.");
 IREE_FLAG(string, output, "-",
-          "Output path for the selected format. For 'loom-command' this is "
-          "the command artifact-set manifest; single-file kernel and module "
-          "formats write their artifact directly.");
+          "Output path for the selected single-file kernel or module format.");
 IREE_FLAG_NAMED(
     string, emit_target_artifact, "emit-target-artifact", "",
     "Optional output path for a target-native artifact produced beside the "
     "primary runtime artifact, such as AMDGPU HSACO.");
-IREE_FLAG_NAMED(
-    string, emit_command_artifacts, "emit-command-artifacts", "",
-    "Directory receiving portable roots for the 'loom-command' format. The "
-    "primary --output is the artifact-set manifest.");
-IREE_FLAG_NAMED(
-    string, emit_kernel_requests, "emit-kernel-requests", "",
-    "Optional directory receiving independently compilable Loom bytecode "
-    "kernel requests for the 'loom-command' format.");
 IREE_FLAG_NAMED(
     string, compile_report, "compile-report", "",
     "Optional compile report output. Use 'summary'/'details' for structured "
@@ -584,47 +566,6 @@ static void loom_compile_record_terminal_report_status(
   }
 }
 
-static iree_status_t loom_compile_emit_command(
-    loom_run_session_t* session, loom_run_module_t* run_module,
-    const loom_compile_request_t* request,
-    const loom_compile_options_t* compile_options,
-    loom_compile_report_capture_t* compile_report_capture,
-    iree_allocator_t allocator, bool* out_emitted) {
-  loom_compile_diagnostic_sink_t diagnostic_sink = {
-      .run_module = run_module,
-      .compile_report_capture = compile_report_capture,
-  };
-  loom_low_descriptor_text_print_context_initialize(
-      &loom_run_session_low_descriptor_registry(session)->registry,
-      &diagnostic_sink.type_print_context);
-
-  if (compile_options->report != NULL) {
-    compile_options->report->artifact_kind =
-        LOOM_TARGET_COMPILE_ARTIFACT_KIND_TARGET_ARTIFACT;
-    compile_options->report->backend_name = IREE_SV("command");
-    compile_options->report->artifact_format =
-        IREE_SV(LOOM_COMPILE_COMMAND_MANIFEST_FORMAT);
-  }
-  return loom_compile_command_backend_emit(
-      session, run_module,
-      &(loom_compile_command_backend_options_t){
-          .root_symbols = request->selection.roots,
-          .artifact_directory =
-              iree_make_cstring_view(FLAG_emit_command_artifacts),
-          .kernel_request_directory =
-              iree_make_cstring_view(FLAG_emit_kernel_requests),
-          .manifest_path = iree_make_cstring_view(FLAG_output),
-          .diagnostic_sink =
-              {
-                  .fn = loom_compile_diagnostic_sink,
-                  .user_data = &diagnostic_sink,
-              },
-          .source_resolver = compile_options->source_resolver,
-          .max_errors = compile_options->max_errors,
-      },
-      out_emitted, allocator);
-}
-
 static iree_status_t loom_compile_validate_artifact_output_paths(
     iree_string_view_t output_path, iree_string_view_t target_artifact_path,
     iree_string_view_t artifact_manifest_output_path) {
@@ -673,14 +614,14 @@ static iree_status_t loom_compile_emit_target(
   const iree_string_view_t target_artifact_path =
       iree_make_cstring_view(FLAG_emit_target_artifact);
   if (!iree_string_view_is_empty(target_artifact_path) &&
-      compile_request->selection.product != LOOM_COMPILE_PRODUCT_KERNEL) {
+      compile_request->selection.kind != LOOM_COMPILE_ENTRY_KIND_KERNEL) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "--emit-target-artifact is only valid for loadable kernel formats");
   }
   if (compile_options->artifact_manifest.mode !=
           LOOM_TARGET_ARTIFACT_MANIFEST_MODE_NONE &&
-      compile_request->selection.product != LOOM_COMPILE_PRODUCT_KERNEL) {
+      compile_request->selection.kind != LOOM_COMPILE_ENTRY_KIND_KERNEL) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "--artifact-manifest is only valid for loadable kernel formats");
@@ -765,47 +706,6 @@ static iree_status_t loom_compile_emit_target(
   return status;
 }
 
-static iree_status_t loom_compile_validate_request_flags(
-    const loom_compile_request_t* request) {
-  const iree_string_view_t command_artifact_directory =
-      iree_make_cstring_view(FLAG_emit_command_artifacts);
-  const iree_string_view_t kernel_request_directory =
-      iree_make_cstring_view(FLAG_emit_kernel_requests);
-  if (!loom_compile_request_is_command(request)) {
-    if (!iree_string_view_is_empty(command_artifact_directory)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "--emit-command-artifacts requires product 'command'");
-    }
-    if (!iree_string_view_is_empty(kernel_request_directory)) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "--emit-kernel-requests requires "
-                              "product 'command'");
-    }
-    return iree_ok_status();
-  }
-
-  if (iree_string_view_is_empty(command_artifact_directory) ||
-      loom_tooling_file_path_is_stdio(command_artifact_directory)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "format 'loom-command' requires "
-                            "--emit-command-artifacts=<directory>");
-  }
-  if (!iree_string_view_is_empty(
-          iree_make_cstring_view(FLAG_emit_target_artifact))) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "--emit-target-artifact is only valid for loadable kernel formats");
-  }
-  if (!iree_string_view_is_empty(kernel_request_directory) &&
-      loom_tooling_file_path_is_stdio(kernel_request_directory)) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "--emit-kernel-requests requires a filesystem directory");
-  }
-  return iree_ok_status();
-}
-
 static iree_status_t loom_compile_materialize_module(
     const loom_target_environment_t* target_environment,
     loom_run_session_t* session, loom_run_module_t* run_module,
@@ -867,11 +767,6 @@ static void loom_compile_print_agents_markdown(FILE* stream) {
       "  --target=amdgpu:gfx1151 --config=model.hidden_size=4096 \\",
       "  --output=entry.hsaco",
       "",
-      "# Emit a portable command program and its kernel requests.",
-      "loom-compile program.loom --product=command \\",
-      "  --output=commands.json --emit-command-artifacts=commands/ \\",
-      "  --emit-kernel-requests=kernel-requests/",
-      "",
       "# Emit SPIR-V or WebAssembly from source that declares its target.",
       "loom-compile kernel.loom --format=spirv --output=kernel.spv",
       "loom-compile functions.loom --format=wasm-binary "
@@ -917,11 +812,7 @@ int main(int argc, char** argv) {
       "Compiles a Loom module to a runtime artifact.\n"
       "\n"
       "Usage:\n"
-      "  loom-compile [file.loom] --product=command "
-      "--output=commands.json --emit-command-artifacts=commands/ "
-      "[--emit-kernel-requests=kernels/]\n"
-      "  loom-compile [file.loom] --product=kernel "
-      "--format=amdgpu-hsaco "
+      "  loom-compile [file.loom] --format=amdgpu-hsaco "
       "--target=amdgpu:gfx11-generic --output=kernel.hsaco\n"
       "  loom-compile --agents_md\n"
       "\n"
@@ -1003,7 +894,6 @@ int main(int argc, char** argv) {
   if (iree_status_is_ok(status)) {
     const loom_compile_request_options_t request_options = {
         .roots = FLAG_root_list(),
-        .product = iree_make_cstring_view(FLAG_product),
         .format = iree_make_cstring_view(FLAG_format),
         .target = iree_make_cstring_view(FLAG_target),
         .excluded_roots = FLAG_exclude_root_list(),
@@ -1012,9 +902,6 @@ int main(int argc, char** argv) {
         loom_compile_request_resolve(run_module.module, &request_options,
                                      compile_environment->target_environment,
                                      &run_module.sources.arena, &request);
-    if (iree_status_is_ok(status)) {
-      status = loom_compile_validate_request_flags(&request);
-    }
   }
   const iree_string_view_t pipeline = iree_make_cstring_view(FLAG_pipeline);
   const bool has_named_pipeline = loom_compile_pipeline_is_named(pipeline);
@@ -1023,18 +910,14 @@ int main(int argc, char** argv) {
         run_module.module, pipeline, IREE_SV("__loom_compile_pipeline"),
         loom_run_session_block_pool(&session), allocator, &pipeline_snapshot);
   }
-  // Default command planning selectively materializes from the indexed source.
-  // Explicit pipelines still run over the selected linked closure.
-  const bool run_eager_pipeline = !loom_compile_request_is_command(&request) ||
-                                  !loom_compile_pipeline_is_default(pipeline);
-  if (iree_status_is_ok(status) && run_eager_pipeline) {
+  if (iree_status_is_ok(status)) {
     status = loom_compile_materialize_module(
         compile_environment->target_environment, &session, &run_module,
         &request, &compile_report_capture, &target_specializations);
   }
   if (iree_status_is_ok(status)) {
     const bool is_loadable_kernel_format =
-        request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL;
+        request.selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL;
     status = loom_compile_artifact_manifest_options_initialize(
         &artifact_manifest_options, is_loadable_kernel_format, allocator,
         &artifact_manifest_output_path, &artifact_manifest_output_path_storage);
@@ -1044,7 +927,7 @@ int main(int argc, char** argv) {
   loom_compile_options_initialize(&compile_options);
   loom_compile_pipeline_result_t pipeline_result = {0};
   compile_options.artifact_manifest = artifact_manifest_options;
-  if (iree_status_is_ok(status) && !loom_compile_request_is_command(&request)) {
+  if (iree_status_is_ok(status)) {
     compile_options.target_pipeline_options =
         request.target_emitter->default_pipeline_options;
   }
@@ -1099,14 +982,12 @@ int main(int argc, char** argv) {
     }
   }
   if (iree_status_is_ok(status)) {
-    if (run_eager_pipeline) {
-      status = loom_compile_run_pass_pipeline(
-          compile_environment->target_environment, &session, &run_module,
-          has_named_pipeline ? &pipeline_snapshot : NULL,
-          LOOM_COMPILE_DEFAULT_PIPELINE_PREPARED_LOW, target_specializations,
-          &compile_options, &compile_report_capture,
-          loom_tooling_pass_trace_options(&pass_trace), &pipeline_result);
-    }
+    status = loom_compile_run_pass_pipeline(
+        compile_environment->target_environment, &session, &run_module,
+        has_named_pipeline ? &pipeline_snapshot : NULL,
+        LOOM_COMPILE_DEFAULT_PIPELINE_PREPARED_LOW, target_specializations,
+        &compile_options, &compile_report_capture,
+        loom_tooling_pass_trace_options(&pass_trace), &pipeline_result);
     status =
         iree_status_join(status, loom_tooling_pass_trace_close(&pass_trace));
     if (iree_status_is_ok(status) && pipeline_result.pass.error_count != 0) {
@@ -1118,23 +999,16 @@ int main(int argc, char** argv) {
     }
     compile_options.function_versions = &pipeline_result.function_versions.list;
   }
-  if (iree_status_is_ok(status) && exit_code == 0 &&
-      !loom_compile_request_is_command(&request)) {
+  if (iree_status_is_ok(status) && exit_code == 0) {
     status =
         loom_tooling_config_require_resolved_module(run_module.module, NULL);
   }
 
   if (iree_status_is_ok(status) && exit_code == 0) {
-    if (loom_compile_request_is_command(&request)) {
-      status = loom_compile_emit_command(
-          &session, &run_module, &request, &compile_options,
-          &compile_report_capture, allocator, &emitted);
-    } else {
-      status = loom_compile_emit_target(
-          compile_environment->target_environment, &session,
-          request.target_emitter, &request, &run_module, &compile_options,
-          allocator, artifact_manifest_output_path, &emitted);
-    }
+    status = loom_compile_emit_target(
+        compile_environment->target_environment, &session,
+        request.target_emitter, &request, &run_module, &compile_options,
+        allocator, artifact_manifest_output_path, &emitted);
   }
   if (iree_status_is_ok(status) && exit_code == 0 && !emitted) {
     if (compile_options.report != NULL) {

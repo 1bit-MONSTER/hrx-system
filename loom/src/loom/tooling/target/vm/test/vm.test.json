@@ -378,7 +378,7 @@
           "name": "compile",
           "run": {
             "tool": "loom-compile",
-            "args": ["{srcdir}/module.loom", "--product=module", "--exclude-root=swap", "--target=vm:core", "--output={tmp}/excluded.vm"]
+            "args": ["{srcdir}/module.loom", "--exclude-root=swap", "--target=vm:core", "--output={tmp}/excluded.vm"]
           }
         },
         {

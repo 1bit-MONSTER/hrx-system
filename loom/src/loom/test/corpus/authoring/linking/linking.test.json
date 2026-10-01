@@ -115,7 +115,6 @@
             "tool": "loom-compile",
             "args": [
               "{tmp}/linked.loombc",
-              "--product=kernel",
               "--format=amdgpu-hsaco",
               "--target=amdgpu:gfx1100",
               "--output={tmp}/scale_i32.hal",

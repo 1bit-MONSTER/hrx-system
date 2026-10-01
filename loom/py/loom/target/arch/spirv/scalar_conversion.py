@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.arch.spirv.scalar_alu import (
     BFLOAT16_SCALAR_TYPE,
     FLOAT_SCALAR_ALU_TYPES,
@@ -42,6 +43,7 @@ class ScalarConversion:
     opcode: str
     source_type: ScalarAluType
     result_type: ScalarAluType
+    feature_atoms: tuple[str, ...] = ()
 
     @property
     def key(self) -> str:
@@ -56,7 +58,11 @@ class ScalarConversion:
 
     @property
     def feature_bits(self) -> int:
-        return self.source_type.feature_bits | self.result_type.feature_bits
+        return (
+            self.source_type.feature_bits
+            | self.result_type.feature_bits
+            | feature_bits_value(self.feature_atoms)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +281,7 @@ DIRECT_SCALAR_CONVERSIONS = (
         opcode="LOOM_SPIRV_OP_F_CONVERT",
         source_type=BFLOAT16_SCALAR_TYPE,
         result_type=_FLOAT32_SCALAR_TYPE,
+        feature_atoms=("float32_denorm_preserve",),
     ),
     ScalarConversion(
         source_op_key="fptrunc",

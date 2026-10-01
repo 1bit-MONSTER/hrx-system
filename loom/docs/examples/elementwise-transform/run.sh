@@ -64,18 +64,8 @@ loom_example_run_tool loom-compile "${loom_compile}" \
   --dump-ir-after=low-select-operand-forms \
   --dump-ir-output="${output_dir}/elementwise-transform-gfx11.loom"
 
-loom_example_section "Materialize the portable command program"
-loom_example_run_tool loom-compile "${loom_compile}" \
-  "${output_dir}/elementwise-transform.loom" \
-  --format=loom-command \
-  --root=@elementwise_transform \
-  --output="${output_dir}/elementwise-transform.commands.json" \
-  --emit-command-artifacts="${output_dir}/elementwise-transform.commands"
-
 loom_example_section "Artifacts"
 printf '  %s\n' \
   "${output_dir}/elementwise-transform.loom" \
   "${output_dir}/elementwise-transform-gfx11.loom" \
-  "${output_dir}/elementwise-transform.hsaco" \
-  "${output_dir}/elementwise-transform.commands.json" \
-  "${output_dir}/elementwise-transform.commands/program-0.loomcmd"
+  "${output_dir}/elementwise-transform.hsaco"

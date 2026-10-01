@@ -9,60 +9,12 @@
 
 iree_add_all_subdirs()
 
-loom_cc_library(
-  NAME
-    command_manifest
-  HDRS
-    "command_manifest.h"
-  SRCS
-    "command_manifest.c"
-  DEPS
-    iree::base
-    loom::target::arch::cmd::artifact_set
-    loom::util::json
-    loom::util::stream
-  PUBLIC
-)
-
-loom_cc_library(
-  NAME
-    command_backend
-  HDRS
-    "command_backend.h"
-  SRCS
-    "command_backend.c"
-  DEPS
-    ::command_manifest
-    iree::base
-    iree::base::internal::arena
-    iree::io::stream
-    loom::codegen::low::repr
-    loom::error::diagnostic
-    loom::error::source
-    loom::format::bytecode::writer
-    loom::format::low_repr
-    loom::link::materialization_environment
-    loom::link::module_index
-    loom::pass::builtin_registry
-    loom::target::arch::cmd::artifact_builder
-    loom::target::arch::cmd::artifact_set
-    loom::target::entry_selection
-    loom::tooling::execution::session
-    loom::tooling::io::file
-    loom::transforms::kernel::kernel_class_materializer
-    loom::transforms::kernel::kernel_request_producer
-    loom::util::stream
-  PUBLIC
-)
-
 loom_cc_binary(
   NAME
     loom-compile
   SRCS
     "loom-compile.c"
   DEPS
-    ::command_backend
-    ::command_manifest
     iree::base
     iree::base::tooling::flags
     iree::io::file_handle
@@ -73,7 +25,6 @@ loom_cc_binary(
     loom::ir
     loom::pass::pipeline_snapshot
     loom::sanitizer::options
-    loom::target::arch::cmd::artifact_set
     loom::target::entry_selection
     loom::target::low_descriptor_registry
     loom::target::reporting::artifact_manifest
@@ -91,20 +42,6 @@ loom_cc_binary(
     loom::verify
 )
 
-loom_cc_test(
-  NAME
-    command_manifest_test
-  SRCS
-    "command_manifest_test.cc"
-  DEPS
-    ::command_manifest
-    iree::base
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::target::arch::cmd::artifact_set
-    loom::util::stream
-)
-
 iree_execution_test_suite(
   NAME
     execution_test
@@ -113,8 +50,6 @@ iree_execution_test_suite(
   TOOLS
     "loom-compile=::loom-compile"
   DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/command_artifacts.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/command_kernel_requests.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tools/loom-compile/testdata/resident_xdna.loom"
   LABELS
     "hostonly"

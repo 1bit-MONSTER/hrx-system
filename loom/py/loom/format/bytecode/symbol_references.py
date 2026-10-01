@@ -47,6 +47,40 @@ SYMBOL_INTERFACE_BITS = {
     "pipeline": 1 << 13,
 }
 
+SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT = 14
+SYMBOL_REFERENCE_CONTRACT_ROLE_MASK = 0x3 << SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT
+
+_SYMBOL_REFERENCE_ROLE_BITS = {
+    SymbolReferenceRole.DEPENDENCY: 0,
+    SymbolReferenceRole.ORACLE_DEPENDENCY: 2,
+}
+
+
+def symbol_reference_dependency_contract(
+    target_interfaces: int, role: SymbolReferenceRole
+) -> int:
+    """Packs one durable dependency contract."""
+    try:
+        role_bits = _SYMBOL_REFERENCE_ROLE_BITS[role]
+    except KeyError as exc:
+        raise ValueError(f"{role.value} references are not dependencies") from exc
+    return target_interfaces | (role_bits << SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT)
+
+
+def symbol_reference_dependency_contract_parts(contract: int) -> tuple[int, int]:
+    """Validates and unpacks one durable dependency contract."""
+    contract_mask = (
+        (1 << SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT) - 1
+    ) | SYMBOL_REFERENCE_CONTRACT_ROLE_MASK
+    if contract & ~contract_mask:
+        raise ValueError(f"dependency contract has unknown bits {contract:#x}")
+    role_bits = (
+        contract & SYMBOL_REFERENCE_CONTRACT_ROLE_MASK
+    ) >> SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT
+    if role_bits not in _SYMBOL_REFERENCE_ROLE_BITS.values():
+        raise ValueError(f"unknown dependency role {role_bits}")
+    return contract & ((1 << SYMBOL_REFERENCE_CONTRACT_ROLE_SHIFT) - 1), role_bits
+
 
 @dataclass(frozen=True, slots=True)
 class _SymbolReferenceSourceScope:
@@ -68,6 +102,12 @@ class _SymbolReferenceRecord:
     target_symbol_index: int
     # Required interface flags; zero carries no interface restriction.
     target_interfaces: int = 0
+    # Reachability and independent-oracle role of this dependency.
+    role: SymbolReferenceRole = SymbolReferenceRole.DEPENDENCY
+
+    @property
+    def contract(self) -> int:
+        return symbol_reference_dependency_contract(self.target_interfaces, self.role)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +118,8 @@ class _SymbolReferenceTarget:
     symbol_index: int
     # Interfaces required by the owning descriptor.
     interfaces: int
+    # Reachability and independent-oracle role of this dependency.
+    role: SymbolReferenceRole
 
 
 type _SymbolReferenceSummary = (
@@ -153,7 +195,9 @@ class SymbolReferenceProjectionBuilder:
             ):
                 return (), ()
             interfaces = 0
+            role = SymbolReferenceRole.DEPENDENCY
             if symbol_ref is not None:
+                role = symbol_ref.role
                 for interface in symbol_ref.interfaces:
                     interfaces |= SYMBOL_INTERFACE_BITS[interface]
             targets = []
@@ -162,7 +206,7 @@ class SymbolReferenceProjectionBuilder:
                     target = self._wire_symbol_indices[str(name)]
                 except KeyError as exc:
                     raise ValueError(f"unresolved symbol dependency {name!r}") from exc
-                targets.append(_SymbolReferenceTarget(target, interfaces))
+                targets.append(_SymbolReferenceTarget(target, interfaces, role))
             return self._compact(tuple(targets)), ()
         children = ()
         match value:
@@ -254,6 +298,7 @@ class SymbolReferenceProjectionBuilder:
                     source_root_region_index_plus_one=source_scope.root_region_index_plus_one,
                     target_symbol_index=summary.symbol_index,
                     target_interfaces=summary.interfaces,
+                    role=summary.role,
                 )
                 if source_scope.symbol_index is None:
                     self._module_dependencies.append(record)

@@ -54,7 +54,7 @@ _KERNEL_SOURCES = [
     "memory/atomic/add_f32_subnormals.loom",
     "memory/atomic/float_bitwise.loom",
     "memory/atomic/float_extrema.loom",
-    "memory/atomic/float64.loom",
+    "memory/atomic/float64_contention.loom",
     "memory/atomic/global_add_f32.loom",
     "memory/atomic/i32.loom",
     "memory/atomic/i64.loom",
@@ -115,9 +115,15 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
 
 loom_corpus_build(
     name = "all",
+    all_roots_xfail = {"//loom/target/vm:all": ["memory/atomic/float64.loom"]},
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/vm:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
     profiles = ["//loom/target/vm:all"],
+    xfails = {
+        "//loom/target/vm:all": {
+            "memory/atomic/float64.loom:@atomic_f64_values": "TARGET/003",
+        },
+    },
 )
 
 loom_corpus_test(
@@ -125,4 +131,10 @@ loom_corpus_test(
     catalog = LOOM_CORPUS,
     excludes = _NO_KERNEL_ARTIFACT_EXCLUDES,
     execution_profiles = [VM_REFERENCE_PROFILE],
+    xfails = {
+        VM_REFERENCE_PROFILE.name: {
+            "memory/atomic/float64.loom:@atomic_f64_random_values": "TARGET/003",
+            "memory/atomic/float64.loom:@atomic_f64_special_values": "TARGET/003",
+        },
+    },
 )

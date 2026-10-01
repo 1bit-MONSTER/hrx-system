@@ -1,0 +1,107 @@
+// Subnormal addition gives consecutive raw-bit tickets, including a carry into
+// the upper word. Sixty-five active lanes cross both wave32 and wave64 boundaries.
+kernel.def @contended_atomic_f64() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %width = index.constant 128 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%storage: buffer, %output: buffer, %workgroup_output: buffer, %summary: buffer, %initial: i64) {
+  %lane = kernel.workitem.id<x> : index
+  %group = kernel.workgroup.id<x> : index
+  %origin = index.constant 0 : index
+  %base = index.constant 0 : offset
+  %bytes = index.constant 32 : offset
+  %global = buffer.assume.memory_space<global> %storage : buffer
+  %generic = buffer.assume.memory_space<generic> %storage : buffer
+  %global_view = buffer.view %global[%base] : buffer -> view<4xf64>
+  %generic_view = buffer.view %generic[%base] : buffer -> view<4xf64>
+  %scratch = buffer.alloca<workgroup> align(8) %bytes : buffer
+  %cells = buffer.view %scratch[%base] : buffer -> view<4xi64>
+  %workgroup_view = buffer.view %scratch[%base] : buffer -> view<4xf64>
+  %tickets = buffer.view %output[%base] : buffer -> view<2x130xi64>
+  %workgroup_tickets = buffer.view %workgroup_output[%base] : buffer -> view<2x65xi64>
+  %summaries = buffer.view %summary[%base] : buffer -> view<2x4xi64>
+  %leader = index.cmp eq, %lane, %origin : index
+  scf.if %leader {
+    view.store %initial, %cells[0] : i64, view<4xi64>
+    view.store %initial, %cells[1] : i64, view<4xi64>
+    view.store %initial, %cells[2] : i64, view<4xi64>
+    view.store %initial, %cells[3] : i64, view<4xi64>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %active_count = index.constant 65 : index
+  %active = index.cmp ult, %lane, %active_count : index
+  scf.if %active {
+    %increment_bits = scalar.constant 1 : i64
+    %increment = scalar.bitcast %increment_bits : i64 to f64
+    %global_old = view.atomic.rmw<addf, noftz> %increment, %global_view[1] {ordering = relaxed, scope = device} : f64, view<4xf64> -> f64
+    %global_bits = scalar.bitcast %global_old : f64 to i64
+    %global_distance = scalar.subi %global_bits, %initial : i64
+    %global_bounded = scalar.assume %global_distance [range(%global_distance, 0, 129)] : i64
+    %global_slot = index.cast %global_bounded : i64 to index
+    view.store %global_bits, %tickets[0, %global_slot] : i64, view<2x130xi64>
+    %generic_old = view.atomic.rmw<addf, noftz> %increment, %generic_view[2] {ordering = relaxed, scope = system} : f64, view<4xf64> -> f64
+    %generic_bits = scalar.bitcast %generic_old : f64 to i64
+    %generic_distance = scalar.subi %generic_bits, %initial : i64
+    %generic_bounded = scalar.assume %generic_distance [range(%generic_distance, 0, 129)] : i64
+    %generic_slot = index.cast %generic_bounded : i64 to index
+    view.store %generic_bits, %tickets[1, %generic_slot] : i64, view<2x130xi64>
+    %workgroup_old = view.atomic.rmw<addf, noftz> %increment, %workgroup_view[1] {ordering = relaxed, scope = workgroup} : f64, view<4xf64> -> f64
+    %workgroup_bits = scalar.bitcast %workgroup_old : f64 to i64
+    %workgroup_distance = scalar.subi %workgroup_bits, %initial : i64
+    %workgroup_bounded = scalar.assume %workgroup_distance [range(%workgroup_distance, 0, 64)] : i64
+    %workgroup_slot = index.cast %workgroup_bounded : i64 to index
+    view.store %workgroup_bits, %workgroup_tickets[%group, %workgroup_slot] : i64, view<2x65xi64>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  scf.if %leader {
+    %cell_0 = view.load %cells[0] : view<4xi64> -> i64
+    view.store %cell_0, %summaries[%group, 0] : i64, view<2x4xi64>
+    %cell_1 = view.load %cells[1] : view<4xi64> -> i64
+    view.store %cell_1, %summaries[%group, 1] : i64, view<2x4xi64>
+    %cell_2 = view.load %cells[2] : view<4xi64> -> i64
+    view.store %cell_2, %summaries[%group, 2] : i64, view<2x4xi64>
+    %cell_3 = view.load %cells[3] : view<4xi64> -> i64
+    view.store %cell_3, %summaries[%group, 3] : i64, view<2x4xi64>
+  }
+  kernel.return
+}
+
+check.case public @contended_atomic_f64_values {
+  %initial = check.literal value(4294967290) : i64
+  %storage = check.generate.fill value(4294967290) : tensor<4xi64>
+  %output = check.generate.fill value(-1) : tensor<2x130xi64>
+  %workgroup_output = check.generate.fill value(-1) : tensor<2x65xi64>
+  %summary = check.generate.fill value(-1) : tensor<8xi64>
+  kernel.launch @contended_atomic_f64(%storage, %output, %workgroup_output, %summary, %initial) : (tensor<4xi64>, tensor<2x130xi64>, tensor<2x65xi64>, tensor<8xi64>, i64)
+  %expected_tickets = check.generate.iota offset(4294967290) step(1) period(130) : tensor<2x130xi64>
+  check.expect.bitwise actual(%output) expected(%expected_tickets) : tensor<2x130xi64>
+  %expected_workgroup_tickets = check.generate.iota offset(4294967290) step(1) period(65) : tensor<2x65xi64>
+  check.expect.bitwise actual(%workgroup_output) expected(%expected_workgroup_tickets) : tensor<2x65xi64>
+  %counters = check.tensor.view %storage offset(8) : tensor<4xi64> -> tensor<2xi64>
+  %expected_counters = check.generate.fill value(4294967420) : tensor<2xi64>
+  check.expect.bitwise actual(%counters) expected(%expected_counters) : tensor<2xi64>
+  %expected_guard = check.generate.fill value(4294967290) : tensor<1xi64>
+  %before = check.tensor.view %storage offset(0) : tensor<4xi64> -> tensor<1xi64>
+  %after = check.tensor.view %storage offset(24) : tensor<4xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%before) expected(%expected_guard) : tensor<1xi64>
+  check.expect.bitwise actual(%after) expected(%expected_guard) : tensor<1xi64>
+  %expected_workgroup_counter = check.generate.fill value(4294967355) : tensor<1xi64>
+  %summary_0_0 = check.tensor.view %summary offset(0) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_0_0) expected(%expected_guard) : tensor<1xi64>
+  %summary_0_1 = check.tensor.view %summary offset(8) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_0_1) expected(%expected_workgroup_counter) : tensor<1xi64>
+  %summary_0_2 = check.tensor.view %summary offset(16) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_0_2) expected(%expected_guard) : tensor<1xi64>
+  %summary_0_3 = check.tensor.view %summary offset(24) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_0_3) expected(%expected_guard) : tensor<1xi64>
+  %summary_1_0 = check.tensor.view %summary offset(32) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_1_0) expected(%expected_guard) : tensor<1xi64>
+  %summary_1_1 = check.tensor.view %summary offset(40) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_1_1) expected(%expected_workgroup_counter) : tensor<1xi64>
+  %summary_1_2 = check.tensor.view %summary offset(48) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_1_2) expected(%expected_guard) : tensor<1xi64>
+  %summary_1_3 = check.tensor.view %summary offset(56) : tensor<8xi64> -> tensor<1xi64>
+  check.expect.bitwise actual(%summary_1_3) expected(%expected_guard) : tensor<1xi64>
+  check.return
+}

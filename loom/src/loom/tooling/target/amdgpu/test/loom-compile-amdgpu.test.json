@@ -113,7 +113,6 @@
             "tool": "loom-compile",
             "args": [
               "{srcdir}/selected_root_amdgpu.loom",
-              "--product=kernel",
               "--format=amdgpu-hsaco",
               "--root=@selected_store_i32",
               "--target=amdgpu:gfx1151",
@@ -164,7 +163,6 @@
         "tool": "loom-compile",
         "args": [
           "{srcdir}/selected_root_amdgpu.loom",
-          "--product=kernel",
           "--exclude-root=configured_targetless_store_i32",
           "--target=amdgpu:gfx1151",
           "--format=amdgpu-hsaco",

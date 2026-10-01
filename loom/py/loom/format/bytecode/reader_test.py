@@ -583,7 +583,7 @@ class TestMalformedSymbolReferences:
         with pytest.raises(BytecodeError, match="source root region index"):
             read_module(bytes(data))
 
-    def test_dependency_target_interfaces_must_be_known(self) -> None:
+    def test_dependency_role_must_contribute_to_reachability(self) -> None:
         module = Module(name="test")
         _make_func(module, "target", [], is_declaration=True)
         _make_func(
@@ -624,7 +624,7 @@ class TestMalformedSymbolReferences:
             SYMBOL_INTERFACE_FLAG_MASK + 1,
         )
 
-        with pytest.raises(BytecodeError, match="target interfaces"):
+        with pytest.raises(BytecodeError, match="dependency contract"):
             read_module(bytes(data))
 
 

@@ -224,14 +224,6 @@ iree_status_t loom_check_execute_compile(
     status = loom_compile_request_resolve(
         input.module, &request_options,
         options->environment->target_environment, &arena, &request);
-    if (iree_status_is_ok(status) &&
-        loom_compile_request_is_command(&request)) {
-      status = iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "compiler qualification requires a kernel or module product; "
-          "command artifact sets require the loom-compile publication "
-          "workflow");
-    }
     if (iree_status_is_ok(status)) {
       pipeline_options.target_pipeline_options =
           request.target_emitter->default_pipeline_options;
@@ -240,7 +232,7 @@ iree_status_t loom_check_execute_compile(
   }
   if (iree_status_is_ok(status) && input.module != NULL &&
       collector.error_count == 0) {
-    if (request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL) {
+    if (request.selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL) {
       // Testbench launches are independent deployment units. Compiling their
       // roots separately also preserves targets with per-artifact dispatch
       // ABIs.

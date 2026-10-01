@@ -1061,13 +1061,14 @@ static iree_status_t loom_link_plan_expand_module_dependencies(
     loom_link_plan_live_cause_t cause) {
   const uint32_t count = module->dependencies.root_count;
   const uint32_t* dependencies = module->dependencies.values;
-  const loom_symbol_interface_flags_t* target_interfaces =
-      module->dependencies.target_interfaces;
+  const loom_symbol_reference_contract_t* contracts =
+      module->dependencies.contracts;
   for (uint32_t i = 0; i < count; ++i) {
     IREE_ASSERT_EQ(module->dependencies.source_root_region_indices_plus_one[i],
                    0);
     IREE_RETURN_IF_ERROR(loom_link_plan_select_dependency_target(
-        plan, options, module, dependencies[i], target_interfaces[i], cause));
+        plan, options, module, dependencies[i],
+        loom_symbol_reference_contract_interfaces(contracts[i]), cause));
   }
   return iree_ok_status();
 }
@@ -1082,8 +1083,8 @@ static iree_status_t loom_link_plan_expand_symbol_facet_dependencies(
   }
   const uint32_t first = symbol->dependencies.first;
   const uint32_t* dependencies = module->dependencies.values + first;
-  const loom_symbol_interface_flags_t* target_interfaces =
-      module->dependencies.target_interfaces + first;
+  const loom_symbol_reference_contract_t* contracts =
+      module->dependencies.contracts + first;
   for (uint32_t i = 0; i < symbol->dependencies.count; ++i) {
     const uint8_t source_root_region_index_plus_one =
         module->dependencies.source_root_region_indices_plus_one[first + i];
@@ -1095,7 +1096,8 @@ static iree_status_t loom_link_plan_expand_symbol_facet_dependencies(
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_link_plan_select_dependency_target(
-        plan, options, module, dependencies[i], target_interfaces[i], cause));
+        plan, options, module, dependencies[i],
+        loom_symbol_reference_contract_interfaces(contracts[i]), cause));
   }
   return iree_ok_status();
 }
@@ -1194,8 +1196,8 @@ static iree_status_t loom_link_plan_expand_complete_symbol(
     const uint32_t dependency_first = symbol->dependencies.first;
     const uint32_t* dependencies =
         module->dependencies.values + dependency_first;
-    const loom_symbol_interface_flags_t* target_interfaces =
-        module->dependencies.target_interfaces + dependency_first;
+    const loom_symbol_reference_contract_t* contracts =
+        module->dependencies.contracts + dependency_first;
     for (uint32_t i = 0; i < symbol->dependencies.count; ++i) {
       const uint8_t source_root_region_index_plus_one =
           module->dependencies
@@ -1208,7 +1210,8 @@ static iree_status_t loom_link_plan_expand_complete_symbol(
           loom_link_plan_facet_dependency_cause(plan, symbol_plan_ordinal,
                                                 source_kind);
       IREE_RETURN_IF_ERROR(loom_link_plan_select_dependency_target(
-          plan, options, module, dependencies[i], target_interfaces[i], cause));
+          plan, options, module, dependencies[i],
+          loom_symbol_reference_contract_interfaces(contracts[i]), cause));
     }
   }
 
@@ -1517,16 +1520,23 @@ static iree_status_t loom_link_plan_select_input_tests(
           continue;
         }
 
-        // A stripped input test still defines the deployable subjects owned by
-        // that test. Promote its direct non-test callables to roots so they
-        // retain private identity through compilation while their transitive
-        // callees remain ordinary internal dependencies.
+        // A stripped input test still defines its deployable target subjects.
+        // Promote direct non-test callables except independent oracle-profile
+        // dependencies so target subjects retain private identity while their
+        // transitive callees remain ordinary internal dependencies.
         const uint32_t dependency_first = symbol->dependencies.first;
         for (uint32_t dependency_index = 0;
              dependency_index < symbol->dependencies.count;
              ++dependency_index) {
           const uint32_t target_symbol_id =
               module->dependencies.values[dependency_first + dependency_index];
+          const loom_symbol_reference_role_t dependency_role =
+              loom_symbol_reference_contract_role(
+                  module->dependencies
+                      .contracts[dependency_first + dependency_index]);
+          if (dependency_role == LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY) {
+            continue;
+          }
           IREE_ASSERT_LT(target_symbol_id, module->symbol_count);
           const loom_link_module_index_symbol_t* target =
               loom_link_module_index_symbol_at(
