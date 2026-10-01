@@ -30,8 +30,13 @@ struct loom_low_schedule_alias_pressure_record_t {
   uint64_t current_live_units;
   // Live-unit delta projected for the candidate being scored.
   int64_t candidate_delta_units;
-  // Units created during the candidate's Early phase.
-  uint64_t candidate_early_added_units;
+  // Candidate instruction-phase overlap in the shared register namespace.
+  struct {
+    // Result storage created before ordinary input reads complete.
+    uint64_t early_added_units;
+    // Dying input units retained through result writes.
+    uint64_t late_released_units;
+  } candidate_lifetime;
   // Block-local headroom required by aligned contiguous values.
   uint32_t packing_reserve_units;
   // Mutable loom_low_schedule_alias_pressure_flag_bits_e bits.

@@ -473,16 +473,17 @@ uint32_t loom_low_schedule_pressure_alias_candidate_result_units(
   return alias_units;
 }
 
-uint32_t loom_low_schedule_pressure_alias_candidate_transfer_from_source(
+loom_low_schedule_pressure_alias_transfer_t
+loom_low_schedule_pressure_alias_candidate_transfer_from_source(
     const loom_low_schedule_build_state_t* state,
     const loom_low_schedule_pressure_state_t* pressure_state,
     loom_value_ordinal_t source_ordinal) {
   const loom_low_schedule_pressure_alias_state_t* alias_state =
       &pressure_state->storage_aliases;
+  loom_low_schedule_pressure_alias_transfer_t transfer = {0};
   if (alias_state->source_heads == NULL) {
-    return 0;
+    return transfer;
   }
-  uint32_t transfer_units = 0;
   for (uint32_t relation_index = alias_state->source_heads[source_ordinal];
        relation_index != LOOM_LOW_SCHEDULE_NODE_NONE;) {
     const loom_low_schedule_pressure_alias_record_t* record =
@@ -502,12 +503,16 @@ uint32_t loom_low_schedule_pressure_alias_candidate_transfer_from_source(
                         result->live_unit_count <=
                             result->unit_count - record->unit_count,
                     "alias units must fit result pressure units");
-        transfer_units += record->unit_count;
+        transfer.live_units += record->unit_count;
+      } else if (iree_any_bit_set(
+                     result->flags,
+                     LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_LATE_READ)) {
+        transfer.late_units += record->unit_count;
       }
     }
     relation_index = next_relation_index;
   }
-  return transfer_units;
+  return transfer;
 }
 
 uint32_t loom_low_schedule_pressure_alias_append_scheduled_result(

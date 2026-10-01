@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 50u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 51u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -170,6 +170,9 @@ typedef uint8_t loom_low_reg_class_alt_flags_t;
 #define LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE ((uint8_t)1u << 1)
 // Alternative is legal only after physical register assignment.
 #define LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY ((uint8_t)1u << 2)
+// Input storage remains live through result writes in the alternative's
+// selected execution mode. Other register alternatives retain ordinary timing.
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ ((uint8_t)1u << 3)
 
 // Bitset of register-class flags.
 typedef uint16_t loom_low_reg_class_flags_t;
@@ -504,6 +507,8 @@ typedef uint16_t loom_low_descriptor_flags_t;
 // the assigned state. Repeating an identical assignment without an intervening
 // clobber is redundant; the first assignment remains an architectural effect.
 #define LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT ((uint16_t)1u << 11)
+// At least one input register alternative may read through result writes.
+#define LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ ((uint16_t)1u << 12)
 
 // Target-neutral semantic classes attached to generated low descriptors.
 // Multiple classes may be present when a packet contributes to several
@@ -742,9 +747,12 @@ typedef struct loom_low_reg_class_alt_t {
   // permits any base. Literals and explicit physical-register IDs use zero;
   // explicit classes express legality through their declared register views.
   uint8_t unit_alignment_log2;
+  // Selected subgroup width requiring late reads, or zero for every mode.
+  // Only meaningful with LATE_READ; ordinary alternatives store zero.
+  uint16_t late_read_subgroup_size;
 } loom_low_reg_class_alt_t;
 
-static_assert(sizeof(loom_low_reg_class_alt_t) == 6,
+static_assert(sizeof(loom_low_reg_class_alt_t) == 8,
               "low register-class alternative rows must remain compact");
 
 typedef struct loom_low_operand_t {
@@ -1765,6 +1773,15 @@ const loom_low_descriptor_set_t* loom_low_descriptor_registry_lookup_by_id(
 iree_string_view_t loom_low_descriptor_set_string(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_string_ref_t string_ref);
+
+// Returns whether this input's selected register alternative remains live
+// through result writes. |subgroup_size| is the function's effective execution
+// width, or zero for a representation without subgroup execution. The operand
+// and register class are from a verified packet.
+bool loom_low_operand_reads_after_write(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_operand_t* operand, uint16_t reg_class_id,
+    uint32_t subgroup_size);
 
 // Looks up a descriptor-set-local register class by stable register-class name.
 // |out_descriptor_register_class| may be NULL when only the dense descriptor ID

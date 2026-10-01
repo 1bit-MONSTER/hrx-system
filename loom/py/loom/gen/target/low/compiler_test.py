@@ -11,6 +11,8 @@ import pytest
 
 from loom.gen.target.low import compiler
 from loom.target.low_descriptors import (
+    Constraint,
+    ConstraintKind,
     DescriptorFlag,
     EncodingFieldValue,
     EnumDomain,
@@ -116,6 +118,44 @@ def test_immediate_alternative_has_no_register_alignment() -> None:
     operand = replace(base.operands[1], reg_alts=(RegClassAlt(None, (RegClassAltFlag.IMMEDIATE,), unit_alignment=2),))
     descriptor = replace(base, operands=(base.operands[0], operand, *base.operands[2:]))
     with pytest.raises(ValueError, match="immediate alternative cannot require register alignment"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_late_read_alternative_is_interned_with_its_execution_mode() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operands = tuple(replace(operand, reg_alts=(replace(operand.reg_alts[0], late_read_subgroup_size=width),)) for operand, width in zip(base.operands, (None, 0, 64), strict=True))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=operands),)))
+    assert [(RegClassAltFlag.LATE_READ in row[2], row[4]) for row in compiled.reg_class_alts] == [(False, 0), (True, 0), (True, 64)]
+    assert DescriptorFlag.LATE_READ in compiled.descriptors[0].flags
+
+
+@pytest.mark.parametrize("width", [-1, 65536])
+def test_late_read_subgroup_size_is_representable(width) -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[1]
+    operand = replace(operand, reg_alts=(replace(operand.reg_alts[0], late_read_subgroup_size=width),))
+    descriptor = replace(base, operands=(base.operands[0], operand, base.operands[2]))
+    with pytest.raises(ValueError, match="late-read subgroup size"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+@pytest.mark.parametrize("operand_index", [0, 1])
+def test_late_read_requires_a_register_input(operand_index) -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[operand_index]
+    alternative = replace(operand.reg_alts[0], late_read_subgroup_size=0) if operand_index == 0 else RegClassAlt(None, (RegClassAltFlag.IMMEDIATE,), late_read_subgroup_size=0)
+    operands = list(base.operands)
+    operands[operand_index] = replace(operand, reg_alts=(alternative,))
+    with pytest.raises(ValueError, match="late read requires an explicit register input"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=tuple(operands)),)))
+
+
+def test_late_read_cannot_be_tied_to_a_result() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = base.operands[1]
+    operand = replace(operand, reg_alts=(replace(operand.reg_alts[0], late_read_subgroup_size=0),))
+    descriptor = replace(base, operands=(base.operands[0], operand, base.operands[2]), constraints=(Constraint(ConstraintKind.TIED, 0, 1),))
+    with pytest.raises(ValueError, match="late read cannot share a tied result"):
         compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
 
 

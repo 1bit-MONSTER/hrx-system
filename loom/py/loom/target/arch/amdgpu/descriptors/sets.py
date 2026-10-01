@@ -995,9 +995,46 @@ def _gfx9_4_generic_core_overlay_descriptors(
     )
 
 
+def _with_rdna_wave64_source_lifetimes(
+    overlays: tuple[AmdgpuDescriptorOverlay, ...],
+) -> tuple[AmdgpuDescriptorOverlay, ...]:
+    # These instructions write a lane mask in each of wave64's two passes.
+    # Uniform data is read again in the second pass; vector data and carry
+    # predicates are lane-local. Readlane/readfirstlane execute only once.
+    mask_writers = frozenset(
+        ("V_ADD_CO_U32", "V_ADD_CO_CI_U32", "V_SUB_CO_U32", "V_SUB_CO_CI_U32")
+    )
+    return tuple(
+        replace(
+            overlay,
+            operands=tuple(
+                replace(
+                    row,
+                    descriptor_operand=replace(
+                        row.descriptor_operand,
+                        reg_alts=tuple(
+                            replace(alternative, late_read_subgroup_size=64)
+                            if alternative.reg_class == _REG_SGPR
+                            else alternative
+                            for alternative in row.descriptor_operand.reg_alts
+                        ),
+                    ),
+                )
+                if row.descriptor_operand.role is OperandRole.OPERAND
+                else row
+                for row in overlay.operands
+            ),
+        )
+        if overlay.instruction_name in mask_writers
+        or overlay.instruction_name.startswith("V_CMP_")
+        else overlay
+        for overlay in overlays
+    )
+
+
 @cache
 def _gfx11_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
-    return (
+    overlays = (
         _s_add_u32_overlay(),
         _s_add_co_u32_overlay(),
         _s_add_co_u32_rhs_inline_overlay(),
@@ -1522,6 +1559,7 @@ def _gfx11_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         _s_waitcnt_depctr_overlay(),
         _s_wait_idle_overlay(),
     )
+    return _with_rdna_wave64_source_lifetimes(overlays)
 
 
 def _gfx11_core_overlay_descriptors(
@@ -1534,7 +1572,7 @@ def _gfx11_core_overlay_descriptors(
 
 @cache
 def _gfx115x_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
-    return (
+    overlays = (
         *_gfx11_core_overlays(),
         *_s_float_arithmetic_overlays(),
         *_s_float_compare_overlays(),
@@ -1544,6 +1582,7 @@ def _gfx115x_core_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
         *_rdna35_dpp8_f32_uniform_rhs_overlays(),
         *_rdna35_dpp_integer_compare_uniform_rhs_overlays(),
     )
+    return _with_rdna_wave64_source_lifetimes(overlays)
 
 
 def _gfx115x_core_overlay_descriptors(
@@ -1830,7 +1869,7 @@ def _rdna4m_core_overlay_descriptors(
 def _rdna4_core_overlays(
     *, include_f64_atomic_arithmetic: bool = False
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
-    return (
+    overlays = (
         *(
             _v_commutative_binary_vop3_float_overlay(
                 descriptor_key=f"amdgpu.v_{operation}_f{bit_width}",
@@ -2260,6 +2299,7 @@ def _rdna4_core_overlays(
         _s_wait_alu_overlay(),
         _s_wait_idle_overlay(),
     )
+    return _with_rdna_wave64_source_lifetimes(overlays)
 
 
 @cache

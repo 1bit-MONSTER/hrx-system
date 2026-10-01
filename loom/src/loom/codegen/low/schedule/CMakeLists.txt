@@ -141,6 +141,8 @@ loom_cc_library(
     "pressure.h"
     "pressure_alias.c"
     "pressure_alias.h"
+    "pressure_lifetime.c"
+    "pressure_lifetime.h"
     "pressure_priority.c"
     "ready_policy.c"
     "ready_policy.h"

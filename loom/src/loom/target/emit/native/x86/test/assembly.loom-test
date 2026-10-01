@@ -1073,7 +1073,7 @@ low.func.def target<x86.scalar.core> @compare_alias(%input: reg<x86.gpr32>) -> (
 
 // ====
 
-// Conditional subtraction retains its input through the early result write.
+// Conditional subtraction retains its input through the result write.
 // RUN: emit x86-asm @conditional_subtract fixed=%input:physical_register:0:1 fixed=%result:physical_register:0:1
 
 low.func.def target<x86.scalar.core> @conditional_subtract(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {

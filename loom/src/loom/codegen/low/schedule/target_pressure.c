@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "iree/base/internal/math.h"
+#include "loom/codegen/low/schedule/pressure_lifetime.h"
 #include "loom/target/residency.h"
 
 static uint64_t loom_low_schedule_project_live_units(
@@ -225,21 +226,22 @@ static void loom_low_schedule_score_candidate_pressure_cliffs(
 static void loom_low_schedule_score_candidate_pressure_limit(
     loom_low_schedule_candidate_score_t* score, uint16_t reg_class_id,
     uint32_t limit_units, uint64_t current_live_units, int64_t delta_units,
-    uint64_t early_added_units, uint32_t packing_reserve_units,
+    uint64_t transient_added_units, uint32_t packing_reserve_units,
     uint32_t unspillable_activation_units, bool is_unspillable) {
   if (limit_units == UINT32_MAX) {
     return;
   }
-  if (current_live_units == 0 && delta_units == 0 && early_added_units == 0) {
+  if (current_live_units == 0 && delta_units == 0 &&
+      transient_added_units == 0) {
     return;
   }
   const uint64_t projected_live_units =
       loom_low_schedule_project_live_units(current_live_units, delta_units);
   uint64_t candidate_live_units = projected_live_units;
-  if (early_added_units != 0) {
+  if (transient_added_units != 0) {
     candidate_live_units = iree_max(
-        candidate_live_units,
-        iree_math_saturating_add_u64(current_live_units, early_added_units));
+        candidate_live_units, iree_math_saturating_add_u64(
+                                  current_live_units, transient_added_units));
   }
   if (is_unspillable && candidate_live_units > limit_units &&
       candidate_live_units > current_live_units) {
@@ -309,10 +311,14 @@ static void loom_low_schedule_score_candidate_pressure_limit_for_class(
       pressure_state->candidate_delta_touched_flags[reg_class_id]
           ? pressure_state->candidate_delta_units_by_reg_class[reg_class_id]
           : 0;
-  const uint64_t early_added_units =
+  const uint64_t transient_added_units =
       pressure_state->candidate_delta_touched_flags[reg_class_id]
-          ? pressure_state
-                ->candidate_early_added_units_by_reg_class[reg_class_id]
+          ? loom_low_schedule_pressure_lifetime_transient_growth(
+                delta_units,
+                pressure_state->candidate_lifetime
+                    .early_added_units[reg_class_id],
+                pressure_state->candidate_lifetime
+                    .late_released_units[reg_class_id])
           : 0;
   const uint16_t completion_domain_id =
       loom_low_schedule_unspillable_completion_domain_id(state, reg_class_id);
@@ -325,7 +331,7 @@ static void loom_low_schedule_score_candidate_pressure_limit_for_class(
   loom_low_schedule_score_candidate_pressure_limit(
       score, reg_class_id, state->pressure_limits.by_reg_class[reg_class_id],
       pressure_state->current_live_units_by_reg_class[reg_class_id],
-      delta_units, early_added_units,
+      delta_units, transient_added_units,
       pressure_state->packing_reserve_units_by_reg_class[reg_class_id],
       unspillable_activation_units,
       iree_all_bits_set(
@@ -353,8 +359,11 @@ static void loom_low_schedule_score_candidate_pressure_limit_for_alias_set(
       score, reg_class_id,
       state->pressure_limits.alias_sets[alias_set_id].live_unit_limit,
       record->current_live_units, record->candidate_delta_units,
-      record->candidate_early_added_units, record->packing_reserve_units,
-      unspillable_activation_units,
+      loom_low_schedule_pressure_lifetime_transient_growth(
+          record->candidate_delta_units,
+          record->candidate_lifetime.early_added_units,
+          record->candidate_lifetime.late_released_units),
+      record->packing_reserve_units, unspillable_activation_units,
       state->pressure_limits.alias_sets[alias_set_id].all_classes_unspillable);
 }
 
@@ -830,14 +839,17 @@ static uint64_t loom_low_schedule_target_pressure_unspillable_transaction_units(
       state->target.descriptor_set->reg_classes[reg_class_id].alias_set_id;
   uint64_t current_live_units = 0;
   int64_t candidate_delta_units = 0;
-  uint64_t candidate_early_added_units = 0;
+  uint64_t candidate_transient_added_units = 0;
   uint32_t packing_reserve_units = 0;
   if (alias_set_id != 0) {
     const loom_low_schedule_alias_pressure_record_t* record =
         &pressure_state->alias_sets.records[alias_set_id];
     current_live_units = record->current_live_units;
     candidate_delta_units = record->candidate_delta_units;
-    candidate_early_added_units = record->candidate_early_added_units;
+    candidate_transient_added_units =
+        loom_low_schedule_pressure_lifetime_transient_growth(
+            candidate_delta_units, record->candidate_lifetime.early_added_units,
+            record->candidate_lifetime.late_released_units);
     packing_reserve_units = record->packing_reserve_units;
   } else {
     current_live_units =
@@ -845,9 +857,13 @@ static uint64_t loom_low_schedule_target_pressure_unspillable_transaction_units(
     if (pressure_state->candidate_delta_touched_flags[reg_class_id]) {
       candidate_delta_units =
           pressure_state->candidate_delta_units_by_reg_class[reg_class_id];
-      candidate_early_added_units =
-          pressure_state
-              ->candidate_early_added_units_by_reg_class[reg_class_id];
+      candidate_transient_added_units =
+          loom_low_schedule_pressure_lifetime_transient_growth(
+              candidate_delta_units,
+              pressure_state->candidate_lifetime
+                  .early_added_units[reg_class_id],
+              pressure_state->candidate_lifetime
+                  .late_released_units[reg_class_id]);
     }
     packing_reserve_units =
         pressure_state->packing_reserve_units_by_reg_class[reg_class_id];
@@ -857,7 +873,7 @@ static uint64_t loom_low_schedule_target_pressure_unspillable_transaction_units(
   const uint64_t candidate_live_units =
       iree_max(projected_live_units,
                iree_math_saturating_add_u64(current_live_units,
-                                            candidate_early_added_units));
+                                            candidate_transient_added_units));
   const uint32_t activation_units =
       pressure_state
           ->candidate_unspillable_activation_units[completion_domain_id];
@@ -962,6 +978,7 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
     uint64_t current_units = 0;
     uint64_t persistent_units = 0;
     uint64_t early_required_units = 0;
+    uint64_t write_required_units = 0;
     const uint16_t member_end = resource->member_start + resource->member_count;
     for (uint16_t member_index = resource->member_start;
          member_index < member_end; ++member_index) {
@@ -975,6 +992,7 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
                                                           member);
       uint64_t persistent_contribution = current_contribution;
       uint64_t early_required_contribution = current_contribution;
+      uint64_t write_required_contribution = current_contribution;
       if (pressure_state->candidate_delta_touched_flags[reg_class_id]) {
         const uint64_t projected_live_units =
             loom_low_schedule_project_live_units(
@@ -983,13 +1001,18 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
                     ->candidate_delta_units_by_reg_class[reg_class_id]);
         const uint64_t early_live_units = iree_math_saturating_add_u64(
             current_live_units,
-            pressure_state
-                ->candidate_early_added_units_by_reg_class[reg_class_id]);
+            pressure_state->candidate_lifetime.early_added_units[reg_class_id]);
+        const uint64_t write_live_units = iree_math_saturating_add_u64(
+            projected_live_units, pressure_state->candidate_lifetime
+                                      .late_released_units[reg_class_id]);
         persistent_contribution =
             loom_low_schedule_register_packing_contribution(
                 projected_live_units, member);
         early_required_contribution =
             loom_low_schedule_register_packing_contribution(early_live_units,
+                                                            member);
+        write_required_contribution =
+            loom_low_schedule_register_packing_contribution(write_live_units,
                                                             member);
       }
       current_units =
@@ -998,6 +1021,8 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
                                                       persistent_contribution);
       early_required_units = iree_math_saturating_add_u64(
           early_required_units, early_required_contribution);
+      write_required_units = iree_math_saturating_add_u64(
+          write_required_units, write_required_contribution);
     }
     const uint64_t activation_units =
         pressure_state
@@ -1006,8 +1031,8 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
         iree_math_saturating_add_u64(persistent_units, activation_units);
     // Compare complete phases: summing per-member peaks would count killed
     // inputs together with ordinary results that can reuse their storage.
-    const uint64_t required_units =
-        iree_max(early_required_units, activated_units);
+    const uint64_t required_units = iree_max(
+        iree_max(early_required_units, write_required_units), activated_units);
     const bool has_aggregate_member =
         loom_low_schedule_register_packing_resource_has_aggregate_member(
             descriptor_set, resource);

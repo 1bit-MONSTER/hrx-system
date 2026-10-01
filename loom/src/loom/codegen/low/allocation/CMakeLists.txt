@@ -838,6 +838,7 @@ loom_cc_library(
     loom::codegen::low::target_binding
     loom::ir
     loom::ops::low
+    loom::target::registers
     loom::util::adaptive_sort
     loom::util::cfg_graph
   PUBLIC

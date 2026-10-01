@@ -1,0 +1,1174 @@
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_u32_uniform_lhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_u32_uniform_rhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_u32_vector_only_gfx1100_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_ci_u32_vector_only_gfx1100_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_u32_vector_only_gfx1100_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx1100_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1100_wave64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_ci_u32_vector_only_gfx1100_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_lhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_rhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_vector_only_gfx1151_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_vector_only_gfx1151_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_vector_only_gfx1151_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx1151_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1151_wave64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_vector_only_gfx1151_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_u32_uniform_lhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_u32_uniform_rhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_u32_vector_only_gfx1170_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_ci_u32_vector_only_gfx1170_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_u32_vector_only_gfx1170_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx1170_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1170_wave64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_ci_u32_vector_only_gfx1170_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_u32_uniform_lhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_u32_uniform_rhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_u32_vector_only_gfx1200_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_ci_u32_vector_only_gfx1200_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[2:3], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_u32_vector_only_gfx1200_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx1200_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[2:3], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1200_wave64 strategy=source
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_ci_u32_vector_only_gfx1200_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_lhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_rhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_vector_only_gfx1151_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_vector_only_gfx1151_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_vector_only_gfx1151_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx1151_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1151_wave32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_vector_only_gfx1151_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_u32_uniform_lhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_u32_uniform_rhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_u32_vector_only_gfx942_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_addc_co_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_addc_co_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_addc_co_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_addc_co_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_ci_u32_vector_only_gfx942_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_addc_co_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_addc_co_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_u32_uniform_lhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_u32_uniform_rhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_u32_vector_only_gfx942_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_subb_co_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_subb_co_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx942_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_subb_co_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_subb_co_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx942_wave64 strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_ci_u32_vector_only_gfx942_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_subb_co_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_subb_co_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_u32_uniform_lhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_u32_uniform_rhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_u32_vector_only_gfx950_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_addc_co_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_addc_co_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_addc_co_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_addc_co_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_ci_u32_vector_only_gfx950_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_addc_co_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_addc_co_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_u32_uniform_lhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_u32_uniform_rhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_u32_vector_only_gfx950_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_subb_co_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_subb_co_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx950_wave64(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_subb_co_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_subb_co_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx950_wave64 strategy=source
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_ci_u32_vector_only_gfx950_wave64(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_subb_co_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_subb_co_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm

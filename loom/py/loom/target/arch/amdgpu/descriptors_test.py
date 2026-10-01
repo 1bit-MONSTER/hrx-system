@@ -1435,6 +1435,70 @@ def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
         )
 
 
+def test_mask_writer_scalar_data_has_execution_mode_read_lifetime() -> None:
+    for overlays, late_read_subgroup_size in (
+        (_gfx940_core_overlays(), None),
+        (_gfx950_core_overlays(), None),
+        (_gfx11_core_overlays(), 64),
+        (_gfx115x_core_overlays(), 64),
+        (_gfx12_core_overlays(), 64),
+        (_gfx125x_core_overlays(), 64),
+    ):
+        for descriptor in overlays:
+            # Independently audit all scalar lane-mask results, including new
+            # instruction families that are not in the timing declaration.
+            mask_writer = descriptor.schedule_class == _SCHEDULE_VALU and any(
+                row.descriptor_operand.role is OperandRole.RESULT
+                and row.descriptor_operand.unit_count == 2
+                and any(
+                    alternative.reg_class == _REG_SGPR
+                    for alternative in row.descriptor_operand.reg_alts
+                )
+                for row in descriptor.operands
+            )
+            for row in descriptor.operands:
+                operand = row.descriptor_operand
+                for alternative in operand.reg_alts:
+                    expected = (
+                        late_read_subgroup_size
+                        if mask_writer
+                        and operand.role is OperandRole.OPERAND
+                        and alternative.reg_class == _REG_SGPR
+                        else None
+                    )
+                    assert alternative.late_read_subgroup_size == expected, (
+                        descriptor.descriptor_key,
+                        operand.field_name,
+                        alternative.reg_class,
+                    )
+            if descriptor.instruction_name == "V_ADD_CO_U32":
+                assert descriptor.constraints == ()
+
+
+def test_vector_carry_and_borrow_inputs_are_predicates() -> None:
+    for overlays in (
+        _gfx940_core_overlays(),
+        _gfx950_core_overlays(),
+        _gfx11_core_overlays(),
+        _gfx115x_core_overlays(),
+        _gfx12_core_overlays(),
+        _gfx125x_core_overlays(),
+    ):
+        descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
+        for descriptor_key, field_name in (
+            ("amdgpu.v_add_co_ci_u32", "carry_in"),
+            ("amdgpu.v_sub_co_ci_u32", "borrow_in"),
+        ):
+            descriptor = descriptors[descriptor_key]
+            predicate = next(
+                operand.descriptor_operand
+                for operand in descriptor.operands
+                if operand.descriptor_operand.field_name == field_name
+            )
+            assert predicate.role is OperandRole.PREDICATE
+            assert predicate.unit_count == 2
+
+
 def test_integer_binary_src0_accepts_scalar_or_vector_registers() -> None:
     descriptor_keys = (
         "amdgpu.v_mul_lo_u32",

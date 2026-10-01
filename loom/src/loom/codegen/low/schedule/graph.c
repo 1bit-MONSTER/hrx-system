@@ -108,6 +108,10 @@ static iree_status_t loom_low_schedule_resolve_descriptor(
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER;
   }
   if (iree_any_bit_set(packet.descriptor->flags,
+                       LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ)) {
+    node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS;
+  }
+  if (iree_any_bit_set(packet.descriptor->flags,
                        LOOM_LOW_DESCRIPTOR_FLAG_BARRIER)) {
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_SOURCE_ORDER_BOUNDARY;
   }
@@ -1394,16 +1398,24 @@ static iree_status_t loom_low_schedule_initialize_node_value_ordinals(
   node->result_count = op->result_count;
   const uint32_t total_value_count =
       (uint32_t)op->operand_count + (uint32_t)op->result_count;
-  if (total_value_count >
-      LOOM_LOW_SCHEDULE_NODE_INLINE_VALUE_ORDINAL_CAPACITY) {
+  const uint32_t late_read_word_count =
+      iree_any_bit_set(node->flags, LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS)
+          ? ((uint32_t)op->operand_count + 31u) / 32u
+          : 0;
+  const uint32_t payload_count = total_value_count + late_read_word_count;
+  if (payload_count > LOOM_LOW_SCHEDULE_NODE_INLINE_VALUE_ORDINAL_CAPACITY) {
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_VALUE_ORDINALS_OVERFLOW;
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        state->arena, total_value_count,
+        state->arena, payload_count,
         sizeof(*node->value_ordinals.overflow_value_ordinals),
         (void**)&node->value_ordinals.overflow_value_ordinals));
   }
   loom_value_ordinal_t* value_ordinals =
       loom_low_schedule_node_value_ordinals(node);
+  if (late_read_word_count != 0) {
+    memset(value_ordinals + total_value_count, 0,
+           late_read_word_count * sizeof(*value_ordinals));
+  }
   const loom_value_id_t* operands = loom_op_const_operands(op);
   for (uint16_t i = 0; i < op->operand_count; ++i) {
     value_ordinals[i] =
@@ -1648,6 +1660,21 @@ iree_status_t loom_low_schedule_build_dependencies(
                               descriptor_operand_indices[operand_index]];
           reads_descriptor_state = iree_any_bit_set(
               operand->flags, LOOM_LOW_OPERAND_FLAG_STATE_READ);
+          if (iree_any_bit_set(node->flags,
+                               LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS)) {
+            const loom_target_bundle_t* bundle =
+                loom_low_resolved_target_bundle(&state->target);
+            if (loom_low_operand_reads_after_write(
+                    state->target.descriptor_set, operand,
+                    state->values[operand_ordinal].register_class_id,
+                    bundle != NULL ? bundle->snapshot->subgroup_size : 0)) {
+              uint32_t* words = loom_low_schedule_node_value_ordinals(
+                                    &state->nodes[node_index]) +
+                                node->operand_count + node->result_count;
+              words[operand_index / 32u] |= UINT32_C(1)
+                                            << (operand_index % 32u);
+            }
+          }
         }
         if (descriptor == NULL || reads_descriptor_state) {
           IREE_RETURN_IF_ERROR(loom_low_schedule_note_state_value_read(

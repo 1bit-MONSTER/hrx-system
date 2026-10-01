@@ -1283,6 +1283,36 @@ TEST(LowDescriptorsTest, RejectsUnknownRegisterClassAltFlagBits) {
                         loom_low_descriptor_set_verify(&tables.set));
 }
 
+TEST(LowDescriptorsTest, ResolvesInputLifetimeByClassAndExecutionWidth) {
+  const loom_low_reg_class_alt_t alternatives[] = {
+      {/*reg_class_id=*/0, /*register_part_id=*/LOOM_LOW_REGISTER_PART_NONE,
+       /*flags=*/LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ,
+       /*unit_alignment_log2=*/0, /*late_read_subgroup_size=*/64},
+      {/*reg_class_id=*/1, /*register_part_id=*/LOOM_LOW_REGISTER_PART_NONE,
+       /*flags=*/0, /*unit_alignment_log2=*/0,
+       /*late_read_subgroup_size=*/0},
+      {/*reg_class_id=*/2, /*register_part_id=*/LOOM_LOW_REGISTER_PART_NONE,
+       /*flags=*/LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ,
+       /*unit_alignment_log2=*/0, /*late_read_subgroup_size=*/0},
+  };
+  loom_low_descriptor_set_t set = {};
+  set.reg_class_alts = alternatives;
+  loom_low_operand_t operand = {};
+  operand.reg_class_alt_count = IREE_ARRAYSIZE(alternatives);
+  EXPECT_FALSE(loom_low_operand_reads_after_write(&set, &operand, 0, 32));
+  EXPECT_TRUE(loom_low_operand_reads_after_write(&set, &operand, 0, 64));
+  EXPECT_FALSE(loom_low_operand_reads_after_write(&set, &operand, 1, 64));
+  EXPECT_TRUE(loom_low_operand_reads_after_write(&set, &operand, 2, 0));
+}
+
+TEST(LowDescriptorsTest, RejectsLateReadConditionWithoutLateReadFlag) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.reg_class_alts[0].late_read_subgroup_size = 64;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_low_descriptor_set_verify(&tables.set));
+}
+
 TEST(LowDescriptorsTest, RejectsUnknownImmediateFlagBits) {
   TestTables tables;
   InitializeTestTables(&tables);

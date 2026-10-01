@@ -164,6 +164,8 @@ enum loom_low_schedule_value_flag_bits_e {
   LOOM_LOW_SCHEDULE_VALUE_FLAG_PRESSURE_TOUCHED = 1u << 5,
   // The current block's endpoint forwards this value's storage ownership.
   LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED = 1u << 6,
+  // At least one occurrence in the current candidate reads after result writes.
+  LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_LATE_READ = 1u << 7,
 };
 typedef uint16_t loom_low_schedule_value_flags_t;
 

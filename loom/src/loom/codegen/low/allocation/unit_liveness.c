@@ -13,6 +13,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/representation_binding.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/registers.h"
 #include "loom/util/adaptive_sort.h"
 #include "loom/util/cfg_graph.h"
 
@@ -751,9 +752,37 @@ loom_low_allocation_unit_liveness_note_descriptor_unit_uses(
 
   const loom_low_descriptor_set_t* descriptor_set = target->descriptor_set;
   const loom_low_descriptor_t* descriptor = packet.descriptor;
+  const loom_target_bundle_t* bundle = loom_low_resolved_target_bundle(target);
   for (uint16_t i = 0; i < descriptor->operand_count; ++i) {
     const loom_low_operand_t* operand =
         &descriptor_set->operands[descriptor->operand_start + i];
+    if (iree_any_bit_set(descriptor->flags,
+                         LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ) &&
+        loom_low_operand_role_is_packet_operand(operand->role)) {
+      const uint16_t operand_end =
+          iree_any_bit_set(operand->flags, LOOM_LOW_OPERAND_FLAG_VARIADIC)
+              ? op->operand_count
+              : operand->source_value_index + 1;
+      for (uint16_t operand_index = operand->source_value_index;
+           operand_index < operand_end; ++operand_index) {
+        const loom_value_id_t value = loom_op_const_operands(op)[operand_index];
+        const loom_type_t type =
+            loom_module_value_type(value_domain->module, value);
+        if (!loom_low_type_is_register(type) ||
+            !loom_low_operand_reads_after_write(
+                descriptor_set, operand, loom_low_register_type_class_id(type),
+                bundle != NULL ? bundle->snapshot->subgroup_size : 0)) {
+          continue;
+        }
+        const loom_value_ordinal_t ordinal =
+            loom_local_value_domain_ordinal(value_domain, value);
+        iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
+                        ordinal);
+        IREE_RETURN_IF_ERROR(
+            loom_low_allocation_unit_liveness_note_value_ordinal_use_at_point(
+                unit_use_index, liveness, ordinal, clobber_point));
+      }
+    }
     if (operand->source_value_index != LOOM_LOW_ID_NONE ||
         !iree_any_bit_set(operand->flags,
                           LOOM_LOW_OPERAND_FLAG_STATE_READ |
