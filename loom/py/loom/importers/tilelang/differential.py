@@ -245,7 +245,6 @@ def capture_loom_amdgpu_artifact(
         (
             str(loom_compile),
             str(source_path),
-            "--product=kernel",
             "--format=amdgpu-hsaco",
             f"--target=amdgpu:{target_text}",
             f"--output={hal_artifact_path}",

@@ -6,7 +6,6 @@
       "run": {
         "tool": "loom-compile",
         "args": [
-          "--product=module",
           "--target=wasm:simd128",
           "--output={tmp}/module.wasm",
           "--compile-report=details",
