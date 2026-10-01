@@ -193,6 +193,12 @@ loom_corpus_build(
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/amdgpu:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
     profiles = ["//loom/target/amdgpu:all"],
+    xfails = {
+        "//loom/target/amdgpu:all": {
+            "numeric/vector/conversion.loom:@pack_nibbles": "AMDGPU/023,TARGET/003",
+            "numeric/vector/conversion.loom:@truncate_halfwords": "AMDGPU/023,TARGET/003",
+        },
+    },
 )
 
 loom_corpus_test(
@@ -204,4 +210,10 @@ loom_corpus_test(
         AMDGPU_ACCESS_PROFILE,
     ],
     profile_sources = {AMDGPU_ACCESS_PROFILE.name: _ACCESS_SOURCES},
+    xfails = {
+        AMDGPU_HARDWARE_PROFILE.name: {
+            "numeric/vector/conversion.loom:@halfword_truncation_values": "AMDGPU/023,TARGET/003",
+            "numeric/vector/conversion.loom:@packed_nibble_values": "AMDGPU/023,TARGET/003",
+        },
+    },
 )

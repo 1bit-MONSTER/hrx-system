@@ -978,6 +978,9 @@ loom_corpus_build(
     "numeric/predicate/extract.loom"
     "Wasm has no kernel artifact format."
     "loom::target::wasm::simd128"
+    "numeric/vector/conversion.loom"
+    "Wasm has no kernel artifact format."
+    "loom::target::wasm::simd128"
     "numeric/vector/integer_widening.loom"
     "Wasm has no kernel artifact format."
 )

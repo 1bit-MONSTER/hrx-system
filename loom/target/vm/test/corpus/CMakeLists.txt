@@ -291,6 +291,9 @@ loom_corpus_build(
     "numeric/predicate/extract.loom"
     "VM has no kernel artifact format."
     "loom::target::vm::all"
+    "numeric/vector/conversion.loom"
+    "VM has no kernel artifact format."
+    "loom::target::vm::all"
     "numeric/vector/integer_widening.loom"
     "VM has no kernel artifact format."
 )
@@ -482,6 +485,8 @@ loom_corpus_test(
     "numeric/predicate/extension.loom"
     "VM has no kernel artifact format."
     "numeric/predicate/extract.loom"
+    "VM has no kernel artifact format."
+    "numeric/vector/conversion.loom"
     "VM has no kernel artifact format."
     "numeric/vector/integer_widening.loom"
     "VM has no kernel artifact format."
