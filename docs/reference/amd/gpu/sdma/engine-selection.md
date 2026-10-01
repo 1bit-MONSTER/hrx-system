@@ -201,6 +201,26 @@ an xGMI blit. Its CPU rule does not describe every path through
 clear link flag nor one helper's fallback justifies bypassing the selected
 entry point's engine restrictions. [Topology-based helper][topology-helper]
 
+## CLR peer-engine allocation
+
+CLR `f9ba16bbe70e` uses ROCr's availability and preferred-engine queries in
+`SdmaEngineAllocator::AllocateEngine`. It initially selects the device's
+CPU read/write mask. For `SdmaP2P`, it accumulates each peer's observed free
+engines with `peer_engine_mask_[peerAgent.handle] |= freeEngineMask` and
+uses that union as the valid mask once it becomes nonzero. An engine observed
+idle can therefore remain eligible when a later query reports it busy.
+[Peer mask construction][clr-peer-mask]
+
+The union is a history of observations, not a complete engine enumeration.
+An engine that has never appeared free is absent from it; before any nonzero
+peer observation, the initial CPU read/write mask remains in place. CLR
+intersects availability and preference with its selected valid mask. For a
+peer copy with a nonzero preferred mask, it then prefers those engines even
+when another virtual queue has already been assigned one. This is a runtime
+sharing policy, not an exclusive reservation or a guarantee of native
+physical-engine identity. The ROCr blit-to-native mapping above still applies.
+[Mask filtering and shared preference][clr-peer-selection]
+
 ## Copy flow and ownership
 
 1. Select the source, destination, and executing GPU. Establish direct access
@@ -233,6 +253,8 @@ same transfer path as an explicitly mapped asynchronous copy.
 [Synchronous copy and temporary ownership][synchronous-copy]
 
 [allocation]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L1811-L1919
+[clr-peer-mask]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/clr/rocclr/device/rocm/rocdevice.cpp#L4225-L4264
+[clr-peer-selection]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/clr/rocclr/device/rocm/rocdevice.cpp#L4271-L4309
 [uapi]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L61-L98
 [export]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_topology.c#L250-L279
 [link-definitions]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_crat.h#L232-L255
