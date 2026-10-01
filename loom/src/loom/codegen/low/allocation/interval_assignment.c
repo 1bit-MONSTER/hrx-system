@@ -938,13 +938,14 @@ static iree_status_t loom_low_allocation_interval_assignment_finalize_spills(
 
 iree_status_t loom_low_allocation_interval_assignment_build(
     const loom_low_allocation_interval_assignment_context_t* context,
+    iree_arena_allocator_t* scratch_arena,
     loom_low_allocation_interval_assignment_result_t* out_result) {
   *out_result = (loom_low_allocation_interval_assignment_result_t){0};
-  iree_arena_allocator_t scratch_arena;
-  iree_arena_initialize(context->arena->block_pool, &scratch_arena);
+  const iree_arena_checkpoint_t scratch_checkpoint =
+      iree_arena_checkpoint_save(scratch_arena);
   loom_low_allocation_interval_assignment_state_t state = {
       .context = context,
-      .scratch_arena = &scratch_arena,
+      .scratch_arena = scratch_arena,
   };
   iree_status_t status = loom_low_allocation_interval_assignment_assign(&state);
   if (iree_status_is_ok(status)) {
@@ -953,6 +954,6 @@ iree_status_t loom_low_allocation_interval_assignment_build(
   if (iree_status_is_ok(status)) {
     *out_result = state.result;
   }
-  iree_arena_deinitialize(&scratch_arena);
+  iree_arena_checkpoint_restore(&scratch_checkpoint);
   return status;
 }

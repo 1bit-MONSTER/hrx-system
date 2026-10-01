@@ -55,10 +55,13 @@ void loom_low_allocation_write_interference_note_fixed(
 // Finalizes path-sensitive constraints and per-point temporary exclusions.
 // This consumes canonical liveness order, root CFG and structural placements;
 // the same operation covers scheduled and source-order allocation.
+// Persistent indexes use |arena|; construction scratch borrows and restores
+// |scratch_arena|'s tail. The two arenas must be distinct.
 iree_status_t loom_low_allocation_write_interference_finalize(
     loom_low_allocation_write_interference_t* interference,
     const loom_liveness_analysis_t* liveness, const loom_cfg_graph_t* cfg_graph,
-    const loom_low_placement_table_t* placement, iree_arena_allocator_t* arena);
+    const loom_low_placement_table_t* placement, iree_arena_allocator_t* arena,
+    iree_arena_allocator_t* scratch_arena);
 
 // Returns whether one candidate violates a completed write constraint. Future
 // fixed assignments participate. Forced zero-copy implications propagate into

@@ -108,9 +108,12 @@ typedef struct loom_low_allocation_interval_assignment_result_t {
 
 // Assigns concrete locations for allocatable intervals in |context| and writes
 // arena-owned assignment, spill-plan, remark, and lookup table state. Working
-// indexes and decision storage are released before returning.
+// indexes borrow |scratch_arena|'s tail and are released before returning.
+// |scratch_arena| must be distinct from |context->arena|; its earlier contents
+// remain valid throughout assignment and after returning.
 iree_status_t loom_low_allocation_interval_assignment_build(
     const loom_low_allocation_interval_assignment_context_t* context,
+    iree_arena_allocator_t* scratch_arena,
     loom_low_allocation_interval_assignment_result_t* out_result);
 
 #ifdef __cplusplus

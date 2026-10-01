@@ -828,16 +828,16 @@ static iree_status_t loom_low_write_finalize_impl(
 iree_status_t loom_low_allocation_write_interference_finalize(
     loom_low_allocation_write_interference_t* table,
     const loom_liveness_analysis_t* liveness, const loom_cfg_graph_t* cfg_graph,
-    const loom_low_placement_table_t* placement,
-    iree_arena_allocator_t* arena) {
+    const loom_low_placement_table_t* placement, iree_arena_allocator_t* arena,
+    iree_arena_allocator_t* scratch_arena) {
   if (table == NULL || table->retained_unit_count == 0) {
     return iree_ok_status();
   }
-  iree_arena_allocator_t scratch_arena;
-  iree_arena_initialize(arena->block_pool, &scratch_arena);
+  const iree_arena_checkpoint_t scratch_checkpoint =
+      iree_arena_checkpoint_save(scratch_arena);
   const iree_status_t status = loom_low_write_finalize_impl(
-      table, liveness, cfg_graph, placement, arena, &scratch_arena);
-  iree_arena_deinitialize(&scratch_arena);
+      table, liveness, cfg_graph, placement, arena, scratch_arena);
+  iree_arena_checkpoint_restore(&scratch_checkpoint);
   return status;
 }
 

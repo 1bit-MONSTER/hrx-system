@@ -1170,20 +1170,23 @@ static iree_status_t loom_low_allocation_unit_liveness_note_block_uses(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_allocation_unit_liveness_initialize_impl(
+iree_status_t loom_low_allocation_unit_liveness_initialize(
     const loom_low_resolved_target_t* target,
     const loom_low_placement_table_t* placement,
     const loom_local_value_domain_t* value_domain,
     const loom_liveness_analysis_t* liveness, const loom_cfg_graph_t* cfg_graph,
-    iree_arena_allocator_t* result_arena, iree_arena_allocator_t* scratch_arena,
+    iree_arena_allocator_t* result_arena,
+    iree_arena_allocator_t* decision_arena,
     loom_low_allocation_unit_liveness_t* out_unit_liveness) {
+  IREE_ASSERT_ARGUMENT(out_unit_liveness);
   *out_unit_liveness = (loom_low_allocation_unit_liveness_t){0};
   out_unit_liveness->storage_segments.entries = liveness->segments;
 
   if (liveness->value_count != 0) {
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        result_arena, liveness->value_count, sizeof(*out_unit_liveness->values),
-        (void**)&out_unit_liveness->values));
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(decision_arena, liveness->value_count,
+                                  sizeof(*out_unit_liveness->values),
+                                  (void**)&out_unit_liveness->values));
     for (iree_host_size_t i = 0; i < liveness->value_count; ++i) {
       out_unit_liveness->values[i] =
           (loom_low_allocation_unit_liveness_value_t){
@@ -1195,7 +1198,7 @@ static iree_status_t loom_low_allocation_unit_liveness_initialize_impl(
         iree_bitmap_calculate_words(liveness->value_count);
     uint64_t* incomplete_segment_words = NULL;
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        result_arena, incomplete_segment_word_count,
+        decision_arena, incomplete_segment_word_count,
         sizeof(*incomplete_segment_words), (void**)&incomplete_segment_words));
     memset(incomplete_segment_words, 0,
            incomplete_segment_word_count * sizeof(*incomplete_segment_words));
@@ -1269,40 +1272,35 @@ static iree_status_t loom_low_allocation_unit_liveness_initialize_impl(
   // Scalar values keep the canonical value-granular boundaries. Terminator
   // edge facts additionally decompose aggregate handoffs into their sources.
   IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_create(
-      target, placement, liveness, result_arena,
+      target, placement, liveness, decision_arena,
       &out_unit_liveness->write_interference));
+  // Published point arrays are allocated. Use indexes can borrow the result
+  // arena's tail while collected access state grows only in the decision arena.
+  const iree_arena_checkpoint_t scratch_checkpoint =
+      iree_arena_checkpoint_save(result_arena);
   loom_low_allocation_unit_use_index_t unit_use_index;
-  IREE_RETURN_IF_ERROR(loom_low_allocation_unit_use_index_initialize(
+  iree_status_t status = loom_low_allocation_unit_use_index_initialize(
       cfg_graph, liveness, out_unit_liveness, multi_unit_value_count,
-      scratch_arena, &unit_use_index));
+      result_arena, &unit_use_index);
   loom_low_allocation_edge_use_index_t edge_use_index;
-  IREE_RETURN_IF_ERROR(loom_low_allocation_edge_use_index_initialize(
-      placement, liveness, scratch_arena, &edge_use_index));
-  IREE_RETURN_IF_ERROR(loom_low_allocation_unit_liveness_note_block_uses(
-      &unit_use_index, target, value_domain, liveness, &edge_use_index,
-      result_arena));
-  IREE_RETURN_IF_ERROR(loom_low_allocation_unit_use_index_extend_boundaries(
-      &unit_use_index, liveness, out_unit_liveness));
-  loom_low_allocation_clobber_sort(out_unit_liveness->clobbers.entries,
-                                   out_unit_liveness->clobbers.count);
-  return iree_ok_status();
-}
-
-iree_status_t loom_low_allocation_unit_liveness_initialize(
-    const loom_low_resolved_target_t* target,
-    const loom_low_placement_table_t* placement,
-    const loom_local_value_domain_t* value_domain,
-    const loom_liveness_analysis_t* liveness, const loom_cfg_graph_t* cfg_graph,
-    iree_arena_allocator_t* arena,
-    loom_low_allocation_unit_liveness_t* out_unit_liveness) {
-  IREE_ASSERT_ARGUMENT(out_unit_liveness);
-  iree_arena_allocator_t scratch_arena;
-  iree_arena_initialize(arena->block_pool, &scratch_arena);
-  const iree_status_t status =
-      loom_low_allocation_unit_liveness_initialize_impl(
-          target, placement, value_domain, liveness, cfg_graph, arena,
-          &scratch_arena, out_unit_liveness);
-  iree_arena_deinitialize(&scratch_arena);
+  if (iree_status_is_ok(status)) {
+    status = loom_low_allocation_edge_use_index_initialize(
+        placement, liveness, result_arena, &edge_use_index);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_low_allocation_unit_liveness_note_block_uses(
+        &unit_use_index, target, value_domain, liveness, &edge_use_index,
+        decision_arena);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_low_allocation_unit_use_index_extend_boundaries(
+        &unit_use_index, liveness, out_unit_liveness);
+  }
+  iree_arena_checkpoint_restore(&scratch_checkpoint);
+  if (iree_status_is_ok(status)) {
+    loom_low_allocation_clobber_sort(out_unit_liveness->clobbers.entries,
+                                     out_unit_liveness->clobbers.count);
+  }
   return status;
 }
 
@@ -1472,7 +1470,8 @@ static iree_status_t loom_low_allocation_unit_liveness_build_storage_segments(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_liveness_analysis_t* liveness,
     const loom_low_placement_table_t* placement,
-    iree_arena_allocator_t* scratch_arena, iree_arena_allocator_t* arena) {
+    iree_arena_allocator_t* scratch_arena, iree_arena_allocator_t* result_arena,
+    iree_arena_allocator_t* decision_arena) {
   loom_low_allocation_storage_segment_chain_t* chains = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       scratch_arena, liveness->value_count, sizeof(*chains), (void**)&chains));
@@ -1567,12 +1566,12 @@ static iree_status_t loom_low_allocation_unit_liveness_build_storage_segments(
   }
   loom_liveness_segment_t* segments = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, segment_count, sizeof(*segments), (void**)&segments));
+      result_arena, segment_count, sizeof(*segments), (void**)&segments));
   memcpy(segments, liveness->segments,
          liveness->segment_count * sizeof(*segments));
   loom_liveness_segment_range_t* ranges = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      arena, liveness->value_count, sizeof(*ranges), (void**)&ranges));
+      decision_arena, liveness->value_count, sizeof(*ranges), (void**)&ranges));
   uint32_t segment_index = (uint32_t)liveness->segment_count;
   for (loom_value_ordinal_t i = 0; i < liveness->value_count; ++i) {
     ranges[i] = (loom_liveness_segment_range_t){0};
@@ -1607,7 +1606,8 @@ static iree_status_t loom_low_allocation_unit_liveness_refine_storage_segments(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_liveness_analysis_t* liveness,
     const loom_low_placement_table_t* placement,
-    iree_arena_allocator_t* arena) {
+    iree_arena_allocator_t* result_arena,
+    iree_arena_allocator_t* decision_arena) {
   if (liveness->block_count < 2) {
     return iree_ok_status();
   }
@@ -1626,10 +1626,11 @@ static iree_status_t loom_low_allocation_unit_liveness_refine_storage_segments(
     return iree_ok_status();
   }
   iree_arena_allocator_t scratch_arena;
-  iree_arena_initialize(arena->block_pool, &scratch_arena);
+  iree_arena_initialize(result_arena->block_pool, &scratch_arena);
   iree_status_t status =
       loom_low_allocation_unit_liveness_build_storage_segments(
-          unit_liveness, liveness, placement, &scratch_arena, arena);
+          unit_liveness, liveness, placement, &scratch_arena, result_arena,
+          decision_arena);
   iree_arena_deinitialize(&scratch_arena);
   return status;
 }
@@ -1686,7 +1687,8 @@ iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_liveness_analysis_t* liveness,
     const loom_low_placement_table_t* placement,
-    iree_arena_allocator_t* arena) {
+    iree_arena_allocator_t* result_arena,
+    iree_arena_allocator_t* decision_arena) {
   IREE_ASSERT_ARGUMENT(unit_liveness);
   IREE_ASSERT_ARGUMENT(liveness);
   IREE_ASSERT_ARGUMENT(placement);
@@ -1701,7 +1703,7 @@ iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
       unit_liveness, placement);
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_unit_liveness_refine_storage_segments(
-          unit_liveness, liveness, placement, arena));
+          unit_liveness, liveness, placement, result_arena, decision_arena));
   for (iree_host_size_t i = 0; i < placement->relation_count; ++i) {
     const loom_low_placement_relation_t* relation = &placement->relations[i];
     if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {

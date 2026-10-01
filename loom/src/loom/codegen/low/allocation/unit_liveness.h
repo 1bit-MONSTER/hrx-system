@@ -39,7 +39,9 @@ typedef struct loom_low_allocation_unit_liveness_value_t {
   uint32_t acquisition_start_point;
 } loom_low_allocation_unit_liveness_value_t;
 
-// Mutable unit-liveness state indexed by liveness value ordinal.
+// Mutable unit-liveness state indexed by liveness value ordinal. Published
+// per-unit points and storage segments have result-arena lifetime; all other
+// owned state has allocation-decision lifetime.
 typedef struct loom_low_allocation_unit_liveness_t {
   // Borrowed required storage identities, or NULL when no tied components
   // contribute reservations. The placement value domain remains acquired
@@ -47,9 +49,9 @@ typedef struct loom_low_allocation_unit_liveness_t {
   const loom_low_placement_table_t* tied_storage_placement;
   // Per-value storage facts indexed by liveness local value ordinal.
   loom_low_allocation_unit_liveness_value_t* values;
-  // Per-assignment-unit storage start points.
+  // Result-arena-owned per-assignment-unit storage start points.
   uint32_t* start_points;
-  // Mutable per-assignment-unit live end points.
+  // Result-arena-owned mutable per-assignment-unit live end points.
   uint32_t* end_points;
   // Number of initialized records in |start_points| and |end_points|.
   iree_host_size_t point_count;
@@ -63,11 +65,12 @@ typedef struct loom_low_allocation_unit_liveness_t {
   uint16_t* implicit_location_counts_by_reg_class;
   // Sparse physical reservations, separate from semantic SSA liveness.
   struct {
-    // Borrowed semantic segments, or arena-owned semantic prefix followed by
-    // tied-source reservations. Assignment ranges index this table.
+    // Borrowed semantic segments, or result-arena-owned semantic prefix
+    // followed by tied-source reservations. Assignment ranges index this table.
     const loom_liveness_segment_t* entries;
-    // Optional arena-owned tied-source ranges indexed by value ordinal.
-    // Empty entries retain conservative per-unit bounds for incomplete values.
+    // Optional decision-arena-owned tied-source ranges indexed by value
+    // ordinal. Empty entries retain conservative per-unit bounds for incomplete
+    // values.
     const loom_liveness_segment_range_t* tied_sources;
   } storage_segments;
   // Implicit physical writes, sorted by storage identity and program point
@@ -101,12 +104,17 @@ bool loom_low_allocation_unit_liveness_storage_is_ignored(
 // structure over the canonical |cfg_graph|. The resulting points refine
 // register intervals down to target allocation units across CFG boundaries,
 // low.slice uses, descriptor early-clobber hazards, and structured backedges.
+// Published point arrays are owned by |result_arena|; query metadata and
+// physical access indexes are owned by |decision_arena| through final physical
+// numbering. The arenas must be distinct. Construction scratch borrows the
+// result arena's tail and is released before returning.
 iree_status_t loom_low_allocation_unit_liveness_initialize(
     const loom_low_resolved_target_t* target,
     const loom_low_placement_table_t* placement,
     const loom_local_value_domain_t* value_domain,
     const loom_liveness_analysis_t* liveness, const loom_cfg_graph_t* cfg_graph,
-    iree_arena_allocator_t* arena,
+    iree_arena_allocator_t* result_arena,
+    iree_arena_allocator_t* decision_arena,
     loom_low_allocation_unit_liveness_t* out_unit_liveness);
 
 // Returns true when an implicit physical write overlaps |candidate|'s refined
@@ -147,10 +155,13 @@ loom_low_allocation_unit_liveness_storage_segment_range_for_value_ordinal(
 // Component origins retain every member's physical unit lifetime and sparse
 // segments so destructive-reuse refinement can query exact old-content
 // observations before deciding which optional relations remain aliasable.
+// Published segments use |result_arena|; query ranges use |decision_arena|.
 iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_liveness_analysis_t* liveness,
-    const loom_low_placement_table_t* placement, iree_arena_allocator_t* arena);
+    const loom_low_placement_table_t* placement,
+    iree_arena_allocator_t* result_arena,
+    iree_arena_allocator_t* decision_arena);
 
 // Returns true when any unit in |unit_offset, unit_count| of |value_ordinal|'s
 // required tied component retains concrete storage across |program_point|.
