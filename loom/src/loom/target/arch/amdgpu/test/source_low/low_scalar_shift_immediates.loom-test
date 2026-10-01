@@ -1,0 +1,33 @@
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @s_lshl_b64_inline_out_of_range(%value: reg<amdgpu.sgpr x2>) asm {
+  // ERROR@+1: STRUCTURE/014 {attr_name="shift", actual_value="65", expected_constraint="0..64"}
+  %shifted = s_lshl_b64_rhs_inline %value, 65
+  return
+}
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @s_lshr_b64_inline_out_of_range(%value: reg<amdgpu.sgpr x2>) asm {
+  // ERROR@+1: STRUCTURE/014 {attr_name="shift", actual_value="65", expected_constraint="0..64"}
+  %shifted = s_lshr_b64_rhs_inline %value, 65
+  return
+}
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @s_ashr_i64_inline_out_of_range(%value: reg<amdgpu.sgpr x2>) asm {
+  // ERROR@+1: STRUCTURE/014 {attr_name="shift", actual_value="65", expected_constraint="0..64"}
+  %shifted = s_ashr_i64_rhs_inline %value, 65
+  return
+}

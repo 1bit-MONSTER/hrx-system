@@ -513,6 +513,45 @@ def _s_shift_u64_overlay(
             AmdgpuOperandOverlay("SSRC1", _sgpr_operand("shift")),
         ),
         implicit_operands=(_SCC_CLOBBER_OUTPUT,),
+        operand_forms=(
+            _literal_operand_form(
+                replacement_descriptor=f"{descriptor_key}.rhs_inline",
+                source_operand="shift",
+                immediate_field="shift",
+            ),
+        ),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _s_shift_u64_rhs_inline_overlay(
+    *,
+    descriptor_key: str,
+    instruction_name: str,
+    mnemonic: str,
+    semantic_tag: str,
+) -> AmdgpuDescriptorOverlay:
+    return AmdgpuDescriptorOverlay(
+        descriptor_key=descriptor_key,
+        instruction_name=instruction_name,
+        mnemonic=mnemonic,
+        encoding_name="ENC_SOP2",
+        semantic_tag=semantic_tag,
+        schedule_class=_SCHEDULE_SALU,
+        operands=(
+            AmdgpuOperandOverlay("SDST", _sgpr_result(units=2)),
+            AmdgpuOperandOverlay("SSRC0", _sgpr_operand("value", units=2)),
+        ),
+        implicit_operands=(_SCC_CLOBBER_OUTPUT,),
+        asm_forms=_asm(
+            mnemonic=f"{mnemonic}_rhs_inline",
+            native_assembly_mnemonic=mnemonic,
+            results=("dst",),
+            operands=("value",),
+            immediates=("shift",),
+        ),
+        immediate_fields=("SSRC1",),
+        immediates=(replace(_SOURCE_INLINE_U32_IMMEDIATE, field_name="shift"),),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
 
@@ -1829,6 +1868,15 @@ def _s_lshl_b64_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
+def _s_lshl_b64_rhs_inline_overlay() -> AmdgpuDescriptorOverlay:
+    return _s_shift_u64_rhs_inline_overlay(
+        descriptor_key="amdgpu.s_lshl_b64.rhs_inline",
+        instruction_name="S_LSHL_B64",
+        mnemonic="s_lshl_b64",
+        semantic_tag="integer.shl.u64",
+    )
+
+
 def _s_lshr_b32_overlay() -> AmdgpuDescriptorOverlay:
     return _s_binary_u32_overlay(
         descriptor_key="amdgpu.s_lshr_b32",
@@ -1851,6 +1899,15 @@ def _s_lshr_b32_rhs_inline_overlay() -> AmdgpuDescriptorOverlay:
 def _s_lshr_b64_overlay() -> AmdgpuDescriptorOverlay:
     return _s_shift_u64_overlay(
         descriptor_key="amdgpu.s_lshr_b64",
+        instruction_name="S_LSHR_B64",
+        mnemonic="s_lshr_b64",
+        semantic_tag="integer.shr.u64",
+    )
+
+
+def _s_lshr_b64_rhs_inline_overlay() -> AmdgpuDescriptorOverlay:
+    return _s_shift_u64_rhs_inline_overlay(
+        descriptor_key="amdgpu.s_lshr_b64.rhs_inline",
         instruction_name="S_LSHR_B64",
         mnemonic="s_lshr_b64",
         semantic_tag="integer.shr.u64",
@@ -2615,11 +2672,19 @@ def _integer_bitwise_shift_overlays(
         _s_lshl_b32_overlay(),
         _s_lshl_b32_rhs_inline_overlay(),
         _s_lshl_b64_overlay(),
+        _s_lshl_b64_rhs_inline_overlay(),
         _s_lshr_b32_overlay(),
         _s_lshr_b32_rhs_inline_overlay(),
         _s_lshr_b64_overlay(),
+        _s_lshr_b64_rhs_inline_overlay(),
         _s_shift_u64_overlay(
             descriptor_key="amdgpu.s_ashr_i64",
+            instruction_name="S_ASHR_I64",
+            mnemonic="s_ashr_i64",
+            semantic_tag="integer.shr.s64",
+        ),
+        _s_shift_u64_rhs_inline_overlay(
+            descriptor_key="amdgpu.s_ashr_i64.rhs_inline",
             instruction_name="S_ASHR_I64",
             mnemonic="s_ashr_i64",
             semantic_tag="integer.shr.s64",
@@ -7094,10 +7159,12 @@ __all__ = (
     "_s_lshl_b32_overlay",
     "_s_lshl_b32_rhs_inline_overlay",
     "_s_lshl_b64_overlay",
+    "_s_lshl_b64_rhs_inline_overlay",
     "_s_lshl_add_u32_overlay",
     "_s_lshr_b32_overlay",
     "_s_lshr_b32_rhs_inline_overlay",
     "_s_lshr_b64_overlay",
+    "_s_lshr_b64_rhs_inline_overlay",
     "_s_max_i32_overlay",
     "_s_max_i32_overlays",
     "_s_max_u32_overlay",
@@ -7113,6 +7180,7 @@ __all__ = (
     "_s_or_b32_overlay",
     "_s_or_b64_overlay",
     "_s_shift_u64_overlay",
+    "_s_shift_u64_rhs_inline_overlay",
     "_s_sub_u32_overlay",
     "_s_sub_u32_rhs_inline_overlay",
     "_s_xor_b32_overlay",

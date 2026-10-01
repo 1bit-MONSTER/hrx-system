@@ -3071,6 +3071,31 @@ def test_cdna_scoped_cache_controls_expose_sc_immediates() -> None:
             assert _immediate_default(descriptor.immediates, "sc1") == 0
 
 
+def test_scalar_wide_shift_inline_forms_preserve_operands_and_state() -> None:
+    for builder in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS.values():
+        descriptors = {
+            descriptor.descriptor_key: descriptor
+            for descriptor in builder.overlay_rows()
+        }
+        for mnemonic in ("s_lshl_b64", "s_lshr_b64", "s_ashr_i64"):
+            source = descriptors[f"amdgpu.{mnemonic}"]
+            inline = descriptors[f"amdgpu.{mnemonic}.rhs_inline"]
+            assert len(source.operand_forms) == 1
+            form = source.operand_forms[0]
+            assert form.replacement_descriptor == inline.descriptor_key
+            assert form.matches[0].source_operand == "shift"
+            assert form.immediate_field == "shift"
+            assert inline.operands == source.operands[:2]
+            assert inline.implicit_operands == source.implicit_operands
+            assert inline.implicit_operands
+            assert inline.flags == source.flags
+            assert inline.immediate_fields == ("SSRC1",)
+            assert len(inline.immediates) == 1
+            assert inline.immediates[0].field_name == "shift"
+            assert inline.immediates[0].encoding_id == _SOURCE_INLINE_U32_ENCODING_ID
+            assert inline.immediates[0].unsigned_max == 64
+
+
 def test_vop3_shift_immediate_is_constrained_to_inline_source_selector() -> None:
     descriptor = next(
         overlay
