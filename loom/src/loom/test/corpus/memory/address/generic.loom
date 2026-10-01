@@ -98,6 +98,19 @@ kernel.def @generic_copy_half() {
   kernel.return
 }
 
+// A freshly rounded half value can flow directly through generic memory.
+kernel.def @generic_narrow_half_store() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer, %input: f32) {
+  %target = buffer.assume.memory_space<generic> %output : buffer
+  %origin = index.constant 0 : offset
+  %target_view = buffer.view %target[%origin] : buffer -> view<1xf16>
+  %half = scalar.fptrunc %input : f32 to f16
+  view.store %half, %target_view[0] : f16, view<1xf16>
+  kernel.return
+}
+
 check.case public @generic_memory_values {
   %input = check.generate.iota offset(4294967296) step(3) : tensor<66xi64>
   %output = check.generate.fill value(-1) : tensor<66xi64>
@@ -125,6 +138,15 @@ check.case public @generic_half_values {
   %input = check.generate.fill value(-3.25) : tensor<32769xf16>
   %output = check.generate.fill value(0.0) : tensor<1xf16>
   kernel.launch @generic_copy_half(%input, %output) : (tensor<32769xf16>, tensor<1xf16>)
+  %expected = check.generate.fill value(-3.25) : tensor<1xf16>
+  check.expect.bitwise actual(%output) expected(%expected) : tensor<1xf16>
+  check.return
+}
+
+check.case public @generic_narrow_half_values {
+  %input = check.literal value(-3.25) : f32
+  %output = check.generate.fill value(0.0) : tensor<1xf16>
+  kernel.launch @generic_narrow_half_store(%output, %input) : (tensor<1xf16>, f32)
   %expected = check.generate.fill value(-3.25) : tensor<1xf16>
   check.expect.bitwise actual(%output) expected(%expected) : tensor<1xf16>
   check.return

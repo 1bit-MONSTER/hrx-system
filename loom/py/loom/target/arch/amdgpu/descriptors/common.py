@@ -1781,8 +1781,23 @@ def _vgpr_agpr_result(field_name: str = "dst", *, units: int = 1) -> Operand:
     return Operand(field_name, OperandRole.RESULT, _VGPR_AGPR_ALT, unit_count=units)
 
 
-def _vgpr_agpr_operand(field_name: str, *, units: int = 1) -> Operand:
-    return Operand(field_name, OperandRole.OPERAND, _VGPR_AGPR_ALT, unit_count=units)
+def _vgpr_agpr_operand(
+    field_name: str,
+    *,
+    units: int = 1,
+    vgpr_register_part: str | None = None,
+) -> Operand:
+    return Operand(
+        field_name,
+        OperandRole.OPERAND,
+        tuple(
+            replace(alternative, register_part=vgpr_register_part)
+            if alternative.reg_class == _REG_VGPR
+            else alternative
+            for alternative in _VGPR_AGPR_ALT
+        ),
+        unit_count=units,
+    )
 
 
 def _vgpr_agpr_const_operand(field_name: str, *, units: int = 1) -> Operand:

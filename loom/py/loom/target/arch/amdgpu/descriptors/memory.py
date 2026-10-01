@@ -3282,10 +3282,18 @@ def _flat_store_overlay(
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
+    vgpr_register_part = _REG_PART_VGPR_LOW16 if width_bits < 32 else None
     value_operand = (
-        _vgpr_agpr_operand("value", units=units)
+        _vgpr_agpr_operand("value", units=units, vgpr_register_part=vgpr_register_part)
         if allow_accumulator_operands
-        else _vgpr_operand("value", units=units)
+        else _vgpr_operand("value", units=units, register_part=vgpr_register_part)
+    )
+    value_size_exception_reason = (
+        _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
+        if width_bits == 8
+        else _D16_PARTIAL_REGISTER_SIZE_REASON
+        if width_bits == 16
+        else None
     )
     implicit_operands: tuple[AmdgpuImplicitOperandOverlay, ...] = (
         _ignore_generic_memory(
@@ -3316,7 +3324,11 @@ def _flat_store_overlay(
         schedule_class=_SCHEDULE_FLAT_STORE,
         operands=(
             AmdgpuOperandOverlay(address_field_name, _vgpr_operand("addr", units=2)),
-            AmdgpuOperandOverlay(data_field_name, value_operand),
+            AmdgpuOperandOverlay(
+                data_field_name,
+                value_operand,
+                size_exception_reason=value_size_exception_reason,
+            ),
         ),
         implicit_operands=implicit_operands,
         fixed_encoding_fields=fixed_encoding_fields,
