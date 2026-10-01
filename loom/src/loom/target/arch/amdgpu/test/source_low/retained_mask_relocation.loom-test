@@ -1,0 +1,53 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @loop_mask_reset strategy=source
+
+// The compare must not reuse the carried mask before the later broadcast
+// clears its read latch. The backedge copies occur after that reset.
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @loop_mask_reset(%initial: reg<amdgpu.sgpr x2>, %uniform: reg<amdgpu.sgpr>, %lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) asm {
+  low.br ^loop(%initial: reg<amdgpu.sgpr x2>)
+^loop(%carried: reg<amdgpu.sgpr x2>):
+  %selected = v_cndmask_b32 %lhs, %rhs, %carried
+  %next = v_cmp_lt_i32 %selected, %rhs
+  %broadcast = v_mov_b32_copy %uniform
+  low.br ^loop(%next: reg<amdgpu.sgpr x2>)
+}
+
+// ----
+.Lbb1:
+  v_cndmask_b32 v2, v0, v1, s[0:1]
+  s_delay_alu instid0(VALU_DEP_1)
+  v_cmp_lt_i32 s[4:5], v2, v1
+  v_mov_b32_copy v2, s2
+  s_delay_alu instid0(VALU_DEP_2)
+  s_mov_b32 s0, s4
+  s_mov_b32 s1, s5
+  s_branch .Lbb1
+
+// ====
+// A legal ordering closes the mask window before the compare and permits
+// copy-free loop coalescing at the smaller register extent.
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @loop_mask_reset(%initial: reg<amdgpu.sgpr x2>, %uniform: reg<amdgpu.sgpr>, %lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) asm {
+  low.br ^loop(%initial: reg<amdgpu.sgpr x2>)
+^loop(%carried: reg<amdgpu.sgpr x2>):
+  %selected = v_cndmask_b32 %lhs, %rhs, %carried
+  %broadcast = v_mov_b32_copy %uniform
+  %next = v_cmp_lt_i32 %selected, %rhs
+  low.br ^loop(%next: reg<amdgpu.sgpr x2>)
+}
+
+// ----
+.Lbb1:
+  v_cndmask_b32 v2, v0, v1, s[0:1]
+  v_mov_b32_copy v3, s2
+  s_delay_alu instid0(VALU_DEP_2)
+  v_cmp_lt_i32 s[0:1], v2, v1
+  s_branch .Lbb1

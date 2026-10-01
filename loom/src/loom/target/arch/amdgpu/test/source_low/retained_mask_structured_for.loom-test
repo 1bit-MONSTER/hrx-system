@@ -1,0 +1,23 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// The mask is dead in SSA before the backedge, but its physical read survives
+// to the scalar write at the start of the next iteration.
+// RUN: emit low-allocation-json @backedge_retains_mask fixed=%mask:physical_register:0:2 fixed=%lower:physical_register:4:1 fixed=%upper:physical_register:5:1 fixed=%step:physical_register:6:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @backedge_retains_mask(%lower: reg<amdgpu.sgpr>, %upper: reg<amdgpu.sgpr>, %step: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) asm {
+  low.scf.for signed [%lower to %upper step %step] do(%iteration: reg<amdgpu.sgpr>) {
+    %scratch = s_mov_b32 1
+    %mask = v_cmp_eq_i32 %value, %value
+    %selected = v_cndmask_b32 %value, %value, %mask
+  }
+  return
+}
+
+// ----
+{"format":"loom.low.allocation.v0","function":"backedge_retains_mask","target":"target","descriptor_set":"amdgpu.rdna3_5.core","allocation_mode":"virtual","assignment_count":8,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"lower","type":"reg<amdgpu.sgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":0,"end_point":1,"unit_count":1,"location":{"kind":"physical_register","base":4,"count":1}},{"index":1,"value":{"id":1,"name":"upper","type":"reg<amdgpu.sgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":0,"end_point":6,"unit_count":1,"location":{"kind":"physical_register","base":5,"count":1}},{"index":2,"value":{"id":2,"name":"step","type":"reg<amdgpu.sgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":0,"end_point":6,"unit_count":1,"location":{"kind":"physical_register","base":6,"count":1}},{"index":3,"value":{"id":3,"name":"value","type":"reg<amdgpu.vgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.vgpr"},"start_point":0,"end_point":6,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}},{"index":4,"value":{"id":4,"name":"iteration","type":"reg<amdgpu.sgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":1,"end_point":6,"unit_count":1,"location":{"kind":"physical_register","base":2,"count":1}},{"index":5,"value":{"id":5,"name":"scratch","type":"reg<amdgpu.sgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":2,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":3,"count":1}},{"index":6,"value":{"id":6,"name":"mask","type":"reg<amdgpu.sgpr x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":3,"end_point":4,"unit_count":2,"location":{"kind":"physical_register","base":0,"count":2}},{"index":7,"value":{"id":7,"name":"selected","type":"reg<amdgpu.vgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.vgpr"},"start_point":4,"end_point":5,"unit_count":1,"location":{"kind":"physical_register","base":1,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}

@@ -22,6 +22,7 @@ extern "C" {
 
 typedef struct loom_target_facts_t loom_target_facts_t;
 typedef struct iree_arena_allocator_t iree_arena_allocator_t;
+typedef struct loom_low_read_retention_t loom_low_read_retention_t;
 
 // Target-neutral fields whose explicit presence can affect specialization or
 // must survive projection into durable IR.
@@ -153,6 +154,10 @@ struct loom_target_facts_t {
 
   // Owned common target projection after explicit inputs are applied.
   loom_target_bundle_storage_t storage;
+
+  // Static physical read-retention rule for this processor, or NULL when
+  // register reads end at the instruction's ordinary operand-use points.
+  const loom_low_read_retention_t* read_retention;
 };
 
 // Returns the immutable common target bundle projected into |facts|.

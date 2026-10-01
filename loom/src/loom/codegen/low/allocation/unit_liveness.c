@@ -10,6 +10,7 @@
 
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/representation_binding.h"
 #include "loom/ir/module.h"
@@ -783,6 +784,9 @@ loom_low_allocation_unit_liveness_note_descriptor_unit_uses(
   for (uint16_t i = 0; i < descriptor->operand_count; ++i) {
     const loom_low_operand_t* operand =
         &descriptor_set->operands[descriptor->operand_start + i];
+    IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_note_operand(
+        unit_liveness->write_interference, value_domain, descriptor_set,
+        descriptor, op, i, clobber_point, arena));
     if (iree_any_bit_set(descriptor->flags,
                          LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ) &&
         loom_low_operand_role_is_packet_operand(operand->role)) {
@@ -1264,6 +1268,9 @@ static iree_status_t loom_low_allocation_unit_liveness_initialize_impl(
   // Actual unit uses refine both local lifetime ends and CFG boundary demand.
   // Scalar values keep the canonical value-granular boundaries. Terminator
   // edge facts additionally decompose aggregate handoffs into their sources.
+  IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_create(
+      target, placement, liveness, result_arena,
+      &out_unit_liveness->write_interference));
   loom_low_allocation_unit_use_index_t unit_use_index;
   IREE_RETURN_IF_ERROR(loom_low_allocation_unit_use_index_initialize(
       cfg_graph, liveness, out_unit_liveness, multi_unit_value_count,

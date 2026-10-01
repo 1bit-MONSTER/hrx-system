@@ -1,0 +1,163 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @wave64_overlaps_sixteen_carry_predicates strategy=resource-stall
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @wave64_overlaps_sixteen_carry_predicates(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_add_co_ci_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_add_co_ci_u32 %sum0_hi, %term_hi, %carry1
+  %sum2_lo, %carry2 = v_add_co_u32 %sum1_lo, %term_lo
+  %sum2_hi, %carry2_out = v_add_co_ci_u32 %sum1_hi, %term_hi, %carry2
+  %sum3_lo, %carry3 = v_add_co_u32 %sum2_lo, %term_lo
+  %sum3_hi, %carry3_out = v_add_co_ci_u32 %sum2_hi, %term_hi, %carry3
+  %sum4_lo, %carry4 = v_add_co_u32 %sum3_lo, %term_lo
+  %sum4_hi, %carry4_out = v_add_co_ci_u32 %sum3_hi, %term_hi, %carry4
+  %sum5_lo, %carry5 = v_add_co_u32 %sum4_lo, %term_lo
+  %sum5_hi, %carry5_out = v_add_co_ci_u32 %sum4_hi, %term_hi, %carry5
+  %sum6_lo, %carry6 = v_add_co_u32 %sum5_lo, %term_lo
+  %sum6_hi, %carry6_out = v_add_co_ci_u32 %sum5_hi, %term_hi, %carry6
+  %sum7_lo, %carry7 = v_add_co_u32 %sum6_lo, %term_lo
+  %sum7_hi, %carry7_out = v_add_co_ci_u32 %sum6_hi, %term_hi, %carry7
+  %sum8_lo, %carry8 = v_add_co_u32 %sum7_lo, %term_lo
+  %sum8_hi, %carry8_out = v_add_co_ci_u32 %sum7_hi, %term_hi, %carry8
+  %sum9_lo, %carry9 = v_add_co_u32 %sum8_lo, %term_lo
+  %sum9_hi, %carry9_out = v_add_co_ci_u32 %sum8_hi, %term_hi, %carry9
+  %sum10_lo, %carry10 = v_add_co_u32 %sum9_lo, %term_lo
+  %sum10_hi, %carry10_out = v_add_co_ci_u32 %sum9_hi, %term_hi, %carry10
+  %sum11_lo, %carry11 = v_add_co_u32 %sum10_lo, %term_lo
+  %sum11_hi, %carry11_out = v_add_co_ci_u32 %sum10_hi, %term_hi, %carry11
+  %sum12_lo, %carry12 = v_add_co_u32 %sum11_lo, %term_lo
+  %sum12_hi, %carry12_out = v_add_co_ci_u32 %sum11_hi, %term_hi, %carry12
+  %sum13_lo, %carry13 = v_add_co_u32 %sum12_lo, %term_lo
+  %sum13_hi, %carry13_out = v_add_co_ci_u32 %sum12_hi, %term_hi, %carry13
+  %sum14_lo, %carry14 = v_add_co_u32 %sum13_lo, %term_lo
+  %sum14_hi, %carry14_out = v_add_co_ci_u32 %sum13_hi, %term_hi, %carry14
+  %sum15_lo, %carry15 = v_add_co_u32 %sum14_lo, %term_lo
+  %sum15_hi, %carry15_out = v_add_co_ci_u32 %sum14_hi, %term_hi, %carry15
+  return %sum15_lo, %sum15_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @wave32_keeps_default_carry_schedule strategy=resource-stall
+
+amdgpu.target<gfx1100> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @wave32_keeps_default_carry_schedule(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_add_co_ci_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_add_co_ci_u32 %sum0_hi, %term_hi, %carry1
+  return %sum1_lo, %sum1_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @cdna3_keeps_default_carry_schedule strategy=resource-stall
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_keeps_default_carry_schedule(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_addc_co_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_addc_co_u32 %sum0_hi, %term_hi, %carry1
+  return %sum1_lo, %sum1_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_nop 1
+  v_addc_co_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_nop 1
+  v_addc_co_u32 v1, s[0:1], v1, v3, s[0:1]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @rdna4_keeps_default_carry_schedule strategy=resource-stall
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @rdna4_keeps_default_carry_schedule(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_add_co_ci_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_add_co_ci_u32 %sum0_hi, %term_hi, %carry1
+  return %sum1_lo, %sum1_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_wait_alu depctr(0)
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  s_endpgm

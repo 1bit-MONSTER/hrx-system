@@ -165,6 +165,7 @@ loom_cc_library(
     ::target_info
     ::target_info_defs
     iree::base
+    loom::codegen::low::read_retention
     loom::codegen::low::target_binding
     loom::target::facts
     loom::target::facts_builder

@@ -1,0 +1,18 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @scalar_source_minimum strategy=source amdgpu.sgpr=3 fixed=%uniform:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_source_minimum(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %difference, %borrow = v_sub_co_u32 %uniform, %varying
+  return %difference, %borrow
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], s2, v0
+  s_endpgm

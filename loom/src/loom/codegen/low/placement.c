@@ -751,7 +751,9 @@ static iree_status_t loom_low_placement_collect_op_relations(
         .cause = cause,
         .flags = loom_low_placement_flags_from_storage_relation(
             storage_relation.flags),
-        .write_point = operation_point->end_point,
+        .write_point = cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_SCF_LOOP_ENTRY
+                           ? operation_point->start_point + 1
+                           : operation_point->end_point,
         .priority = 1,
         .source_operand_index = storage_relation.source_operand_index,
     };

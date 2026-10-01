@@ -6,6 +6,7 @@
 
 #include "loom/codegen/low/allocation/move_plan.h"
 
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/schedule/types.h"
 
 typedef struct loom_low_allocation_move_plan_group_context_t {
@@ -128,7 +129,11 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
         loom_low_allocation_storage_liveness_index_is_live_at_point(
             &plan->storage_liveness_index, &temporary, program_point) ||
         loom_low_move_sequence_location_set_contains(occupied_locations,
-                                                     &temporary)) {
+                                                     &temporary) ||
+        loom_low_allocation_write_interference_temporary_conflicts(
+            context->unit_liveness->write_interference,
+            &context->assignment_map, group_context->operation_point->end_point,
+            &temporary)) {
       continue;
     }
     *out_temporary = temporary;

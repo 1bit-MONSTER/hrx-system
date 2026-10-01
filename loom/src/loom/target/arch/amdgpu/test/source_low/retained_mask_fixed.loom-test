@@ -1,0 +1,59 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @fixed_mask_write strategy=source fixed=%mask:physical_register:0:2 fixed=%replacement:physical_register:0:2 fixed=%source:physical_register:4:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @fixed_mask_write(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %replacement = s_or_b64 %source, %source
+  return %selected, %replacement
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_or_b64 s[0:1], s[4:5], s[4:5]
+  s_waitcnt_depctr 0xff9e
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @fixed_mask_write_twice strategy=source fixed=%mask:physical_register:0:2 fixed=%replacement:physical_register:0:2 fixed=%result:physical_register:0:2 fixed=%source:physical_register:4:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @fixed_mask_write_twice(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %replacement = s_or_b64 %source, %source
+  %result = s_and_b64 %replacement, %source
+  return %selected, %result
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_or_b64 s[0:1], s[4:5], s[4:5]
+  s_waitcnt_depctr 0xff9e
+  s_and_b64 s[0:1], s[0:1], s[4:5]
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @fixed_mask_cleared strategy=source fixed=%mask:physical_register:0:2 fixed=%replacement:physical_register:0:2 fixed=%source:physical_register:4:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @fixed_mask_cleared(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %word = slice %source[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %broadcast = v_mov_b32_copy %word
+  %replacement = s_or_b64 %source, %source
+  return %selected, %broadcast, %replacement
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  v_mov_b32_copy v1, s4
+  s_or_b64 s[0:1], s[4:5], s[4:5]
+  s_endpgm

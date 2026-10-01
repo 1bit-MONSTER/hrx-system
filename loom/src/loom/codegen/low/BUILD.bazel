@@ -76,6 +76,12 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "read_retention",
+    hdrs = ["read_retention.h"],
+    deps = [":descriptors"],
+)
+
+loom_cc_library(
     name = "descriptor_traits",
     srcs = ["descriptor_traits.c"],
     hdrs = ["descriptor_traits.h"],
@@ -567,6 +573,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/allocation:target_constraints",
         "//loom/src/loom/codegen/low/allocation:unit_liveness",
         "//loom/src/loom/codegen/low/allocation:unit_location",
+        "//loom/src/loom/codegen/low/allocation:write_interference",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",

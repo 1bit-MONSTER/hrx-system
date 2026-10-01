@@ -1,0 +1,49 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// A scalar memory result replaces the remembered words without an ALU hazard.
+// RUN: emit amdgpu-assembly @memory_replaces_mask strategy=source fixed=%mask:physical_register:0:2 fixed=%pointer:physical_register:4:2 fixed=%loaded:physical_register:0:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @memory_replaces_mask(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %loaded = s_load_dwordx2_offset_only %pointer
+  %result = s_or_b64 %loaded, %pointer
+  return %selected, %result
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_load_dwordx2 s[0:1], s[4:5] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_or_b64 s[0:1], s[0:1], s[4:5]
+  s_endpgm
+
+// ====
+// A one-word memory result leaves the other remembered word protected.
+// RUN: emit amdgpu-assembly @memory_replaces_lower_word strategy=source fixed=%mask:physical_register:0:2 fixed=%pointer:physical_register:4:2 fixed=%loaded:physical_register:0:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @memory_replaces_lower_word(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %loaded = s_load_dword_offset_only %pointer
+  %pointer_word = slice %pointer[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %lower = s_or_b32 %loaded, %pointer_word
+  %upper = s_or_b32 %pointer_word, %pointer_word
+  %result = s_or_b32 %lower, %upper
+  return %selected, %result
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_load_dword s0, s[4:5] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_or_b32 s0, s0, s4
+  s_or_b32 s2, s4, s4
+  s_or_b32 s0, s0, s2
+  s_endpgm

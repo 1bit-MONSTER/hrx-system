@@ -219,6 +219,7 @@ loom_cc_library(
         ":target_identity",
         ":target_info",
         ":target_info_defs",
+        "//loom/src/loom/codegen/low:read_retention",
         "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/target:facts",
         "//loom/src/loom/target:facts_builder",

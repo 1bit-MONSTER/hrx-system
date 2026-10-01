@@ -1,0 +1,25 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// RUN: emit amdgpu-assembly @carried_mask_update strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @carried_mask_update(%initial: reg<amdgpu.sgpr x2>, %lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) asm {
+  low.br ^loop(%initial: reg<amdgpu.sgpr x2>)
+^loop(%carried: reg<amdgpu.sgpr x2>):
+  %selected = v_cndmask_b32 %lhs, %rhs, %carried
+  %next = v_cmp_lt_i32 %selected, %rhs
+  low.br ^loop(%next: reg<amdgpu.sgpr x2>)
+}
+
+// ----
+.Lbb1:
+  v_cndmask_b32 v2, v0, v1, s[0:1]
+  s_delay_alu instid0(VALU_DEP_1)
+  v_cmp_lt_i32 s[0:1], v2, v1
+  s_waitcnt_depctr 0xf19f
+  s_branch .Lbb1

@@ -1,0 +1,25 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// A body read survives to the before-region write on the next iteration.
+// RUN: emit low-allocation-json @condition_retains_mask fixed=%mask:physical_register:0:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @condition_retains_mask(%condition: reg<amdgpu.scc>, %value: reg<amdgpu.vgpr>) asm {
+  low.scf.while {
+    %scratch = s_mov_b32 1
+    low.scf.condition %condition : reg<amdgpu.scc>
+  } do {
+    %mask = v_cmp_eq_i32 %value, %value
+    %selected = v_cndmask_b32 %value, %value, %mask
+    low.scf.yield
+  }
+  return
+}
+
+// ----
+{"format":"loom.low.allocation.v0","function":"condition_retains_mask","target":"target","descriptor_set":"amdgpu.rdna3_5.core","allocation_mode":"virtual","assignment_count":5,"remark_count":0,"copy_decision_count":0,"spill_count":0,"spill_plan_count":0,"coalesced_copy_count":0,"materialized_copy_count":0,"assignments":[{"index":0,"value":{"id":0,"name":"condition","type":"reg<amdgpu.scc>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.scc"},"start_point":0,"end_point":8,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}},{"index":1,"value":{"id":1,"name":"value","type":"reg<amdgpu.vgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.vgpr"},"start_point":0,"end_point":8,"unit_count":1,"location":{"kind":"physical_register","base":0,"count":1}},{"index":2,"value":{"id":2,"name":"scratch","type":"reg<amdgpu.sgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":2,"end_point":3,"unit_count":1,"location":{"kind":"physical_register","base":2,"count":1}},{"index":3,"value":{"id":3,"name":"mask","type":"reg<amdgpu.sgpr x2>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.sgpr"},"start_point":5,"end_point":6,"unit_count":2,"location":{"kind":"physical_register","base":0,"count":2}},{"index":4,"value":{"id":4,"name":"selected","type":"reg<amdgpu.vgpr>"},"class":{"type_kind":12,"type_kind_name":"register","element_type":0,"element_type_name":null,"register_class":"amdgpu.vgpr"},"start_point":6,"end_point":7,"unit_count":1,"location":{"kind":"physical_register","base":1,"count":1}}],"spill_plans":[],"copy_decisions":[],"remarks":[]}

@@ -26,6 +26,8 @@ extern "C" {
 
 // Indexed physical write point retained by the unit-liveness producer.
 typedef struct loom_low_allocation_clobber_t loom_low_allocation_clobber_t;
+typedef struct loom_low_allocation_write_interference_t
+    loom_low_allocation_write_interference_t;
 
 // Per-value storage lifetime facts retained beside the per-unit lifetime
 // cursor.
@@ -82,6 +84,9 @@ typedef struct loom_low_allocation_unit_liveness_t {
     // One past the largest explicit atomic unit written; zero for none.
     uint32_t atomic_unit_end;
   } clobbers;
+  // Instruction reads retained beyond semantic value death. Operand events
+  // are collected here and finalized after fixed bindings, before assignment.
+  loom_low_allocation_write_interference_t* write_interference;
 } loom_low_allocation_unit_liveness_t;
 
 // Returns true when |value_id|'s required storage component is excluded by

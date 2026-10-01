@@ -20,6 +20,7 @@
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/allocation/unit_location.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/schedule/types.h"
@@ -326,6 +327,19 @@ iree_status_t loom_low_allocate_function(
         &state.target_constraints, &state.liveness, value_domain,
         &state.unit_liveness, &state.placement, options->fixed_values,
         options->fixed_value_count, arena);
+  }
+  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
+    for (iree_host_size_t i = 0; i < state.target_constraints.fixed_value_count;
+         ++i) {
+      const loom_low_allocation_resolved_fixed_value_t* fixed =
+          &state.target_constraints.fixed_values[i];
+      loom_low_allocation_write_interference_note_fixed(
+          state.unit_liveness.write_interference, fixed->value_ordinal,
+          &fixed->assignment);
+    }
+    status = loom_low_allocation_write_interference_finalize(
+        state.unit_liveness.write_interference, &state.liveness,
+        &model->cfg_graph, &state.placement, arena);
   }
   const iree_arena_checkpoint_t interval_assignment_checkpoint =
       iree_arena_checkpoint_save(arena);

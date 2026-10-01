@@ -12,6 +12,7 @@
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/spill_traffic.h"
 #include "loom/codegen/low/allocation/storage.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/ir/module.h"
 #include "loom/target/residency.h"
 
@@ -223,6 +224,11 @@ bool loom_low_allocation_search_assignment_conflicts(
     const loom_value_id_t* ignored_storage_lease_value_ids,
     uint16_t ignored_storage_lease_value_count,
     loom_low_allocation_storage_release_policy_t release_policy) {
+  if (loom_low_allocation_write_interference_conflicts(
+          context->unit_liveness->write_interference, context->assignment_map,
+          candidate)) {
+    return true;
+  }
   if (loom_low_allocation_search_hard_relations_conflict(context, candidate)) {
     return true;
   }

@@ -13,6 +13,7 @@
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/relocation_group.h"
 #include "loom/codegen/low/allocation/storage.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/util/adaptive_sort.h"
@@ -48,7 +49,49 @@ typedef struct loom_low_allocation_loop_edge_relocation_state_t {
   loom_consumption_region_query_t consumption_query;
   // Coalesced non-edge components retained before any header relocation.
   loom_low_allocation_relocation_groups_t groups;
+  // Complete simultaneous location proposal checked before committing writes.
+  loom_low_allocation_write_proposal_t write_proposal;
 } loom_low_allocation_loop_edge_relocation_state_t;
+
+static bool loom_low_allocation_loop_edge_write_conflicts(
+    loom_low_allocation_loop_edge_relocation_state_t* state,
+    const loom_low_allocation_loop_edge_candidate_t* candidates,
+    iree_host_size_t candidate_count, const uint8_t* enabled,
+    const loom_low_allocation_assignment_t* evictions,
+    iree_host_size_t eviction_count) {
+  if (state->write_proposal.bases == NULL) {
+    return false;
+  }
+  loom_low_allocation_write_interference_t* interference =
+      state->context->unit_liveness->write_interference;
+  loom_low_allocation_write_proposal_reset(&state->write_proposal);
+  for (iree_host_size_t i = 0; i < candidate_count; ++i) {
+    if (enabled != NULL && !enabled[i]) {
+      continue;
+    }
+    const uint32_t destination = candidates[i].destination_assignment_index;
+    const int64_t offset =
+        (int64_t)candidates[i].assignment.location_base -
+        state->context->assignments[destination].location_base;
+    uint32_t member = destination;
+    do {
+      const loom_low_allocation_assignment_t* assignment =
+          &state->context->assignments[member];
+      loom_low_allocation_write_proposal_add(
+          interference, &state->assignment_map, assignment,
+          (uint32_t)((int64_t)assignment->location_base + offset),
+          &state->write_proposal);
+      member = state->groups.next_members[member];
+    } while (member != destination);
+  }
+  for (iree_host_size_t i = 0; i < eviction_count; ++i) {
+    loom_low_allocation_write_proposal_add(
+        interference, &state->assignment_map, &evictions[i],
+        evictions[i].location_base, &state->write_proposal);
+  }
+  return loom_low_allocation_write_proposal_conflicts(
+      interference, &state->assignment_map, &state->write_proposal);
+}
 
 // One canonical target-visible storage unit owned by an assignment or
 // relocation candidate.
@@ -1450,6 +1493,11 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_try_full_group(
     }
   }
 
+  if (loom_low_allocation_loop_edge_write_conflicts(
+          state, candidates, candidate_count, NULL, assignments_by_eviction,
+          conflict_count)) {
+    return iree_ok_status();
+  }
   for (iree_host_size_t i = 0; i < candidate_count; ++i) {
     loom_low_allocation_loop_edge_relocation_apply_candidate(state,
                                                              &candidates[i]);
@@ -1555,6 +1603,9 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_try_header(
     IREE_RETURN_IF_ERROR(loom_low_allocation_relocation_groups_initialize(
         state->context->descriptor_set, state->context->placement,
         &state->assignment_map, state->context->arena, &state->groups));
+    IREE_RETURN_IF_ERROR(loom_low_allocation_write_proposal_initialize(
+        state->context->unit_liveness->write_interference,
+        state->context->arena, &state->write_proposal));
   }
 
   loom_low_allocation_loop_edge_candidate_t* candidates = NULL;
@@ -1657,6 +1708,10 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_try_header(
         disabled_candidate_indices, &disabled_candidate_count);
   }
 
+  if (loom_low_allocation_loop_edge_write_conflicts(
+          state, candidates, candidate_count, candidate_enabled, NULL, 0)) {
+    return iree_ok_status();
+  }
   iree_host_size_t relocated_value_count = 0;
   for (iree_host_size_t i = 0; i < candidate_count; ++i) {
     if (!candidate_enabled[i]) {
