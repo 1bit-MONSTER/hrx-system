@@ -284,6 +284,50 @@ def test_compile_exact_lane_origin_operand_reference() -> None:
     assert origin_operand_ref.kind is SourceValueKind.EXACT_LANE_ORIGIN_OPERAND
 
 
+def test_compile_exact_uniform_element_origin_operand_reference() -> None:
+    fragment = ContractFragment(
+        name="test.exact-uniform-element-origin",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(
+            DescriptorRule(
+                source_op=vector.vector_mulf,
+                descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+                guards=(
+                    Guard.value_type("lhs", Vector("f32", lanes=16)),
+                    Guard.exact_uniform_element_origin_type(
+                        "rhs",
+                        Scalar("bf16"),
+                    ),
+                    Guard.value_type("result", Vector("f32", lanes=16)),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.operand("lhs"),
+                            "rhs": ValueRef.exact_uniform_element_origin_operand("rhs"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    compiled = compile_lower_rule_set(
+        fragment,
+        dialect_ops={"vector": ALL_VECTOR_OPS},
+    )
+
+    origin_guard_ref = compiled.value_refs[compiled.guards[1].value_ref_index]
+    assert origin_guard_ref.kind is SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND
+    emit = compiled.emits[compiled.rules[0].emit_start]
+    origin_operand_ref = compiled.value_refs[emit.operand_ref_start + 1]
+    assert (
+        origin_operand_ref.kind is SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND
+    )
+
+
 def test_compile_variadic_result_element_refs() -> None:
     fragment = ContractFragment(
         name="test.variadic-result-elements",

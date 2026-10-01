@@ -36,6 +36,7 @@ from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     _low_register_class_name,
     _memory_event_name,
     _pipeline_resource_name,
+    _register_event_name,
     _slot_resource_name,
     _validate_control_issue_timing,
 )
@@ -2173,6 +2174,23 @@ def test_seed_schedule_contract_retains_endpoint_events_and_separations() -> Non
     assert separations[vector_write, vector_write] == 1
     assert separations[vector_read, vector_write] == 0
     assert separations[vector_write, vector_store_read] == 2
+
+    # The physical issuer may backfill later accepted instructions. A later
+    # overwrite therefore cannot inherit LLVM's negative anti-dependency
+    # latency, which assumes topological issue order.
+    assert all(
+        separation >= 0
+        for (producer_event, consumer_event), separation in separations.items()
+        if producer_event.startswith("amd.xdna.aie2p.operand.read.")
+        and consumer_event.startswith("amd.xdna.aie2p.operand.write.")
+    )
+    assert (
+        separations[
+            _register_event_name("read", 1, None),
+            _register_event_name("write", 2, None),
+        ]
+        == 0
+    )
 
     memory_write = next(
         row.producer_event

@@ -69,6 +69,7 @@ _F16_VECTOR = Vector("f16", minimum_static_elements=1, maximum_static_elements=3
 _BF16_VECTOR = Vector("bf16", minimum_static_elements=1, maximum_static_elements=32)
 _I32_VECTOR = Vector("i32", minimum_static_elements=1, maximum_static_elements=16)
 _F32_VECTOR = Vector("f32", minimum_static_elements=1, maximum_static_elements=16)
+_F32X32_VECTOR = Vector("f32", lanes=32)
 _I32_MATRIX_ACCUMULATOR = Vector("i32", lanes=64)
 _I1_VECTOR = Vector("i1", minimum_static_elements=1, maximum_static_elements=64)
 _I1X2X64_VECTOR = Vector("i1", dims=(2, 64))
@@ -658,6 +659,42 @@ def _vector_splat_rule(
                 results={"dst": ValueRef.result("result")},
             ),
         ),
+    )
+
+
+def _vector_wide_f32_splat_rule() -> DescriptorRule:
+    """Replicates one F32 value across both native accumulator units."""
+
+    broadcast = _descriptor("amd.xdna.aie2p.splat.i32x16")
+    move_to_accumulator = _descriptor("amd.xdna.aie2p.move.vector512.to.accumulator512")
+    packet = ValueRef.temporary("packet")
+    accumulator_unit = ValueRef.temporary("accumulator_unit")
+    return DescriptorRule(
+        source_op=vector.vector_splat,
+        descriptor=broadcast,
+        guards=(
+            Guard.value_type("scalar", _F32),
+            Guard.value_type("result", _F32X32_VECTOR),
+        ),
+        emit=(
+            _op_emit(
+                broadcast,
+                operands={"src": ValueRef.operand("scalar")},
+                results={"dst": packet},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            _op_emit(
+                move_to_accumulator,
+                operands={"src": packet},
+                results={"dst": accumulator_unit},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            EmitRegisterConcat(
+                sources=(accumulator_unit, accumulator_unit),
+                result=ValueRef.result("result"),
+            ),
+        ),
+        report_key="f32x32_native_splat",
     )
 
 

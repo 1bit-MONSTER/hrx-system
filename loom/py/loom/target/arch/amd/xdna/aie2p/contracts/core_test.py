@@ -1146,6 +1146,7 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         "amd.xdna.aie2p.splat.i16x32",
         "amd.xdna.aie2p.splat.i32x16",
         "amd.xdna.aie2p.splat.i32x16",
+        "amd.xdna.aie2p.splat.i32x16",
         "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
     ]
     assert [
@@ -1159,6 +1160,7 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         ("f16", "f16"),
         ("bf16", "bf16"),
         ("i32", "i32"),
+        ("f32", "f32"),
         ("f32", "f32"),
         ("i1", "i1"),
     ]
@@ -1430,6 +1432,59 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         len([rule for rule in alias_rules if rule.source_op is vector.vector_broadcast])
         == 3
     )
+
+
+def test_f32_extremum_reductions_use_packed_trees() -> None:
+    reduction_rules = [
+        case
+        for case in AIE2P_CORE_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule) and case.source_op is vector.vector_reduce
+    ]
+    extremum_keys = [
+        "amd.xdna.aie2p.max.lt.signed.i32x16.native",
+        "amd.xdna.aie2p.min.ge.signed.i32x16.native",
+        "amd.xdna.aie2p.cmp.lt.signed.i32x16.native",
+        "amd.xdna.aie2p.select.i32x16",
+    ]
+    for kind, operation in (
+        ("minnumf", "minimum"),
+        ("minimumf", "minimum"),
+        ("maxnumf", "maximum"),
+        ("maximumf", "maximum"),
+    ):
+        kind_guard = Guard.enum_attr_equals("kind", kind)
+        rule = next(rule for rule in reduction_rules if kind_guard in rule.guards)
+        assert rule.descriptor.key == "amd.xdna.aie2p.extract.i32.immediate"
+        assert rule.report_key == f"f32x16_packed_{operation}_tree"
+        assert Guard.value_type("input", Vector("f32", lanes=16)) in rule.guards
+        assert Guard.value_type("init", Scalar("f32")) in rule.guards
+        assert Guard.value_float_equals("init", 0.0) not in rule.guards
+        assert {
+            Guard.instance_flags_has_all("fastmath", flag)
+            for flag in ("reassoc", "nnan", "nsz")
+        } <= set(rule.guards)
+
+        expected_keys = [
+            "amd.xdna.aie2p.constant.i32.mova",
+            "amd.xdna.aie2p.splat.i32x16",
+            "amd.xdna.aie2p.splat.i32x16",
+            *extremum_keys,
+        ]
+        for _ in _F32X16_REDUCTION_CONTROLS:
+            expected_keys.extend(
+                (
+                    "amd.xdna.aie2p.constant.i32.mova",
+                    "amd.xdna.aie2p.shuffle.x.configured",
+                    *extremum_keys,
+                )
+            )
+        expected_keys.append("amd.xdna.aie2p.extract.i32.immediate")
+        assert [emit.descriptor.key for emit in rule.emit] == expected_keys
+        assert [
+            emit.immediates["i"]
+            for emit in rule.emit
+            if emit.descriptor.key == "amd.xdna.aie2p.constant.i32.mova"
+        ] == [0, *_F32X16_REDUCTION_CONTROLS]
 
 
 def test_vector_constant_rules_materialize_each_register_carrier() -> None:

@@ -104,7 +104,8 @@ static iree_status_t loom_low_lower_rule_low_value(
   switch (value_ref->kind) {
     case LOOM_LOW_LOWER_VALUE_REF_OPERAND:
     case LOOM_LOW_LOWER_VALUE_REF_RESULT:
-    case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND: {
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND:
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND: {
       loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
           context, rule_set, state, value_ref_index);
       if (value_ref->materializer_index != 0) {

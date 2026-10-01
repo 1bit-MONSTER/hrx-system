@@ -6,9 +6,14 @@
 
 """AMD XDNA AIE2P vector reduction selection rules."""
 
+from typing import Literal
+
 from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
     F32_ACCUMULATOR_ADD_CONTROL,
+)
+from loom.target.arch.amd.xdna.aie2p.contracts.floating import (
+    emit_f32x16_extremum,
 )
 from loom.target.arch.amd.xdna.aie2p.contracts.scalar_program import ScalarProgram
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
@@ -314,6 +319,92 @@ def _reduce_add_f32x16_rule() -> DescriptorRule:
     )
 
 
+def _reduce_extremum_f32x16_rule(
+    kind: Literal["minnumf", "minimumf", "maxnumf", "maximumf"],
+    operation: Literal["minimum", "maximum"],
+) -> DescriptorRule:
+    splat = _descriptor("amd.xdna.aie2p.splat.i32x16")
+    shuffle = _descriptor("amd.xdna.aie2p.shuffle.x.configured")
+    extract = _descriptor("amd.xdna.aie2p.extract.i32.immediate")
+
+    zero = ValueRef.temporary("extremum_zero")
+    zero_vector = ValueRef.temporary("extremum_zero_vector")
+    init_vector = ValueRef.temporary("extremum_init_vector")
+    current = ValueRef.temporary("extremum_initial")
+    emits: list[ContractEmit] = [
+        _constant_emit(zero, 0),
+        _op_emit(
+            splat,
+            operands={"src": zero},
+            results={"dst": zero_vector},
+            descriptor_result_type=True,
+        ),
+        _op_emit(
+            splat,
+            operands={"src": ValueRef.operand("init")},
+            results={"dst": init_vector},
+            descriptor_result_type=True,
+        ),
+        *emit_f32x16_extremum(
+            ValueRef.operand("input"),
+            init_vector,
+            current,
+            operation,
+            temporary_prefix="extremum_initial_",
+            zero_vector=zero_vector,
+        ),
+    ]
+    for stage, control in enumerate(_F32X16_REDUCTION_CONTROLS):
+        control_value = ValueRef.temporary(f"extremum_control_{stage}")
+        shuffled = ValueRef.temporary(f"extremum_shuffled_{stage}")
+        reduced = ValueRef.temporary(f"extremum_reduced_{stage}")
+        emits.extend(
+            (
+                _constant_emit(control_value, control),
+                _op_emit(
+                    shuffle,
+                    operands={"s1": current, "s2": current, "mod": control_value},
+                    results={"dst": shuffled},
+                    descriptor_result_type=True,
+                ),
+                *emit_f32x16_extremum(
+                    current,
+                    shuffled,
+                    reduced,
+                    operation,
+                    temporary_prefix=f"extremum_stage_{stage}_",
+                    zero_vector=zero_vector,
+                ),
+            )
+        )
+        current = reduced
+
+    emits.append(
+        _op_emit(
+            extract,
+            operands={"s1": current},
+            results={"dst": ValueRef.result("result")},
+            descriptor_result_type=True,
+            immediates={"idx": 0},
+        )
+    )
+    return DescriptorRule(
+        source_op=vector.vector_reduce,
+        descriptor=extract,
+        guards=(
+            Guard.enum_attr_equals("kind", kind),
+            Guard.value_type("input", _F32X16_VECTOR),
+            Guard.value_type("init", _F32),
+            Guard.value_type("result", _F32),
+            Guard.instance_flags_has_all("fastmath", "reassoc"),
+            Guard.instance_flags_has_all("fastmath", "nnan"),
+            Guard.instance_flags_has_all("fastmath", "nsz"),
+        ),
+        emit=tuple(emits),
+        report_key=f"f32x16_packed_{operation}_tree",
+    )
+
+
 def _reduce_i1_rule(
     lane_count: int, kind: str, *, identity_init: bool
 ) -> DescriptorRule:
@@ -382,6 +473,15 @@ def _reduce_i1_rule(
 
 AIE2P_REDUCTION_RULES = (
     _reduce_add_f32x16_rule(),
+    *(
+        _reduce_extremum_f32x16_rule(kind, operation)
+        for kind, operation in (
+            ("minnumf", "minimum"),
+            ("minimumf", "minimum"),
+            ("maxnumf", "maximum"),
+            ("maximumf", "maximum"),
+        )
+    ),
     *(
         _reduce_add_i32_rule(lane_count, controls, zero_init=zero_init)
         for lane_count, controls in _I32_REDUCTION_CONTROLS

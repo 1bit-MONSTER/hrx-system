@@ -1860,6 +1860,41 @@ static void loom_vector_fmai_transfer(const loom_value_facts_t* a,
 // Construction
 //===----------------------------------------------------------------------===//
 
+// Returns the scalar before an exact floating-point extension, when present.
+// Operand roles carry the conversion semantics so this remains independent of
+// any particular scalar dialect operation.
+static loom_value_id_t loom_vector_exact_uniform_scalar_origin(
+    const loom_module_t* module, loom_value_id_t scalar_value_id) {
+  const loom_value_t* scalar_value = loom_module_value(module, scalar_value_id);
+  if (loom_value_is_block_arg(scalar_value)) {
+    return scalar_value_id;
+  }
+  const loom_op_t* defining_op = loom_value_def_op(scalar_value);
+  if (defining_op == NULL || defining_op->operand_count != 1 ||
+      defining_op->result_count != 1 ||
+      !loom_op_defines_value(defining_op, scalar_value_id) ||
+      !loom_op_operand_has_role(module, defining_op, 0,
+                                LOOM_OPERAND_ROLE_FLOAT_EXTENSION_SOURCE)) {
+    return scalar_value_id;
+  }
+  const loom_value_id_t input_value_id = loom_op_const_operands(defining_op)[0];
+  const loom_type_t input_type = loom_module_value_type(module, input_value_id);
+  const loom_type_t result_type =
+      loom_module_value_type(module, scalar_value_id);
+  if (!loom_type_is_scalar(input_type) || !loom_type_is_scalar(result_type)) {
+    return scalar_value_id;
+  }
+  const loom_scalar_type_t input_element = loom_type_element_type(input_type);
+  const loom_scalar_type_t result_element = loom_type_element_type(result_type);
+  if (!loom_scalar_type_is_float(input_element) ||
+      !loom_scalar_type_is_float(result_element) ||
+      loom_scalar_type_bitwidth(input_element) >=
+          loom_scalar_type_bitwidth(result_element)) {
+    return scalar_value_id;
+  }
+  return input_value_id;
+}
+
 iree_status_t loom_vector_constant_facts(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op, const loom_value_facts_t* operand_facts,
@@ -1881,7 +1916,9 @@ iree_status_t loom_vector_splat_facts(loom_fact_context_t* context,
                                       loom_value_facts_t* result_facts) {
   IREE_RETURN_IF_ERROR(loom_value_fact_table_define_uniform_element_origin(
       context->table, loom_vector_splat_result(op),
-      loom_vector_splat_scalar(op)));
+      loom_vector_splat_scalar(op),
+      loom_vector_exact_uniform_scalar_origin(module,
+                                              loom_vector_splat_scalar(op))));
   return loom_value_facts_make_uniform_element(context, operand_facts[0],
                                                &result_facts[0]);
 }
@@ -1951,7 +1988,8 @@ iree_status_t loom_vector_from_elements_facts(
     }
     if (all_same_element) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_define_uniform_element_origin(
-          context->table, loom_vector_from_elements_result(op), first_element));
+          context->table, loom_vector_from_elements_result(op), first_element,
+          loom_vector_exact_uniform_scalar_origin(module, first_element)));
       return loom_value_facts_make_uniform_element(context, operand_facts[0],
                                                    &result_facts[0]);
     }

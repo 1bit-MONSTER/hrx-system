@@ -293,6 +293,30 @@ TEST_F(LowLowerRuleValueTest,
   EXPECT_EQ(resolved, truncated);
 }
 
+TEST_F(LowLowerRuleValueTest, ResolvesExactUniformElementOrigins) {
+  const loom_value_id_t aggregate = loom_vector_extf_result(roundtrip_extf_op_);
+  const loom_value_id_t scalar =
+      loom_scalar_constant_result(float_constant_op_);
+  IREE_ASSERT_OK(loom_value_fact_table_define_uniform_element_origin(
+      &fact_table_, aggregate, scalar, scalar));
+
+  const loom_low_lower_value_ref_t value_ref = {
+      /*.kind=*/
+      LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+      /*.source_node_index=*/0,
+      /*.index=*/0,
+  };
+  loom_low_lower_rule_set_t rule_set = {};
+  rule_set.value_refs = &value_ref;
+  rule_set.value_ref_count = 1;
+  loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
+  ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
+      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      /*source_nodes=*/nullptr, /*source_node_count=*/1,
+      /*value_ref_index=*/0, &resolved));
+  EXPECT_EQ(resolved, scalar);
+}
+
 TEST_F(LowLowerRuleValueTest, ProjectsExactScalarFacts) {
   const loom_value_id_t integer_value =
       loom_scalar_constant_result(integer_constant_op_);

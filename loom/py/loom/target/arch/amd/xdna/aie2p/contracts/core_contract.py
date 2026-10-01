@@ -829,6 +829,7 @@ def aie2p_core_cases() -> Sequence[ContractCase]:
                 ),
             )
         ),
+        core_rules._vector_wide_f32_splat_rule(),
         core_rules._vector_predicate_splat_rule(),
         core_rules._vector_predicate_constant_rule(),
         *(

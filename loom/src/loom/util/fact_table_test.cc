@@ -359,18 +359,21 @@ TEST_F(FactTableTest, UniformElementOriginsClearOnlyTouchedEntries) {
   IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 0));
 
   IREE_ASSERT_OK(
-      loom_value_fact_table_define_uniform_element_origin(&table, 5, 2));
+      loom_value_fact_table_define_uniform_element_origin(&table, 5, 2, 1));
   IREE_ASSERT_OK(
-      loom_value_fact_table_define_uniform_element_origin(&table, 8, 3));
+      loom_value_fact_table_define_uniform_element_origin(&table, 8, 3, 3));
   IREE_ASSERT_OK(
-      loom_value_fact_table_define_uniform_element_origin(&table, 8, 4));
+      loom_value_fact_table_define_uniform_element_origin(&table, 8, 4, 2));
 
   EXPECT_GE(table.uniform_element_origins.capacity, (iree_host_size_t)9);
   EXPECT_EQ(table.uniform_element_origins.touched_count, 2u);
-  EXPECT_EQ(table.uniform_element_origins.entries[5], 2u);
-  EXPECT_EQ(table.uniform_element_origins.entries[8], 4u);
+  EXPECT_EQ(table.uniform_element_origins.entries[5].scalar_value_id, 2u);
+  EXPECT_EQ(table.uniform_element_origins.entries[5].exact_scalar_value_id, 1u);
+  EXPECT_EQ(table.uniform_element_origins.entries[8].scalar_value_id, 4u);
+  EXPECT_EQ(table.uniform_element_origins.entries[8].exact_scalar_value_id, 2u);
 
-  loom_value_id_t* const entries = table.uniform_element_origins.entries;
+  loom_value_fact_uniform_element_origin_t* const entries =
+      table.uniform_element_origins.entries;
   loom_value_id_t* const touched_values =
       table.uniform_element_origins.touched_values;
   loom_value_fact_table_clear_scope(&table);
@@ -378,13 +381,20 @@ TEST_F(FactTableTest, UniformElementOriginsClearOnlyTouchedEntries) {
   EXPECT_EQ(table.uniform_element_origins.entries, entries);
   EXPECT_EQ(table.uniform_element_origins.touched_values, touched_values);
   EXPECT_EQ(table.uniform_element_origins.touched_count, 0u);
-  EXPECT_EQ(table.uniform_element_origins.entries[5], LOOM_VALUE_ID_INVALID);
-  EXPECT_EQ(table.uniform_element_origins.entries[8], LOOM_VALUE_ID_INVALID);
+  EXPECT_EQ(table.uniform_element_origins.entries[5].scalar_value_id,
+            LOOM_VALUE_ID_INVALID);
+  EXPECT_EQ(table.uniform_element_origins.entries[5].exact_scalar_value_id,
+            LOOM_VALUE_ID_INVALID);
+  EXPECT_EQ(table.uniform_element_origins.entries[8].scalar_value_id,
+            LOOM_VALUE_ID_INVALID);
+  EXPECT_EQ(table.uniform_element_origins.entries[8].exact_scalar_value_id,
+            LOOM_VALUE_ID_INVALID);
 
   IREE_ASSERT_OK(
-      loom_value_fact_table_define_uniform_element_origin(&table, 5, 7));
+      loom_value_fact_table_define_uniform_element_origin(&table, 5, 7, 6));
   EXPECT_EQ(table.uniform_element_origins.touched_count, 1u);
-  EXPECT_EQ(table.uniform_element_origins.entries[5], 7u);
+  EXPECT_EQ(table.uniform_element_origins.entries[5].scalar_value_id, 7u);
+  EXPECT_EQ(table.uniform_element_origins.entries[5].exact_scalar_value_id, 6u);
 }
 
 TEST_F(FactTableTest, UniformScaleOriginsClearOnlyTouchedEntries) {
@@ -972,7 +982,7 @@ TEST_F(FactTableTest, CloneValuesCopiesUniformElementOrigins) {
       &source.context, loom_value_facts_exact_i64(42), &source_facts));
   IREE_ASSERT_OK(loom_value_fact_table_define(&source, 7, source_facts));
   IREE_ASSERT_OK(
-      loom_value_fact_table_define_uniform_element_origin(&source, 7, 2));
+      loom_value_fact_table_define_uniform_element_origin(&source, 7, 2, 1));
 
   iree_arena_allocator_t target_arena;
   iree_arena_initialize(&block_pool_, &target_arena);
@@ -985,7 +995,9 @@ TEST_F(FactTableTest, CloneValuesCopiesUniformElementOrigins) {
   EXPECT_TRUE(loom_value_facts_query_uniform_element(
       &target.context, loom_value_fact_table_lookup(&target, 7), nullptr));
   ASSERT_GE(target.uniform_element_origins.capacity, (iree_host_size_t)8);
-  EXPECT_EQ(target.uniform_element_origins.entries[7], 2u);
+  EXPECT_EQ(target.uniform_element_origins.entries[7].scalar_value_id, 2u);
+  EXPECT_EQ(target.uniform_element_origins.entries[7].exact_scalar_value_id,
+            1u);
 
   iree_arena_deinitialize(&target_arena);
 }

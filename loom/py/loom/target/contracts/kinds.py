@@ -35,3 +35,4 @@ class SourceValueKind(Enum):
     SOURCE_MEMORY_ADDRESS = "source_memory_address"
     SOURCE_MEMORY_ROOT = "source_memory_root"
     EXACT_LANE_ORIGIN_OPERAND = "exact_lane_origin_operand"
+    EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND = "exact_uniform_element_origin_operand"

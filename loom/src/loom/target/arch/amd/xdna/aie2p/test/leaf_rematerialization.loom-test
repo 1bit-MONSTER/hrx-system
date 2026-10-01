@@ -317,10 +317,10 @@ low.func.def target<amd.xdna.aie2p.core> @bounded_padding(%input: reg<aie2p.ep>,
 }
 
 // ----
-issue cycles: 185
-code bytes: 744
-coissued bundles: 10
-coissued components: 21
+issue cycles: 187
+code bytes: 752
+coissued bundles: 12
+coissued components: 25
 
 // ====
 
