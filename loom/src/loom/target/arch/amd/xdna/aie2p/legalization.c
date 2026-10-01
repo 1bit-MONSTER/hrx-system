@@ -557,19 +557,19 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINNUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXNUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINIMUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
     },
     {
         .root_kind = LOOM_OP_VECTOR_CLAMPF,

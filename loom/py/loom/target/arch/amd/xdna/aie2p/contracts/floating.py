@@ -731,6 +731,121 @@ def _matrix_multiply_bf16bf16_m8n8k1_rule() -> DescriptorRule:
     )
 
 
+def emit_f32x16_extremum(
+    lhs: ValueRef,
+    rhs: ValueRef,
+    result: ValueRef,
+    operation: Literal["minimum", "maximum"],
+    *,
+    temporary_prefix: str,
+    zero_vector: ValueRef | None = None,
+) -> tuple[ContractEmit, ...]:
+    """Selects packed F32 extrema through the signed integer data path."""
+
+    signed_maximum = _descriptor("amd.xdna.aie2p.max.lt.signed.i32x16.native")
+    signed_minimum = _descriptor("amd.xdna.aie2p.min.ge.signed.i32x16.native")
+    sign_compare = _descriptor("amd.xdna.aie2p.cmp.lt.signed.i32x16.native")
+    select = _descriptor("amd.xdna.aie2p.select.i32x16")
+
+    def temporary(name: str) -> ValueRef:
+        return ValueRef.temporary(f"{temporary_prefix}{name}")
+
+    emits: list[ContractEmit] = []
+    if zero_vector is None:
+        zero = temporary("zero")
+        zero_vector = temporary("zero_vector")
+        emits.extend(
+            (
+                _constant_emit(
+                    _descriptor("amd.xdna.aie2p.constant.i32.short"), zero, 0
+                ),
+                _op_emit(
+                    _descriptor("amd.xdna.aie2p.splat.i32x16"),
+                    operands={"src": zero},
+                    results={"dst": zero_vector},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+            )
+        )
+
+    # Signed integer maximum has the right ordering unless both floats are
+    # negative; signed integer minimum has the right ordering in that remaining
+    # quadrant. nnan excludes unordered encodings and nsz makes the two zero
+    # encodings interchangeable, so the sign of signed_maximum identifies the
+    # quadrant without changing the source contract.
+    maximum = temporary("signed_maximum")
+    minimum = temporary("signed_minimum")
+    both_negative = temporary("both_negative")
+    emits.extend(
+        (
+            _op_emit(
+                signed_maximum,
+                operands={"s1": lhs, "s2": rhs},
+                results={
+                    "d": maximum,
+                    "cmp": temporary("maximum_comparison"),
+                },
+                result_types={
+                    "d": DescriptorResultType(),
+                    "cmp": DescriptorResultType(),
+                },
+            ),
+            _op_emit(
+                signed_minimum,
+                operands={"s1": lhs, "s2": rhs},
+                results={
+                    "d": minimum,
+                    "cmp": temporary("minimum_comparison"),
+                },
+                result_types={
+                    "d": DescriptorResultType(),
+                    "cmp": DescriptorResultType(),
+                },
+            ),
+            _op_emit(
+                sign_compare,
+                operands={"s1": maximum, "s2": zero_vector},
+                results={"cmp": both_negative},
+                result_types={"cmp": DescriptorResultType()},
+            ),
+            _op_emit(
+                select,
+                operands={
+                    "s1": maximum if operation == "maximum" else minimum,
+                    "s2": minimum if operation == "maximum" else maximum,
+                    "sel": both_negative,
+                },
+                results={"d": result},
+                result_types={"d": DescriptorResultType()},
+            ),
+        )
+    )
+    return tuple(emits)
+
+
+def _vector_extremum_f32x16_rule(
+    source_op: Op, operation: Literal["minimum", "maximum"]
+) -> DescriptorRule:
+    select = _descriptor("amd.xdna.aie2p.select.i32x16")
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=select,
+        guards=(
+            *_typed_guards(("lhs", "rhs", "result"), _F32X16_VECTOR),
+            Guard.instance_flags_has_all("fastmath", "nnan"),
+            Guard.instance_flags_has_all("fastmath", "nsz"),
+        ),
+        emit=emit_f32x16_extremum(
+            ValueRef.operand("lhs"),
+            ValueRef.operand("rhs"),
+            ValueRef.result("result"),
+            operation,
+            temporary_prefix="extremum_",
+        ),
+        report_key=f"f32x16_packed_{operation}",
+    )
+
+
 def _float_matrix_accumulator_zero_rule() -> DescriptorRule:
     descriptor = _descriptor("amd.xdna.aie2p.accumulator.clear.f32x64")
     return DescriptorRule(
@@ -960,6 +1075,15 @@ AIE2P_BF16_MATRIX_RULES = (_matrix_multiply_bf16bf16_m8n8k1_rule(),)
 AIE2P_FLOATING_RULES = (
     _scalar_multiply_f16_rule(),
     _vector_multiply_bf16_origin_scale_rule(),
+    *(
+        _vector_extremum_f32x16_rule(source_op, operation)
+        for source_op, operation in (
+            (vector.vector_minnumf, "minimum"),
+            (vector.vector_minimumf, "minimum"),
+            (vector.vector_maxnumf, "maximum"),
+            (vector.vector_maximumf, "maximum"),
+        )
+    ),
     *(
         _vector_maximum_bf16_rule(source_op, type_pattern)
         for source_op in (vector.vector_maxnumf, vector.vector_maximumf)

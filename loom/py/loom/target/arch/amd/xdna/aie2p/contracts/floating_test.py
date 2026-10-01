@@ -31,6 +31,15 @@ def _bf16_origin_scale_rule():
     )
 
 
+def _f32_extremum_rule(source_op):
+    return next(
+        rule
+        for rule in AIE2P_FLOATING_RULES
+        if rule.source_op is source_op
+        and rule.report_key in ("f32x16_packed_minimum", "f32x16_packed_maximum")
+    )
+
+
 def _f32_bits(value: float) -> int:
     try:
         return struct.unpack("<I", struct.pack("<f", value))[0]
@@ -140,7 +149,12 @@ def test_bf16_origin_scale_repair_matches_every_non_nan_encoding() -> None:
 
 def test_bf16_vector_maximum_requires_nan_and_zero_permissions() -> None:
     for source_op in (vector.vector_maxnumf, vector.vector_maximumf):
-        rules = [rule for rule in AIE2P_FLOATING_RULES if rule.source_op is source_op]
+        rules = [
+            rule
+            for rule in AIE2P_FLOATING_RULES
+            if rule.source_op is source_op
+            and rule.descriptor.key == "amd.xdna.aie2p.max.lt.bf16x32.native"
+        ]
         assert len(rules) == 2
         for rule, lanes in zip(rules, (16, 32), strict=True):
             assert rule.guards == (
@@ -166,6 +180,81 @@ def test_bf16_vector_maximum_requires_nan_and_zero_permissions() -> None:
                 "d": DescriptorResultType(),
                 "cmp": DescriptorResultType(),
             }
+
+
+def test_f32_vector_extrema_use_packed_signed_quadrants() -> None:
+    cases = (
+        (vector.vector_minnumf, "minimum"),
+        (vector.vector_minimumf, "minimum"),
+        (vector.vector_maxnumf, "maximum"),
+        (vector.vector_maximumf, "maximum"),
+    )
+    for source_op, operation in cases:
+        rule = _f32_extremum_rule(source_op)
+        assert rule.guards == (
+            Guard.value_type("lhs", Vector("f32", lanes=16)),
+            Guard.value_type("rhs", Vector("f32", lanes=16)),
+            Guard.value_type("result", Vector("f32", lanes=16)),
+            Guard.instance_flags_has_all("fastmath", "nnan"),
+            Guard.instance_flags_has_all("fastmath", "nsz"),
+        )
+        assert [emit.descriptor.key for emit in rule.emit] == [
+            "amd.xdna.aie2p.constant.i32.short",
+            "amd.xdna.aie2p.splat.i32x16",
+            "amd.xdna.aie2p.max.lt.signed.i32x16.native",
+            "amd.xdna.aie2p.min.ge.signed.i32x16.native",
+            "amd.xdna.aie2p.cmp.lt.signed.i32x16.native",
+            "amd.xdna.aie2p.select.i32x16",
+        ]
+        select = rule.emit[-1]
+        assert select.operands == {
+            "s1": ValueRef.temporary(
+                f"extremum_signed_{'max' if operation == 'maximum' else 'min'}imum"
+            ),
+            "s2": ValueRef.temporary(
+                f"extremum_signed_{'min' if operation == 'maximum' else 'max'}imum"
+            ),
+            "sel": ValueRef.temporary("extremum_both_negative"),
+        }
+        assert select.results == {"d": ValueRef.result("result")}
+
+
+def test_f32_vector_extrema_signed_quadrants_match_numeric_order() -> None:
+    values = (
+        0xFF800000,  # -inf
+        0xC0000000,  # -2
+        0xBF800000,  # -1
+        0x80800000,  # minimum negative normal
+        0x80000001,  # minimum negative subnormal
+        0x80000000,  # -0
+        0x00000000,  # +0
+        0x00000001,  # minimum positive subnormal
+        0x00800000,  # minimum positive normal
+        0x3F800000,  # +1
+        0x40000000,  # +2
+        0x7F800000,  # +inf
+    )
+
+    def signed(bits: int) -> int:
+        return bits if bits < 0x80000000 else bits - 0x100000000
+
+    def selected(lhs: int, rhs: int, maximum: bool) -> int:
+        signed_maximum = max((lhs, rhs), key=signed)
+        signed_minimum = min((lhs, rhs), key=signed)
+        both_negative = signed(signed_maximum) < 0
+        if maximum:
+            return signed_minimum if both_negative else signed_maximum
+        return signed_maximum if both_negative else signed_minimum
+
+    for lhs in values:
+        for rhs in values:
+            lhs_value = struct.unpack("<f", struct.pack("<I", lhs))[0]
+            rhs_value = struct.unpack("<f", struct.pack("<I", rhs))[0]
+            for maximum in (False, True):
+                actual = selected(lhs, rhs, maximum)
+                actual_value = struct.unpack("<f", struct.pack("<I", actual))[0]
+                expected = (max if maximum else min)(lhs_value, rhs_value)
+                assert actual_value == expected
 
 
 def test_bf16_scalar_maximum_broadcasts_and_extracts_raw_halfwords() -> None:
