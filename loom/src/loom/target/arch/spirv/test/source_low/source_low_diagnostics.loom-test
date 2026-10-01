@@ -75,6 +75,18 @@ func.def target(@target) @unsigned_i16_conversion_requires_target_features(%lhs:
 
 // ====
 
+// Vulkan baseline, Int64, subgroup, and BF16 type support without F32 denorm
+// preservation cannot implement the exact BF16 extension contract.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 2147520518}
+
+func.def target(@target) @bfloat_widen_requires_f32_denorm_preservation(%input: bf16) -> (f32) {
+  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_f_convert.bf16.f32", constraint_key="descriptor_available"}
+  %wide = scalar.extf %input : bf16 to f32
+  func.return %wide : f32
+}
+
+// ====
+
 spirv.target<vulkan1_3> @target
 
 func.def target(@target) @unsupported_semantic_math(%input: f32) -> (f32) {

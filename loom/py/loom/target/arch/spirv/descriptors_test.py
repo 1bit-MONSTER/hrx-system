@@ -92,8 +92,14 @@ def test_bfloat16_float32_conversions_are_bidirectional() -> None:
         (row.source_type.source_type, row.result_type.source_type): row
         for row in DIRECT_SCALAR_CONVERSIONS
     }
-    assert conversions[("bf16", "f32")].source_op_key == "extf"
-    assert conversions[("f32", "bf16")].source_op_key == "fptrunc"
+    widening = conversions[("bf16", "f32")]
+    narrowing = conversions[("f32", "bf16")]
+    assert widening.source_op_key == "extf"
+    assert widening.feature_bits == feature_bits_value(
+        ("bfloat16_type_khr", "float32_denorm_preserve")
+    )
+    assert narrowing.source_op_key == "fptrunc"
+    assert narrowing.feature_bits == feature_bits_value(("bfloat16_type_khr",))
 
 
 def test_control_barriers_classify_both_execution_scopes() -> None:

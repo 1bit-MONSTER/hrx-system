@@ -19,14 +19,17 @@ func.def @widen_bfloat(%input: bf16) -> (f32) {
                OpCapability StorageBuffer8BitAccess
                OpCapability StorageBuffer16BitAccess
                OpCapability BFloat16TypeKHR
+               OpCapability DenormPreserve
                OpExtension "SPV_KHR_vulkan_memory_model"
                OpExtension "SPV_KHR_physical_storage_buffer"
                OpExtension "SPV_KHR_8bit_storage"
                OpExtension "SPV_KHR_16bit_storage"
                OpExtension "SPV_KHR_bfloat16"
+               OpExtension "SPV_KHR_float_controls"
                OpMemoryModel PhysicalStorageBuffer64 Vulkan
                OpEntryPoint GLCompute %widen_bfloat "widen_bfloat"
                OpExecutionMode %widen_bfloat LocalSize 1 1 1
+               OpExecutionMode %widen_bfloat DenormPreserve 32
                OpName %widen_bfloat "widen_bfloat"
                OpName %input "input"
                OpName %wide "wide"
@@ -84,14 +87,17 @@ func.def @load_bfloat(%input: buffer) -> (f32) {
                OpCapability StorageBuffer8BitAccess
                OpCapability StorageBuffer16BitAccess
                OpCapability BFloat16TypeKHR
+               OpCapability DenormPreserve
                OpExtension "SPV_KHR_vulkan_memory_model"
                OpExtension "SPV_KHR_physical_storage_buffer"
                OpExtension "SPV_KHR_8bit_storage"
                OpExtension "SPV_KHR_16bit_storage"
                OpExtension "SPV_KHR_bfloat16"
+               OpExtension "SPV_KHR_float_controls"
                OpMemoryModel PhysicalStorageBuffer64 Vulkan
                OpEntryPoint GLCompute %load_bfloat "load_bfloat"
                OpExecutionMode %load_bfloat LocalSize 1 1 1
+               OpExecutionMode %load_bfloat DenormPreserve 32
                OpName %load_bfloat "load_bfloat"
                OpName %input "input"
                OpName %value "value"
@@ -158,14 +164,17 @@ func.def @load_bfloat_at(%input: buffer, %origin: offset, %element: index) -> (f
                OpCapability StorageBuffer8BitAccess
                OpCapability StorageBuffer16BitAccess
                OpCapability BFloat16TypeKHR
+               OpCapability DenormPreserve
                OpExtension "SPV_KHR_vulkan_memory_model"
                OpExtension "SPV_KHR_physical_storage_buffer"
                OpExtension "SPV_KHR_8bit_storage"
                OpExtension "SPV_KHR_16bit_storage"
                OpExtension "SPV_KHR_bfloat16"
+               OpExtension "SPV_KHR_float_controls"
                OpMemoryModel PhysicalStorageBuffer64 Vulkan
                OpEntryPoint GLCompute %load_bfloat_at "load_bfloat_at"
                OpExecutionMode %load_bfloat_at LocalSize 1 1 1
+               OpExecutionMode %load_bfloat_at DenormPreserve 32
                OpName %load_bfloat_at "load_bfloat_at"
                OpName %input "input"
                OpName %base "base"
@@ -254,14 +263,17 @@ func.def @bfloat_pair_sum(%input: buffer) -> (f32) {
                OpCapability StorageBuffer8BitAccess
                OpCapability StorageBuffer16BitAccess
                OpCapability BFloat16TypeKHR
+               OpCapability DenormPreserve
                OpExtension "SPV_KHR_vulkan_memory_model"
                OpExtension "SPV_KHR_physical_storage_buffer"
                OpExtension "SPV_KHR_8bit_storage"
                OpExtension "SPV_KHR_16bit_storage"
                OpExtension "SPV_KHR_bfloat16"
+               OpExtension "SPV_KHR_float_controls"
                OpMemoryModel PhysicalStorageBuffer64 Vulkan
                OpEntryPoint GLCompute %bfloat_pair_sum "bfloat_pair_sum"
                OpExecutionMode %bfloat_pair_sum LocalSize 1 1 1
+               OpExecutionMode %bfloat_pair_sum DenormPreserve 32
                OpName %bfloat_pair_sum "bfloat_pair_sum"
                OpName %input "input"
                OpName %first_wide "first_wide"
@@ -339,14 +351,17 @@ func.def @replace_bfloat(%input: buffer, %replacement: bf16) -> (f32, f32) {
                OpCapability StorageBuffer8BitAccess
                OpCapability StorageBuffer16BitAccess
                OpCapability BFloat16TypeKHR
+               OpCapability DenormPreserve
                OpExtension "SPV_KHR_vulkan_memory_model"
                OpExtension "SPV_KHR_physical_storage_buffer"
                OpExtension "SPV_KHR_8bit_storage"
                OpExtension "SPV_KHR_16bit_storage"
                OpExtension "SPV_KHR_bfloat16"
+               OpExtension "SPV_KHR_float_controls"
                OpMemoryModel PhysicalStorageBuffer64 Vulkan
                OpEntryPoint GLCompute %replace_bfloat "replace_bfloat"
                OpExecutionMode %replace_bfloat LocalSize 1 1 1
+               OpExecutionMode %replace_bfloat DenormPreserve 32
                OpName %replace_bfloat "replace_bfloat"
                OpName %input "input"
                OpName %replacement "replacement"

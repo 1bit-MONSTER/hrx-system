@@ -77,7 +77,8 @@ static const loom_target_config_t kSpirvExtendedTypesConfig = {
         LOOM_SPIRV_FEATURE_INT16 |
         LOOM_SPIRV_FEATURE_STORAGE_BUFFER_8BIT_ACCESS |
         LOOM_SPIRV_FEATURE_STORAGE_BUFFER_16BIT_ACCESS |
-        LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR,
+        LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR |
+        LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
 };
 
 const loom_target_bundle_t loom_spirv_low_target_bundle_extended_types = {

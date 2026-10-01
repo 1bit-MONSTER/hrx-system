@@ -173,7 +173,8 @@ TEST(SpirvTargetProfileTest, SelectsExplicitTypeAndAbiRequirements) {
           LOOM_SPIRV_FEATURE_INT16 |
           LOOM_SPIRV_FEATURE_STORAGE_BUFFER_8BIT_ACCESS |
           LOOM_SPIRV_FEATURE_STORAGE_BUFFER_16BIT_ACCESS |
-          LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR));
+          LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR |
+          LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE));
 
   IREE_ASSERT_OK(
       loom_spirv_target_profile_select(IREE_SV("vulkan1.3+bda+hal"), &profile));

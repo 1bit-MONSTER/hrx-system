@@ -108,11 +108,15 @@ static loom_spirv_feature_bits_t loom_spirv_module_builder_base_feature_bits(
     return LOOM_SPIRV_FEATURE_MODULE_VULKAN_1_3_BDA_BASELINE;
   }
 
-  // Shader entry-point modules inherit their target contract features. Subgroup
-  // operations and subgroup memory scopes demand GroupNonUniform through their
-  // descriptors only when the emitted module uses them.
+  // Shader entry-point modules inherit their target contract features. Features
+  // used only by particular operations or entry-point execution modes remain
+  // demand-driven through their descriptors so unrelated modules do not declare
+  // unused capabilities and extensions.
+  const loom_spirv_feature_bits_t demand_driven_feature_bits =
+      LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM |
+      LOOM_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE;
   return (loom_spirv_feature_bits_t)target->config->contract_feature_bits &
-         ~LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM;
+         ~demand_driven_feature_bits;
 }
 
 static iree_status_t loom_spirv_module_builder_emit_feature_preamble(
