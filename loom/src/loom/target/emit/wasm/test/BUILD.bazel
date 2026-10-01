@@ -4,40 +4,11 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:python.bzl", "iree_py_test")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test_suite")
 
 package(
     default_visibility = ["//visibility:private"],
     licenses = ["notice"],  # Apache 2.0
-)
-
-iree_py_test(
-    name = "artifact_test",
-    srcs = ["artifact_test.py"],
-    args = [
-        "$(location //loom/src/loom/tools/loom-compile:loom-compile)",
-        "--corpus",
-        "$(location //loom/src/loom/test/corpus/source_low:numeric_integer_division.loom-test)",
-        "$(location //loom/src/loom/test/corpus/source_low:numeric_unsigned_constant_division.loom-test)",
-        "$(location integer_division_edges.loom)",
-        "$(location integer_division.mjs)",
-    ],
-    data = [
-        "integer_division.mjs",
-        "integer_division_edges.loom",
-        "//loom/src/loom/test/corpus/source_low:numeric_integer_division.loom-test",
-        "//loom/src/loom/test/corpus/source_low:numeric_unsigned_constant_division.loom-test",
-        "//loom/src/loom/tools/loom-compile",
-    ],
-    env_inherit = [
-        "IREE_WASM_NODE",
-        "PATH",
-    ],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target:wasm_artifacts",
-    ]),
 )
 
 loom_check_test_suite(

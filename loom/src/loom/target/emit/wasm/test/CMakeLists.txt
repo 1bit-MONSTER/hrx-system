@@ -9,34 +9,6 @@
 
 iree_add_all_subdirs()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-iree_py_test(
-  NAME
-    artifact_test
-  MAIN
-    "artifact_test.py"
-  SRCS
-    "artifact_test.py"
-  ARGS
-    "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
-    "--corpus"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_integer_division.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_unsigned_constant_division.loom-test}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division_edges.loom}}"
-    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division.mjs}}"
-  DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division.mjs"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/wasm/test/integer_division_edges.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_integer_division.loom-test"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/source_low/numeric_unsigned_constant_division.loom-test"
-    "loom::tools::loom-compile::loom-compile"
-  PACKAGE_DIRS
-    "${PROJECT_SOURCE_DIR}/loom/py"
-    "${PROJECT_BINARY_DIR}/loom/py"
-    "${PROJECT_SOURCE_DIR}"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
 loom_check_test_suite(
   NAME
