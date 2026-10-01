@@ -51,6 +51,7 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 from loom.target.arch.spirv.contracts.extended_math import (
     SPIRV_EXTENDED_MATH_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
@@ -1444,6 +1445,7 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
             bfloat_carrier_to_i16_rule(),
         )
     )
+    rules.extend(float8_narrow_rules())
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
     rules.extend(
         integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)

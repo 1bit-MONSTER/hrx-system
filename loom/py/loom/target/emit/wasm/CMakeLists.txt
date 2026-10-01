@@ -24,6 +24,7 @@ iree_py_library(
     loom::py::loom::dialect::view::view
     loom::py::loom::target::arch::wasm::descriptors
     loom::py::loom::target::contracts::contracts
+    loom::py::loom::target::emit::f32_narrowing
     loom::py::loom::target::emit::package
 )
 

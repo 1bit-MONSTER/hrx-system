@@ -18,6 +18,7 @@ iree_py_library(
     "bfloat.py"
     "descriptor_rule.py"
     "extended_math.py"
+    "float8.py"
     "index.py"
     "logical_core.py"
     "memory.py"
@@ -46,6 +47,7 @@ iree_py_library(
     loom::py::loom::target::arch::spirv::scalar_memory
     loom::py::loom::target::arch::spirv::subgroup
     loom::py::loom::target::contracts::contracts
+    loom::py::loom::target::emit::f32_narrowing
 )
 
 iree_py_test(
