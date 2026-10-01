@@ -86,6 +86,8 @@ _KERNEL_SOURCES = [
     "memory/view/strided_recurrence.loom",
     "memory/view/subview.loom",
     "memory/view/window_walk.loom",
+    "numeric/conversion/float8_dequantization.loom",
+    "numeric/conversion/float8_facts.loom",
     "numeric/conversion/integer_floating.loom",
     "numeric/conversion/integer_widths.loom",
     "numeric/conversion/narrow_vectors.loom",

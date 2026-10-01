@@ -22,6 +22,10 @@ loom_corpus_build(
     loom::target::amdgpu::all
   XFAILS
     "loom::target::amdgpu::all"
+    "numeric/conversion/float8_facts.loom"
+    "@float8_facts"
+    "TARGET/034"
+    "loom::target::amdgpu::all"
     "numeric/vector/conversion.loom"
     "@pack_nibbles"
     "AMDGPU/023,TARGET/003"
@@ -29,6 +33,9 @@ loom_corpus_build(
     "numeric/vector/conversion.loom"
     "@truncate_halfwords"
     "AMDGPU/023,TARGET/003"
+  ALL_ROOTS_XFAIL
+    "loom::target::amdgpu::all"
+    "numeric/conversion/float8_facts.loom"
   EXCLUDES
     "loom::target::amdgpu::all"
     "control/branch/structured.loom"
@@ -396,6 +403,9 @@ loom_corpus_test(
     "numeric/vector/selection.loom"
     "The source has no AMDGPU device subject."
   XFAILS
+    "numeric/conversion/float8_facts.loom"
+    "@float8_fact_values"
+    "TARGET/034"
     "numeric/vector/conversion.loom"
     "@halfword_truncation_values"
     "AMDGPU/023,TARGET/003"
