@@ -39,6 +39,11 @@ an older four-byte doorbell recipe. [Ring size][ring-size]
 [Allocation and native resources][blit-create] [Thunk queue creation][thunk-create]
 [Doorbell width][thunk-width]
 
+The [KFD queue-storage contract](../architectures.md#kfd-queue-storage) requires
+native BO mappings for the ring and control words. ROCr's later copy and
+explicit-SDMA allocators request nonpaged system storage to preserve that
+backing independently of pageable SVM payloads.
+
 ROCr also exposes a distinct `SdmaQueue` path through its AMD queue-creation
 extension. That interface explicitly assigns packet production, capacity,
 wrap/padding and publication to a single producer or externally synchronized
