@@ -1331,6 +1331,88 @@ def test_compiler_projects_validated_rematerializable_results() -> None:
     assert compiled.operand_rematerializable == [True]
 
 
+def _rematerializable_state_reader(
+    key: str,
+    state_class: str,
+) -> Descriptor:
+    return replace(
+        TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
+        key=key,
+        mnemonic=key,
+        semantic_tag=key,
+        operands=(
+            *TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[:3],
+            replace(
+                TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[-1],
+                reg_alts=(RegClassAlt(state_class),),
+            ),
+        ),
+        constraints=(Constraint(ConstraintKind.REMATERIALIZABLE, 0),),
+    )
+
+
+def _state_writer(key: str, state_class: str) -> Descriptor:
+    return replace(
+        TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
+        key=key,
+        mnemonic=key,
+        semantic_tag=key,
+        operands=(
+            *TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[:3],
+            replace(
+                TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR.operands[-2],
+                reg_alts=(RegClassAlt(state_class),),
+            ),
+        ),
+    )
+
+
+def test_compiler_allows_rematerialization_from_unwritten_target_state() -> None:
+    descriptor = _rematerializable_state_reader(
+        "test.readonly.state.add.schedule_state",
+        "test.schedule_state",
+    )
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(descriptor,),
+    )
+
+    compiled = compiler.compile_descriptor_set(descriptor_set)
+
+    assert compiled.operand_rematerializable[0]
+
+
+@pytest.mark.parametrize(
+    ("read_class", "write_class"),
+    [
+        ("test.schedule_state", "test.schedule_state"),
+        ("test.alias32", "test.alias64"),
+        ("test.fixed.r0", "test.atomic.narrow"),
+    ],
+)
+def test_compiler_rejects_rematerialization_from_writable_target_state(
+    read_class: str,
+    write_class: str,
+) -> None:
+    descriptor = _rematerializable_state_reader(
+        "test.readonly.state.add.schedule_state",
+        read_class,
+    )
+    descriptor_set = replace(
+        TEST_LOW_CORE_DESCRIPTOR_SET,
+        descriptors=(
+            descriptor,
+            _state_writer("test.write.state.add.schedule_state", write_class),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("descriptor 'test.readonly.state.add.schedule_state' rematerializable result 0 cannot replay target state operand 'state_in'"),
+    ):
+        compiler.compile_descriptor_set(descriptor_set)
+
+
 def test_compiler_rejects_rematerializable_result_without_dead_removal() -> None:
     descriptor = replace(TEST_LOW_CONST_I32_DESCRIPTOR, flags=())
     descriptor_set = replace(
