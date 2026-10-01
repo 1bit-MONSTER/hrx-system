@@ -7,6 +7,8 @@
 # bazel-to-cmake: skip
 
 exports_files([
+    "aggregate_initialization_failures.patch",
+    "aggregate_member_defaults.patch",
     "aligned_records.patch",
     "auto_deduction.patch",
     "bfloat16_semantics.patch",

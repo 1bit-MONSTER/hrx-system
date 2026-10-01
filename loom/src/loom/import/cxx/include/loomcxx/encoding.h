@@ -28,14 +28,14 @@ enum class scale_topology { none, tensor_global, group_1d, block_1d };
 // Affine interpretation applied after numeric decoding.
 enum class affine_policy { none, scale_only };
 
-// E2M1 schema parameters, defaulting to one MXFP4 group of 32 values. Payload
-// and scale counts describe their physical vector carriers explicitly. Scales
-// themselves belong to vector.decode's auxiliary record, not this object.
+// E2M1 schema parameters, defaulting to one MXFP4 group of 32 values. Packed
+// word counts derive from the payload size unless overridden. Runtime scales
+// belong to vector.decode's auxiliary record.
 struct f4e2m1 {
   // Logical value count decoded from the physical payload.
   unsigned payload_elements = 32;
-  // Number of packed 32-bit payload words.
-  unsigned payload_registers = 4;
+  // Number of packed 32-bit words, rounded up to cover the logical payload.
+  unsigned payload_registers = (payload_elements + 7ull) / 8;
   // Nibble ordering within each payload word.
   encoding::payload_packing payload_packing =
       encoding::payload_packing::little_endian_nibbles;

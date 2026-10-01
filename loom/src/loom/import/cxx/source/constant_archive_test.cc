@@ -167,6 +167,58 @@ TEST(ConstantArchiveTest, PreservesTypedBitsAfterSourceDestruction) {
   }
 }
 
+TEST(ConstantArchiveTest, EvaluatesAggregateDefaultsAfterSourceDestruction) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  std::vector<std::uint8_t> bytes;
+  {
+    Source source(
+        IREE_SV("struct Descriptor {"
+                "  unsigned elements;"
+                "  unsigned words = this->elements / 8;"
+                "};"
+                "struct Outer {"
+                "  unsigned elements;"
+                "  constexpr unsigned compute() const {"
+                "    Descriptor first{this->elements};"
+                "    Descriptor second{this->elements * 2};"
+                "    return first.words + second.words + this->elements;"
+                "  }"
+                "};"
+                "constexpr unsigned count(unsigned elements) {"
+                "  return Outer{elements}.compute();"
+                "}"),
+        IREE_SV("defaults.cxx"), options);
+    cxx::ArchiveWriter writer;
+    cxx::SemanticArchiveRoots roots;
+    roots.ast = source.unit().ast();
+    roots.globalScope = source.unit().globalScope();
+    cxx::SemanticEncoder encoder(&source.unit());
+    ASSERT_TRUE(encoder(roots, writer));
+    bytes = writer();
+  }
+
+  Source destination(IREE_SV(""), IREE_SV("restored.cxx"), options);
+  cxx::ArchiveReader reader;
+  ASSERT_TRUE(reader(bytes)) << reader.error();
+  cxx::SemanticArchiveRoots restored;
+  cxx::SemanticDecoder decoder(&destination.unit());
+  ASSERT_TRUE(decoder(reader, restored)) << decoder.error();
+  auto symbols = restored.globalScope->find("count");
+  ASSERT_FALSE(symbols.begin() == symbols.end());
+  auto functions = cxx::views::each_function(*symbols.begin());
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+  auto* function = *functions.begin();
+
+  cxx::ASTInterpreter interpreter(&destination.unit());
+  for (std::intmax_t elements : {16, 32, 64}) {
+    SCOPED_TRACE(elements);
+    auto value = interpreter.evaluateCall(function, {elements});
+    ASSERT_TRUE(value);
+    EXPECT_EQ(std::get<std::intmax_t>(*value), elements + 3 * elements / 8);
+  }
+}
+
 TEST(ConstantArchiveTest, PreservesReferenceTemplateIdentity) {
   loom_cxx_import_options_t options;
   loom_cxx_import_options_initialize(&options);

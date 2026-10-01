@@ -14,6 +14,7 @@ loom_check_test_suite(
   NAME
     compiler_test
   SRCS
+    "aggregate_constants.cxx-test"
     "assembly.cxx-test"
     "assembly_invalid.cxx-test"
     "assumptions.cxx-test"

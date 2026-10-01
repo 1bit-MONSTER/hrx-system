@@ -291,10 +291,12 @@ types are deduced. On gfx1250 these examples select four native eight-value
 scaled conversions and sixteen BF16 pair dots before the F32 reduction.
 
 Designated initializers select other group shapes. Two consecutive MXFP4
-groups use `f4e2m1{.payload_elements = 64, .payload_registers = 8}` and two MXFP8
-groups use `f8e4m3fn{.payload_elements = 64}`. Both consume the low two bytes
-of the packed scale word, one per group. Physical payload counts are explicit;
-changing the logical count alone does not change an E2M1 schema's register count.
+groups use `f4e2m1{.payload_elements = 64}` and two MXFP8 groups use
+`f8e4m3fn{.payload_elements = 64}`. Both consume the low two bytes of the packed
+scale word, one per group. The E2M1 schema derives its packed 32-bit word count
+from the logical payload size, rounding up to cover a partial word. An explicit
+`payload_registers` initializer overrides that default; changing the payload
+size keeps the scale groups at 32 elements unless separately specified.
 
 The [complete MX example](test/mxfp_group_dot.cxx) contains both kernels,
 runtime-scale dot checks, exact adjacent-group decode checks, and their

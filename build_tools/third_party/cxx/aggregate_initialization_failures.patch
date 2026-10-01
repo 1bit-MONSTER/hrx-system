@@ -1,0 +1,156 @@
+diff --git a/src/parser/cxx/ast_interpreter.h b/src/parser/cxx/ast_interpreter.h
+--- a/src/parser/cxx/ast_interpreter.h
++++ b/src/parser/cxx/ast_interpreter.h
+@@ -355,13 +355,12 @@
+   [[nodiscard]] auto endAutomaticScope(std::size_t mark) -> bool;
+   [[nodiscard]] auto destroyValue(const Type* type, ConstValue& value) -> bool;
+
+-  void applyNsdmis(const std::shared_ptr<ConstObject>& obj);
+   [[nodiscard]] auto initializeDefaultedObject(
+       const std::shared_ptr<ConstObject>& obj, ClassSymbol* classSymbol)
+       -> bool;
+
+   [[nodiscard]] auto valueInitializeClass(const Type* type, ClassSymbol* symbol)
+-      -> std::shared_ptr<ConstObject>;
++      -> ExpressionResult;
+
+   void applyMemInitializer(MemInitializerAST* ast,
+                            std::vector<ConstValue> args);
+diff --git a/src/parser/cxx/ast_interpreter.cc b/src/parser/cxx/ast_interpreter.cc
+--- a/src/parser/cxx/ast_interpreter.cc
++++ b/src/parser/cxx/ast_interpreter.cc
+@@ -545,22 +545,6 @@
+   for (std::size_t i = parameters.size(); i < arguments.size(); ++i)
+     if (!expression(arguments[i])) return false;
+   return true;
+-}
+-
+-void ASTInterpreter::applyNsdmis(const std::shared_ptr<ConstObject>& obj) {
+-  auto classType = unqualified_cast<ClassType>(obj->type());
+-  auto classSymbol = classType ? classType->symbol() : nullptr;
+-  if (!classSymbol) return;
+-  auto savedThis = std::exchange(receiver_, Receiver{obj, {}});
+-  for (auto member : classSymbol->members()) {
+-    auto field = symbol_cast<FieldSymbol>(member);
+-    if (!field || field->isStatic() || !field->initializer()) continue;
+-    auto value = evaluate(field->initializer());
+-    if (!value) continue;
+-    obj->setMember(field, std::move(*value));
+-    if (classSymbol->isUnion()) break;
+-  }
+-  receiver_ = std::move(savedThis);
+ }
+
+ auto ASTInterpreter::initializeDefaultedObject(
+diff --git a/src/parser/cxx/ast_interpreter_expressions.cc b/src/parser/cxx/ast_interpreter_expressions.cc
+--- a/src/parser/cxx/ast_interpreter_expressions.cc
++++ b/src/parser/cxx/ast_interpreter_expressions.cc
+@@ -1935,7 +1935,7 @@
+     if (!ast->expressionList &&
+         unit()->typeTraits().requires_zero_initialization(
+             ast->type, ast->constructorSymbol))
+-      return ConstValue{interp.valueInitializeClass(ast->type, classSymbol)};
++      return interp.valueInitializeClass(ast->type, classSymbol);
+     std::vector<ExpressionAST*> arguments;
+     for (auto argument : ListView{ast->expressionList})
+       arguments.push_back(argument);
+@@ -2004,11 +2004,6 @@
+       for (const auto& subobject : receiver.object->members())
+         if (subobject.symbol == field) return subobject.value;
+     }
+-  }
+-
+-  if (interp.thisObject() && ast->symbol) {
+-    auto fieldVal = interp.thisObject()->subobject(ast->symbol);
+-    if (fieldVal) return *fieldVal;
+   }
+
+   auto nestedNameSpecifierResult =
+@@ -3356,18 +3351,39 @@
+ }  // namespace
+
+ auto ASTInterpreter::valueInitializeClass(const Type* type, ClassSymbol* symbol)
+-    -> std::shared_ptr<ConstObject> {
++    -> ExpressionResult {
+   auto object = std::make_shared<ConstObject>(type);
+   for (auto element : traits.aggregate_elements(symbol)) {
+-    ConstValue zero = std::intmax_t{0};
+-    if (auto elementZero =
+-            zeroInitialize(traits.aggregate_element_type(element)))
+-      zero = *elementZero;
+-    object->addMember(element, std::move(zero));
++    auto zero = zeroInitialize(traits.aggregate_element_type(element));
++    if (!zero) {
++      return std::nullopt;
++    }
++    object->addMember(element, std::move(*zero));
+     if (symbol->isUnion()) break;
+   }
+-  applyNsdmis(object);
+-  return object;
++
++  auto savedReceiver = std::exchange(receiver_, Receiver{object, {}});
++  bool initialized = true;
++  for (auto member : symbol->members()) {
++    auto field = symbol_cast<FieldSymbol>(member);
++    if (!field || field->isStatic() || !field->initializer()) {
++      continue;
++    }
++    auto value = evaluate(field->initializer());
++    if (!value) {
++      initialized = false;
++      break;
++    }
++    object->setMember(field, std::move(*value));
++    if (symbol->isUnion()) {
++      break;
++    }
++  }
++  receiver_ = std::move(savedReceiver);
++  if (!initialized) {
++    return std::nullopt;
++  }
++  return ConstValue{std::move(object)};
+ }
+
+ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
+diff --git a/tests/unit_tests/sema/aggregate_initialization_failures_01.cc b/tests/unit_tests/sema/aggregate_initialization_failures_01.cc
+new file mode 100644
+--- /dev/null
++++ b/tests/unit_tests/sema/aggregate_initialization_failures_01.cc
+@@ -0,0 +1,35 @@
++// RUN: %cxx -verify -fsyntax-only %s
++
++namespace temporary_receiver {
++struct Descriptor {
++  unsigned divisor;
++  // expected-warning@+1 {{invalid binary expression}}
++  unsigned quotient = 32 / divisor;
++  constexpr unsigned read(unsigned value) const {
++    return Descriptor{value}.quotient;
++  }
++};
++constexpr Descriptor outer{8};
++static_assert(outer.read(16) == 2);
++// expected-error@+1 {{static assertion expression is not an integral constant expression}}
++static_assert(outer.read(0) == 4);
++}  // namespace temporary_receiver
++
++namespace nonconstant_default {
++unsigned runtime_value();
++struct Descriptor {
++  unsigned value = runtime_value();
++};
++// expected-error@+1 {{constexpr variable must be initialized}}
++constexpr Descriptor invalid = Descriptor();
++}  // namespace nonconstant_default
++
++namespace zero_divisor {
++struct Descriptor {
++  unsigned divisor;
++  // expected-warning@+1 {{invalid binary expression}}
++  unsigned quotient = 32 / divisor;
++};
++// expected-error@+1 {{constexpr variable must be initialized}}
++constexpr Descriptor invalid = Descriptor();
++}  // namespace zero_divisor
