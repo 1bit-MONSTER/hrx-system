@@ -100,7 +100,6 @@ def _test_kernel_binary_roots_direct_library_exports_impl(env, target):
 
     compile_action = _find_action(env, actions, "LoomKernelBinary")
     for expected_arg in [
-        "--product=kernel",
         "--target=amdgpu:gfx11-generic",
         "--compile-report=details",
     ]:
@@ -109,6 +108,7 @@ def _test_kernel_binary_roots_direct_library_exports_impl(env, target):
                 "expected %r in compile arguments %r" %
                 (expected_arg, compile_action.argv),
             )
+    _expect_no_arg_with_prefix(env, compile_action.argv, "--product=")
     _expect_no_arg_with_prefix(env, compile_action.argv, "--format=")
 
     _expect_basename(
@@ -239,8 +239,7 @@ def _test_kernel_binary_accepts_generic_profile_impl(env, target):
         if "--target=FakeTargetFamily123:FakeTargetSelector123" not in action.argv:
             env.fail("expected generic target in %s arguments %r" % (action_name, action.argv))
     compile_action = _find_action(env, actions, "LoomKernelBinary")
-    if "--product=kernel" not in compile_action.argv:
-        env.fail("expected kernel product in %r" % compile_action.argv)
+    _expect_no_arg_with_prefix(env, compile_action.argv, "--product=")
     _expect_no_arg_with_prefix(env, compile_action.argv, "--format=")
     _expect_arg_with_suffix(
         env,

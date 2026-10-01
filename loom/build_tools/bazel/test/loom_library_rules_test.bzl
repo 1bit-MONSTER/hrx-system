@@ -270,11 +270,12 @@ def _test_generated_kernel_binary_is_testonly_impl(env, target):
 
     action = _find_action(env, target[TestingAspectInfo].actions, "LoomKernelBinary")
     for expected_arg in [
-        "--product=kernel",
         "--target=amdgpu:gfx11-generic",
     ]:
         if expected_arg not in action.argv:
             env.fail("expected %r in kernel binary arguments %r" % (expected_arg, action.argv))
+    if any([arg.startswith("--product=") for arg in action.argv]):
+        env.fail("kernel binary compilation must infer its entry category: %r" % action.argv)
     for arg in action.argv:
         if arg.startswith("--format="):
             env.fail("unexpected exact format in kernel binary arguments %r" % action.argv)

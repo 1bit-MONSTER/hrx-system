@@ -126,7 +126,6 @@ function(loom_kernel_binary)
     OUTPUT "${_OUTPUT}" "${_COMPILE_REPORT}"
     COMMAND "${_COMPILE_TOOL}"
       "${_LINKED_MODULE}"
-      "--product=kernel"
       "--target=${_COMPILER_TARGET}"
       "--output=${_OUTPUT}"
       "--compile-report=details"

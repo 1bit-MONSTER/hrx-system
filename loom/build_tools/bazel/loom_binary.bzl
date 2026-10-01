@@ -67,7 +67,7 @@ def _declare_binary_linked_module(ctx, target_profile):
         linked_module = linked_module,
     )
 
-def _declare_kernel_product(
+def _declare_kernel_artifact(
         ctx,
         linked_module,
         target_profile,
@@ -75,7 +75,6 @@ def _declare_kernel_product(
     compile_report = ctx.actions.declare_file(ctx.label.name + ".compile.json")
     args = ctx.actions.args()
     args.add(linked_module)
-    args.add("--product=kernel")
     args.add("--target=%s:%s" % (
         target_profile.family,
         target_profile.selector,
@@ -111,7 +110,7 @@ def _loom_kernel_binary_impl(ctx):
     artifact = ctx.outputs.out
     if artifact == None:
         artifact = ctx.actions.declare_file(ctx.label.name)
-    product = _declare_kernel_product(
+    compiled = _declare_kernel_artifact(
         ctx = ctx,
         linked_module = linked.linked_module,
         target_profile = target_profile,
@@ -119,17 +118,17 @@ def _loom_kernel_binary_impl(ctx):
     )
 
     return [
-        DefaultInfo(files = depset([product.artifact])),
+        DefaultInfo(files = depset([compiled.artifact])),
         OutputGroupInfo(
-            compile_reports = depset([product.compile_report]),
+            compile_reports = depset([compiled.compile_report]),
             dependency_reports = depset(linked.dependency_reports),
             linked_modules = depset([linked.linked_module]),
         ),
         LoomBinaryInfo(
-            artifacts = depset([product.artifact]),
+            artifacts = depset([compiled.artifact]),
             linked_module = linked.linked_module,
-            primary_artifact = product.artifact,
-            reports = depset([product.compile_report]),
+            primary_artifact = compiled.artifact,
+            reports = depset([compiled.compile_report]),
             target_profiles = [ctx.attr.target],
         ),
     ]
@@ -171,7 +170,7 @@ def _kernel_binary_attrs():
 loom_kernel_binary = rule(
     implementation = _loom_kernel_binary_impl,
     attrs = _kernel_binary_attrs(),
-    doc = "Links and emits one closed loader-ready kernel product.",
+    doc = "Links and emits one closed loader-ready kernel artifact.",
     toolchains = [
         _LOOM_COMPILE_TOOLCHAIN_TYPE,
         _LOOM_LINK_TOOLCHAIN_TYPE,
