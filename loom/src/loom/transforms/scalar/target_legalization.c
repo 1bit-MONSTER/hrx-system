@@ -784,10 +784,11 @@ static iree_status_t loom_scalar_legalize_integer_extrema(
   return iree_ok_status();
 }
 
-// F32 represents every numeric BF16 and FP8 value exactly. Extrema return one
-// of those values or a NaN, so widening preserves zero ordering and subnormals
-// without introducing intermediate rounding or a NaN payload guarantee.
-static iree_status_t loom_scalar_legalize_narrow_float_extrema(
+// F32 represents every numeric FP8, F16, and BF16 value exactly. Comparisons
+// therefore preserve their predicate result, while extrema and clamps return
+// an input value or a NaN that can be narrowed without intermediate rounding
+// or a NaN payload guarantee.
+static iree_status_t loom_scalar_legalize_exact_narrow_float(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -797,10 +798,11 @@ static iree_status_t loom_scalar_legalize_narrow_float_extrema(
   loom_builder_set_before(builder, op);
   const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
   const loom_type_t type =
-      loom_module_value_type(context->module, loom_op_results(op)[0]);
+      loom_module_value_type(context->module, loom_op_operands(op)[0]);
   const loom_type_t working_type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
-  loom_value_id_t operands[2];
-  for (int i = 0; i < 2; ++i) {
+  const iree_host_size_t operand_count = loom_scalar_clampf_isa(op) ? 3 : 2;
+  loom_value_id_t operands[3];
+  for (iree_host_size_t i = 0; i < operand_count; ++i) {
     loom_op_t* extension = NULL;
     IREE_RETURN_IF_ERROR(
         loom_scalar_extf_build(builder, loom_op_operands(op)[i], type,
@@ -808,21 +810,34 @@ static iree_status_t loom_scalar_legalize_narrow_float_extrema(
     operands[i] = loom_scalar_extf_result(extension);
   }
 
-  // All four extrema have the same attribute-free binary shape and flags.
   loom_op_t* widened = NULL;
-  IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, op->kind, 2, 1, 0, 0,
-                                                0, op->location, &widened));
-  widened->instance_flags = op->instance_flags;
-  loom_op_operands(widened)[0] = operands[0];
-  loom_op_operands(widened)[1] = operands[1];
-  IREE_RETURN_IF_ERROR(loom_builder_define_result(
-      builder, working_type, &loom_op_results(widened)[0]));
-  IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, widened));
-  loom_op_t* truncation = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_scalar_fptrunc_build(builder, loom_op_results(widened)[0],
-                                working_type, type, op->location, &truncation));
-  const loom_value_id_t replacement = loom_scalar_fptrunc_result(truncation);
+  if (loom_scalar_cmpf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_scalar_cmpf_build(
+        builder, op->instance_flags, loom_scalar_cmpf_predicate(op),
+        operands[0], operands[1], op->location, &widened));
+  } else if (loom_scalar_clampf_isa(op)) {
+    IREE_RETURN_IF_ERROR(loom_scalar_clampf_build(
+        builder, loom_scalar_clampf_mode(op), op->instance_flags, operands[0],
+        operands[1], operands[2], working_type, op->location, &widened));
+  } else {
+    // All four extrema have the same attribute-free binary shape and flags.
+    IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, op->kind, 2, 1, 0, 0,
+                                                  0, op->location, &widened));
+    widened->instance_flags = op->instance_flags;
+    loom_op_operands(widened)[0] = operands[0];
+    loom_op_operands(widened)[1] = operands[1];
+    IREE_RETURN_IF_ERROR(loom_builder_define_result(
+        builder, working_type, &loom_op_results(widened)[0]));
+    IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, widened));
+  }
+
+  loom_value_id_t replacement = loom_op_results(widened)[0];
+  if (!loom_scalar_cmpf_isa(op)) {
+    loom_op_t* truncation = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_fptrunc_build(
+        builder, replacement, working_type, type, op->location, &truncation));
+    replacement = loom_scalar_fptrunc_result(truncation);
+  }
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, &replacement, 1, checkpoint));
   IREE_RETURN_IF_ERROR(
@@ -894,32 +909,42 @@ static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
         .legalize = loom_scalar_legalize_integer_extrema,
     },
     {
-        .root_kind = LOOM_OP_SCALAR_MINNUMF,
-        .first_operand_element_types =
-            LOOM_SCALAR_TYPE_SET_FLOAT_LE16 & ~LOOM_SCALAR_TYPE_SET_F16,
+        .root_kind = LOOM_OP_SCALAR_CMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
-        .legalize = loom_scalar_legalize_narrow_float_extrema,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_CLAMPF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_MINNUMF,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
     },
     {
         .root_kind = LOOM_OP_SCALAR_MAXNUMF,
-        .first_operand_element_types =
-            LOOM_SCALAR_TYPE_SET_FLOAT_LE16 & ~LOOM_SCALAR_TYPE_SET_F16,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT_LE16,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
-        .legalize = loom_scalar_legalize_narrow_float_extrema,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
     },
     {
         .root_kind = LOOM_OP_SCALAR_MINIMUMF,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_FLOAT_LE16 & ~LOOM_SCALAR_TYPE_SET_F16,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
-        .legalize = loom_scalar_legalize_narrow_float_extrema,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
     },
     {
         .root_kind = LOOM_OP_SCALAR_MAXIMUMF,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_FLOAT_LE16 & ~LOOM_SCALAR_TYPE_SET_F16,
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
-        .legalize = loom_scalar_legalize_narrow_float_extrema,
+        .legalize = loom_scalar_legalize_exact_narrow_float,
     },
     {
         .root_kind = LOOM_OP_SCALAR_MINIMUMF,

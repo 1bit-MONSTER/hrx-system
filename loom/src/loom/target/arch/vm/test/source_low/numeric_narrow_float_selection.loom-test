@@ -1,0 +1,62 @@
+// RUN: pass target=vm:core target-legalize{mode=final}
+
+func.def @f16_selection(%value: f16, %lower: f16, %upper: f16) -> (f16, f16, f16, f16, f16, f16, f16, i1) {
+  %minimum = scalar.minimumf %value, %lower : f16
+  %maximum = scalar.maximumf %value, %upper : f16
+  %minnum = scalar.minnumf %value, %lower : f16
+  %maxnum = scalar.maxnumf<nnan|nsz> %value, %upper : f16
+  %ordered = scalar.clampf<ordered> %value, %lower, %upper : f16
+  %number = scalar.clampf<number, nnan|nsz> %value, %lower, %upper : f16
+  %ieee = scalar.clampf<ieee> %value, %lower, %upper : f16
+  %less = scalar.cmpf<nnan> olt, %value, %upper : f16
+  func.return %minimum, %maximum, %minnum, %maxnum, %ordered, %number, %ieee, %less : f16, f16, f16, f16, f16, f16, f16, i1
+}
+
+// ----
+func.def @f16_selection(%value: f16, %lower: f16, %upper: f16) -> (f16, f16, f16, f16, f16, f16, f16, i1) {
+  %63 = scalar.extf %value : f16 to f32
+  %64 = scalar.extf %lower : f16 to f32
+  %65 = scalar.minnumf %63, %64 : f32
+  %66 = scalar.fptrunc %65 : f32 to f16
+  %60 = scalar.extf %value : f16 to f32
+  %61 = scalar.extf %lower : f16 to f32
+  %62 = scalar.cmpf uno, %60, %61 : f32
+  %58 = scalar.constant nan : f16
+  %minimum = scf.select %62, %58, %66 : f16
+  %52 = scalar.extf %value : f16 to f32
+  %53 = scalar.extf %upper : f16 to f32
+  %54 = scalar.maxnumf %52, %53 : f32
+  %55 = scalar.fptrunc %54 : f32 to f16
+  %49 = scalar.extf %value : f16 to f32
+  %50 = scalar.extf %upper : f16 to f32
+  %51 = scalar.cmpf uno, %49, %50 : f32
+  %47 = scalar.constant nan : f16
+  %maximum = scf.select %51, %47, %55 : f16
+  %41 = scalar.extf %value : f16 to f32
+  %42 = scalar.extf %lower : f16 to f32
+  %43 = scalar.minnumf %41, %42 : f32
+  %minnum = scalar.fptrunc %43 : f32 to f16
+  %37 = scalar.extf %value : f16 to f32
+  %38 = scalar.extf %upper : f16 to f32
+  %39 = scalar.maxnumf<nnan|nsz> %37, %38 : f32
+  %maxnum = scalar.fptrunc %39 : f32 to f16
+  %32 = scalar.extf %value : f16 to f32
+  %33 = scalar.extf %lower : f16 to f32
+  %34 = scalar.extf %upper : f16 to f32
+  %35 = scalar.clampf<ordered> %32, %33, %34 : f32
+  %ordered = scalar.fptrunc %35 : f32 to f16
+  %27 = scalar.extf %value : f16 to f32
+  %28 = scalar.extf %lower : f16 to f32
+  %29 = scalar.extf %upper : f16 to f32
+  %30 = scalar.clampf<number, nnan|nsz> %27, %28, %29 : f32
+  %number = scalar.fptrunc %30 : f32 to f16
+  %22 = scalar.extf %value : f16 to f32
+  %23 = scalar.extf %lower : f16 to f32
+  %24 = scalar.extf %upper : f16 to f32
+  %25 = scalar.clampf<ieee> %22, %23, %24 : f32
+  %ieee = scalar.fptrunc %25 : f32 to f16
+  %19 = scalar.extf %value : f16 to f32
+  %20 = scalar.extf %upper : f16 to f32
+  %less = scalar.cmpf<nnan> olt, %19, %20 : f32
+  func.return %minimum, %maximum, %minnum, %maxnum, %ordered, %number, %ieee, %less : f16, f16, f16, f16, f16, f16, f16, i1
+}
