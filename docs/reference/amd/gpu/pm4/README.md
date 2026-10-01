@@ -50,6 +50,7 @@ right to that trailer. [Compute postamble][postamble]
 | [Command-processor DMA](dma.md) | DMA_DATA copies, fills, prefetch, completion discrepancies and cache routing. |
 | [Timing](timing.md) | Sampling stage, timestamp visibility, clock domains and profiling ownership. |
 | [Performance counters](counters.md) | Event and instance selection, register fields, sample widths, collection sequencing and completed-use result ownership. |
+| [Performance queries](counter-queries.md) | RADV/Vulkan profiling locks, private submission serialization, counter-pass layout, result decoding and native clock-owner lifetime. |
 
 [Architecture identity](../architectures.md) distinguishes compiler targets,
 native IP versions and firmware. [AQL](../aql/README.md) and

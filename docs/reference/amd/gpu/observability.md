@@ -187,6 +187,12 @@ The [PM4 counter chapter](pm4/counters.md) supplies the GFX11 field and instance
 layouts and follows PAL's cumulative-sample owner through result decoding and
 submission retirement.
 
+[RADV performance queries](pm4/counter-queries.md) separate a host profiling
+reference from a GPU mutex in a private per-device allocation. The host
+reference controls stable pstate; the mutex serializes participating query
+submissions. Every exposed counter is marked as affected by concurrent work.
+Neither owner establishes exclusion against all other collectors.
+
 SDMA counters participate in that CP-managed lifecycle. PAL's GFX11 DMA block
 is global, with two counter modules per available instance and at most two
 instances; Mesa describes the same inventory. PAL selects instance-specific
@@ -204,6 +210,37 @@ AUTO mode and driver-controlled STABLE_STD enablement. A zero from an
 unavailable observation surface is not evidence that the event did not occur.
 This prerequisite is distinct from choosing a reproducible operating
 frequency. [AMD counter-clock requirement][pmc-clocks]
+
+### DRM stable-pstate lifetime
+
+`AMDGPU_CTX_OP_SET_STABLE_PSTATE` operates through a DRM context, while Linux
+stores the current owner in the device's `stable_pstate_ctx`. A different
+context receives `EBUSY` while that owner exists. At the pinned revision,
+the setter returns without creating an owner when the requested policy already
+matches the current policy. Otherwise a successful policy change establishes
+the first owner and saves the preceding policy in that context.
+[Native setter][drm-clock-setter]
+
+`AMDGPU_CTX_STABLE_PSTATE_NONE` selects automatic policy; the setter does not
+clear ownership when processing it. When `drm_dev_enter` admits access to the
+live device, context finalization attempts to restore the saved policy, then
+clears `stable_pstate_ctx` without propagating the restoration result. If
+device removal prevents entry, that restoration and owner-clearing block does
+not execute. Policy selection, ownership release and successful policy
+restoration are distinct transitions in this implementation.
+[Context finalization][drm-clock-finalize]
+
+RADV's first host profiling reference requests its configured pstate; its
+last release requests `NONE` and discards the result. The winsys retries
+`EBUSY` within the supplied interval, and the release path supplies 100 ms.
+Public profiling-lock release therefore does not establish that the DRM
+context owner has gone away or that a clock request succeeded. RADV device
+destruction forwards context-free requests. Linux removes the context handle
+and drops its reference; the last reference invokes native finalization.
+[RADV host references][radv-clock-owner]
+[Winsys request][radv-clock-request] [Device teardown][radv-device-destroy]
+[Context teardown][radv-context-destroy] [DRM forwarding][radv-context-ioctl]
+[Handle removal][drm-context-free] [Final-reference release][drm-context-put]
 
 ### Event identity and aggregation
 
@@ -289,6 +326,15 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [sdk-counter-stop]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/device_counting.cpp#L571-L652
 [pal-clock-mode]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/os/amdgpu/amdgpuDevice.cpp#L5130-L5245
 [drm-clock-owner]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ctx.c#L341-L435
+[drm-clock-setter]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ctx.c#L341-L405
+[drm-clock-finalize]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ctx.c#L408-L440
+[drm-context-free]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ctx.c#L510-L518
+[drm-context-put]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ctx.h#L72-L78
+[radv-clock-owner]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_device.c#L1952-L2041
+[radv-clock-request]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_cs.c#L1623-L1651
+[radv-device-destroy]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_device.c#L1406-L1423
+[radv-context-destroy]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/winsys/amdgpu/radv_amdgpu_cs.c#L1557-L1572
+[radv-context-ioctl]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_linux_drm.c#L330-L370
 [pal-counters]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L2037-L2310
 [pal-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfCtrInfo.cpp#L1672-L1694
 [mesa-dma]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_perfcounter_gfx11.c#L817-839

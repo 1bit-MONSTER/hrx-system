@@ -10,7 +10,7 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [Mesa][mesa] | `0ba4b08edc65075e9346d20d5310261939aaaf48` | RADV/radeonsi command composition, memory policy, synchronization, and native submission. |
 | [ROCm systems][rocm] | `8d57824901ffa7d961c00a37d055a108723b93ca` | ROCr queue/signal/copy protocols, HIP/CLR consumers, native queue construction, and profiling. |
 | [Linux][linux] | `50d05c7c76c96b90462f24debacca971d2e86713` | Native UAPI, queue descriptors, memory mappings, engine emitters, and driver resource lifetimes. |
-| [Vulkan specification][vulkan] | `01aaacd99480487bf63830959513c5ca8ceb996d` | External memory and semaphore capabilities, handle ownership, host-pointer imports, resource ownership transfers, and host visibility. |
+| [Vulkan specification][vulkan] | `01aaacd99480487bf63830959513c5ca8ceb996d` | External memory and semaphore capabilities, handle ownership, host-pointer imports, resource ownership transfers, host visibility, and performance-query lifetimes. |
 | [LLVM ABI and memory model][llvm-abi] | `6e714c8d91116794cb699cdf80c26afe9cda3ef3` | Kernel descriptors, initial registers, address spaces, and shader memory ordering. |
 | [LLVM compiler implementation][llvm-compiler] | `6dfe1677ab8dffbc6ec13d53a1e0215d75147689` | Executable fetch padding, dispatch inputs, partial workgroups, and target feature selection. |
 | [AMD atomic-operation tables][legacy-rocm] | `85a16825737e43a14ff431754b359380e78062a7` | Architecture-specific atomic operation tables and their separate PCIe-route interpretations. |

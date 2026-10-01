@@ -12,6 +12,11 @@ reads it. Streaming performance monitoring, thread traces and pipeline-statistic
 queries have different representations. [Counter types][counter-types]
 [Actual profiling caller][profiler-begin]
 
+[RADV performance queries](counter-queries.md) compose the same class of native
+counters with Vulkan command lifetimes, a private submission mutex, pass
+selection and derived results. That path's scope, slot and width differences
+remain separate from PAL's global-counter representation below.
+
 ## Owner and applicability
 
 PAL discovers performance-experiment properties from the selected device, then
