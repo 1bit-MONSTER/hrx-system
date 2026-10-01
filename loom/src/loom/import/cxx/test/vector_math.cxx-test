@@ -81,36 +81,8 @@ func.def public @wide_dot(%a: vector<2xf64>, %b: vector<2xf64>, %seed: f64) -> (
 
 // ====
 // Each combining kind retains its distinct arithmetic and NaN semantics.
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "addi")]] Scalar addi(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "muli")]] Scalar muli(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "minsi")]] Scalar minsi(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "maxsi")]] Scalar maxsi(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "minui")]] Scalar minui(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "maxui")]] Scalar maxui(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "andi")]] Scalar andi(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "ori")]] Scalar ori(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "xori")]] Scalar xori(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "addf")]] Scalar addf(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "mulf")]] Scalar mulf(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "minimumf")]] Scalar minimumf(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "maximumf")]] Scalar maximumf(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "minnumf")]] Scalar minnumf(Vector, Scalar);
-template <class Vector, class Scalar>
-[[loom::op("vector.reduce", "maxnumf")]] Scalar maxnumf(Vector, Scalar);
+#include <loomcxx/vector.h>
+using namespace loom::vector::reduce;
 using Int4 = int __attribute__((ext_vector_type(4)));
 using UInt4 = unsigned __attribute__((ext_vector_type(4)));
 using Float4 = float __attribute__((ext_vector_type(4)));
@@ -200,4 +172,21 @@ func.def public @floating_entry(%a: vector<8xf16>, %b: vector<8xf16>, %seed: vec
   %10 = vector.dotf<afn> %seed, %partial, %9 : vector<4xf32>, vector<4xf32>, f32
   %11 = vector.reduce<addf, reassoc|afn> %partial, %10 : vector<4xf32>, f32
   func.return %11 : f32
+}
+
+// ====
+#include <loomcxx/vector.h>
+using Half8 = _Float16 __attribute__((ext_vector_type(8)));
+using Float4 = float __attribute__((ext_vector_type(4)));
+float dot_chain(Half8 a, Half8 b, Float4 seed) {
+  auto partial = loom::vector::dot2f(a, b, seed);
+  return loom::vector::dotf(partial, seed, 3.0f);
+}
+
+// ----
+func.def public @dot_chain(%a: vector<8xf16>, %b: vector<8xf16>, %seed: vector<4xf32>) -> (f32) {
+  %partial = vector.dot2f %a, %b, %seed : vector<8xf16>, vector<8xf16>, vector<4xf32>
+  %5 = scalar.constant 3.0 : f32
+  %6 = vector.dotf %partial, %seed, %5 : vector<4xf32>, vector<4xf32>, f32
+  func.return %6 : f32
 }

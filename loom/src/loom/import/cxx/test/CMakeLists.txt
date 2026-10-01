@@ -78,6 +78,7 @@ loom_check_test_suite(
     "offsetof_roundtrip.cxx-test"
     "opaque_pointers.cxx-test"
     "opaque_pointers_invalid.cxx-test"
+    "packed_group_dot.cxx-test"
     "packed_memory.cxx-test"
     "parameter_alignment.cxx-test"
     "parameter_alignment_invalid.cxx-test"
@@ -131,6 +132,7 @@ loom_check_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/locations.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/offsetof_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_enums.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_group_dot.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/record_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/record_values.cxx"
@@ -1263,9 +1265,27 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    packed_group_dot_module
+  SRCS
+    "packed_group_dot.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     vector_lookup_module
   SRCS
     "vector_lookup.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    vector_math_module
+  SRCS
+    "vector_math.cxx"
 )
 endif()
 

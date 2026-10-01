@@ -2,11 +2,12 @@
 
 `source_to_module_benchmark` measures preprocessing, source type checking,
 import, module verification, and release through `loomc_module_import_cxx`.
-Its `NoIncludes`, `StdFloat`, and `Numeric` cases use the same BF16 function body;
-the latter two add only `<stdfloat>` or `<loomcxx/numeric.h>`. Comparing them
-isolates the cost of each numeric facade. The source handle, context, and
-workspace are reused while every iteration parses the source again. These cases
-need the C++ importer and embedded includes, without requiring a target backend.
+Its `NoIncludes`, `StdFloat`, `Numeric`, and `Vector` cases use the same BF16
+function body; the latter three add only `<stdfloat>`, `<loomcxx/numeric.h>`,
+or `<loomcxx/vector.h>`. Comparing them isolates the cost of each facade. The
+source handle, context, and workspace are reused while every iteration parses
+the source again. These cases need the C++ importer and embedded includes,
+without requiring a target backend.
 
 ## Source to HSACO
 
