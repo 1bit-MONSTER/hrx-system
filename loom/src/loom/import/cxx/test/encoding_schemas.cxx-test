@@ -11,7 +11,7 @@ enum class Affine { scale_only = 17 };
 enum class Topology { block_1d = 41 };
 struct Parameters {
   unsigned payload_elements = 32;
-  unsigned payload_registers = 4;
+  unsigned payload_registers = (payload_elements + 7ull) / 8;
   Packing payload_packing = Packing::little_endian_nibbles;
   Format scale_format = Format::e8m0;
   unsigned scale_group_elements = 32;
@@ -29,7 +29,7 @@ template <class Unused>
 
 Schema group() { return define<Parameters{}>(); }
 Schema two_groups() {
-  return define<Parameters{.payload_elements = 64, .payload_registers = 8}>();
+  return define<Parameters{.payload_elements = 64}>();
 }
 
 // ----
@@ -90,4 +90,24 @@ Pair retain(Pair value) { return value; }
 // ----
 func.def public @retain(%value_schema: encoding<schema>, %value_layout: encoding<layout>) -> (encoding<schema>, encoding<layout>) {
   func.return %value_schema, %value_layout : encoding<schema>, encoding<layout>
+}
+
+// ====
+// The facade derives physical counts while preserving explicit overrides.
+#include <loomcxx/encoding.h>
+using Parameters = loom::encoding::f4e2m1;
+static_assert(Parameters{}.payload_registers == 4);
+static_assert(Parameters{.payload_elements = 8}.payload_registers == 1);
+static_assert(Parameters{.payload_elements = 9}.payload_registers == 2);
+static_assert(Parameters{.payload_elements = 65535}.payload_registers == 8192);
+static_assert(Parameters{.payload_elements = 64, .payload_registers = 16}
+                  .payload_registers == 16);
+loom::type::encoding<loom::encoding::role::schema> two_groups() {
+  return loom::encoding::define<Parameters{.payload_elements = 64}>();
+}
+
+// ----
+func.def public @two_groups() -> (encoding<schema>) {
+  %1 = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=64, payload_packing=little_endian_nibbles, payload_registers=8, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+  func.return %1 : encoding<schema>
 }
