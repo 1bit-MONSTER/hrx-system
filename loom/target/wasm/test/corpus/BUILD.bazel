@@ -101,7 +101,6 @@ _KERNEL_SOURCES = [
     "numeric/integer/narrow_consumers.loom",
     "numeric/integer/wide/shifts.loom",
     "numeric/integer/wide/subtract.loom",
-    "numeric/integer/wide/uniform.loom",
     "numeric/integer/wide/uniform_immediate.loom",
     "numeric/predicate/extension.loom",
     "numeric/predicate/extract.loom",
@@ -133,6 +132,7 @@ _HOSTED_EXECUTION_SOURCES = [
     "numeric/integer/scalar_observations.loom",
     "numeric/integer/unsigned_remainder.loom",
     "numeric/integer/widening.loom",
+    "numeric/integer/wide/observations.loom",
     "numeric/predicate/lanes.loom",
     "numeric/predicate/vector_logic.loom",
     "numeric/vector/f32.loom",
@@ -312,6 +312,7 @@ loom_corpus_build(
             "numeric/integer/boundaries.loom:@shift_boundaries_i32": "TARGET/001",
             "numeric/integer/boundaries.loom:@shift_boundaries_i64": "TARGET/001",
             "numeric/integer/constants.loom:@integer_constants_narrow": "WASM/001",
+            "numeric/integer/wide/observations.loom:@wide_dynamic_lane_observations": "TARGET/004",
             "numeric/predicate/truncation.loom:@truncate_integer_predicates": "WASM/001",
             "numeric/vector/fields.loom:@vector_fields": "WASM/005",
             "numeric/vector/packed_selection.loom:@select_packed_bytes": "WASM/001",
@@ -327,5 +328,10 @@ loom_corpus_test(
     execution_profiles = [WASM_HOSTED_PROFILE],
     profile_sources = {
         WASM_HOSTED_PROFILE.name: _HOSTED_EXECUTION_SOURCES,
+    },
+    xfails = {
+        WASM_HOSTED_PROFILE.name: {
+            "numeric/integer/wide/observations.loom:@wide_dynamic_lane_values": "TARGET/004",
+        },
     },
 )

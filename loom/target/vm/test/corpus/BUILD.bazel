@@ -101,7 +101,6 @@ _KERNEL_SOURCES = [
     "numeric/integer/narrow_consumers.loom",
     "numeric/integer/wide/shifts.loom",
     "numeric/integer/wide/subtract.loom",
-    "numeric/integer/wide/uniform.loom",
     "numeric/integer/wide/uniform_immediate.loom",
     "numeric/predicate/extension.loom",
     "numeric/predicate/extract.loom",
