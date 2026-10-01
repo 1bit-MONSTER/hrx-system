@@ -56,6 +56,7 @@ loom_check_test_suite(
         "config_cleanup.cxx-test",
         "config_invalid.cxx-test",
         "const.cxx-test",
+        "const_default_initialization.cxx-test",
         "constexpr.cxx-test",
         "constexpr_bitcast.cxx-test",
         "constexpr_bitcast_cleanup.cxx-test",

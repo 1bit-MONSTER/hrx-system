@@ -1,0 +1,90 @@
+// RUN: verify
+union Choice { unsigned first; unsigned second; };
+// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+constexpr Choice value;
+
+// ====
+union Choice { unsigned first; unsigned second; };
+struct Configuration { Choice choice; };
+// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+constexpr Configuration value;
+
+// ====
+union Choice { unsigned first; unsigned second; constexpr Choice() = default; };
+// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+constexpr Choice value;
+
+// ====
+union Choice { unsigned first; unsigned second; };
+struct Configuration { Choice choices[2]; };
+// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+constexpr Configuration value;
+
+// ====
+struct Base { unsigned value; };
+struct Derived : Base {};
+// ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+constexpr Derived value;
+
+// ====
+union Choice { unsigned first; unsigned second = 9; };
+constexpr Choice value;
+static_assert(value.second == 9);
+struct Configuration { Choice choices[2]; };
+constexpr Configuration config;
+static_assert(config.choices[1].second == 9);
+
+// ====
+// An inactive union is a valid constant when its constructor is user-provided.
+union Choice { unsigned value; constexpr Choice() {} };
+constexpr Choice value;
+struct Configuration { Choice choice; };
+constexpr Configuration config;
+
+// ====
+// Empty classes and default-initialized bases need no synthesized scalar zero.
+struct Empty {};
+constexpr Empty empty;
+struct Base { unsigned value = 9; };
+struct Derived : Base {};
+constexpr Derived derived;
+static_assert(derived.value == 9);
+
+// ====
+// Ordinary automatic storage can activate an initially inactive union member.
+union Choice { unsigned first; unsigned second; };
+static constexpr unsigned compute() {
+  Choice choice;
+  choice.second = 9;
+  return choice.second;
+}
+static_assert(compute() == 9);
+
+// ====
+// Const automatic storage has the same declaration requirement.
+union Choice { unsigned first; unsigned second; };
+static void invalid() {
+  // ERROR@+1: PARSE/036 "requires a const-default-constructible type"
+  const Choice value;
+}
+
+// ====
+// Unnamed bit-fields contribute padding rather than a required initializer.
+struct Padded { unsigned : 3; unsigned value = 9; };
+constexpr Padded value;
+static_assert(value.value == 9);
+struct UserPadded {
+  unsigned : 3;
+  unsigned value = 11;
+  constexpr UserPadded() {}
+};
+constexpr UserPadded user;
+static_assert(user.value == 11);
+struct PaddingOnly { unsigned : 3; };
+constexpr PaddingOnly padding;
+
+// ====
+// An explicit initializer supplies the value-initialization phase.
+union Choice { unsigned first; unsigned second; };
+constexpr Choice value{};
+static_assert(value.first == 0);
