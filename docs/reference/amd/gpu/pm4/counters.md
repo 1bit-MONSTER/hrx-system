@@ -217,6 +217,12 @@ counter cannot be treated as frozen merely because a sample command occurred.
 [Workaround predicate][stop-workaround] [Experiment selection][layout-finalize]
 [Alternative sampling states][sample-stop]
 
+GFX12 has a separate sample-transaction ordering requirement. PAL and RADV
+toggle and poll `SQG_PERFCOUNTER_CTRL.DISABLE_ME1PIPE3_PERF` before reading
+counters so that the read follows the sampling write. The exact register,
+phase values and consumer instance policies are in
+[GFX12 sample transaction ordering](counter-queries.md#gfx12-sample-transaction-ordering).
+
 ## A complete cumulative-sample owner
 
 A representative shader observation requests the SQG wave event for each

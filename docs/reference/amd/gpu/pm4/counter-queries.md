@@ -10,11 +10,18 @@ fields and sampling protocol; this chapter follows RADV's query owner.
 
 ## Queue and event selection
 
-The pinned RADV implementation advertises the extension when
-`gfx_level == GFX10_3` or `GFX11 <= gfx_level < GFX12`, with RGP tracing
-disabled. The source names interference from SQTT/SPM register state as the
-reason for the tracing restriction. These are RADV predicates, not a hardware
-counter inventory for other architectures. [Extension predicate][admission]
+RADV's extension predicate depends on the implementation revision:
+
+| Mesa revision | Architecture predicate |
+| --- | --- |
+| `0ba4b08edc65` | `gfx_level == GFX10_3` or `GFX11 <= gfx_level < GFX12`. |
+| `44cc4ca677a4` | `GFX10_3 <= gfx_level <= GFX12`. |
+
+Both require RGP tracing to be disabled because SQTT/SPM interferes with the
+counter registers. These are RADV predicates, not a hardware counter inventory
+for other architectures. The later revision adds GFX12 event selection and
+the SQG synchronization sequence below. [Earlier predicate][admission]
+[GFX12-inclusive predicate][admission12]
 
 Only `RADV_QUEUE_GENERAL` enumerates counters. That queue supports compute as
 well as graphics; the separate compute-only queue family returns a counter
@@ -32,6 +39,23 @@ GFX11 `SQ` table names the SQG register block. WGP instruction events use a
 different block. Command scope specifies the query interval and does not
 establish process-local event attribution. [Metadata][enumeration]
 [Event definitions and formulas][catalog] [SQG mapping][sqg]
+
+At `44cc4ca677a4`, RADV's GFX12 shader catalog selects these events:
+
+| Counter | Block | Source constant | Event selector |
+| --- | --- | --- | --- |
+| Waves | `SQ` | `SQ_PERF_SEL_WAVES_GFX12` | `0x13` |
+| LDS instructions | `SQ_WGP` | `SQ_PERF_SEL_INSTS_LDS_GFX12` | `0x2d` |
+| SALU instructions | `SQ_WGP` | `SQ_PERF_SEL_INSTS_SALU_GFX12` | `0x2e` |
+| SMEM loads | `SQ_WGP` | `SQ_PERF_SEL_INSTS_SMEM_GFX12` | `0x2f` |
+| VALU instructions | `SQ_WGP` | `SQ_PERF_SEL_INSTS_VALU_GFX12` | `0x32` |
+| VMEM loads | `SQ_WGP` | `SQ_PERF_SEL_INSTS_TEX_LOAD_GFX12` | `0x36` |
+| VMEM stores | `SQ_WGP` | `SQ_PERF_SEL_INSTS_TEX_STORE_GFX12` | `0x37` |
+
+Its VRAM-read formula weights GL2C 32/64/128/256-byte request events. The
+revision also selects TCP miss event `0x11` for GFX11+ and omits the L1
+hit-ratio counter on GFX12. A semantic counter name therefore does not select
+the same native event on every architecture. [GFX12 event catalog][catalog12]
 
 ## Host and GPU owners
 
@@ -120,6 +144,44 @@ release. A completed submission fence covers that remaining command stream;
 a result accessor supplies no replacement for that ownership boundary.
 [Pending query operations][query-flush] [Command-buffer finalization][finalize]
 [Unlock placement][submit-selection]
+
+### GFX12 sample transaction ordering
+
+PAL's GFX12 implementation describes a GRBM/SQG ordering hazard: a counter
+read can overtake the write that requests sampling and return an older value.
+Its `WriteSqSync` toggles `SQG_PERFCOUNTER_CTRL.DISABLE_ME1PIPE3_PERF` after
+the sample/stop write and polls for the written value before reading counters.
+The register is byte address `0x36760`, DWORD address `0xd9d8`; the field is
+bit 19 (`0x00080000`). PAL applies the synchronization to shader engines with
+selected SQG or WGP counters. Its filter setup initializes the bit opposite
+to the next sample's value, including when beginning sampling is disabled.
+[Hazard and poll][pal12-sq-sync] [Sample-before-read ordering][pal12-sample]
+[SQG population][pal12-sq-population] [WGP population][pal12-wgp-population]
+[Initial toggle value][pal12-filter] [Register address][pal12-sq-address]
+[Field mask][pal12-sq-mask]
+
+RADV `44cc4ca677a4` uses the following sequence for exact `gfx_level == GFX12`:
+
+1. Emit `PERFCOUNTER_SAMPLE`, perform the counter idle/cache sequence, disable
+   windowed counting, and write global stop with `PERFMON_SAMPLE_ENABLE`.
+2. For each shader engine in `[0, max_se)`, select that SE with instance
+   broadcast and write `SQG_PERFCOUNTER_CTRL`. The all-stage value is
+   `0x0008007f` for beginning samples and `0x0000007f` for ending samples.
+3. Emit register-space `WAIT_REG_MEM` for full-DWORD equality with that value,
+   mask `0xffffffff`, and native poll-interval field `4`.
+4. Restore broadcast instance selection, then execute the pass-selected
+   counter copies. Beginning-query setup restarts counting after its samples;
+   query end writes availability and subsequently resets counter state.
+
+[Sample master controls][sample-controls12] [SQG write and wait][sq-sync12]
+[Placement before copies][sampling12] [Begin/end composition][begin-end12]
+
+The two consumers agree on toggling and observing the SQG control before
+counter readback. Their instance populations and shader masks remain their
+own policies: RADV visits `max_se`, while PAL tracks the SEs with selected
+counters. This register transaction boundary supplements the workload idle,
+payload visibility and completed-submission boundaries; none substitutes for
+the others.
 
 ## Result representation
 
@@ -224,6 +286,19 @@ an uninstrumented dispatch or an independently scheduled SDMA operation.
 those distinctions when comparing counters with timestamps or host latency.
 
 [admission]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_physical_device.c#L57-L65
+[admission12]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_physical_device.c#L55-L64
+[catalog12]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_perfcounter.c#L227-L380
+[sample-controls12]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_perfcounter.c#L68-L82
+[sq-sync12]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_perfcounter.c#L662-L697
+[sampling12]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_perfcounter.c#L699-L747
+[begin-end12]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_perfcounter.c#L754-L847
+[pal12-sq-sync]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12PerfExperiment.cpp#L3466-L3520
+[pal12-sample]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12PerfExperiment.cpp#L3150-L3184
+[pal12-sq-population]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12PerfExperiment.cpp#L652-L663
+[pal12-wgp-population]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12PerfExperiment.cpp#L531-L540
+[pal12-filter]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12PerfExperiment.cpp#L2779-L2790
+[pal12-sq-address]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/chip/gfx12_merged_offset.h#L1976-L1977
+[pal12-sq-mask]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/chip/gfx12_merged_mask.h#L6106-L6115
 [queue-types]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_physical_device.c#L3000-L3026
 [enumeration]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_perfcounter.c#L834-L886
 [catalog]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_perfcounter.c#L113-L271

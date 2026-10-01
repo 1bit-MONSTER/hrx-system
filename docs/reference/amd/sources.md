@@ -8,6 +8,7 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | --- | --- | --- |
 | [PAL][pal] | `c5e800072a32f68b6ccc4422936d96167c6e0728` | Generation-specific packet definitions, command builders, cache transitions, and command-storage ownership. |
 | [Mesa][mesa] | `0ba4b08edc65075e9346d20d5310261939aaaf48` | RADV/radeonsi command composition, memory policy, synchronization, and native submission. |
+| [Mesa GFX12 counter queries][mesa-counters] | `44cc4ca677a4752a10c14194289bde5a6468675e` | GFX12 performance-query admission, event selection, and SQG sample transaction ordering. |
 | [ROCm systems][rocm] | `8d57824901ffa7d961c00a37d055a108723b93ca` | ROCr queue/signal/copy protocols, HIP/CLR consumers, native queue construction, and profiling. |
 | [ROCm native memory and engine policy][rocm-native] | `f9ba16bbe70e365b2f59b268e847bef19ad9db6e` | BO-backed queue storage, pageable host SVM allocation, context-save selection, DRM import/mapping ownership, and CLR peer-engine selection. |
 | [Linux][linux] | `50d05c7c76c96b90462f24debacca971d2e86713` | Native UAPI, queue descriptors, memory mappings, engine emitters, and driver resource lifetimes. |
@@ -61,6 +62,7 @@ executes. The corresponding chapter identifies those boundaries.
 
 [pal]: https://github.com/GPUOpen-Drivers/pal/tree/c5e800072a32f68b6ccc4422936d96167c6e0728
 [mesa]: https://gitlab.freedesktop.org/mesa/mesa/-/tree/0ba4b08edc65075e9346d20d5310261939aaaf48
+[mesa-counters]: https://gitlab.freedesktop.org/mesa/mesa/-/tree/44cc4ca677a4752a10c14194289bde5a6468675e
 [rocm]: https://github.com/ROCm/rocm-systems/tree/8d57824901ffa7d961c00a37d055a108723b93ca
 [rocm-native]: https://github.com/ROCm/rocm-systems/tree/f9ba16bbe70e365b2f59b268e847bef19ad9db6e
 [linux]: https://github.com/torvalds/linux/tree/50d05c7c76c96b90462f24debacca971d2e86713
