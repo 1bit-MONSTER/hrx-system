@@ -72,3 +72,14 @@ sh_test(
         "PATH",
     ],
 )
+
+sh_test(
+    name = "hosted_wasi_stdout_test",
+    srcs = ["hosted_wasi_stdout_test.sh"],
+    args = ["$(rootpath :hosted_wasi_toolchain_smoke)"],
+    data = [":hosted_wasi_toolchain_smoke"],
+    env_inherit = [
+        "IREE_WASM_NODE",
+        "PATH",
+    ],
+)

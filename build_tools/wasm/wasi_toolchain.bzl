@@ -21,7 +21,7 @@ def _copy_tool(name, source_name, executable_suffix, source_suffix, allow_symlin
         name = name,
         allow_symlink = allow_symlink,
         is_executable = True,
-        out = "tools/{}{}".format(name, executable_suffix),
+        out = "tools/bin/{}{}".format(name, executable_suffix),
         src = "bin/{}{}".format(source_name, source_suffix),
     )
 
@@ -47,6 +47,28 @@ def wasi_cc_toolchain(
     _copy_tool("llvm-strip", "llvm-strip", executable_suffix, source_suffix, allow_symlink)
     _copy_tool("wasm-ld", "wasm-ld", executable_suffix, source_suffix, allow_symlink)
 
+    # Tools load SDK-native libraries relative to their executable location.
+    # Preserve the SDK's bin/lib geometry when Bazel materializes copied tools
+    # as regular files instead of resolving them through repository symlinks.
+    runtime_files = []
+    for source in native.glob([
+        "bin/*.dll",
+        "lib/*.dylib",
+        "lib/*.so*",
+    ], allow_empty = True):
+        runtime_name = "tool_runtime_" + source.replace("/", "_")
+        copy_file(
+            name = runtime_name,
+            allow_symlink = allow_symlink,
+            out = "tools/" + source,
+            src = source,
+        )
+        runtime_files.append(":" + runtime_name)
+    native.filegroup(
+        name = "tool_runtime_files",
+        srcs = runtime_files,
+    )
+
     native.filegroup(
         name = "compile_files",
         srcs = native.glob([
@@ -64,23 +86,29 @@ def wasi_cc_toolchain(
     cc_tool(
         name = "c_compiler",
         src = ":clang",
-        data = [":compile_files"],
+        data = [
+            ":compile_files",
+            ":tool_runtime_files",
+        ],
     )
     cc_tool(
         name = "cxx_linker",
         src = ":clang++",
         data = [
             ":link_files",
+            ":tool_runtime_files",
             ":wasm-ld",
         ],
     )
     cc_tool(
         name = "archiver",
         src = ":llvm-ar",
+        data = [":tool_runtime_files"],
     )
     cc_tool(
         name = "stripper",
         src = ":llvm-strip",
+        data = [":tool_runtime_files"],
     )
     cc_tool_map(
         name = "tools",
