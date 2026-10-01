@@ -40,10 +40,10 @@ class CMakeLoomBinaryTest(unittest.TestCase):
                 "--config=a.value=3",
                 "--config=z.limit=16",
                 "--target=amd.xdna.aie2p:amd.xdna.strix.17f0_10",
-                "--product=kernel",
                 f"--transitive-library={build.as_posix()}/leaf.loombc",
             ):
                 self.assertIn(argument, text)
+            self.assertNotIn("--product=", text)
             self.assertLess(text.index("--root=@second"), text.index("--root=@first"))
             exported = (build / "exported.xdna").read_text()
             self.assertIn(f"--root-library={build.as_posix()}/library.loombc", exported)
