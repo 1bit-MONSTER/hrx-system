@@ -1,0 +1,101 @@
+// RUN: verify
+// Family names are validated even on unused templates.
+// ERROR@+2: LOWERING/059 "encoding.define requires one encoding family name"
+template <auto Spec>
+[[loom::op("encoding.define")]] int invalid();
+
+// ====
+// ERROR@+2: LOWERING/059 "encoding.define requires a registered schema family"
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.unknown")]] int invalid();
+
+// ====
+// ERROR@+2: LOWERING/059 "encoding.define requires a registered schema family"
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.layout.dense")]] int invalid();
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+// ERROR@+1: LOWERING/059 "encoding.define requires one constant aggregate template argument"
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+// ERROR@+1: LOWERING/059 "encoding.define requires one constant aggregate template argument"
+Schema entry() { return invalid<32>(); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+struct Parameters { unsigned payload_elements; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid(unsigned);
+// ERROR@+1: LOWERING/059 "static encoding.define has no runtime arguments"
+Schema entry() { return invalid<Parameters{32}>(1); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Layout = loom::type::encoding<loom::encoding::role::layout>;
+struct Parameters { unsigned payload_elements; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Layout invalid();
+// ERROR@+1: LOWERING/059 "encoding.define must return a schema encoding value"
+Layout entry() { return invalid<Parameters{32}>(); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+struct Parameters { unsigned misspelled_elements; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+// ERROR@+1: LOWERING/059 "unknown encoding parameter 'misspelled_elements'"
+Schema entry() { return invalid<Parameters{32}>(); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+enum class Format { f4e2m1 };
+struct Parameters { unsigned payload_elements; Format element_format; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+// ERROR@+1: LOWERING/059 "encoding alias fixes parameter 'element_format'"
+Schema entry() { return invalid<Parameters{32, Format::f4e2m1}>(); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+struct Parameters { double payload_elements; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+// ERROR@+1: LOWERING/059 "encoding parameter 'payload_elements' requires a matching integer, boolean, or named enum constant"
+Schema entry() { return invalid<Parameters{32.0}>(); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+struct Parameters { unsigned long long payload_elements; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+// ERROR@+1: LOWERING/059 "encoding parameter 'payload_elements' requires a matching integer, boolean, or named enum constant"
+Schema entry() { return invalid<Parameters{~0ull}>(); }
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+enum class Packing { unrelated };
+struct Parameters { unsigned payload_elements; Packing payload_packing; };
+template <auto Spec>
+[[loom::op("encoding.define", "encoding.f4e2m1")]] Schema invalid();
+// ERROR@+1: LOWERING/059 "encoding enum value must identify one family parameter keyword"
+Schema entry() { return invalid<Parameters{32, Packing::unrelated}>(); }
+
+// ====
+// A numeric schema cannot masquerade as a view layout.
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+// ERROR@+1: LOWERING/059 "view operation requires a layout encoding value"
+[[loom::op("encoding.layout.dense")]] Schema invalid();

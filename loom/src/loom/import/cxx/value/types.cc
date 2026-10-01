@@ -149,16 +149,20 @@ const EncodingPartition* Types::encoding(const cxx::ClassType* input,
   auto rank = cxx::template_argument_value(arguments[1]);
   auto role_value = role ? interpreter.toInt(*role) : std::nullopt;
   auto rank_value = rank ? interpreter.toInt(*rank) : std::nullopt;
-  if (!role_value || *role_value != 0 || !rank_value || *rank_value < 1 ||
-      *rank_value > LOOM_TYPE_MAX_RANK) {
+  bool layout = role_value == 0 && rank_value && *rank_value >= 1 &&
+                *rank_value <= LOOM_TYPE_MAX_RANK;
+  bool schema = role_value == 1 && rank_value == 0;
+  if (!layout && !schema) {
     diagnostics_.reject(
         unit_, owner,
-        "encoding values require the layout role and rank in [1, 15]");
+        "encoding values require layout rank in [1, 15] or schema rank zero");
   }
   auto result = std::make_unique<EncodingPartition>();
   result->kind = ValueKind::Encoding;
   result->component_count = 1;
   result->source = source;
+  result->role = layout ? LOOM_ENCODING_ROLE_ADDRESS_LAYOUT
+                        : LOOM_ENCODING_ROLE_STORAGE_SCHEMA;
   result->rank = static_cast<size_t>(*rank_value);
   auto* admitted = result.get();
   encodings_.emplace(source, std::move(result));
@@ -655,8 +659,8 @@ void Types::append_bound(const cxx::Type* input, cxx::AST* owner,
       output.push_back(loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET));
       return;
     case ValueKind::Encoding:
-      output.push_back(
-          loom_type_encoding_with_role(LOOM_ENCODING_ROLE_ADDRESS_LAYOUT));
+      output.push_back(loom_type_encoding_with_role(
+          static_cast<const EncodingPartition&>(admitted).role));
       return;
     case ValueKind::Tensor:
       output.push_back(static_cast<const TensorPartition&>(admitted).type);

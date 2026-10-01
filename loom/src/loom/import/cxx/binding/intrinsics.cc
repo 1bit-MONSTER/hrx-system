@@ -118,6 +118,9 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
     } else if (auto shaped = ShapedIntrinsic::admit(unit_, diagnostics_,
                                                     *selected, owner)) {
       binding.operation = *shaped;
+    } else if (auto encoding = EncodingIntrinsic::admit(
+                   unit_, diagnostics_, module_->context, *selected, owner)) {
+      binding.operation = *encoding;
     } else if (selected->arguments.size() != 1 ||
                (!ViewIntrinsic::supports(selected->arguments[0]->name()) &&
                 !AtomicIntrinsic::supports(selected->arguments[0]->name()) &&
@@ -158,6 +161,11 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
                                         const cxx::Attribute& attribute,
                                         cxx::AST* owner) {
   auto* signature = cxx::type_cast<cxx::FunctionType>(function->type());
+  if (auto encoding = EncodingIntrinsic::admit(
+          unit_, diagnostics_, module_->context, attribute, owner)) {
+    return EncodingIntrinsic::resolve(*encoding, unit_, diagnostics_, types_,
+                                      function, module_, owner);
+  }
   if (auto binding = CheckIntrinsic::resolve(unit_, diagnostics_, types_,
                                              function, attribute, owner)) {
     return *binding;
@@ -278,6 +286,9 @@ Intrinsics::Binding* Intrinsics::concrete_binding(cxx::FunctionSymbol* function,
         } else if constexpr (std::is_same_v<T, ShapedIntrinsic::Operation>) {
           return ShapedIntrinsic::resolve(operation, unit_, diagnostics_,
                                           types_, signature, owner);
+        } else if constexpr (std::is_same_v<T, EncodingIntrinsic::Family>) {
+          return EncodingIntrinsic::resolve(operation, unit_, diagnostics_,
+                                            types_, function, module_, owner);
         } else {
           return resolve(function, *attribute, owner);
         }
@@ -306,6 +317,9 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
                                      loom_builder_t* builder,
                                      loom_location_id_t location) {
   const auto* binding = &admitted;
+  if (auto* encoding = std::get_if<EncodingIntrinsic>(binding)) {
+    return {encoding->call(arena, builder, location)};
+  }
   if (auto* view = std::get_if<ViewIntrinsic>(binding)) {
     return {view->call(arguments, types_, arena, storage, owner, builder,
                        location)};

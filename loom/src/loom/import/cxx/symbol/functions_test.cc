@@ -40,7 +40,7 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
                 IREE_SV("functions.cxx"), options());
   Types types(source.unit(), source.diagnostics());
   Locations locations(source.unit(), source.diagnostics(), module_);
-  Intrinsics intrinsics(source.unit(), source.diagnostics(), types);
+  Intrinsics intrinsics(source.unit(), source.diagnostics(), types, module_);
   LaunchContracts launches(source.unit(), source.diagnostics());
   Scalars scalars(source.unit(), source.diagnostics(), types, locations,
                   builder_);
@@ -85,7 +85,7 @@ TEST_F(FunctionsTest,
                 IREE_SV("visibility.cpp"), options());
   Types types(source.unit(), source.diagnostics());
   Locations locations(source.unit(), source.diagnostics(), module_);
-  Intrinsics intrinsics(source.unit(), source.diagnostics(), types);
+  Intrinsics intrinsics(source.unit(), source.diagnostics(), types, module_);
   LaunchContracts launches(source.unit(), source.diagnostics());
   Scalars scalars(source.unit(), source.diagnostics(), types, locations,
                   builder_);

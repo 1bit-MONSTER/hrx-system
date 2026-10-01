@@ -55,7 +55,9 @@ struct RecordPartition final : Partition {
 struct EncodingPartition final : Partition {
   // Concrete source specialization retaining copy and object-layout semantics.
   cxx::ClassSymbol* source;
-  // Number of axes described by this source layout object.
+  // Semantic role preserved across calls, records, and structured results.
+  loom_encoding_role_t role;
+  // Number of layout axes, or zero for a numeric schema.
   size_t rank;
 };
 

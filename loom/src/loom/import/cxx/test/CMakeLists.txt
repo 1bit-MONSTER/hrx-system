@@ -49,6 +49,8 @@ loom_check_test_suite(
     "constexpr_semantics.cxx-test"
     "control_invalid.cxx-test"
     "data_models.cxx-test"
+    "encoding_schemas.cxx-test"
+    "encoding_schemas_invalid.cxx-test"
     "enum_semantics.cxx-test"
     "enums.cxx-test"
     "enums_invalid.cxx-test"
