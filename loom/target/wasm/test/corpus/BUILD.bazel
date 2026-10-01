@@ -124,6 +124,7 @@ _HOSTED_EXECUTION_SOURCES = [
     "memory/view/scalar_exchange.loom",
     "numeric/conversion/conversion.loom",
     "numeric/conversion/f32_narrowing.loom",
+    "numeric/conversion/narrow_arithmetic.loom",
     "numeric/conversion/narrow_widening.loom",
     "numeric/float/clamp.loom",
     "numeric/float/scalar_f32.loom",
@@ -261,7 +262,9 @@ loom_corpus_build(
             "numeric/conversion/narrow.loom:@narrow_abi": "WASM/001",
             "numeric/conversion/narrow.loom:@narrow_constants": "WASM/001",
             "numeric/conversion/narrow_arithmetic.loom:@arithmetic_bf16": "LOWERING/036",
+            "numeric/conversion/narrow_arithmetic.loom:@arithmetic_bf16_oracle": "LOWERING/036",
             "numeric/conversion/narrow_arithmetic.loom:@arithmetic_f16": "LOWERING/036",
+            "numeric/conversion/narrow_arithmetic.loom:@arithmetic_f16_oracle": "LOWERING/036",
             "numeric/conversion/narrow_integer_float.loom:@bf16_to_integer_1": "TARGET/001",
             "numeric/conversion/narrow_integer_float.loom:@bf16_to_integer_4": "WASM/001",
             "numeric/conversion/narrow_integer_float.loom:@f16_to_integer_1": "TARGET/001",
@@ -336,6 +339,8 @@ loom_corpus_test(
     },
     xfails = {
         WASM_HOSTED_PROFILE.name: {
+            "numeric/conversion/narrow_arithmetic.loom:@arithmetic_bf16_values": "LOWERING/036",
+            "numeric/conversion/narrow_arithmetic.loom:@arithmetic_f16_values": "LOWERING/036",
             "numeric/float/clamp.loom:@clamp_ieee_f32_values": "TARGET/001",
             "numeric/float/clamp.loom:@clamp_number_f32_values": "TARGET/001",
             "numeric/float/clamp.loom:@clamp_ordered_f32_values": "TARGET/001",
