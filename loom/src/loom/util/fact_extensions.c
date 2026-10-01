@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "iree/base/internal/math.h"
+#include "loom/ir/float_facts.h"
 #include "loom/ir/structural_hash.h"
 #include "loom/util/fact_table.h"
 
@@ -1361,10 +1362,27 @@ iree_status_t loom_value_fact_table_widen_for_type(
                                                next_table, next, out_facts);
   }
 
-  // Floating classifications have finite height and need no interval widening.
   loom_value_facts_meet(&previous, &next, out_facts);
-  if (!loom_value_facts_is_float(previous) &&
-      !loom_value_facts_is_float(next)) {
+  if (loom_value_facts_is_float(previous) || loom_value_facts_is_float(next)) {
+    // Classifications have finite height. Retained intervals do not: a loop
+    // can expand one endpoint on every visit. Keep a stable interval, but
+    // forget changing bounds after the two precise join iterations above.
+    const loom_scalar_type_t scalar_type = loom_type_element_type(type);
+    double previous_lo = 0.0;
+    double previous_hi = 0.0;
+    double next_lo = 0.0;
+    double next_hi = 0.0;
+    const bool previous_has_range = loom_value_facts_as_float_range(
+        scalar_type, previous, &previous_lo, &previous_hi);
+    const bool next_has_range =
+        loom_value_facts_as_float_range(scalar_type, next, &next_lo, &next_hi);
+    if ((previous_has_range || next_has_range) &&
+        (previous_has_range != next_has_range ||
+         previous.range_lo != next.range_lo ||
+         previous.range_hi != next.range_hi)) {
+      loom_value_facts_drop_float_range(out_facts);
+    }
+  } else {
     // Range growth does not invalidate divisibility. Its join descends through
     // positive divisors, so it converges independently of interval widening.
     const int64_t known_divisor = out_facts->known_divisor;

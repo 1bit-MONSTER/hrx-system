@@ -1427,6 +1427,28 @@ TEST_F(FactTableTest, TypedMeetPreservesFloatDistributionWithoutExactness) {
   EXPECT_TRUE(loom_value_facts_is_lane_varying(joined));
 }
 
+TEST_F(FactTableTest, TypedMeetJoinsFiniteFloatIntervals) {
+  loom_value_fact_table_t table = {0};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 0));
+  const auto type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
+  auto lhs = loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, -4.0, 2.0);
+  auto rhs = loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, -1.0, 8.0);
+  loom_value_facts_mark_workgroup_uniform(&lhs);
+  loom_value_facts_mark_lane_varying(&rhs);
+
+  loom_value_facts_t joined;
+  IREE_ASSERT_OK(loom_value_fact_table_meet_for_type(
+      &table, nullptr, type, &table, lhs, &table, rhs, &joined));
+  double lo = 0.0;
+  double hi = 0.0;
+  ASSERT_TRUE(
+      loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F32, joined, &lo, &hi));
+  EXPECT_DOUBLE_EQ(lo, -4.0);
+  EXPECT_DOUBLE_EQ(hi, 8.0);
+  EXPECT_TRUE(loom_value_facts_is_finite(joined));
+  EXPECT_TRUE(loom_value_facts_is_lane_varying(joined));
+}
+
 TEST_F(FactTableTest, TypedWidenPreservesFloatingClasses) {
   loom_value_fact_table_t table = {0};
   IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 0));
@@ -1443,6 +1465,15 @@ TEST_F(FactTableTest, TypedWidenPreservesFloatingClasses) {
     EXPECT_FALSE(loom_value_facts_is_exact(widened));
     EXPECT_FALSE(loom_value_facts_is_not_subnormal(widened));
     EXPECT_TRUE(loom_value_facts_is_cluster_uniform(widened));
+    double lo = 0.0;
+    double hi = 0.0;
+    EXPECT_EQ(loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F64, widened,
+                                              &lo, &hi),
+              iteration < 2);
+    if (iteration < 2) {
+      EXPECT_DOUBLE_EQ(lo, std::numeric_limits<double>::denorm_min());
+      EXPECT_DOUBLE_EQ(hi, 1.0);
+    }
 
     IREE_ASSERT_OK(loom_value_fact_table_widen_for_type(
         &table, nullptr, type, &table, previous, &table,
@@ -1456,6 +1487,29 @@ TEST_F(FactTableTest, TypedWidenPreservesFloatingClasses) {
         loom_value_facts_unknown(), iteration, &widened));
     EXPECT_TRUE(loom_value_facts_is_unknown(widened));
   }
+}
+
+TEST_F(FactTableTest, TypedWidenRetainsStableFloatInterval) {
+  loom_value_fact_table_t table = {0};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 0));
+  const auto type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
+  auto previous =
+      loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, -8.0, 8.0);
+  auto next = previous;
+  loom_value_facts_mark_workgroup_uniform(&previous);
+  loom_value_facts_mark_lane_varying(&next);
+
+  loom_value_facts_t widened;
+  IREE_ASSERT_OK(loom_value_fact_table_widen_for_type(
+      &table, nullptr, type, &table, previous, &table, next,
+      /*iteration=*/7, &widened));
+  double lo = 0.0;
+  double hi = 0.0;
+  ASSERT_TRUE(
+      loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F32, widened, &lo, &hi));
+  EXPECT_DOUBLE_EQ(lo, -8.0);
+  EXPECT_DOUBLE_EQ(hi, 8.0);
+  EXPECT_TRUE(loom_value_facts_is_lane_varying(widened));
 }
 
 TEST_F(FactTableTest, TypedWidenJoinsDivisibilityIndependentlyOfRange) {

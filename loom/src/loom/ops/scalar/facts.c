@@ -814,14 +814,12 @@ iree_status_t loom_scalar_sitofp_facts(loom_fact_context_t* context,
                                        const loom_op_t* op,
                                        const loom_value_facts_t* operand_facts,
                                        loom_value_facts_t* result_facts) {
-  if (!loom_value_facts_is_exact(operand_facts[0])) {
-    result_facts[0] = loom_value_facts_unknown();
-    result_facts[0].flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN;
-    return iree_ok_status();
-  }
-  result_facts[0] =
-      loom_value_facts_exact_float(loom_scalar_result_element_type(module, op),
-                                   (double)operand_facts[0].range_lo);
+  const loom_scalar_type_t source_type = loom_type_element_type(
+      loom_module_value_type(module, loom_scalar_sitofp_input(op)));
+  loom_value_facts_eval_integer_to_float(
+      source_type, loom_scalar_result_element_type(module, op),
+      LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, &operand_facts[0],
+      &result_facts[0]);
   return iree_ok_status();
 }
 
@@ -830,23 +828,12 @@ iree_status_t loom_scalar_uitofp_facts(loom_fact_context_t* context,
                                        const loom_op_t* op,
                                        const loom_value_facts_t* operand_facts,
                                        loom_value_facts_t* result_facts) {
-  if (!loom_value_facts_is_exact(operand_facts[0])) {
-    result_facts[0] = loom_value_facts_unknown();
-    result_facts[0].flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN;
-    return iree_ok_status();
-  }
-  loom_type_t source_type =
-      loom_module_value_type(module, loom_scalar_uitofp_input(op));
-  const int32_t source_bit_count =
-      loom_scalar_type_bitwidth(loom_type_element_type(source_type));
-  uint64_t source_bits = 0;
-  if (!loom_value_facts_as_exact_raw_bits(operand_facts[0], source_bit_count,
-                                          &source_bits)) {
-    result_facts[0] = loom_value_facts_unknown();
-    return iree_ok_status();
-  }
-  result_facts[0] = loom_value_facts_exact_float(
-      loom_scalar_result_element_type(module, op), (double)source_bits);
+  const loom_scalar_type_t source_type = loom_type_element_type(
+      loom_module_value_type(module, loom_scalar_uitofp_input(op)));
+  loom_value_facts_eval_integer_to_float(
+      source_type, loom_scalar_result_element_type(module, op),
+      LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, &operand_facts[0],
+      &result_facts[0]);
   return iree_ok_status();
 }
 

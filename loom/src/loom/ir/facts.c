@@ -6,6 +6,8 @@
 
 #include "loom/ir/facts.h"
 
+#include <string.h>
+
 #include "iree/base/internal/math.h"
 
 // Computes flags from integer range facts. Does not set floating-point, float
@@ -90,6 +92,64 @@ void loom_value_facts_propagate_ternary_distribution(loom_value_facts_t a,
         iree_min(loom_value_facts_uniform_scope(a),
                  iree_min(loom_value_facts_uniform_scope(b),
                           loom_value_facts_uniform_scope(c)));
+    loom_value_facts_mark_uniform_at_scope(out, uniform_scope);
+  }
+}
+
+static bool loom_value_facts_decode_finite_float_range(loom_value_facts_t facts,
+                                                       double* out_lo,
+                                                       double* out_hi) {
+  if (!loom_value_facts_is_float(facts) || !loom_value_facts_is_finite(facts) ||
+      (facts.range_lo == INT64_MIN && facts.range_hi == INT64_MAX)) {
+    return false;
+  }
+  memcpy(out_lo, &facts.range_lo, sizeof(*out_lo));
+  memcpy(out_hi, &facts.range_hi, sizeof(*out_hi));
+  return true;
+}
+
+void loom_value_facts_meet_float(const loom_value_facts_t* a,
+                                 const loom_value_facts_t* b,
+                                 loom_value_facts_t* out) {
+  // Preserve inputs before writing because meet permits an aliased output.
+  const loom_value_facts_t lhs = *a;
+  const loom_value_facts_t rhs = *b;
+  *out = loom_value_facts_unknown();
+  if (loom_value_facts_is_float(lhs) && loom_value_facts_is_float(rhs)) {
+    out->flags = LOOM_VALUE_FACT_FLOAT |
+                 (lhs.flags & rhs.flags &
+                  (LOOM_VALUE_FACT_NAN | LOOM_VALUE_FACT_INF |
+                   LOOM_VALUE_FACT_NOT_NAN | LOOM_VALUE_FACT_NOT_INF |
+                   LOOM_VALUE_FACT_FINITE | LOOM_VALUE_FACT_NOT_SUBNORMAL));
+
+    double lhs_lo = 0.0;
+    double lhs_hi = 0.0;
+    double rhs_lo = 0.0;
+    double rhs_hi = 0.0;
+    if (loom_value_facts_decode_finite_float_range(lhs, &lhs_lo, &lhs_hi) &&
+        loom_value_facts_decode_finite_float_range(rhs, &rhs_lo, &rhs_hi)) {
+      const double range_lo = lhs_lo < rhs_lo ? lhs_lo : rhs_lo;
+      const double range_hi = lhs_hi > rhs_hi ? lhs_hi : rhs_hi;
+      memcpy(&out->range_lo, &range_lo, sizeof(range_lo));
+      memcpy(&out->range_hi, &range_hi, sizeof(range_hi));
+    }
+    if (loom_value_facts_is_exact(lhs) && loom_value_facts_is_exact(rhs) &&
+        lhs.range_lo == rhs.range_lo && lhs.range_hi == rhs.range_hi) {
+      out->range_lo = lhs.range_lo;
+      out->range_hi = lhs.range_hi;
+      out->flags |= LOOM_VALUE_FACT_EXACT;
+    }
+  }
+
+  if (loom_value_facts_is_exact(*out)) {
+    loom_value_facts_mark_cluster_uniform(out);
+  } else if (loom_value_facts_is_lane_varying(lhs) ||
+             loom_value_facts_is_lane_varying(rhs)) {
+    loom_value_facts_mark_lane_varying(out);
+  } else {
+    const loom_value_fact_uniform_scope_t uniform_scope =
+        iree_min(loom_value_facts_uniform_scope(lhs),
+                 loom_value_facts_uniform_scope(rhs));
     loom_value_facts_mark_uniform_at_scope(out, uniform_scope);
   }
 }
