@@ -16,8 +16,6 @@
 #include "loom/target/entry_selection.h"
 #include "loom/target/selection.h"
 #include "loom/tooling/compile/pipeline.h"
-#include "loom/tooling/compile/preparation.h"
-#include "loom/tooling/compile/request.h"
 #include "loom/tooling/config/config.h"
 #include "loom/tooling/target/wasm/host.h"
 
@@ -277,6 +275,15 @@ static iree_status_t loom_wasm_testbench_compile_product(
   pipeline_options.target_pipeline_options =
       loom_wasm_module_emitter.default_pipeline_options;
   pipeline_options.target_environment = testbench->target_environment;
+  const loom_target_specialization_request_t target_specialization = {
+      .function_name = function_name,
+      .target_profile = target_profile,
+  };
+  pipeline_options.target_specializations =
+      (loom_target_specialization_request_list_t){
+          .values = &target_specialization,
+          .count = 1,
+      };
   pipeline_options.low_descriptor_registry = &low_registry;
   pipeline_options.cleanup_pattern_provider_set =
       testbench->cleanup_pattern_provider_set;
@@ -284,19 +291,10 @@ static iree_status_t loom_wasm_testbench_compile_product(
       .fn = loom_source_table_resolve,
       .user_data = &sources.table,
   };
-  const loom_compile_request_t request = {
-      .selection =
-          {
-              .product = LOOM_COMPILE_PRODUCT_MODULE,
-              .roots = {.count = IREE_ARRAYSIZE(roots), .values = roots},
-          },
-      .target_emitter = &loom_wasm_module_emitter,
-      .explicit_target = {.profile = target_profile},
-  };
   loom_compile_pipeline_result_t pipeline = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_compile_run_request_pipeline(
-        &request, module, &pipeline_options, &block_pool, &pipeline);
+    status = loom_compile_run_pipeline(module, &pipeline_options, &block_pool,
+                                       &pipeline);
   }
   if (iree_status_is_ok(status) && pipeline.pass.error_count != 0) {
     status = iree_make_status(

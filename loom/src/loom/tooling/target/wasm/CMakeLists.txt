@@ -56,8 +56,6 @@ loom_cc_library(
     loom::target::provider
     loom::target::selection
     loom::tooling::compile::pipeline
-    loom::tooling::compile::preparation
-    loom::tooling::compile::request
     loom::tooling::config
     loom::tooling::testbench::scenario::executor
   PUBLIC
