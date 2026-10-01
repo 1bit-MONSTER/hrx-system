@@ -452,6 +452,89 @@ def _conversion_rule(
     )
 
 
+def _narrow_integer_to_float_rule(
+    source_type: TypePattern,
+    source_bit_count: int,
+    result_type: TypePattern,
+    result_type_name: str,
+    signedness: str,
+) -> DescriptorRule:
+    convert = _descriptor(f"wasm.{result_type_name}.convert_i32_{signedness}")
+    constant = _descriptor("wasm.i32.const")
+    if signedness == "s":
+        shift = _descriptor("wasm.i32.shl")
+        normalize = _descriptor("wasm.i32.shr_s")
+        shift_amount = 32 - source_bit_count
+        normalization = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("shift_amount")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": shift_amount},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=shift,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("shift_amount"),
+                },
+                results={"dst": ValueRef.temporary("shifted")},
+                result_types={"dst": _I32},
+            ),
+            EmitDescriptorOp(
+                descriptor=normalize,
+                operands={
+                    "lhs": ValueRef.temporary("shifted"),
+                    "rhs": ValueRef.temporary("shift_amount"),
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": _I32},
+            ),
+        )
+    else:
+        normalize = _descriptor("wasm.i32.and")
+        mask = (1 << source_bit_count) - 1
+        normalization = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("mask")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": mask},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=normalize,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("mask"),
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": _I32},
+            ),
+        )
+    return DescriptorRule(
+        source_op=(
+            scalar_conversion.scalar_sitofp
+            if signedness == "s"
+            else scalar_conversion.scalar_uitofp
+        ),
+        descriptor=convert,
+        guards=(
+            _value_type("input", source_type),
+            _value_type("result", result_type),
+        ),
+        emit=(
+            *normalization,
+            EmitDescriptorOp(
+                descriptor=convert,
+                operands={"input": ValueRef.temporary("normalized")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
 def _bf16_to_f32_rule() -> DescriptorRule:
     constant = _descriptor("wasm.i32.const")
     shift = _descriptor("wasm.i32.shl")
@@ -1157,6 +1240,32 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         ),
         _conversion_rule(
             scalar_conversion.scalar_bitcast, _I64, _F64, "wasm.f64.reinterpret_i64"
+        ),
+        *(
+            _conversion_rule(
+                source_op,
+                source_type,
+                result_type,
+                f"wasm.{result_type_name}.convert_{source_type_name}_{signedness}",
+            )
+            for source_op, signedness in (
+                (scalar_conversion.scalar_sitofp, "s"),
+                (scalar_conversion.scalar_uitofp, "u"),
+            )
+            for source_type, source_type_name in ((_I32, "i32"), (_I64, "i64"))
+            for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+        ),
+        *(
+            _narrow_integer_to_float_rule(
+                source_type,
+                source_bit_count,
+                result_type,
+                result_type_name,
+                signedness,
+            )
+            for source_type, source_bit_count in ((_I1, 1), (_I8, 8), (_I16, 16))
+            for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+            for signedness in ("s", "u")
         ),
         _bf16_to_f32_rule(),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E4M3, _I8),

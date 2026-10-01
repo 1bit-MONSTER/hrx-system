@@ -117,6 +117,7 @@ loom_check_test_suite(
     "test/source_low/numeric_index_operands.loom-test"
     "test/source_low/numeric_integer_division.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
+    "test/source_low/numeric_integer_to_float.loom-test"
     "test/source_low/numeric_offset_narrowing.loom-test"
     "test/source_low/numeric_scalar_i64.loom-test"
     "test/source_low/numeric_scalar_i64_shift_counts.loom-test"
