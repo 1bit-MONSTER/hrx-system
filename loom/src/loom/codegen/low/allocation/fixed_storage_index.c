@@ -468,11 +468,15 @@ static bool loom_low_allocation_fixed_storage_range_conflicts(
       continue;
     }
     const uint32_t fixed_value_index = record->fixed_value_index;
-    if (index->excluded_generations[fixed_value_index] == generation) {
-      continue;
-    }
     const loom_low_allocation_resolved_fixed_value_t* fixed_value =
         &constraints->fixed_values[fixed_value_index];
+    const uint32_t root_index =
+        constraints
+            ->fixed_value_indices_by_ordinal[fixed_value->tied_root_ordinal] -
+        1;
+    if (index->excluded_generations[root_index] == generation) {
+      continue;
+    }
     if (candidate_fixed_value != NULL &&
         fixed_value->tied_root_ordinal ==
             candidate_fixed_value->tied_root_ordinal) {
@@ -522,16 +526,18 @@ bool loom_low_allocation_target_constraints_fixed_storage_conflicts(
   const uint32_t generation =
       loom_low_allocation_fixed_storage_next_generation(constraints);
   if (fixed_value != NULL) {
-    index->excluded_generations[fixed_value - constraints->fixed_values] =
-        generation;
+    index->excluded_generations[constraints->fixed_value_indices_by_ordinal
+                                    [fixed_value->tied_root_ordinal] -
+                                1] = generation;
   }
   for (uint16_t i = 0; i < ignored_value_count; ++i) {
     const loom_low_allocation_resolved_fixed_value_t* ignored_fixed_value =
         loom_low_allocation_target_constraints_fixed_value_for_value(
             constraints, ignored_value_ids[i]);
     if (ignored_fixed_value != NULL) {
-      index->excluded_generations[ignored_fixed_value -
-                                  constraints->fixed_values] = generation;
+      index->excluded_generations[constraints->fixed_value_indices_by_ordinal
+                                      [ignored_fixed_value->tied_root_ordinal] -
+                                  1] = generation;
     }
   }
 

@@ -40,6 +40,9 @@ bool loom_low_placement_relation_compose(
   }
   const uint32_t overlap_count = (uint32_t)(overlap_end - overlap_offset);
   *out_relation = *intermediate_to_result;
+  // Bit identity belongs to the authored endpoints, not arbitrary storage
+  // composition (which may cross a destructive tie).
+  out_relation->flags &= ~LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE;
   out_relation->source_ordinal = source_to_intermediate->source_ordinal;
   out_relation->source_operand_index = LOOM_LOW_PLACEMENT_SOURCE_OPERAND_NONE;
   out_relation->source_unit_offset =
@@ -1208,6 +1211,82 @@ static iree_status_t loom_low_placement_index_preferences(
   return iree_ok_status();
 }
 
+// Storage equality and bit identity are different facts: a tied result writes
+// new bits, while slice/concat/copy paths forward existing bits. Compose those
+// paths once in sources-before-users order, then retain only the edge facts
+// needed by coalescing. No per-unit identity table survives construction.
+static iree_status_t loom_low_placement_mark_identity_edges(
+    loom_low_placement_build_state_t* state) {
+  if (state->edge_relation_count == 0) {
+    return iree_ok_status();
+  }
+  for (uint32_t i = 0; i < state->edge_relation_count; ++i) {
+    loom_low_placement_relation_t* relation =
+        &state->relations[state->edge_relation_indices[i]];
+    if (relation->result_ordinal == relation->source_ordinal &&
+        relation->result_unit_offset == relation->source_unit_offset) {
+      relation->flags |= LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE;
+    }
+  }
+  if (state->storage_value_order_count == 0) {
+    return iree_ok_status();
+  }
+  iree_host_size_t* starts = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      state->scratch_arena, state->value_domain->value_count, sizeof(*starts),
+      (void**)&starts));
+  iree_host_size_t unit_count = 0;
+  for (loom_value_ordinal_t v = 0; v < state->value_domain->value_count; ++v) {
+    starts[v] = unit_count;
+    const loom_liveness_interval_t* interval =
+        loom_liveness_interval_for_value_ordinal(state->liveness, v);
+    unit_count += interval != NULL ? interval->unit_count : 0;
+  }
+  iree_host_size_t* origins = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      state->scratch_arena, unit_count, sizeof(*origins), (void**)&origins));
+  for (iree_host_size_t u = 0; u < unit_count; ++u) {
+    origins[u] = u;
+  }
+  for (loom_value_ordinal_t cursor = state->storage_value_order_count;
+       cursor > 0; --cursor) {
+    const loom_value_ordinal_t value = state->storage_value_order[cursor - 1];
+    const loom_low_placement_relation_range_t range =
+        state->ranges_by_result_ordinal[value];
+    for (uint32_t i = 0; i < range.count; ++i) {
+      const loom_low_placement_relation_t* relation =
+          &state->relations[range.start + i];
+      if (relation->cause < LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT ||
+          relation->cause > LOOM_LOW_PLACEMENT_CAUSE_LOW_CONCAT ||
+          !loom_low_placement_relation_can_alias(relation) ||
+          iree_any_bit_set(relation->flags,
+                           LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE)) {
+        continue;
+      }
+      for (uint32_t u = 0; u < relation->unit_count; ++u) {
+        origins[starts[value] + relation->result_unit_offset + u] =
+            origins[starts[relation->source_ordinal] +
+                    relation->source_unit_offset + u];
+      }
+    }
+  }
+  for (uint32_t i = 0; i < state->edge_relation_count; ++i) {
+    loom_low_placement_relation_t* relation =
+        &state->relations[state->edge_relation_indices[i]];
+    bool identity = true;
+    for (uint32_t u = 0; u < relation->unit_count && identity; ++u) {
+      identity = origins[starts[relation->result_ordinal] +
+                         relation->result_unit_offset + u] ==
+                 origins[starts[relation->source_ordinal] +
+                         relation->source_unit_offset + u];
+    }
+    if (identity) {
+      relation->flags |= LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE;
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_placement_build(
     loom_low_placement_build_state_t* state,
     loom_low_placement_table_t* out_table,
@@ -1265,6 +1344,7 @@ static iree_status_t loom_low_placement_build(
   IREE_RETURN_IF_ERROR(loom_low_placement_build_storage_value_order(state));
   IREE_RETURN_IF_ERROR(
       loom_low_placement_index_preferences(state, out_preferences));
+  IREE_RETURN_IF_ERROR(loom_low_placement_mark_identity_edges(state));
 
   // Every exact tied component uses one base. Retain its strongest packet
   // requirement once, before fixed-input validation or allocation can place

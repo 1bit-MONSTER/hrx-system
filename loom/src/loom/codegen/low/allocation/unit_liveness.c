@@ -12,6 +12,7 @@
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/representation_binding.h"
+#include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/registers.h"
 #include "loom/util/adaptive_sort.h"
@@ -25,6 +26,32 @@ struct loom_low_allocation_clobber_t {
   // Program point overwritten by the implicit instruction output.
   uint32_t point;
 };
+
+bool loom_low_allocation_unit_liveness_storage_is_ignored(
+    const loom_low_allocation_unit_liveness_t* unit_liveness,
+    loom_value_id_t value_id, const loom_value_id_t* ignored_value_ids,
+    uint16_t ignored_value_count) {
+  const loom_low_placement_table_t* placement =
+      unit_liveness->tied_storage_placement;
+  for (uint16_t i = 0; i < ignored_value_count; ++i) {
+    if (ignored_value_ids[i] == value_id) {
+      return true;
+    }
+    if (placement != NULL) {
+      const loom_value_ordinal_t* roots =
+          placement->tied_storage_origins_by_value_ordinal;
+      const loom_value_ordinal_t value_ordinal =
+          loom_module_value_ordinal_scratch_lookup(placement->module, value_id);
+      const loom_value_ordinal_t ignored_ordinal =
+          loom_module_value_ordinal_scratch_lookup(placement->module,
+                                                   ignored_value_ids[i]);
+      if (roots[value_ordinal] == roots[ignored_ordinal]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 static bool loom_low_allocation_clobber_less(
     const loom_low_allocation_clobber_t* lhs,
@@ -1660,6 +1687,8 @@ iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
       placement->tied_storage_origins_by_value_ordinal == NULL) {
     return iree_ok_status();
   }
+
+  unit_liveness->tied_storage_placement = placement;
 
   loom_low_allocation_unit_liveness_retain_tied_component_lifetimes(
       unit_liveness, placement);

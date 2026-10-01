@@ -377,8 +377,8 @@ TEST_F(LowAllocationTargetConstraintsTest,
   uint32_t interval_indices[] = {0, 1, 2};
   loom_low_allocation_unit_liveness_value_t unit_values[] = {
       {0, 2}, {1, 0}, {2, 1}};
-  uint32_t unit_start_points[] = {2, 0, 1};
-  uint32_t unit_end_points[] = {3, 2, 3};
+  uint32_t unit_start_points[] = {2, 0, 1, 0};
+  uint32_t unit_end_points[] = {3, 2, 3, 3};
   const uint16_t reg_class_id = RegisterClassId(IREE_SV("test.phys"));
   loom_liveness_value_class_t value_class = {};
   value_class.type_kind = LOOM_TYPE_REGISTER;
@@ -414,7 +414,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
   unit_liveness.values = unit_values;
   unit_liveness.start_points = unit_start_points;
   unit_liveness.end_points = unit_end_points;
-  unit_liveness.point_count = kValueCount;
+  unit_liveness.point_count = IREE_ARRAYSIZE(unit_end_points);
   uint64_t incomplete_storage_words[] = {0};
   unit_liveness.values_with_incomplete_storage_segments = {
       kValueCount, incomplete_storage_words};
@@ -457,6 +457,17 @@ TEST_F(LowAllocationTargetConstraintsTest,
     EXPECT_FALSE(loom_low_allocation_target_constraints_fixed_storage_conflicts(
         &constraints, &unit_liveness, &binding->assignment,
         /*ignored_value_ids=*/nullptr, /*ignored_value_count=*/0));
+    // A temporary may overlap the component only after its owner is excluded.
+    // Excluding any required alias releases the same complete reservation.
+    loom_low_allocation_assignment_t temporary = binding->assignment;
+    temporary.value_id = LOOM_VALUE_ID_INVALID;
+    temporary.start_point = 0;
+    temporary.end_point = 3;
+    temporary.unit_point_start = 3;
+    EXPECT_TRUE(loom_low_allocation_target_constraints_fixed_storage_conflicts(
+        &constraints, &unit_liveness, &temporary, nullptr, 0));
+    EXPECT_FALSE(loom_low_allocation_target_constraints_fixed_storage_conflicts(
+        &constraints, &unit_liveness, &temporary, &value, 1));
   }
   loom_local_value_domain_release(&domain);
   loom_module_free(module);

@@ -25,8 +25,8 @@ typedef struct loom_low_allocation_fixed_storage_record_t
 // Each record is one canonical atomic-storage and exact live-segment claim.
 // Records are grouped by location kind and storage identity, with an implicit
 // maximum-end interval tree inside each identity group. Query generations
-// exclude the candidate and explicitly ignored fixed values without scanning
-// the ignored set for every matching claim.
+// exclude the candidate and explicitly ignored required storage components
+// without scanning the ignored set for every matching claim.
 typedef struct loom_low_allocation_fixed_storage_index_t {
   // Exact claims ordered by storage identity then start point.
   loom_low_allocation_fixed_storage_record_t* records;
@@ -37,7 +37,8 @@ typedef struct loom_low_allocation_fixed_storage_index_t {
   uint32_t record_starts[2];
   // Number of storage records for each register-like location kind.
   uint32_t record_counts[2];
-  // Last query generation excluding each resolved fixed value.
+  // Last query generation excluding each component, indexed by its origin's
+  // resolved fixed-value index.
   uint32_t* excluded_generations;
   // Current nonzero query generation.
   uint32_t generation;

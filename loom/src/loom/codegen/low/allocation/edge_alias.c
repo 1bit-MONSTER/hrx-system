@@ -149,6 +149,11 @@ iree_status_t loom_low_allocation_edge_alias_allows_counterpart_overlap(
     uint32_t destination_unit_offset, uint32_t destination_unit_count,
     bool* out_allows_overlap) {
   *out_allows_overlap = false;
+  if (iree_any_bit_set(relation->flags,
+                       LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE)) {
+    *out_allows_overlap = true;
+    return iree_ok_status();
+  }
   if (relation->kind != LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE ||
       !loom_low_placement_relation_can_alias(relation) ||
       !loom_low_placement_cause_is_edge(relation->cause)) {

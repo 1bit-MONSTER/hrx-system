@@ -39,6 +39,10 @@ typedef struct loom_low_allocation_unit_liveness_value_t {
 
 // Mutable unit-liveness state indexed by liveness value ordinal.
 typedef struct loom_low_allocation_unit_liveness_t {
+  // Borrowed required storage identities, or NULL when no tied components
+  // contribute reservations. The placement value domain remains acquired
+  // throughout allocation.
+  const loom_low_placement_table_t* tied_storage_placement;
   // Per-value storage facts indexed by liveness local value ordinal.
   loom_low_allocation_unit_liveness_value_t* values;
   // Per-assignment-unit storage start points.
@@ -79,6 +83,14 @@ typedef struct loom_low_allocation_unit_liveness_t {
     uint32_t atomic_unit_end;
   } clobbers;
 } loom_low_allocation_unit_liveness_t;
+
+// Returns true when |value_id|'s required storage component is excluded by
+// |ignored_value_ids|. Callers establish alias or relocation legality before
+// excluding a component; its separate SSA names are one physical reservation.
+bool loom_low_allocation_unit_liveness_storage_is_ignored(
+    const loom_low_allocation_unit_liveness_t* unit_liveness,
+    loom_value_id_t value_id, const loom_value_id_t* ignored_value_ids,
+    uint16_t ignored_value_count);
 
 // Initializes |out_unit_liveness| from value-granular liveness and IR use
 // structure over the canonical |cfg_graph|. The resulting points refine

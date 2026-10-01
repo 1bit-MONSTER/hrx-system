@@ -66,6 +66,10 @@ enum loom_low_placement_relation_flag_bits_e {
   LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE = 1u << 2,
   // The required tie writes new contents instead of forwarding an identity.
   LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE = 1u << 3,
+  // The edge forwards the destination's existing SSA bits through transparent
+  // structural copies. Its source can share storage with the still-observable
+  // destination. Destructive tied results do not preserve bit identity.
+  LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE = 1u << 4,
 };
 
 // Bitset of loom_low_placement_relation_flag_bits_e values.

@@ -11,17 +11,6 @@
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
 
-static bool loom_low_allocation_value_id_is_ignored(
-    loom_value_id_t value_id, const loom_value_id_t* ignored_value_ids,
-    uint16_t ignored_value_count) {
-  for (uint16_t i = 0; i < ignored_value_count; ++i) {
-    if (ignored_value_ids[i] == value_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static bool loom_low_allocation_active_set_scan_conflicts(
     const loom_low_allocation_active_set_t* active_set,
     const loom_low_descriptor_set_t* descriptor_set,
@@ -79,8 +68,9 @@ bool loom_low_allocation_active_assignment_conflicts(
   IREE_ASSERT_ARGUMENT(unit_liveness);
   IREE_ASSERT_ARGUMENT(existing);
   IREE_ASSERT_ARGUMENT(candidate);
-  if (loom_low_allocation_value_id_is_ignored(
-          existing->value_id, ignored_value_ids, ignored_value_count)) {
+  if (loom_low_allocation_unit_liveness_storage_is_ignored(
+          unit_liveness, existing->value_id, ignored_value_ids,
+          ignored_value_count)) {
     return false;
   }
   if (existing->location_kind != candidate->location_kind) {

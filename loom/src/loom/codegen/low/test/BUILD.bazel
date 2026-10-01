@@ -23,6 +23,7 @@ loom_check_test_suite(
         "allocation_destructive_paths.loom-test",
         "allocation_fixed.loom-test",
         "allocation_fragmentation.loom-test",
+        "allocation_identity_edges.loom-test",
         "allocation_physical_domains.loom-test",
         "allocation_preferences.loom-test",
         "allocation_reachability.loom-test",

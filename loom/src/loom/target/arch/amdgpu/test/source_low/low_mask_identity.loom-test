@@ -1,0 +1,26 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Reassembling the same mask preserves its bits without copies or dependencies.
+// RUN: emit amdgpu-assembly @mask_identity strategy=source fixed=%seed:physical_register:0:2 fixed=%current:physical_register:0:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @mask_identity(%value: reg<amdgpu.vgpr>, %seed: reg<amdgpu.sgpr x2>) asm {
+  low.br ^loop(%seed: reg<amdgpu.sgpr x2>)
+^loop(%current: reg<amdgpu.sgpr x2>):
+  %alias = low.assume %current [range(%current, 0, 1024)] : reg<amdgpu.sgpr x2>
+  %first = slice %alias[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %second = slice %current[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %same = concat(%first, %second) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %selected = v_cndmask_b32_src0_inline %value, %current {false_value = 0}
+  low.br ^loop(%same: reg<amdgpu.sgpr x2>)
+}
+
+// ----
+.Lbb1:
+  v_cndmask_b32 v1, 0, v0, s[0:1]
+  s_branch .Lbb1

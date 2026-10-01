@@ -206,6 +206,32 @@ TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
   loom_module_free(module);
 }
 
+TEST_F(LowAllocationUnitLivenessTest, ExcludesRequiredStorageComponents) {
+  loom_module_t* module = AllocateModule();
+  const loom_value_id_t values[] = {DefineValue(module), DefineValue(module),
+                                    DefineValue(module)};
+  loom_local_value_domain_t domain = {};
+  AcquireValueDomain(module, values, IREE_ARRAYSIZE(values), &domain);
+  const loom_value_ordinal_t roots[] = {1, 1, 2};
+  loom_low_placement_table_t placement = {};
+  placement.module = module;
+  placement.tied_storage_origins_by_value_ordinal = roots;
+  loom_low_allocation_unit_liveness_t unit_liveness = {};
+  unit_liveness.tied_storage_placement = &placement;
+
+  for (uint32_t ignored = 0; ignored < 2; ++ignored) {
+    for (uint32_t value = 0; value < 3; ++value) {
+      EXPECT_EQ(loom_low_allocation_unit_liveness_storage_is_ignored(
+                    &unit_liveness, values[value], &values[ignored], 1),
+                value < 2);
+    }
+  }
+  EXPECT_FALSE(loom_low_allocation_unit_liveness_storage_is_ignored(
+      &unit_liveness, values[0], nullptr, 0));
+  loom_local_value_domain_release(&domain);
+  loom_module_free(module);
+}
+
 TEST_F(LowAllocationUnitLivenessTest, InitializesUnitStartsAndBoundaryUses) {
   loom_module_t* module = AllocateModule();
   const loom_value_id_t value_ids[] = {
