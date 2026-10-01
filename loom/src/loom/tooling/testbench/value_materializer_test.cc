@@ -256,6 +256,10 @@ check.case @generated {
   %fill = check.generate.fill value(1.5) : tensor<3xf32>
   %bf16 = check.generate.fill value(0.25) : tensor<2xbf16>
   %uniform = check.generate.random.uniform seed(%seed) range(-1.0 to 1.0) : tensor<4xf32>
+  %wide_up = check.generate.iota offset(-9223372036854775808) step(9223372036854775807) period(3) : tensor<5xi64>
+  %wide_down = check.generate.iota offset(9223372036854775807) step(-9223372036854775807) period(3) : tensor<5xi64>
+  %minimum_step = check.generate.iota offset(9223372036854775807) step(-9223372036854775808) period(2) : tensor<5xi64>
+  %wide_zero = check.generate.iota offset(-9223372036854775808) step(0) : tensor<5xi64>
   check.return
 }
 )");
@@ -273,7 +277,7 @@ check.case @generated {
       &options, &case_plan, /*sample_ordinal=*/1, &table));
 
   ASSERT_EQ(case_plan.parameter_count, 2u);
-  ASSERT_EQ(case_plan.value_source_count, 10u);
+  ASSERT_EQ(case_plan.value_source_count, 14u);
   loom_testbench_value_t scalar = {};
   IREE_ASSERT_OK(loom_testbench_value_table_lookup_retain(
       &table, case_plan.value_sources[0].value_id, &scalar));
@@ -359,7 +363,58 @@ check.case @generated {
   }
   loom_testbench_value_deinitialize(&uniform);
 
+  const std::vector<int64_t> expected_iotas[] = {
+      {INT64_MIN, -1, INT64_MAX - 1, INT64_MIN, -1},
+      {INT64_MAX, 0, -INT64_MAX, INT64_MAX, 0},
+      {INT64_MAX, -1, INT64_MAX, -1, INT64_MAX},
+      {INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN},
+  };
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(expected_iotas); ++i) {
+    loom_testbench_value_t value = {};
+    iree_hal_buffer_view_t* view = LookupBufferView(
+        &table, case_plan.value_sources[10 + i].value_id, &value);
+    ExpectBufferViewContents<int64_t>(view, {5}, IREE_HAL_ELEMENT_TYPE_SINT_64,
+                                      expected_iotas[i]);
+    loom_testbench_value_deinitialize(&value);
+  }
+
   loom_testbench_value_table_deinitialize(&table);
+  loom_module_free(module);
+}
+
+TEST_F(ValueMaterializerTest, RejectsIotaOutsideElementRange) {
+  loom_module_t* module = ParseModule(R"(
+check.case @overflow_up {
+  %values = check.generate.iota offset(9223372036854775807) step(1) : tensor<2xi64>
+  check.return
+}
+check.case @overflow_down {
+  %values = check.generate.iota offset(-9223372036854775808) step(-1) : tensor<2xi64>
+  check.return
+}
+check.case @overflow_byte {
+  %values = check.generate.iota offset(-128) step(-1) : tensor<2xi8>
+  check.return
+}
+check.case @overflow_period {
+  %values = check.generate.iota offset(126) step(1) period(3) : tensor<4xi8>
+  check.return
+}
+)");
+  ASSERT_NE(module, nullptr);
+  loom_testbench_module_plan_t plan = PlanModule(module);
+  ASSERT_EQ(plan.case_count, 4u);
+  ASSERT_EQ(plan.issue_count, 0u);
+  loom_testbench_value_materializer_options_t options = MaterializerOptions();
+  for (iree_host_size_t i = 0; i < plan.case_count; ++i) {
+    loom_testbench_value_table_t table = {};
+    IREE_ASSERT_OK(loom_testbench_value_table_initialize_case(
+        module, &plan.cases[i], host_allocator_, &table));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          loom_testbench_materialize_case_sample(
+                              &options, &plan.cases[i], 0, &table));
+    loom_testbench_value_table_deinitialize(&table);
+  }
   loom_module_free(module);
 }
 

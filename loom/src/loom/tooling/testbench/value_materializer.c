@@ -917,18 +917,27 @@ static iree_host_size_t loom_testbench_iota_index(
 }
 
 static bool loom_testbench_iota_i64_value(int64_t offset, int64_t step,
-                                          iree_host_size_t period,
                                           iree_host_size_t index,
                                           int64_t* out_value) {
-  if (period != 0) {
-    index %= period;
+  // The displacement may exceed INT64_MAX while the final value still fits.
+  // Bound it against the available distance before doing unsigned arithmetic.
+  uint64_t bits = (uint64_t)offset;
+  if (step > 0) {
+    const uint64_t distance = (uint64_t)INT64_MAX - (uint64_t)offset;
+    if (index > distance / (uint64_t)step) {
+      return false;
+    }
+    bits += (uint64_t)index * (uint64_t)step;
+  } else if (step < 0) {
+    const uint64_t magnitude = UINT64_C(0) - (uint64_t)step;
+    const uint64_t distance = (uint64_t)offset - (uint64_t)INT64_MIN;
+    if (index > distance / magnitude) {
+      return false;
+    }
+    bits -= (uint64_t)index * magnitude;
   }
-  if (index > (iree_host_size_t)INT64_MAX) {
-    return false;
-  }
-  int64_t scaled_index = 0;
-  return iree_checked_mul_i64((int64_t)index, step, &scaled_index) &&
-         iree_checked_add_i64(offset, scaled_index, out_value);
+  memcpy(out_value, &bits, sizeof(bits));
+  return true;
 }
 
 #define LOOM_TESTBENCH_FILL_INT_TYPED(contents, c_type, min_value, max_value, \
@@ -947,19 +956,31 @@ static bool loom_testbench_iota_i64_value(int64_t offset, int64_t step,
     return iree_ok_status();                                                  \
   } while (0)
 
+// Values are monotonic within each period. The offset is already in range,
+// so checking the largest generated index proves the entire sequence fits.
 #define LOOM_TESTBENCH_FILL_IOTA_TYPED(contents, c_type, min_value, max_value) \
   do {                                                                         \
     c_type* values = (c_type*)(contents).data;                                 \
     iree_host_size_t count = (contents).data_length / sizeof(*values);         \
-    for (iree_host_size_t index = 0; index < count; ++index) {                 \
-      int64_t generated_value = 0;                                             \
+    if (count != 0) {                                                          \
+      iree_host_size_t last_index = count - 1;                                 \
+      if (state->iota_period != 0 && last_index >= state->iota_period) {       \
+        last_index = state->iota_period - 1;                                   \
+      }                                                                        \
+      int64_t last_value = 0;                                                  \
       if (!loom_testbench_iota_i64_value(first_value, second_value,            \
-                                         state->iota_period, index,            \
-                                         &generated_value) ||                  \
-          generated_value < (min_value) || generated_value > (max_value)) {    \
+                                         last_index, &last_value) ||           \
+          last_value < (min_value) || last_value > (max_value)) {              \
         return iree_make_status(IREE_STATUS_OUT_OF_RANGE,                      \
                                 "generated iota value is out of range");       \
       }                                                                        \
+    }                                                                          \
+    for (iree_host_size_t index = 0; index < count; ++index) {                 \
+      uint64_t bits = (uint64_t)first_value +                                  \
+                      (uint64_t)loom_testbench_iota_index(state, index) *      \
+                          (uint64_t)second_value;                              \
+      int64_t generated_value = 0;                                             \
+      memcpy(&generated_value, &bits, sizeof(bits));                           \
       values[index] = (c_type)generated_value;                                 \
     }                                                                          \
     return iree_ok_status();                                                   \
