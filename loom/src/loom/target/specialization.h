@@ -63,16 +63,6 @@ typedef struct loom_target_declaration_binding_list_t {
   iree_host_size_t count;
 } loom_target_declaration_binding_list_t;
 
-// Result of resolving a specialization request list.
-typedef struct loom_target_specialization_result_t {
-  // Concrete target-refined function versions participating in compilation.
-  loom_function_version_owner_t function_versions;
-
-  // Number of source compatibility diagnostics emitted while validating the
-  // complete request list.
-  uint32_t error_count;
-} loom_target_specialization_result_t;
-
 // Resolves target specialization requests and declaration bindings into
 // function versions.
 //
@@ -87,15 +77,23 @@ typedef struct loom_target_specialization_result_t {
 // OK with a nonzero |error_count|; malformed external requests and
 // infrastructure failures return a status.
 //
-// |arena| storage must outlive every pass and output consumer that uses the
-// returned function versions. Target profiles need only remain live for this
-// call.
+// |inout_function_versions| owns any versions retained by prior compiler
+// stages and receives the specialized versions. Re-specializing a live
+// function preserves its stable version identity and captured lowering
+// products while replacing its target facts. New target contexts receive
+// ordinals after every context observed in the existing owner. Its arena must
+// outlive every pass and output consumer that uses the versions. Target
+// profiles need only remain live for this call.
+//
+// Source incompatibilities leave |inout_function_versions| unchanged and are
+// reported through |out_error_count|.
 iree_status_t loom_target_specialize_functions(
     const loom_target_environment_t* environment, loom_module_t* module,
     loom_target_specialization_request_list_t requests,
     loom_target_declaration_binding_list_t bindings,
-    iree_diagnostic_emitter_t diagnostic_emitter, iree_arena_allocator_t* arena,
-    loom_target_specialization_result_t* out_result);
+    iree_diagnostic_emitter_t diagnostic_emitter,
+    loom_function_version_owner_t* inout_function_versions,
+    uint32_t* out_error_count);
 
 #ifdef __cplusplus
 }  // extern "C"

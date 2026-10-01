@@ -266,18 +266,17 @@ iree_status_t loom_compile_run_pipeline(
   loom_target_entry_diagnostic_emitter_t pass_emitter = {0};
   loom_target_entry_diagnostic_emitter_initialize(
       module, &entry_options, LOOM_EMITTER_PASS, &pass_emitter);
-  loom_target_specialization_result_t specialization_result = {0};
+  uint32_t specialization_error_count = 0;
   iree_status_t status = iree_ok_status();
   if (options->target_specializations.count != 0) {
     status = loom_target_specialize_functions(
         options->target_environment, module, options->target_specializations,
         /*bindings=*/(loom_target_declaration_binding_list_t){0},
-        loom_target_entry_emitter(&pass_emitter), &out_result->version_arena,
-        &specialization_result);
-    out_result->function_versions = specialization_result.function_versions;
+        loom_target_entry_emitter(&pass_emitter),
+        &out_result->function_versions, &specialization_error_count);
   }
-  if (iree_status_is_ok(status) && specialization_result.error_count != 0) {
-    out_result->pass.error_count = specialization_result.error_count;
+  if (iree_status_is_ok(status) && specialization_error_count != 0) {
+    out_result->pass.error_count = specialization_error_count;
   }
   if (!iree_status_is_ok(status) || out_result->pass.error_count != 0 ||
       loom_compile_pipeline_is_disabled(pipeline)) {

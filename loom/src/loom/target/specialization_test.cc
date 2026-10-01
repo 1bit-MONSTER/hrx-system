@@ -27,6 +27,15 @@ namespace {
 
 using ModulePtr = ::loom::testing::ModulePtr;
 
+struct SpecializationResult {
+  explicit SpecializationResult(iree_arena_allocator_t* arena) {
+    loom_function_version_owner_initialize(arena, &function_versions);
+  }
+
+  loom_function_version_owner_t function_versions;
+  uint32_t error_count = 0;
+};
+
 typedef struct TestTargetProfile {
   // Generic target profile base.
   loom_target_profile_t base;
@@ -180,7 +189,7 @@ class TargetSpecializationTest : public ::testing::Test {
     return loom_test_target_kind(target_op);
   }
 
-  loom_target_specialization_result_t Specialize(
+  SpecializationResult Specialize(
       loom_module_t* module,
       const loom_target_specialization_request_t* requests,
       iree_host_size_t request_count,
@@ -193,18 +202,18 @@ class TargetSpecializationTest : public ::testing::Test {
                             /*bindings=*/{}, diagnostic_collector);
   }
 
-  loom_target_specialization_result_t SpecializeInputs(
+  SpecializationResult SpecializeInputs(
       loom_module_t* module, loom_target_specialization_request_list_t requests,
       loom_target_declaration_binding_list_t bindings,
       DiagnosticCollector* diagnostic_collector = nullptr) {
-    loom_target_specialization_result_t result = {};
+    SpecializationResult result(&arena_);
     IREE_CHECK_OK(loom_target_specialize_functions(
         &environment_, module, requests, bindings,
         {
             /*.fn=*/diagnostic_collector ? CollectDiagnostic : nullptr,
             /*.user_data=*/diagnostic_collector,
         },
-        &arena_, &result));
+        &result.function_versions, &result.error_count));
     return result;
   }
 
@@ -254,7 +263,7 @@ func.def public target(@unrequested_family) @unrequested() {
       loom_func_like_target(unrequested);
   const iree_host_size_t symbol_count = module->symbols.count;
 
-  const loom_target_specialization_result_t result =
+  const SpecializationResult result =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(result.error_count, 0u);
   ASSERT_EQ(result.function_versions.list.count, 2u);
@@ -302,6 +311,139 @@ func.def public target(@unrequested_family) @unrequested() {
             nullptr);
 }
 
+TEST_F(TargetSpecializationTest,
+       ContinuesOwnerWithoutReplacingCapturedCompilerProducts) {
+  ModulePtr module = Parse(R"(
+test.target<low_core> @required
+
+func.def public @first() {
+  func.return
+}
+
+func.def public @second() {
+  func.return
+}
+
+func.def public target(@required) @constrained() {
+  func.return
+}
+)");
+  const TestTargetProfile initial_profile =
+      MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
+  const loom_target_specialization_request_t initial_request = {
+      /*.function_name=*/IREE_SV("first"),
+      /*.target_profile=*/&initial_profile.base,
+  };
+  SpecializationResult result(&arena_);
+  IREE_ASSERT_OK(loom_target_specialize_functions(
+      &environment_, module.get(),
+      {
+          /*.values=*/&initial_request,
+          /*.count=*/1,
+      },
+      /*.bindings=*/{}, /*.diagnostic_emitter=*/{}, &result.function_versions,
+      &result.error_count));
+  ASSERT_EQ(result.error_count, 0u);
+  ASSERT_EQ(result.function_versions.list.count, 1u);
+
+  loom_target_function_version_t* first_version =
+      loom_target_function_version_list_find(
+          &result.function_versions.list,
+          Function(module.get(), IREE_SV("first")));
+  ASSERT_NE(first_version, nullptr);
+  loom_function_version_t* const first_handle = &first_version->base;
+  const loom_target_context_ordinal_t initial_context_ordinal =
+      first_version->target_context_ordinal;
+  loom_source_loop_pipeline_t captured_pipeline = {};
+  first_version->loop_pipelines = {&captured_pipeline, &captured_pipeline};
+  auto* const captured_memory_accesses =
+      reinterpret_cast<loom_low_memory_access_map_t*>(&captured_pipeline);
+  first_version->memory_accesses = captured_memory_accesses;
+
+  const TestTargetProfile refined_profile =
+      MakeTestProfile(LOOM_TEST_TARGET_KIND_QUIRKY);
+  const TestTargetProfile added_profile =
+      MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
+  const loom_target_specialization_request_t continued_requests[] = {
+      {
+          /*.function_name=*/IREE_SV("first"),
+          /*.target_profile=*/&refined_profile.base,
+      },
+      {
+          /*.function_name=*/IREE_SV("second"),
+          /*.target_profile=*/&added_profile.base,
+      },
+  };
+  IREE_ASSERT_OK(loom_target_specialize_functions(
+      &environment_, module.get(),
+      {
+          /*.values=*/continued_requests,
+          /*.count=*/IREE_ARRAYSIZE(continued_requests),
+      },
+      /*.bindings=*/{}, /*.diagnostic_emitter=*/{}, &result.function_versions,
+      &result.error_count));
+  ASSERT_EQ(result.error_count, 0u);
+  ASSERT_EQ(result.function_versions.list.count, 2u);
+
+  first_version = loom_target_function_version_list_find(
+      &result.function_versions.list, Function(module.get(), IREE_SV("first")));
+  loom_target_function_version_t* second_version =
+      loom_target_function_version_list_find(
+          &result.function_versions.list,
+          Function(module.get(), IREE_SV("second")));
+  ASSERT_NE(first_version, nullptr);
+  ASSERT_NE(second_version, nullptr);
+  EXPECT_EQ(&first_version->base, first_handle);
+  EXPECT_EQ(first_version->loop_pipelines.head, &captured_pipeline);
+  EXPECT_EQ(first_version->loop_pipelines.tail, &captured_pipeline);
+  EXPECT_EQ(first_version->memory_accesses, captured_memory_accesses);
+  EXPECT_EQ(first_version->resolved_target.facts->selector,
+            LOOM_TEST_TARGET_KIND_QUIRKY);
+  EXPECT_GT(first_version->target_context_ordinal, initial_context_ordinal);
+  EXPECT_GT(second_version->target_context_ordinal, initial_context_ordinal);
+  EXPECT_NE(first_version->target_context_ordinal,
+            second_version->target_context_ordinal);
+
+  loom_function_version_t* const* const version_storage =
+      result.function_versions.list.values;
+  const loom_target_facts_t* const refined_facts =
+      first_version->resolved_target.facts;
+  const loom_target_context_ordinal_t refined_context_ordinal =
+      first_version->target_context_ordinal;
+  const loom_target_specialization_request_t incompatible_request = {
+      /*.function_name=*/IREE_SV("constrained"),
+      /*.target_profile=*/&refined_profile.base,
+  };
+  DiagnosticCollector diagnostic_collector;
+  IREE_ASSERT_OK(loom_target_specialize_functions(
+      &environment_, module.get(),
+      {
+          /*.values=*/&incompatible_request,
+          /*.count=*/1,
+      },
+      /*.bindings=*/{},
+      {
+          /*.fn=*/CollectDiagnostic,
+          /*.user_data=*/&diagnostic_collector,
+      },
+      &result.function_versions, &result.error_count));
+  EXPECT_EQ(result.error_count, 1u);
+  ASSERT_EQ(result.function_versions.list.count, 2u);
+  EXPECT_EQ(result.function_versions.list.values, version_storage);
+  first_version = loom_target_function_version_list_find(
+      &result.function_versions.list, Function(module.get(), IREE_SV("first")));
+  ASSERT_NE(first_version, nullptr);
+  EXPECT_EQ(&first_version->base, first_handle);
+  EXPECT_EQ(first_version->resolved_target.facts, refined_facts);
+  EXPECT_EQ(first_version->target_context_ordinal, refined_context_ordinal);
+  EXPECT_EQ(first_version->loop_pipelines.head, &captured_pipeline);
+  EXPECT_EQ(first_version->memory_accesses, captured_memory_accesses);
+  EXPECT_EQ(loom_target_function_version_list_find(
+                &result.function_versions.list,
+                Function(module.get(), IREE_SV("constrained"))),
+            nullptr);
+}
+
 TEST_F(TargetSpecializationTest, UnionsProfileAndRequirementExplicitFields) {
   // Every explicit value equals its selected row default. Presence must
   // survive refinement independently of value equality, including zero.
@@ -325,8 +467,7 @@ func.def public target(@requirement) @entry() {
       /*.target_profile=*/&exact_profile.base,
   };
 
-  const loom_target_specialization_result_t result =
-      Specialize(module.get(), &request, 1);
+  const SpecializationResult result = Specialize(module.get(), &request, 1);
   ASSERT_EQ(result.error_count, 0u);
   const loom_target_function_version_t* version =
       loom_target_function_version_list_find(
@@ -389,7 +530,7 @@ func.def public @right() {
   const loom_func_like_t left = Function(module.get(), IREE_SV("left"));
   const loom_func_like_t right = Function(module.get(), IREE_SV("right"));
 
-  const loom_target_specialization_result_t result =
+  const SpecializationResult result =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(result.error_count, 0u);
   ASSERT_EQ(result.function_versions.list.count, 3u);
@@ -447,8 +588,7 @@ func.def public target(@exact) @entry() {
       /*.target_profile=*/&exact_profile.base,
   };
 
-  const loom_target_specialization_result_t result =
-      Specialize(module.get(), &request, 1);
+  const SpecializationResult result = Specialize(module.get(), &request, 1);
   ASSERT_EQ(result.error_count, 0u);
   ASSERT_EQ(result.function_versions.list.count, 1u);
   const loom_symbol_ref_t effective_ref =
@@ -498,7 +638,7 @@ func.def public @separate() {
       },
   };
 
-  const loom_target_specialization_result_t result =
+  const SpecializationResult result =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(result.error_count, 0u);
   const loom_target_function_version_t* shared_left =
@@ -566,7 +706,7 @@ func.def public target(@right_requirement) export("right_function") @right() {
   const loom_symbol_ref_t right_target = loom_func_like_target(right);
   const iree_host_size_t symbol_count = module->symbols.count;
 
-  const loom_target_specialization_result_t result =
+  const SpecializationResult result =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
   ASSERT_EQ(result.error_count, 0u);
   ASSERT_EQ(result.function_versions.list.count, 2u);
@@ -636,7 +776,7 @@ func.def public @otherwise_compatible() {
       loom_func_like_target(Function(module.get(), IREE_SV("conflict")));
   DiagnosticCollector diagnostic_collector;
 
-  const loom_target_specialization_result_t result = Specialize(
+  const SpecializationResult result = Specialize(
       module.get(), requests, IREE_ARRAYSIZE(requests), &diagnostic_collector);
   ASSERT_EQ(result.error_count, 1u);
   EXPECT_EQ(result.function_versions.list.count, 0u);
@@ -670,7 +810,7 @@ func.def public @entry() {
       /*.function_name=*/IREE_SV("entry"),
       /*.target_profile=*/&profile.base,
   };
-  loom_target_specialization_result_t result = {};
+  SpecializationResult result(&arena_);
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_target_specialize_functions(
@@ -680,7 +820,8 @@ func.def public @entry() {
                                 /*.count=*/1,
                             },
                             /*.bindings=*/{},
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
   EXPECT_EQ(result.function_versions.list.count, 0u);
 }
 
@@ -703,8 +844,7 @@ func.def public target(@external) @entry() {
   const loom_symbol_ref_t authored_target_ref = loom_func_like_target(entry);
   const iree_host_size_t symbol_count = module->symbols.count;
 
-  const loom_target_specialization_result_t result =
-      Specialize(module.get(), &request, 1);
+  const SpecializationResult result = Specialize(module.get(), &request, 1);
   ASSERT_EQ(result.error_count, 0u);
   ASSERT_EQ(result.function_versions.list.count, 1u);
   EXPECT_EQ(module->symbols.count, symbol_count);
@@ -769,7 +909,7 @@ func.def public @host() {
       },
   };
 
-  const loom_target_specialization_result_t result =
+  const SpecializationResult result =
       SpecializeInputs(module.get(), /*requests=*/{},
                        {
                            /*.values=*/bindings,
@@ -826,7 +966,7 @@ func.def public target(@device) @entry() {
 )");
   const TestTargetProfile exact_profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
-  loom_target_specialization_result_t result = {};
+  SpecializationResult result(&arena_);
 
   const loom_target_declaration_binding_t missing_binding = {
       /*.target_name=*/IREE_SV("missing"),
@@ -839,7 +979,8 @@ func.def public target(@device) @entry() {
                                 /*.values=*/&missing_binding,
                                 /*.count=*/1,
                             },
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
 
   const loom_target_declaration_binding_t concrete_binding = {
       /*.target_name=*/IREE_SV("concrete"),
@@ -852,7 +993,8 @@ func.def public target(@device) @entry() {
                                 /*.values=*/&concrete_binding,
                                 /*.count=*/1,
                             },
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
 
   const loom_target_declaration_binding_t duplicate_bindings[] = {
       {
@@ -871,7 +1013,8 @@ func.def public target(@device) @entry() {
                                 /*.values=*/duplicate_bindings,
                                 /*.count=*/IREE_ARRAYSIZE(duplicate_bindings),
                             },
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
 
   const loom_target_specialization_request_t request = {
       /*.function_name=*/IREE_SV("entry"),
@@ -892,7 +1035,8 @@ func.def public target(@device) @entry() {
                                 /*.values=*/&binding,
                                 /*.count=*/1,
                             },
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
 }
 
 TEST_F(TargetSpecializationTest, RejectsMissingAndDuplicateFunctions) {
@@ -907,7 +1051,7 @@ func.def public @entry() {
       /*.function_name=*/IREE_SV("missing"),
       /*.target_profile=*/&exact_profile.base,
   };
-  loom_target_specialization_result_t result = {};
+  SpecializationResult result(&arena_);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND,
                         loom_target_specialize_functions(
                             &environment_, module.get(),
@@ -916,7 +1060,8 @@ func.def public @entry() {
                                 /*.count=*/1,
                             },
                             /*.bindings=*/{},
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
 
   const loom_target_specialization_request_t duplicate_requests[] = {
       {
@@ -936,7 +1081,8 @@ func.def public @entry() {
                                 /*.count=*/IREE_ARRAYSIZE(duplicate_requests),
                             },
                             /*.bindings=*/{},
-                            /*diagnostic_emitter=*/{}, &arena_, &result));
+                            /*diagnostic_emitter=*/{},
+                            &result.function_versions, &result.error_count));
 }
 
 }  // namespace
