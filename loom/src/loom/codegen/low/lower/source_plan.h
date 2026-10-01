@@ -33,6 +33,13 @@ enum loom_low_lower_value_storage_flag_bits_e {
   // One selected memory plan can reuse this source realization. A second plan
   // requires storage so shared authored arithmetic is not rebuilt per access.
   LOOM_LOW_LOWER_VALUE_STORAGE_MEMORY_REALIZATION_SEEN = (uint8_t)1u << 1,
+  // A selected rule addresses this source value through a retained fact.
+  // Source-DAG rules must preserve a Low mapping for the value even though the
+  // fact reference is not an ordinary SSA use visible while matching the DAG.
+  LOOM_LOW_LOWER_VALUE_STORAGE_FACT_REFERENCE = (uint8_t)1u << 2,
+  // Storage was required before backward selected-plan demand analysis.
+  // Refinement retains these structural and function-boundary requirements.
+  LOOM_LOW_LOWER_VALUE_STORAGE_BASELINE_REQUIRED = (uint8_t)1u << 3,
 };
 typedef uint8_t loom_low_lower_value_storage_flags_t;
 
@@ -122,6 +129,12 @@ typedef struct loom_low_lower_source_plan_t {
   loom_low_lower_realizations_t* realizations;
   // Per-source-value storage demand flags indexed by source value ordinal.
   loom_low_lower_value_storage_flags_t* value_storage_flags;
+  // Number of values addressed through selected fact-derived references.
+  // Zero keeps ordinary rule selection and demand analysis on the direct path.
+  loom_value_ordinal_t fact_storage_demand_count;
+  // True only while backward selected-plan storage demands are being marked.
+  // Requirements established before this phase survive plan refinement.
+  bool is_analyzing_storage_demands;
   // Canonical accesses joined across observation and selection without an op
   // lookup table or a second address-analysis walk.
   struct {
