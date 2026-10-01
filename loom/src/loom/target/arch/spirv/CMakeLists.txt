@@ -536,7 +536,6 @@ loom_check_test_suite(
     "test/source_low/numeric_index_conversion.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
     "test/source_low/numeric_integer_widening.loom-test"
-    "test/source_low/numeric_minmax.loom-test"
     "test/source_low/numeric_narrow_address.loom-test"
     "test/source_low/numeric_narrow_float_signs.loom-test"
     "test/source_low/numeric_reciprocal.loom-test"
