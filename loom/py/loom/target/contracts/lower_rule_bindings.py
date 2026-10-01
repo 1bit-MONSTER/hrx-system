@@ -238,6 +238,7 @@ def _lower_value_ref(
                 SourceValueKind.OPERAND,
                 SourceValueKind.RESULT,
                 SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+                SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
             )
             else 0
         ),
@@ -253,6 +254,7 @@ def _source_value_index(
     if value_ref.kind in (
         SourceValueKind.OPERAND,
         SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+        SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
     ):
         operand = source_op.operand(value_ref.field)
         if operand is not None:

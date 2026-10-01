@@ -75,6 +75,22 @@ class ValueRef:
         )
 
     @classmethod
+    def exact_uniform_element_origin_operand(
+        cls,
+        field: str,
+        *,
+        source_node: str = "",
+        element: int = 0,
+    ) -> Self:
+        """References the exact scalar origin shared by every operand element."""
+        return cls(
+            kind=SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
+            field=field,
+            source_node=source_node,
+            element=element,
+        )
+
+    @classmethod
     def temporary(cls, field: str) -> Self:
         return cls(kind=SourceValueKind.TEMPORARY, field=field)
 
@@ -128,6 +144,7 @@ class ValueRef:
             SourceValueKind.OPERAND,
             SourceValueKind.RESULT,
             SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
         ):
             raise ValueError(
                 f"{source_op.name}: {subject} source node requires an operand or result"
@@ -144,6 +161,7 @@ class ValueRef:
         if self.kind in (
             SourceValueKind.OPERAND,
             SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            SourceValueKind.EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND,
         ):
             if not self.field:
                 raise ValueError(f"{source_op.name}: {subject} field must be non-empty")

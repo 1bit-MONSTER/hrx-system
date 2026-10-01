@@ -143,6 +143,10 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
       IREE_ASSERT_UNREACHABLE(
           "exact lane origin value ref needs a populated fact table");
       IREE_BUILTIN_UNREACHABLE();
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND:
+      IREE_ASSERT_UNREACHABLE(
+          "exact uniform origin value ref needs a populated fact table");
+      IREE_BUILTIN_UNREACHABLE();
     default:
       IREE_ASSERT_UNREACHABLE("unknown generated value ref kind");
       IREE_BUILTIN_UNREACHABLE();
@@ -192,6 +196,18 @@ bool loom_low_lower_rule_resolve_source_value_from_nodes(
       *out_source_value_id = origin.source_value_id;
       return true;
     }
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND: {
+      const loom_op_t* referenced_op =
+          loom_low_lower_rule_source_op(rule_set, source_op, source_nodes,
+                                        source_node_count, value_ref_index);
+      const loom_op_vtable_t* vtable = loom_op_vtable(module, referenced_op);
+      const loom_value_slice_t field =
+          loom_op_operand_field_span(vtable, referenced_op, value_ref->index);
+      IREE_ASSERT_LT(value_ref->element_index, field.count);
+      return loom_value_fact_table_query_exact_uniform_element_origin(
+          fact_table, module, field.values[value_ref->element_index],
+          out_source_value_id);
+    }
     case LOOM_LOW_LOWER_VALUE_REF_TEMPORARY:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_TERM:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
@@ -234,6 +250,7 @@ loom_value_slice_t loom_low_lower_rule_value_ref_field_span_from_nodes(
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
     case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND:
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND:
       return (loom_value_slice_t){0};
     default:
       IREE_ASSERT_UNREACHABLE("unknown generated value ref kind");

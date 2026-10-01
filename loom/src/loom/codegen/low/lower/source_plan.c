@@ -355,7 +355,9 @@ static void loom_low_lower_mark_rule_value_ref_storage_demand(
   }
   const loom_low_lower_value_ref_t* value_ref =
       &selected_plan->rule_set->value_refs[value_ref_index];
-  if (value_ref->kind == LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND) {
+  if (value_ref->kind == LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND ||
+      value_ref->kind ==
+          LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND) {
     const loom_value_ordinal_t source_ordinal =
         loom_low_lowering_frame_value_ordinal(&context->lowering,
                                               source_value_id);

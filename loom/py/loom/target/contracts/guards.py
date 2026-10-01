@@ -190,6 +190,28 @@ class Guard:
         )
 
     @classmethod
+    def exact_uniform_element_origin_type(
+        cls,
+        field: str,
+        type_pattern: TypePattern,
+        *,
+        element: int = 0,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        """Requires an operand's exact uniform scalar origin to have a type."""
+        return cls(
+            kind=GuardKind.VALUE_TYPE,
+            field=field,
+            element=element,
+            type_pattern=type_pattern,
+            value_ref=ValueRef.exact_uniform_element_origin_operand(
+                field,
+                element=element,
+            ),
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def enum_attr_equals(
         cls,
         field: str,

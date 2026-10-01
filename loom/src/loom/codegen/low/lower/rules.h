@@ -116,6 +116,10 @@ enum loom_low_lower_value_ref_kind_e {
   // |element_index|. Selection proves the origin is available and identity
   // mapped before emission consumes it.
   LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND = 9,
+  // Exact scalar origin shared by every element of source operand field
+  // |index|, element |element_index|. Selection proves the indexed uniform
+  // origin is available before emission consumes it.
+  LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND = 10,
   // Maximum value-ref kind plus one.
   LOOM_LOW_LOWER_VALUE_REF_COUNT_,
 };
