@@ -365,6 +365,12 @@ loom_test(
 )
 
 loom_test(
+    name = "integer_division_test",
+    srcs = ["//loom/src/loom/test/corpus/numeric:integer/division.loom"],
+    execution_profiles = [WASM_HOSTED_PROFILE],
+)
+
+loom_test(
     name = "narrow_widening_test",
     srcs = ["//loom/src/loom/test/corpus/numeric:conversion/narrow_widening.loom"],
     execution_profiles = [WASM_HOSTED_PROFILE],

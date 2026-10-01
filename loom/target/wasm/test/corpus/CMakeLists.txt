@@ -1065,6 +1065,15 @@ loom_test_module(
 
 loom_test_module(
   NAME
+    integer_division_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/division.loom"
+)
+
+# integer_division_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
     narrow_widening_test_module
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/conversion/narrow_widening.loom"
