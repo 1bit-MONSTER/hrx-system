@@ -6,10 +6,136 @@
 
 """Tests for AMD XDNA AIE2P native floating-point contracts."""
 
+import struct
+
 from loom.dialect.scalar import arithmetic as scalar
 from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.floating import AIE2P_FLOATING_RULES
-from loom.target.contracts import DescriptorResultType, Guard, Scalar, ValueRef, Vector
+from loom.target.contracts import (
+    DescriptorResultType,
+    EmitDescriptorOp,
+    EmitRegisterSlice,
+    Guard,
+    Scalar,
+    ValueRef,
+    Vector,
+)
+
+
+def _bf16_origin_scale_rule():
+    return next(
+        rule
+        for rule in AIE2P_FLOATING_RULES
+        if rule.source_op is vector.vector_mulf
+        and rule.report_key == "exact_bf16_origin_scale_1_4453125"
+    )
+
+
+def _f32_bits(value: float) -> int:
+    try:
+        return struct.unpack("<I", struct.pack("<f", value))[0]
+    except OverflowError:
+        return (0x80000000 if value < 0 else 0) | 0x7F800000
+
+
+def _bf16_value(bits: int) -> float:
+    return struct.unpack("<f", struct.pack("<I", bits << 16))[0]
+
+
+def test_bf16_origin_scale_uses_native_multiply_with_packed_underflow_repair() -> None:
+    rule = _bf16_origin_scale_rule()
+    assert rule.guards == (
+        Guard.value_type("lhs", Vector("f32", lanes=16)),
+        Guard.exact_lane_origin_type("lhs", Vector("bf16", lanes=16)),
+        Guard.value_type("rhs", Vector("f32", lanes=16)),
+        Guard.value_type("result", Vector("f32", lanes=16)),
+        Guard.value_float_equals("rhs", 1.4453125),
+        Guard.instance_flags_has_all("fastmath", "nnan"),
+    )
+    assert [
+        emit.descriptor.key if isinstance(emit, EmitDescriptorOp) else "slice"
+        for emit in rule.emit
+    ] == [
+        "amd.xdna.aie2p.constant.i32",
+        "amd.xdna.aie2p.splat.i16x32",
+        "amd.xdna.aie2p.constant.i32.mova",
+        "amd.xdna.aie2p.multiply.bf16x32.configured",
+        "slice",
+        "amd.xdna.aie2p.move.accumulator512.to.vector512",
+        "amd.xdna.aie2p.constant.i32",
+        "amd.xdna.aie2p.splat.i16x32",
+        "amd.xdna.aie2p.and.bits512",
+        "amd.xdna.aie2p.constant.i32",
+        "amd.xdna.aie2p.splat.i16x32",
+        "amd.xdna.aie2p.constant.i32.mova",
+        "amd.xdna.aie2p.multiply.i16x32.configured",
+        "amd.xdna.aie2p.constant.i32.shift",
+        "amd.xdna.aie2p.constant.i32.shift",
+        "amd.xdna.aie2p.state.rounding.immediate",
+        "amd.xdna.aie2p.state.srs-mode.immediate",
+        "amd.xdna.aie2p.state.saturation.immediate",
+        "amd.xdna.aie2p.narrow.trunc.signed.i16x32",
+        "amd.xdna.aie2p.narrow.trunc.signed.i16x32",
+        "amd.xdna.aie2p.add.i16x32",
+        "amd.xdna.aie2p.constant.i32",
+        "amd.xdna.aie2p.splat.i16x32",
+        "amd.xdna.aie2p.and.bits512",
+        "amd.xdna.aie2p.or.bits512",
+        "amd.xdna.aie2p.constant.i32.mova",
+        "amd.xdna.aie2p.shuffle.x.configured",
+        "amd.xdna.aie2p.constant.i32.short",
+        "amd.xdna.aie2p.splat.i16x32",
+        "amd.xdna.aie2p.cmp.lt.unsigned.i16x32.el.low32",
+        "amd.xdna.aie2p.select.i32x16.mask64",
+    ]
+    assert rule.emit[0].immediates == {"i": 0x3FB9}
+    assert rule.emit[2].immediates == {"i": 60}
+    multiply = rule.emit[3]
+    assert isinstance(multiply, EmitDescriptorOp)
+    assert multiply.operands["s1"] == ValueRef.exact_lane_origin_operand("lhs")
+    assert isinstance(rule.emit[4], EmitRegisterSlice)
+    assert rule.emit[9].immediates == {"i": 185 << 8}
+    assert rule.emit[11].immediates == {"i": 90}
+    assert rule.emit[13].immediates == {"i": 0}
+    assert rule.emit[14].immediates == {"i": 15}
+    assert rule.emit[15].immediates == {"i": 0}
+    assert rule.emit[16].immediates == {"i": 1}
+    assert rule.emit[17].immediates == {"i": 0}
+    assert rule.emit[25].immediates == {"i": 18}
+    assert rule.emit[27].immediates == {"i": 89}
+
+
+def test_bf16_origin_scale_repair_matches_every_non_nan_encoding() -> None:
+    rule = _bf16_origin_scale_rule()
+    scale_bits = rule.emit[0].immediates["i"]
+    repair_factor = rule.emit[9].immediates["i"]
+    repair_limit = rule.emit[27].immediates["i"]
+    scale = _bf16_value(scale_bits)
+    assert scale == 1.4453125
+
+    checked_count = 0
+    for value_bits in range(1 << 16):
+        exponent = value_bits & 0x7F80
+        fraction = value_bits & 0x007F
+        if exponent == 0x7F80 and fraction:
+            continue
+
+        expected = _f32_bits(_bf16_value(value_bits) * scale)
+        expected_magnitude = expected & 0x7FFFFFFF
+        direct = expected
+        if 0 < expected_magnitude < 0x00800000:
+            direct = expected & 0x80000000
+
+        magnitude = value_bits & 0x7FFF
+        wide_repair = magnitude * repair_factor
+        low_half = ((wide_repair & 0xFFFF) * 2) & 0xFFFF
+        high_half = ((wide_repair >> 15) | (value_bits & 0x8000)) & 0xFFFF
+        repair = (high_half << 16) | low_half
+        actual = repair if magnitude < repair_limit else direct
+        assert actual == expected, f"BF16 input 0x{value_bits:04x}"
+        checked_count += 1
+
+    assert checked_count == 65282
 
 
 def test_bf16_vector_maximum_requires_nan_and_zero_permissions() -> None:

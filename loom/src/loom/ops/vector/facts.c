@@ -3071,6 +3071,37 @@ static iree_status_t loom_vector_try_define_same_lane_origin(
                                                          source_origin);
 }
 
+static iree_status_t loom_vector_try_define_exact_same_lane_origin(
+    loom_fact_context_t* context, const loom_module_t* module,
+    loom_value_id_t result, loom_value_id_t source) {
+  if (context == NULL || context->table == NULL || module == NULL) {
+    return iree_ok_status();
+  }
+  loom_type_t source_type = loom_module_value_type(module, source);
+  loom_type_t result_type = loom_module_value_type(module, result);
+  iree_host_size_t source_lane_count = 0;
+  iree_host_size_t result_lane_count = 0;
+  if (!loom_type_is_vector(source_type) || !loom_type_is_vector(result_type) ||
+      !loom_vector_type_static_lane_count(source_type, &source_lane_count) ||
+      !loom_vector_type_static_lane_count(result_type, &result_lane_count) ||
+      source_lane_count != result_lane_count) {
+    return iree_ok_status();
+  }
+
+  loom_value_fact_exact_lane_origin_t source_origin = {
+      .source_value_id = source,
+      .source_lane_offset = 0,
+      .source_lane_stride = 1,
+  };
+  loom_value_fact_exact_lane_origin_t existing_origin = {0};
+  if (loom_value_fact_table_query_exact_lane_origin(context->table, module,
+                                                    source, &existing_origin)) {
+    source_origin = existing_origin;
+  }
+  return loom_value_fact_table_define_exact_lane_origin(context->table, result,
+                                                        source_origin);
+}
+
 static iree_status_t loom_vector_try_define_select_same_lane_origin(
     loom_fact_context_t* context, const loom_module_t* module,
     loom_value_facts_t condition_facts, loom_value_id_t result,
@@ -3376,8 +3407,12 @@ iree_status_t loom_vector_extf_facts(loom_fact_context_t* context,
         loom_vector_unary_summary_facts(context, operand_facts, result_facts,
                                         loom_vector_passthrough_transfer));
   }
-  return loom_vector_try_define_same_lane_origin(
-      context, module, loom_vector_extf_result(op), loom_vector_extf_input(op));
+  const loom_value_id_t result = loom_vector_extf_result(op);
+  const loom_value_id_t input = loom_vector_extf_input(op);
+  IREE_RETURN_IF_ERROR(
+      loom_vector_try_define_same_lane_origin(context, module, result, input));
+  return loom_vector_try_define_exact_same_lane_origin(context, module, result,
+                                                       input);
 }
 
 static void loom_vector_float_truncate_transfer(loom_scalar_type_t result_type,

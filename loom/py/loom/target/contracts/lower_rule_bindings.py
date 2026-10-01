@@ -233,7 +233,12 @@ def _lower_value_ref(
         source_node_index=source_node_index,
         element_index=(
             value_ref.element
-            if value_ref.kind in (SourceValueKind.OPERAND, SourceValueKind.RESULT)
+            if value_ref.kind
+            in (
+                SourceValueKind.OPERAND,
+                SourceValueKind.RESULT,
+                SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            )
             else 0
         ),
         materializer_index=materializer_index,
@@ -245,7 +250,10 @@ def _source_value_index(
     value_ref: ValueRef,
     temporary_ordinals: Mapping[str, int],
 ) -> int:
-    if value_ref.kind == SourceValueKind.OPERAND:
+    if value_ref.kind in (
+        SourceValueKind.OPERAND,
+        SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+    ):
         operand = source_op.operand(value_ref.field)
         if operand is not None:
             return source_op.operands.index(operand)

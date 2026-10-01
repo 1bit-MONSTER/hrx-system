@@ -34,3 +34,4 @@ class SourceValueKind(Enum):
     SOURCE_MEMORY_BYTE_OFFSET = "source_memory_byte_offset"
     SOURCE_MEMORY_ADDRESS = "source_memory_address"
     SOURCE_MEMORY_ROOT = "source_memory_root"
+    EXACT_LANE_ORIGIN_OPERAND = "exact_lane_origin_operand"

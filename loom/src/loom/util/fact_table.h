@@ -52,6 +52,8 @@ extern "C" {
 typedef struct loom_value_fact_region_entry_t loom_value_fact_region_entry_t;
 typedef struct loom_value_fact_condition_scratch_t
     loom_value_fact_condition_scratch_t;
+typedef struct loom_value_fact_exact_lane_origin_entry_t
+    loom_value_fact_exact_lane_origin_entry_t;
 typedef struct loom_condition_edge_projection_t
     loom_condition_edge_projection_t;
 typedef struct loom_cfg_graph_t loom_cfg_graph_t;
@@ -69,6 +71,20 @@ typedef struct loom_value_fact_static_lane_origin_t {
   // Logical source lane stride between adjacent result lanes.
   uint32_t source_lane_stride;
 } loom_value_fact_static_lane_origin_t;
+
+// Static strided logical-lane origin preserving each lane's floating-point
+// value exactly. Result lane N has the same value as source lane
+// source_lane_offset + N * source_lane_stride after conversion to the result
+// element type. The relation preserves signed zero and infinity; it does not
+// promise NaN payload identity.
+typedef struct loom_value_fact_exact_lane_origin_t {
+  // Aggregate source value containing the exact lane values.
+  loom_value_id_t source_value_id;
+  // First logical source lane used by result lane zero.
+  uint32_t source_lane_offset;
+  // Logical source lane stride between adjacent result lanes.
+  uint32_t source_lane_stride;
+} loom_value_fact_exact_lane_origin_t;
 
 // Uniform scalar scale applied lanewise to one aggregate value. Result lane N
 // is source lane N multiplied by scale_value_id.
@@ -237,6 +253,20 @@ struct loom_value_fact_table_t {
     // Allocated touched_values entry count.
     iree_host_size_t touched_capacity;
   } static_lane_origins;
+
+  // Exact logical-lane value origins keyed by aggregate value ID. This is
+  // separate from static_lane_origins because provenance may cross a lossy
+  // conversion while the nearest exact numeric origin stops at that
+  // conversion. Sparse storage makes the cost proportional to known exact
+  // origins instead of the highest module-wide value ID.
+  struct {
+    // Sparse entries sorted by aggregate value ID.
+    loom_value_fact_exact_lane_origin_entry_t* entries;
+    // Number of defined entries in the current populated scope.
+    iree_host_size_t count;
+    // Allocated sparse entry count retained across populated scopes.
+    iree_host_size_t capacity;
+  } exact_lane_origins;
 
   // Uniform scalar-scale origins keyed by aggregate value ID. An entry with
   // source_value_id == LOOM_VALUE_ID_INVALID has no known scaled origin.
@@ -496,6 +526,21 @@ iree_status_t loom_value_fact_table_define_static_lane_origin(
 bool loom_value_fact_table_query_static_lane_origin(
     const loom_value_fact_table_t* table, const loom_module_t* module,
     loom_value_id_t value_id, loom_value_fact_static_lane_origin_t* out_origin);
+
+// Defines an exact strided source-lane value origin for aggregate |value_id|.
+// The relation is validated by the query API against the current module value
+// types and static lane counts.
+iree_status_t loom_value_fact_table_define_exact_lane_origin(
+    loom_value_fact_table_t* table, loom_value_id_t value_id,
+    loom_value_fact_exact_lane_origin_t origin);
+
+// Returns true when |value_id| has a known exact source-lane value origin. The
+// query validates that both values are vectors with static lane counts and an
+// in-bounds strided source lane mapping. Element types may differ because an
+// exact floating-point extension preserves the represented value.
+bool loom_value_fact_table_query_exact_lane_origin(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    loom_value_id_t value_id, loom_value_fact_exact_lane_origin_t* out_origin);
 
 // Defines a value as the lanewise multiplication of |origin.source_value_id|
 // and scalar |origin.scale_value_id|. The relation is a materialization proof

@@ -67,6 +67,25 @@ _BF16_ELEMENTWISE_MULTIPLY_CONTROL = vector_data_path_control(
     multiplication_mode=3,
     compute_mode=1,
 )
+_U16_ELEMENTWISE_MULTIPLY_CONTROL = vector_data_path_control(
+    sign_x=False,
+    sign_y=False,
+    accumulator_mode=1,
+    multiplication_mode=3,
+    compute_mode=2,
+)
+
+# The attention scale 1.4453125 is exactly BF16 0x3FB9. Native BF16 VMUL
+# computes its normal and overflowing products exactly in F32 but flushes F32
+# subnormal products. For BF16 magnitudes below 89, multiplying the encoded
+# magnitude by 185 << 8 constructs the exact F32 subnormal payload in packed
+# integer lanes. Shuffle control 18 interleaves those low/high halfwords into
+# F32 lanes before the final repair select.
+_BF16_ORIGIN_SCALE = 1.4453125
+_BF16_ORIGIN_SCALE_BITS = 0x3FB9
+_BF16_ORIGIN_SCALE_REPAIR_FACTOR = 185 << 8
+_BF16_ORIGIN_SCALE_REPAIR_LIMIT = 89
+_BF16_ORIGIN_SCALE_REPAIR_SHUFFLE = 18
 # AIE2P T16_32x2_lo/hi select the even and odd BF16 lanes from a 512-bit
 # source. Two ordered VMACs over those streams implement vector.dot2f's two
 # sequential fused accumulations without weakening its exact source contract.
@@ -154,6 +173,205 @@ def _scalar_multiply_f16_rule() -> DescriptorRule:
             *narrow_program.emits,
         ),
         report_key="exact_binary16",
+    )
+
+
+def _vector_multiply_bf16_origin_scale_rule() -> DescriptorRule:
+    """Multiplies BF16-origin F32 lanes by the qualified attention scale."""
+
+    scalar_constant = _descriptor("amd.xdna.aie2p.constant.i32")
+    short_constant = _descriptor("amd.xdna.aie2p.constant.i32.short")
+    config_constant = _descriptor("amd.xdna.aie2p.constant.i32.mova")
+    shift_constant = _descriptor("amd.xdna.aie2p.constant.i32.shift")
+    broadcast = _descriptor("amd.xdna.aie2p.splat.i16x32")
+    bitwise_and = _descriptor("amd.xdna.aie2p.and.bits512")
+    bitwise_or = _descriptor("amd.xdna.aie2p.or.bits512")
+    float_multiply = _descriptor("amd.xdna.aie2p.multiply.bf16x32.configured")
+    integer_multiply = _descriptor("amd.xdna.aie2p.multiply.i16x32.configured")
+    narrow = _descriptor("amd.xdna.aie2p.narrow.trunc.signed.i16x32")
+    add = _descriptor("amd.xdna.aie2p.add.i16x32")
+    shuffle = _descriptor("amd.xdna.aie2p.shuffle.x.configured")
+    compare = _descriptor("amd.xdna.aie2p.cmp.lt.unsigned.i16x32.el.low32")
+    select = _descriptor("amd.xdna.aie2p.select.i32x16.mask64")
+    move_from_accumulator = _descriptor(
+        "amd.xdna.aie2p.move.accumulator512.to.vector512"
+    )
+    set_rounding = _descriptor("amd.xdna.aie2p.state.rounding.immediate")
+    set_srs_mode = _descriptor("amd.xdna.aie2p.state.srs-mode.immediate")
+    set_saturation = _descriptor("amd.xdna.aie2p.state.saturation.immediate")
+
+    emits: list[ContractEmit] = []
+
+    def temporary(name: str) -> ValueRef:
+        return ValueRef.temporary(name)
+
+    def constant(
+        name: str,
+        value: int,
+        descriptor: Descriptor = scalar_constant,
+    ) -> ValueRef:
+        result = temporary(name)
+        emits.append(_constant_emit(descriptor, result, value))
+        return result
+
+    def operation(
+        name: str,
+        descriptor: Descriptor,
+        result_field: str,
+        **operands: ValueRef,
+    ) -> ValueRef:
+        result = temporary(name)
+        emits.append(
+            _op_emit(
+                descriptor,
+                operands=operands,
+                results={result_field: result},
+                result_types={result_field: DescriptorResultType()},
+            )
+        )
+        return result
+
+    bf16_input = ValueRef.exact_lane_origin_operand("lhs")
+
+    scale_scalar = constant("scale_scalar", _BF16_ORIGIN_SCALE_BITS)
+    scale = operation("scale", broadcast, "dst", src=scale_scalar)
+    float_control = constant(
+        "float_control",
+        _BF16_ELEMENTWISE_MULTIPLY_CONTROL,
+        config_constant,
+    )
+    raw_products = operation(
+        "raw_products",
+        float_multiply,
+        "dst",
+        s1=bf16_input,
+        s2=scale,
+        acc=float_control,
+    )
+    raw_product_unit = temporary("raw_product_unit")
+    emits.append(
+        EmitRegisterSlice(
+            source=raw_products,
+            result=raw_product_unit,
+            unit_count=1,
+        )
+    )
+    direct_product = operation(
+        "direct_product",
+        move_from_accumulator,
+        "dst",
+        src=raw_product_unit,
+    )
+
+    absolute_mask_scalar = constant("absolute_mask_scalar", 0x7FFF)
+    absolute_mask = operation(
+        "absolute_mask", broadcast, "dst", src=absolute_mask_scalar
+    )
+    magnitudes = operation(
+        "magnitudes",
+        bitwise_and,
+        "d",
+        s1=bf16_input,
+        s2=absolute_mask,
+    )
+    repair_factor_scalar = constant(
+        "repair_factor_scalar", _BF16_ORIGIN_SCALE_REPAIR_FACTOR
+    )
+    repair_factor = operation(
+        "repair_factor", broadcast, "dst", src=repair_factor_scalar
+    )
+    integer_control = constant(
+        "integer_control",
+        _U16_ELEMENTWISE_MULTIPLY_CONTROL,
+        config_constant,
+    )
+    wide_repair = operation(
+        "wide_repair",
+        integer_multiply,
+        "dst",
+        s1=magnitudes,
+        s2=repair_factor,
+        acc=integer_control,
+    )
+    low_shift = constant("low_shift", 0, shift_constant)
+    high_shift = constant("high_shift", 15, shift_constant)
+    emits.extend(
+        (
+            EmitDescriptorOp(
+                descriptor=set_rounding,
+                immediates={"i": 0},
+                form=DescriptorEmitForm.OP,
+            ),
+            EmitDescriptorOp(
+                descriptor=set_srs_mode,
+                immediates={"i": 1},
+                form=DescriptorEmitForm.OP,
+            ),
+            EmitDescriptorOp(
+                descriptor=set_saturation,
+                immediates={"i": 0},
+                form=DescriptorEmitForm.OP,
+            ),
+        )
+    )
+    low_base = operation("low_base", narrow, "dst", src=wide_repair, su=low_shift)
+    high = operation("high", narrow, "dst", src=wide_repair, su=high_shift)
+    low = operation("low", add, "d", s1=low_base, s2=low_base)
+    sign_mask_scalar = constant("sign_mask_scalar", 0x8000)
+    sign_mask = operation("sign_mask", broadcast, "dst", src=sign_mask_scalar)
+    sign = operation("sign", bitwise_and, "d", s1=bf16_input, s2=sign_mask)
+    signed_high = operation("signed_high", bitwise_or, "d", s1=high, s2=sign)
+    repair_shuffle = constant(
+        "repair_shuffle",
+        _BF16_ORIGIN_SCALE_REPAIR_SHUFFLE,
+        config_constant,
+    )
+    repaired_product = operation(
+        "repaired_product",
+        shuffle,
+        "dst",
+        s1=low,
+        s2=signed_high,
+        mod=repair_shuffle,
+    )
+    repair_limit_scalar = constant(
+        "repair_limit_scalar",
+        _BF16_ORIGIN_SCALE_REPAIR_LIMIT,
+        short_constant,
+    )
+    repair_limit = operation("repair_limit", broadcast, "dst", src=repair_limit_scalar)
+    repair_lanes = operation(
+        "repair_lanes",
+        compare,
+        "cmp",
+        s1=magnitudes,
+        s2=repair_limit,
+    )
+    emits.append(
+        _op_emit(
+            select,
+            operands={
+                "s1": direct_product,
+                "s2": repaired_product,
+                "sel": repair_lanes,
+            },
+            results={"d": ValueRef.result("result")},
+        )
+    )
+
+    return DescriptorRule(
+        source_op=vector.vector_mulf,
+        descriptor=float_multiply,
+        guards=(
+            Guard.value_type("lhs", _F32X16_VECTOR),
+            Guard.exact_lane_origin_type("lhs", _BF16X16_VECTOR),
+            Guard.value_type("rhs", _F32X16_VECTOR),
+            Guard.value_type("result", _F32X16_VECTOR),
+            Guard.value_float_equals("rhs", _BF16_ORIGIN_SCALE),
+            Guard.instance_flags_has_all("fastmath", "nnan"),
+        ),
+        emit=tuple(emits),
+        report_key="exact_bf16_origin_scale_1_4453125",
     )
 
 
@@ -741,6 +959,7 @@ AIE2P_BF16_MATRIX_RULES = (_matrix_multiply_bf16bf16_m8n8k1_rule(),)
 
 AIE2P_FLOATING_RULES = (
     _scalar_multiply_f16_rule(),
+    _vector_multiply_bf16_origin_scale_rule(),
     *(
         _vector_maximum_bf16_rule(source_op, type_pattern)
         for source_op in (vector.vector_maxnumf, vector.vector_maximumf)
