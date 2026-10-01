@@ -66,6 +66,8 @@ iree_status_t iree_hal_amdgpu_grid_sync_info_initialize(
 // Populates a one-workitem dispatch that initializes GWS resource zero for a
 // following cooperative dispatch. The caller owns packet header commit,
 // completion-signal assignment, and doorbell signaling.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 //
 // |workgroup_count| must be in [1, UINT32_MAX]. The target cooperative dispatch
 // must not begin until this dispatch has completed.
@@ -74,7 +76,7 @@ void iree_hal_amdgpu_device_grid_sync_gws_initialize_emplace(
         initialize_kernel_args,
     uint32_t workgroup_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 #endif  // !IREE_AMDGPU_TARGET_DEVICE
 

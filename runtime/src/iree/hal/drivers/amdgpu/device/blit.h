@@ -197,12 +197,15 @@ void iree_hal_amdgpu_device_buffer_fill_plan_initialize_kernargs(
     iree_hal_amdgpu_device_buffer_fill_kernargs_t* out_kernargs);
 
 // Emplaces a planned builtin fill into already-reserved AQL storage.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 void iree_hal_amdgpu_device_buffer_fill_plan_emplace(
     const iree_hal_amdgpu_device_buffer_transfer_context_t* IREE_AMDGPU_RESTRICT
         context,
     const iree_hal_amdgpu_device_buffer_fill_plan_t* IREE_AMDGPU_RESTRICT plan,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* target_ptr, void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* target_ptr, void* IREE_AMDGPU_RESTRICT kernarg_ptr,
+    uint16_t* out_setup);
 
 // Plans a builtin copy using the minimum guaranteed source and target
 // alignments.
@@ -225,42 +228,49 @@ uint64_t iree_hal_amdgpu_device_buffer_transfer_pointer_alignment(
     const void* pointer);
 
 // Emplaces a planned builtin copy into already-reserved AQL storage.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 void iree_hal_amdgpu_device_buffer_copy_plan_emplace(
     const iree_hal_amdgpu_device_buffer_transfer_context_t* IREE_AMDGPU_RESTRICT
         context,
     const iree_hal_amdgpu_device_buffer_copy_plan_t* IREE_AMDGPU_RESTRICT plan,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     const void* source_ptr, void* target_ptr,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Populates a builtin fill dispatch packet and its kernargs in already-reserved
 // storage. The caller owns packet header commit, completion signal assignment,
 // and queue doorbell signaling.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 //
 // Returns false if |pattern_length| is unsupported, |length| is not a multiple
 // of the pattern width, or |length| cannot be represented by the dispatch
 // packet grid dimensions. Target pointers may have any byte alignment. On
-// failure, |dispatch_packet| and |kernarg_ptr| are left unmodified.
+// failure, |dispatch_packet|, |kernarg_ptr|, and |out_setup| are left
+// unmodified.
 bool iree_hal_amdgpu_device_buffer_fill_emplace(
     const iree_hal_amdgpu_device_buffer_transfer_context_t* IREE_AMDGPU_RESTRICT
         context,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     void* target_ptr, uint64_t length, uint64_t pattern, uint8_t pattern_length,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Populates a builtin copy dispatch packet and its kernargs in already-reserved
 // storage. The caller owns packet header commit, completion signal assignment,
 // and queue doorbell signaling.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 //
 // Returns false if |length| cannot be represented by the dispatch packet grid
-// dimensions. On failure, |dispatch_packet| and |kernarg_ptr| are left
-// unmodified.
+// dimensions. On failure, |dispatch_packet|, |kernarg_ptr|, and |out_setup| are
+// left unmodified.
 bool iree_hal_amdgpu_device_buffer_copy_emplace(
     const iree_hal_amdgpu_device_buffer_transfer_context_t* IREE_AMDGPU_RESTRICT
         context,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     const void* source_ptr, void* target_ptr, uint64_t length,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 #ifdef __cplusplus
 }  // extern "C"

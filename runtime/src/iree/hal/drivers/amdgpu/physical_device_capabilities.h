@@ -341,8 +341,8 @@ void iree_hal_amdgpu_select_memory_system_capabilities(
 bool iree_hal_amdgpu_memory_system_requires_svm_access_attributes(
     const iree_hal_amdgpu_memory_system_capabilities_t* capabilities);
 
-// Selects command-buffer prepublished kernarg storage from queried memory
-// pools.
+// Selects command-buffer prepublished kernarg storage when a fine-grained GPU
+// pool and coherent direct host access to device memory are both available.
 iree_hal_amdgpu_aql_prepublished_kernarg_storage_t
 iree_hal_amdgpu_select_prepublished_kernarg_storage(
     hsa_amd_memory_pool_t fine_block_memory_pool, bool direct_host_access);

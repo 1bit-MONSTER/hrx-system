@@ -82,11 +82,17 @@ TEST(GridSyncTest, GwsInitializeEncodesParticipatingWorkgroups) {
   kernel_args.kernarg_alignment =
       IREE_HAL_AMDGPU_DEVICE_GRID_SYNC_GWS_INITIALIZE_KERNARG_ALIGNMENT;
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
+  packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   iree_hal_amdgpu_device_grid_sync_gws_initialize_kernargs_t kernargs = {};
 
   iree_hal_amdgpu_device_grid_sync_gws_initialize_emplace(
-      &kernel_args, /*workgroup_count=*/257, &packet, &kernargs);
+      &kernel_args, /*workgroup_count=*/257, &packet, &kernargs, &setup);
 
+  EXPECT_EQ(packet.header, 0xFFFFu);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 1u);
   EXPECT_EQ(kernargs.workgroup_count_minus_one, 256u);
   EXPECT_EQ(packet.workgroup_size[0], 1u);
   EXPECT_EQ(packet.workgroup_size[1], 1u);

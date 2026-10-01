@@ -1557,11 +1557,11 @@ iree_status_t iree_hal_amdgpu_host_queue_submit_pm4_ib_with_binding_table_fixup(
         publication_packet_id + publication_packet_count;
     iree_hal_amdgpu_aql_packet_t* fixup_slot =
         iree_hal_amdgpu_aql_ring_packet(&queue->aql_ring, fixup_packet_id);
+    uint16_t fixup_setup = 0;
     iree_hal_amdgpu_device_dispatch_emplace_pm4_binding_patch(
         fixup_kernel_args, (const uint64_t*)(uintptr_t)binding_span.device_ptr,
         fixup_entries, fixup_target_base, fixup_entry_count,
-        &fixup_slot->dispatch, submission.kernargs.blocks->data);
-    const uint16_t fixup_setup = fixup_slot->dispatch.setup;
+        &fixup_slot->dispatch, submission.kernargs.blocks->data, &fixup_setup);
     const iree_hsa_fence_scope_t fixup_acquire_scope =
         iree_hal_amdgpu_host_queue_kernarg_acquire_scope(
             IREE_HSA_FENCE_SCOPE_SYSTEM);

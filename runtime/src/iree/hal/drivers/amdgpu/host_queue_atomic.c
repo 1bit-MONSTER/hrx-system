@@ -279,19 +279,22 @@ static void iree_hal_amdgpu_host_queue_prepare_atomic_dispatch(
     case IREE_HAL_AMDGPU_HOST_QUEUE_ATOMIC_OPERATION_WAIT:
       iree_hal_amdgpu_device_atomic_wait_emplace(
           queue->transfer_context->kernels, out_dispatch_packet,
-          target_device_ptr, operation->params.wait, out_kernargs);
+          target_device_ptr, operation->params.wait, out_kernargs,
+          &out_dispatch_packet->setup);
       *out_kernarg_length = IREE_HAL_AMDGPU_DEVICE_ATOMIC_WAIT_KERNARG_SIZE;
       break;
     case IREE_HAL_AMDGPU_HOST_QUEUE_ATOMIC_OPERATION_STORE:
       iree_hal_amdgpu_device_atomic_store_emplace(
           queue->transfer_context->kernels, out_dispatch_packet,
-          target_device_ptr, operation->params.store, out_kernargs);
+          target_device_ptr, operation->params.store, out_kernargs,
+          &out_dispatch_packet->setup);
       *out_kernarg_length = IREE_HAL_AMDGPU_DEVICE_ATOMIC_STORE_KERNARG_SIZE;
       break;
     case IREE_HAL_AMDGPU_HOST_QUEUE_ATOMIC_OPERATION_RMW:
       iree_hal_amdgpu_device_atomic_rmw_emplace(
           queue->transfer_context->kernels, out_dispatch_packet,
-          target_device_ptr, operation->params.rmw, out_kernargs);
+          target_device_ptr, operation->params.rmw, out_kernargs,
+          &out_dispatch_packet->setup);
       *out_kernarg_length = IREE_HAL_AMDGPU_DEVICE_ATOMIC_RMW_KERNARG_SIZE;
       break;
     default:

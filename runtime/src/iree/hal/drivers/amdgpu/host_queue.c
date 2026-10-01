@@ -67,15 +67,15 @@ static iree_status_t iree_hal_amdgpu_host_queue_submit_tsan_state_initialize(
   if (iree_status_is_ok(status)) {
     iree_hal_amdgpu_aql_packet_t* packet = iree_hal_amdgpu_aql_ring_packet(
         &queue->aql_ring, submission.first_packet_id);
+    uint16_t setup = 0;
     iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
         &queue->transfer_context->kernels
              ->iree_hal_amdgpu_device_tsan_initialize_queue_state,
         initialize_args, queue->transfer_context->max_workgroup_count,
-        &packet->dispatch, submission.kernargs.blocks->data);
+        &packet->dispatch, submission.kernargs.blocks->data, &setup);
     packet->dispatch.completion_signal =
         iree_hal_amdgpu_notification_ring_epoch_signal(
             &queue->notification_ring);
-    const uint16_t setup = packet->dispatch.setup;
     const iree_hsa_fence_scope_t acquire_scope =
         iree_hal_amdgpu_host_queue_kernarg_acquire_scope(
             IREE_HSA_FENCE_SCOPE_AGENT);
