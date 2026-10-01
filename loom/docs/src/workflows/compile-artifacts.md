@@ -5,7 +5,7 @@ artifact for selected roots. It is the offline form of the same parse, link,
 configure, specialize, lower, and emit operations available through the `loomc`
 API.
 
-Selected roots infer exactly one product: `kernel`, `command`, or `module`.
+Selected roots infer exactly one product: `kernel` or `module`.
 With explicit `--root` values, `--product` is an optional assertion on that
 result and never reinterprets the roots. With no roots, an explicit product
 selects its canonical root set. `--target=family:selector` supplies a target
@@ -74,10 +74,11 @@ build rather than fragmenting into target-specific copies.
 
 ## Select roots from a catalog
 
-When `--root` is omitted, public or retained command programs take precedence;
-otherwise the tool selects every kernel entry, or the whole module when neither
-kind exists. Select one or more entries from a catalog by repeating the flag.
-Every selected root must infer the same product:
+When `--root` is omitted, command-program roots are rejected because they need
+the LoomC transaction described below. Otherwise the tool selects every kernel
+entry, or the whole module when no kernel entries exist. Select one or more
+entries from a catalog by repeating the flag. Every selected root must infer
+the same product:
 
 ```shell
 loom-compile catalog.loombc \
@@ -90,8 +91,8 @@ loom-compile catalog.loombc \
 Root selection is reachability, not name filtering after compilation. Unused
 functions, providers, configurations, checks, and kernels are absent from the
 materialized compile module. In a mixed command-and-kernel catalog, name the
-kernel roots explicitly or pass `--product=kernel` without roots to select all
-kernel entries. A product never changes the meaning of explicit roots.
+kernel roots explicitly. A product never changes the meaning of explicit
+roots.
 
 Use [`loom-link`](link-and-package.md#link-transitive-dependencies-incrementally)
 first when several independently shipped modules must be composed. Use
@@ -125,44 +126,19 @@ pipeline. Specialization can therefore select providers and remove unreachable
 paths before later compilation work. Nested JSON keys flatten with `.`
 separators; explicit bindings not referenced by the module are ignored.
 
-## Emit portable command programs
+## Build command programs through LoomC
 
-The command product prepares selected command-program roots and emits one
-portable artifact per root. Command roots select the canonical `loom-command`
-format, which may also be stated explicitly:
+A command program and the kernels selected while planning it form one compiler
+transaction. `loom-compile` does not emit command programs because separate
+command and kernel invocations cannot preserve the exact requirement bindings
+between those outputs.
 
-```shell
-loom-compile model.loombc \
-  --root=@elementwise_transform \
-  --format=loom-command \
-  --output=commands.json \
-  --emit-command-artifacts=commands/ \
-  --emit-kernel-requests=kernel-requests/
-```
-
-`commands.json` maps each command symbol to a `.loomcmd` file and records the
-logical kernel entries that artifact requires. The files under `commands/`
-contain target-neutral resource bindings, schedule waves, dispatches, and
-executable slots. They do not embed a device executable. Source-backed entries
-also name ordinary `.loombc` modules under `kernel-requests/`. Launch sites are
-partitioned only by decisions that change their generated kernels, so repeated
-sites and separate command roots share a request when their semantic class is
-the same. External bodyless entries remain plain binding requirements.
-
-Compile each manifest-listed source request independently for its target. For
-example, the first request can be compiled with:
-
-```shell
-loom-compile kernel-requests/kernel-0.loombc \
-  --target=amdgpu:gfx11-generic \
-  --output=kernel-0.hsaco
-```
-
-Each request is already closed around one semantic kernel class while retaining
-the ordinary target-selection surface. The embedding compiles or cache-resolves
-those requests concurrently, then binds each resulting executable entry to the
-manifest ordinal that named it. The manifest is the parent commit point: request
-files emitted by a failed command compilation are not a usable artifact set.
+Use the public LoomC command-product API instead. It publishes each live kernel
+request while constructing the parent command product, and every request
+carries the parent requirement ordinal and child root ordinal needed to bind
+the completed executable. [Parallelize kernel JIT
+compilation](../integration/product-frontier.md) follows that transaction end to
+end.
 
 ## Emit a WebAssembly module
 

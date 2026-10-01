@@ -72,27 +72,20 @@ typedef struct loom_compile_request_options_t {
 typedef struct loom_compile_request_t {
   // Language-level product and root selection.
   loom_compile_product_selection_t selection;
-  // Target-owned artifact emitter for kernel or module products. Command
-  // products have no target emitter.
+  // Target-owned artifact emitter for the resolved kernel or module product.
   const loom_target_emitter_t* target_emitter;
   // Explicit target selected by the caller, or empty for authored targets.
   loom_compile_target_selection_t explicit_target;
 } loom_compile_request_t;
 
-// Returns true when portable command emission was selected.
-static inline bool loom_compile_request_is_command(
-    const loom_compile_request_t* request) {
-  return request != NULL &&
-         request->selection.product == LOOM_COMPILE_PRODUCT_COMMAND;
-}
-
 // Resolves one homogeneous product and its compile roots, an optional explicit
 // target, and a target emitter. Explicit roots are borrowed. Otherwise the
-// product selects its complete default root set; an omitted product infers
-// command, kernel, then module. Exclusions apply after inference and derived
-// names are copied into |arena|. Emitter resolution never probes an emitter by
-// compiling. An omitted format selects the target family's unique canonical
-// kernel or module emitter, or the target-independent command format.
+// product selects its complete default root set; an omitted product selects
+// kernel roots before whole-module emission. Command-program roots are rejected
+// because they require the LoomC command-product transaction.
+// Exclusions apply after inference and derived names are copied into |arena|.
+// Emitter resolution never probes an emitter by compiling. An omitted format
+// selects the target family's unique canonical kernel or module emitter.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_target_environment_t* target_environment,

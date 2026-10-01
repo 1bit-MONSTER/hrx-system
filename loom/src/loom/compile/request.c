@@ -255,6 +255,12 @@ static bool loom_compile_product_selection_list_contains(
   return false;
 }
 
+static iree_status_t loom_compile_product_selection_reject_command(void) {
+  return iree_make_status(
+      IREE_STATUS_INVALID_ARGUMENT,
+      "command-program roots require loomc_cmd_program_product_build");
+}
+
 typedef struct loom_compile_default_root_summary_t {
   iree_host_size_t count;
   iree_host_size_t name_bytes;
@@ -351,17 +357,13 @@ static iree_status_t loom_compile_product_selection_require_default_roots(
                             loom_compile_product_name(product).data);
   }
   switch (product) {
-    case LOOM_COMPILE_PRODUCT_COMMAND:
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "product 'command' requires a nonempty set of public or retained "
-          "command-program roots");
     case LOOM_COMPILE_PRODUCT_KERNEL:
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "product 'kernel' requires a nonempty root set of kernel entries, "
           "public or retained kernel-scoped pipelines, or array programs");
     case LOOM_COMPILE_PRODUCT_MODULE:
+    case LOOM_COMPILE_PRODUCT_COMMAND:
     case LOOM_COMPILE_PRODUCT_INVALID:
       break;
   }
@@ -463,6 +465,9 @@ static iree_status_t loom_compile_product_selection_resolve(
           (int)loom_compile_product_name(product_constraint).size,
           loom_compile_product_name(product_constraint).data);
     }
+    if (selection.product == LOOM_COMPILE_PRODUCT_COMMAND) {
+      return loom_compile_product_selection_reject_command();
+    }
     *out_selection = selection;
     return iree_ok_status();
   }
@@ -477,6 +482,9 @@ static iree_status_t loom_compile_product_selection_resolve(
                        : summaries[LOOM_COMPILE_PRODUCT_KERNEL].count != 0
                            ? LOOM_COMPILE_PRODUCT_KERNEL
                            : LOOM_COMPILE_PRODUCT_MODULE;
+  }
+  if (selected_product == LOOM_COMPILE_PRODUCT_COMMAND) {
+    return loom_compile_product_selection_reject_command();
   }
   loom_compile_default_root_summary_t selected_summary =
       summaries[selected_product];
@@ -518,53 +526,30 @@ static iree_status_t loom_compile_request_parse_product(
   if (iree_string_view_is_empty(value)) {
     return iree_ok_status();
   }
-  for (loom_compile_product_t product = LOOM_COMPILE_PRODUCT_KERNEL;
-       product <= LOOM_COMPILE_PRODUCT_MODULE; ++product) {
-    if (iree_string_view_equal(value, loom_compile_product_name(product))) {
-      *out_product = product;
-      return iree_ok_status();
-    }
+  if (iree_string_view_equal(value, IREE_SV("kernel"))) {
+    *out_product = LOOM_COMPILE_PRODUCT_KERNEL;
+    return iree_ok_status();
+  }
+  if (iree_string_view_equal(value, IREE_SV("module"))) {
+    *out_product = LOOM_COMPILE_PRODUCT_MODULE;
+    return iree_ok_status();
   }
   return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                          "unknown --product='%.*s'; expected 'kernel', "
-                          "'command', or 'module'",
+                          "unknown --product='%.*s'; expected 'kernel' or "
+                          "'module'",
                           (int)value.size, value.data);
 }
 
 static iree_status_t loom_compile_request_select_named_format(
-    loom_compile_product_t product, iree_string_view_t format,
+    iree_string_view_t format,
     const loom_target_environment_t* target_environment,
     const loom_target_emitter_t** out_target_emitter) {
   *out_target_emitter = NULL;
-  const bool is_command_format =
-      iree_string_view_equal(format, IREE_SV("loom-command"));
   const loom_target_emitter_t* target_emitter =
       loom_target_environment_lookup_emitter(target_environment, format);
-  if (!is_command_format && target_emitter == NULL) {
+  if (target_emitter == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "format '%.*s' is not available in this binary",
-                            (int)format.size, format.data);
-  }
-  if (is_command_format && target_emitter != NULL) {
-    return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "format '%.*s' has multiple configured producers",
-                            (int)format.size, format.data);
-  }
-
-  if (is_command_format) {
-    if (product != LOOM_COMPILE_PRODUCT_COMMAND) {
-      const iree_string_view_t product_name =
-          loom_compile_product_name(product);
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "format 'loom-command' cannot emit product '%.*s'",
-          (int)product_name.size, product_name.data);
-    }
-    return iree_ok_status();
-  }
-  if (product == LOOM_COMPILE_PRODUCT_COMMAND) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "format '%.*s' cannot emit product 'command'",
                             (int)format.size, format.data);
   }
   *out_target_emitter = target_emitter;
@@ -597,14 +582,12 @@ static iree_status_t loom_compile_request_select_emitter(
   explicit_format = iree_string_view_trim(explicit_format);
   if (!iree_string_view_is_empty(explicit_format)) {
     return loom_compile_request_select_named_format(
-        product, explicit_format, target_environment, out_target_emitter);
+        explicit_format, target_environment, out_target_emitter);
   }
   switch (product) {
     case LOOM_COMPILE_PRODUCT_KERNEL:
       return loom_compile_request_select_canonical_kernel_emitter(
           target_fact_type, target_environment, out_target_emitter);
-    case LOOM_COMPILE_PRODUCT_COMMAND:
-      return iree_ok_status();
     case LOOM_COMPILE_PRODUCT_MODULE: {
       const loom_target_emitter_t* canonical_emitter =
           target_fact_type != NULL
@@ -620,6 +603,7 @@ static iree_status_t loom_compile_request_select_emitter(
           "module product requires --format or a --target with a canonical "
           "module format");
     }
+    case LOOM_COMPILE_PRODUCT_COMMAND:
     case LOOM_COMPILE_PRODUCT_INVALID:
       break;
   }
@@ -651,14 +635,6 @@ iree_status_t loom_compile_request_resolve(
   };
   IREE_RETURN_IF_ERROR(loom_compile_request_select_explicit_target(
       options->target, target_environment, &request.explicit_target));
-  if (request.explicit_target.profile != NULL &&
-      selection.product == LOOM_COMPILE_PRODUCT_COMMAND) {
-    const iree_string_view_t product_name =
-        loom_compile_product_name(selection.product);
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "--target is not valid for product '%.*s'",
-                            (int)product_name.size, product_name.data);
-  }
   if (request.explicit_target.profile != NULL &&
       selection.target_fact_type != NULL &&
       request.explicit_target.profile->type->fact_type !=

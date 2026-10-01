@@ -258,10 +258,10 @@ can be launched with other counts by other roots:
 
 !!! info "Command deployment products"
 
-    `loom-compile --format=loom-command` materializes each selected command
-    root as a portable `.loomcmd` and writes the shared executable-entry
-    manifest. The target-specific kernel executable remains a separate
-    artifact so an embedding can cache, replace, or prebuild it independently.
+    Command programs are constructed through LoomC together with the exact
+    kernel requests they publish. `loom-compile` emits standalone kernel and
+    module artifacts; it cannot preserve command-to-kernel bindings across
+    separate invocations.
 
 The generated [`command` dialect
 reference](../reference/dialects/command/index.md) documents the source
@@ -272,8 +272,8 @@ constructs that exist today.
 The three source listings above are repository `.loom` files, not prose copies.
 With the Loom tools on `PATH`, this command formats them, links the selected
 program against the explicit provider universe, specializes that closure for
-the generic GFX11 profile, and emits both kernel and command products. It
-prints every Loom command it runs:
+the generic GFX11 profile, and emits the kernel product. It prints every Loom
+command it runs:
 
 ```shell
 loom/docs/examples/elementwise-transform/run.sh \
@@ -281,8 +281,8 @@ loom/docs/examples/elementwise-transform/run.sh \
 ```
 
 The resulting directory contains the closed target-specialized
-`elementwise-transform.loom` module, the GFX11 HSACO, a command manifest, one
-portable `.loomcmd`, and the captured target Low IR. The
+`elementwise-transform.loom` module, the GFX11 HSACO, and the captured target
+Low IR. The
 `--target=amdgpu:gfx11-generic` link argument makes subgroup facts
 available before template-provider pruning, so the wave32 implementation is
 selected without pulling the portable alternative into the product. The
@@ -302,11 +302,12 @@ neither output is checked-in source.
     ```
 
 The GFX11 tab comes directly from the installed-tool workflow above. The
-command-program tab is the readable Low view of the `.loomcmd` produced from
-the same closed program: launch configuration is projected as pure caller IR,
-folded to an exact direct count, and lowered while the device implementation
-remains unopened. The deployment artifact is binary and target-neutral; the
-HSACO independently supplies its logical kernel entry.
+documentation build lowers the same closed command root separately to produce
+the readable command-program tab: launch configuration is projected as pure
+caller IR, folded to an exact direct count, and lowered while the device
+implementation remains unopened. Production command construction uses the
+single LoomC transaction described in [Parallelize kernel JIT
+compilation](../integration/product-frontier.md).
 
 ## Embedding chooses the deployment policy
 

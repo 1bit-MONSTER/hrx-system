@@ -149,8 +149,7 @@ class CompileRequestTest : public ::testing::Test {
     loom_compile_request_t request = {};
     IREE_EXPECT_OK(loom_compile_request_resolve(module, &options, &environment_,
                                                 &request_arena_, &request));
-    EXPECT_EQ(loom_compile_request_is_command(&request),
-              request.target_emitter == nullptr);
+    EXPECT_NE(request.target_emitter, nullptr);
     return request;
   }
 
@@ -537,30 +536,6 @@ func.def public @entry() {
                                    &request_arena_, &request));
 }
 
-TEST_F(CompileRequestTest, RejectsEmptyDefaultRootSet) {
-  ModulePtr module = Parse(R"(
-kernel.def @Kernel123() {
-  %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
-} launch() {
-  kernel.return
-}
-command.program.def public @Command123() launch() {
-  kernel.launch @Kernel123() : ()
-  command.return
-}
-)");
-  const iree_string_view_t excluded_roots[] = {IREE_SV("Command123")};
-  loom_compile_request_options_t options = {};
-  options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
-  loom_compile_request_t request = {};
-  iree::Status status(loom_compile_request_resolve(
-      module.get(), &options, &environment_, &request_arena_, &request));
-  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
-  EXPECT_THAT(status.ToString(),
-              HasSubstr("excluded roots empty the default command root set"));
-}
-
 TEST_F(CompileRequestTest, RequiresExplicitSelectionOfPrivateArrayPrograms) {
   ModulePtr module = Parse(R"(
 func.def abi(array_program) @entry() {
@@ -608,7 +583,7 @@ func.def public @second() {
   EXPECT_EQ(request.selection.roots.count, IREE_ARRAYSIZE(roots));
 }
 
-TEST_F(CompileRequestTest, InfersPublicCommandBeforeKernelDependencies) {
+TEST_F(CompileRequestTest, RejectsUnrootedCommandPrograms) {
   ModulePtr module = Parse(R"(
 kernel.def @Kernel123() {
   %one = index.constant 1 : index
@@ -621,14 +596,31 @@ command.program.def public @Command123() launch() {
   command.return
 }
 )");
-  const loom_compile_request_t request = Resolve(module.get(), {});
+  const loom_compile_request_options_t options = {};
+  loom_compile_request_t request = {};
+  iree::Status status(loom_compile_request_resolve(
+      module.get(), &options, &environment_, &request_arena_, &request));
+  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+  EXPECT_THAT(status.ToString(), HasSubstr("loomc_cmd_program_product_build"));
+}
 
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_COMMAND);
-  EXPECT_EQ(request.target_emitter, nullptr);
-  ASSERT_EQ(request.selection.roots.count, 1u);
-  module.reset();
-  EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
-                                     IREE_SV("Command123")));
+TEST_F(CompileRequestTest, RejectsCommandProgramRoots) {
+  ModulePtr module = Parse(R"(
+command.program.def public @Command123() launch() {
+  command.return
+}
+)");
+  const iree_string_view_t roots[] = {IREE_SV("@Command123")};
+  loom_compile_request_options_t options = {};
+  for (iree_host_size_t root_count : {0, 1}) {
+    options.roots = {root_count, roots};
+    loom_compile_request_t request = {};
+    iree::Status status(loom_compile_request_resolve(
+        module.get(), &options, &environment_, &request_arena_, &request));
+    EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+    EXPECT_THAT(status.ToString(),
+                HasSubstr("loomc_cmd_program_product_build"));
+  }
 }
 
 TEST_F(CompileRequestTest, RoutesKernelPipelineThroughProductBoundary) {
@@ -707,7 +699,7 @@ TEST_F(CompileRequestTest, ProductConstraintCannotReinterpretRoots) {
           /*.count=*/IREE_ARRAYSIZE(roots),
           /*.values=*/roots,
       },
-      /*.product=*/IREE_SV("command"),
+      /*.product=*/IREE_SV("module"),
   };
   loom_compile_request_t request = {};
   IREE_EXPECT_STATUS_IS(
