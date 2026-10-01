@@ -27,6 +27,12 @@ func.def @boolean_extrema(%value: i1) -> (i1, i1, i1, i1) {
   func.return %smin, %smax, %umin, %umax : i1, i1, i1, i1
 }
 
+func.def @index_extrema(%lhs: index, %rhs: index) -> (index, index) {
+  %minimum = index.min %lhs, %rhs : index
+  %maximum = index.max %lhs, %rhs : index
+  func.return %minimum, %maximum : index, index
+}
+
 check.case @sign_boundary {
   %lhs = check.literal value(-9223372036854775808) : i64
   %rhs = check.literal value(9223372036854775807) : i64
@@ -73,5 +79,25 @@ check.case @signed_boolean_order {
   check.expect.equal actual(%equal_smax) expected(%false) : i1
   check.expect.equal actual(%equal_umin) expected(%false) : i1
   check.expect.equal actual(%equal_umax) expected(%false) : i1
+  check.return
+}
+
+check.case @index_extrema_values {
+  %minimum = check.literal value(-2147483648) : index
+  %maximum = check.literal value(2147483647) : index
+  %boundary_minimum, %boundary_maximum = func.call @index_extrema(%minimum, %maximum) : (index, index) -> (index, index)
+  check.expect.equal actual(%boundary_minimum) expected(%minimum) : index
+  check.expect.equal actual(%boundary_maximum) expected(%maximum) : index
+
+  %negative = check.literal value(-17) : index
+  %positive = check.literal value(23) : index
+  %reverse_minimum, %reverse_maximum = func.call @index_extrema(%positive, %negative) : (index, index) -> (index, index)
+  check.expect.equal actual(%reverse_minimum) expected(%negative) : index
+  check.expect.equal actual(%reverse_maximum) expected(%positive) : index
+
+  %zero = check.literal value(0) : index
+  %equal_minimum, %equal_maximum = func.call @index_extrema(%zero, %zero) : (index, index) -> (index, index)
+  check.expect.equal actual(%equal_minimum) expected(%zero) : index
+  check.expect.equal actual(%equal_maximum) expected(%zero) : index
   check.return
 }

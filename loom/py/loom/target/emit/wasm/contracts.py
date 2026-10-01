@@ -398,6 +398,39 @@ def _index_madd_rule() -> DescriptorRule:
     )
 
 
+def _index_extrema_rule(
+    source_op: Op,
+    compare_descriptor_key: str,
+) -> DescriptorRule:
+    compare = _descriptor(compare_descriptor_key)
+    select = _descriptor("wasm.i32.select")
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=select,
+        guards=_typed_guards(("lhs", "rhs", "result"), _INDEX),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=compare,
+                operands={
+                    "lhs": ValueRef.operand("lhs"),
+                    "rhs": ValueRef.operand("rhs"),
+                },
+                results={"dst": ValueRef.temporary("condition")},
+                result_types={"dst": _I1},
+            ),
+            EmitDescriptorOp(
+                descriptor=select,
+                operands={
+                    "true_value": ValueRef.operand("lhs"),
+                    "false_value": ValueRef.operand("rhs"),
+                    "condition": ValueRef.temporary("condition"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
 def _index_scale_rule() -> DescriptorRule:
     descriptor = _descriptor("wasm.i32.mul")
     return DescriptorRule(
@@ -1492,6 +1525,8 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _binary_rule(index.index_sub, _INDEX, "wasm.i32.sub"),
         _binary_rule(index.index_sub, _OFFSET, "wasm.i32.sub"),
         _binary_rule(index.index_mul, _INDEX, "wasm.i32.mul"),
+        _index_extrema_rule(index.index_min, "wasm.i32.lt_s"),
+        _index_extrema_rule(index.index_max, "wasm.i32.gt_s"),
         _index_madd_rule(),
         _index_scale_rule(),
         *(
