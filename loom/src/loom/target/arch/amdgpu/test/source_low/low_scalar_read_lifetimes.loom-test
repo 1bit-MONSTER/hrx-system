@@ -1,3 +1,18 @@
+// RUN: emit amdgpu-assembly @scalar_source_minimum strategy=source amdgpu.sgpr=3 fixed=%uniform:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_source_minimum(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %difference, %borrow = v_sub_co_u32 %uniform, %varying
+  return %difference, %borrow
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], s2, v0
+  s_endpgm
+
+// ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -12,6 +27,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_u32_uniform_lhs_gfx110
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -26,6 +42,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_u32_uniform_rhs_gfx110
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -40,6 +57,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_u32_vector_only_gfx110
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -54,6 +72,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -68,6 +87,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -82,6 +102,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_add_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -96,6 +117,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_u32_uniform_lhs_gfx110
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -110,6 +132,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_u32_uniform_rhs_gfx110
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -124,6 +147,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_u32_vector_only_gfx110
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -138,6 +162,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -152,6 +177,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1100_wave64 strategy=source
 
 amdgpu.target<gfx1100> @target {subgroup_size = 64}
@@ -166,6 +192,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @v_sub_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -180,6 +207,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_lhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -194,6 +222,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_rhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -208,6 +237,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_vector_only_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -222,6 +252,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_lhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -236,6 +267,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_rhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -250,6 +282,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_vector_only_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -264,6 +297,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -278,6 +312,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -292,6 +327,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_vector_only_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -306,6 +342,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_lhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -320,6 +357,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_rhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1151_wave64 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -334,6 +372,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_vector_only_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -348,6 +387,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_u32_uniform_lhs_gfx11
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -362,6 +402,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_u32_uniform_rhs_gfx11
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -376,6 +417,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_u32_vector_only_gfx11
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -390,6 +432,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_ci_u32_uniform_lhs_gf
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -404,6 +447,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_ci_u32_uniform_rhs_gf
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -418,6 +462,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_add_co_ci_u32_vector_only_gf
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -432,6 +477,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_u32_uniform_lhs_gfx11
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -446,6 +492,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_u32_uniform_rhs_gfx11
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -460,6 +507,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_u32_vector_only_gfx11
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -474,6 +522,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gf
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -488,6 +537,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gf
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1170_wave64 strategy=source
 
 amdgpu.target<gfx1170> @target {subgroup_size = 64}
@@ -502,6 +552,7 @@ low.func.def target<amdgpu.rdna4m.core>(@target) @v_sub_co_ci_u32_vector_only_gf
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -516,6 +567,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_u32_uniform_lhs_gfx120
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -530,6 +582,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_u32_uniform_rhs_gfx120
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -544,6 +597,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_u32_vector_only_gfx120
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -558,6 +612,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -572,6 +627,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -586,6 +642,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_add_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -600,6 +657,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_u32_uniform_lhs_gfx120
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -614,6 +672,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_u32_uniform_rhs_gfx120
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -628,6 +687,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_u32_vector_only_gfx120
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -642,6 +702,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -656,6 +717,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1200_wave64 strategy=source
 
 amdgpu.target<gfx1200> @target {subgroup_size = 64}
@@ -670,6 +732,7 @@ low.func.def target<amdgpu.rdna4.core>(@target) @v_sub_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -684,6 +747,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_lhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -698,6 +762,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_uniform_rhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -712,6 +777,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_u32_vector_only_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -726,6 +792,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_lhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -740,6 +807,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_uniform_rhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -754,6 +822,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_add_co_ci_u32_vector_only_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -768,6 +837,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -782,6 +852,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -796,6 +867,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_u32_vector_only_gfx1
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -810,6 +882,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_lhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -824,6 +897,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_uniform_rhs_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1151_wave32 strategy=source
 
 amdgpu.target<gfx1151> @target {subgroup_size = 32}
@@ -838,6 +912,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @v_sub_co_ci_u32_vector_only_g
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -852,6 +927,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_u32_uniform_lhs_gfx942
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -866,6 +942,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_u32_uniform_rhs_gfx942
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -880,6 +957,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_u32_vector_only_gfx942
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -894,6 +972,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -908,6 +987,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -922,6 +1002,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_add_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -936,6 +1017,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_u32_uniform_lhs_gfx942
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -950,6 +1032,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_u32_uniform_rhs_gfx942
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -964,6 +1047,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_u32_vector_only_gfx942
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -978,6 +1062,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -992,6 +1077,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx942_wave64 strategy=source
 
 amdgpu.target<gfx942> @target {subgroup_size = 64}
@@ -1006,6 +1092,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @v_sub_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1020,6 +1107,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_u32_uniform_lhs_gfx950
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1034,6 +1122,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_u32_uniform_rhs_gfx950
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1048,6 +1137,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_u32_vector_only_gfx950
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1062,6 +1152,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1076,6 +1167,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1090,6 +1182,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_add_co_ci_u32_vector_only_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1104,6 +1197,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_u32_uniform_lhs_gfx950
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1118,6 +1212,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_u32_uniform_rhs_gfx950
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1132,6 +1227,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_u32_vector_only_gfx950
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1146,6 +1242,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1160,6 +1257,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx
   s_endpgm
 
 // ====
+
 // RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx950_wave64 strategy=source
 
 amdgpu.target<gfx950> @target {subgroup_size = 64}
@@ -1171,4 +1269,275 @@ low.func.def target<amdgpu.cdna4.core>(@target) @v_sub_co_ci_u32_vector_only_gfx
 
 // ----
   v_subb_co_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_lhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_add_co_u32_uniform_lhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_add_co_u32_uniform_rhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_add_co_u32_uniform_rhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_add_co_u32_vector_only_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_add_co_u32_vector_only_gfx1250_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_lhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_add_co_ci_u32_uniform_lhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_uniform_rhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_add_co_ci_u32_uniform_rhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_add_co_ci_u32_vector_only_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_add_co_ci_u32_vector_only_gfx1250_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_add_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_add_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_lhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_sub_co_u32_uniform_lhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %uniform, %varying
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], s0, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_sub_co_u32_uniform_rhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_sub_co_u32_uniform_rhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %varying, %uniform
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_sub_co_u32_vector_only_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_sub_co_u32_vector_only_gfx1250_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_u32 %lhs, %rhs
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_u32 v0, s[0:1], v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_lhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_sub_co_ci_u32_uniform_lhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %uniform, %varying, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], s0, v0, s[2:3]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_uniform_rhs_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_sub_co_ci_u32_uniform_rhs_gfx1250_wave32(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %varying, %uniform, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, s0, s[2:3]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @v_sub_co_ci_u32_vector_only_gfx1250_wave32 strategy=source
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @v_sub_co_ci_u32_vector_only_gfx1250_wave32(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry_out = v_sub_co_ci_u32 %lhs, %rhs, %carry_in
+  return %result, %carry_out
+}
+
+// ----
+  v_sub_co_ci_u32 v0, s[0:1], v0, v1, s[0:1]
+  s_endpgm
+
+// ====
+
+// Uniform DPP data is read in both wave64 passes, unlike the carry predicate.
+// RUN: emit amdgpu-assembly @dpp_uniform_data_gfx1151 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @dpp_uniform_data_gfx1151(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>, %carry_in: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %result, %carry = v_add_co_ci_u32_dpp16_sgpr %varying, %uniform, %carry_in {dpp_ctrl = 27}
+  return %result, %carry
+}
+
+// ----
+  v_add_co_ci_u32_e64_dpp v0, s[2:3], v0, s0, s[2:3], quad_perm:[3,2,1,0], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @dpp_uniform_compare_gfx1170 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @dpp_uniform_compare_gfx1170(%uniform: reg<amdgpu.sgpr>, %varying: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr x2>) asm {
+  %mask = v_cmp_ne_i32_dpp16_sgpr %varying, %uniform {dpp_ctrl = 27}
+  return %mask
+}
+
+// ----
+  v_cmp_ne_i32_e64_dpp s[2:3], v0, s0, quad_perm:[3,2,1,0], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @readlane_reuses_lane_index_gfx1100_64 strategy=source
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @readlane_reuses_lane_index_gfx1100_64(%value: reg<amdgpu.vgpr>, %lane: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %result = v_readlane_b32_src1_sgpr %value, %lane
+  return %result
+}
+
+// ----
+  v_readlane_b32_src1_sgpr s0, v0, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @readlane_reuses_lane_index_gfx1151_64 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @readlane_reuses_lane_index_gfx1151_64(%value: reg<amdgpu.vgpr>, %lane: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %result = v_readlane_b32_src1_sgpr %value, %lane
+  return %result
+}
+
+// ----
+  v_readlane_b32_src1_sgpr s0, v0, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @readlane_reuses_lane_index_gfx1170_64 strategy=source
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @readlane_reuses_lane_index_gfx1170_64(%value: reg<amdgpu.vgpr>, %lane: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %result = v_readlane_b32_src1_sgpr %value, %lane
+  return %result
+}
+
+// ----
+  v_readlane_b32_src1_sgpr s0, v0, s0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @readlane_reuses_lane_index_gfx1151_32 strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @readlane_reuses_lane_index_gfx1151_32(%value: reg<amdgpu.vgpr>, %lane: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %result = v_readlane_b32_src1_sgpr %value, %lane
+  return %result
+}
+
+// ----
+  v_readlane_b32_src1_sgpr s0, v0, s0
   s_endpgm
