@@ -45,7 +45,7 @@ static iree_status_t loom_check_compile_emit(
     iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
     bool* out_compiled) {
   *out_compiled = false;
-  const loom_target_emitter_t* emitter = request->producer.target_emitter;
+  const loom_target_emitter_t* emitter = request->target_emitter;
   const loom_target_entry_options_t entry_options = {
       .function_versions = &pipeline_result->function_versions.list,
       .diagnostic_sink = pipeline_options->diagnostic_sink,
@@ -225,7 +225,7 @@ iree_status_t loom_check_execute_compile(
     }
     if (iree_status_is_ok(status)) {
       pipeline_options.target_pipeline_options =
-          request.producer.target_emitter->default_pipeline_options;
+          request.target_emitter->default_pipeline_options;
       pipeline_options.target_pipeline_options.sanitizer = options->sanitizer;
     }
   }

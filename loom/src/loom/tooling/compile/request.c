@@ -45,18 +45,13 @@ static iree_status_t loom_compile_request_parse_product(
 static iree_status_t loom_compile_request_select_named_format(
     loom_compile_product_t product, iree_string_view_t format,
     const loom_target_environment_t* target_environment,
-    loom_compile_producer_t* out_producer) {
-  *out_producer = (loom_compile_producer_t){0};
+    const loom_target_emitter_t** out_target_emitter) {
+  *out_target_emitter = NULL;
   const bool is_command_format =
       iree_string_view_equal(format, IREE_SV("loom-command"));
   const loom_target_emitter_t* target_emitter =
       loom_target_environment_lookup_emitter(target_environment, format);
-  if (is_command_format) {
-    out_producer->kind = LOOM_COMPILE_PRODUCER_COMMAND;
-  } else if (target_emitter != NULL) {
-    out_producer->kind = LOOM_COMPILE_PRODUCER_TARGET_EMITTER;
-    out_producer->target_emitter = target_emitter;
-  } else {
+  if (!is_command_format && target_emitter == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "format '%.*s' is not available in this binary",
                             (int)format.size, format.data);
@@ -67,36 +62,31 @@ static iree_status_t loom_compile_request_select_named_format(
                             (int)format.size, format.data);
   }
 
-  const iree_string_view_t product_name = loom_compile_product_name(product);
-  switch (out_producer->kind) {
-    case LOOM_COMPILE_PRODUCER_COMMAND:
-      if (product != LOOM_COMPILE_PRODUCT_COMMAND) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "format 'loom-command' cannot emit product '%.*s'",
-            (int)product_name.size, product_name.data);
-      }
-      return iree_ok_status();
-    case LOOM_COMPILE_PRODUCER_TARGET_EMITTER:
-      if (product == LOOM_COMPILE_PRODUCT_COMMAND) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "format '%.*s' cannot emit product 'command'",
-                                (int)format.size, format.data);
-      }
-      return iree_ok_status();
-    case LOOM_COMPILE_PRODUCER_INVALID:
-      break;
+  if (is_command_format) {
+    if (product != LOOM_COMPILE_PRODUCT_COMMAND) {
+      const iree_string_view_t product_name =
+          loom_compile_product_name(product);
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "format 'loom-command' cannot emit product '%.*s'",
+          (int)product_name.size, product_name.data);
+    }
+    return iree_ok_status();
   }
-  return iree_make_status(IREE_STATUS_INTERNAL,
-                          "format producer selection is invalid");
+  if (product == LOOM_COMPILE_PRODUCT_COMMAND) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "format '%.*s' cannot emit product 'command'",
+                            (int)format.size, format.data);
+  }
+  *out_target_emitter = target_emitter;
+  return iree_ok_status();
 }
 
-static iree_status_t loom_compile_request_select_canonical_kernel_format(
+static iree_status_t loom_compile_request_select_canonical_kernel_emitter(
     const loom_target_fact_type_t* target_fact_type,
     const loom_target_environment_t* target_environment,
-    iree_string_view_t* out_format, loom_compile_producer_t* out_producer) {
-  *out_format = iree_string_view_empty();
-  *out_producer = (loom_compile_producer_t){0};
+    const loom_target_emitter_t** out_target_emitter) {
+  *out_target_emitter = NULL;
   const loom_target_emitter_t* canonical_emitter =
       loom_target_environment_lookup_canonical_kernel_emitter(
           target_environment, target_fact_type);
@@ -106,31 +96,25 @@ static iree_status_t loom_compile_request_select_canonical_kernel_format(
         "no canonical kernel format is configured for target family '%.*s'",
         (int)target_fact_type->name.size, target_fact_type->name.data);
   }
-  *out_format = canonical_emitter->public_artifact_format;
-  out_producer->kind = LOOM_COMPILE_PRODUCER_TARGET_EMITTER;
-  out_producer->target_emitter = canonical_emitter;
+  *out_target_emitter = canonical_emitter;
   return iree_ok_status();
 }
 
-static iree_status_t loom_compile_request_select_format(
+static iree_status_t loom_compile_request_select_emitter(
     loom_compile_product_t product, iree_string_view_t explicit_format,
     const loom_target_fact_type_t* target_fact_type,
     const loom_target_environment_t* target_environment,
-    iree_string_view_t* out_format, loom_compile_producer_t* out_producer) {
+    const loom_target_emitter_t** out_target_emitter) {
   explicit_format = iree_string_view_trim(explicit_format);
   if (!iree_string_view_is_empty(explicit_format)) {
-    IREE_RETURN_IF_ERROR(loom_compile_request_select_named_format(
-        product, explicit_format, target_environment, out_producer));
-    *out_format = explicit_format;
-    return iree_ok_status();
+    return loom_compile_request_select_named_format(
+        product, explicit_format, target_environment, out_target_emitter);
   }
   switch (product) {
     case LOOM_COMPILE_PRODUCT_KERNEL:
-      return loom_compile_request_select_canonical_kernel_format(
-          target_fact_type, target_environment, out_format, out_producer);
+      return loom_compile_request_select_canonical_kernel_emitter(
+          target_fact_type, target_environment, out_target_emitter);
     case LOOM_COMPILE_PRODUCT_COMMAND:
-      *out_format = IREE_SV("loom-command");
-      out_producer->kind = LOOM_COMPILE_PRODUCER_COMMAND;
       return iree_ok_status();
     case LOOM_COMPILE_PRODUCT_MODULE: {
       const loom_target_emitter_t* canonical_emitter =
@@ -139,9 +123,7 @@ static iree_status_t loom_compile_request_select_format(
                     target_environment, target_fact_type)
               : NULL;
       if (canonical_emitter != NULL) {
-        out_producer->kind = LOOM_COMPILE_PRODUCER_TARGET_EMITTER;
-        out_producer->target_emitter = canonical_emitter;
-        *out_format = canonical_emitter->public_artifact_format;
+        *out_target_emitter = canonical_emitter;
         return iree_ok_status();
       }
       return iree_make_status(
@@ -152,8 +134,8 @@ static iree_status_t loom_compile_request_select_format(
     case LOOM_COMPILE_PRODUCT_INVALID:
       break;
   }
-  return iree_make_status(IREE_STATUS_INTERNAL,
-                          "compile product selection is invalid");
+  IREE_ASSERT_UNREACHABLE("resolved compile product");
+  IREE_BUILTIN_UNREACHABLE();
 }
 
 iree_status_t loom_compile_request_resolve(
@@ -201,7 +183,7 @@ iree_status_t loom_compile_request_resolve(
         (int)selection.target_fact_type->name.size,
         selection.target_fact_type->name.data);
   }
-  request.target_fact_type =
+  const loom_target_fact_type_t* target_fact_type =
       request.explicit_target.profile != NULL
           ? request.explicit_target.profile->type->fact_type
           : selection.target_fact_type;
@@ -216,22 +198,21 @@ iree_status_t loom_compile_request_resolve(
         selection.untargeted_kernel_count == 1 ? "" : "s");
   }
   if (selection.product == LOOM_COMPILE_PRODUCT_KERNEL &&
-      request.target_fact_type == NULL) {
+      target_fact_type == NULL) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "kernel product requires a target");
   }
-  if (request.target_fact_type != NULL &&
-      loom_target_environment_lookup_fact_provider(
-          target_environment, request.target_fact_type) == NULL) {
+  if (target_fact_type != NULL &&
+      loom_target_environment_lookup_fact_provider(target_environment,
+                                                   target_fact_type) == NULL) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "target family '%.*s' is not available in this binary",
-        (int)request.target_fact_type->name.size,
-        request.target_fact_type->name.data);
+        (int)target_fact_type->name.size, target_fact_type->name.data);
   }
-  IREE_RETURN_IF_ERROR(loom_compile_request_select_format(
-      request.selection.product, options->format, request.target_fact_type,
-      target_environment, &request.format, &request.producer));
+  IREE_RETURN_IF_ERROR(loom_compile_request_select_emitter(
+      request.selection.product, options->format, target_fact_type,
+      target_environment, &request.target_emitter));
   *out_request = request;
   return iree_ok_status();
 }
