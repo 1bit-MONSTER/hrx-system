@@ -1,0 +1,59 @@
+// RUN: verify
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector.decode requires payload, schema, and an optional auxiliary record"
+[[loom::op("vector.decode")]] Vector invalid(Vector);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector.decode payload and result must be vectors"
+[[loom::op("vector.decode")]] Vector invalid(unsigned, Schema);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector.decode payload and result must be vectors"
+[[loom::op("vector.decode")]] float invalid(Vector, Schema);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Layout = loom::type::encoding<loom::encoding::role::layout>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector.decode requires a schema encoding value"
+[[loom::op("vector.decode")]] Vector invalid(Vector, Layout);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector.decode auxiliaries must be a flat record of named vectors"
+[[loom::op("vector.decode")]] Vector invalid(Vector, Schema, Vector);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+struct Auxiliary { unsigned scale; };
+// ERROR@+1: LOWERING/059 "vector.decode auxiliaries must be a flat record of named vectors"
+[[loom::op("vector.decode")]] Vector invalid(Vector, Schema, Auxiliary);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+struct Nested { Vector scale; };
+struct Auxiliary { Nested scale; };
+// ERROR@+1: LOWERING/059 "vector.decode auxiliaries must be a flat record of named vectors"
+[[loom::op("vector.decode")]] Vector invalid(Vector, Schema, Auxiliary);
+
+// ====
+#include <loomcxx/encoding_type.h>
+using Schema = loom::type::encoding<loom::encoding::role::schema>;
+using Vector = unsigned __attribute__((ext_vector_type(4)));
+struct Auxiliary { Vector scales; };
+// ERROR@+1: LOWERING/059 "unknown vector.decode auxiliary 'scales'"
+[[loom::op("vector.decode")]] Vector invalid(Vector, Schema, Auxiliary);

@@ -69,7 +69,7 @@ class Translator {
         configs_(unit, diagnostics, types_, scalars_, locations_, names_),
         vectors_(unit, diagnostics, types_, scalars_, locations_, builder_),
         storage_(unit, diagnostics, types_, scalars_, locations_, builder_),
-        intrinsics_(unit, diagnostics, types_),
+        intrinsics_(unit, diagnostics, types_, module),
         launches_(unit, diagnostics),
         functions_(unit, diagnostics, module, intrinsics_, launches_, configs_,
                    names_),

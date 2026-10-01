@@ -131,6 +131,53 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    decode
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "decode.h"
+  SRCS
+    "decode.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source::error
+    loom::import::cxx::value::types
+    loom::ir
+    loom::ops::encoding
+    loom::ops::vector
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
+    encoding
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "encoding.h"
+  SRCS
+    "encoding.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source::error
+    loom::import::cxx::value::types
+    loom::ir
+    loom::ops::encoding
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     shaped
   CXX_STANDARD
     23
@@ -246,6 +293,8 @@ loom_cc_library(
     ::assembly
     ::atomic
     ::check
+    ::decode
+    ::encoding
     ::kernel
     ::scalar_bindings
     ::shaped
@@ -405,6 +454,29 @@ loom_cc_test(
     loom::import::cxx::value::builder_test
     loom::ops::config
     loom::ops::scalar
+  LABELS
+    "iree-build-requirement=loom.import.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_test(
+  NAME
+    encoding_test
+  SRCS
+    "encoding_test.cc"
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  DEPS
+    ::encoding
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::third_party::cxx_parser
+    loom::import::cxx::value::builder_test
+    loom::ops::encoding
   LABELS
     "iree-build-requirement=loom.import.cxx"
 )

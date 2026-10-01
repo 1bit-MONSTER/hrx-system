@@ -33,9 +33,11 @@ const EncodingPartition& require_encoding(cxx::TranslationUnit& unit,
                                           Types& types, const cxx::Type* type,
                                           cxx::AST* owner) {
   const auto& partition = types.partition(type, owner);
-  if (partition.kind != ValueKind::Encoding) {
+  if (partition.kind != ValueKind::Encoding ||
+      static_cast<const EncodingPartition&>(partition).role !=
+          LOOM_ENCODING_ROLE_ADDRESS_LAYOUT) {
     diagnostics.reject(unit, owner,
-                       "encoding operation requires an encoding value");
+                       "view operation requires a layout encoding value");
   }
   return static_cast<const EncodingPartition&>(partition);
 }
