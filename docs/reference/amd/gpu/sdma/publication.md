@@ -48,6 +48,10 @@ later in the pinned implementation. [Extension contract][queue-contract]
 [Size units][queue-size] [Native construction][queue-create]
 [Engine admission][queue-engine]
 
+The [engine-selection contract](engine-selection.md) distinguishes ordinary
+SDMA, xGMI SDMA, and explicitly selected native engines. A mapped peer address
+does not select a suitable engine or replace its transfer-direction checks.
+
 ## Reservation, construction and ordered commit
 
 ROCr's ordinary asynchronous-copy producer keeps two private indices:

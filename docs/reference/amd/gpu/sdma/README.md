@@ -6,6 +6,7 @@ depend on the engine generation and native transport.
 
 | Topic | Mechanisms |
 | --- | --- |
+| [Engine selection](engine-selection.md) | Ordinary/xGMI queue pools, directed engine masks, topology flags, and target-specific copy routing. |
 | [Queue publication](publication.md) | Byte frontiers, reservation and ordered commit, wrap/padding, native visibility and storage ownership. |
 | [Linear copy](copy.md) | `COPY_LINEAR`: byte ranges, count representation, runtime caps, alignment and chunking. |
 | [Rectangular copy](rectangular-copy.md) | `COPY_LINEAR_SUBWIN` / `COPY_LINEAR_RECT`: element units, row/slice pitches, subwindow layouts, tiling and geometry-specific cache controls. |

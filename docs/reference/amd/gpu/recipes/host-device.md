@@ -374,12 +374,13 @@ acquires at the receiver before reading peer payload. A copy-based flow
 instead releases the source, satisfies the transfer dependency, copies and
 reports completion; the receiver acquires before using the destination. The
 source stays borrowed through every peer read, and the destination through
-its consumers. ROCr's actual engine choice depends on more than topology:
-disabling peer SDMA selects compute, while its same-hive path requires
-available XGMI SDMA engines and otherwise selects the PCIe-facing path.
-CPU/GPU transfers select host-facing engines even over a CPU XGMI link.
-These are runtime routing choices, not additional memory-scope guarantees.
-[ROCr engine selection][peer-engine]
+its consumers. The native queue's engine must also serve the directed route.
+ROCr separates topology-based blit selection, destination-specific recommended
+engines, and explicit-engine restrictions. Its preferred-engine masks have
+target-specific CPU/GPU choices, while targets without dedicated xGMI engines
+use a different selection rule. The [SDMA engine-selection
+chapter](../sdma/engine-selection.md) traces those predicates and their native
+queue classes. These routing rules supply no additional memory-scope guarantee.
 
 ## Imported buffers and final use
 
@@ -471,4 +472,3 @@ can erase the very completion that consumer still needs to observe.
 [sdma-gang]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_blit_sdma.cpp#L589-L612
 [gfx942-model]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L11263-L11333
 [peer-access]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2580-L2647
-[peer-engine]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3534-L3596
