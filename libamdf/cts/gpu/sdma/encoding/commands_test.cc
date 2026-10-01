@@ -192,4 +192,151 @@ TEST(SdmaEncodingTest, LinearShortTransfersKeepByteCountUnits) {
   }
 }
 
+constexpr std::array<amdf_queue_format_features_t, 4> kRectangleFeatures = {
+    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT,
+    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR,
+    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR,
+    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+        AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE,
+};
+
+TEST(SdmaEncodingTest, RectangularElementsAndLayoutsHaveExactOperands) {
+  constexpr std::array<uint32_t, 5> kHeaders = {
+      0x00000401, 0x20000401, 0x40000401, 0x60000401, 0x80000401};
+  constexpr std::array<uint32_t, 4> kSourcePitchZ = {0x0007e001, 0x0007e001,
+                                                     0x003f0001, 0x003f0001};
+  constexpr std::array<uint32_t, 4> kTargetPitchZ = {0x000be002, 0x000be002,
+                                                     0x005f0002, 0x005f0002};
+  constexpr std::array<uint32_t, 4> kDepthScopes = {1, 1, 1, 0x0c0c0001};
+  for (size_t layout = 0; layout < kRectangleFeatures.size(); ++layout) {
+    SCOPED_TRACE(layout);
+    for (uint32_t element_log2 = 0; element_log2 < kHeaders.size();
+         ++element_log2) {
+      SCOPED_TRACE(element_log2);
+      std::array<uint32_t, 14> words;
+      words.fill(0xdeadbeef);
+      SdmaCommandWriter commands(words.data(), kRectangleFeatures[layout]);
+      commands.CopyLinearRect(0x1122334455667780, {3, 2, 1, 64, 512},
+                              0x8877665544332200, {5, 1, 2, 96, 960},
+                              {17, 3, 2}, element_log2);
+      // Only geometry placement and separately admitted scope differ. The
+      // header's NPD remains zero even for the scoped form.
+      const std::array<uint32_t, 14> expected = {kHeaders[element_log2],
+                                                 0x55667780,
+                                                 0x11223344,
+                                                 0x00020003,
+                                                 kSourcePitchZ[layout],
+                                                 0x000001ff,
+                                                 0x44332200,
+                                                 0x88776655,
+                                                 0x00010005,
+                                                 kTargetPitchZ[layout],
+                                                 0x000003bf,
+                                                 0x00020010,
+                                                 kDepthScopes[layout],
+                                                 0xdeadbeef};
+      EXPECT_EQ(commands.word_count(), 13u);
+      EXPECT_EQ(words, expected);
+    }
+  }
+}
+
+TEST(SdmaEncodingTest, RectangularZCoordinatesAndDepthUseTheirFullFields) {
+  constexpr std::array<uint32_t, 4> kDepthCounts = {2048, 8192, 16384, 16384};
+  constexpr std::array<uint32_t, 4> kSourcePitchZ = {0x000067fe, 0x00007ffe,
+                                                     0x00033ffe, 0x00033ffe};
+  constexpr std::array<uint32_t, 4> kTargetPitchZ = {0x000067ff, 0x00007fff,
+                                                     0x00033fff, 0x00033fff};
+  constexpr std::array<uint32_t, 4> kPitch = {0x6000, 0x6000, 0x30000, 0x30000};
+  constexpr std::array<uint32_t, 4> kScopes = {0, 0, 0, 0x0c0c0000};
+  constexpr std::array<uint32_t, 4> kDepthScopes = {0x000007ff, 0x00001fff,
+                                                    0x00003fff, 0x0c0c3fff};
+  for (size_t layout = 0; layout < kRectangleFeatures.size(); ++layout) {
+    SCOPED_TRACE(layout);
+    std::array<uint32_t, 27> words;
+    words.fill(0xdeadbeef);
+    SdmaCommandWriter commands(words.data(), kRectangleFeatures[layout]);
+    commands.CopyLinearRect(0x100000000, {0, 0, kDepthCounts[layout] - 2, 4, 4},
+                            0x200000000, {0, 0, kDepthCounts[layout] - 1, 4, 4},
+                            {1, 1, 1}, 0);
+    commands.CopyLinearRect(0x100000000, {0, 0, 0, 4, 4}, 0x200000000,
+                            {0, 0, 0, 4, 4}, {1, 1, kDepthCounts[layout]}, 0);
+    const std::array<uint32_t, 27> expected = {0x401,
+                                               0,
+                                               1,
+                                               0,
+                                               kSourcePitchZ[layout],
+                                               3,
+                                               0,
+                                               2,
+                                               0,
+                                               kTargetPitchZ[layout],
+                                               3,
+                                               0,
+                                               kScopes[layout],
+                                               0x401,
+                                               0,
+                                               1,
+                                               0,
+                                               kPitch[layout],
+                                               3,
+                                               0,
+                                               2,
+                                               0,
+                                               kPitch[layout],
+                                               3,
+                                               0,
+                                               kDepthScopes[layout],
+                                               0xdeadbeef};
+    EXPECT_EQ(commands.word_count(), 26u);
+    EXPECT_EQ(words, expected);
+  }
+}
+
+TEST(SdmaEncodingTest, RectangularPitchCountsPreserveTheWideSliceLimit) {
+  constexpr std::array<uint32_t, 4> kRowCounts = {524288, 524288, 65536, 65536};
+  constexpr std::array<uint64_t, 4> kSliceCounts = {
+      UINT64_C(1) << 28, UINT64_C(1) << 28, UINT64_C(1) << 32,
+      UINT64_C(1) << 32};
+  constexpr std::array<uint32_t, 4> kPitches = {0xffffe000, 0xffffe000,
+                                                0xffff0000, 0xffff0000};
+  constexpr std::array<uint32_t, 4> kSlices = {0x0fffffff, 0x0fffffff,
+                                               0xffffffff, 0xffffffff};
+  constexpr std::array<uint32_t, 4> kScopes = {0, 0, 0, 0x0c0c0000};
+  for (size_t layout = 0; layout < kRectangleFeatures.size(); ++layout) {
+    SCOPED_TRACE(layout);
+    std::array<uint32_t, 14> words;
+    words.fill(0xdeadbeef);
+    SdmaCommandWriter commands(words.data(), kRectangleFeatures[layout]);
+    const SdmaLinearLayout geometry = {0, 0, 0, kRowCounts[layout],
+                                       kSliceCounts[layout]};
+    commands.CopyLinearRect(0x100000000, geometry, 0x200000000, geometry,
+                            {1, 1, 1}, 0);
+    const std::array<uint32_t, 14> expected = {0x401,
+                                               0,
+                                               1,
+                                               0,
+                                               kPitches[layout],
+                                               kSlices[layout],
+                                               0,
+                                               2,
+                                               0,
+                                               kPitches[layout],
+                                               kSlices[layout],
+                                               0,
+                                               kScopes[layout],
+                                               0xdeadbeef};
+    EXPECT_EQ(commands.word_count(), 13u);
+    EXPECT_EQ(words, expected);
+  }
+}
+
 }  // namespace

@@ -15,6 +15,7 @@ identity, independent observation and checked retirement.
 | PM4 execution and dependencies | [dispatch](pm4/dispatch_test.cc), [cross-queue handoff](pm4/handoff_test.cc), [indirect dispatch](pm4/indirect_test.cc), [command buffers](pm4/command_buffer_test.cc) | Shader outputs across generations, device-produced dispatch counts, immutable indirect buffers and completed-use command rebuilding. |
 | PM4 shader resources | [LDS](pm4/lds_test.cc), [resource changes](pm4/resource_test.cc) | Cross-wave exchange through fixed workgroup storage and transitions between distinct resource configurations. |
 | SDMA transfers | [copy](sdma/copy_test.cc), [fill](sdma/fill_test.cc) | Linear copies, byte tails/page crossings, DWORD fills, NOP-separated dependent copies and fence-visible output. |
+| SDMA rectangular transfers | [rectangles](sdma/rectangular_copy_test.cc) | All five element sizes, independent source/destination coordinates and pitches, page crossings, the advertised Z-coordinate/depth widths, and complete source/destination/control backing across changed epochs. |
 | SDMA data visibility | [cache commands](sdma/cache_test.cc), [SDMA/AQL](recipes/copy_dispatch_test.cc), [PM4/SDMA](recipes/pm4_sdma_test.cc) | Explicit USER_GCR acquire/release, changing payloads, immutable commands, and queried cache operations at upload and download boundaries. |
 | AQL publication and dependencies | [publication](aql/publication_test.cc), [barriers](aql/barrier_test.cc), [epochs](aql/epoch_test.cc), [fan-in](aql/fanin_test.cc), [scope](aql/scope_test.cc) | Slot reuse, independent producer publication, AND/OR/value dependencies, complete shader payloads and AGENT-to-SYSTEM scope composition. |
 | AQL execution and resources | [dispatch](aql/dispatch_test.cc), [geometry](aql/geometry_test.cc), [scratch](aql/private_test.cc), [LDS](aql/lds_test.cc), [resource changes](aql/resource_test.cc) | Complete/partial multidimensional grids, caller-owned private storage, fixed group storage and resource rebinding. |
@@ -60,12 +61,24 @@ Ordinary transfers bracket their payloads with GCR when that format is present.
 Query-driven recipes emit the backing's returned NONE or GLOBAL transitions;
 neither HOST_COHERENT nor a compiler target name substitutes for those answers.
 
+Rectangular cases require `COPY_LINEAR_RECT`; its `EXTENDED_Z` and `WIDE`
+modifiers select geometry without inspecting the compute target. The five
+element-size cases each exercise a single element, a pitched volume and a
+page-crossing volume in two epochs. Separate cases use the largest admitted Z
+coordinate and depth count within owned 64 KiB source and destination buffers.
+Every case checks the entire backing, including untouched rows, slices and
+completion storage, before retiring commands. Host-only literal checks cover
+the additional maximum row/slice-pitch encodings, including a positive wide
+slice pitch of 2^32 elements; they do not establish native access to those
+large layouts. Overlapping backing, tiled images and optional placement hints
+need different cases.
+
 Windows compilation does not establish a USER queue service or native execution
 result. Physical peer-GPU execution has
 [no compiled cases](peer/README.md).
 
-Per-dispatch LDS capacity changes, additional packet fields, rectangular SDMA
-transfers, SDMA atomics, general poll/cache controls, command-buffer variants,
+Per-dispatch LDS capacity changes, additional packet fields, SDMA atomics,
+general poll/cache controls, command-buffer variants,
 physical peers and hardware-counter collection need their own native witnesses.
 The corresponding
 [hardware reference](../../../docs/reference/amd/gpu/README.md) has a broader
