@@ -217,7 +217,7 @@ TEST_F(CompileRequestTest, InfersKernelAndCanonicalFormat) {
   ModulePtr module = ParseKernel(this, true);
   const loom_compile_request_t request = Resolve(module.get(), {});
 
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_TRUE(
       iree_string_view_equal(request.target_emitter->public_artifact_format,
                              IREE_SV("DiagnosticFormat123")));
@@ -340,7 +340,7 @@ func.def public abi(array_program) @entry() {
   for (iree_host_size_t root_count : {0, 1}) {
     options.roots = {root_count, roots};
     const loom_compile_request_t request = Resolve(module.get(), options);
-    EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+    EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
     EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
     ASSERT_EQ(request.selection.roots.count, 1u);
     EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
@@ -360,7 +360,7 @@ func.def public abi(object_function) @entry() {
   for (iree_host_size_t root_count : {0, 1}) {
     options.roots = {root_count, roots};
     const loom_compile_request_t request = Resolve(module.get(), options);
-    EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
+    EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_MODULE);
     EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
     EXPECT_EQ(request.selection.roots.count, root_count);
   }
@@ -387,7 +387,7 @@ func.def @helper() {
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_compile_request_t request = Resolve(module.get(), options);
 
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_MODULE);
   ASSERT_EQ(request.selection.roots.count, 2u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("kept")));
@@ -416,7 +416,7 @@ kernel.def @excluded() {
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_compile_request_t request = Resolve(module.get(), options);
 
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("kept")));
@@ -446,7 +446,7 @@ kernel.def target(@UnavailableTarget) @excluded() {
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   const loom_compile_request_t request = Resolve(module.get(), options);
 
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
@@ -549,7 +549,7 @@ func.def abi(array_program) @entry() {
 
   options.roots = {IREE_ARRAYSIZE(roots), roots};
   const loom_compile_request_t request = Resolve(module.get(), options);
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 }
 
@@ -632,7 +632,7 @@ pipeline.def @GenericPipeline() launch() {
 
   loom_compile_request_options_t options = {};
   loom_compile_request_t request = Resolve(module.get(), options);
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
   EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
   ASSERT_EQ(request.selection.roots.count, 1u);
@@ -646,7 +646,7 @@ pipeline.def @GenericPipeline() launch() {
   };
   options.format = IREE_SV("DiagnosticFormat123");
   request = Resolve(module.get(), options);
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_MODULE);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 }
 
@@ -696,7 +696,7 @@ kernel.def @Kernel123() {
   };
   const loom_compile_request_t request = Resolve(module.get(), options);
 
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
   EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
   ASSERT_EQ(request.selection.roots.count, 1u);
@@ -720,7 +720,7 @@ func.def public @Function123() {
   options.format = IREE_SV("DiagnosticFormat123");
   IREE_ASSERT_OK(loom_compile_request_resolve(
       module.get(), &options, &environment_, &request_arena_, &request));
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_MODULE);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 
   options.format = iree_string_view_empty();
@@ -738,7 +738,7 @@ func.def public @Function123() {
       loom_target_environment_initialize(&target_provider_set_, &environment_));
   IREE_ASSERT_OK(loom_compile_request_resolve(
       module.get(), &options, &environment_, &request_arena_, &request));
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_MODULE);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
   EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
   EXPECT_TRUE(
@@ -836,7 +836,7 @@ TEST_F(CompileRequestTest, DiagnosticFormatCanInspectKernelEntries) {
   loom_compile_request_t request = {};
   IREE_ASSERT_OK(loom_compile_request_resolve(
       module.get(), &options, &environment_, &request_arena_, &request));
-  EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
+  EXPECT_EQ(request.selection.kind, LOOM_COMPILE_ENTRY_KIND_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 }
 

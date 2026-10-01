@@ -614,14 +614,14 @@ static iree_status_t loom_compile_emit_target(
   const iree_string_view_t target_artifact_path =
       iree_make_cstring_view(FLAG_emit_target_artifact);
   if (!iree_string_view_is_empty(target_artifact_path) &&
-      compile_request->selection.product != LOOM_COMPILE_PRODUCT_KERNEL) {
+      compile_request->selection.kind != LOOM_COMPILE_ENTRY_KIND_KERNEL) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "--emit-target-artifact is only valid for loadable kernel formats");
   }
   if (compile_options->artifact_manifest.mode !=
           LOOM_TARGET_ARTIFACT_MANIFEST_MODE_NONE &&
-      compile_request->selection.product != LOOM_COMPILE_PRODUCT_KERNEL) {
+      compile_request->selection.kind != LOOM_COMPILE_ENTRY_KIND_KERNEL) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "--artifact-manifest is only valid for loadable kernel formats");
@@ -917,7 +917,7 @@ int main(int argc, char** argv) {
   }
   if (iree_status_is_ok(status)) {
     const bool is_loadable_kernel_format =
-        request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL;
+        request.selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL;
     status = loom_compile_artifact_manifest_options_initialize(
         &artifact_manifest_options, is_loadable_kernel_format, allocator,
         &artifact_manifest_output_path, &artifact_manifest_output_path_storage);

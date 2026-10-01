@@ -232,7 +232,7 @@ iree_status_t loom_check_execute_compile(
   }
   if (iree_status_is_ok(status) && input.module != NULL &&
       collector.error_count == 0) {
-    if (request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL) {
+    if (request.selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL) {
       // Testbench launches are independent deployment units. Compiling their
       // roots separately also preserves targets with per-artifact dispatch
       // ABIs.

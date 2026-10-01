@@ -22,20 +22,17 @@ extern "C" {
 #endif
 
 // Entry category inferred from compile roots.
-typedef enum loom_compile_product_e {
-  LOOM_COMPILE_PRODUCT_INVALID = 0,
-  LOOM_COMPILE_PRODUCT_KERNEL = 1,
-  LOOM_COMPILE_PRODUCT_COMMAND = 2,
-  LOOM_COMPILE_PRODUCT_MODULE = 3,
-} loom_compile_product_t;
-
-// Returns the stable diagnostic name of |product|.
-iree_string_view_t loom_compile_product_name(loom_compile_product_t product);
+typedef enum loom_compile_entry_kind_e {
+  LOOM_COMPILE_ENTRY_KIND_INVALID = 0,
+  LOOM_COMPILE_ENTRY_KIND_KERNEL = 1,
+  LOOM_COMPILE_ENTRY_KIND_COMMAND = 2,
+  LOOM_COMPILE_ENTRY_KIND_MODULE = 3,
+} loom_compile_entry_kind_t;
 
 // Resolved entry category and roots for one compilation.
-typedef struct loom_compile_product_selection_t {
+typedef struct loom_compile_entry_selection_t {
   // Entry category inferred from the selected roots.
-  loom_compile_product_t product;
+  loom_compile_entry_kind_t kind;
   // Selected roots, preserving explicit order/duplicates. Derived roots own
   // their names in the caller arena. Empty selects the entire module.
   iree_string_view_list_t roots;
@@ -43,7 +40,7 @@ typedef struct loom_compile_product_selection_t {
   const loom_target_fact_type_t* target_fact_type;
   // Number of selected kernel roots without an authored target.
   iree_host_size_t untargeted_kernel_count;
-} loom_compile_product_selection_t;
+} loom_compile_entry_selection_t;
 
 // Explicit target selected for one compile request.
 typedef struct loom_compile_target_selection_t {
@@ -69,7 +66,7 @@ typedef struct loom_compile_request_options_t {
 // Fully resolved compile request borrowing immutable configured state.
 typedef struct loom_compile_request_t {
   // Entry category and root selection.
-  loom_compile_product_selection_t selection;
+  loom_compile_entry_selection_t selection;
   // Target-owned artifact emitter for the resolved kernel or module entries.
   const loom_target_emitter_t* target_emitter;
   // Explicit target selected by the caller, or empty for authored targets.
