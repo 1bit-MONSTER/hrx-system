@@ -51,6 +51,70 @@ CPU pointer, a compiler target name or physical DRAM placement.
 [ROCr region construction][region-flags] [Pool properties][pool-properties]
 [Per-agent access][pool-access]
 
+## Pool grain, agent access and SVM
+
+Pool grain describes the memory-consistency contract for accesses to an
+allocation. Direct access is a separate relationship between that pool and
+each participating agent. HSA exposes these facts through different queries:
+
+| Attribute | Query inputs | Meaning |
+| --- | --- | --- |
+| `HSA_AMD_MEMORY_POOL_INFO_GLOBAL_FLAGS` | Global memory pool. | Grain and whether allocations permit kernarg initialization. |
+| `HSA_AMD_AGENT_MEMORY_POOL_INFO_ACCESS` | Requesting agent and memory pool. | Whether that agent can directly access allocations, and whether access requires an explicit grant. |
+| `HSA_AMD_AGENT_INFO_SVM_DIRECT_HOST_ACCESS` | GPU agent. | Whether the host can directly access SVM memory physically resident in that GPU's local memory. |
+
+[Pool flags][pool-flags] [Global-pool attribute][pool-global-attribute]
+[Agent/pool attribute][pool-access-attribute] [SVM attribute][svm-host-access]
+
+The access enumeration has three answers, all with the
+`HSA_AMD_MEMORY_POOL_ACCESS_` prefix:
+
+| Value | Answer | Direct-access contract |
+| --- | --- | --- |
+| 0 | `NEVER_ALLOWED` | The agent cannot directly access buffers in this pool; an access grant cannot establish this path. |
+| 1 | `ALLOWED_BY_DEFAULT` | The agent can access buffers without an explicit grant. |
+| 2 | `DISALLOWED_BY_DEFAULT` | The agent needs a successful `hsa_amd_agents_allow_access` call for the buffer before direct access. |
+
+An access-set update includes every agent that must retain direct access;
+the pool owner remains included. The pool-level
+`HSA_AMD_MEMORY_POOL_INFO_ACCESSIBLE_BY_ALL` reports whether every agent can
+be granted access, not which particular pairs require grants or deny access.
+[Access values][pool-access-values] [Access update][allow-access]
+[Aggregate accessibility][pool-accessible-by-all]
+
+The pinned ROCr `MemoryRegion::GetAccessInfo` applies the following ordered
+policy. Later rows apply only when an earlier row did not return:
+
+| Condition | Returned access |
+| --- | --- |
+| The requesting agent owns the pool. | `ALLOWED_BY_DEFAULT` |
+| The link has fewer than one hop. | `NEVER_ALLOWED` |
+| System pool, requesting CPU. | `ALLOWED_BY_DEFAULT` |
+| System pool, other requesting agent. | `DISALLOWED_BY_DEFAULT` |
+| Local pool with `fine_grain() == false`, including coarse and extended-scope fine grain. | `DISALLOWED_BY_DEFAULT` |
+| Ordinary fine-grained local pool with equal requesting/owning `HiveId()` values. | `DISALLOWED_BY_DEFAULT` |
+| Remaining cases. | `NEVER_ALLOWED` |
+
+The hive comparison has no separate nonzero check. Pool exposure is another
+predicate: ROCr makes ordinary fine-grained local pools user-visible when the
+GPU's `HiveID` is nonzero or `HSA_FORCE_FINE_GRAIN_PCIE` is exactly `1`.
+Exposure does not replace the per-agent query. Separately, ROCr answers the
+SVM attribute from KFD's `CoherentHostAccess` capability; that query receives
+neither a pool nor a requesting CPU agent. [Access implementation][pool-access]
+[Pool exposure][pool-exposure] [Option parsing][fine-grain-pcie]
+[SVM capability implementation][svm-host-capability]
+
+The public header's access-attribute comment disagrees with these narrower
+contracts: it says fine-grained pools cannot return `NEVER_ALLOWED`, and
+requires an explicit grant for any pool not associated with the agent. The
+access enumeration explicitly permits access without a grant for
+`ALLOWED_BY_DEFAULT`; the implementation returns that value for CPUs accessing
+system pools and can deny ordinary fine-grained local memory to another agent.
+The returned agent/pool access value distinguishes these cases. Fine grain,
+an exposed GPU pool or the SVM capability alone cannot establish the complete
+CPU/GPU allocation contract. [Attribute comment][pool-access-attribute]
+[Access values][pool-access-values] [Access implementation][pool-access]
+
 ## A complete fine-grained AQL flow
 
 The participants in this flow are the host and one selected HSA GPU agent.
@@ -63,7 +127,8 @@ completion; it is not an arbitrary payload word cast to a signal handle.
 [Executable publication](../aql/dispatch.md#executable-publication-and-final-use)
 
 1. Query the pool's allocation allowance, granule and alignment, and the
-   selected GPU's access to it. Allocate input, output and kernarg backing.
+   host and selected GPU agents' access to it. Allocate input, output and
+   kernarg backing.
    Where access must be enabled, `hsa_amd_agents_allow_access` names every
    agent that must retain direct access; the pool's owning agent remains
    included. The call is not an additive grant to an otherwise unknown set.
@@ -361,6 +426,14 @@ can erase the very completion that consumer still needs to observe.
 [pool-properties]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_memory_region.cpp#L309-L352
 [pool-access]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_memory_region.cpp#L355-L401
 [pool-flags]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L1830-L1857
+[pool-global-attribute]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L1871-L1888
+[pool-access-attribute]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2606-L2630
+[pool-access-values]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2503-L2523
+[pool-accessible-by-all]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L1922-L1928
+[pool-exposure]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L532-L569
+[fine-grain-pcie]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/util/flag.h#L237-L238
+[svm-host-access]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L821-L826
+[svm-host-capability]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L2584-L2587
 [signal-create]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa.h#L1382-L1437
 [pool-allocate]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2035-L2088
 [allow-access]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2673-L2711
