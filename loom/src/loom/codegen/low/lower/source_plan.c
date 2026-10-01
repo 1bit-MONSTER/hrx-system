@@ -1564,8 +1564,9 @@ static bool loom_low_lower_try_reuse_selected_rule_plan(
   selection.source_nodes[0] = previous_plan->source_op;
   if (selection.source_node_count > 1) {
     IREE_ASSERT(previous_plan->data.source_nodes != NULL);
-    memcpy(selection.source_nodes, previous_plan->data.source_nodes,
-           selection.source_node_count * sizeof(*selection.source_nodes));
+    for (uint8_t i = 1; i < selection.source_node_count; ++i) {
+      selection.source_nodes[i] = previous_plan->data.source_nodes[i];
+    }
   }
   if (!loom_low_lower_rule_selection_can_claim_source_nodes(context,
                                                             &selection)) {
