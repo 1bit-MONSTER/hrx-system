@@ -114,6 +114,7 @@ loom_check_test_suite(
     "template_calls.cxx-test"
     "template_conversions.cxx-test"
     "template_conversions_invalid.cxx-test"
+    "value_initialization.cxx-test"
     "vector_constants.cxx-test"
     "vector_conversion.cxx-test"
     "vector_conversion_invalid.cxx-test"

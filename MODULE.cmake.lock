@@ -176,6 +176,7 @@ set(IREE_DEP_CXX_PATCHES
   "//build_tools/third_party/cxx:selected_subobject_paths.patch"
   "//build_tools/third_party/cxx:aggregate_member_defaults.patch"
   "//build_tools/third_party/cxx:aggregate_initialization_failures.patch"
+  "//build_tools/third_party/cxx:constant_object_initialization.patch"
 )
 set(IREE_DEP_CXX_PATCH_ARGS
   "-p1"
