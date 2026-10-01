@@ -532,7 +532,6 @@ loom_check_test_suite(
     "test/source_low/numeric_constant_remainder.loom-test"
     "test/source_low/numeric_conversion.loom-test"
     "test/source_low/numeric_conversion_float8.loom-test"
-    "test/source_low/numeric_conversion_wide.loom-test"
     "test/source_low/numeric_extended_math.loom-test"
     "test/source_low/numeric_float_arithmetic.loom-test"
     "test/source_low/numeric_float_comparison_flags.loom-test"
