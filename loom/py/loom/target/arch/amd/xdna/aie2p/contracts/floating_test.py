@@ -12,11 +12,13 @@ from loom.dialect.scalar import arithmetic as scalar
 from loom.dialect.vector import defs as vector
 from loom.target.arch.amd.xdna.aie2p.contracts.floating import AIE2P_FLOATING_RULES
 from loom.target.contracts import (
+    DescriptorEmitForm,
     DescriptorResultType,
     EmitDescriptorOp,
     EmitRegisterSlice,
     Guard,
     Scalar,
+    SourceNodeRelation,
     ValueRef,
     Vector,
 )
@@ -28,6 +30,15 @@ def _bf16_origin_scale_rule():
         for rule in AIE2P_FLOATING_RULES
         if rule.source_op is vector.vector_mulf
         and rule.report_key == "exact_bf16_origin_scale_1_4453125"
+    )
+
+
+def _bf16_vector_scalar_product_rule(lane_count: int = 16):
+    return next(
+        rule
+        for rule in AIE2P_FLOATING_RULES
+        if rule.source_op is vector.vector_mulf
+        and rule.report_key == f"exact_bf16_vector_scalar_product_to_bf16_x{lane_count}"
     )
 
 
@@ -145,6 +156,114 @@ def test_bf16_origin_scale_repair_matches_every_non_nan_encoding() -> None:
         checked_count += 1
 
     assert checked_count == 65282
+
+
+def test_bf16_vector_scalar_product_owns_the_exact_roundtrip_graph() -> None:
+    for lane_count in (16, 32):
+        f32_vector = Vector("f32", lanes=lane_count)
+        bf16_vector = Vector("bf16", lanes=lane_count)
+        rule = _bf16_vector_scalar_product_rule(lane_count)
+        assert rule.priority == 1
+        assert rule.guards == (
+            Guard.value_type("lhs", f32_vector),
+            Guard.exact_lane_origin_type("lhs", bf16_vector),
+            Guard.value_type("rhs", f32_vector),
+            Guard.exact_uniform_element_origin_type("rhs", Scalar("bf16")),
+            Guard.value_type("result", f32_vector),
+            Guard.instance_flags_has_all("fastmath", "nnan"),
+            Guard.instance_flags_has_all("fastmath", "ninf"),
+        )
+
+        (narrow,) = rule.source_nodes
+        assert (
+            narrow.name,
+            narrow.source_op,
+            narrow.relation,
+            narrow.parent_value,
+            narrow.node_value,
+            narrow.parent,
+            narrow.guards,
+        ) == (
+            "narrow",
+            vector.vector_fptrunc,
+            SourceNodeRelation.ADJACENT_UNIQUE_USER,
+            ValueRef.result("result"),
+            ValueRef.operand("input"),
+            "",
+            (
+                Guard.value_type("input", f32_vector),
+                Guard.value_type("result", bf16_vector),
+            ),
+        )
+        descriptor_emits = [
+            emit for emit in rule.emit if isinstance(emit, EmitDescriptorOp)
+        ]
+        temporary_producers = {
+            result.field: emit
+            for emit in descriptor_emits
+            for result in emit.results.values()
+            if result == ValueRef.temporary(result.field)
+        }
+        assert temporary_producers["rhs"].operands == {
+            "src": ValueRef.exact_uniform_element_origin_operand("rhs")
+        }
+        assert temporary_producers["raw_products"].operands["s1"] == (
+            ValueRef.exact_lane_origin_operand("lhs")
+        )
+        final_select = descriptor_emits[-1]
+        assert final_select.descriptor.key == "amd.xdna.aie2p.select.i16x32.mask64"
+        assert final_select.results == {
+            "d": ValueRef.result("result", source_node="narrow")
+        }
+
+
+def test_bf16_vector_scalar_product_exhausts_subnormal_rounding() -> None:
+    rule = _bf16_vector_scalar_product_rule()
+    constants = {
+        result.field: emit.immediates["i"]
+        for emit in rule.emit
+        if isinstance(emit, EmitDescriptorOp) and emit.form is DescriptorEmitForm.CONST
+        for result in emit.results.values()
+    }
+    exponent_limit = constants["repair_exponent_limit_scalar"] >> 7
+    factor_exponent_bias = constants["factor_bias_scalar"] >> 7
+    repair_shift = constants["repair_shift"]
+    assert (exponent_limit, factor_exponent_bias, repair_shift) == (134, 8, 16)
+
+    def round_even_shift(value: int, shift: int) -> int:
+        quotient = value >> shift
+        remainder = value & ((1 << shift) - 1)
+        halfway = 1 << (shift - 1)
+        return quotient + (
+            remainder > halfway or (remainder == halfway and quotient & 1)
+        )
+
+    checked_count = 0
+    tie_count = 0
+    for product in range(255 * 255 + 1):
+        for exponent_sum in range(119, exponent_limit + 1):
+            reference_shift = 135 - exponent_sum
+            expected = round_even_shift(product, reference_shift)
+            factor = 1 << (
+                min(exponent_sum, exponent_limit) + factor_exponent_bias - 127
+            )
+            actual = round_even_shift(product * factor, repair_shift)
+            assert actual == expected, (product, exponent_sum)
+            remainder = product & ((1 << reference_shift) - 1)
+            if remainder == 1 << (reference_shift - 1):
+                tie_count += 1
+            checked_count += 1
+
+    # Smaller exponent sums encode the factor as a positive BF16 fraction.
+    # Flooring that factor produces zero, which is also the correctly rounded
+    # result even for the largest possible significand product.
+    for exponent_sum in range(2, 119):
+        reference_shift = 135 - exponent_sum
+        assert round_even_shift(255 * 255, reference_shift) == 0
+        checked_count += 1
+
+    assert checked_count == 1_040_533
+    assert tie_count == 65_025
 
 
 def test_bf16_vector_maximum_requires_nan_and_zero_permissions() -> None:

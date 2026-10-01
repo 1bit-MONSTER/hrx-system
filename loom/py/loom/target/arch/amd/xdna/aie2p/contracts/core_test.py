@@ -1146,6 +1146,7 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         "amd.xdna.aie2p.splat.i16x32",
         "amd.xdna.aie2p.splat.i32x16",
         "amd.xdna.aie2p.splat.i32x16",
+        "amd.xdna.aie2p.splat.i32x16",
         "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
     ]
     assert [
@@ -1159,6 +1160,7 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         ("f16", "f16"),
         ("bf16", "bf16"),
         ("i32", "i32"),
+        ("f32", "f32"),
         ("f32", "f32"),
         ("i1", "i1"),
     ]

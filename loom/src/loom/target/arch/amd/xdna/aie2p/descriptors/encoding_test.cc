@@ -260,6 +260,27 @@ TEST(DescriptorEncodingTest, VolatileAliasesPreservePhysicalEncoding) {
   }
 }
 
+TEST(DescriptorEncodingTest, AccumulatorMovesMatchOracleInstructionEncodings) {
+  struct TestCase {
+    std::vector<std::string_view> registers;
+    std::array<uint8_t, 4> expected;
+  };
+  const TestCase test_cases[] = {
+      {{"bmll2", "bmhl0"}, {0xF8, 0x12, 0x02, 0x1A}},
+      {{"bmhl0", "bmll2"}, {0xF8, 0x12, 0x88, 0x18}},
+      {{"bmll2", "bmll0"}, {0xF8, 0x12, 0x00, 0x1A}},
+  };
+
+  for (const TestCase& test_case : test_cases) {
+    std::vector<uint8_t> program;
+    IREE_ASSERT_OK(EncodeSingleDescriptor("amd.xdna.aie2p.move.accumulator512",
+                                          test_case.registers, {}, "I32_MV",
+                                          &program));
+    EXPECT_EQ(program, std::vector<uint8_t>(test_case.expected.begin(),
+                                            test_case.expected.end()));
+  }
+}
+
 TEST(DescriptorEncodingTest, DirectBranchesMatchOracleInstructionEncodings) {
   struct TestCase {
     std::string_view descriptor_key;
