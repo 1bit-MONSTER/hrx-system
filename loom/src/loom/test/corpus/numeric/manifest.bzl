@@ -57,7 +57,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "integer/extrema.loom",
         "integer/narrow_consumers.loom",
         "integer/scalar_observations.loom",
-        "integer/unsigned_remainder.loom",
+        "integer/constant_unsigned_division.loom",
         "integer/widening.loom",
         "integer/wide/shifts.loom",
         "integer/wide/subtract.loom",

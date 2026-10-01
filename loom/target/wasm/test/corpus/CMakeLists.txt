@@ -980,7 +980,7 @@ loom_corpus_test(
     "numeric/integer/division.loom"
     "numeric/integer/extrema.loom"
     "numeric/integer/scalar_observations.loom"
-    "numeric/integer/unsigned_remainder.loom"
+    "numeric/integer/constant_unsigned_division.loom"
     "numeric/integer/widening.loom"
     "numeric/integer/wide/observations.loom"
     "numeric/predicate/lanes.loom"
