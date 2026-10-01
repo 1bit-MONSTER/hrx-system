@@ -14,6 +14,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
     srcs = [
         "conversion/bfloat_rounding.loom",
         "conversion/conversion.loom",
+        "conversion/f32_narrowing.loom",
         "conversion/integer_float8.loom",
         "conversion/narrow.loom",
         "conversion/narrow_arithmetic.loom",
