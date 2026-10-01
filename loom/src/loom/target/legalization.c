@@ -12,10 +12,11 @@ static iree_status_t loom_target_legalizer_registry_count_rows(
     const loom_target_legalizer_provider_list_t* provider_lists,
     iree_host_size_t provider_list_count, uint16_t* dialect_op_counts,
     uint8_t* out_dialect_base_id, uint16_t* out_dialect_limit,
-    uint16_t* out_entry_count) {
+    uint16_t* out_entry_count, uint16_t* out_vector_packet_policy_count) {
   *out_dialect_base_id = UINT8_MAX;
   *out_dialect_limit = 0;
   *out_entry_count = 0;
+  *out_vector_packet_policy_count = 0;
   for (iree_host_size_t list_index = 0; list_index < provider_list_count;
        ++list_index) {
     const loom_target_legalizer_provider_list_t* provider_list =
@@ -24,6 +25,14 @@ static iree_status_t loom_target_legalizer_registry_count_rows(
          provider_index < provider_list->count; ++provider_index) {
       const loom_target_legalizer_provider_t* provider =
           provider_list->values[provider_index];
+      if (provider->vector_packet_policy != NULL) {
+        if (*out_vector_packet_policy_count == UINT16_MAX) {
+          return iree_make_status(
+              IREE_STATUS_RESOURCE_EXHAUSTED,
+              "target vector packet policy count exceeds uint16_t capacity");
+        }
+        ++*out_vector_packet_policy_count;
+      }
       if (provider->rule_count == 0) {
         continue;
       }
@@ -175,6 +184,26 @@ static void loom_target_legalizer_registry_fill_entries(
   }
 }
 
+static void loom_target_legalizer_registry_fill_vector_packet_policies(
+    const loom_target_legalizer_provider_list_t* provider_lists,
+    iree_host_size_t provider_list_count,
+    const loom_target_vector_packet_policy_t** vector_packet_policies) {
+  uint16_t policy_index = 0;
+  for (iree_host_size_t list_index = 0; list_index < provider_list_count;
+       ++list_index) {
+    const loom_target_legalizer_provider_list_t* provider_list =
+        &provider_lists[list_index];
+    for (iree_host_size_t provider_index = 0;
+         provider_index < provider_list->count; ++provider_index) {
+      const loom_target_vector_packet_policy_t* policy =
+          provider_list->values[provider_index]->vector_packet_policy;
+      if (policy != NULL) {
+        vector_packet_policies[policy_index++] = policy;
+      }
+    }
+  }
+}
+
 iree_status_t loom_target_legalizer_registry_storage_initialize(
     const loom_target_legalizer_provider_list_t* provider_lists,
     iree_host_size_t provider_list_count, iree_allocator_t allocator,
@@ -186,15 +215,17 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
   uint8_t dialect_base_id = 0;
   uint16_t dialect_limit = 0;
   uint16_t entry_count = 0;
+  uint16_t vector_packet_policy_count = 0;
   IREE_RETURN_IF_ERROR(loom_target_legalizer_registry_count_rows(
       provider_lists, provider_list_count, dialect_op_counts, &dialect_base_id,
-      &dialect_limit, &entry_count));
-  if (entry_count == 0) {
+      &dialect_limit, &entry_count, &vector_packet_policy_count));
+  if (entry_count == 0 && vector_packet_policy_count == 0) {
     out_storage->allocator = allocator;
     return iree_ok_status();
   }
 
-  const uint16_t dialect_count_u16 = dialect_limit - dialect_base_id;
+  const uint16_t dialect_count_u16 =
+      entry_count == 0 ? 0 : dialect_limit - dialect_base_id;
   if (dialect_count_u16 > UINT8_MAX) {
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -211,6 +242,7 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
   iree_host_size_t dialects_offset = 0;
   iree_host_size_t op_entries_offset = 0;
   iree_host_size_t entries_offset = 0;
+  iree_host_size_t vector_packet_policies_offset = 0;
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
       0, &allocation_size,
       IREE_STRUCT_FIELD_ALIGNED(dialect_count,
@@ -220,16 +252,30 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
                                 loom_target_legalizer_op_entry_t,
                                 iree_max_align_t, &op_entries_offset),
       IREE_STRUCT_FIELD_ALIGNED(entry_count, loom_target_legalizer_entry_t,
-                                iree_max_align_t, &entries_offset)));
+                                iree_max_align_t, &entries_offset),
+      IREE_STRUCT_FIELD_ALIGNED(
+          vector_packet_policy_count, const loom_target_vector_packet_policy_t*,
+          iree_max_align_t, &vector_packet_policies_offset)));
   uint8_t* allocation = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
       allocator, allocation_size, (void**)&allocation));
   loom_target_legalizer_dialect_table_t* dialects =
-      (loom_target_legalizer_dialect_table_t*)(allocation + dialects_offset);
+      dialect_count ? (loom_target_legalizer_dialect_table_t*)(allocation +
+                                                               dialects_offset)
+                    : NULL;
   loom_target_legalizer_op_entry_t* op_entries =
-      (loom_target_legalizer_op_entry_t*)(allocation + op_entries_offset);
+      op_entry_count
+          ? (loom_target_legalizer_op_entry_t*)(allocation + op_entries_offset)
+          : NULL;
   loom_target_legalizer_entry_t* entries =
-      (loom_target_legalizer_entry_t*)(allocation + entries_offset);
+      entry_count
+          ? (loom_target_legalizer_entry_t*)(allocation + entries_offset)
+          : NULL;
+  const loom_target_vector_packet_policy_t** vector_packet_policies =
+      vector_packet_policy_count
+          ? (const loom_target_vector_packet_policy_t**)(allocation +
+                                                         vector_packet_policies_offset)
+          : NULL;
   loom_target_legalizer_op_entry_t* op_entries_by_dialect[UINT8_MAX + 1] = {0};
   loom_target_legalizer_registry_initialize_dialects(
       dialect_op_counts, dialect_base_id, dialect_count, dialects, op_entries,
@@ -241,6 +287,8 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
                                                         dialect_count);
   loom_target_legalizer_registry_fill_entries(
       provider_lists, provider_list_count, op_entries_by_dialect, entries);
+  loom_target_legalizer_registry_fill_vector_packet_policies(
+      provider_lists, provider_list_count, vector_packet_policies);
 
   *out_storage = (loom_target_legalizer_registry_storage_t){
       .allocator = allocator,
@@ -252,6 +300,8 @@ iree_status_t loom_target_legalizer_registry_storage_initialize(
               .dialects = dialects,
               .entries = entries,
               .entry_count = assigned_entry_count,
+              .vector_packet_policies = vector_packet_policies,
+              .vector_packet_policy_count = vector_packet_policy_count,
           },
   };
   return iree_ok_status();
@@ -272,8 +322,34 @@ loom_target_legalizer_registry_storage_registry(
   return &storage->registry;
 }
 
+const loom_target_vector_packet_policy_t*
+loom_target_legalizer_registry_lookup_vector_packet_policy(
+    const loom_target_legalizer_registry_t* registry,
+    const loom_low_descriptor_set_t* descriptor_set) {
+  if (descriptor_set == NULL) {
+    return NULL;
+  }
+  for (uint16_t i = 0; i < registry->vector_packet_policy_count; ++i) {
+    const loom_target_vector_packet_policy_t* policy =
+        registry->vector_packet_policies[i];
+    if (policy->descriptor_set_stable_id == descriptor_set->stable_id) {
+      return policy;
+    }
+  }
+  return NULL;
+}
+
 iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
+    loom_target_contract_query_result_t* out_result) {
+  return loom_target_legalization_query_contract_with_value_type(
+      context, op, (loom_target_contract_query_value_type_callback_t){0},
+      out_result);
+}
+
+iree_status_t loom_target_legalization_query_contract_with_value_type(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    loom_target_contract_query_value_type_callback_t value_type,
     loom_target_contract_query_result_t* out_result) {
   *out_result = loom_target_contract_query_result_empty();
   if (loom_target_contract_query_callback_is_empty(context->contract_query)) {
@@ -285,6 +361,8 @@ iree_status_t loom_target_legalization_query_contract(
       .target_facts = context->target_facts,
       .descriptor_set = context->descriptor_set,
       .fact_table = context->fact_table,
+      .value_type = value_type,
+      .value_domain = context->value_domain,
       .view_regions = context->view_regions,
       .arena = context->arena,
   };

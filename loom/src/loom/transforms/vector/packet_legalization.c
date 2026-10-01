@@ -74,7 +74,7 @@ static bool loom_vector_packet_payload_bit_count(loom_type_t vector_type,
 }
 
 static bool loom_vector_packet_select_native_chunk_lane_count(
-    const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     uint32_t maximum_lane_count, uint32_t* out_chunk_lane_count) {
   *out_chunk_lane_count = 0;
   const int32_t element_bit_count =
@@ -100,7 +100,7 @@ static bool loom_vector_packet_select_native_chunk_lane_count(
 }
 
 static bool loom_vector_packet_maximum_chunk_lane_count(
-    const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     uint32_t* out_chunk_lane_count) {
   *out_chunk_lane_count = 0;
   const int32_t element_bit_count =
@@ -121,7 +121,7 @@ static bool loom_vector_packet_maximum_chunk_lane_count(
 }
 
 static bool loom_vector_packet_shape_from_type(
-    const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     loom_vector_packet_shape_t* out_shape) {
   *out_shape = (loom_vector_packet_shape_t){0};
   uint32_t lane_count = 0;
@@ -147,7 +147,7 @@ static bool loom_vector_packet_shape_from_type(
 // Uniform producers do not need axis-aware slicing, so their packet plan can
 // cover any static logical shape in row-major lane order.
 static bool loom_vector_packet_uniform_shape_from_type(
-    const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     loom_vector_packet_shape_t* out_shape) {
   *out_shape = (loom_vector_packet_shape_t){0};
   uint64_t lane_count_u64 = 0;
@@ -175,7 +175,7 @@ static bool loom_vector_packet_uniform_shape_from_type(
 }
 
 static bool loom_vector_packet_shape_constrain(
-    const loom_vector_packet_policy_t* policy, loom_type_t vector_type,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     loom_vector_packet_shape_t* inout_shape) {
   uint32_t lane_count = 0;
   uint32_t chunk_lane_count = 0;
@@ -193,7 +193,7 @@ static bool loom_vector_packet_shape_constrain(
 }
 
 static bool loom_vector_packet_table_lookup_shape(
-    const loom_vector_packet_policy_t* policy, loom_type_t index_type,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t index_type,
     loom_type_t result_type, loom_vector_packet_shape_t* out_shape) {
   *out_shape = (loom_vector_packet_shape_t){0};
   uint32_t index_lane_count = 0;
@@ -244,7 +244,7 @@ typedef struct loom_vector_packetization_t {
   // Target legalization context that owns the rewrite.
   loom_target_legalization_context_t* context;
   // Target-native packet widths controlling this rewrite.
-  const loom_vector_packet_policy_t* policy;
+  const loom_target_vector_packet_policy_t* policy;
   // Whether block arguments and loop results may terminate a decomposable
   // producer graph.
   bool select_captured_values;
@@ -485,7 +485,7 @@ static bool loom_vector_packet_type_shape_matches(
 
 static iree_status_t loom_vector_packetization_initialize(
     loom_target_legalization_context_t* context,
-    const loom_vector_packet_policy_t* policy,
+    const loom_target_vector_packet_policy_t* policy,
     loom_vector_packetization_t* out_packetization) {
   *out_packetization = (loom_vector_packetization_t){
       .context = context,
@@ -2056,7 +2056,7 @@ static iree_status_t loom_vector_packet_erase_dead_sources(
 
 iree_status_t loom_vector_packet_legalize_elementwise(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten) {
   *out_rewritten = false;
 
   const loom_trait_flags_t traits =
@@ -2175,7 +2175,7 @@ iree_status_t loom_vector_packet_legalize_elementwise(
 
 iree_status_t loom_vector_packet_legalize_decomposable_graph(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten) {
   *out_rewritten = false;
 
   if (op->result_count != 1 ||
@@ -2278,7 +2278,7 @@ iree_status_t loom_vector_packet_legalize_decomposable_graph(
 
 iree_status_t loom_vector_packet_legalize_splat(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten) {
   *out_rewritten = false;
 
   const loom_type_t result_type =
@@ -2350,7 +2350,7 @@ iree_status_t loom_vector_packet_legalize_splat(
 
 iree_status_t loom_vector_packet_legalize_table_lookup(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten) {
   *out_rewritten = false;
 
   const loom_value_id_t indices = loom_vector_table_lookup_indices(op);
@@ -2467,7 +2467,7 @@ iree_status_t loom_vector_packet_legalize_table_lookup(
 
 iree_status_t loom_vector_packet_legalize_load(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten) {
   *out_rewritten = false;
 
   loom_vector_memory_footprint_t footprint = {0};
@@ -2496,7 +2496,7 @@ iree_status_t loom_vector_packet_legalize_load(
 
 iree_status_t loom_vector_packet_legalize_store(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten) {
   *out_rewritten = false;
 
   loom_vector_memory_footprint_t store_footprint = {0};
@@ -2659,7 +2659,7 @@ iree_status_t loom_vector_packet_legalize_store(
 
 iree_status_t loom_vector_packet_legalize_reduce(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* policy,
+    const loom_target_vector_packet_policy_t* policy,
     loom_vector_packet_reduce_result_t* out_result) {
   *out_result = LOOM_VECTOR_PACKET_REDUCE_RESULT_NONE;
 

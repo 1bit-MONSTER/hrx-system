@@ -22,10 +22,15 @@
 #include "loom/transforms/vector/to_scalar.h"
 
 static const uint16_t kAie2pVectorPacketBitCounts[] = {128u, 256u, 512u};
+static const uint16_t kAie2pVectorPacketLaneCounts[] = {64u, 32u, 16u, 8u,
+                                                        4u,  2u,  1u};
 
-static const loom_vector_packet_policy_t kAie2pVectorPacketPolicy = {
+static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
     .native_bit_counts = kAie2pVectorPacketBitCounts,
+    .native_lane_counts = kAie2pVectorPacketLaneCounts,
+    .descriptor_set_stable_id = AIE2P_CORE_DESCRIPTOR_SET_ID,
     .native_bit_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketBitCounts),
+    .native_lane_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts),
     .maximum_unpacketized_bit_count = 0,
 };
 
@@ -718,6 +723,7 @@ const loom_target_legalizer_provider_t
         .strategy = LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
         .rules = kAie2pLegalizerRules,
         .rule_count = IREE_ARRAYSIZE(kAie2pLegalizerRules),
+        .vector_packet_policy = &kAie2pVectorPacketPolicy,
 };
 
 const loom_target_legalizer_provider_t* loom_aie2p_target_legalizer_provider(

@@ -67,6 +67,7 @@ TEST(LowLegalizerRegistryTest, TargetProvidersPrecedeGenericProviders) {
       /*.strategy=*/LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
       /*.rules=*/target_rules,
       /*.rule_count=*/IREE_ARRAYSIZE(target_rules),
+      /*.vector_packet_policy=*/nullptr,
   };
   const loom_target_legalizer_provider_t* target_providers[] = {
       &target_provider,

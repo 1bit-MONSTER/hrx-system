@@ -81,6 +81,28 @@ typedef enum loom_target_legalizer_strategy_e {
   LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE = 2,
 } loom_target_legalizer_strategy_t;
 
+// Target vector packet candidates consumed by shared legalization.
+//
+// The target contributes representation widths only. The shared planner still
+// queries every projected operation through the target contract before
+// selecting a packet width; membership here is not itself a legality claim.
+typedef struct loom_target_vector_packet_policy_t {
+  // Native packet widths in bits used by structural memory and carrier
+  // legalization. Widths are byte-aligned powers of two.
+  const uint16_t* native_bit_counts;
+  // Logical lane counts worth evaluating for decomposable components.
+  const uint16_t* native_lane_counts;
+  // Stable descriptor-set identity selecting this policy.
+  uint64_t descriptor_set_stable_id;
+  // Largest payload in bits that remains owned by ordinary structural
+  // lowering instead of packet legalization.
+  uint16_t maximum_unpacketized_bit_count;
+  // Number of entries in |native_bit_counts|.
+  uint8_t native_bit_count_count;
+  // Number of entries in |native_lane_counts|.
+  uint8_t native_lane_count_count;
+} loom_target_vector_packet_policy_t;
+
 enum loom_target_legalizer_entry_flag_bits_e {
   // Calls this legalizer even when the target contract already accepts the op.
   LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL = 1u << 0,
@@ -117,6 +139,8 @@ typedef struct loom_target_legalization_context_t {
   const loom_target_facts_t* target_facts;
   // Low descriptor set selected by the target bundle.
   const loom_low_descriptor_set_t* descriptor_set;
+  // Target packet candidates selected for |descriptor_set|, or NULL.
+  const loom_target_vector_packet_policy_t* vector_packet_policy;
   // Source value facts visible to legalizers.
   const loom_value_fact_table_t* fact_table;
   // Analyzed view-region table visible to legalizers.
@@ -203,6 +227,8 @@ struct loom_target_legalizer_provider_t {
   const loom_target_legalizer_rule_t* rules;
   // Number of provider-owned rules.
   uint16_t rule_count;
+  // Optional target vector packet policy contributed by this provider.
+  const loom_target_vector_packet_policy_t* vector_packet_policy;
 };
 
 typedef struct loom_target_legalizer_provider_list_t {
@@ -275,6 +301,10 @@ typedef struct loom_target_legalizer_registry_t {
   const loom_target_legalizer_entry_t* entries;
   // Number of rows in entries.
   uint16_t entry_count;
+  // Target vector packet policies copied from providers in provider order.
+  const loom_target_vector_packet_policy_t* const* vector_packet_policies;
+  // Number of entries in |vector_packet_policies|.
+  uint16_t vector_packet_policy_count;
 } loom_target_legalizer_registry_t;
 
 // Owned storage for a composed target legalizer registry.
@@ -312,6 +342,12 @@ loom_target_legalizer_registry_lookup_kind(
   return dialect_table->op_entries[op_index];
 }
 
+// Finds the packet policy selected by |descriptor_set|, or NULL.
+const loom_target_vector_packet_policy_t*
+loom_target_legalizer_registry_lookup_vector_packet_policy(
+    const loom_target_legalizer_registry_t* registry,
+    const loom_low_descriptor_set_t* descriptor_set);
+
 // Initializes owned storage by composing one or more ordered provider lists.
 //
 // List order and provider order within each list are preserved within every op
@@ -335,6 +371,13 @@ loom_target_legalizer_registry_storage_registry(
 // Queries whether |op| is already legal for the selected target contract.
 iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
+    loom_target_contract_query_result_t* out_result);
+
+// Queries |op| through a scoped source-value type view. The callback applies
+// only for this query and does not mutate authored IR or context state.
+iree_status_t loom_target_legalization_query_contract_with_value_type(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    loom_target_contract_query_value_type_callback_t value_type,
     loom_target_contract_query_result_t* out_result);
 
 #ifdef __cplusplus
