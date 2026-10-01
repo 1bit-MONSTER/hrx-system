@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_test")
+load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_corpus_test")
 load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
 load("//loom/src/loom/tooling/target/wasm:execution_profiles.bzl", "WASM_HOSTED_PROFILE")
 
@@ -107,6 +107,26 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
     source: "Wasm has no kernel artifact format."
     for source in _KERNEL_SOURCES
 }
+
+_HOSTED_EXECUTION_SOURCES = [
+    "control/loop/scalar_state.loom",
+    "memory/address/biased_offsets.loom",
+    "memory/address/tiled_channel.loom",
+    "memory/buffer/selection.loom",
+    "memory/packed/transport.loom",
+    "memory/storage/word.loom",
+    "memory/view/scalar_exchange.loom",
+    "numeric/conversion/narrow_widening.loom",
+    "numeric/float/scalar_f32.loom",
+    "numeric/float/sign.loom",
+    "numeric/integer/division.loom",
+    "numeric/integer/scalar_observations.loom",
+    "numeric/integer/widening.loom",
+    "numeric/predicate/lanes.loom",
+    "numeric/predicate/vector_logic.loom",
+    "numeric/vector/f32.loom",
+    "numeric/vector/integer_bitwise.loom",
+]
 
 loom_corpus_build(
     name = "all",
@@ -310,104 +330,11 @@ loom_corpus_build(
     },
 )
 
-loom_test(
-    name = "numeric_vector_f32_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:vector/f32.loom"],
+loom_corpus_test(
+    name = "execution",
+    catalog = LOOM_CORPUS,
     execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "predicate_logic_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/vector_logic.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "scalar_integer_address_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:integer/scalar_observations.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "scalar_loop_state_test",
-    srcs = ["//loom/src/loom/test/corpus/control:loop/scalar_state.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "scalar_memory_exchange_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:view/scalar_exchange.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "vector_integer_bitwise_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "biased_offsets_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:address/biased_offsets.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "buffer_selection_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:buffer/selection.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "integer_widening_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:integer/widening.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "integer_division_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:integer/division.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "narrow_widening_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:conversion/narrow_widening.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "narrow_float_sign_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:float/sign.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "packed_transport_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:packed/transport.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "predicate_lanes_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:predicate/lanes.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "scalar_f32_test",
-    srcs = ["//loom/src/loom/test/corpus/numeric:float/scalar_f32.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "tiled_channel_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:address/tiled_channel.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
-)
-
-loom_test(
-    name = "word_storage_test",
-    srcs = ["//loom/src/loom/test/corpus/memory:storage/word.loom"],
-    execution_profiles = [WASM_HOSTED_PROFILE],
+    profile_sources = {
+        WASM_HOSTED_PROFILE.name: _HOSTED_EXECUTION_SOURCES,
+    },
 )

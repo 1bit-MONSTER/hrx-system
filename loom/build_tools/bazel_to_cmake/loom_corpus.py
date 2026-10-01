@@ -275,6 +275,10 @@ class LoomCorpusBuildFileFunctions:
                 raise ValueError(
                     f"{name} sources for profile {profile_name} must be a list"
                 )
+            if not selected_sources:
+                raise ValueError(
+                    f"{name} sources for profile {profile_name} must not be empty"
+                )
             if len(selected_sources) != len(set(selected_sources)):
                 raise ValueError(f"{name} repeats a source for profile {profile_name}")
             for source_identity in selected_sources:
@@ -350,12 +354,7 @@ class LoomCorpusBuildFileFunctions:
             execution_names.add(profile_suffix)
 
             profile_excludes = dict(excluded_sources)
-            if profile.name in profile_sources:
-                selected_sources = set(profile_sources[profile.name])
-                for source_identity in source_identities - selected_sources:
-                    profile_excludes[source_identity] = (
-                        "The execution profile does not select this source."
-                    )
+            selected_sources = profile_sources.get(profile.name)
             profile_exclude_values = []
             for source_identity in sorted(profile_excludes):
                 profile_exclude_values.extend(
@@ -414,6 +413,9 @@ class LoomCorpusBuildFileFunctions:
                 + self._convert_string_arg_block("PROFILE", profile.name)
                 + self._convert_string_list_block(
                     "MANIFESTS", manifest_names, sort=False
+                )
+                + self._convert_string_list_block(
+                    "SOURCES", selected_sources, sort=False
                 )
                 + self._convert_string_list_block(
                     "EXCLUDES", profile_exclude_values or None, sort=False

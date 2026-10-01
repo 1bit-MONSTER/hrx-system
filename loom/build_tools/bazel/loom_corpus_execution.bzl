@@ -100,7 +100,8 @@ def loom_corpus_test(
       excludes: Source identities mapped to target-local exclusion reasons.
       profile_sources: Execution profile names mapped to the source identities
         that carry an authored witness for that profile. Profiles absent from
-        this mapping apply to every non-excluded source.
+        this mapping apply to every non-excluded source. A source omitted from
+        every explicitly selected profile is not part of this test suite.
       xfails: Execution profile names mapped to '<source>:@<record>' diagnostic
         dictionaries. Every expected failure is checked inside its source's
         existing execution action and fails on XPASS or diagnostic drift.
@@ -139,6 +140,8 @@ def loom_corpus_test(
             fail("loom_corpus_test selects sources for unknown profile %r" % profile_name)
         if type(source_identities) != "list":
             fail("loom_corpus_test sources for profile %s must be a list" % profile_name)
+        if not source_identities:
+            fail("loom_corpus_test sources for profile %s must not be empty" % profile_name)
         selected_sources = {}
         for identity in source_identities:
             if identity not in programs_by_identity:
@@ -217,10 +220,7 @@ def loom_corpus_test(
                 )
             program_profiles.append(profile)
         if not program_profiles:
-            fail(
-                "loom_corpus_test source %s is neither executed nor excluded" %
-                program.identity,
-            )
+            continue
         test_name = program.target_name + "_test"
         loom_test(
             name = test_name,

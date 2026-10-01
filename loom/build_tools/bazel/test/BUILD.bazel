@@ -207,9 +207,6 @@ loom_corpus_test(
         },
     },
     catalog = TEST_CORPUS,
-    excludes = {
-        "sample/excluded.loom": "This fixture is excluded from execution.",
-    },
     execution_profiles = [loom_execution_profile(
         name = "reference",
         executor = "reference",
@@ -217,6 +214,12 @@ loom_corpus_test(
         target_class = "cpu",
         target_family = "test",
     )],
+    profile_sources = {
+        "reference": [
+            "sample/nested/fixture.loom",
+            "sample/other.loom",
+        ],
+    },
     tags = ["manual"],
     xfails = {
         "reference": {
