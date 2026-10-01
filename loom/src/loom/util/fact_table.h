@@ -52,6 +52,8 @@ extern "C" {
 typedef struct loom_value_fact_region_entry_t loom_value_fact_region_entry_t;
 typedef struct loom_value_fact_condition_scratch_t
     loom_value_fact_condition_scratch_t;
+typedef struct loom_value_fact_exact_lane_origin_entry_t
+    loom_value_fact_exact_lane_origin_entry_t;
 typedef struct loom_condition_edge_projection_t
     loom_condition_edge_projection_t;
 typedef struct loom_cfg_graph_t loom_cfg_graph_t;
@@ -255,19 +257,15 @@ struct loom_value_fact_table_t {
   // Exact logical-lane value origins keyed by aggregate value ID. This is
   // separate from static_lane_origins because provenance may cross a lossy
   // conversion while the nearest exact numeric origin stops at that
-  // conversion. An entry with source_value_id == LOOM_VALUE_ID_INVALID has no
-  // known exact lane origin.
+  // conversion. Sparse storage makes the cost proportional to known exact
+  // origins instead of the highest module-wide value ID.
   struct {
-    // Dense origin entries indexed by aggregate value ID.
-    loom_value_fact_exact_lane_origin_t* entries;
-    // Allocated origin entry count.
+    // Sparse entries sorted by aggregate value ID.
+    loom_value_fact_exact_lane_origin_entry_t* entries;
+    // Number of defined entries in the current populated scope.
+    iree_host_size_t count;
+    // Allocated sparse entry count retained across populated scopes.
     iree_host_size_t capacity;
-    // Aggregate value IDs with origins defined in the current populated scope.
-    loom_value_id_t* touched_values;
-    // Number of populated entries in touched_values.
-    iree_host_size_t touched_count;
-    // Allocated touched_values entry count.
-    iree_host_size_t touched_capacity;
   } exact_lane_origins;
 
   // Uniform scalar-scale origins keyed by aggregate value ID. An entry with

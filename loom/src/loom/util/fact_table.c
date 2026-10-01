@@ -38,6 +38,16 @@ struct loom_value_fact_region_entry_t {
   loom_value_fact_region_entry_t* next_entry;
 };
 
+struct loom_value_fact_exact_lane_origin_entry_t {
+  // Aggregate value carrying the exact origin.
+  loom_value_id_t value_id;
+  // Exact lane origin associated with value_id.
+  loom_value_fact_exact_lane_origin_t origin;
+};
+
+static_assert(sizeof(loom_value_fact_exact_lane_origin_entry_t) == 16,
+              "exact lane origin entries must remain compact");
+
 static iree_status_t loom_value_fact_table_ensure_capacity(
     loom_value_fact_table_t* table, iree_host_size_t capacity) {
   if (capacity <= table->capacity) {
@@ -126,25 +136,6 @@ static iree_status_t loom_value_fact_table_ensure_static_lane_origin_capacity(
   return iree_ok_status();
 }
 
-static iree_status_t loom_value_fact_table_ensure_exact_lane_origin_capacity(
-    loom_value_fact_table_t* table, iree_host_size_t capacity) {
-  if (capacity <= table->exact_lane_origins.capacity) {
-    return iree_ok_status();
-  }
-  const iree_host_size_t old_capacity = table->exact_lane_origins.capacity;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_grow_array(table->arena, old_capacity, capacity,
-                            sizeof(loom_value_fact_exact_lane_origin_t),
-                            &table->exact_lane_origins.capacity,
-                            (void**)&table->exact_lane_origins.entries));
-  for (iree_host_size_t i = old_capacity;
-       i < table->exact_lane_origins.capacity; ++i) {
-    table->exact_lane_origins.entries[i] =
-        loom_value_fact_exact_lane_origin_invalid();
-  }
-  return iree_ok_status();
-}
-
 static iree_status_t loom_value_fact_table_ensure_uniform_scale_origin_capacity(
     loom_value_fact_table_t* table, iree_host_size_t capacity) {
   if (capacity <= table->uniform_scale_origins.capacity) {
@@ -229,22 +220,6 @@ static iree_status_t loom_value_fact_table_append_touched_static_lane_origin(
   }
   table->static_lane_origins
       .touched_values[table->static_lane_origins.touched_count++] = value_id;
-  return iree_ok_status();
-}
-
-static iree_status_t loom_value_fact_table_append_touched_exact_lane_origin(
-    loom_value_fact_table_t* table, loom_value_id_t value_id) {
-  if (table->exact_lane_origins.touched_count >=
-      table->exact_lane_origins.touched_capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        table->arena, table->exact_lane_origins.touched_count,
-        table->exact_lane_origins.touched_count + 1,
-        sizeof(*table->exact_lane_origins.touched_values),
-        &table->exact_lane_origins.touched_capacity,
-        (void**)&table->exact_lane_origins.touched_values));
-  }
-  table->exact_lane_origins
-      .touched_values[table->exact_lane_origins.touched_count++] = value_id;
   return iree_ok_status();
 }
 
@@ -372,12 +347,6 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
         .entries[table->static_lane_origins.touched_values[i]] =
         loom_value_fact_static_lane_origin_invalid();
   }
-  for (iree_host_size_t i = 0; i < table->exact_lane_origins.touched_count;
-       ++i) {
-    table->exact_lane_origins
-        .entries[table->exact_lane_origins.touched_values[i]] =
-        loom_value_fact_exact_lane_origin_invalid();
-  }
   for (iree_host_size_t i = 0; i < table->uniform_scale_origins.touched_count;
        ++i) {
     table->uniform_scale_origins
@@ -403,7 +372,7 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->regions.entries = NULL;
   table->uniform_element_origins.touched_count = 0;
   table->static_lane_origins.touched_count = 0;
-  table->exact_lane_origins.touched_count = 0;
+  table->exact_lane_origins.count = 0;
   table->uniform_scale_origins.touched_count = 0;
   table->contextual_query_origins.touched_count = 0;
   table->contextual_query_origins.origin_count = 0;
@@ -1193,23 +1162,35 @@ bool loom_value_fact_table_query_static_lane_origin(
   return true;
 }
 
+static iree_host_size_t loom_value_fact_table_exact_lane_origin_lower_bound(
+    const loom_value_fact_table_t* table, loom_value_id_t value_id) {
+  iree_host_size_t lower = 0;
+  iree_host_size_t upper = table->exact_lane_origins.count;
+  while (lower < upper) {
+    const iree_host_size_t middle = lower + (upper - lower) / 2;
+    if (table->exact_lane_origins.entries[middle].value_id < value_id) {
+      lower = middle + 1;
+    } else {
+      upper = middle;
+    }
+  }
+  return lower;
+}
+
 static bool loom_value_fact_table_lookup_exact_lane_origin(
     const loom_value_fact_table_t* table, loom_value_id_t value_id,
     loom_value_fact_exact_lane_origin_t* out_origin) {
   if (out_origin) {
     *out_origin = loom_value_fact_exact_lane_origin_invalid();
   }
-  if (value_id >= table->exact_lane_origins.capacity ||
-      table->exact_lane_origins.entries == NULL) {
-    return false;
-  }
-  const loom_value_fact_exact_lane_origin_t origin =
-      table->exact_lane_origins.entries[value_id];
-  if (origin.source_value_id == LOOM_VALUE_ID_INVALID) {
+  const iree_host_size_t index =
+      loom_value_fact_table_exact_lane_origin_lower_bound(table, value_id);
+  if (index == table->exact_lane_origins.count ||
+      table->exact_lane_origins.entries[index].value_id != value_id) {
     return false;
   }
   if (out_origin) {
-    *out_origin = origin;
+    *out_origin = table->exact_lane_origins.entries[index].origin;
   }
   return true;
 }
@@ -1222,14 +1203,33 @@ iree_status_t loom_value_fact_table_define_exact_lane_origin(
     return iree_ok_status();
   }
   IREE_ASSERT_NE(origin.source_lane_stride, 0u);
-  IREE_RETURN_IF_ERROR(loom_value_fact_table_ensure_exact_lane_origin_capacity(
-      table, (iree_host_size_t)value_id + 1));
-  if (table->exact_lane_origins.entries[value_id].source_value_id ==
-      LOOM_VALUE_ID_INVALID) {
-    IREE_RETURN_IF_ERROR(loom_value_fact_table_append_touched_exact_lane_origin(
-        table, value_id));
+  const iree_host_size_t index =
+      loom_value_fact_table_exact_lane_origin_lower_bound(table, value_id);
+  if (index < table->exact_lane_origins.count &&
+      table->exact_lane_origins.entries[index].value_id == value_id) {
+    table->exact_lane_origins.entries[index].origin = origin;
+    return iree_ok_status();
   }
-  table->exact_lane_origins.entries[value_id] = origin;
+  if (table->exact_lane_origins.count >= table->exact_lane_origins.capacity) {
+    IREE_RETURN_IF_ERROR(
+        iree_arena_grow_array(table->arena, table->exact_lane_origins.count,
+                              table->exact_lane_origins.count + 1,
+                              sizeof(*table->exact_lane_origins.entries),
+                              &table->exact_lane_origins.capacity,
+                              (void**)&table->exact_lane_origins.entries));
+  }
+  if (index < table->exact_lane_origins.count) {
+    memmove(&table->exact_lane_origins.entries[index + 1],
+            &table->exact_lane_origins.entries[index],
+            (table->exact_lane_origins.count - index) *
+                sizeof(*table->exact_lane_origins.entries));
+  }
+  table->exact_lane_origins.entries[index] =
+      (loom_value_fact_exact_lane_origin_entry_t){
+          .value_id = value_id,
+          .origin = origin,
+      };
+  ++table->exact_lane_origins.count;
   return iree_ok_status();
 }
 

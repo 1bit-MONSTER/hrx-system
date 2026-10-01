@@ -438,11 +438,12 @@ TEST_F(FactTableTest, UniformScaleOriginsClearOnlyTouchedEntries) {
   EXPECT_EQ(table.uniform_scale_origins.entries[5].scale_value_id, 10u);
 }
 
-TEST_F(FactTableTest, ExactLaneOriginsAreLazyAndScopeLocal) {
+TEST_F(FactTableTest, ExactLaneOriginsAreSparseAndScopeLocal) {
   loom_value_fact_table_t table = {0};
   IREE_ASSERT_OK(loom_value_fact_table_initialize(&table, &arena_, 1024));
 
   EXPECT_EQ(table.exact_lane_origins.entries, nullptr);
+  EXPECT_EQ(table.exact_lane_origins.count, 0u);
   IREE_ASSERT_OK(loom_value_fact_table_define_exact_lane_origin(
       &table, 900,
       ExactLaneOrigin(/*source_value_id=*/12,
@@ -450,24 +451,25 @@ TEST_F(FactTableTest, ExactLaneOriginsAreLazyAndScopeLocal) {
                       /*source_lane_stride=*/2)));
   IREE_ASSERT_OK(loom_value_fact_table_define_exact_lane_origin(
       &table, 900, ExactLaneOrigin(/*source_value_id=*/20)));
+  IREE_ASSERT_OK(loom_value_fact_table_define_exact_lane_origin(
+      &table, 7, ExactLaneOrigin(/*source_value_id=*/3)));
 
-  ASSERT_GE(table.exact_lane_origins.capacity, (iree_host_size_t)901);
-  EXPECT_EQ(table.exact_lane_origins.touched_count, 1u);
-  EXPECT_EQ(table.exact_lane_origins.entries[900].source_value_id, 20u);
-  EXPECT_EQ(table.exact_lane_origins.entries[900].source_lane_offset, 0u);
-  EXPECT_EQ(table.exact_lane_origins.entries[900].source_lane_stride, 1u);
+  EXPECT_EQ(table.exact_lane_origins.count, 2u);
+  EXPECT_LT(table.exact_lane_origins.capacity, (iree_host_size_t)900);
 
-  loom_value_fact_exact_lane_origin_t* const entries =
+  loom_value_fact_exact_lane_origin_entry_t* const entries =
       table.exact_lane_origins.entries;
-  loom_value_id_t* const touched_values =
-      table.exact_lane_origins.touched_values;
+  const iree_host_size_t capacity = table.exact_lane_origins.capacity;
   loom_value_fact_table_clear_scope(&table);
 
   EXPECT_EQ(table.exact_lane_origins.entries, entries);
-  EXPECT_EQ(table.exact_lane_origins.touched_values, touched_values);
-  EXPECT_EQ(table.exact_lane_origins.touched_count, 0u);
-  EXPECT_EQ(table.exact_lane_origins.entries[900].source_value_id,
-            LOOM_VALUE_ID_INVALID);
+  EXPECT_EQ(table.exact_lane_origins.capacity, capacity);
+  EXPECT_EQ(table.exact_lane_origins.count, 0u);
+
+  IREE_ASSERT_OK(loom_value_fact_table_define_exact_lane_origin(
+      &table, 5, ExactLaneOrigin(/*source_value_id=*/2)));
+  EXPECT_EQ(table.exact_lane_origins.entries, entries);
+  EXPECT_EQ(table.exact_lane_origins.count, 1u);
 }
 
 TEST_F(FactTableTest, ContextualQueryOriginsAreSparseAndScopeLocal) {
@@ -1034,10 +1036,8 @@ TEST_F(FactTableTest, CloneValuesCopiesExactLaneOrigins) {
       &target, {&source, source.touched_values, source.touched_count},
       nullptr));
 
-  ASSERT_GE(target.exact_lane_origins.capacity, (iree_host_size_t)8);
-  EXPECT_EQ(target.exact_lane_origins.entries[7].source_value_id, 2u);
-  EXPECT_EQ(target.exact_lane_origins.entries[7].source_lane_offset, 1u);
-  EXPECT_EQ(target.exact_lane_origins.entries[7].source_lane_stride, 2u);
+  EXPECT_EQ(target.exact_lane_origins.count, 1u);
+  EXPECT_LT(target.exact_lane_origins.capacity, (iree_host_size_t)8);
 
   iree_arena_deinitialize(&target_arena);
 }
