@@ -107,8 +107,8 @@ static loom_value_facts_t loom_value_facts_exact_rounded_float(double value) {
   return facts;
 }
 
-loom_value_facts_t loom_value_facts_exact_float(loom_scalar_type_t scalar_type,
-                                                double value) {
+IREE_ATTRIBUTE_NOINLINE loom_value_facts_t
+loom_value_facts_exact_float(loom_scalar_type_t scalar_type, double value) {
   if (!loom_float_type_is_supported(scalar_type)) {
     return loom_value_facts_unknown();
   }
