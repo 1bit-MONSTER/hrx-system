@@ -477,7 +477,6 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/conversion/packed_integer_float8.loom:@uitofp_i32_f8E5M2_1_values": "TARGET/002",
     "numeric/conversion/quantization.loom:@approximate_quantization_values": "LOWERING/036",
     "numeric/conversion/quantization.loom:@quantization_values": "LOWERING/036",
-    "numeric/conversion/scalar_float.loom:@narrow_float_all_bits": "TARGET/003,EXPECT/003",
     "numeric/conversion/scalar_float.loom:@scalar_f32_to_f64_values": "EXPECT/002",
     "numeric/conversion/scalar_float.loom:@scalar_f64_to_f32_values": "EXPECT/002",
     "numeric/float/clamp.loom:@clamp_ieee_f32_values": "TARGET/001",
