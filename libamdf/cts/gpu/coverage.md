@@ -77,9 +77,12 @@ large layouts. Overlapping backing, tiled images and optional placement hints
 need different cases.
 
 Windows compilation does not establish a USER queue service or native execution
-result. [Physical peer-GPU construction](peer/README.md) has a separate corpus
-with explicit primary/peer selection and a two-GPU run requirement. Joint
-allocation and address queries do not establish executed peer dataflow.
+result. [Physical peer-GPU conformance](peer/README.md) has a separate corpus
+with explicit primary/peer selection and a two-GPU run requirement. Its SYSTEM
+SDMA round trips use changing data, stable one-writer completion cells and full
+backing/command checks before retirement. Joint allocation and address queries
+remain distinct from that executed dataflow; peer-local memory and atomic RMW
+reach require their own cases.
 
 Per-dispatch LDS capacity changes, additional packet fields, SDMA atomics,
 general poll/cache controls, command-buffer variants,
