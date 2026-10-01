@@ -42,6 +42,8 @@ loom_check_test_suite(
         "boolean_storage.cxx-test",
         "boolean_storage_cleanup.cxx-test",
         "check.cxx-test",
+        "check_close.cxx-test",
+        "check_close_invalid.cxx-test",
         "check_records.cxx-test",
         "check_resources.cxx-test",
         "class_conversions.cxx-test",
@@ -136,6 +138,7 @@ loom_check_test_suite(
     ],
     data = [
         "aligned_layout.h",
+        "check_close.cxx",
         "check_records.cxx",
         "enum_semantics.h",
         "locations.h",
@@ -173,6 +176,13 @@ _HOST_COMPATIBILITY = loom_config_compatible_with([
 loom_test(
     name = "boolean_storage_test",
     srcs = ["boolean_storage.cxx"],
+    execution_profiles = [VM_REFERENCE_PROFILE],
+    target_compatible_with = _HOST_COMPATIBILITY,
+)
+
+loom_test(
+    name = "check_close_test",
+    srcs = ["check_close.cxx"],
     execution_profiles = [VM_REFERENCE_PROFILE],
     target_compatible_with = _HOST_COMPATIBILITY,
 )

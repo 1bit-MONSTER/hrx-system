@@ -1067,6 +1067,22 @@ geometry and configurations. Tensors are test data handles, not C++ pointers
 that can be passed to ordinary functions. `expect_bitwise` compares equal-typed
 tensors exactly, including floating-point payload bits.
 
+`expect_close(actual, expected, absolute_tolerance, relative_tolerance)` compares
+floating scalars or equal-typed floating tensors. Each element must satisfy
+`abs(actual - expected) <= absolute_tolerance + relative_tolerance * abs(expected)`.
+Both tolerances are explicit, finite, non-negative compile-time constants. An
+optional final literal `"same"` (the default) accepts two NaNs; `"different"`
+rejects any NaN. Infinities compare only when they have the same sign. For example:
+
+```cpp
+loom::check::expect_close(actual, expected, 1e-5, 1e-4, "different");
+```
+
+This emits `check.expect.close` and uses the runner's existing numerical
+comparison. The source chooses an accuracy requirement independently of the
+kernel's instruction selection; exact storage and guard checks can still use
+`expect_bitwise` in the same case.
+
 These calls produce the same IR as authored Loom checks:
 
 ```loom

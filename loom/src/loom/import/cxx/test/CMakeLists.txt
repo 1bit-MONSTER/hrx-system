@@ -30,6 +30,8 @@ loom_check_test_suite(
     "boolean_storage.cxx-test"
     "boolean_storage_cleanup.cxx-test"
     "check.cxx-test"
+    "check_close.cxx-test"
+    "check_close_invalid.cxx-test"
     "check_records.cxx-test"
     "check_resources.cxx-test"
     "class_conversions.cxx-test"
@@ -123,6 +125,7 @@ loom_check_test_suite(
     "volatile_views.cxx-test"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/aligned_layout.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_close.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_records.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/enum_semantics.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/locations.h"
@@ -150,6 +153,32 @@ loom_execution_test(
     boolean_storage_test_execute_vm_reference_test
   MODULE
     "::boolean_storage_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    check_close_test_module
+  SRCS
+    "check_close.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    check_close_test_execute_vm_reference_test
+  MODULE
+    "::check_close_test_module"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"
