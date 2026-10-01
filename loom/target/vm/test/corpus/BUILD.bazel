@@ -99,7 +99,6 @@ _KERNEL_SOURCES = [
     "numeric/float/narrow_reduction.loom",
     "numeric/integer/bitwise_divisibility.loom",
     "numeric/integer/narrow_consumers.loom",
-    "numeric/integer/wide/shifts.loom",
     "numeric/integer/wide/subtract.loom",
     "numeric/integer/wide/uniform_immediate.loom",
     "numeric/predicate/extension.loom",
