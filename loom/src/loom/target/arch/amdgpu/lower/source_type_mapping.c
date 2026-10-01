@@ -303,7 +303,7 @@ static bool loom_amdgpu_source_vector_value_register_shape(
     loom_value_id_t source_value_id, loom_type_t source_type,
     loom_amdgpu_register_shape_t* out_shape) {
   loom_amdgpu_vector_storage_t vector_storage = {0};
-  if (!loom_amdgpu_type_vector_storage(source_type, &vector_storage)) {
+  if (!loom_amdgpu_type_vector_register_storage(source_type, &vector_storage)) {
     return false;
   }
   const loom_amdgpu_vector_storage_kind_flags_t storage_flags =
@@ -382,7 +382,7 @@ static bool loom_amdgpu_source_value_register_shape_needs_analysis(
   }
 
   loom_amdgpu_vector_storage_t vector_storage = {0};
-  if (!loom_amdgpu_type_vector_storage(source_type, &vector_storage)) {
+  if (!loom_amdgpu_type_vector_register_storage(source_type, &vector_storage)) {
     return false;
   }
   return iree_any_bit_set(
@@ -545,7 +545,7 @@ iree_status_t loom_amdgpu_map_type(void* user_data,
         context, scalar_shape.class_id, scalar_shape.unit_count, out_low_type);
   }
   loom_amdgpu_vector_storage_t vector_storage = {0};
-  if (loom_amdgpu_type_vector_storage(source_type, &vector_storage)) {
+  if (loom_amdgpu_type_vector_register_storage(source_type, &vector_storage)) {
     const loom_amdgpu_vector_storage_kind_flags_t storage_flags =
         loom_amdgpu_vector_storage_kind_flags(vector_storage.kind);
     if (iree_any_bit_set(storage_flags,

@@ -242,7 +242,7 @@ loom_amdgpu_vector_storage_rule_for_element_type(
 
 static bool loom_amdgpu_type_vector_storage_with_rule(
     loom_type_t type, const loom_amdgpu_vector_storage_rule_t* rule,
-    loom_amdgpu_vector_storage_t* out_storage) {
+    uint32_t maximum_element_count, loom_amdgpu_vector_storage_t* out_storage) {
   if (rule == NULL || !loom_type_is_vector(type) ||
       !loom_scalar_type_is_valid(loom_type_element_type(type))) {
     return false;
@@ -252,7 +252,7 @@ static bool loom_amdgpu_type_vector_storage_with_rule(
   if (iree_any_bit_set(rule->flags,
                        LOOM_AMDGPU_VECTOR_STORAGE_RULE_FLAG_RANK1_ONLY)) {
     element_count = loom_vector_static_rank1_lane_count(
-        type, loom_type_element_type(type), rule->maximum_element_count);
+        type, loom_type_element_type(type), maximum_element_count);
   } else {
     if (!loom_type_is_all_static(type)) {
       return false;
@@ -260,7 +260,7 @@ static bool loom_amdgpu_type_vector_storage_with_rule(
     uint64_t static_element_count = 0;
     if (!loom_type_static_element_count(type, &static_element_count) ||
         static_element_count == 0 ||
-        static_element_count > rule->maximum_element_count) {
+        static_element_count > maximum_element_count) {
       return false;
     }
     element_count = (uint32_t)static_element_count;
@@ -269,17 +269,18 @@ static bool loom_amdgpu_type_vector_storage_with_rule(
     return false;
   }
 
-  const uint32_t payload_bit_count = element_count * rule->element_bit_count;
-  uint32_t register_count = 0;
+  const uint64_t payload_bit_count =
+      (uint64_t)element_count * rule->element_bit_count;
+  uint64_t register_count = 0;
   switch (rule->register_count_kind) {
     case LOOM_AMDGPU_VECTOR_STORAGE_REGISTER_COUNT_KIND_LANE_MULTIPLE:
-      register_count = element_count * rule->element_register_count;
+      register_count = (uint64_t)element_count * rule->element_register_count;
       break;
     case LOOM_AMDGPU_VECTOR_STORAGE_REGISTER_COUNT_KIND_PACKED_32BIT:
       register_count = (payload_bit_count + 31u) / 32u;
       break;
   }
-  if (register_count == 0) {
+  if (register_count == 0 || register_count > UINT32_MAX) {
     return false;
   }
 
@@ -287,7 +288,7 @@ static bool loom_amdgpu_type_vector_storage_with_rule(
       .kind = rule->kind,
       .element_type = loom_type_element_type(type),
       .element_count = element_count,
-      .register_count = register_count,
+      .register_count = (uint32_t)register_count,
       .element_register_count = rule->element_register_count,
       .element_bit_count = rule->element_bit_count,
   };
@@ -306,7 +307,24 @@ bool loom_amdgpu_type_vector_storage(
   if (rule == NULL) {
     return false;
   }
-  return loom_amdgpu_type_vector_storage_with_rule(type, rule, out_storage);
+  return loom_amdgpu_type_vector_storage_with_rule(
+      type, rule, rule->maximum_element_count, out_storage);
+}
+
+bool loom_amdgpu_type_vector_register_storage(
+    loom_type_t type, loom_amdgpu_vector_storage_t* out_storage) {
+  *out_storage = (loom_amdgpu_vector_storage_t){0};
+  if (!loom_type_is_vector(type)) {
+    return false;
+  }
+  const loom_amdgpu_vector_storage_rule_t* rule =
+      loom_amdgpu_vector_storage_rule_for_element_type(
+          loom_type_element_type(type));
+  if (rule == NULL) {
+    return false;
+  }
+  return loom_amdgpu_type_vector_storage_with_rule(type, rule, UINT32_MAX,
+                                                   out_storage);
 }
 
 uint32_t loom_amdgpu_static_vector_lane_count(loom_type_t type,

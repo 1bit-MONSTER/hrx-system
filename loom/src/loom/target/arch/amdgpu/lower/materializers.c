@@ -18,11 +18,14 @@
 static bool loom_amdgpu_low_type_can_materialize_as_vgpr_registers(
     loom_low_lower_context_t* context, loom_type_t low_type) {
   const uint32_t unit_count = loom_low_register_type_unit_count(low_type);
-  if (unit_count == 0 || unit_count > LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES) {
+  if (unit_count == 0) {
     return false;
   }
-  return loom_amdgpu_low_type_is_register_class(
-             context, low_type, LOOM_AMDGPU_REG_CLASS_ID_VGPR) ||
+  if (loom_amdgpu_low_type_is_register_class(context, low_type,
+                                             LOOM_AMDGPU_REG_CLASS_ID_VGPR)) {
+    return true;
+  }
+  return unit_count <= LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES &&
          loom_amdgpu_low_type_is_register_class(context, low_type,
                                                 LOOM_AMDGPU_REG_CLASS_ID_SGPR);
 }

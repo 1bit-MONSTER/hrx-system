@@ -72,7 +72,12 @@ iree_status_t loom_amdgpu_lower_vector_bitcast(
 // Selects an AMDGPU vector.concat register concatenation plan.
 iree_status_t loom_amdgpu_select_vector_concat_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_amdgpu_vector_register_map_plan_t* out_plan, bool* out_selected);
+    loom_amdgpu_vector_concat_plan_t* out_plan, bool* out_selected);
+
+// Lowers vector.concat by composing its existing Low register tuples.
+iree_status_t loom_amdgpu_lower_vector_concat(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_vector_concat_plan_t* plan);
 
 // Lowers a source vector structural op with a static 32-bit register map.
 iree_status_t loom_amdgpu_lower_vector_register_map(

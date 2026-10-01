@@ -2750,10 +2750,11 @@ CHECK: * = global_load_b128_saddr *, %input_view
 CHECK: * = global_load_b128_saddr *, %input_view {offset = 256}
 CHECK: * = global_load_b128_saddr *, %input_view {offset = 512}
 CHECK: * = global_load_b128_saddr *, %input_view {offset = 768}
-CHECK: * = slice *[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-CHECK: * = slice *[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-CHECK: * = slice *[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
-CHECK: * = slice *[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+CHECK: %nct_tile = concat(*) : (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr x8>) -> reg<amdgpu.vgpr x16>
+CHECK: * = slice %nct_tile[0] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
+CHECK: * = slice %nct_tile[4] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
+CHECK: * = slice %nct_tile[8] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
+CHECK: * = slice %nct_tile[12] : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr>
 CHECK: * = concat(*, *, *, *) : * -> reg<amdgpu.vgpr x4>
 CHECK: * = v_lshlrev_b32_src0_inline %block, 6
 CHECK: global_store_b128_saddr *, *, %output_view

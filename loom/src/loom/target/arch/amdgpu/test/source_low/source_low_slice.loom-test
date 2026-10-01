@@ -131,23 +131,7 @@ func.def @i8x32_concat(%low: vector<32xi8>, %high: vector<32xi8>) -> (vector<64x
 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @i8x32_concat(%low: reg<amdgpu.vgpr x8>, %high: reg<amdgpu.vgpr x8>) -> (reg<amdgpu.vgpr x16>) asm {
-  %7 = slice %low[0] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %8 = slice %low[1] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %9 = slice %low[2] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %10 = slice %low[3] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %11 = slice %low[4] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %12 = slice %low[5] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %13 = slice %low[6] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %14 = slice %low[7] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %15 = slice %high[0] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %16 = slice %high[1] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %17 = slice %high[2] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %18 = slice %high[3] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %19 = slice %high[4] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %20 = slice %high[5] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %21 = slice %high[6] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %22 = slice %high[7] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr>
-  %result = concat(%7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
+  %result = concat(%low, %high) : (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr x8>) -> reg<amdgpu.vgpr x16>
   return %result
 }
 

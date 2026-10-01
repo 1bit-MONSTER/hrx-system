@@ -697,6 +697,11 @@ typedef struct loom_amdgpu_vector_bitcast_plan_t {
   loom_value_id_t result;
 } loom_amdgpu_vector_bitcast_plan_t;
 
+typedef struct loom_amdgpu_vector_concat_plan_t {
+  // Result vector receiving the ordered source register tuples.
+  loom_value_id_t result;
+} loom_amdgpu_vector_concat_plan_t;
+
 typedef struct loom_amdgpu_vector_register_map_plan_t {
   // Source vector values read by the register map.
   loom_value_id_t sources[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
