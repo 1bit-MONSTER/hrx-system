@@ -2072,6 +2072,17 @@ def test_implicit_registers_and_machine_ties_reach_low() -> None:
     assert constraints[0].rhs_operand_index == 2
 
 
+def test_packed_scalar_conversion_producers_are_rematerializable() -> None:
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in AIE2P_CORE_DESCRIPTOR_SET.descriptors
+    }
+    for key in ("extract.i8.immediate", "extend.unsigned.i8"):
+        assert Constraint(ConstraintKind.REMATERIALIZABLE, 0) in (
+            descriptors[f"amd.xdna.aie2p.{key}"].constraints
+        )
+
+
 def test_seed_schedule_contract_retains_endpoint_events_and_separations() -> None:
     descriptor_set = AIE2P_CORE_DESCRIPTOR_SET
     descriptors = {row.key: row for row in descriptor_set.descriptors}

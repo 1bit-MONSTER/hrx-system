@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from loom.gen.support.string_pool import CStringPool
@@ -58,6 +58,7 @@ from loom.target.low_descriptors import (
     OperandForm,
     OperandFormImmediateAction,
     OperandRole,
+    PhysicalRegister,
     PhysicalRegisterView,
     PressureDelta,
     RegClass,
@@ -70,6 +71,44 @@ from loom.target.low_descriptors import (
     StorageLease,
     descriptor_stable_id,
 )
+
+
+def _derive_mutable_state_classes(
+    descriptors: Sequence[Descriptor],
+    register_classes: Mapping[str, RegClass],
+    physical_registers: Mapping[str, PhysicalRegister],
+) -> frozenset[str]:
+    """Returns every register class that may alias descriptor-written state."""
+
+    written_classes = {
+        alternative.reg_class
+        for descriptor in descriptors
+        for operand in descriptor.operands
+        if OperandFlag.STATE_WRITE in operand.flags
+        for alternative in operand.reg_alts
+        if alternative.reg_class is not None
+    }
+    written_alias_sets: set[int] = set()
+    written_atomic_units: set[int] = set()
+    for class_name in written_classes:
+        register_class = register_classes.get(class_name)
+        if register_class is None:
+            continue
+        if register_class.alias_set_id:
+            written_alias_sets.add(register_class.alias_set_id)
+        if RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS in register_class.flags:
+            written_atomic_units.update(atomic_unit for register_name in register_class.physical_registers for atomic_unit in physical_registers[register_name].atomic_units)
+
+    mutable_classes = set(written_classes)
+    for register_class in register_classes.values():
+        if register_class.alias_set_id and register_class.alias_set_id in written_alias_sets:
+            mutable_classes.add(register_class.name)
+            continue
+        if RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS not in register_class.flags:
+            continue
+        if any(atomic_unit in written_atomic_units for register_name in register_class.physical_registers for atomic_unit in physical_registers[register_name].atomic_units):
+            mutable_classes.add(register_class.name)
+    return frozenset(mutable_classes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1060,6 +1099,11 @@ def compile_descriptor_set(
     schedule_inputs = _dedupe_by_name(spec.schedule_classes, lambda item: item.name)
     enum_domain_inputs = _dedupe_by_name(spec.enum_domains, lambda item: item.name)
     _dedupe_by_name(spec.descriptors, lambda item: item.key)
+    mutable_state_classes = _derive_mutable_state_classes(
+        spec.descriptors,
+        reg_class_inputs,
+        physical_register_inputs,
+    )
 
     operand_layouts_by_descriptor: dict[str, validation.DescriptorOperandLayout] = {}
     rematerializable_results_by_descriptor: dict[str, tuple[int, ...]] = {}
@@ -1075,7 +1119,10 @@ def compile_descriptor_set(
             descriptor,
             result_count,
         )
-        rematerializable_results_by_descriptor[descriptor.key] = validation.validate_descriptor_constraints(descriptor)
+        rematerializable_results_by_descriptor[descriptor.key] = validation.validate_descriptor_constraints(
+            descriptor,
+            mutable_state_classes,
+        )
         validation.validate_descriptor_op_kind(descriptor, result_count)
         validation.validate_allocation_move_descriptor(
             descriptor,

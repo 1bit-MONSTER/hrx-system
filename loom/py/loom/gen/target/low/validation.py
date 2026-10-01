@@ -1549,6 +1549,7 @@ def _validate_binary_constraint(
 def _validate_rematerializable_result(
     descriptor: Descriptor,
     result_index: int,
+    mutable_state_classes: frozenset[str],
 ) -> None:
     description = f"descriptor '{descriptor.key}' rematerializable result {result_index}"
     if DescriptorFlag.DEAD_REMOVABLE not in descriptor.flags:
@@ -1573,12 +1574,21 @@ def _validate_rematerializable_result(
             continue
         if OperandFlag.SCHEDULE_ONLY_STATE in operand.flags:
             continue
+        if state_flags == {OperandFlag.STATE_READ}:
+            # Replaying a state-dependent instruction is stable when no
+            # instruction in the descriptor set can change that state storage.
+            # The set-wide alias-aware check keeps this local promise honest as
+            # targets acquire state-assignment forms later.
+            state_class = operand.reg_alts[0].reg_class
+            if state_class not in mutable_state_classes:
+                continue
         if state_flags != {OperandFlag.STATE_WRITE} or operand.role is not OperandRole.RESULT or operand_index != result_index:
             raise ValueError(f"{description} cannot replay target state operand '{operand.field_name}'")
 
 
 def validate_descriptor_constraints(
     descriptor: Descriptor,
+    mutable_state_classes: frozenset[str],
 ) -> tuple[int, ...]:
     """Validates constraints and returns rematerializable result indices."""
 
@@ -1644,7 +1654,11 @@ def validate_descriptor_constraints(
             if constraint.kind is ConstraintKind.REMATERIALIZABLE:
                 if lhs_operand_index in rematerializable_results:
                     raise ValueError(f"descriptor '{descriptor.key}' repeats rematerializable result {lhs_operand_index}")
-                _validate_rematerializable_result(descriptor, lhs_operand_index)
+                _validate_rematerializable_result(
+                    descriptor,
+                    lhs_operand_index,
+                    mutable_state_classes,
+                )
                 rematerializable_results.add(lhs_operand_index)
 
     return tuple(sorted(rematerializable_results))

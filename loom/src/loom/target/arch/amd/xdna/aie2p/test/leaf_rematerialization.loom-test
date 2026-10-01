@@ -532,3 +532,29 @@ low.func.def target<amd.xdna.aie2p.core> @irreducible_private_indices(%position0
 }
 
 // ----
+
+// ====
+
+// Fifteen two-register live-ins leave two ER registers available. Three early
+// extract/zero-extend pairs exceed the bank until allocation replays both
+// instructions next to their reduction uses. The extracts read immutable
+// vaddSign0 target state, so replay preserves their zero-extension mode.
+// RUN: emit aie2p-leaf @packed_extract_extend_pressure report=emission
+
+low.func.def schedule(locked) target<amd.xdna.aie2p.core> @packed_extract_extend_pressure(%packed: reg<aie2p.vec256 x2>, %keep0: reg<aie2p.er x2>, %keep1: reg<aie2p.er x2>, %keep2: reg<aie2p.er x2>, %keep3: reg<aie2p.er x2>, %keep4: reg<aie2p.er x2>, %keep5: reg<aie2p.er x2>, %keep6: reg<aie2p.er x2>, %keep7: reg<aie2p.er x2>, %keep8: reg<aie2p.er x2>, %keep9: reg<aie2p.er x2>, %keep10: reg<aie2p.er x2>, %keep11: reg<aie2p.er x2>, %keep12: reg<aie2p.er x2>, %keep13: reg<aie2p.er x2>, %keep14: reg<aie2p.er x2>) -> (reg<aie2p.er>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>, reg<aie2p.er x2>) asm {
+  %byte0 = vextract.8.imm %packed, 0
+  %wide0 = extend.u8 %byte0
+  %byte1 = vextract.8.imm %packed, 1
+  %wide1 = extend.u8 %byte1
+  %byte2 = vextract.8.imm %packed, 2
+  %wide2 = extend.u8 %byte2
+  %sum1 = add.rr %wide0, %wide1
+  %sum2 = add.rr %sum1, %wide2
+  return %sum2, %keep0, %keep1, %keep2, %keep3, %keep4, %keep5, %keep6, %keep7, %keep8, %keep9, %keep10, %keep11, %keep12, %keep13, %keep14
+}
+
+// ----
+issue cycles: 13
+code bytes: 44
+coissued bundles: 1
+coissued components: 2
