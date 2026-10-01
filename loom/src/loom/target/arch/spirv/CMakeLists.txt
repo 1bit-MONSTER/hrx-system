@@ -541,7 +541,6 @@ loom_check_test_suite(
     "test/source_low/numeric_scalar_f32.loom-test"
     "test/source_low/numeric_scalar_f32_values.loom-test"
     "test/source_low/numeric_scalar_i32.loom-test"
-    "test/source_low/numeric_unsigned_constant_division.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
     "test/source_low/ordinary_vector_float.loom-test"
     "test/source_low/ordinary_vector_structure.loom-test"
