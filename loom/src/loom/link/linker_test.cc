@@ -393,6 +393,84 @@ func.def @unused(%x: i32) -> (i32) {
   EXPECT_EQ(text.find("func.def @unused"), std::string::npos);
 }
 
+TEST_F(LinkerTest, LinkRootsReportResolvedSymbolsInRequestOrder) {
+  loom_module_t* module = Parse(IREE_SV(R"(
+func.def @first(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+
+func.def @second(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+)"));
+
+  const loom_module_t* inputs[] = {module};
+  const iree_string_view_t roots[] = {
+      IREE_SV("@second"),
+      IREE_SV("@first"),
+      IREE_SV("@second"),
+  };
+  loom_symbol_ref_t root_targets[IREE_ARRAYSIZE(roots)] = {};
+  const loom_link_options_t options = {
+      /*.module_name=*/IREE_SV("linked"),
+      /*.root_symbols=*/{/*.count=*/IREE_ARRAYSIZE(roots), /*.values=*/roots},
+      /*.root_target_symbols=*/
+      {
+          /*.count=*/IREE_ARRAYSIZE(root_targets),
+          /*.values=*/root_targets,
+      },
+  };
+  loom_module_t* linked = nullptr;
+  IREE_ASSERT_OK(loom_link_materialized_modules(
+      inputs, IREE_ARRAYSIZE(inputs), &options, &block_pool_,
+      iree_allocator_system(), &linked));
+  modules_.push_back(linked);
+  Verify(linked);
+
+  EXPECT_EQ(root_targets[0].module_id, 0u);
+  EXPECT_EQ(root_targets[1].module_id, 0u);
+  EXPECT_EQ(root_targets[2].module_id, 0u);
+  EXPECT_EQ(root_targets[0].symbol_id, root_targets[2].symbol_id);
+  EXPECT_NE(root_targets[0].symbol_id, root_targets[1].symbol_id);
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_string_table_get(
+          &linked->strings,
+          linked->symbols.entries[root_targets[0].symbol_id].name_id),
+      IREE_SV("second")));
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_string_table_get(
+          &linked->strings,
+          linked->symbols.entries[root_targets[1].symbol_id].name_id),
+      IREE_SV("first")));
+}
+
+TEST_F(LinkerTest, LinkRootsRejectMismatchedTargetStorage) {
+  loom_module_t* module = Parse(IREE_SV(R"(
+func.def @root(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+)"));
+
+  const loom_module_t* inputs[] = {module};
+  const iree_string_view_t roots[] = {IREE_SV("@root")};
+  loom_symbol_ref_t root_targets[2] = {};
+  const loom_link_options_t options = {
+      /*.module_name=*/IREE_SV("linked"),
+      /*.root_symbols=*/{/*.count=*/IREE_ARRAYSIZE(roots), /*.values=*/roots},
+      /*.root_target_symbols=*/
+      {
+          /*.count=*/IREE_ARRAYSIZE(root_targets),
+          /*.values=*/root_targets,
+      },
+  };
+  loom_module_t* linked = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_link_materialized_modules(
+                            inputs, IREE_ARRAYSIZE(inputs), &options,
+                            &block_pool_, iree_allocator_system(), &linked));
+  EXPECT_EQ(linked, nullptr);
+}
+
 TEST_F(LinkerTest, LinkRootInternalizesPublicDependencies) {
   loom_module_t* module = Parse(IREE_SV(R"(
 func.def public @dependency(%x: i32) -> (i32) {
