@@ -6,11 +6,14 @@
 
 #include "loom/compile/request.h"
 
+#include <stdlib.h>
 #include <string.h>
 
+#include "loom/link/linker.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/pipeline/ops.h"
 #include "loom/target/entry_selection.h"
+#include "loom/target/module_specialization.h"
 #include "loom/target/projection.h"
 
 iree_string_view_t loom_compile_product_name(loom_compile_product_t product) {
@@ -701,4 +704,165 @@ iree_status_t loom_compile_request_resolve(
       target_environment, &request.target_emitter));
   *out_request = request;
   return iree_ok_status();
+}
+
+static int loom_compile_request_compare_symbol_refs(const void* lhs_ptr,
+                                                    const void* rhs_ptr) {
+  const loom_symbol_ref_t lhs = *(const loom_symbol_ref_t*)lhs_ptr;
+  const loom_symbol_ref_t rhs = *(const loom_symbol_ref_t*)rhs_ptr;
+  return (lhs.symbol_id > rhs.symbol_id) - (lhs.symbol_id < rhs.symbol_id);
+}
+
+static iree_status_t loom_compile_request_build_specializations(
+    const loom_module_t* module, loom_linker_target_symbol_list_t root_symbols,
+    const loom_target_profile_t* target_profile, iree_arena_allocator_t* arena,
+    loom_target_specialization_request_list_t* out_specializations) {
+  *out_specializations = (loom_target_specialization_request_list_t){0};
+  if (root_symbols.count > 1) {
+    qsort(root_symbols.values, root_symbols.count, sizeof(*root_symbols.values),
+          loom_compile_request_compare_symbol_refs);
+  }
+
+  const iree_host_size_t capacity =
+      root_symbols.count != 0 ? root_symbols.count : module->symbols.count;
+  loom_target_specialization_request_t* specializations = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, capacity, sizeof(*specializations), (void**)&specializations));
+  iree_host_size_t specialization_count = 0;
+  if (root_symbols.count != 0) {
+    for (iree_host_size_t i = 0; i < root_symbols.count; ++i) {
+      const loom_symbol_ref_t root = root_symbols.values[i];
+      if (i != 0 && root.symbol_id == root_symbols.values[i - 1].symbol_id) {
+        continue;
+      }
+      const loom_symbol_t* symbol = &module->symbols.entries[root.symbol_id];
+      if (loom_func_like_body(
+              loom_func_like_const_cast(module, symbol->defining_op)) == NULL) {
+        continue;
+      }
+      specializations[specialization_count++] =
+          (loom_target_specialization_request_t){
+              .function_name =
+                  loom_string_table_get(&module->strings, symbol->name_id),
+              .target_profile = target_profile,
+          };
+    }
+  } else {
+    for (iree_host_size_t i = 0; i < module->symbols.count; ++i) {
+      const loom_symbol_t* symbol = &module->symbols.entries[i];
+      const loom_func_like_t function =
+          loom_func_like_const_cast(module, symbol->defining_op);
+      if (loom_func_like_body(function) == NULL ||
+          (loom_func_like_is_module_internal(function) &&
+           !iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_RETAIN))) {
+        continue;
+      }
+      specializations[specialization_count++] =
+          (loom_target_specialization_request_t){
+              .function_name =
+                  loom_string_table_get(&module->strings, symbol->name_id),
+              .target_profile = target_profile,
+          };
+    }
+  }
+  *out_specializations = (loom_target_specialization_request_list_t){
+      .values = specializations,
+      .count = specialization_count,
+  };
+  return iree_ok_status();
+}
+
+static iree_status_t loom_compile_request_materialize_roots(
+    const loom_compile_request_t* request,
+    loom_linker_target_symbol_list_t root_targets,
+    loom_source_table_projection_t* sources,
+    iree_arena_block_pool_t* block_pool, loom_module_t** inout_module) {
+  loom_module_t* module = *inout_module;
+  if (request->selection.roots.count == 0) {
+    return iree_ok_status();
+  }
+
+  const loom_module_t* const source_modules[] = {module};
+  iree_string_view_t module_name = iree_string_view_empty();
+  if (module->name_id < module->strings.count) {
+    module_name = loom_string_table_get(&module->strings, module->name_id);
+  }
+  const loom_source_table_resolver_t input_sources = sources->table;
+  loom_module_t* linked_module = NULL;
+  iree_status_t status = loom_link_materialized_modules(
+      source_modules, IREE_ARRAYSIZE(source_modules),
+      &(loom_link_options_t){
+          .module_name = module_name,
+          .root_symbols = request->selection.roots,
+          .root_target_symbols = root_targets,
+          .source_callback = {.fn = loom_source_table_project,
+                              .user_data = sources},
+      },
+      block_pool, module->allocator, &linked_module);
+  if (iree_status_is_ok(status)) {
+    loom_module_free(module);
+    *inout_module = linked_module;
+  } else {
+    sources->table = input_sources;
+  }
+  return status;
+}
+
+iree_status_t loom_compile_request_materialize(
+    const loom_compile_request_t* request,
+    const loom_target_environment_t* target_environment,
+    const loom_target_entry_options_t* entry_options,
+    loom_source_table_projection_t* sources, iree_arena_allocator_t* arena,
+    iree_arena_block_pool_t* block_pool, loom_module_t** inout_module,
+    loom_target_specialization_request_list_t* out_target_specializations,
+    uint32_t* out_error_count) {
+  *out_target_specializations = (loom_target_specialization_request_list_t){0};
+  *out_error_count = 0;
+
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(block_pool, &scratch_arena);
+  const iree_host_size_t root_target_count =
+      request->explicit_target.profile != NULL ? request->selection.roots.count
+                                               : 0;
+  loom_symbol_ref_t* root_target_values = NULL;
+  iree_status_t status = iree_arena_allocate_array(
+      &scratch_arena, root_target_count, sizeof(*root_target_values),
+      (void**)&root_target_values);
+  loom_linker_target_symbol_list_t root_targets = {
+      .count = root_target_count,
+      .values = root_target_values,
+  };
+  if (iree_status_is_ok(status)) {
+    status = loom_compile_request_materialize_roots(
+        request, root_targets, sources, block_pool, inout_module);
+  }
+
+  loom_target_specialization_request_list_t specializations = {0};
+  if (iree_status_is_ok(status) && request->explicit_target.profile != NULL) {
+    iree_arena_allocator_t* specialization_arena =
+        request->selection.product == LOOM_COMPILE_PRODUCT_KERNEL
+            ? &scratch_arena
+            : arena;
+    status = loom_compile_request_build_specializations(
+        *inout_module, root_targets, request->explicit_target.profile,
+        specialization_arena, &specializations);
+  }
+  if (iree_status_is_ok(status) &&
+      request->selection.product == LOOM_COMPILE_PRODUCT_KERNEL &&
+      request->explicit_target.profile != NULL) {
+    loom_target_entry_diagnostic_emitter_t diagnostic_emitter;
+    loom_target_entry_diagnostic_emitter_initialize(
+        *inout_module, entry_options, LOOM_EMITTER_PASS, &diagnostic_emitter);
+    status = loom_target_specialize_module(
+        target_environment, specializations,
+        (loom_target_declaration_binding_list_t){0},
+        loom_target_entry_emitter(&diagnostic_emitter), block_pool,
+        (*inout_module)->allocator, inout_module, out_error_count);
+    sources->table.module = *inout_module;
+  } else if (iree_status_is_ok(status) &&
+             request->selection.product == LOOM_COMPILE_PRODUCT_MODULE) {
+    *out_target_specializations = specializations;
+  }
+  iree_arena_deinitialize(&scratch_arena);
+  return status;
 }

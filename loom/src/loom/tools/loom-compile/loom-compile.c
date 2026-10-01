@@ -25,7 +25,6 @@
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/compile/configured.h"
 #include "loom/tooling/compile/pipeline.h"
-#include "loom/tooling/compile/preparation.h"
 #include "loom/tooling/compile/report_capture.h"
 #include "loom/tooling/config/config.h"
 #include "loom/tooling/context/context.h"
@@ -426,7 +425,7 @@ static iree_status_t loom_compile_run_pass_pipeline(
     loom_run_session_t* session, loom_run_module_t* run_module,
     const loom_pass_pipeline_snapshot_t* pipeline_snapshot,
     loom_compile_default_pipeline_t default_pipeline,
-    const loom_compile_request_t* request,
+    loom_target_specialization_request_list_t target_specializations,
     const loom_compile_options_t* compile_options,
     loom_compile_report_capture_t* compile_report_capture,
     const loom_pass_trace_options_t* trace_options,
@@ -443,6 +442,7 @@ static iree_status_t loom_compile_run_pass_pipeline(
   pipeline_options.target_pipeline_options =
       compile_options->target_pipeline_options;
   pipeline_options.target_environment = target_environment;
+  pipeline_options.target_specializations = target_specializations;
   pipeline_options.low_descriptor_registry =
       loom_run_session_low_descriptor_registry(session);
   pipeline_options.cleanup_pattern_provider_set =
@@ -464,9 +464,9 @@ static iree_status_t loom_compile_run_pass_pipeline(
   pipeline_options.report = compile_options->report;
   pipeline_options.trace_options = trace_options;
 
-  return loom_compile_run_request_pipeline(
-      request, run_module->module, &pipeline_options,
-      loom_run_session_block_pool(session), out_result);
+  return loom_compile_run_pipeline(run_module->module, &pipeline_options,
+                                   loom_run_session_block_pool(session),
+                                   out_result);
 }
 
 static iree_status_t loom_compile_write_bytes(iree_string_view_t path,
@@ -811,7 +811,7 @@ static iree_status_t loom_compile_materialize_module(
     loom_run_session_t* session, loom_run_module_t* run_module,
     const loom_compile_request_t* request,
     loom_compile_report_capture_t* compile_report_capture,
-    iree_allocator_t allocator) {
+    loom_target_specialization_request_list_t* out_target_specializations) {
   loom_compile_diagnostic_sink_t compile_diagnostic_sink = {
       .run_module = run_module,
       .compile_report_capture = compile_report_capture,
@@ -821,8 +821,7 @@ static iree_status_t loom_compile_materialize_module(
       &compile_diagnostic_sink.type_print_context);
   loom_source_table_projection_t sources = {
       .table = run_module->sources.table, .arena = &run_module->sources.arena};
-  const loom_compile_pipeline_options_t pipeline_options = {
-      .target_environment = target_environment,
+  const loom_target_entry_options_t entry_options = {
       .diagnostic_sink =
           {
               .fn = loom_compile_diagnostic_sink,
@@ -832,10 +831,10 @@ static iree_status_t loom_compile_materialize_module(
                           .user_data = &sources.table},
   };
   uint32_t error_count = 0;
-  iree_status_t status = loom_compile_materialize_request(
-      request, &pipeline_options, &sources,
-      loom_run_session_block_pool(session), allocator, &run_module->module,
-      &error_count);
+  iree_status_t status = loom_compile_request_materialize(
+      request, target_environment, &entry_options, &sources,
+      &run_module->sources.arena, loom_run_session_block_pool(session),
+      &run_module->module, out_target_specializations, &error_count);
   run_module->sources.table = sources.table;
   run_module->sources.capacity = sources.table.count;
   IREE_RETURN_IF_ERROR(status);
@@ -963,6 +962,7 @@ int main(int argc, char** argv) {
   loom_compile_report_capture_t compile_report_capture = {0};
   loom_tooling_pass_trace_t pass_trace = {0};
   loom_compile_request_t request = {0};
+  loom_target_specialization_request_list_t target_specializations = {0};
   loom_pass_pipeline_snapshot_t pipeline_snapshot = {0};
   loom_compile_artifact_manifest_options_t artifact_manifest_options = {0};
   iree_string_view_t artifact_manifest_output_path = iree_string_view_empty();
@@ -1030,7 +1030,7 @@ int main(int argc, char** argv) {
   if (iree_status_is_ok(status) && run_eager_pipeline) {
     status = loom_compile_materialize_module(
         compile_environment->target_environment, &session, &run_module,
-        &request, &compile_report_capture, allocator);
+        &request, &compile_report_capture, &target_specializations);
   }
   if (iree_status_is_ok(status)) {
     const bool is_loadable_kernel_format =
@@ -1103,7 +1103,7 @@ int main(int argc, char** argv) {
       status = loom_compile_run_pass_pipeline(
           compile_environment->target_environment, &session, &run_module,
           has_named_pipeline ? &pipeline_snapshot : NULL,
-          LOOM_COMPILE_DEFAULT_PIPELINE_PREPARED_LOW, &request,
+          LOOM_COMPILE_DEFAULT_PIPELINE_PREPARED_LOW, target_specializations,
           &compile_options, &compile_report_capture,
           loom_tooling_pass_trace_options(&pass_trace), &pipeline_result);
     }

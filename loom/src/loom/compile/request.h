@@ -11,8 +11,11 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
+#include "loom/error/source.h"
 #include "loom/ir/module.h"
+#include "loom/target/entry_selection.h"
 #include "loom/target/selection.h"
+#include "loom/target/specialization.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,6 +97,31 @@ iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_target_environment_t* target_environment,
     iree_arena_allocator_t* arena, loom_compile_request_t* out_request);
+
+// Materializes the roots selected by a resolved compile request and applies an
+// explicit target at the product boundary.
+//
+// Root materialization establishes the deployment ABI independently of check
+// launches in the input module and excludes every unselected root. Kernel
+// products are specialized into standalone target-specific IR immediately.
+// Module products return per-function specialization requests for the caller's
+// compile pipeline; the requests and their borrowed module names remain valid
+// until |arena| or |*inout_module| is released. Products without an explicit
+// target return an empty specialization list.
+//
+// The caller owns |*inout_module| on both success and failure. Successful
+// transformations may replace it and free the previous module. Source storage
+// referenced by |sources| must outlive the call and module. Specialization
+// diagnostics are counted in |out_error_count|; status represents allocation,
+// linking, or diagnostic-sink failures.
+iree_status_t loom_compile_request_materialize(
+    const loom_compile_request_t* request,
+    const loom_target_environment_t* target_environment,
+    const loom_target_entry_options_t* entry_options,
+    loom_source_table_projection_t* sources, iree_arena_allocator_t* arena,
+    iree_arena_block_pool_t* block_pool, loom_module_t** inout_module,
+    loom_target_specialization_request_list_t* out_target_specializations,
+    uint32_t* out_error_count);
 
 #ifdef __cplusplus
 }  // extern "C"

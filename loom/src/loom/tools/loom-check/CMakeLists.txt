@@ -288,10 +288,11 @@ loom_cc_library(
     ::execute
     iree::base
     loom::codegen::low::repr
+    loom::compile::request
     loom::link::linker
     loom::target::entry_selection
     loom::tooling::compile::configured
-    loom::tooling::compile::preparation
+    loom::tooling::compile::pipeline
     loom::tooling::config
   PUBLIC
 )

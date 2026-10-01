@@ -19,12 +19,16 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::internal::arena
+    loom::error::source
     loom::ir
+    loom::link::linker
     loom::ops::op_defs
     loom::ops::pipeline
     loom::target::entry_selection
+    loom::target::module_specialization
     loom::target::projection
     loom::target::selection
+    loom::target::specialization
     loom::target::types
   PUBLIC
 )
