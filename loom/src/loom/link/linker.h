@@ -44,6 +44,19 @@ typedef struct loom_linker_source_callback_t {
   void* user_data;
 } loom_linker_source_callback_t;
 
+// Caller-provided output storage for projected target symbol references.
+typedef struct loom_linker_target_symbol_list_t {
+  // Number of writable entries in values.
+  iree_host_size_t count;
+  // Target references written in source-selection order.
+  loom_symbol_ref_t* values;
+} loom_linker_target_symbol_list_t;
+
+static inline loom_linker_target_symbol_list_t
+loom_linker_target_symbol_list_empty(void) {
+  return (loom_linker_target_symbol_list_t){0};
+}
+
 // Options controlling one link operation.
 typedef struct loom_link_options_t {
   // Name assigned to the linked output module.
@@ -51,6 +64,9 @@ typedef struct loom_link_options_t {
   // Root symbol names to materialize. Function-like roots are retained in the
   // linked output. An empty list links every materialized source symbol.
   iree_string_view_list_t root_symbols;
+  // Optional linked symbol references parallel to root_symbols. An empty list
+  // ignores the resolved identities; otherwise the counts must match.
+  loom_linker_target_symbol_list_t root_target_symbols;
   // Optional consumer of the source correspondence produced by each input.
   loom_linker_source_callback_t source_callback;
 } loom_link_options_t;
@@ -128,19 +144,6 @@ typedef struct loom_linker_source_symbol_binding_list_t {
 static inline loom_linker_source_symbol_binding_list_t
 loom_linker_source_symbol_binding_list_empty(void) {
   return (loom_linker_source_symbol_binding_list_t){0};
-}
-
-// Caller-provided output storage for projected target symbol references.
-typedef struct loom_linker_target_symbol_list_t {
-  // Number of writable entries in values.
-  iree_host_size_t count;
-  // Target references written in source-selection order.
-  loom_symbol_ref_t* values;
-} loom_linker_target_symbol_list_t;
-
-static inline loom_linker_target_symbol_list_t
-loom_linker_target_symbol_list_empty(void) {
-  return (loom_linker_target_symbol_list_t){0};
 }
 
 // Allocates an incremental linker over |context|.

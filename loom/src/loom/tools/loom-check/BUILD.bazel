@@ -393,10 +393,11 @@ loom_cc_library(
     deps = [
         ":execute",
         "//loom/src/loom/codegen/low:repr",
+        "//loom/src/loom/compile:request",
         "//loom/src/loom/link:linker",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/tooling/compile:configured",
-        "//loom/src/loom/tooling/compile:preparation",
+        "//loom/src/loom/tooling/compile:pipeline",
         "//loom/src/loom/tooling/config",
         "//runtime/src/iree/base",
     ],

@@ -81,7 +81,6 @@ loom_cc_binary(
     loom::tooling::compile::configured
     loom::tooling::compile::options
     loom::tooling::compile::pipeline
-    loom::tooling::compile::preparation
     loom::tooling::compile::report_capture
     loom::tooling::config
     loom::tooling::context

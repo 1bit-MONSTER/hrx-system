@@ -6,6 +6,9 @@
 
 #include "loom/compile/request.h"
 
+#include <string>
+#include <utility>
+
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -151,6 +154,34 @@ class CompileRequestTest : public ::testing::Test {
     return request;
   }
 
+  ModulePtr Materialize(ModulePtr module, const loom_compile_request_t& request,
+                        loom_target_specialization_request_list_t*
+                            out_specializations = nullptr) {
+    loom_module_t* materialized_module = module.release();
+    loom_source_table_projection_t sources = {};
+    sources.table.module = materialized_module;
+    sources.arena = &request_arena_;
+    const loom_target_entry_options_t entry_options = {};
+    loom_target_specialization_request_list_t specializations = {};
+    uint32_t error_count = 0;
+    iree_status_t status = loom_compile_request_materialize(
+        &request, &environment_, &entry_options, &sources, &request_arena_,
+        &block_pool_, &materialized_module, &specializations, &error_count);
+    module.reset(materialized_module);
+    IREE_EXPECT_OK(status);
+    EXPECT_EQ(error_count, 0u);
+    if (out_specializations != nullptr) {
+      *out_specializations = specializations;
+    }
+    return module;
+  }
+
+  static bool HasSymbol(const loom_module_t* module, iree_string_view_t name) {
+    const loom_string_id_t name_id = loom_module_lookup_string(module, name);
+    return name_id != LOOM_STRING_ID_INVALID &&
+           loom_module_find_symbol(module, name_id) != LOOM_SYMBOL_ID_INVALID;
+  }
+
   static ModulePtr ParseKernel(CompileRequestTest* test, bool with_target) {
     return with_target ? test->Parse(R"(
 target.generic<reference> @Target789 {
@@ -197,6 +228,105 @@ TEST_F(CompileRequestTest, InfersKernelAndCanonicalFormat) {
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("Kernel123")));
+}
+
+TEST_F(CompileRequestTest, MaterializesSelectedModuleRootClosure) {
+  ModulePtr module = Parse(R"(
+func.def @shared(%value: i32) -> (i32) {
+  func.return %value : i32
+}
+func.def @excluded_only(%value: i32) -> (i32) {
+  func.return %value : i32
+}
+func.def public @kept(%value: i32) -> (i32) {
+  %result = func.call @shared(%value) : (i32) -> (i32)
+  func.return %result : i32
+}
+func.def public @also_kept(%value: i32) -> (i32) {
+  func.return %value : i32
+}
+func.def public @excluded(%value: i32) -> (i32) {
+  %shared_result = func.call @shared(%value) : (i32) -> (i32)
+  %result = func.call @excluded_only(%shared_result) : (i32) -> (i32)
+  func.return %result : i32
+}
+)");
+  const iree_string_view_t roots[] = {IREE_SV("kept"), IREE_SV("also_kept")};
+  loom_compile_request_options_t options = {};
+  options.roots = {IREE_ARRAYSIZE(roots), roots};
+  options.format = IREE_SV("DiagnosticFormat123");
+  const loom_compile_request_t request = Resolve(module.get(), options);
+
+  module = Materialize(std::move(module), request);
+
+  EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("kept")));
+  EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("also_kept")));
+  EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("shared")));
+  EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded")));
+  EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded_only")));
+}
+
+TEST_F(CompileRequestTest, MaterializesSelectedKernelRootAlone) {
+  ModulePtr module = Parse(R"(
+target.generic<reference> @Target789 {
+  subgroup_size = 32
+}
+kernel.def target(@Target789) @kept() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+kernel.def target(@Target789) @excluded() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+)");
+  const iree_string_view_t roots[] = {IREE_SV("kept")};
+  loom_compile_request_options_t options = {};
+  options.roots = {IREE_ARRAYSIZE(roots), roots};
+  const loom_compile_request_t request = Resolve(module.get(), options);
+
+  module = Materialize(std::move(module), request);
+
+  EXPECT_TRUE(HasSymbol(module.get(), IREE_SV("kept")));
+  EXPECT_FALSE(HasSymbol(module.get(), IREE_SV("excluded")));
+}
+
+TEST_F(CompileRequestTest, MaterializedRootsSpecializeOnceInLinkedOrder) {
+  ModulePtr module = Parse(R"(
+func.def public @first() {
+  func.return
+}
+func.def public @second() {
+  func.return
+}
+)");
+  const iree_string_view_t roots[] = {
+      IREE_SV("second"),
+      IREE_SV("first"),
+      IREE_SV("@second"),
+  };
+  loom_compile_request_options_t options = {};
+  options.roots = {IREE_ARRAYSIZE(roots), roots};
+  options.format = IREE_SV("DiagnosticFormat123");
+  options.target = IREE_SV("TargetFamily123:Target456");
+  const loom_compile_request_t request = Resolve(module.get(), options);
+
+  loom_target_specialization_request_list_t specializations = {};
+  module = Materialize(std::move(module), request, &specializations);
+
+  ASSERT_EQ(specializations.count, 2u);
+  EXPECT_EQ(std::string(specializations.values[0].function_name.data,
+                        specializations.values[0].function_name.size),
+            "second");
+  EXPECT_EQ(std::string(specializations.values[1].function_name.data,
+                        specializations.values[1].function_name.size),
+            "first");
+  EXPECT_EQ(specializations.values[0].target_profile, &kTargetProfile);
+  EXPECT_EQ(specializations.values[1].target_profile, &kTargetProfile);
 }
 
 TEST_F(CompileRequestTest, ResolvesArrayProgramsWithDefaultAndNamedRoots) {

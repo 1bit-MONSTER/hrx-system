@@ -28,11 +28,11 @@ typedef struct loom_check_compile_options_t {
   loom_sanitizer_options_t sanitizer;
 } loom_check_compile_options_t;
 
-// Compiles one admitted source case through the public compiler request/root
-// preparation and final artifact producer. Success requires a nonempty artifact
-// or exactly matched diagnostic annotations. RUN goldens, XFAIL, and external
-// execution requirements do not describe this independent compile outcome.
-// No device is opened and no artifact is loaded or executed.
+// Compiles one admitted source case through request materialization and the
+// final artifact producer. Success requires a nonempty artifact or exactly
+// matched diagnostic annotations. RUN goldens, XFAIL, and external execution
+// requirements do not describe this independent compile outcome. No device is
+// opened and no artifact is loaded or executed.
 iree_status_t loom_check_execute_compile(
     const loom_test_case_t* test_case, iree_host_size_t case_index,
     loom_check_file_report_t* report, iree_string_view_t filename,

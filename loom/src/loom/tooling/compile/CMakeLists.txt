@@ -11,38 +11,6 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
-    preparation
-  HDRS
-    "preparation.h"
-  SRCS
-    "preparation.c"
-  DEPS
-    ::pipeline
-    loom::compile::request
-    loom::link::linker
-    loom::target::entry_selection
-    loom::target::module_specialization
-  PUBLIC
-)
-
-loom_cc_test(
-  NAME
-    preparation_test
-  SRCS
-    "preparation_test.cc"
-  DEPS
-    ::preparation
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::format::text::parser
-    loom::ir
-    loom::testing::context
-    loom::testing::module_ptr
-)
-
-loom_cc_library(
-  NAME
     options
   HDRS
     "options.h"

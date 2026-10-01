@@ -7,9 +7,10 @@
 #include "loom/tools/loom-check/compile.h"
 
 #include "loom/codegen/low/repr.h"
+#include "loom/compile/request.h"
 #include "loom/link/linker.h"
 #include "loom/target/entry_selection.h"
-#include "loom/tooling/compile/preparation.h"
+#include "loom/tooling/compile/pipeline.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/input.h"
 
@@ -110,17 +111,25 @@ static iree_status_t loom_check_compile_request(
       &module);
   collector->module = module;
   uint32_t error_count = 0;
+  loom_target_specialization_request_list_t target_specializations = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_compile_materialize_request(request, pipeline_options,
-                                              &source_projection, block_pool,
-                                              allocator, &module, &error_count);
+    const loom_target_entry_options_t entry_options = {
+        .diagnostic_sink = pipeline_options->diagnostic_sink,
+        .source_resolver = pipeline_options->source_resolver,
+        .max_errors = pipeline_options->max_errors,
+    };
+    status = loom_compile_request_materialize(
+        request, pipeline_options->target_environment, &entry_options,
+        &source_projection, collector->arena, block_pool, &module,
+        &target_specializations, &error_count);
     collector->module = module;
+    projected_options.target_specializations = target_specializations;
   }
   loom_compile_pipeline_result_t pipeline_result = {0};
   if (iree_status_is_ok(status) &&
       collector->error_count == initial_error_count) {
-    status = loom_compile_run_request_pipeline(
-        request, module, pipeline_options, block_pool, &pipeline_result);
+    status = loom_compile_run_pipeline(module, pipeline_options, block_pool,
+                                       &pipeline_result);
   }
   if (iree_status_is_ok(status) &&
       collector->error_count == initial_error_count) {
