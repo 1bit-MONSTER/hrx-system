@@ -31,6 +31,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "atomic/float_bitwise.loom",
         "atomic/float_extrema.loom",
         "atomic/float64.loom",
+        "atomic/float64_contention.loom",
         "atomic/global_add_f32.loom",
         "atomic/i32.loom",
         "atomic/i64.loom",
