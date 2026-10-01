@@ -274,6 +274,89 @@ SDMA's GCR and scoped-transfer paths have different fields and callers. Their
 omission of metadata controls does not settle PM4's M$ behavior.
 [SDMA cache operations](../sdma/cache.md)
 
+### Metadata addressing and subresource ranges
+
+PAL's GFX10/GFX11 image path has an additional GL2 writeback/invalidation rule
+for pipe-misaligned metadata. Its explanation identifies different metadata
+addressing by the render backends and texture cache. Direct metadata access
+includes color/depth use and shaders that read or update metadata explicitly;
+indirect access includes shader image reads and writes through resource views.
+A compute layout-transition shader can use the direct mode, so
+`CoherShaderWrite` alone does not identify an indirect access.
+[Addressing premise][pal-metadata-layout] [Access modes][pal-metadata-transition]
+[Layout-transition caller][pal-metadata-blit]
+
+Image finalization records the first affected mip for each plane. `UINT_MAX`
+means none and zero means every mip. A subresource range needs the workaround
+when its highest included mip reaches that plane's threshold for any covered
+plane. The decision concerns the image layout and subresource range, rather
+than the allocation's base-address alignment alone.
+[Finalization caller][pal-metadata-finalize]
+[Threshold construction][pal-metadata-layout] [Range query][pal-metadata-range]
+
+The pinned producer derives these intermediate values:
+
+| Value | PAL calculation |
+| --- | --- |
+| `B`, `S` | `log2(bitsPerTexel / 8)` and `log2(sampleCount)`. |
+| `P`, `F` | Native `GB_ADDR_CONFIG.NUM_PIPES` and `MAX_COMPRESSED_FRAGS` field values. |
+| `C`, GFX10.1 | `min(6, B' + S)`, where `B' = 2` for depth/stencil images with at least eight array slices, otherwise `B`. |
+| `C`, GFX10.3/GFX11 | `B + S`. |
+| `O`, `SO`, `D` | `max(C + P - 8, 0)`, `min(S, O)` and `max(S - F, 0)`, respectively. |
+
+Here PAL's `IsGfx11` means its `GfxIp11_0` or `GfxIp11_5` enum, and its
+`IsGfx103Plus` test is an enum comparison above `GfxIp10_1`. The calculation
+belongs to this GFX10/GFX11 image path. The first-affected-mip rules are:
+
+| Image condition | First affected mip |
+| --- | --- |
+| GFX11 image has a DCC or HTILE metadata mip tail and more than one mip | First mip reported in that tail by the address library; later rules can lower it to zero. |
+| Depth/stencil has HTILE and permits metadata texture fetch, with non-power-of-two VRAM bus width or `O > 0` | Zero. |
+| GFX11 color has DCC and permits metadata texture fetch, with non-power-of-two VRAM bus width or `O > 0` | Zero. |
+| Earlier color path has non-power-of-two VRAM bus width or `SO > D`, and either texture-fetchable DCC or shader-readable compressed FMASK without DCC | Zero. |
+| No applicable condition | `UINT_MAX`. |
+
+[Layout predicates][pal-metadata-predicates] [Mip-tail query][pal-metadata-tail]
+[GFX11 identity][pal-gfx11-identity] [GFX10.3 predicate][pal-gfx103-identity]
+
+The barrier planner conservatively treats a global transition as potentially
+covering such metadata; an image transition can use the range query, while an
+ordinary buffer transition has no image metadata. Applicable writes request
+GL2 writeback and invalidation across access modes. A split release lacks the
+destination access mask, so it retains this refresh for an eligible metadata
+writer instead of assuming that the next access uses the same mode.
+[Planner and exemptions][pal-metadata-transition]
+[Resource-specific inputs][pal-metadata-inputs]
+
+PAL's ordinary access-mask path considers `CoherColorTarget`,
+`CoherDepthStencilTarget`, `CoherShaderWrite` and `CoherPresent` sources. It
+removes buffer-only categories from both masks and the separately handled BLT
+destination categories from the source. It omits this metadata-refresh
+contribution for either of these cases:
+
+| Source and destination | Additional premise |
+| --- | --- |
+| Both masks are exactly `CoherColorTarget`, or both exactly `CoherDepthStencilTarget` | Both accesses use the same direct mode. |
+| Both masks include `CoherShaderWrite` and contain only `CoherShader` bits | The caller establishes `shaderMdAccessIndirectOnly`; a layout-transition BLT does not establish this premise. |
+
+[Exact exemptions][pal-metadata-transition]
+[Layout-transition input][pal-metadata-blit]
+
+Generic copy/clear/resolve destinations take a separate path. It consults the
+command buffer's retained direct/indirect metadata-write history and the
+original source mask before the generic flags lose their meaning. A direct-only
+history can omit refresh when the destination mask is exactly a color target
+or a depth/stencil target. An indirect-only history can omit it when the
+destination includes shader writes, contains only shader bits, and satisfies
+the same indirect-only premise. Both exemptions require that the source contain
+only BLT destination categories after removing buffer-only categories. Mixed
+direct/indirect history retains the refresh. Ordinary BLT cache-dirty flags
+alone are insufficient because clearing them need not have refreshed GL2.
+This GL2 operation is distinct from both
+ordinary GLM invalidation and the disputed `GLM_WB` bit.
+[BLT history and exemptions][pal-metadata-blit-history]
+[Original-mask requirement][pal-metadata-transition]
+
 ## Graphics PWS
 
 Graphics PWS acquire uses 128-byte GCR base/size units and a 25-bit high-size
@@ -629,3 +712,14 @@ the address being in host or device memory. [Programming recipes](../recipes/REA
 [pal12-front-end]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L435-L465
 [pal12-deferred-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L713-L725
 [pal12-acquire-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L955-L985
+[pal-metadata-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3391-L3409
+[pal-metadata-finalize]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L918-L924
+[pal-metadata-range]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3317-L3332
+[pal-metadata-predicates]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3410-L3500
+[pal-metadata-tail]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3057-L3077
+[pal-gfx11-identity]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/device.h#L2328-L2333
+[pal-gfx103-identity]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/device.h#L2515-L2526
+[pal-metadata-transition]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L379-L435
+[pal-metadata-blit-history]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L219-L258
+[pal-metadata-inputs]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Barrier.h#L330-L355
+[pal-metadata-blit]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L969-L982
