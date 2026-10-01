@@ -628,6 +628,7 @@ class SymbolReferenceRole(Enum):
 
     DEPENDENCY = "dependency"
     AVAILABILITY = "availability"
+    ORACLE_DEPENDENCY = "oracle_dependency"
 
 
 @dataclass(frozen=True, slots=True)
@@ -639,8 +640,9 @@ class SymbolReference:
         These are structural contracts, not op names or bytecode wire kinds.
         An empty tuple accepts any symbol without imposing an additional
         interface constraint.
-    role: Whether the reference contributes a dependency edge or only records
-        where an otherwise non-live symbol may be found during compilation.
+    role: Whether the reference contributes an ordinary dependency edge, an
+        independent test-oracle edge, or only records where an otherwise
+        non-live symbol may be found during compilation.
     """
 
     name: str

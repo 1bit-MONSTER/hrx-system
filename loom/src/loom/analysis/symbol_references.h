@@ -107,7 +107,7 @@ static_assert((uint64_t)LOOM_SYMBOL_REFERENCE_OCCURRENCE_SEGMENT_CAPACITY *
 // Returns true when |occurrence| contributes to reachability and link closure.
 static inline bool loom_symbol_reference_occurrence_is_dependency(
     const loom_symbol_reference_occurrence_t* occurrence) {
-  return occurrence->role == LOOM_SYMBOL_REFERENCE_ROLE_DEPENDENCY;
+  return loom_symbol_reference_role_is_dependency(occurrence->role);
 }
 
 // One abstract template.apply provider demand.

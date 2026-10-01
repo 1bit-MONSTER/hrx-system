@@ -72,6 +72,7 @@ from loom.dsl import (
     SymbolDefinition,
     SymbolDefinitionFlag,
     SymbolReference,
+    SymbolReferenceRole,
     TypeDef,
     TypeSemantic,
 )
@@ -348,6 +349,7 @@ check_compare = Op(
             symbol_ref=SymbolReference(
                 "scenario oracle subject",
                 ["callable", "kernel", "command_program", "pipeline"],
+                role=SymbolReferenceRole.ORACLE_DEPENDENCY,
             ),
             doc="Optional oracle subject; omission uses the target subject through the oracle profile.",
         ),
