@@ -2030,3 +2030,65 @@ func.def @finite_numeric_format_vector_decode_content(%payload: vector<1xi32>) -
   %bf6_finite = scalar.constant true : i1
   func.return %fp4_finite, %fp6_finite, %bf6_finite : i1, i1, i1
 }
+
+// ====
+
+// Native grouped arithmetic may differ under cancellation. Compile-time
+// evaluation retains the target-independent ordered f32 reference.
+func.def @dot2f_f16_reference_cancellation() -> (f32, f32) {
+  %a0 = scalar.constant 1.0 : f16
+  %a1 = scalar.constant 2.0 : f16
+  %a2 = scalar.constant -3.0 : f16
+  %a3 = scalar.constant 4.0 : f16
+  %b0 = scalar.constant 5.0 : f16
+  %b1 = scalar.constant -6.0 : f16
+  %b2 = scalar.constant 7.0 : f16
+  %b3 = scalar.constant 8.0 : f16
+  %seed0 = scalar.constant 9.0 : f32
+  %seed1 = scalar.constant -10.0 : f32
+  %lhs = vector.from_elements %a0, %a1, %a2, %a3 : vector<4xf16>
+  %rhs = vector.from_elements %b0, %b1, %b2, %b3 : vector<4xf16>
+  %seed = vector.from_elements %seed0, %seed1 : vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xf16>, vector<4xf16>, vector<2xf32>
+  %first = vector.extract %result[0] : vector<2xf32> -> f32
+  %second = vector.extract %result[1] : vector<2xf32> -> f32
+  func.return %first, %second : f32, f32
+}
+
+// ----
+func.def @dot2f_f16_reference_cancellation() -> (f32, f32) {
+  %first = scalar.constant 2.0 : f32
+  %second = scalar.constant 1.0 : f32
+  func.return %first, %second : f32, f32
+}
+
+// ====
+
+// Native grouped arithmetic may differ under cancellation. Compile-time
+// evaluation retains the target-independent ordered f32 reference.
+func.def @dot2f_bf16_reference_cancellation() -> (f32, f32) {
+  %a0 = scalar.constant 1.0 : bf16
+  %a1 = scalar.constant 2.0 : bf16
+  %a2 = scalar.constant -3.0 : bf16
+  %a3 = scalar.constant 4.0 : bf16
+  %b0 = scalar.constant 5.0 : bf16
+  %b1 = scalar.constant -6.0 : bf16
+  %b2 = scalar.constant 7.0 : bf16
+  %b3 = scalar.constant 8.0 : bf16
+  %seed0 = scalar.constant 9.0 : f32
+  %seed1 = scalar.constant -10.0 : f32
+  %lhs = vector.from_elements %a0, %a1, %a2, %a3 : vector<4xbf16>
+  %rhs = vector.from_elements %b0, %b1, %b2, %b3 : vector<4xbf16>
+  %seed = vector.from_elements %seed0, %seed1 : vector<2xf32>
+  %result = vector.dot2f %lhs, %rhs, %seed : vector<4xbf16>, vector<4xbf16>, vector<2xf32>
+  %first = vector.extract %result[0] : vector<2xf32> -> f32
+  %second = vector.extract %result[1] : vector<2xf32> -> f32
+  func.return %first, %second : f32, f32
+}
+
+// ----
+func.def @dot2f_bf16_reference_cancellation() -> (f32, f32) {
+  %first = scalar.constant 2.0 : f32
+  %second = scalar.constant 1.0 : f32
+  func.return %first, %second : f32, f32
+}
