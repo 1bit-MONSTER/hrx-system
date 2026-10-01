@@ -1034,8 +1034,7 @@ int main(int argc, char** argv) {
   }
   if (iree_status_is_ok(status)) {
     const bool is_loadable_kernel_format =
-        request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL &&
-        request.producer.kind == LOOM_COMPILE_PRODUCER_TARGET_EMITTER;
+        request.selection.product == LOOM_COMPILE_PRODUCT_KERNEL;
     status = loom_compile_artifact_manifest_options_initialize(
         &artifact_manifest_options, is_loadable_kernel_format, allocator,
         &artifact_manifest_output_path, &artifact_manifest_output_path_storage);
@@ -1045,9 +1044,9 @@ int main(int argc, char** argv) {
   loom_compile_options_initialize(&compile_options);
   loom_compile_pipeline_result_t pipeline_result = {0};
   compile_options.artifact_manifest = artifact_manifest_options;
-  if (request.producer.kind == LOOM_COMPILE_PRODUCER_TARGET_EMITTER) {
+  if (iree_status_is_ok(status) && !loom_compile_request_is_command(&request)) {
     compile_options.target_pipeline_options =
-        request.producer.target_emitter->default_pipeline_options;
+        request.target_emitter->default_pipeline_options;
   }
   if (iree_status_is_ok(status)) {
     status = loom_compile_sanitizer_options_initialize(
@@ -1126,23 +1125,15 @@ int main(int argc, char** argv) {
   }
 
   if (iree_status_is_ok(status) && exit_code == 0) {
-    switch (request.producer.kind) {
-      case LOOM_COMPILE_PRODUCER_TARGET_EMITTER:
-        status = loom_compile_emit_target(
-            compile_environment->target_environment, &session,
-            request.producer.target_emitter, &request, &run_module,
-            &compile_options, allocator, artifact_manifest_output_path,
-            &emitted);
-        break;
-      case LOOM_COMPILE_PRODUCER_COMMAND:
-        status = loom_compile_emit_command(
-            &session, &run_module, &request, &compile_options,
-            &compile_report_capture, allocator, &emitted);
-        break;
-      case LOOM_COMPILE_PRODUCER_INVALID:
-        status = iree_make_status(IREE_STATUS_INTERNAL,
-                                  "compile request has no producer");
-        break;
+    if (loom_compile_request_is_command(&request)) {
+      status = loom_compile_emit_command(
+          &session, &run_module, &request, &compile_options,
+          &compile_report_capture, allocator, &emitted);
+    } else {
+      status = loom_compile_emit_target(
+          compile_environment->target_environment, &session,
+          request.target_emitter, &request, &run_module, &compile_options,
+          allocator, artifact_manifest_output_path, &emitted);
     }
   }
   if (iree_status_is_ok(status) && exit_code == 0 && !emitted) {

@@ -17,20 +17,6 @@
 extern "C" {
 #endif
 
-// Concrete producer selected for one compile request.
-typedef enum loom_compile_producer_kind_e {
-  LOOM_COMPILE_PRODUCER_INVALID = 0,
-  LOOM_COMPILE_PRODUCER_COMMAND = 1,
-  LOOM_COMPILE_PRODUCER_TARGET_EMITTER = 2,
-} loom_compile_producer_kind_t;
-
-typedef struct loom_compile_producer_t {
-  // Selected producer kind.
-  loom_compile_producer_kind_t kind;
-  // Target-owned module or kernel artifact emitter, or NULL for commands.
-  const loom_target_emitter_t* target_emitter;
-} loom_compile_producer_t;
-
 // Explicit target selected for one compile request.
 typedef struct loom_compile_target_selection_t {
   // Immutable structured target profile selected from the environment.
@@ -60,8 +46,9 @@ typedef struct loom_compile_request_t {
   loom_compile_product_selection_t selection;
   // Exact public artifact format.
   iree_string_view_t format;
-  // Producer implementing |format| for |product|.
-  loom_compile_producer_t producer;
+  // Target-owned artifact emitter for kernel or module products. Command
+  // products have no target emitter.
+  const loom_target_emitter_t* target_emitter;
   // Explicit target selected by --target, or empty for authored targets.
   loom_compile_target_selection_t explicit_target;
   // Effective target fact type after explicit target selection, or NULL for
@@ -73,13 +60,13 @@ typedef struct loom_compile_request_t {
 static inline bool loom_compile_request_is_command(
     const loom_compile_request_t* request) {
   return request != NULL &&
-         request->producer.kind == LOOM_COMPILE_PRODUCER_COMMAND;
+         request->selection.product == LOOM_COMPILE_PRODUCT_COMMAND;
 }
 
-// Resolves a core product selection, optional explicit target, and producer.
-// Resolution never probes a producer by compiling. An omitted format selects
-// the selected target family's unique canonical kernel or module producer, or
-// the target-independent command format.
+// Resolves a core product selection, optional explicit target, and target
+// emitter. Resolution never probes an emitter by compiling. An omitted format
+// selects the selected target family's unique canonical kernel or module
+// emitter, or the target-independent command format.
 iree_status_t loom_compile_request_resolve(
     const loom_module_t* module, const loom_compile_request_options_t* options,
     const loom_target_environment_t* target_environment,
