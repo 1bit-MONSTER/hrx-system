@@ -364,18 +364,23 @@ def _intern_program_rows[ProgramRowT: Hashable](
 
 
 def _append_interned_row_sequence[RowT](
-    rows: list[RowT], sequence: tuple[RowT, ...]
+    rows: list[RowT],
+    sequence: tuple[RowT, ...],
+    sequence_starts: dict[tuple[RowT, ...], int],
 ) -> int:
-    """Appends a row sequence unless an identical span already exists."""
+    """Returns one stable table span for each requested row sequence."""
 
-    if not sequence:
-        return 0
+    existing_start = sequence_starts.get(sequence)
+    if existing_start is not None:
+        return existing_start
     sequence_count = len(sequence)
     for start in range(len(rows) - sequence_count + 1):
         if tuple(rows[start : start + sequence_count]) == sequence:
+            sequence_starts[sequence] = start
             return start
     ordinal = len(rows)
     rows.extend(sequence)
+    sequence_starts[sequence] = ordinal
     return ordinal
 
 

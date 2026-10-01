@@ -692,18 +692,42 @@ def test_compile_lower_rule_set_groups_ops_and_orders_rules_by_priority() -> Non
 
 
 def test_compile_lower_rule_set_interns_exact_rule_programs() -> None:
+    def multi_emit_rule() -> DescriptorRule:
+        return DescriptorRule(
+            source_op=scalar_arithmetic.scalar_addi,
+            descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+            guards=(
+                Guard.value_type("lhs", Scalar("i32")),
+                Guard.value_type("rhs", Scalar("i32")),
+                Guard.value_type("result", Scalar("i32")),
+            ),
+            emit=(
+                EmitDescriptorOp(
+                    descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                    operands={
+                        "lhs": ValueRef.operand("lhs"),
+                        "rhs": ValueRef.operand("rhs"),
+                    },
+                    results={"dst": ValueRef.temporary("sum")},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+                EmitDescriptorOp(
+                    descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                    operands={
+                        "lhs": ValueRef.temporary("sum"),
+                        "rhs": ValueRef.temporary("sum"),
+                    },
+                    results={"dst": ValueRef.result("result")},
+                ),
+            ),
+        )
+
     table = ContractFragment(
         name="test.scalar",
         descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
         cases=(
-            _binary_rule(
-                source_op=scalar_arithmetic.scalar_addi,
-                type_pattern=Scalar("i32"),
-            ),
-            _binary_rule(
-                source_op=scalar_arithmetic.scalar_addi,
-                type_pattern=Scalar("i32"),
-            ),
+            multi_emit_rule(),
+            multi_emit_rule(),
         ),
     )
 
@@ -711,11 +735,11 @@ def test_compile_lower_rule_set_interns_exact_rule_programs() -> None:
 
     assert len(compiled.rules) == 2
     assert len(compiled.guards) == 3
-    assert len(compiled.emits) == 1
+    assert len(compiled.emits) == 2
     assert compiled.rules[0].guard_start == compiled.rules[1].guard_start
     assert compiled.rules[0].emit_start == compiled.rules[1].emit_start
     assert compiled.rules[0].guard_count == compiled.rules[1].guard_count == 3
-    assert compiled.rules[0].emit_count == compiled.rules[1].emit_count == 1
+    assert compiled.rules[0].emit_count == compiled.rules[1].emit_count == 2
 
 
 def test_compile_lower_rule_set_compiles_descriptor_result_type_binding() -> None:
