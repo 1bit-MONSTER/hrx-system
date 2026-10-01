@@ -18,7 +18,9 @@ amdf_cts_test_suite(
         "cache_test.cc",
         "copy_test.cc",
         "fill_test.cc",
+        "rectangular_copy_test.cc",
         "timestamp_test.cc",
+        "write_test.cc",
     ],
     target_compatible_with = ["@platforms//cpu:x86_64"] + select({
         "@platforms//os:linux": [],

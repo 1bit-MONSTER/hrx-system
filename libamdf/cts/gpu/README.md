@@ -157,6 +157,13 @@ opcodes' fields. New cases add independent oracles, legal field partitions and
 compositions to the corresponding engine group. Shared testbench changes affect every corpus and need
 their own caller/ownership review before dependent cases consume them.
 
+The [inline SDMA write case](sdma/write_test.cc) embeds changing DWORD values
+in commands, drains pending writes before dependent copies, and observes the
+final consumer before command retirement. Single words, longer spans and page
+crossings share one case-owned queue; complete payload and control backing is
+checked across two generations. The [write reference](../../../docs/reference/amd/gpu/sdma/write.md)
+separates packet counts, native policy layouts and payload completion.
+
 Timing cases qualify the observation itself: sampling point, ordering, result
 width and visibility. Clock calibration, hardware-counter ownership and
 optimized latency/throughput experiments have their own

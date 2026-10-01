@@ -9,8 +9,34 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "amdf/gpu.h"
+
+// A subwindow within a linear allocation. The packet base address is separate;
+// row/slice pitches are positive element counts, not encoded minus-one values.
+struct SdmaLinearLayout {
+  // Starting element within a row.
+  uint32_t x;
+  // Starting row within a slice.
+  uint32_t y;
+  // Starting slice.
+  uint32_t z;
+  // Distance between row starts, in elements.
+  uint32_t row_pitch;
+  // Distance between slice starts, in elements; the wide form permits 2^32.
+  uint64_t slice_pitch;
+};
+
+// Positive logical dimensions before count-minus-one packet encoding.
+struct SdmaCopyExtent {
+  // Elements copied per row.
+  uint32_t width;
+  // Rows copied per slice.
+  uint32_t height;
+  // Slices copied.
+  uint32_t depth;
+};
 
 // SDMA v1 transfer and timestamp commands on coherent system memory. No
 // implicit GCR or HDP operations; those require their own admitted cache
@@ -31,6 +57,18 @@ class SdmaCommandWriter {
   // A nonempty range within caller-owned allocations and the admitted limit.
   // Scope follows the family; NPD remains clear independently of that layout.
   void CopyLinear(uint64_t source, uint64_t target, uint32_t byte_length);
+  // Requires COPY_LINEAR_RECT. All geometry fits the family's field widths
+  // and distinct caller-owned backing; bases and byte pitches are
+  // DWORD-aligned. element_log2 is 0..4. Scope follows the family; NPD and
+  // placement hints stay zero. No cache operation or completion is emitted
+  // implicitly.
+  void CopyLinearRect(uint64_t source, const SdmaLinearLayout& source_layout,
+                      uint64_t target, const SdmaLinearLayout& target_layout,
+                      const SdmaCopyExtent& extent, uint32_t element_log2);
+  // Copies 1..2^20 inline DWORDs into a DWORD-aligned owned range. The
+  // command storage receives its own copy of the values, and must have room
+  // for the four header DWORDs and all data. Scope follows the family.
+  void WriteLinear(uint64_t target, std::span<const uint32_t> values);
   // Repeats a DWORD pattern over a nonempty DWORD-aligned owned range. The
   // byte length is at most 0x3ffffc, below the conservative 22-bit count bound.
   // Scope follows the family; fill's separate NPD field remains clear.

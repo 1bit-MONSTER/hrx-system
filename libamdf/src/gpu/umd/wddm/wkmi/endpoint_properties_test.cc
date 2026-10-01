@@ -104,21 +104,35 @@ TEST(WkmiEndpointPropertiesTest, RdnaExposesPm4AndSdmaPacketFeatures) {
                          : AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE;
     const amdf_queue_format_features_t scope =
         target >= 120500 ? AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE : 0;
-    EXPECT_EQ(sdma.format_features, fence | scope);
+    const amdf_queue_format_features_t rectangle =
+        AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+        (target >= 120000
+             ? AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE
+             : AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z);
+    EXPECT_EQ(sdma.format_features, fence | scope | rectangle);
     EXPECT_EQ(sdma.roles, AMDF_QUEUE_ROLE_TRANSFER);
     EXPECT_EQ(sdma.cache_operations, 0u);
   }
 }
 
-TEST(WkmiEndpointPropertiesTest, SdmaFenceFieldsFollowNativeEncoding) {
+TEST(WkmiEndpointPropertiesTest, SdmaFieldsFollowNativeEncoding) {
   constexpr std::array<int32_t, 5> kMajors = {9, 10, 11, 12, 12};
   constexpr std::array<int32_t, 5> kMinors = {4, 3, 5, 0, 5};
   constexpr std::array<amdf_queue_format_features_t, 5> kFeatures = {
-      0, AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
-      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE,
-      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z,
       AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-          AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE};
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE,
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+          AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE};
   for (size_t i = 0; i < kMajors.size(); ++i) {
     SCOPED_TRACE(i);
     auto native = MakeProperties();
@@ -134,6 +148,24 @@ TEST(WkmiEndpointPropertiesTest, SdmaFenceFieldsFollowNativeEncoding) {
     EXPECT_EQ(family.roles, AMDF_QUEUE_ROLE_TRANSFER);
     EXPECT_EQ(family.cache_operations, 0u);
     EXPECT_EQ(family.cache_transition_kinds, 0u);
+  }
+}
+
+TEST(WkmiEndpointPropertiesTest, UnknownFamiliesDoNotInferRectangularLayout) {
+  for (const auto& ip :
+       {std::array<int32_t, 2>{8, 0}, {12, 1}, {12, 6}, {13, 0}}) {
+    auto native = MakeProperties();
+    native.gfx_ip_major = ip[0];
+    native.gfx_ip_minor = ip[1];
+    amdf_gpu_endpoint_properties_t properties = {};
+    ASSERT_TRUE(
+        amdf_gpu_wddm_wkmi_endpoint_properties_translate(&native, &properties));
+    ASSERT_EQ(properties.queue_family_count, 2u);
+    EXPECT_EQ(properties.queue_families[1].format_features &
+                  (AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+                   AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z |
+                   AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE),
+              0u);
   }
 }
 
