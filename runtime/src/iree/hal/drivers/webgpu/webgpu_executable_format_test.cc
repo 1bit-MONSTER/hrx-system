@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-#include "iree/base/alignment.h"
+#include "iree/base/api.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 

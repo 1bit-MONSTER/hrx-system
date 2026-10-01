@@ -18,6 +18,7 @@ py_library(
     srcs = ["target_config.py"],
     data = ["//build_tools/amdgpu:target_map.py"],
     deps = [
+        "//build_tools/amdgpu:target_map_data",
         "//loom/py/loom/gen/support",
         "//loom/py/loom/target/arch/amdgpu:target_info",
     ],

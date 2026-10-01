@@ -6,7 +6,7 @@
 
 #include "iree/hal/drivers/webgpu/webgpu_executable_format.h"
 
-#include "iree/base/alignment.h"
+#include "iree/base/api.h"
 
 enum {
   IREE_HAL_WEBGPU_EXECUTABLE_HEADER_MAGIC_OFFSET = 0,

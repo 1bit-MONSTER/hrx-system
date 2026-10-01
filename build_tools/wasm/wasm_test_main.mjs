@@ -101,6 +101,20 @@ const {instance} = await WebAssembly.instantiate(wasmBytes, imports);
 context.memory = instance.exports.memory;
 
 try {
+  // Initialize both streams before changing their flags: Bazel may merge the
+  // descriptors, and Node's lazy pipe handles select nonblocking mode on the
+  // shared open-file description. Synchronous WASI writes need blocking output.
+  // Regular-file streams have no native handle and already write synchronously.
+  for (const stream of [process.stdout, process.stderr]) {
+    if (stream._handle) {
+      const status = stream._handle.setBlocking(true);
+      if (status !== 0) {
+        throw new Error(
+            'Cannot make WASI descriptor ' + stream.fd +
+            ' blocking: libuv status ' + status);
+      }
+    }
+  }
   process.exitCode = wasi.start(instance);
 } catch (error) {
   console.error(error);
