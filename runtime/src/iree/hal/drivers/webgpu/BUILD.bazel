@@ -246,7 +246,6 @@ iree_runtime_cc_library(
     hdrs = ["webgpu_executable_format.h"],
     deps = [
         "//runtime/src/iree/base",
-        "//runtime/src/iree/base:core_headers",
     ],
 )
 
@@ -256,7 +255,6 @@ iree_runtime_cc_test(
     deps = [
         ":webgpu_executable_format",
         "//runtime/src/iree/base",
-        "//runtime/src/iree/base:core_headers",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
