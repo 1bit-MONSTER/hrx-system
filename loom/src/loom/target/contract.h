@@ -40,6 +40,26 @@ typedef struct loom_matrix_fragment_layout_t loom_matrix_fragment_layout_t;
 typedef struct loom_native_contraction_facts_t loom_native_contraction_facts_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 
+typedef loom_type_t (*loom_target_contract_query_value_type_fn_t)(
+    void* user_data, const loom_module_t* module, loom_value_id_t value_id);
+
+typedef struct loom_target_contract_query_value_type_callback_t {
+  // Optional scoped source-value type view. Contract planning uses this to
+  // evaluate a candidate representation without mutating or cloning source IR.
+  // Missing reads the authored type directly from |module|.
+  loom_target_contract_query_value_type_fn_t fn;
+  // Caller-owned payload passed to |fn|.
+  void* user_data;
+} loom_target_contract_query_value_type_callback_t;
+
+// Returns the scoped query type for |value_id|.
+static inline loom_type_t loom_target_contract_query_value_type(
+    loom_target_contract_query_value_type_callback_t callback,
+    const loom_module_t* module, loom_value_id_t value_id) {
+  return callback.fn ? callback.fn(callback.user_data, module, value_id)
+                     : loom_module_value_type(module, value_id);
+}
+
 typedef enum loom_target_contract_query_outcome_e {
   // No linked contract fragment or provider has an opinion about the op.
   LOOM_TARGET_CONTRACT_QUERY_UNHANDLED = 0,
@@ -312,6 +332,8 @@ typedef struct loom_target_contract_query_environment_t {
   const loom_low_descriptor_set_t* descriptor_set;
   // Source value facts visible to the query.
   const loom_value_fact_table_t* fact_table;
+  // Optional scoped source-value type view used for candidate planning.
+  loom_target_contract_query_value_type_callback_t value_type;
   // Optional active value domain extended by ordinal-keyed query analyses.
   loom_local_value_domain_t* value_domain;
   // Optional function-local view-region analysis visible to the query.
