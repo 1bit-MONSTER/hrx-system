@@ -130,7 +130,7 @@ def storage_buffer_source_memory(
         minimum_alignment=scalar.byte_width,
         dynamic_term_count=None,
         dynamic_index_source=SourceMemoryDynamicIndexSource.NONE,
-        diagnostic=storage_buffer_alignment_diagnostic(scalar.byte_width),
+        alignment_diagnostic=storage_buffer_alignment_diagnostic(scalar.byte_width),
     )
 
 
@@ -150,7 +150,7 @@ def workgroup_source_memory(
         minimum_alignment=scalar.byte_width,
         dynamic_term_count=None,
         dynamic_index_source=SourceMemoryDynamicIndexSource.NONE,
-        diagnostic=storage_buffer_alignment_diagnostic(scalar.byte_width),
+        alignment_diagnostic=storage_buffer_alignment_diagnostic(scalar.byte_width),
     )
 
 

@@ -20,11 +20,6 @@ loom_corpus_build(
     "function"
   PROFILES
     loom::target::vm::all
-  XFAILS
-    "loom::target::vm::all"
-    "numeric/float/half_extrema.loom"
-    "@half_extrema_pair"
-    "TARGET/002"
   EXCLUDES
     "loom::target::vm::all"
     "control/branch/cfg.loom"
@@ -490,13 +485,6 @@ loom_corpus_test(
     "VM has no kernel artifact format."
     "numeric/vector/integer_widening.loom"
     "VM has no kernel artifact format."
-  XFAILS
-    "numeric/float/half_extrema.loom"
-    "@half_extrema_random_values"
-    "TARGET/002"
-    "numeric/float/half_extrema.loom"
-    "@half_extrema_special_values"
-    "TARGET/002"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"

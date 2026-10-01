@@ -17,6 +17,7 @@ loom_corpus_sources(
   SRCS
     "conversion/bfloat_rounding.loom"
     "conversion/conversion.loom"
+    "conversion/f32_narrowing.loom"
     "conversion/integer_float8.loom"
     "conversion/narrow.loom"
     "conversion/narrow_arithmetic.loom"

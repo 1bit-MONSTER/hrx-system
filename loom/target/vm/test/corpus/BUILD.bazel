@@ -108,21 +108,11 @@ _NO_KERNEL_ARTIFACT_EXCLUDES = {
     for source in _KERNEL_SOURCES
 }
 
-_XFAILS = {
-    "numeric/float/half_extrema.loom:@half_extrema_pair": "TARGET/002",
-}
-
-_EXECUTION_XFAILS = {
-    "numeric/float/half_extrema.loom:@half_extrema_random_values": "TARGET/002",
-    "numeric/float/half_extrema.loom:@half_extrema_special_values": "TARGET/002",
-}
-
 loom_corpus_build(
     name = "all",
     catalog = LOOM_CORPUS,
     excludes = {"//loom/target/vm:all": _NO_KERNEL_ARTIFACT_EXCLUDES},
     profiles = ["//loom/target/vm:all"],
-    xfails = {"//loom/target/vm:all": _XFAILS},
 )
 
 loom_corpus_test(
@@ -130,5 +120,4 @@ loom_corpus_test(
     catalog = LOOM_CORPUS,
     excludes = _NO_KERNEL_ARTIFACT_EXCLUDES,
     execution_profiles = [VM_REFERENCE_PROFILE],
-    xfails = {VM_REFERENCE_PROFILE.name: _EXECUTION_XFAILS},
 )

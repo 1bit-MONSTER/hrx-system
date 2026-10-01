@@ -16,6 +16,7 @@ iree_py_library(
     srcs = [
         "__init__.py",
         "contracts.py",
+        "f32_narrowing.py",
     ],
     deps = [
         "//loom/py/loom:core",

@@ -126,11 +126,11 @@ loom_corpus_test(
     "selected_reference"
   MANIFESTS
     "sample"
+  SOURCES
+    "sample/other.loom"
   EXCLUDES
     "sample/excluded.loom"
-    "The execution profile does not select this source."
-    "sample/nested/fixture.loom"
-    "The execution profile does not select this source."
+    "This fixture is excluded from execution as well as compilation."
   LABELS
     "manual"
     "loom-execution-profile=selected_reference"

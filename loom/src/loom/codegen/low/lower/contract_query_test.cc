@@ -623,12 +623,11 @@ TEST_F(LowContractQuerySourceMemoryTest,
   source_memory.dynamic_index_source =
       LOOM_LOW_SOURCE_MEMORY_DYNAMIC_INDEX_SOURCE_VALUE;
   source_memory.dynamic_byte_stride = 4;
-  const loom_low_lower_source_memory_diagnostics_t source_memory_diagnostics = {
-      /*.constraint_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-      /*.byte_offset_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-      /*.address_layout_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-      /*.address_diagnostic_index=*/LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
-  };
+  loom_low_lower_source_memory_diagnostics_t source_memory_diagnostics = {};
+  for (uint16_t& diagnostic_index :
+       source_memory_diagnostics.rejection_diagnostic_indices) {
+    diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE;
+  }
   loom_low_lower_emit_t emit = {};
   emit.kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
   emit.descriptor_ref = LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE;

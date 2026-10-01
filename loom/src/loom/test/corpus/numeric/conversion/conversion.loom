@@ -94,6 +94,116 @@ check.case @integer_to_float_signedness {
   check.return
 }
 
+// Returns the exact conversion payloads so targets are compared independently
+// of their floating-point ABI representation.
+func.def @integer_to_float_observations(%word_bits: i64, %wide: i64) -> (i32, i64, i32, i64, i32, i64, i32, i64) {
+  %word = scalar.trunci %word_bits : i64 to i32
+  %signed_word_f32, %signed_word_f64, %unsigned_word_f32, %unsigned_word_f64, %signed_wide_f32, %signed_wide_f64, %unsigned_wide_f32, %unsigned_wide_f64 = func.call @integer_to_float(%word, %wide) : (i32, i64) -> (f32, f64, f32, f64, f32, f64, f32, f64)
+  %signed_word_f32_bits = scalar.bitcast %signed_word_f32 : f32 to i32
+  %signed_word_f64_bits = scalar.bitcast %signed_word_f64 : f64 to i64
+  %unsigned_word_f32_bits = scalar.bitcast %unsigned_word_f32 : f32 to i32
+  %unsigned_word_f64_bits = scalar.bitcast %unsigned_word_f64 : f64 to i64
+  %signed_wide_f32_bits = scalar.bitcast %signed_wide_f32 : f32 to i32
+  %signed_wide_f64_bits = scalar.bitcast %signed_wide_f64 : f64 to i64
+  %unsigned_wide_f32_bits = scalar.bitcast %unsigned_wide_f32 : f32 to i32
+  %unsigned_wide_f64_bits = scalar.bitcast %unsigned_wide_f64 : f64 to i64
+  func.return %signed_word_f32_bits, %signed_word_f64_bits, %unsigned_word_f32_bits, %unsigned_word_f64_bits, %signed_wide_f32_bits, %signed_wide_f64_bits, %unsigned_wide_f32_bits, %unsigned_wide_f64_bits : i32, i64, i32, i64, i32, i64, i32, i64
+}
+
+// Selects signed, unsigned, and rounding boundaries without depending on the
+// target's index width.
+func.def @integer_to_float_boundary(%ordinal: index) -> (i32, i64, i32, i64, i32, i64, i32, i64) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c5 = index.constant 5 : index
+  %c6 = index.constant 6 : index
+  %c7 = index.constant 7 : index
+  %c8 = index.constant 8 : index
+  %c9 = index.constant 9 : index
+  %is0 = index.cmp eq, %ordinal, %c0 : index
+  %is1 = index.cmp eq, %ordinal, %c1 : index
+  %is2 = index.cmp eq, %ordinal, %c2 : index
+  %is3 = index.cmp eq, %ordinal, %c3 : index
+  %is4 = index.cmp eq, %ordinal, %c4 : index
+  %is5 = index.cmp eq, %ordinal, %c5 : index
+  %is6 = index.cmp eq, %ordinal, %c6 : index
+  %is7 = index.cmp eq, %ordinal, %c7 : index
+  %is8 = index.cmp eq, %ordinal, %c8 : index
+  %is9 = index.cmp eq, %ordinal, %c9 : index
+
+  %empty_value = scalar.constant 0 : i64
+  %unit_value = scalar.constant 1 : i64
+  %all_bits = scalar.constant -1 : i64
+  %below_f32_exact_limit = scalar.constant 16777215 : i64
+  %f32_exact_limit = scalar.constant 16777216 : i64
+  %above_f32_exact_limit = scalar.constant 16777217 : i64
+  %maximum_word = scalar.constant 2147483647 : i64
+  %minimum_word = scalar.constant -2147483648 : i64
+  %below_f64_exact_limit = scalar.constant 9007199254740991 : i64
+  %f64_exact_limit = scalar.constant 9007199254740992 : i64
+  %above_f64_exact_limit = scalar.constant 9007199254740993 : i64
+  %maximum_wide = scalar.constant 9223372036854775807 : i64
+  %minimum_wide = scalar.constant -9223372036854775808 : i64
+
+  %word0 = scf.select %is0, %empty_value, %minimum_word : i64
+  %word1 = scf.select %is1, %unit_value, %word0 : i64
+  %word2 = scf.select %is2, %all_bits, %word1 : i64
+  %word3 = scf.select %is3, %below_f32_exact_limit, %word2 : i64
+  %word4 = scf.select %is4, %f32_exact_limit, %word3 : i64
+  %word5 = scf.select %is5, %above_f32_exact_limit, %word4 : i64
+  %word6 = scf.select %is6, %maximum_word, %word5 : i64
+  %word7 = scf.select %is7, %minimum_word, %word6 : i64
+  %word8 = scf.select %is8, %all_bits, %word7 : i64
+  %word9 = scf.select %is9, %unit_value, %word8 : i64
+  %wide0 = scf.select %is0, %empty_value, %minimum_wide : i64
+  %wide1 = scf.select %is1, %unit_value, %wide0 : i64
+  %wide2 = scf.select %is2, %all_bits, %wide1 : i64
+  %wide3 = scf.select %is3, %below_f32_exact_limit, %wide2 : i64
+  %wide4 = scf.select %is4, %f32_exact_limit, %wide3 : i64
+  %wide5 = scf.select %is5, %above_f32_exact_limit, %wide4 : i64
+  %wide6 = scf.select %is6, %below_f64_exact_limit, %wide5 : i64
+  %wide7 = scf.select %is7, %f64_exact_limit, %wide6 : i64
+  %wide8 = scf.select %is8, %above_f64_exact_limit, %wide7 : i64
+  %wide = scf.select %is9, %maximum_wide, %wide8 : i64
+  %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7 = func.call @integer_to_float_observations(%word9, %wide) : (i64, i64) -> (i32, i64, i32, i64, i32, i64, i32, i64)
+  func.return %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7 : i32, i64, i32, i64, i32, i64, i32, i64
+}
+
+check.scenario @integer_to_float_values {
+  check.trial[11](%trial: index, %entropy: check.entropy) {
+    check.compare<@integer_to_float_boundary>(%trial) : (index) -> [actual(%actual_signed_word_f32: i32, %actual_signed_word_f64: i64, %actual_unsigned_word_f32: i32, %actual_unsigned_word_f64: i64, %actual_signed_wide_f32: i32, %actual_signed_wide_f64: i64, %actual_unsigned_wide_f32: i32, %actual_unsigned_wide_f64: i64), expected(%expected_signed_word_f32: i32, %expected_signed_word_f64: i64, %expected_unsigned_word_f32: i32, %expected_unsigned_word_f64: i64, %expected_signed_wide_f32: i32, %expected_signed_wide_f64: i64, %expected_unsigned_wide_f32: i32, %expected_unsigned_wide_f64: i64)] {
+      check.expect.equal actual(%actual_signed_word_f32) expected(%expected_signed_word_f32) : i32
+      check.expect.equal actual(%actual_signed_word_f64) expected(%expected_signed_word_f64) : i64
+      check.expect.equal actual(%actual_unsigned_word_f32) expected(%expected_unsigned_word_f32) : i32
+      check.expect.equal actual(%actual_unsigned_word_f64) expected(%expected_unsigned_word_f64) : i64
+      check.expect.equal actual(%actual_signed_wide_f32) expected(%expected_signed_wide_f32) : i32
+      check.expect.equal actual(%actual_signed_wide_f64) expected(%expected_signed_wide_f64) : i64
+      check.expect.equal actual(%actual_unsigned_wide_f32) expected(%expected_unsigned_wide_f32) : i32
+      check.expect.equal actual(%actual_unsigned_wide_f64) expected(%expected_unsigned_wide_f64) : i64
+    }
+  }
+  check.trial[1024](%trial: index, %entropy: check.entropy) {
+    %word_entropy = check.entropy.fork %entropy name("word") : check.entropy
+    %wide_entropy = check.entropy.fork %entropy name("wide") : check.entropy
+    %word_bits = check.entropy.read %word_entropy[%trial] : check.entropy -> i64
+    %wide = check.entropy.read %wide_entropy[%trial] : check.entropy -> i64
+    check.compare<@integer_to_float_observations>(%word_bits, %wide) : (i64, i64) -> [actual(%actual_signed_word_f32: i32, %actual_signed_word_f64: i64, %actual_unsigned_word_f32: i32, %actual_unsigned_word_f64: i64, %actual_signed_wide_f32: i32, %actual_signed_wide_f64: i64, %actual_unsigned_wide_f32: i32, %actual_unsigned_wide_f64: i64), expected(%expected_signed_word_f32: i32, %expected_signed_word_f64: i64, %expected_unsigned_word_f32: i32, %expected_unsigned_word_f64: i64, %expected_signed_wide_f32: i32, %expected_signed_wide_f64: i64, %expected_unsigned_wide_f32: i32, %expected_unsigned_wide_f64: i64)] {
+      check.expect.equal actual(%actual_signed_word_f32) expected(%expected_signed_word_f32) : i32
+      check.expect.equal actual(%actual_signed_word_f64) expected(%expected_signed_word_f64) : i64
+      check.expect.equal actual(%actual_unsigned_word_f32) expected(%expected_unsigned_word_f32) : i32
+      check.expect.equal actual(%actual_unsigned_word_f64) expected(%expected_unsigned_word_f64) : i64
+      check.expect.equal actual(%actual_signed_wide_f32) expected(%expected_signed_wide_f32) : i32
+      check.expect.equal actual(%actual_signed_wide_f64) expected(%expected_signed_wide_f64) : i64
+      check.expect.equal actual(%actual_unsigned_wide_f32) expected(%expected_unsigned_wide_f32) : i32
+      check.expect.equal actual(%actual_unsigned_wide_f64) expected(%expected_unsigned_wide_f64) : i64
+    }
+  }
+  check.return
+}
+
 func.def public @float_to_integer(%single: f32, %double: f64) -> (i32, i64, i32, i64) {
   %signed_word = scalar.fptosi %single : f32 to i32
   %signed_wide = scalar.fptosi %single : f32 to i64

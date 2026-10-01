@@ -30,10 +30,6 @@ loom_corpus_build(
     "@vector_recurrence"
     "WASM/001"
     "loom::target::wasm::simd128"
-    "control/schedule/address_domains.loom"
-    "@near_index_limit"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
     "function/buffer/arguments.loom"
     "@create_host_buffer"
     "TARGET/005"
@@ -295,10 +291,6 @@ loom_corpus_build(
     "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/conversion.loom"
-    "@integer_to_float"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/conversion.loom"
     "@integer_widths"
     "WASM/001"
     "loom::target::wasm::simd128"
@@ -318,45 +310,21 @@ loom_corpus_build(
     "@f8E5M2_to_integer_4"
     "WASM/001"
     "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "@i16_to_float_1"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "@i16_to_float_4"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "@i32_to_float_1"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "@i32_to_float_4"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "@i8_to_float_1"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "@i8_to_float_4"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@bf16_bits"
-    "TARGET/001"
+    "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@f16_bits"
-    "TARGET/001"
+    "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@f8e4m3_bits"
-    "TARGET/001"
+    "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@f8e5m2_bits"
-    "TARGET/001"
+    "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@float8_constants"
@@ -368,7 +336,7 @@ loom_corpus_build(
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@integer_bf16_bits"
-    "TARGET/001"
+    "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "@narrow_abi"
@@ -402,45 +370,13 @@ loom_corpus_build(
     "@f16_to_integer_4"
     "WASM/001"
     "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "@i16_to_float_1"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "@i16_to_float_4"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "@i32_to_float_1"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "@i32_to_float_4"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "@i8_to_float_1"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "@i8_to_float_4"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
     "numeric/conversion/paths.loom"
     "@float_conversion_paths"
     "WASM/001"
     "loom::target::wasm::simd128"
-    "numeric/conversion/paths.loom"
-    "@small_integer_float"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/paths.loom"
-    "@wide_integer_narrow_bits"
-    "TARGET/001"
-    "loom::target::wasm::simd128"
     "numeric/conversion/scalar_float.loom"
     "@narrow_f64_samples"
-    "TARGET/001"
+    "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/conversion/scalar_float.loom"
     "@narrow_scalar_arguments"
@@ -673,17 +609,9 @@ loom_corpus_build(
     "loom::target::wasm::simd128"
     "numeric/conversion/bfloat_rounding.loom"
     "loom::target::wasm::simd128"
-    "numeric/conversion/conversion.loom"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/integer_float8.loom"
-    "loom::target::wasm::simd128"
     "numeric/conversion/narrow.loom"
     "loom::target::wasm::simd128"
     "numeric/conversion/narrow_arithmetic.loom"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/narrow_integer_float.loom"
-    "loom::target::wasm::simd128"
-    "numeric/conversion/paths.loom"
     "loom::target::wasm::simd128"
     "numeric/conversion/scalar_float.loom"
     "loom::target::wasm::simd128"
@@ -981,157 +909,49 @@ loom_corpus_build(
     "Wasm has no kernel artifact format."
 )
 
-loom_test_module(
+loom_corpus_test(
   NAME
-    numeric_vector_f32_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/f32.loom"
+    "execution"
+  PROFILE
+    "wasm_hosted"
+  MANIFESTS
+    "numeric"
+    "control"
+    "memory"
+    "kernel"
+    "function"
+  SOURCES
+    "control/loop/scalar_state.loom"
+    "control/schedule/address_domains.loom"
+    "memory/address/biased_offsets.loom"
+    "memory/address/tiled_channel.loom"
+    "memory/buffer/selection.loom"
+    "memory/packed/transport.loom"
+    "memory/storage/word.loom"
+    "memory/view/scalar_exchange.loom"
+    "numeric/conversion/conversion.loom"
+    "numeric/conversion/f32_narrowing.loom"
+    "numeric/conversion/narrow_widening.loom"
+    "numeric/float/scalar_f32.loom"
+    "numeric/float/sign.loom"
+    "numeric/integer/division.loom"
+    "numeric/integer/extrema.loom"
+    "numeric/integer/scalar_observations.loom"
+    "numeric/integer/widening.loom"
+    "numeric/predicate/lanes.loom"
+    "numeric/predicate/vector_logic.loom"
+    "numeric/vector/f32.loom"
+    "numeric/vector/integer_bitwise.loom"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "iree-build-requirement=loom.target.arch.wasm"
+    "iree-build-requirement=loom.emit.wasm"
+    "loom-execution-profile=wasm_hosted"
+    "loom-target-family=wasm"
+    "loom-target-class=cpu"
+    "loom-executor=hosted"
+  REQUIRES
+    "LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM"
 )
-
-# numeric_vector_f32_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    predicate_logic_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/vector_logic.loom"
-)
-
-# predicate_logic_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    scalar_integer_address_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/scalar_observations.loom"
-)
-
-# scalar_integer_address_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    scalar_loop_state_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/control/loop/scalar_state.loom"
-)
-
-# scalar_loop_state_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    scalar_memory_exchange_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/view/scalar_exchange.loom"
-)
-
-# scalar_memory_exchange_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    vector_integer_bitwise_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/integer_bitwise.loom"
-)
-
-# vector_integer_bitwise_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    biased_offsets_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/address/biased_offsets.loom"
-)
-
-# biased_offsets_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    buffer_selection_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/buffer/selection.loom"
-)
-
-# buffer_selection_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    integer_widening_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/widening.loom"
-)
-
-# integer_widening_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    integer_division_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/integer/division.loom"
-)
-
-# integer_division_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    narrow_widening_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/conversion/narrow_widening.loom"
-)
-
-# narrow_widening_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    narrow_float_sign_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/sign.loom"
-)
-
-# narrow_float_sign_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    packed_transport_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/packed/transport.loom"
-)
-
-# packed_transport_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    predicate_lanes_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/predicate/lanes.loom"
-)
-
-# predicate_lanes_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    scalar_f32_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/scalar_f32.loom"
-)
-
-# scalar_f32_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    tiled_channel_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/address/tiled_channel.loom"
-)
-
-# tiled_channel_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
-
-loom_test_module(
-  NAME
-    word_storage_test_module
-  SRCS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/memory/storage/word.loom"
-)
-
-# word_storage_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

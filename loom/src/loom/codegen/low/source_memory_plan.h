@@ -113,6 +113,43 @@ typedef uint32_t loom_low_source_memory_access_rejection_flags_t;
 #define LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY \
   ((uint32_t)1u << 14)
 
+// Stable reason selected from source-memory planning or target-contract
+// matching. The planner-owned reasons through CACHE_POLICY intentionally match
+// the bit positions above so the retained bitset can be classified in O(1).
+typedef enum loom_low_source_memory_rejection_reason_e {
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNSUPPORTED_OP = 0,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DESCRIBE_FAILED = 1,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT = 2,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_WIDTH = 3,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_RANK = 4,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_COUNT = 5,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_AXIS_STRIDE = 6,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_STATIC_OFFSET = 7,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_COUNT = 8,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_AXIS = 9,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE = 10,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_SOURCE = 11,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE = 12,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE_OVERFLOW = 13,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_CACHE_POLICY = 14,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_REPRESENTABILITY = 15,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_OPERATION_KIND = 16,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ROOT_VALUE = 17,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ROOT_KIND = 18,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_MEMORY_SPACE = 19,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_BYTE_COUNT = 20,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_BYTE_STRIDE = 21,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_MINIMUM_ALIGNMENT = 22,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_SOURCE_INDEX_PRESERVATION = 23,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_VIEW_BASE_TERM_COUNT = 24,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE_VALUES = 25,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_SOURCE = 26,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT = 27,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_BYTE_OFFSET_WIDTH = 28,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_MATERIALIZATION = 29,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT = 30,
+} loom_low_source_memory_rejection_reason_t;
+
 typedef struct loom_low_source_memory_access_diagnostic_t {
   // Bitset of source-access rejection reasons observed while planning.
   loom_low_source_memory_access_rejection_flags_t rejection_bits;
@@ -468,8 +505,12 @@ bool loom_low_source_memory_access_plan_build_view(
     loom_low_source_memory_access_plan_t* out_plan,
     loom_low_source_memory_access_diagnostic_t* out_diagnostic);
 
-// Returns a stable diagnostic constraint key for source memory access rejection
-// flags.
+// Selects the highest-priority reason retained by source-memory planning.
+loom_low_source_memory_rejection_reason_t
+loom_low_source_memory_access_rejection_reason(
+    loom_low_source_memory_access_rejection_flags_t rejection_bits);
+
+// Returns the stable constraint key for retained source-memory rejection bits.
 iree_string_view_t loom_low_source_memory_access_rejection_key(
     loom_low_source_memory_access_rejection_flags_t rejection_bits);
 

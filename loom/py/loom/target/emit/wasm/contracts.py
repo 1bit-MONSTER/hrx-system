@@ -67,6 +67,7 @@ from loom.target.contracts.templates import (
     ReductionDescriptorCase,
     reduction_descriptor_rules,
 )
+from loom.target.emit.wasm.f32_narrowing import f32_narrowing_rules
 from loom.target.low_descriptors import Descriptor
 
 _I1 = Scalar("i1")
@@ -397,6 +398,39 @@ def _index_madd_rule() -> DescriptorRule:
     )
 
 
+def _index_extrema_rule(
+    source_op: Op,
+    compare_descriptor_key: str,
+) -> DescriptorRule:
+    compare = _descriptor(compare_descriptor_key)
+    select = _descriptor("wasm.i32.select")
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=select,
+        guards=_typed_guards(("lhs", "rhs", "result"), _INDEX),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=compare,
+                operands={
+                    "lhs": ValueRef.operand("lhs"),
+                    "rhs": ValueRef.operand("rhs"),
+                },
+                results={"dst": ValueRef.temporary("condition")},
+                result_types={"dst": _I1},
+            ),
+            EmitDescriptorOp(
+                descriptor=select,
+                operands={
+                    "true_value": ValueRef.operand("lhs"),
+                    "false_value": ValueRef.operand("rhs"),
+                    "condition": ValueRef.temporary("condition"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
 def _index_scale_rule() -> DescriptorRule:
     descriptor = _descriptor("wasm.i32.mul")
     return DescriptorRule(
@@ -446,6 +480,89 @@ def _conversion_rule(
             EmitDescriptorOp(
                 descriptor=descriptor,
                 operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _narrow_integer_to_float_rule(
+    source_type: TypePattern,
+    source_bit_count: int,
+    result_type: TypePattern,
+    result_type_name: str,
+    signedness: str,
+) -> DescriptorRule:
+    convert = _descriptor(f"wasm.{result_type_name}.convert_i32_{signedness}")
+    constant = _descriptor("wasm.i32.const")
+    if signedness == "s":
+        shift = _descriptor("wasm.i32.shl")
+        normalize = _descriptor("wasm.i32.shr_s")
+        shift_amount = 32 - source_bit_count
+        normalization = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("shift_amount")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": shift_amount},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=shift,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("shift_amount"),
+                },
+                results={"dst": ValueRef.temporary("shifted")},
+                result_types={"dst": _I32},
+            ),
+            EmitDescriptorOp(
+                descriptor=normalize,
+                operands={
+                    "lhs": ValueRef.temporary("shifted"),
+                    "rhs": ValueRef.temporary("shift_amount"),
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": _I32},
+            ),
+        )
+    else:
+        normalize = _descriptor("wasm.i32.and")
+        mask = (1 << source_bit_count) - 1
+        normalization = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": ValueRef.temporary("mask")},
+                result_types={"dst": _I32},
+                immediates={"i32_value": mask},
+                form=DescriptorEmitForm.CONST,
+            ),
+            EmitDescriptorOp(
+                descriptor=normalize,
+                operands={
+                    "lhs": ValueRef.operand("input"),
+                    "rhs": ValueRef.temporary("mask"),
+                },
+                results={"dst": ValueRef.temporary("normalized")},
+                result_types={"dst": _I32},
+            ),
+        )
+    return DescriptorRule(
+        source_op=(
+            scalar_conversion.scalar_sitofp
+            if signedness == "s"
+            else scalar_conversion.scalar_uitofp
+        ),
+        descriptor=convert,
+        guards=(
+            _value_type("input", source_type),
+            _value_type("result", result_type),
+        ),
+        emit=(
+            *normalization,
+            EmitDescriptorOp(
+                descriptor=convert,
+                operands={"input": ValueRef.temporary("normalized")},
                 results={"dst": ValueRef.result("result")},
             ),
         ),
@@ -1158,7 +1275,34 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _conversion_rule(
             scalar_conversion.scalar_bitcast, _I64, _F64, "wasm.f64.reinterpret_i64"
         ),
+        *(
+            _conversion_rule(
+                source_op,
+                source_type,
+                result_type,
+                f"wasm.{result_type_name}.convert_{source_type_name}_{signedness}",
+            )
+            for source_op, signedness in (
+                (scalar_conversion.scalar_sitofp, "s"),
+                (scalar_conversion.scalar_uitofp, "u"),
+            )
+            for source_type, source_type_name in ((_I32, "i32"), (_I64, "i64"))
+            for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+        ),
+        *(
+            _narrow_integer_to_float_rule(
+                source_type,
+                source_bit_count,
+                result_type,
+                result_type_name,
+                signedness,
+            )
+            for source_type, source_bit_count in ((_I1, 1), (_I8, 8), (_I16, 16))
+            for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
+            for signedness in ("s", "u")
+        ),
         _bf16_to_f32_rule(),
+        *f32_narrowing_rules(_descriptor, _value_type),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E4M3, _I8),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I8, _F8E4M3),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E5M2, _I8),
@@ -1381,6 +1525,8 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _binary_rule(index.index_sub, _INDEX, "wasm.i32.sub"),
         _binary_rule(index.index_sub, _OFFSET, "wasm.i32.sub"),
         _binary_rule(index.index_mul, _INDEX, "wasm.i32.mul"),
+        _index_extrema_rule(index.index_min, "wasm.i32.lt_s"),
+        _index_extrema_rule(index.index_max, "wasm.i32.gt_s"),
         _index_madd_rule(),
         _index_scale_rule(),
         *(

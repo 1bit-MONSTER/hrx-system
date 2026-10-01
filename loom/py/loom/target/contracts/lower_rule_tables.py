@@ -175,15 +175,48 @@ class LowerDiagnostic:
     target_context_param_count: int = 0
 
 
+@unique
+class SourceMemoryRejectionReason(Enum):
+    """Stable reason selecting a generated source-memory diagnostic."""
+
+    UNSUPPORTED_OP = "source_memory.unsupported_op"
+    DESCRIBE_FAILED = "source_memory.describe_failed"
+    LAYOUT = "source_memory.layout"
+    ELEMENT_WIDTH = "source_memory.element_width"
+    VECTOR_RANK = "source_memory.vector_rank"
+    VECTOR_LANE_COUNT = "source_memory.vector_lane_count"
+    VECTOR_AXIS_STRIDE = "source_memory.vector_axis_stride"
+    STATIC_OFFSET = "source_memory.static_offset"
+    DYNAMIC_INDEX_COUNT = "source_memory.dynamic_index_count"
+    DYNAMIC_AXIS = "source_memory.dynamic_axis"
+    DYNAMIC_STRIDE = "source_memory.dynamic_stride"
+    VIEW_SOURCE = "source_memory.view_source"
+    VIEW_BASE = "source_memory.view_base"
+    VIEW_BASE_OVERFLOW = "source_memory.view_base_overflow"
+    CACHE_POLICY = "source_memory.cache_policy"
+    REPRESENTABILITY = "source_memory.representability"
+    OPERATION_KIND = "source_memory.operation_kind"
+    ROOT_VALUE = "source_memory.root_value"
+    ROOT_KIND = "source_memory.root_kind"
+    MEMORY_SPACE = "source_memory.memory_space"
+    ELEMENT_BYTE_COUNT = "source_memory.element_byte_count"
+    VECTOR_LANE_BYTE_STRIDE = "source_memory.vector_lane_byte_stride"
+    MINIMUM_ALIGNMENT = "source_memory.minimum_alignment"
+    SOURCE_INDEX_PRESERVATION = "source_memory.source_index_preservation"
+    DYNAMIC_VIEW_BASE_TERM_COUNT = "source_memory.dynamic_view_base_term_count"
+    DYNAMIC_STRIDE_VALUES = "source_memory.dynamic_stride_values"
+    DYNAMIC_INDEX_SOURCE = "source_memory.dynamic_index_source"
+    ADDRESS_LAYOUT = "source_memory.address_layout"
+    BYTE_OFFSET_WIDTH = "source_memory.byte_offset_width"
+    ADDRESS_MATERIALIZATION = "source_memory.address_materialization"
+
+
 @dataclass(frozen=True, slots=True)
 class LowerSourceMemory:
     """Compiled source-memory constraint row."""
 
     constraint: SourceMemoryConstraint
-    diagnostic_index: int
-    byte_offset_diagnostic_index: int
-    address_layout_diagnostic_index: int = 0xFFFF
-    address_diagnostic_index: int = 0xFFFF
+    rejection_diagnostic_indices: tuple[int, ...]
     byte_offset_materializer: SourceMemoryByteOffsetMaterializer | None = None
     address_materializer: SourceMemoryAddressMaterializer | None = None
 

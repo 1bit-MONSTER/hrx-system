@@ -585,7 +585,7 @@ function(_loom_declare_corpus_test ID)
     _RULE
     ""
     "NAME;PROFILE;RESOURCE_GROUP;REQUIRES"
-    "MANIFESTS;XFAILS;ALLOWED_FAILURES;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
+    "MANIFESTS;SOURCES;XFAILS;ALLOWED_FAILURES;EXCLUDES;ARGS;RUNNER_ARGS;LABELS"
     ${_ARGUMENTS}
   )
   if(_RULE_UNPARSED_ARGUMENTS)
@@ -608,6 +608,19 @@ function(_loom_declare_corpus_test ID)
     message(FATAL_ERROR
       "loom_corpus_test(${_RULE_NAME}) source identities and paths must correspond")
   endif()
+
+  set(_SELECTED_SOURCES)
+  foreach(_SOURCE_ID IN LISTS _RULE_SOURCES)
+    if(NOT _SOURCE_ID IN_LIST _SOURCE_IDS)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) selects unknown source ${_SOURCE_ID}")
+    endif()
+    if(_SOURCE_ID IN_LIST _SELECTED_SOURCES)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) repeats selected source ${_SOURCE_ID}")
+    endif()
+    list(APPEND _SELECTED_SOURCES "${_SOURCE_ID}")
+  endforeach()
 
   list(LENGTH _RULE_EXCLUDES _EXCLUDE_VALUE_COUNT)
   math(EXPR _EXCLUDE_REMAINDER "${_EXCLUDE_VALUE_COUNT} % 2")
@@ -633,6 +646,10 @@ function(_loom_declare_corpus_test ID)
     if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
       message(FATAL_ERROR
         "loom_corpus_test(${_RULE_NAME}) repeats exclusion for ${_SOURCE_ID}")
+    endif()
+    if(_SOURCE_ID IN_LIST _SELECTED_SOURCES)
+      message(FATAL_ERROR
+        "loom_corpus_test(${_RULE_NAME}) source ${_SOURCE_ID} cannot be both selected and excluded")
     endif()
     list(APPEND _EXCLUDED_SOURCES "${_SOURCE_ID}")
   endwhile()
@@ -671,6 +688,10 @@ function(_loom_declare_corpus_test ID)
         message(FATAL_ERROR
           "loom_corpus_test(${_RULE_NAME}) source ${_SOURCE_ID} cannot be both excluded and qualified by ${_QUALIFICATION_NAME}")
       endif()
+      if(_SELECTED_SOURCES AND NOT _SOURCE_ID IN_LIST _SELECTED_SOURCES)
+        message(FATAL_ERROR
+          "loom_corpus_test(${_RULE_NAME}) ${_QUALIFICATION_NAME} names unselected source ${_SOURCE_ID}")
+      endif()
       if(NOT _RECORD MATCHES "^@" OR NOT _DIAGNOSTIC)
         message(FATAL_ERROR
           "loom_corpus_test(${_RULE_NAME}) has malformed ${_QUALIFICATION_NAME} for ${_SOURCE_ID}")
@@ -698,6 +719,9 @@ function(_loom_declare_corpus_test ID)
   math(EXPR _LAST_SOURCE_INDEX "${_SOURCE_COUNT} - 1")
   foreach(_SOURCE_INDEX RANGE ${_LAST_SOURCE_INDEX})
     list(GET _SOURCE_IDS ${_SOURCE_INDEX} _SOURCE_ID)
+    if(_SELECTED_SOURCES AND NOT _SOURCE_ID IN_LIST _SELECTED_SOURCES)
+      continue()
+    endif()
     if(_SOURCE_ID IN_LIST _EXCLUDED_SOURCES)
       continue()
     endif()

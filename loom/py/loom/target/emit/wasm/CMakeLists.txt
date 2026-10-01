@@ -15,6 +15,7 @@ iree_py_library(
   SRCS
     "__init__.py"
     "contracts.py"
+    "f32_narrowing.py"
   DEPS
     loom::py::loom::core
     loom::py::loom::dialect::index::index

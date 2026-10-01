@@ -223,6 +223,8 @@ class SourceMemoryConstraint:
     byte_offset_unsigned_bit_count: int = 0
     # Unsigned width excluding the static bias, or zero if unconstrained.
     dynamic_offset_unsigned_bit_count: int = 0
+    # Diagnostic emitted only when the minimum-alignment predicate rejects.
+    alignment_diagnostic: GuardDiagnostic | None = None
     byte_offset_diagnostic: GuardDiagnostic | None = None
     address_layout_diagnostic: GuardDiagnostic | None = None
     cache_policy_build_flags: int | None = 0
@@ -253,6 +255,7 @@ class SourceMemoryConstraint:
         preserve_source_index: bool = False,
         byte_offset_unsigned_bit_count: int = 0,
         dynamic_offset_unsigned_bit_count: int = 0,
+        alignment_diagnostic: GuardDiagnostic | None = None,
         byte_offset_diagnostic: GuardDiagnostic | None = None,
         address_layout_diagnostic: GuardDiagnostic | None = None,
         cache_policy_build_flags: int | None = 0,
@@ -301,6 +304,11 @@ class SourceMemoryConstraint:
             self,
             "dynamic_offset_unsigned_bit_count",
             dynamic_offset_unsigned_bit_count,
+        )
+        object.__setattr__(
+            self,
+            "alignment_diagnostic",
+            alignment_diagnostic,
         )
         object.__setattr__(
             self,
@@ -354,6 +362,10 @@ class SourceMemoryConstraint:
             self.minimum_alignment & (self.minimum_alignment - 1)
         ):
             raise ValueError("source memory minimum alignment must be a power of two")
+        if self.minimum_alignment == 0 and self.alignment_diagnostic is not None:
+            raise ValueError(
+                "unconstrained source memory cannot have an alignment diagnostic"
+            )
         dynamic_term_count = self.dynamic_term_count
         if dynamic_term_count is None:
             if not 0 <= self.dynamic_term_count_minimum < _U8_MAX:

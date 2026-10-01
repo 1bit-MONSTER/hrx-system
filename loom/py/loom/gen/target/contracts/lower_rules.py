@@ -33,6 +33,7 @@ from loom.target.contracts import (
     LowerEmitKind,
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
+    SourceMemoryRejectionReason,
     SourceNodeRelation,
     SourceValueKind,
     TypePattern,
@@ -248,6 +249,7 @@ def _generate_source(
             f"#if LOOM_LOW_LOWER_MAX_DIAGNOSTIC_PARAMS != {MAX_TARGET_DIAGNOSTIC_PARAMS}",
             '#error "target diagnostic parameter capacity mismatch"',
             "#endif",
+            f'static_assert(LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT == {len(SourceMemoryRejectionReason)}, "source-memory rejection reason count mismatch");',
         ]
     )
     lines.append("")
@@ -862,20 +864,21 @@ def _validate_c_table_shape(
             constraint.dynamic_offset_unsigned_bit_count,
             f"{row_subject} dynamic byte offset unsigned bit count",
         )
-        for diagnostic_name, diagnostic_index in (
-            ("constraint", row.diagnostic_index),
-            ("byte-offset", row.byte_offset_diagnostic_index),
-            ("address-layout", row.address_layout_diagnostic_index),
-            ("address", row.address_diagnostic_index),
+        if len(row.rejection_diagnostic_indices) != len(SourceMemoryRejectionReason):
+            raise ValueError(f"{row_subject} rejection diagnostic count disagrees with source-memory rejection reasons")
+        for reason, diagnostic_index in zip(
+            SourceMemoryRejectionReason,
+            row.rejection_diagnostic_indices,
+            strict=True,
         ):
             _require_u16(
                 diagnostic_index,
-                f"{row_subject} {diagnostic_name} diagnostic index",
+                f"{row_subject} {reason.value} diagnostic index",
             )
             _require_optional_table_index(
                 diagnostic_index,
                 len(table.diagnostics),
-                f"{row_subject} {diagnostic_name} diagnostic index",
+                f"{row_subject} {reason.value} diagnostic index",
                 "diagnostic",
             )
         if constraint.cache_policy_build_flags is not None:
