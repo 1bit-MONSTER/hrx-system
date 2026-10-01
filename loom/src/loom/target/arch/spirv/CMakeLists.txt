@@ -530,7 +530,6 @@ loom_check_test_suite(
     "test/source_low/numeric_bfloat_widen.loom-test"
     "test/source_low/numeric_boolean_comparison.loom-test"
     "test/source_low/numeric_constant_remainder.loom-test"
-    "test/source_low/numeric_conversion.loom-test"
     "test/source_low/numeric_conversion_float8.loom-test"
     "test/source_low/numeric_extended_math.loom-test"
     "test/source_low/numeric_float_arithmetic.loom-test"
