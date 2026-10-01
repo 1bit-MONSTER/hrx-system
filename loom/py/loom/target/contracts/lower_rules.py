@@ -293,6 +293,11 @@ class _LowerRuleSetCompiler:
         self._authored_case_indices: list[int] = []
         self._type_pattern_ordinals: dict[TypePattern, int] = {}
         self._diagnostic_ordinals: dict[LowerDiagnostic, int] = {}
+        self._value_ref_sequence_starts: dict[tuple[LowerValueRef, ...], int] = {(): 0}
+        self._attr_copy_sequence_starts: dict[tuple[LowerAttrCopy, ...], int] = {(): 0}
+        self._tied_result_sequence_starts: dict[tuple[LowerTiedResult, ...], int] = {
+            (): 0
+        }
         self._register_class_ordinals = {
             reg_class.name: index
             for index, reg_class in enumerate(table.descriptor_set.reg_classes)
@@ -1888,7 +1893,11 @@ class _LowerRuleSetCompiler:
         )
 
     def _append_value_ref_sequence(self, sequence: tuple[LowerValueRef, ...]) -> int:
-        return _append_interned_row_sequence(self._value_refs, sequence)
+        return _append_interned_row_sequence(
+            self._value_refs,
+            sequence,
+            self._value_ref_sequence_starts,
+        )
 
     def _lower_attr_copies(
         self,
@@ -2251,13 +2260,21 @@ class _LowerRuleSetCompiler:
         )
 
     def _append_attr_copy_sequence(self, sequence: tuple[LowerAttrCopy, ...]) -> int:
-        return _append_interned_row_sequence(self._attr_copies, sequence)
+        return _append_interned_row_sequence(
+            self._attr_copies,
+            sequence,
+            self._attr_copy_sequence_starts,
+        )
 
     def _append_tied_result_sequence(
         self,
         sequence: tuple[LowerTiedResult, ...],
     ) -> int:
-        return _append_interned_row_sequence(self._tied_results, sequence)
+        return _append_interned_row_sequence(
+            self._tied_results,
+            sequence,
+            self._tied_result_sequence_starts,
+        )
 
     def _append_diagnostic(self, diagnostic: LowerDiagnostic) -> int:
         ordinal = self._diagnostic_ordinals.get(diagnostic)
