@@ -391,6 +391,7 @@ _SPIRV_EXECUTION_XFAILS = {
     "kernel/workgroup/reduce_tree.loom:@workgroup_tree_vector_all_case": "TARGET/032",
     "memory/address/generic.loom:@generic_workgroup_publication_values": "TARGET/032",
     "memory/address/scaling.loom:@scale_offsets_cross_4gib": "SPIRV/026",
+    "memory/address/scaling.loom:@scale_offsets_signed_wrap": "SPIRV/026",
     "memory/address/scaling.loom:@scale_offsets_unsigned_wrap": "SPIRV/026",
     "memory/address/scaling.loom:@scale_offsets_wide_dynamic_stride": "SPIRV/026",
     "memory/address/scaling.loom:@wide_positive_sum": "TARGET/005",
