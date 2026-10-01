@@ -44,16 +44,11 @@ typedef struct loom_compile_request_options_t {
 typedef struct loom_compile_request_t {
   // Language-level product and root selection.
   loom_compile_product_selection_t selection;
-  // Exact public artifact format.
-  iree_string_view_t format;
   // Target-owned artifact emitter for kernel or module products. Command
   // products have no target emitter.
   const loom_target_emitter_t* target_emitter;
   // Explicit target selected by --target, or empty for authored targets.
   loom_compile_target_selection_t explicit_target;
-  // Effective target fact type after explicit target selection, or NULL for
-  // target-independent products.
-  const loom_target_fact_type_t* target_fact_type;
 } loom_compile_request_t;
 
 // Returns true when portable command emission was selected.

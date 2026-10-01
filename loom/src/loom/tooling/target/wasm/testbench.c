@@ -292,8 +292,6 @@ static iree_status_t loom_wasm_testbench_compile_product(
           },
       .target_emitter = &loom_wasm_module_emitter,
       .explicit_target = {.profile = target_profile},
-      .target_fact_type =
-          target_profile != NULL ? target_profile->type->fact_type : NULL,
   };
   loom_compile_pipeline_result_t pipeline = {0};
   if (iree_status_is_ok(status)) {

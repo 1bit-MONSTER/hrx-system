@@ -258,9 +258,10 @@ TEST_F(CompileRequestTest, InfersKernelAndCanonicalFormat) {
 
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
   EXPECT_TRUE(
-      iree_string_view_equal(request.format, IREE_SV("DiagnosticFormat123")));
+      iree_string_view_equal(request.target_emitter->public_artifact_format,
+                             IREE_SV("DiagnosticFormat123")));
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
-  EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
+  EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
   EXPECT_EQ(request.explicit_target.profile, nullptr);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
@@ -278,7 +279,6 @@ TEST_F(CompileRequestTest, ResolvesLowKernelProductsWithDefaultAndNamedRoots) {
       const loom_compile_request_t request = Resolve(module.get(), options);
       EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
       EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
-      EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
       ASSERT_EQ(request.selection.roots.count, 1u);
       EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                          IREE_SV("entry")));
@@ -382,7 +382,7 @@ kernel.def target(@UnavailableTarget) @excluded() {
   const loom_compile_request_t request = Resolve(module.get(), options);
 
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
-  EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
+  EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("kept")));
@@ -556,9 +556,7 @@ command.program.def public @Command123() launch() {
   const loom_compile_request_t request = Resolve(module.get(), {});
 
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_COMMAND);
-  EXPECT_TRUE(iree_string_view_equal(request.format, IREE_SV("loom-command")));
   EXPECT_EQ(request.target_emitter, nullptr);
-  EXPECT_EQ(request.target_fact_type, nullptr);
   ASSERT_EQ(request.selection.roots.count, 1u);
   module.reset();
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
@@ -585,7 +583,7 @@ pipeline.def @GenericPipeline() launch() {
   loom_compile_request_t request = Resolve(module.get(), options);
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
-  EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
+  EXPECT_EQ(request.selection.target_fact_type, &loom_target_generic_fact_type);
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("KernelPipeline")));
@@ -600,7 +598,6 @@ pipeline.def @GenericPipeline() launch() {
   request = Resolve(module.get(), options);
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
-  EXPECT_EQ(request.target_fact_type, nullptr);
 }
 
 TEST_F(CompileRequestTest, RejectsMixedExplicitRootProducts) {
@@ -731,7 +728,8 @@ func.def public @Function123() {
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
   EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
   EXPECT_TRUE(
-      iree_string_view_equal(request.format, IREE_SV("DiagnosticFormat123")));
+      iree_string_view_equal(request.target_emitter->public_artifact_format,
+                             IREE_SV("DiagnosticFormat123")));
 }
 
 TEST_F(CompileRequestTest, ExplicitTargetSpecializesUntargetedKernel) {
@@ -747,7 +745,6 @@ TEST_F(CompileRequestTest, ExplicitTargetSpecializesUntargetedKernel) {
   EXPECT_EQ(request.explicit_target.profile, &kTargetProfile);
   EXPECT_TRUE(iree_string_view_equal(
       request.explicit_target.specification.selector, IREE_SV("Target456")));
-  EXPECT_EQ(request.target_fact_type, &loom_target_generic_fact_type);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 }
 
