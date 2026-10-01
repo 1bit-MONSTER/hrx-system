@@ -42,7 +42,7 @@ right to that trailer. [Compute postamble][postamble]
 | [Memory commands](memory-commands.md) | COPY_DATA, WRITE_DATA, waits and shader-completion firmware predicates. |
 | [Atomic operations](atomics.md) | TC integer operations, returned values, command modes, participant domains and cache/retirement contracts. |
 | [Cache control](cache.md) | Acquire/release fields, native-generation differences, ranges, scopes and complete visibility sequences. |
-| [Compiled dispatch](dispatch.md) | Executable backing, register and argument ABI, direct launch, runtime state and completion. |
+| [Compiled dispatch](dispatch.md) | Executable backing, register and argument ABI, MEM_ORDERED wait-counter mode, direct launch, runtime state and completion. |
 | [Group memory](lds.md) | Static and dynamic LDS allocation, workgroup synchronization and resource rebinding. |
 | [Indirect dispatch](indirect.md) | Memory-resident workgroup counts, compiler inputs and producer-to-fetch dependencies. |
 | [Command buffers](command-buffers.md) | First-level INDIRECT_BUFFER entry/return, publication and completed-use rebuild. |
