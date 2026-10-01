@@ -45,6 +45,56 @@ before its acquire. The firmware predicates and owned-fence alternative for
 [Cache-only acquire][mesa-acquire] [PAL stage join][pal-join]
 [Mesa stage join][mesa-join]
 
+### GFX12 CP and shader handoffs
+
+PAL's GFX12 planner describes shader GL2 as coherent across shader engines,
+while CP accesses MALL directly. Its bypass-GL2 class includes CP, indirect
+arguments, queue atomics and timestamps as well as CPU and memory accesses.
+Those CP clients belong to the GL2 class in its GFX10/GFX11 planner. The same
+producer/consumer operation can therefore need different outer-cache work.
+[GFX12 client classes][pal12-clients] [GFX10/GFX11 classes][pal-clients]
+[GFX12 topology and history][pal12-transition-history]
+
+The GFX12 planner first resolves copy/clear/resolve access masks using the
+actual command-buffer engine history and resource kind. For example, buffer
+copies can leave shader GL2 stale through CP, while image copies use the
+shader path. It then applies these GL2 rules in order:
+
+| Source access | Destination access | GL2 action |
+| --- | --- | --- |
+| Includes a bypass-GL2 client | Includes a GL2 client, or is unknown in a split release | Invalidate and write back, preserving other valid dirty data. |
+| Includes a GL2 client, or is unknown in a split acquire | Includes a bypass-GL2 client | Write back to make the bypass route observe the data. |
+
+[Access normalization][pal12-normalize] [Ordered GL2 rules][pal12-transition-history]
+
+The source need not be a writer in the immediately preceding operation. For
+`shader write → shader read → CP read`, the last transition still needs GL2
+writeback: the shader read does not establish that the earlier dirty data
+reached MALL. PAL receives one transition, rather than the full resource access
+history, and conservatively retains this writeback. A read-to-read label alone
+cannot establish that a cache operation is redundant.
+[History limitation][pal12-transition-history]
+
+Split buffer/global barriers make the missing information explicit:
+`ReleaseInternal` passes destination access zero, while `AcquireInternal`
+passes source access zero. Zero does not make every split half a full flush.
+For example, a shader-only release with an unknown destination contributes no
+GL2 action from the two routing rules; a later acquire for a CP reader requests
+GL2 writeback. On the non-PWS path, PAL joins the release token with
+`WAIT_REG_MEM` before emitting the remaining `ACQUIRE_MEM` actions.
+[Split release][pal12-split-source] [Split acquire][pal12-split-destination]
+[Token wait][pal12-token-wait] [Following cache work][pal12-acquire-tail]
+
+Shader front-end caches retain their own requirement. A destination shader
+read requests K$/V$ invalidation unless PAL's non-global, read-only source
+and compatible-view conditions permit omission. The absence of a GL2 action
+does not remove that work or the execution dependency. The command buffer's
+CP-DMA token path can defer both the DMA join and its cache work until acquire;
+the cache operations remain after DMA completion so an unfinished copy cannot
+make GL2 stale again after it was refreshed.
+[Shader cache conditions][pal12-front-end] [Deferred DMA release][pal12-deferred-dma]
+[DMA acquire and cache planning][pal12-acquire-dma]
+
 ## Ordinary ACQUIRE_MEM representation
 
 `ACQUIRE_MEM` is type-3 opcode `0x58`. The GFX10/GFX11 and GFX12 MEC definitions
@@ -569,3 +619,13 @@ the address being in host or device memory. [Programming recipes](../recipes/REA
 [cdna-llvm-acquire]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L11560-L11585
 [cdna-llvm-release]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L12492-L12535
 [cdna-ring-xcc]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L903-L930
+[pal12-clients]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L53-L78
+[pal12-normalize]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L314-L373
+[pal12-transition-history]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L378-L433
+[pal12-split-source]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1516-L1534
+[pal12-split-destination]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1610-L1624
+[pal12-token-wait]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1048-L1067
+[pal12-acquire-tail]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1100-L1119
+[pal12-front-end]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L435-L465
+[pal12-deferred-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L713-L725
+[pal12-acquire-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L955-L985

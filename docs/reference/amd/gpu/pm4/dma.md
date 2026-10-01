@@ -158,7 +158,9 @@ shader L2 stale and its planner distinguishes both handoff directions:
 [PAL GFX12 copy][p12-copy] [Cache planner][p12-cache]
 [Client classes][p12-cache-actors] [Mesa route][m-dma]
 
-Missing split-barrier information causes conservative cache work. Mesa's
+The [cache-client planner](cache.md#gfx12-cp-and-shader-handoffs) accounts for
+missing split-barrier information and retained dirty data from earlier writers.
+Its deferred CP-DMA token path keeps cache work after the DMA join. Mesa's
 INV_L2 likewise lowers to writeback plus invalidation. Transfer completion
 or a route name alone does not establish CPU visibility or fresh shader
 scalar/vector caches. [Mesa cache actions][m-cache]
