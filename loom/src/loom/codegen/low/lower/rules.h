@@ -112,6 +112,10 @@ enum loom_low_lower_value_ref_kind_e {
   LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT = 7,
   // Complete byte offset including the selected source-memory static bias.
   LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET = 8,
+  // Exact whole-vector lane origin of source operand field |index|, element
+  // |element_index|. Selection proves the origin is available and identity
+  // mapped before emission consumes it.
+  LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND = 9,
   // Maximum value-ref kind plus one.
   LOOM_LOW_LOWER_VALUE_REF_COUNT_,
 };

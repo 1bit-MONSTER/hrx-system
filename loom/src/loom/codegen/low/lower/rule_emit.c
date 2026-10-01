@@ -77,11 +77,16 @@ static const loom_op_t* loom_low_lower_rule_emit_source_op(
 }
 
 static loom_value_id_t loom_low_lower_rule_emit_source_value(
-    const loom_module_t* module, const loom_low_lower_rule_set_t* rule_set,
+    const loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set,
     const loom_low_lower_rule_emit_state_t* state, uint16_t value_ref_index) {
-  return loom_low_lower_rule_source_value_from_nodes(
-      module, rule_set, state->source_op, state->source_nodes,
-      state->source_node_count, value_ref_index);
+  loom_value_id_t source_value_id = LOOM_VALUE_ID_INVALID;
+  const bool resolved = loom_low_lower_rule_resolve_source_value_from_nodes(
+      context->module, loom_low_lower_context_fact_table(context), rule_set,
+      state->source_op, state->source_nodes, state->source_node_count,
+      value_ref_index, &source_value_id);
+  IREE_ASSERT(resolved);
+  return source_value_id;
 }
 
 static iree_status_t loom_low_lower_rule_low_value(
@@ -98,9 +103,10 @@ static iree_status_t loom_low_lower_rule_low_value(
       &rule_set->value_refs[value_ref_index];
   switch (value_ref->kind) {
     case LOOM_LOW_LOWER_VALUE_REF_OPERAND:
-    case LOOM_LOW_LOWER_VALUE_REF_RESULT: {
+    case LOOM_LOW_LOWER_VALUE_REF_RESULT:
+    case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND: {
       loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-          context->module, rule_set, state, value_ref_index);
+          context, rule_set, state, value_ref_index);
       if (value_ref->materializer_index != 0) {
         const loom_low_lower_value_materializer_t* materializer =
             loom_low_lower_rule_value_materializer(rule_set, value_ref);
@@ -232,7 +238,7 @@ static uint64_t loom_low_lower_rule_attr_copy_float_bits(
     const loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_attr_copy_t* attr_copy) {
   const loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-      context->module, rule_set, state, attr_copy->value_ref_index);
+      context, rule_set, state, attr_copy->value_ref_index);
   const loom_value_fact_table_t* fact_table =
       loom_low_lower_context_fact_table(context);
   loom_value_facts_t facts = loom_value_facts_unknown();
@@ -277,7 +283,7 @@ static int64_t loom_low_lower_rule_attr_copy_exact_i64(
     const loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_attr_copy_t* attr_copy) {
   const loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-      context->module, rule_set, state, attr_copy->value_ref_index);
+      context, rule_set, state, attr_copy->value_ref_index);
   const loom_value_fact_table_t* fact_table =
       loom_low_lower_context_fact_table(context);
   loom_value_facts_t facts = loom_value_facts_unknown();
@@ -297,7 +303,7 @@ static int64_t loom_low_lower_rule_attr_copy_static_dim_scaled(
     const loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_attr_copy_t* attr_copy) {
   const loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-      context->module, rule_set, state, attr_copy->value_ref_index);
+      context, rule_set, state, attr_copy->value_ref_index);
   const loom_type_t source_type = loom_module_value_type(
       loom_low_lower_context_module(context), source_value_id);
   IREE_ASSERT(loom_type_is_shaped(source_type));
@@ -673,8 +679,8 @@ static iree_status_t loom_low_lower_rule_build_attrs(
       }
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_EXACT_I64_NEGATE: {
         const loom_value_id_t source_value_id =
-            loom_low_lower_rule_emit_source_value(
-                context->module, rule_set, state, attr_copy->value_ref_index);
+            loom_low_lower_rule_emit_source_value(context, rule_set, state,
+                                                  attr_copy->value_ref_index);
         const loom_value_fact_table_t* fact_table =
             loom_low_lower_context_fact_table(context);
         loom_value_facts_t facts = loom_value_facts_unknown();
@@ -704,8 +710,8 @@ static iree_status_t loom_low_lower_rule_build_attrs(
       }
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_EXACT_I64_LOG2: {
         const loom_value_id_t source_value_id =
-            loom_low_lower_rule_emit_source_value(
-                context->module, rule_set, state, attr_copy->value_ref_index);
+            loom_low_lower_rule_emit_source_value(context, rule_set, state,
+                                                  attr_copy->value_ref_index);
         const loom_value_fact_table_t* fact_table =
             loom_low_lower_context_fact_table(context);
         loom_value_facts_t facts = loom_value_facts_unknown();
@@ -733,8 +739,8 @@ static iree_status_t loom_low_lower_rule_build_attrs(
       }
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_EXACT_I64_MINUS_ONE: {
         const loom_value_id_t source_value_id =
-            loom_low_lower_rule_emit_source_value(
-                context->module, rule_set, state, attr_copy->value_ref_index);
+            loom_low_lower_rule_emit_source_value(context, rule_set, state,
+                                                  attr_copy->value_ref_index);
         const loom_value_fact_table_t* fact_table =
             loom_low_lower_context_fact_table(context);
         loom_value_facts_t facts = loom_value_facts_unknown();
@@ -776,8 +782,8 @@ static iree_status_t loom_low_lower_rule_build_attrs(
           break;
         }
         const loom_value_id_t source_value_id =
-            loom_low_lower_rule_emit_source_value(
-                context->module, rule_set, state, attr_copy->value_ref_index);
+            loom_low_lower_rule_emit_source_value(context, rule_set, state,
+                                                  attr_copy->value_ref_index);
         loom_low_lower_u32_divisor_magic_info_t info = {0};
         const bool has_magic_info =
             loom_low_lower_rule_value_facts_u32_divisor_magic_info(
@@ -806,8 +812,8 @@ static iree_status_t loom_low_lower_rule_build_attrs(
       }
       case LOOM_LOW_LOWER_ATTR_COPY_VALUE_I32_AS_U32_BITS: {
         const loom_value_id_t source_value_id =
-            loom_low_lower_rule_emit_source_value(
-                context->module, rule_set, state, attr_copy->value_ref_index);
+            loom_low_lower_rule_emit_source_value(context, rule_set, state,
+                                                  attr_copy->value_ref_index);
         const loom_value_fact_table_t* fact_table =
             loom_low_lower_context_fact_table(context);
         loom_value_facts_t facts = loom_value_facts_unknown();
@@ -1030,8 +1036,8 @@ static iree_status_t loom_low_lower_rule_build_result_types(
         IREE_ASSERT(loom_low_type_is_register(result_types[i]));
       } else {
         const loom_value_id_t source_value_id =
-            loom_low_lower_rule_emit_source_value(context->module, rule_set,
-                                                  state, value_ref_index);
+            loom_low_lower_rule_emit_source_value(context, rule_set, state,
+                                                  value_ref_index);
         IREE_RETURN_IF_ERROR(loom_low_lower_rule_map_result_type(
             context,
             loom_low_lower_rule_emit_source_op(rule_set, state,
@@ -1069,7 +1075,7 @@ static iree_status_t loom_low_lower_rule_bind_results(
     switch (value_ref->kind) {
       case LOOM_LOW_LOWER_VALUE_REF_RESULT: {
         loom_value_id_t source_value_id = loom_low_lower_rule_emit_source_value(
-            context->module, rule_set, state, value_ref_index);
+            context, rule_set, state, value_ref_index);
         IREE_RETURN_IF_ERROR(loom_low_lower_bind_value(context, source_value_id,
                                                        low_results[i]));
         break;
@@ -1929,7 +1935,7 @@ static iree_status_t loom_low_lower_rule_emit_descriptor_op_accumulate_lanes(
 
   const uint16_t result_value_ref_index = emit->result_type.value_ref_start;
   loom_value_id_t source_result = loom_low_lower_rule_emit_source_value(
-      context->module, rule_set, state, result_value_ref_index);
+      context, rule_set, state, result_value_ref_index);
   loom_type_t result_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_low_lower_rule_map_result_type(
       context,

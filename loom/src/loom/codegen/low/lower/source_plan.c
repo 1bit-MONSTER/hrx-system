@@ -229,30 +229,11 @@ static bool loom_low_lower_rule_value_ref_source_value(
     const loom_low_lower_context_t* context,
     const loom_low_lower_selected_plan_t* selected_plan,
     uint16_t value_ref_index, loom_value_id_t* out_source_value_id) {
-  *out_source_value_id = LOOM_VALUE_ID_INVALID;
   const loom_low_lower_rule_set_t* rule_set = selected_plan->rule_set;
-  const loom_low_lower_value_ref_t* value_ref =
-      &rule_set->value_refs[value_ref_index];
-  switch (value_ref->kind) {
-    case LOOM_LOW_LOWER_VALUE_REF_OPERAND:
-    case LOOM_LOW_LOWER_VALUE_REF_RESULT:
-      *out_source_value_id = loom_low_lower_rule_source_value_from_nodes(
-          context->module, rule_set, selected_plan->source_op,
-          selected_plan->data.source_nodes, selected_plan->source_node_count,
-          value_ref_index);
-      return true;
-    case LOOM_LOW_LOWER_VALUE_REF_TEMPORARY:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_TERM:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
-      return false;
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
-    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
-      return false;
-    default:
-      IREE_ASSERT_UNREACHABLE("unknown source-low value ref kind");
-      IREE_BUILTIN_UNREACHABLE();
-  }
+  return loom_low_lower_rule_resolve_source_value_from_nodes(
+      context->module, context->lowering.fact_table, rule_set,
+      selected_plan->source_op, selected_plan->data.source_nodes,
+      selected_plan->source_node_count, value_ref_index, out_source_value_id);
 }
 
 static bool loom_low_lower_rule_value_ref_uses_source_memory_plan(

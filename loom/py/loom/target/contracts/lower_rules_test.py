@@ -240,6 +240,48 @@ def test_compile_structural_register_emits() -> None:
     assert copy_emit.result_ref_count == 1
 
 
+def test_compile_exact_lane_origin_operand_reference() -> None:
+    fragment = ContractFragment(
+        name="test.exact-lane-origin",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(
+            DescriptorRule(
+                source_op=vector.vector_mulf,
+                descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+                guards=(
+                    Guard.exact_lane_origin_type(
+                        "lhs",
+                        Vector("bf16", lanes=16),
+                    ),
+                    Guard.value_type("rhs", Vector("f32", lanes=16)),
+                    Guard.value_type("result", Vector("f32", lanes=16)),
+                ),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
+                        operands={
+                            "lhs": ValueRef.exact_lane_origin_operand("lhs"),
+                            "rhs": ValueRef.operand("rhs"),
+                        },
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    compiled = compile_lower_rule_set(
+        fragment,
+        dialect_ops={"vector": ALL_VECTOR_OPS},
+    )
+
+    origin_guard_ref = compiled.value_refs[compiled.guards[0].value_ref_index]
+    assert origin_guard_ref.kind is SourceValueKind.EXACT_LANE_ORIGIN_OPERAND
+    emit = compiled.emits[compiled.rules[0].emit_start]
+    origin_operand_ref = compiled.value_refs[emit.operand_ref_start]
+    assert origin_operand_ref.kind is SourceValueKind.EXACT_LANE_ORIGIN_OPERAND
+
+
 def test_compile_variadic_result_element_refs() -> None:
     fragment = ContractFragment(
         name="test.variadic-result-elements",

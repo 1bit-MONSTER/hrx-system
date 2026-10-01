@@ -59,6 +59,16 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
     const loom_op_t* source_op, const loom_op_t* const* source_nodes,
     uint8_t source_node_count, uint16_t value_ref_index);
 
+// Resolves a source-backed value-ref across a selected source graph. Direct
+// operand and result refs always resolve. Fact-derived refs return false when
+// their producer-owned relation is unavailable or does not describe the whole
+// referenced value.
+bool loom_low_lower_rule_resolve_source_value_from_nodes(
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_op_t* const* source_nodes, uint8_t source_node_count,
+    uint16_t value_ref_index, loom_value_id_t* out_source_value_id);
+
 // Resolves an operand or result value-ref row to its source SSA value.
 // Generated table indices and value-ref kinds are trusted.
 loom_value_id_t loom_low_lower_rule_source_value(

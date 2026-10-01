@@ -204,6 +204,7 @@ loom_cc_test(
     loom::ir::facts
     loom::ops::func
     loom::ops::scalar
+    loom::ops::vector
     loom::util::fact_table
 )
 

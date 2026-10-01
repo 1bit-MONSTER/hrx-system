@@ -620,7 +620,8 @@ class _LowerRuleSetCompiler:
                     kind=guard.kind,
                     value_ref_index=self._append_value_ref(
                         source_op,
-                        _value_ref_for_source_field(
+                        guard.value_ref
+                        or _value_ref_for_source_field(
                             source_op,
                             guard.field,
                             element=element,
@@ -1873,7 +1874,14 @@ class _LowerRuleSetCompiler:
                     f"{source_op.name}: source value field '{value_ref.field}' "
                     f"references unknown source node '{value_ref.source_node}'"
                 )
-        if value_ref.kind == SourceValueKind.OPERAND and not allow_variadic_span:
+        if (
+            value_ref.kind
+            in (
+                SourceValueKind.OPERAND,
+                SourceValueKind.EXACT_LANE_ORIGIN_OPERAND,
+            )
+            and not allow_variadic_span
+        ):
             operand = referenced_op.operand(value_ref.field)
             if operand is not None and operand.variadic:
                 expected_count = self._operand_segment_counts.get(
