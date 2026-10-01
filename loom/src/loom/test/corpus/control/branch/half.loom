@@ -1,0 +1,105 @@
+// The half value is carried through a CFG join before a packed dequantization
+// result is assembled. Arithmetic observes uniform operands in both positions.
+func.def inline @select_half(%condition: i1, %then_input: i32, %else_input: i32) -> (f16) {
+  cfg.cond_br %condition, ^then, ^else
+^then:
+  %then_half = scalar.sitofp %then_input : i32 to f16
+  cfg.br ^join(%then_half: f16)
+^else:
+  %else_half = scalar.sitofp %else_input : i32 to f16
+  cfg.br ^join(%else_half: f16)
+^join(%selected: f16):
+  func.return %selected : f16
+}
+
+kernel.def @half_branch_dequantization() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%selector: i64, %input: buffer, %scale: f16, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2xi32>
+  %result = buffer.view %output[%base] : buffer -> view<9xf16>
+  %then = view.load %source[0] : view<2xi32> -> i32
+  %else = view.load %source[1] : view<2xi32> -> i32
+  %sign_boundary = scalar.constant 0 : i64
+  %condition = scalar.cmpi slt, %selector, %sign_boundary : i64
+  %selected = func.call @select_half(%condition, %then, %else) : (i1, i32, i32) -> (f16)
+  view.store %selected, %result[0] : f16, view<9xf16>
+  %half0 = scalar.sitofp %then : i32 to f16
+  %half1 = scalar.sitofp %else : i32 to f16
+  %dequant0 = scalar.mulf %half0, %scale : f16
+  %dequant1 = scalar.mulf %half1, %scale : f16
+  %packed = vector.from_elements %dequant0, %dequant1 : vector<2xf16>
+  vector.store %packed, %result[1] : vector<2xf16>, view<9xf16>
+  %multiply_left = scalar.mulf %scale, %half0 : f16
+  %add_right = scalar.addf %half0, %scale : f16
+  %add_left = scalar.addf %scale, %half1 : f16
+  %subtract_right = scalar.subf %half0, %scale : f16
+  %subtract_left = scalar.subf %scale, %half1 : f16
+  %multiply_uniform = scalar.mulf %scale, %scale : f16
+  view.store %multiply_left, %result[3] : f16, view<9xf16>
+  view.store %add_right, %result[4] : f16, view<9xf16>
+  view.store %add_left, %result[5] : f16, view<9xf16>
+  view.store %subtract_right, %result[6] : f16, view<9xf16>
+  view.store %subtract_left, %result[7] : f16, view<9xf16>
+  view.store %multiply_uniform, %result[8] : f16, view<9xf16>
+  kernel.return
+}
+
+func.def @half_branch_dequantization_oracle(%selector: i64, %input: buffer, %scale: f16, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2xi32>
+  %result = buffer.view %output[%base] : buffer -> view<9xf16>
+  %then = view.load %source[0] : view<2xi32> -> i32
+  %else = view.load %source[1] : view<2xi32> -> i32
+  %sign_boundary = scalar.constant 0 : i64
+  %condition = scalar.cmpi slt, %selector, %sign_boundary : i64
+  %selected_word = scf.select %condition, %then, %else : i32
+  %selected = scalar.sitofp %selected_word : i32 to f16
+  view.store %selected, %result[0] : f16, view<9xf16>
+  %half0 = scalar.sitofp %then : i32 to f16
+  %half1 = scalar.sitofp %else : i32 to f16
+  %dequant0 = scalar.mulf %half0, %scale : f16
+  %dequant1 = scalar.mulf %half1, %scale : f16
+  view.store %dequant0, %result[1] : f16, view<9xf16>
+  view.store %dequant1, %result[2] : f16, view<9xf16>
+  %multiply_left = scalar.mulf %scale, %half0 : f16
+  %add_right = scalar.addf %half0, %scale : f16
+  %add_left = scalar.addf %scale, %half1 : f16
+  %subtract_right = scalar.subf %half0, %scale : f16
+  %subtract_left = scalar.subf %scale, %half1 : f16
+  %multiply_uniform = scalar.mulf %scale, %scale : f16
+  view.store %multiply_left, %result[3] : f16, view<9xf16>
+  view.store %add_right, %result[4] : f16, view<9xf16>
+  view.store %add_left, %result[5] : f16, view<9xf16>
+  view.store %subtract_right, %result[6] : f16, view<9xf16>
+  view.store %subtract_left, %result[7] : f16, view<9xf16>
+  view.store %multiply_uniform, %result[8] : f16, view<9xf16>
+  func.return
+}
+
+check.scenario @half_branch_dequantization_values {
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("integers") : check.entropy
+    %selector = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-65000 to 65000) : tensor<2xi32>
+    %scale = check.literal value(0.5) : f16
+    %storage = check.generate.fill value(-123.0) : tensor<13xf16>
+    %output = check.tensor.view %storage offset(4) : tensor<13xf16> -> tensor<9xf16>
+    check.compare<@half_branch_dequantization, @half_branch_dequantization_oracle>(%selector, %input, %scale, %output) : (i64, tensor<2xi32>, f16, tensor<9xf16>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<13xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %selector = check.literal value(-1) : i64
+    %input = check.generate.iota offset(2049) step(2) : tensor<2xi32>
+    %scale = check.literal value(-0.5) : f16
+    %storage = check.generate.fill value(-123.0) : tensor<13xf16>
+    %output = check.tensor.view %storage offset(4) : tensor<13xf16> -> tensor<9xf16>
+    check.compare<@half_branch_dequantization, @half_branch_dequantization_oracle>(%selector, %input, %scale, %output) : (i64, tensor<2xi32>, f16, tensor<9xf16>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<13xf16>
+    }
+  }
+  check.return
+}
