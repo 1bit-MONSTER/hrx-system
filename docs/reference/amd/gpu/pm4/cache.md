@@ -233,6 +233,47 @@ at the other PWS stages. These fields and counters belong to the graphics
 pipeline. [PAL PWS acquire][pal-pws] [Mesa PWS acquire][mesa-pws-acquire]
 [GFX11 ME size fields][pal-me-sizes]
 
+### Consumer stage and deferred waits
+
+RADV `44cc4ca677a4` derives the latest permissible PWS acquire point from the
+barrier's destination stages, independently of the producer's completion and
+cache actions. It combines pending destinations by retaining the earliest
+required point. The source policy is:
+
+| Destination after stage expansion | Required point |
+| --- | --- |
+| Indirect draw/copy, index input, conditional rendering or command preprocessing | PFP; the stage-flush producer also requests `PFP_SYNC_ME`. |
+| Only early/late fragment tests, fragment shading or color attachment output | `PRE_DEPTH` may be used. |
+| Other nonempty stages, including compute | ME. |
+| No destination stage | No new stage requirement; other pending work still supplies its own requirement. |
+
+[Destination classification and merge][mesa-pws-destination]
+[PFP synchronization producer][mesa-pfp-destination]
+
+For its GFX11+ render-cache release path, RADV attaches the data-cache work to
+`RELEASE_MEM`. The matching acquire retains only a requested instruction-cache
+invalidate. That invalidate forces an ME/PFP wait; a `PRE_DEPTH` acquire has no
+GCR actions. Ordinary draws and mesh draws permit the later point, while
+compute dispatch, ray dispatch and command-buffer finalization do not.
+Device-generated draws also exclude deferral because the command processor
+consumes their generated commands before fragment processing.
+[Release/acquire partition][mesa-pws-partition]
+[Draw caller][mesa-pws-draw] [Mesh caller][mesa-pws-mesh]
+[Compute caller][mesa-pws-compute] [Ray caller][mesa-pws-ray]
+[Finalization caller][mesa-pws-finalize] [Deferral clamp][mesa-pws-resolve]
+
+The actual acquire starts at PFP when `PFP_SYNC_ME` is pending, otherwise ME;
+the destination policy can then choose ME or `PRE_DEPTH` subject to those
+constraints. Only an actual PFP acquire consumes the pending PFP synchronization.
+An ME or `PRE_DEPTH` acquire leaves that obligation for the separate
+`PFP_SYNC_ME` emission. Thus a completed release and a later pipeline wait do
+not, by themselves, order an earlier parser read. This composition is a
+graphics-ring protocol: the shared PWS builder requires `AMD_IP_GFX` and
+GFX11 or later. An ordinary compute-ring acquire keeps its separate encoding
+and producer-completion contract.
+[Stage selection][mesa-pws-partition] [Remaining PFP wait][mesa-pws-pfp-tail]
+[PWS builder predicates][mesa-pws-builder]
+
 ## GFX7–GFX9 and CDNA control words
 
 Legacy compute cache maintenance places actions in `CP_COHER_CNTL`, without a
@@ -478,6 +519,17 @@ the address being in host or device memory. [Programming recipes](../recipes/REA
 [linux11-sync]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c#L6846-L6866
 [pal-pws]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L721-L792
 [mesa-pws-acquire]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_cp.c#L146-L177
+[mesa-pws-destination]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L7999-L8052
+[mesa-pfp-destination]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L7843-L7885
+[mesa-pws-partition]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cs.c#L118-L172
+[mesa-pws-draw]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L14275-L14293
+[mesa-pws-mesh]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L14384-L14395
+[mesa-pws-compute]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L15335-L15349
+[mesa-pws-ray]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L15407-L15414
+[mesa-pws-finalize]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L8936-L8948
+[mesa-pws-resolve]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L16212-L16244
+[mesa-pws-pfp-tail]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cs.c#L251-L260
+[mesa-pws-builder]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/common/ac_cmdbuf_cp.c#L149-L177
 [pal-split-acquire]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L1711-L1793
 [pal-fence-owner]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfxCmdBuffer.cpp#L480-L501
 [pal-event]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/inc/core/palCmdBuffer.h#L2818-L2862
