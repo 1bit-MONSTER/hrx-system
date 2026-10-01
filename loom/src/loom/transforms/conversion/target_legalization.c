@@ -68,11 +68,16 @@ static bool loom_conversion_match_integer_to_narrow_float(
       result_element == LOOM_SCALAR_TYPE_F8E5M2) {
     return true;
   }
-  // I8/I16 are exact in F32. I32 is not: e.g. 16842753 rounds to BF16 0x4b81
-  // directly, but to 0x4b80 through F32. Keep that conversion single-rounded.
+  // I1/I8/I16 are exact in F32. Wider integers are not: e.g. 16842753 rounds
+  // to BF16 0x4b81 directly, but to 0x4b80 through F32. Keep those
+  // conversions single-rounded.
+  const loom_scalar_type_t input_element = loom_type_element_type(
+      loom_module_value_type(context->module, loom_op_operands(op)[0]));
   return result_element == LOOM_SCALAR_TYPE_BF16 &&
-         loom_type_element_type(loom_module_value_type(
-             context->module, loom_op_operands(op)[0])) != LOOM_SCALAR_TYPE_I32;
+         loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_I1 |
+                                           LOOM_SCALAR_TYPE_SET_I8 |
+                                           LOOM_SCALAR_TYPE_SET_I16,
+                                       input_element);
 }
 
 static iree_status_t loom_conversion_legalize_integer_to_float(
@@ -118,36 +123,28 @@ static const loom_target_legalizer_rule_t kConversionLegalizerRules[] = {
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_SCALAR_SITOFP,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I8 |
-                                       LOOM_SCALAR_TYPE_SET_I16 |
-                                       LOOM_SCALAR_TYPE_SET_I32,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
         .match = loom_conversion_match_integer_to_narrow_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_SCALAR_UITOFP,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I8 |
-                                       LOOM_SCALAR_TYPE_SET_I16 |
-                                       LOOM_SCALAR_TYPE_SET_I32,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
         .match = loom_conversion_match_integer_to_narrow_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_VECTOR_SITOFP,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I8 |
-                                       LOOM_SCALAR_TYPE_SET_I16 |
-                                       LOOM_SCALAR_TYPE_SET_I32,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
         .match = loom_conversion_match_integer_to_narrow_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .root_kind = LOOM_OP_VECTOR_UITOFP,
-        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_I8 |
-                                       LOOM_SCALAR_TYPE_SET_I16 |
-                                       LOOM_SCALAR_TYPE_SET_I32,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
         .match = loom_conversion_match_integer_to_narrow_float,
         .legalize = loom_conversion_legalize_integer_to_float,
     },

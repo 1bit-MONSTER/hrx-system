@@ -277,3 +277,52 @@ func.def target(@test_target) @fp8_vectors(%words: vector<3xi16>, %bytes: vector
   %unsigned = vector.fptoui %231 : vector<4xf32> to vector<4xi16>
   func.return %saturated, %rounded, %signed, %unsigned : vector<3xf8E4M3>, vector<4xf8E5M2>, vector<3xi32>, vector<4xi16>
 }
+
+// ====
+
+// RUN: pass target-legalize{mode=eager,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
+func.def target(@test_target) @scalar_integer_widths(%flag: i1, %wide: i64) -> (bf16, f16, f8E4M3, f8E5M2) {
+  %signed_flag = scalar.sitofp %flag : i1 to bf16
+  %unsigned_flag = scalar.uitofp %flag : i1 to f16
+  %signed_wide = scalar.sitofp %wide : i64 to f8E4M3
+  %unsigned_wide = scalar.uitofp %wide : i64 to f8E5M2
+  func.return %signed_flag, %unsigned_flag, %signed_wide, %unsigned_wide : bf16, f16, f8E4M3, f8E5M2
+}
+
+func.def target(@test_target) @vector_integer_widths(%flags: vector<4xi1>, %wide: vector<3xi64>) -> (vector<4xbf16>, vector<4xf16>, vector<3xf8E4M3>, vector<3xf16>) {
+  %signed_flags = vector.sitofp %flags : vector<4xi1> to vector<4xbf16>
+  %unsigned_flags = vector.uitofp %flags : vector<4xi1> to vector<4xf16>
+  %signed_wide = vector.sitofp %wide : vector<3xi64> to vector<3xf8E4M3>
+  %unsigned_wide = vector.uitofp %wide : vector<3xi64> to vector<3xf16>
+  func.return %signed_flags, %unsigned_flags, %signed_wide, %unsigned_wide : vector<4xbf16>, vector<4xf16>, vector<3xf8E4M3>, vector<3xf16>
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @scalar_integer_widths(%flag: i1, %wide: i64) -> (bf16, f16, f8E4M3, f8E5M2) {
+  %26 = scalar.sitofp %flag : i1 to f32
+  %signed_flag = scalar.fptrunc %26 : f32 to bf16
+  %24 = scalar.uitofp %flag : i1 to f32
+  %unsigned_flag = scalar.fptrunc %24 : f32 to f16
+  %22 = scalar.sitofp %wide : i64 to f32
+  %signed_wide = scalar.fptrunc %22 : f32 to f8E4M3
+  %20 = scalar.uitofp %wide : i64 to f32
+  %unsigned_wide = scalar.fptrunc %20 : f32 to f8E5M2
+  func.return %signed_flag, %unsigned_flag, %signed_wide, %unsigned_wide : bf16, f16, f8E4M3, f8E5M2
+}
+
+func.def target(@test_target) @vector_integer_widths(%flags: vector<4xi1>, %wide: vector<3xi64>) -> (vector<4xbf16>, vector<4xf16>, vector<3xf8E4M3>, vector<3xf16>) {
+  %34 = vector.sitofp %flags : vector<4xi1> to vector<4xf32>
+  %signed_flags = vector.fptrunc %34 : vector<4xf32> to vector<4xbf16>
+  %32 = vector.uitofp %flags : vector<4xi1> to vector<4xf32>
+  %unsigned_flags = vector.fptrunc %32 : vector<4xf32> to vector<4xf16>
+  %30 = vector.sitofp %wide : vector<3xi64> to vector<3xf32>
+  %signed_wide = vector.fptrunc %30 : vector<3xf32> to vector<3xf8E4M3>
+  %28 = vector.uitofp %wide : vector<3xi64> to vector<3xf32>
+  %unsigned_wide = vector.fptrunc %28 : vector<3xf32> to vector<3xf16>
+  func.return %signed_flags, %unsigned_flags, %signed_wide, %unsigned_wide : vector<4xbf16>, vector<4xf16>, vector<3xf8E4M3>, vector<3xf16>
+}
