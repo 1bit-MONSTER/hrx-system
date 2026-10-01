@@ -53,6 +53,54 @@ check.case public @scale_offsets_wide_dynamic_stride {
   check.return
 }
 
+// A bounded coordinate keeps its narrow carrier while constant byte strides
+// produce full-width offsets. The packed load also exercises lane extraction.
+kernel.def @scale_bounded_offsets() {
+  %unit = index.constant 1 : index
+  %lanes = index.constant 4 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %source = buffer.view %aligned[%base] : buffer -> view<4xi32>
+  %packed = vector.load %source[0] : view<4xi32> -> vector<4xi32>
+  %raw = vector.extract %packed[%lane] : vector<4xi32> -> i32
+  %mask = scalar.constant 1023 : i32
+  %low = scalar.andi %raw, %mask : i32
+  %coordinate = index.cast %low : i32 to index
+  %bounded = index.assume %coordinate [range(%coordinate, 0, 1023)] : index
+  %word = index.constant 4 : offset
+  %wide = index.constant 4294967296 : offset
+  %small_bytes = index.scale %bounded, %word : index, offset -> offset
+  %large_bytes = index.scale %bounded, %wide : index, offset -> offset
+  %small_value = index.cast %small_bytes : offset to i64
+  %large_value = index.cast %large_bytes : offset to i64
+  %destination_base = index.constant 32 : offset
+  %destination = buffer.view %output[%destination_base] : buffer -> view<2x4xi64>
+  view.store %small_value, %destination[0, %lane] : i64, view<2x4xi64>
+  view.store %large_value, %destination[1, %lane] : i64, view<2x4xi64>
+  kernel.return
+}
+
+check.case public @scale_offsets_bounded_constants {
+  %input = check.generate.iota offset(-4) step(1) : tensor<4xi32>
+  %output = check.generate.fill value(-123) : tensor<16xi64>
+  kernel.launch @scale_bounded_offsets(%input, %output) : (tensor<4xi32>, tensor<16xi64>)
+  %small = check.tensor.view %output offset(32) : tensor<16xi64> -> tensor<4xi64>
+  %large = check.tensor.view %output offset(64) : tensor<16xi64> -> tensor<4xi64>
+  %expected_small = check.generate.iota offset(4080) step(4) : tensor<4xi64>
+  %expected_large = check.generate.iota offset(4380866641920) step(4294967296) : tensor<4xi64>
+  check.expect.bitwise actual(%small) expected(%expected_small) : tensor<4xi64>
+  check.expect.bitwise actual(%large) expected(%expected_large) : tensor<4xi64>
+  %guard = check.generate.fill value(-123) : tensor<4xi64>
+  %prefix = check.tensor.view %output offset(0) : tensor<16xi64> -> tensor<4xi64>
+  %suffix = check.tensor.view %output offset(96) : tensor<16xi64> -> tensor<4xi64>
+  check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi64>
+  check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi64>
+  check.return
+}
+
 // Uniform wide scaling joins a narrow lane value before a loop transports and
 // updates the complete pair. A final subtraction exercises low-word borrow.
 kernel.def @walk_scaled_offsets() {
