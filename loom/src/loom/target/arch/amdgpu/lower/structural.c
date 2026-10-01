@@ -104,6 +104,15 @@ static bool loom_amdgpu_static_rank1_32bit_vector_shape(
          *out_register_count <= LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES;
 }
 
+static bool loom_amdgpu_static_rank1_register_storage_shape(
+    loom_type_t type, loom_amdgpu_vector_storage_t* out_storage) {
+  *out_storage = (loom_amdgpu_vector_storage_t){0};
+  return loom_type_is_vector(type) && loom_type_rank(type) == 1 &&
+         loom_amdgpu_type_vector_storage(type, out_storage) &&
+         out_storage->register_count != 0 &&
+         out_storage->register_count <= LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES;
+}
+
 static bool loom_amdgpu_static_rank1_register_tuple_storage_shape(
     loom_type_t type, loom_amdgpu_vector_storage_t* out_storage) {
   *out_storage = (loom_amdgpu_vector_storage_t){0};
