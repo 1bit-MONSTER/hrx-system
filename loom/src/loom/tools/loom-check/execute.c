@@ -582,14 +582,13 @@ static iree_status_t loom_check_execute_pass_with_output(
         module, environment->target_environment, target_request.function_name,
         &target_request.target, &specialization);
     if (iree_status_is_ok(status)) {
-      loom_target_specialization_result_t specialization_result = {0};
+      uint32_t specialization_error_count = 0;
       status = loom_target_specialize_functions(
           environment->target_environment, module,
           (loom_target_specialization_request_list_t){&specialization, 1},
           (loom_target_declaration_binding_list_t){0}, pass_diagnostic_emitter,
-          &diagnostic_arena, &specialization_result);
-      function_versions = specialization_result.function_versions;
-      run_result.error_count = specialization_result.error_count;
+          &function_versions, &specialization_error_count);
+      run_result.error_count = specialization_error_count;
     }
   }
   loom_pass_report_t pass_report = {0};

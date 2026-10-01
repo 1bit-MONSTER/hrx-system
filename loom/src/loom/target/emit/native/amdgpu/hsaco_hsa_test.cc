@@ -739,7 +739,9 @@ class LowKernelEmitter {
         /*.function_name=*/IREE_SV("loom_kernel"),
         /*.target_profile=*/&target_profile->base,
     };
-    loom_target_specialization_result_t specialization_result = {};
+    loom_function_version_owner_t function_versions;
+    loom_function_version_owner_initialize(arena, &function_versions);
+    uint32_t specialization_error_count = 0;
     IREE_RETURN_IF_ERROR(loom_target_specialize_functions(
         &target_environment_, module_,
         {
@@ -751,18 +753,17 @@ class LowKernelEmitter {
             /*.fn=*/PrintCompilerDiagnostic,
             /*.user_data=*/nullptr,
         },
-        arena, &specialization_result));
-    if (specialization_result.error_count != 0) {
+        &function_versions, &specialization_error_count));
+    if (specialization_error_count != 0) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "AMDGPU HSA low kernel target specialization failed");
     }
-    const loom_function_version_list_t* function_versions =
-        loom_function_version_owner_list(
-            &specialization_result.function_versions);
+    const loom_function_version_list_t* function_version_list =
+        loom_function_version_owner_list(&function_versions);
     const loom_target_function_version_t* function_version =
         loom_target_function_version_list_find(
-            function_versions, loom_func_like_cast(module_, low_function));
+            function_version_list, loom_func_like_cast(module_, low_function));
     if (function_version == nullptr ||
         function_version->function_target_facts == nullptr) {
       return iree_make_status(
@@ -817,7 +818,7 @@ class LowKernelEmitter {
 
     loom_low_verify_options_t verify_options = {};
     verify_options.descriptor_registry = &target_registry_.registry;
-    verify_options.function_versions = function_versions;
+    verify_options.function_versions = function_version_list;
     verify_options.emitter = {
         /*.fn=*/PrintCompilerDiagnostic,
         /*.user_data=*/nullptr,
