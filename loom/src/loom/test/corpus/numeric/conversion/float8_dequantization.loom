@@ -131,6 +131,10 @@ check.scenario @float8_dequantization_values {
     %e5_negative_zero = check.tensor.view %vector_output offset(1024) : tensor<512xf32> -> tensor<1xf32>
     %e5_positive_zero = check.tensor.view %vector_output offset(1536) : tensor<512xf32> -> tensor<1xf32>
     %scaled_zeros = check.tensor.view %decoded_output offset(0) : tensor<512xf32> -> tensor<2xf32>
+    %e4_bfloat_zero = check.tensor.view %bfloat_output offset(0) : tensor<1024xbf16> -> tensor<1xbf16>
+    %e5_bfloat_zero = check.tensor.view %bfloat_output offset(512) : tensor<1024xbf16> -> tensor<1xbf16>
+    %e4_scaled_zero = check.tensor.view %bfloat_output offset(1024) : tensor<1024xbf16> -> tensor<1xbf16>
+    %e5_scaled_zero = check.tensor.view %bfloat_output offset(1536) : tensor<1024xbf16> -> tensor<1xbf16>
     check.compare<@float8_dequantization, @float8_dequantization_oracle>(%input, %scales, %scalar_output, %vector_output, %bfloat_output, %decoded_output) : (tensor<256xi8>, tensor<64xf32>, tensor<512xf32>, tensor<512xf32>, tensor<1024xbf16>, tensor<512xf32>) -> () {
       check.expect.close actual(%scalar_storage) expected(%scalar_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
       check.expect.close actual(%vector_storage) expected(%vector_storage) atol(0.0) rtol(0.0) nan(same) : tensor<520xf32>
@@ -141,6 +145,10 @@ check.scenario @float8_dequantization_values {
       check.expect.bitwise actual(%e5_negative_zero) expected(%e5_negative_zero) : tensor<1xf32>
       check.expect.bitwise actual(%e5_positive_zero) expected(%e5_positive_zero) : tensor<1xf32>
       check.expect.bitwise actual(%scaled_zeros) expected(%scaled_zeros) : tensor<2xf32>
+      check.expect.bitwise actual(%e4_bfloat_zero) expected(%e4_bfloat_zero) : tensor<1xbf16>
+      check.expect.bitwise actual(%e5_bfloat_zero) expected(%e5_bfloat_zero) : tensor<1xbf16>
+      check.expect.bitwise actual(%e4_scaled_zero) expected(%e4_scaled_zero) : tensor<1xbf16>
+      check.expect.bitwise actual(%e5_scaled_zero) expected(%e5_scaled_zero) : tensor<1xbf16>
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {
