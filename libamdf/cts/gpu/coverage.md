@@ -77,8 +77,9 @@ large layouts. Overlapping backing, tiled images and optional placement hints
 need different cases.
 
 Windows compilation does not establish a USER queue service or native execution
-result. Physical peer-GPU execution has
-[no compiled cases](peer/README.md).
+result. [Physical peer-GPU construction](peer/README.md) has a separate corpus
+with explicit primary/peer selection and a two-GPU run requirement. Joint
+allocation and address queries do not establish executed peer dataflow.
 
 Per-dispatch LDS capacity changes, additional packet fields, SDMA atomics,
 general poll/cache controls, command-buffer variants,
