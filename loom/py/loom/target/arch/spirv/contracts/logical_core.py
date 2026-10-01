@@ -34,7 +34,11 @@ from loom.target.arch.spirv.builtins import (
     BuiltinScalarIndexQuery,
 )
 from loom.target.arch.spirv.contracts.atomic import SPIRV_ATOMIC_CONTRACT_CASES
-from loom.target.arch.spirv.contracts.bfloat import bfloat_narrow_rule
+from loom.target.arch.spirv.contracts.bfloat import (
+    bfloat_carrier_to_i16_rule,
+    bfloat_narrow_carrier_rule,
+    bfloat_narrow_native_rule,
+)
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
 )
@@ -1432,7 +1436,13 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
         )
     ]
     rules.extend(
-        (bfloat_narrow_rule(preserve_nan=False), bfloat_narrow_rule(preserve_nan=True))
+        (
+            bfloat_narrow_native_rule(preserve_nan=False),
+            bfloat_narrow_native_rule(preserve_nan=True),
+            bfloat_narrow_carrier_rule(preserve_nan=False),
+            bfloat_narrow_carrier_rule(preserve_nan=True),
+            bfloat_carrier_to_i16_rule(),
+        )
     )
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
     rules.extend(

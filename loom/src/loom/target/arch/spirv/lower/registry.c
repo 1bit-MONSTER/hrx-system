@@ -62,6 +62,11 @@ static bool loom_spirv_source_type_is_fp8(loom_type_t type) {
          scalar_type == LOOM_SCALAR_TYPE_F8E5M2;
 }
 
+static bool loom_spirv_source_type_is_bfloat16(loom_type_t type) {
+  return loom_type_is_scalar(type) &&
+         loom_type_element_type(type) == LOOM_SCALAR_TYPE_BF16;
+}
+
 static bool loom_spirv_source_type_supported(void* user_data,
                                              const loom_module_t* module,
                                              loom_type_t source_type) {
@@ -163,6 +168,14 @@ static iree_status_t loom_spirv_map_type(void* user_data,
                                          loom_type_t source_type,
                                          loom_type_t* out_low_type) {
   (void)user_data;
+  if (loom_spirv_source_type_is_bfloat16(source_type) &&
+      !iree_all_bits_set(
+          loom_low_lower_context_bundle(context)->config->contract_feature_bits,
+          LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR)) {
+    return loom_spirv_make_typed_register_type(
+        context, SPIRV_LOGICAL_CORE_REG_CLASS_ID_ID,
+        loom_type_scalar(LOOM_SCALAR_TYPE_I32), out_low_type);
+  }
   if (loom_spirv_source_type_is_fp8(source_type)) {
     return loom_spirv_make_typed_register_type(
         context, SPIRV_LOGICAL_CORE_REG_CLASS_ID_ID,

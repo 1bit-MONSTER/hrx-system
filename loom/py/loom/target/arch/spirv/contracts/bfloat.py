@@ -6,6 +6,8 @@
 
 """BF16 conversions with source-defined rounding independent of Vulkan defaults."""
 
+from enum import Enum, unique
+
 from loom.dialect.scalar import conversion
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards,
@@ -23,7 +25,15 @@ from loom.target.contracts import (
 )
 
 
-def bfloat_narrow_rule(*, preserve_nan: bool) -> DescriptorRule:
+@unique
+class _BfloatNarrowResult(Enum):
+    NATIVE = "native"
+    I32_CARRIER = "i32_carrier"
+
+
+def _bfloat_narrow_rule(
+    *, preserve_nan: bool, result_kind: _BfloatNarrowResult
+) -> DescriptorRule:
     """Rounds binary32 to BF16, preserving infinities and quieting NaNs."""
     # Vulkan permits implementation-defined rounding for BF16 OpFConvert.
     # Integer rounding also supports ordinary SSA consumers: FPRoundingMode
@@ -73,7 +83,16 @@ def bfloat_narrow_rule(*, preserve_nan: bool) -> DescriptorRule:
             ("s_greater_than", "is_nan", "magnitude", "infinity"),
             ("bitwise_or", "quiet_nan", "upper", "quiet_bit"),
         )
+    carrier_result = "selected" if preserve_nan else "rounded_upper"
     for operation, result, lhs, rhs in operations:
+        binds_carrier_result = (
+            result_kind is _BfloatNarrowResult.I32_CARRIER and result == carrier_result
+        )
+        result_ref = (
+            ValueRef.result("result")
+            if binds_carrier_result
+            else ValueRef.temporary(result)
+        )
         emit.append(
             emit_descriptor_op(
                 descriptor=logical_core_descriptor(f"spirv.op_{operation}.i32"),
@@ -81,11 +100,18 @@ def bfloat_narrow_rule(*, preserve_nan: bool) -> DescriptorRule:
                     "lhs": ValueRef.temporary(lhs),
                     "rhs": ValueRef.temporary(rhs),
                 },
-                results={"dst": ValueRef.temporary(result)},
-                result_types={"dst": DescriptorResultType()},
+                results={"dst": result_ref},
+                result_types=(
+                    None if binds_carrier_result else {"dst": DescriptorResultType()}
+                ),
             )
         )
     if preserve_nan:
+        result_ref = (
+            ValueRef.result("result")
+            if result_kind is _BfloatNarrowResult.I32_CARRIER
+            else ValueRef.temporary("selected")
+        )
         emit.append(
             emit_descriptor_op(
                 descriptor=logical_core_descriptor("spirv.op_select.i32"),
@@ -94,29 +120,34 @@ def bfloat_narrow_rule(*, preserve_nan: bool) -> DescriptorRule:
                     "true_value": ValueRef.temporary("quiet_nan"),
                     "false_value": ValueRef.temporary("rounded_upper"),
                 },
-                results={"dst": ValueRef.temporary("selected")},
-                result_types={"dst": DescriptorResultType()},
+                results={"dst": result_ref},
+                result_types=(
+                    {"dst": DescriptorResultType()}
+                    if result_kind is _BfloatNarrowResult.NATIVE
+                    else None
+                ),
             )
         )
-    emit.extend(
-        (
-            emit_descriptor_op(
-                descriptor=logical_core_descriptor("spirv.op_s_convert.i32.i16"),
-                operands={
-                    "input": ValueRef.temporary(
-                        "selected" if preserve_nan else "rounded_upper"
-                    )
-                },
-                results={"dst": ValueRef.temporary("narrow_bits")},
-                result_types={"dst": DescriptorResultType()},
-            ),
-            emit_descriptor_op(
-                descriptor=logical_core_descriptor("spirv.op_bitcast.i16.bf16"),
-                operands={"input": ValueRef.temporary("narrow_bits")},
-                results={"dst": ValueRef.result("result")},
-            ),
+    if result_kind is _BfloatNarrowResult.NATIVE:
+        emit.extend(
+            (
+                emit_descriptor_op(
+                    descriptor=logical_core_descriptor("spirv.op_s_convert.i32.i16"),
+                    operands={
+                        "input": ValueRef.temporary(
+                            "selected" if preserve_nan else "rounded_upper"
+                        )
+                    },
+                    results={"dst": ValueRef.temporary("narrow_bits")},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+                emit_descriptor_op(
+                    descriptor=logical_core_descriptor("spirv.op_bitcast.i16.bf16"),
+                    operands={"input": ValueRef.temporary("narrow_bits")},
+                    results={"dst": ValueRef.result("result")},
+                ),
+            )
         )
-    )
     return DescriptorRule(
         source_op=conversion.scalar_fptrunc,
         descriptor=emit[-1].descriptor,
@@ -127,4 +158,41 @@ def bfloat_narrow_rule(*, preserve_nan: bool) -> DescriptorRule:
             *descriptor_feature_guards(*(step.descriptor for step in emit)),
         ),
         emit=tuple(emit),
+    )
+
+
+def bfloat_narrow_native_rule(*, preserve_nan: bool) -> DescriptorRule:
+    """Rounds binary32 to a native SPIR-V BF16 value."""
+    return _bfloat_narrow_rule(
+        preserve_nan=preserve_nan,
+        result_kind=_BfloatNarrowResult.NATIVE,
+    )
+
+
+def bfloat_narrow_carrier_rule(*, preserve_nan: bool) -> DescriptorRule:
+    """Rounds binary32 to BF16 bits held in an i32 carrier."""
+    return _bfloat_narrow_rule(
+        preserve_nan=preserve_nan,
+        result_kind=_BfloatNarrowResult.I32_CARRIER,
+    )
+
+
+def bfloat_carrier_to_i16_rule() -> DescriptorRule:
+    """Observes an i32-carried BF16 value through its native i16 bit view."""
+    descriptor = logical_core_descriptor("spirv.op_s_convert.i32.i16")
+    return DescriptorRule(
+        source_op=conversion.scalar_bitcast,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("input", Scalar("bf16")),
+            Guard.value_type("result", Scalar("i16")),
+            *descriptor_feature_guards(descriptor),
+        ),
+        emit=(
+            emit_descriptor_op(
+                descriptor=descriptor,
+                operands={"input": ValueRef.operand("input")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
     )
