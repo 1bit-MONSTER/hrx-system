@@ -6,7 +6,10 @@
 
 #include "loom/target/arch/amdgpu/lower/encoding/fp8_encode.h"
 
+#include <string.h>
+
 #include "loom/ir/attribute.h"
+#include "loom/ir/float_facts.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/lower/bitpack.h"
 #include "loom/target/arch/amdgpu/lower/descriptor_ref.h"
@@ -88,6 +91,17 @@ static uint32_t loom_amdgpu_fp8_f32_bits_from_normal_payload(
   const uint32_t mantissa = payload & mantissa_mask;
   const uint32_t f32_exponent = exponent + 127u - format->exponent_bias;
   return (f32_exponent << 23) | (mantissa << (23u - format->mantissa_bits));
+}
+
+static bool loom_amdgpu_fp8_encode_source_is_range_bounded(
+    loom_scalar_type_t source_type, loom_value_facts_t source_facts,
+    const loom_scalar_type_fp8_format_t* result_format) {
+  const uint32_t maximum_bits = loom_amdgpu_fp8_f32_bits_from_normal_payload(
+      result_format, loom_amdgpu_fp8_maximum_finite_payload(result_format));
+  float maximum = 0.0f;
+  memcpy(&maximum, &maximum_bits, sizeof(maximum));
+  return loom_value_facts_float_range_within(source_type, source_facts,
+                                             -(double)maximum, (double)maximum);
 }
 
 static uint32_t loom_amdgpu_fp8_encode_maximum_magnitude(
@@ -482,8 +496,9 @@ static bool loom_amdgpu_select_software_fp8_encode_plan(
 
 static bool loom_amdgpu_select_native_ocp_fp8_encode_plan(
     const loom_low_descriptor_set_t* descriptor_set,
-    loom_scalar_type_t source_type,
+    loom_scalar_type_t source_type, loom_value_facts_t source_facts,
     loom_value_fact_numeric_format_flags_t result_format,
+    const loom_scalar_type_fp8_format_t* format,
     loom_amdgpu_fp8_encode_plan_t* out_plan) {
   const bool requires_native_nan_canonicalization =
       loom_amdgpu_descriptor_set_requires_native_fp8_nan_repair(descriptor_set);
@@ -516,7 +531,10 @@ static bool loom_amdgpu_select_native_ocp_fp8_encode_plan(
   loom_amdgpu_fp8_encode_kind_t kind = LOOM_AMDGPU_FP8_ENCODE_KIND_NONE;
   switch (result_format) {
     case LOOM_VALUE_FACT_NUMERIC_FORMAT_F8_E4M3FN:
-      kind = LOOM_AMDGPU_FP8_ENCODE_KIND_F32_PAIR_SATURATE_E4M3;
+      kind = loom_amdgpu_fp8_encode_source_is_range_bounded(
+                 source_type, source_facts, format)
+                 ? LOOM_AMDGPU_FP8_ENCODE_KIND_F32_PAIR
+                 : LOOM_AMDGPU_FP8_ENCODE_KIND_F32_PAIR_SATURATE_E4M3;
       low_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CVT_PK_FP8_F32_OCP_LOW;
       high_descriptor_ref =
           LOOM_AMDGPU_DESCRIPTOR_REF_V_CVT_PK_FP8_F32_OCP_HIGH;
@@ -563,7 +581,11 @@ static bool loom_amdgpu_select_native_ocp_fp8_encode_plan(
       .low_descriptor_ref = low_descriptor_ref,
       .high_descriptor_ref = high_descriptor_ref,
   };
-  if (can_use_native && requires_native_nan_canonicalization) {
+  const bool source_range_elides_nan_canonicalization =
+      result_format == LOOM_VALUE_FACT_NUMERIC_FORMAT_F8_E4M3FN &&
+      kind == LOOM_AMDGPU_FP8_ENCODE_KIND_F32_PAIR;
+  if (can_use_native && requires_native_nan_canonicalization &&
+      !source_range_elides_nan_canonicalization) {
     can_use_native = loom_amdgpu_select_native_fp8_nan_canonicalization(
         descriptor_set, kind, &native_plan);
   }
@@ -578,6 +600,7 @@ static bool loom_amdgpu_select_native_ocp_fp8_encode_plan(
 bool loom_amdgpu_select_fp8_encode_plan(
     const loom_low_descriptor_set_t* descriptor_set,
     loom_scalar_type_t source_type, loom_scalar_type_t result_type,
+    loom_value_facts_t source_facts,
     loom_value_fact_numeric_format_flags_t result_format,
     loom_amdgpu_fp8_encode_plan_t* out_plan) {
   *out_plan = (loom_amdgpu_fp8_encode_plan_t){0};
@@ -596,9 +619,9 @@ bool loom_amdgpu_select_fp8_encode_plan(
   const bool is_native_ocp_format =
       result_format == LOOM_VALUE_FACT_NUMERIC_FORMAT_F8_E4M3FN ||
       result_format == LOOM_VALUE_FACT_NUMERIC_FORMAT_F8_E5M2;
-  if (is_native_ocp_format &&
-      loom_amdgpu_select_native_ocp_fp8_encode_plan(descriptor_set, source_type,
-                                                    result_format, out_plan)) {
+  if (is_native_ocp_format && loom_amdgpu_select_native_ocp_fp8_encode_plan(
+                                  descriptor_set, source_type, source_facts,
+                                  result_format, &format, out_plan)) {
     out_plan->format = format;
     return true;
   }
@@ -1844,6 +1867,24 @@ iree_string_view_t loom_amdgpu_fp8_encode_plan_key(
     const loom_amdgpu_fp8_encode_plan_t* plan, loom_scalar_type_t source_type) {
   switch (plan->kind) {
     case LOOM_AMDGPU_FP8_ENCODE_KIND_F32_PAIR:
+      if (plan->format.special_policy ==
+          LOOM_SCALAR_TYPE_FP8_SPECIAL_POLICY_FINITE_NAN) {
+        switch (source_type) {
+          case LOOM_SCALAR_TYPE_F32:
+            return IREE_SV(
+                "amdgpu.fp8_encode.strategy.f32_pair_range_bounded_native");
+          case LOOM_SCALAR_TYPE_F16:
+            return IREE_SV(
+                "amdgpu.fp8_encode.strategy."
+                "f16_via_f32_pair_range_bounded_native");
+          case LOOM_SCALAR_TYPE_BF16:
+            return IREE_SV(
+                "amdgpu.fp8_encode.strategy."
+                "bf16_via_f32_pair_range_bounded_native");
+          default:
+            return iree_string_view_empty();
+        }
+      }
       if (loom_amdgpu_fp8_encode_plan_canonicalizes_native_nan(plan)) {
         switch (source_type) {
           case LOOM_SCALAR_TYPE_F32:

@@ -1836,16 +1836,17 @@ static void loom_vector_sign_extend_i1_transfer(const loom_value_facts_t* input,
   *out = loom_value_facts_sign_extend(*input, 1);
 }
 
-static void loom_vector_sitofp_transfer(loom_scalar_type_t scalar_type,
-                                        const loom_value_facts_t* input,
-                                        const void* user_data,
-                                        loom_value_facts_t* out) {
-  int64_t value = 0;
-  if (!loom_vector_facts_query_exact_i64(*input, &value)) {
-    *out = loom_value_facts_unknown();
-    return;
-  }
-  *out = loom_value_facts_exact_float(scalar_type, (double)value);
+typedef struct loom_vector_integer_to_float_transfer_t {
+  loom_scalar_type_t source_type;
+  loom_float_integer_conversion_kind_t kind;
+} loom_vector_integer_to_float_transfer_t;
+
+static void loom_vector_integer_to_float_transfer(
+    loom_scalar_type_t result_type, const loom_value_facts_t* input,
+    const void* user_data, loom_value_facts_t* out) {
+  const loom_vector_integer_to_float_transfer_t* transfer = user_data;
+  loom_value_facts_eval_integer_to_float(transfer->source_type, result_type,
+                                         transfer->kind, input, out);
 }
 
 static void loom_vector_fmai_transfer(const loom_value_facts_t* a,
@@ -3490,16 +3491,45 @@ LOOM_VECTOR_FLOAT_CLASSIFY_FACTS(loom_vector_isfinitef_facts,
 LOOM_VECTOR_FLOAT_CLASSIFY_FACTS(loom_vector_signf_facts,
                                  loom_vector_signf_transfer)
 
+static iree_status_t loom_vector_integer_to_float_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_float_integer_conversion_kind_t kind,
+    loom_value_facts_t* result_facts) {
+  const loom_scalar_type_t source_type = loom_type_element_type(
+      loom_module_value_type(module, loom_op_const_operands(op)[0]));
+  const loom_scalar_type_t result_type =
+      loom_vector_result_element_type(module, op);
+  const loom_vector_integer_to_float_transfer_t transfer = {
+      .source_type = source_type,
+      .kind = kind,
+  };
+  IREE_RETURN_IF_ERROR(loom_vector_float_unary_summary_facts(
+      context, result_type, operand_facts, result_facts,
+      loom_vector_integer_to_float_transfer, &transfer));
+
+  // Aggregate extensions retain exact uniform or small-lane details. The root
+  // fact independently carries one constant-time envelope for every lane so
+  // later target planning does not scan or rediscover vector producers.
+  loom_value_facts_t source_envelope = operand_facts[0];
+  (void)loom_vector_facts_query_uniform_element(context, operand_facts[0],
+                                                &source_envelope);
+  loom_value_facts_t result_envelope = loom_value_facts_unknown();
+  loom_value_facts_eval_integer_to_float(source_type, result_type, kind,
+                                         &source_envelope, &result_envelope);
+  result_envelope.extension_id = result_facts[0].extension_id;
+  result_facts[0] = result_envelope;
+  return iree_ok_status();
+}
+
 iree_status_t loom_vector_sitofp_facts(loom_fact_context_t* context,
                                        const loom_module_t* module,
                                        const loom_op_t* op,
                                        const loom_value_facts_t* operand_facts,
                                        loom_value_facts_t* result_facts) {
-  IREE_RETURN_IF_ERROR(loom_vector_float_unary_summary_facts(
-      context, loom_vector_result_element_type(module, op), operand_facts,
-      result_facts, loom_vector_sitofp_transfer, NULL));
-  result_facts[0].flags |= LOOM_VALUE_FACT_NOT_NAN;
-  return iree_ok_status();
+  return loom_vector_integer_to_float_facts(
+      context, module, op, operand_facts, LOOM_FLOAT_INTEGER_CONVERSION_SIGNED,
+      result_facts);
 }
 
 iree_status_t loom_vector_uitofp_facts(loom_fact_context_t* context,
@@ -3507,9 +3537,9 @@ iree_status_t loom_vector_uitofp_facts(loom_fact_context_t* context,
                                        const loom_op_t* op,
                                        const loom_value_facts_t* operand_facts,
                                        loom_value_facts_t* result_facts) {
-  result_facts[0] = loom_value_facts_unknown();
-  result_facts[0].flags = LOOM_VALUE_FACT_NOT_NAN;
-  return iree_ok_status();
+  return loom_vector_integer_to_float_facts(
+      context, module, op, operand_facts,
+      LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, result_facts);
 }
 
 typedef struct loom_vector_geluf_transfer_t {

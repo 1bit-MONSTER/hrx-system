@@ -31,6 +31,33 @@ static double ExactFloatValue(loom_scalar_type_t scalar_type,
   return value;
 }
 
+static uint64_t DoubleBits(double value) {
+  uint64_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+static void ExpectFloatRange(loom_scalar_type_t scalar_type,
+                             loom_value_facts_t facts, double expected_lo,
+                             double expected_hi) {
+  double actual_lo = 0.0;
+  double actual_hi = 0.0;
+  ASSERT_TRUE(loom_value_facts_as_float_range(scalar_type, facts, &actual_lo,
+                                              &actual_hi));
+  EXPECT_EQ(DoubleBits(actual_lo), DoubleBits(expected_lo));
+  EXPECT_EQ(DoubleBits(actual_hi), DoubleBits(expected_hi));
+}
+
+static loom_value_facts_t EvaluateIntegerToFloat(
+    loom_scalar_type_t source_type, loom_scalar_type_t result_type,
+    loom_float_integer_conversion_kind_t kind,
+    loom_value_facts_t source_facts) {
+  loom_value_facts_t result = loom_value_facts_unknown();
+  loom_value_facts_eval_integer_to_float(source_type, result_type, kind,
+                                         &source_facts, &result);
+  return result;
+}
+
 static loom_value_facts_t EvaluateTurnsFacts(loom_scalar_type_t scalar_type,
                                              loom_float_turns_kind_t kind,
                                              loom_value_facts_t input) {
@@ -47,10 +74,190 @@ static double EvaluateTurns(loom_scalar_type_t scalar_type,
                          loom_value_facts_exact_float(scalar_type, input)));
 }
 
-static uint64_t DoubleBits(double value) {
-  uint64_t bits = 0;
-  std::memcpy(&bits, &value, sizeof(bits));
-  return bits;
+TEST(FloatFacts, RetainsRoundedFiniteIntervals) {
+  const loom_value_facts_t range =
+      loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, -128.1, 127.1);
+  const double expected_lo = static_cast<double>(static_cast<float>(-128.1));
+  const double expected_hi = static_cast<double>(static_cast<float>(127.1));
+  ExpectFloatRange(LOOM_SCALAR_TYPE_F32, range, expected_lo, expected_hi);
+  EXPECT_TRUE(loom_value_facts_is_finite(range));
+  EXPECT_TRUE(loom_value_facts_is_not_nan(range));
+  EXPECT_TRUE(loom_value_facts_is_not_inf(range));
+  EXPECT_FALSE(loom_value_facts_is_exact(range));
+  EXPECT_TRUE(loom_value_facts_float_range_within(LOOM_SCALAR_TYPE_F32, range,
+                                                  -448.0, 448.0));
+  EXPECT_FALSE(loom_value_facts_float_range_within(LOOM_SCALAR_TYPE_F32, range,
+                                                   -128.0, 128.0));
+
+  const loom_value_facts_t collapsed = loom_value_facts_make_float_range(
+      LOOM_SCALAR_TYPE_F32, 1.0, 1.0 + 0x1p-30);
+  EXPECT_TRUE(loom_value_facts_is_exact(collapsed));
+  EXPECT_DOUBLE_EQ(ExactFloatValue(LOOM_SCALAR_TYPE_F32, collapsed), 1.0);
+
+  loom_value_facts_t class_only = loom_value_facts_unknown();
+  class_only.flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN |
+                     LOOM_VALUE_FACT_NOT_INF | LOOM_VALUE_FACT_FINITE;
+  double lo = 0.0;
+  double hi = 0.0;
+  EXPECT_FALSE(loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F32, class_only,
+                                               &lo, &hi));
+
+  const loom_value_facts_t overflow = loom_value_facts_make_float_range(
+      LOOM_SCALAR_TYPE_F16, -70000.0, 70000.0);
+  EXPECT_TRUE(loom_value_facts_is_float(overflow));
+  EXPECT_TRUE(loom_value_facts_is_not_nan(overflow));
+  EXPECT_FALSE(loom_value_facts_is_finite(overflow));
+  EXPECT_FALSE(loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F16, overflow,
+                                               &lo, &hi));
+  EXPECT_TRUE(loom_value_facts_is_unknown(
+      loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, 2.0, 1.0)));
+}
+
+TEST(FloatFacts, JoinsFiniteIntervalsAndSupportsAliasedOutput) {
+  loom_value_facts_t lhs =
+      loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, -2.0, 1.0);
+  const loom_value_facts_t rhs =
+      loom_value_facts_make_float_range(LOOM_SCALAR_TYPE_F32, -1.0, 3.0);
+  loom_value_facts_meet(&lhs, &rhs, &lhs);
+  ExpectFloatRange(LOOM_SCALAR_TYPE_F32, lhs, -2.0, 3.0);
+  EXPECT_TRUE(loom_value_facts_is_finite(lhs));
+  EXPECT_FALSE(loom_value_facts_is_exact(lhs));
+
+  loom_value_facts_t class_only = loom_value_facts_unknown();
+  class_only.flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN |
+                     LOOM_VALUE_FACT_NOT_INF | LOOM_VALUE_FACT_FINITE;
+  loom_value_facts_t joined = loom_value_facts_unknown();
+  loom_value_facts_meet(&lhs, &class_only, &joined);
+  EXPECT_TRUE(loom_value_facts_is_finite(joined));
+  double lo = 0.0;
+  double hi = 0.0;
+  EXPECT_FALSE(
+      loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F32, joined, &lo, &hi));
+
+  const loom_value_facts_t negative_zero =
+      loom_value_facts_exact_float(LOOM_SCALAR_TYPE_F32, -0.0);
+  const loom_value_facts_t positive_zero =
+      loom_value_facts_exact_float(LOOM_SCALAR_TYPE_F32, 0.0);
+  loom_value_facts_meet(&negative_zero, &positive_zero, &joined);
+  EXPECT_TRUE(loom_value_facts_is_finite(joined));
+  EXPECT_FALSE(loom_value_facts_is_exact(joined));
+}
+
+TEST(FloatFacts, IntegerToFloatRetainsDeclaredTypeDomains) {
+  struct Case {
+    loom_scalar_type_t source_type;
+    loom_float_integer_conversion_kind_t kind;
+    double expected_lo;
+    double expected_hi;
+  };
+  const Case cases[] = {
+      {LOOM_SCALAR_TYPE_I1, LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, -1.0, 0.0},
+      {LOOM_SCALAR_TYPE_I8, LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, -128.0,
+       127.0},
+      {LOOM_SCALAR_TYPE_I16, LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, -32768.0,
+       32767.0},
+      {LOOM_SCALAR_TYPE_I32, LOOM_FLOAT_INTEGER_CONVERSION_SIGNED,
+       -2147483648.0, 2147483648.0},
+      {LOOM_SCALAR_TYPE_I1, LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, 0.0, 1.0},
+      {LOOM_SCALAR_TYPE_I8, LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, 0.0, 255.0},
+      {LOOM_SCALAR_TYPE_I16, LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, 0.0,
+       65535.0},
+      {LOOM_SCALAR_TYPE_I32, LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, 0.0,
+       4294967296.0},
+  };
+  for (const Case& test_case : cases) {
+    SCOPED_TRACE(loom_scalar_type_name(test_case.source_type));
+    const loom_value_facts_t result =
+        EvaluateIntegerToFloat(test_case.source_type, LOOM_SCALAR_TYPE_F32,
+                               test_case.kind, loom_value_facts_unknown());
+    ExpectFloatRange(LOOM_SCALAR_TYPE_F32, result, test_case.expected_lo,
+                     test_case.expected_hi);
+    EXPECT_TRUE(loom_value_facts_is_finite(result));
+    EXPECT_TRUE(loom_value_facts_is_not_subnormal(result));
+  }
+
+  const loom_value_facts_t signed_i64 = EvaluateIntegerToFloat(
+      LOOM_SCALAR_TYPE_I64, LOOM_SCALAR_TYPE_F64,
+      LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, loom_value_facts_unknown());
+  ExpectFloatRange(LOOM_SCALAR_TYPE_F64, signed_i64,
+                   static_cast<double>(INT64_MIN),
+                   static_cast<double>(INT64_MAX));
+  const loom_value_facts_t unsigned_i64 = EvaluateIntegerToFloat(
+      LOOM_SCALAR_TYPE_I64, LOOM_SCALAR_TYPE_F64,
+      LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, loom_value_facts_unknown());
+  ExpectFloatRange(LOOM_SCALAR_TYPE_F64, unsigned_i64, 0.0,
+                   static_cast<double>(UINT64_MAX));
+}
+
+TEST(FloatFacts, IntegerToFloatAvoidsWideIntegerDoubleRounding) {
+  constexpr int64_t kAboveF32Midpoint =
+      (INT64_C(1) << 62) + (INT64_C(1) << 38) + 1;
+  const loom_value_facts_t result =
+      EvaluateIntegerToFloat(LOOM_SCALAR_TYPE_I64, LOOM_SCALAR_TYPE_F32,
+                             LOOM_FLOAT_INTEGER_CONVERSION_SIGNED,
+                             loom_value_facts_exact_i64(kAboveF32Midpoint));
+  ASSERT_TRUE(loom_value_facts_is_exact(result));
+  EXPECT_DOUBLE_EQ(ExactFloatValue(LOOM_SCALAR_TYPE_F32, result),
+                   static_cast<double>(static_cast<float>(kAboveF32Midpoint)));
+  EXPECT_NE(ExactFloatValue(LOOM_SCALAR_TYPE_F32, result),
+            static_cast<double>(
+                static_cast<float>(static_cast<double>(kAboveF32Midpoint))));
+}
+
+TEST(FloatFacts, IntegerToFloatRetainsUnsignedSubdomains) {
+  const loom_value_facts_t negative = loom_value_facts_make(-4, -1, 1);
+  ExpectFloatRange(
+      LOOM_SCALAR_TYPE_F32,
+      EvaluateIntegerToFloat(LOOM_SCALAR_TYPE_I8, LOOM_SCALAR_TYPE_F32,
+                             LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, negative),
+      252.0, 255.0);
+
+  const loom_value_facts_t crossing = loom_value_facts_make(-4, 3, 1);
+  ExpectFloatRange(
+      LOOM_SCALAR_TYPE_F32,
+      EvaluateIntegerToFloat(LOOM_SCALAR_TYPE_I8, LOOM_SCALAR_TYPE_F32,
+                             LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, crossing),
+      0.0, 255.0);
+
+  const loom_value_facts_t positive = loom_value_facts_make(3, 9, 1);
+  ExpectFloatRange(
+      LOOM_SCALAR_TYPE_F32,
+      EvaluateIntegerToFloat(LOOM_SCALAR_TYPE_I8, LOOM_SCALAR_TYPE_F32,
+                             LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, positive),
+      3.0, 9.0);
+
+  const loom_value_facts_t exact = EvaluateIntegerToFloat(
+      LOOM_SCALAR_TYPE_I8, LOOM_SCALAR_TYPE_F32,
+      LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED, loom_value_facts_exact_i64(-1));
+  EXPECT_TRUE(loom_value_facts_is_exact(exact));
+  EXPECT_DOUBLE_EQ(ExactFloatValue(LOOM_SCALAR_TYPE_F32, exact), 255.0);
+
+  const loom_value_facts_t signed_boolean = EvaluateIntegerToFloat(
+      LOOM_SCALAR_TYPE_I1, LOOM_SCALAR_TYPE_F32,
+      LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, loom_value_facts_exact_i64(1));
+  EXPECT_DOUBLE_EQ(ExactFloatValue(LOOM_SCALAR_TYPE_F32, signed_boolean), -1.0);
+}
+
+TEST(FloatFacts, IntegerToFloatDropsOverflowingIntervals) {
+  loom_value_facts_t source = loom_value_facts_unknown();
+  loom_value_facts_mark_lane_varying(&source);
+  const loom_value_facts_t result =
+      EvaluateIntegerToFloat(LOOM_SCALAR_TYPE_I64, LOOM_SCALAR_TYPE_F16,
+                             LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, source);
+  EXPECT_TRUE(loom_value_facts_is_float(result));
+  EXPECT_TRUE(loom_value_facts_is_not_nan(result));
+  EXPECT_TRUE(loom_value_facts_is_not_subnormal(result));
+  EXPECT_FALSE(loom_value_facts_is_finite(result));
+  EXPECT_TRUE(loom_value_facts_is_lane_varying(result));
+  double lo = 0.0;
+  double hi = 0.0;
+  EXPECT_FALSE(
+      loom_value_facts_as_float_range(LOOM_SCALAR_TYPE_F16, result, &lo, &hi));
+
+  const loom_value_facts_t saturated = EvaluateIntegerToFloat(
+      LOOM_SCALAR_TYPE_I16, LOOM_SCALAR_TYPE_F8E4M3,
+      LOOM_FLOAT_INTEGER_CONVERSION_SIGNED, loom_value_facts_unknown());
+  ExpectFloatRange(LOOM_SCALAR_TYPE_F8E4M3, saturated, -448.0, 448.0);
 }
 
 static void ExpectTurnsPeriodic(loom_scalar_type_t scalar_type, double lhs,

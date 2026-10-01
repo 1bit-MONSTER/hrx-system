@@ -503,7 +503,7 @@ loom_amdgpu_scalar_conversion_rule_for(
 }
 
 static bool loom_amdgpu_select_scalar_conversion_plan_impl(
-    const loom_module_t* module,
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_low_descriptor_set_t* descriptor_set, const loom_op_t* source_op,
     loom_amdgpu_scalar_conversion_plan_t* out_plan) {
   *out_plan = (loom_amdgpu_scalar_conversion_plan_t){0};
@@ -523,9 +523,12 @@ static bool loom_amdgpu_select_scalar_conversion_plan_impl(
   }
 
   loom_amdgpu_fp8_encode_plan_t fp8_encode = {0};
+  const loom_value_facts_t source_facts =
+      fact_table != NULL ? loom_value_fact_table_lookup(fact_table, source)
+                         : loom_value_facts_unknown();
   if (source_op->kind == LOOM_OP_SCALAR_FPTRUNC &&
       loom_amdgpu_select_fp8_encode_plan(
-          descriptor_set, source_type, result_type,
+          descriptor_set, source_type, result_type, source_facts,
           loom_numeric_format_from_scalar_type(result_type), &fp8_encode)) {
     *out_plan = (loom_amdgpu_scalar_conversion_plan_t){
         .kind = LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE,
@@ -568,6 +571,7 @@ iree_status_t loom_amdgpu_select_scalar_conversion_plan(
     loom_amdgpu_scalar_conversion_plan_t* out_plan, bool* out_selected) {
   *out_selected = loom_amdgpu_select_scalar_conversion_plan_impl(
       loom_low_lower_context_module(context),
+      loom_low_lower_context_fact_table(context),
       loom_low_lower_context_descriptor_set(context), source_op, out_plan);
   if (!*out_selected) {
     return iree_ok_status();
@@ -624,6 +628,7 @@ iree_status_t loom_amdgpu_low_legality_verify_scalar_conversion(
   loom_amdgpu_scalar_conversion_plan_t plan = {0};
   if (!loom_amdgpu_select_scalar_conversion_plan_impl(
           loom_target_low_legality_module(context),
+          loom_target_low_legality_fact_table(context),
           loom_target_low_legality_descriptor_set(context), op, &plan)) {
     return iree_ok_status();
   }

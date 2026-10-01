@@ -182,3 +182,28 @@ low.func.def target<amdgpu.rdna4.core>(@target) abi(hal_kernel) @scalar_fptrunc_
   %converted = v_bfi_b32_src0_lit %13, %12, 32896
   return %converted
 }
+
+// ====
+
+amdgpu.target<gfx1200> @target
+
+func.def target(@target) @vector_sitofp_i8x4_to_fp8(%input: vector<4xi8>) -> (vector<4xf8E4M3>) {
+  %floats = vector.sitofp %input : vector<4xi8> to vector<4xf32>
+  %converted = vector.fptrunc %floats : vector<4xf32> to vector<4xf8E4M3>
+  func.return %converted : vector<4xf8E4M3>
+}
+
+// ----
+low.func.def target<amdgpu.rdna4.core>(@target) abi(hal_kernel) @vector_sitofp_i8x4_to_fp8(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %6 = v_bfe_i32_offset_width_inline %input {offset = 0, width = 8}
+  %7 = v_cvt_f32_i32 %6
+  %8 = v_bfe_i32_offset_width_inline %input {offset = 8, width = 8}
+  %9 = v_cvt_f32_i32 %8
+  %10 = v_bfe_i32_offset_width_inline %input {offset = 16, width = 8}
+  %11 = v_cvt_f32_i32 %10
+  %12 = v_ashrrev_i32_src0_inline %input, 24
+  %13 = v_cvt_f32_i32 %12
+  %19 = v_cvt_pk_fp8_f32_low %7, %9
+  %converted = v_cvt_pk_fp8_f32_high %19, %11, %13
+  return %converted
+}
