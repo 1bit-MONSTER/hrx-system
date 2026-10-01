@@ -113,6 +113,7 @@ void InitializeAddressabilityTestState(
   state->reg_classes[0].name_string_ref = ADDRESSABILITY_STRING_REF(reg_gpr);
   state->reg_class_alts[0] = (loom_low_reg_class_alt_t){
       /*.reg_class_id=*/0,
+      /*.register_part_id=*/LOOM_LOW_REGISTER_PART_NONE,
       /*.flags=*/LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED,
   };
   state->operands[0] = (loom_low_operand_t){
@@ -130,7 +131,6 @@ void InitializeAddressabilityTestState(
       /*.addressable_unit_count=*/{},
       /*.address_state_slot=*/{},
       /*.data_format_id=*/{},
-      /*.register_part_id=*/LOOM_LOW_REGISTER_PART_NONE,
   };
   state->operands[1] = (loom_low_operand_t){
       /*.field_name_string_ref=*/ADDRESSABILITY_STRING_REF(field_src),
@@ -147,7 +147,6 @@ void InitializeAddressabilityTestState(
       /*.addressable_unit_count=*/addressable_unit_count,
       /*.address_state_slot=*/{},
       /*.data_format_id=*/{},
-      /*.register_part_id=*/LOOM_LOW_REGISTER_PART_NONE,
   };
   state->descriptors[0].key_string_ref =
       ADDRESSABILITY_STRING_REF(descriptor_packet);

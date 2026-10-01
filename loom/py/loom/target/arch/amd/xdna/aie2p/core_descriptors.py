@@ -885,11 +885,15 @@ def _low_operand(
     return Operand(
         field_name=operand.name,
         role=role,
-        reg_alts=(RegClassAlt(_operand_register_class(spec, operand)),),
+        reg_alts=(
+            RegClassAlt(
+                _operand_register_class(spec, operand),
+                register_part=register_parts.get(operand.name),
+            ),
+        ),
         unit_count=_operand_unit_count(spec, operand),
         encoding_field_id=encoding_field_id,
         encoding_adapter_id=encoding_adapter_id,
-        register_part=register_parts.get(operand.name),
         read_stage=read_stage,
         ready_stage=ready_stage,
         read_event=read_event,
@@ -929,9 +933,8 @@ def _storage_continuation_operand(
     return Operand(
         field_name="storage",
         role=OperandRole.OPERAND,
-        reg_alts=(RegClassAlt(part.reg_class),),
+        reg_alts=(RegClassAlt(part.reg_class, register_part=part.name),),
         flags=(OperandFlag.IMPLICIT, OperandFlag.STORAGE_CONTINUATION),
-        register_part=part.name,
     )
 
 

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 49u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 50u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -162,14 +162,14 @@ typedef uint16_t loom_low_operand_flags_t;
 #define LOOM_LOW_OPERAND_FLAG_COMMUTATIVE_STATE_UPDATE ((uint16_t)1u << 12)
 
 // Bitset of register-class alternative flags.
-typedef uint16_t loom_low_reg_class_alt_flags_t;
+typedef uint8_t loom_low_reg_class_alt_flags_t;
 
 // Register-class alternative is preferred by target lowering.
-#define LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED ((uint16_t)1u << 0)
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED ((uint8_t)1u << 0)
 // Alternative represents an immediate or literal instead of a register class.
-#define LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE ((uint16_t)1u << 1)
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE ((uint8_t)1u << 1)
 // Alternative is legal only after physical register assignment.
-#define LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY ((uint16_t)1u << 2)
+#define LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY ((uint8_t)1u << 2)
 
 // Bitset of register-class flags.
 typedef uint16_t loom_low_reg_class_flags_t;
@@ -733,13 +733,19 @@ typedef struct loom_low_register_part_t {
 typedef struct loom_low_reg_class_alt_t {
   // Register-class table identifier, or LOOM_LOW_REG_CLASS_NONE for literals.
   uint16_t reg_class_id;
+  // Register part accessed when this alternative is selected, or NONE for the
+  // full register.
+  uint16_t register_part_id;
   // Alternative flags such as preferred, immediate, or physical-only.
   loom_low_reg_class_alt_flags_t flags;
   // Log2 of this operand's required base alignment in allocation units. Zero
   // permits any base. Literals and explicit physical-register IDs use zero;
   // explicit classes express legality through their declared register views.
-  uint16_t unit_alignment_log2;
+  uint8_t unit_alignment_log2;
 } loom_low_reg_class_alt_t;
+
+static_assert(sizeof(loom_low_reg_class_alt_t) == 6,
+              "low register-class alternative rows must remain compact");
 
 typedef struct loom_low_operand_t {
   // String-pool reference for the descriptor field name.
@@ -777,8 +783,6 @@ typedef struct loom_low_operand_t {
   uint16_t address_state_slot;
   // Target-owned data-format identifier.
   uint16_t data_format_id;
-  // Register part read or written by this operand, or NONE for full register.
-  uint16_t register_part_id;
   // Scheduling stage where the operand is read.
   uint16_t read_stage;
   // Scheduling stage where the operand result becomes ready.
@@ -1593,6 +1597,23 @@ typedef struct loom_low_descriptor_set_t {
   // Number of fixed encoding field values owned by this set.
   uint32_t encoding_field_value_count;
 } loom_low_descriptor_set_t;
+
+// Returns the operand alternative for |reg_class_id|, or NULL when the
+// operand does not accept that register class.
+IREE_ATTRIBUTE_ALWAYS_INLINE static inline const loom_low_reg_class_alt_t*
+loom_low_operand_reg_class_alt(const loom_low_descriptor_set_t* descriptor_set,
+                               const loom_low_operand_t* operand,
+                               uint16_t reg_class_id) {
+  for (uint16_t i = 0; i < operand->reg_class_alt_count; ++i) {
+    const loom_low_reg_class_alt_t* alternative =
+        &descriptor_set
+             ->reg_class_alts[operand->reg_class_alt_start + (uint32_t)i];
+    if (alternative->reg_class_id == reg_class_id) {
+      return alternative;
+    }
+  }
+  return NULL;
+}
 
 // Returns the view-owned facts for |descriptor_ordinal|. The ordinal must be a
 // verified row in |descriptor_set|.

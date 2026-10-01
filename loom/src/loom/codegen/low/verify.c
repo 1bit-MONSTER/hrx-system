@@ -1051,28 +1051,31 @@ static loom_low_register_part_mask_t
 loom_low_verify_descriptor_operand_part_mask(
     loom_low_function_verify_state_t* function_state,
     const loom_low_operand_t* descriptor_operand, loom_type_t actual_type) {
-  if (descriptor_operand->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
-    return loom_low_verify_register_full_mask_for_type(function_state,
-                                                       actual_type);
-  }
   if (!loom_low_type_is_register(actual_type)) {
     return 0;
   }
   const loom_low_descriptor_set_t* descriptor_set =
       function_state->target->descriptor_set;
-  IREE_ASSERT(descriptor_operand->register_part_id <
-                  descriptor_set->register_part_count,
-              "verified low descriptor operand register part");
-  const loom_low_register_part_t* register_part =
-      &descriptor_set->register_parts[descriptor_operand->register_part_id];
   uint16_t descriptor_register_class_id = LOOM_LOW_REG_CLASS_NONE;
+  const loom_low_reg_class_t* descriptor_register_class = NULL;
   bool found_descriptor_register_class =
       loom_low_register_type_resolver_try_resolve(
           &function_state->register_type_resolver, actual_type,
-          &descriptor_register_class_id, NULL);
-  IREE_ASSERT(found_descriptor_register_class &&
-                  descriptor_register_class_id == register_part->reg_class_id,
-              "verified low descriptor operand register-part class");
+          &descriptor_register_class_id, &descriptor_register_class);
+  IREE_ASSERT(found_descriptor_register_class,
+              "verified low descriptor operand register class");
+  const loom_low_reg_class_alt_t* alternative = loom_low_operand_reg_class_alt(
+      descriptor_set, descriptor_operand, descriptor_register_class_id);
+  IREE_ASSERT(alternative != NULL,
+              "verified low descriptor operand register-class alternative");
+  if (alternative->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
+    return descriptor_register_class->full_register_part_mask;
+  }
+  IREE_ASSERT_LT(alternative->register_part_id,
+                 descriptor_set->register_part_count);
+  const loom_low_register_part_t* register_part =
+      &descriptor_set->register_parts[alternative->register_part_id];
+  IREE_ASSERT_EQ(descriptor_register_class_id, register_part->reg_class_id);
   return register_part->mask;
 }
 

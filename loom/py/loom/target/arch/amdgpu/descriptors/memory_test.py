@@ -7,7 +7,11 @@
 import pytest
 
 from loom.target.arch.amdgpu.descriptors.api import _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS
-from loom.target.arch.amdgpu.descriptors.common import _REG_PART_VGPR_LOW16
+from loom.target.arch.amdgpu.descriptors.common import (
+    _REG_AGPR,
+    _REG_PART_VGPR_LOW16,
+    _REG_VGPR,
+)
 
 
 @pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)
@@ -41,6 +45,30 @@ def test_narrow_stores_read_only_the_low_register_part(target: str) -> None:
                     for operand in variant.operands
                     if operand.descriptor_operand.field_name == "value"
                 )
-                assert value.register_part == (
+                assert value.reg_alts[0].register_part == (
                     _REG_PART_VGPR_LOW16 if width < 32 else None
                 ), variant.descriptor_key
+
+
+@pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)
+def test_flat_store_read_parts_follow_the_selected_register_class(target: str) -> None:
+    descriptors = {
+        overlay.descriptor_key: overlay
+        for overlay in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS[target].overlay_rows()
+    }
+    for width in (8, 16, 32, 64, 96, 128):
+        descriptor = descriptors[f"amdgpu.flat_store_b{width}"]
+        value = next(
+            operand.descriptor_operand
+            for operand in descriptor.operands
+            if operand.descriptor_operand.field_name == "value"
+        )
+        parts_by_class = {
+            alternative.reg_class: alternative.register_part
+            for alternative in value.reg_alts
+        }
+        assert parts_by_class[_REG_VGPR] == (
+            _REG_PART_VGPR_LOW16 if width < 32 else None
+        )
+        if _REG_AGPR in parts_by_class:
+            assert parts_by_class[_REG_AGPR] is None

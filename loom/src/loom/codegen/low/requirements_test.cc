@@ -70,9 +70,6 @@ struct RequirementTables {
 
 void InitializeRequirementTables(RequirementTables* tables) {
   *tables = {};
-  for (loom_low_operand_t& operand : tables->operands) {
-    operand.register_part_id = LOOM_LOW_REGISTER_PART_NONE;
-  }
   for (loom_low_reg_class_t& reg_class : tables->reg_classes) {
     reg_class.full_register_part_mask = 1;
   }
@@ -84,6 +81,7 @@ void InitializeRequirementTables(RequirementTables* tables) {
   tables->reg_classes[0].spill_slot_space = LOOM_LOW_SPILL_SLOT_SPACE_STACK;
 
   tables->reg_class_alts[0].reg_class_id = 0;
+  tables->reg_class_alts[0].register_part_id = LOOM_LOW_REGISTER_PART_NONE;
   tables->reg_class_alts[0].flags = LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED;
 
   tables->operands[0].field_name_string_ref = REQUIREMENT_STRING_REF(field_dst);

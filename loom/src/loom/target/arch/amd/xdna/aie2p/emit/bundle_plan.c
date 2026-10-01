@@ -1109,8 +1109,13 @@ static void loom_aie2p_bundle_plan_record_writes(
       const loom_low_physical_register_t* physical_register =
           &descriptor_set
                ->physical_registers[instruction->physical_registers[j]];
+      IREE_ASSERT_EQ(operand->reg_class_alt_count, 1,
+                     "AIE2P write operand register-class alternative");
+      const loom_low_reg_class_alt_t* alternative =
+          &descriptor_set->reg_class_alts[operand->reg_class_alt_start];
       uint32_t part_units =
-          loom_aie2p_descriptor_register_part_units(operand->register_part_id) &
+          loom_aie2p_descriptor_register_part_units(
+              alternative->register_part_id) &
           (UINT32_MAX >> (32u - physical_register->atomic_unit_count));
       do {
         const uint32_t k = iree_math_count_trailing_zeros_u32(part_units);

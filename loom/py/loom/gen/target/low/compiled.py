@@ -172,7 +172,7 @@ class CompiledDescriptorSet:
     timing_event_ids: dict[str, int]
     enum_domain_ids: dict[str, int]
     string_pool: CStringPool
-    reg_class_alts: list[tuple[int | None, tuple[RegClassAltFlag, ...], int]]
+    reg_class_alts: list[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int]]
     operands: list[Operand]
     operand_source_value_indices: list[int | None]
     operand_alt_starts: list[int]

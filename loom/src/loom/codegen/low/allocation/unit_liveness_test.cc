@@ -126,7 +126,10 @@ TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
   // A finite inventory is physical without requiring the redundant flag.
   // Implicit writes name singleton state; reads may cover several units.
   classes[1].allocatable_count = 1;
-  const loom_low_reg_class_alt_t alternatives[] = {{0, 0, 0}, {1, 0, 0}};
+  const loom_low_reg_class_alt_t alternatives[] = {
+      {0, LOOM_LOW_REGISTER_PART_NONE, 0, 0},
+      {1, LOOM_LOW_REGISTER_PART_NONE, 0, 0},
+  };
   loom_low_operand_t operands[3] = {};
   operands[0].role = LOOM_LOW_OPERAND_ROLE_RESULT;
   operands[0].reg_class_alt_count = 1;

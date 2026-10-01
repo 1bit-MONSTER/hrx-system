@@ -1281,7 +1281,7 @@ def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLay
             if other_flags:
                 names = ", ".join(sorted(flag.name.lower() for flag in other_flags))
                 raise ValueError(f"descriptor '{descriptor.key}' variadic operand '{operand.field_name}' has unsupported flags: {names}")
-            if operand.encoding_field_id != 0 or operand.register_part is not None:
+            if operand.encoding_field_id != 0 or any(alternative.register_part is not None for alternative in operand.reg_alts):
                 raise ValueError(f"descriptor '{descriptor.key}' variadic operand '{operand.field_name}' cannot participate in a fixed instruction encoding")
         elif operand_role_is_packet_input(operand.role):
             minimum_packet_operand_count += 1
@@ -1349,7 +1349,7 @@ def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLay
         if OperandFlag.COMMUTATIVE_STATE_UPDATE in operand.flags:
             if operand.role is not OperandRole.IMPLICIT or state_flags != {OperandFlag.STATE_WRITE}:
                 raise ValueError(f"descriptor '{descriptor.key}' commutative update '{operand.field_name}' must be an implicit state write without a state read")
-            if operand.unit_count != 1 or operand.register_part is not None:
+            if operand.unit_count != 1 or any(alternative.register_part is not None for alternative in operand.reg_alts):
                 raise ValueError(f"descriptor '{descriptor.key}' commutative update '{operand.field_name}' must update a whole state register")
             if DescriptorFlag.STATE_ASSIGNMENT in descriptor.flags:
                 raise ValueError(f"descriptor '{descriptor.key}' state assignment cannot promise commutative updates")
@@ -1393,7 +1393,7 @@ def validate_descriptor_state_assignment(descriptor: Descriptor, register_classe
     if len(writes) != 1:
         raise ValueError(f"{description} must replace exactly one state register")
     write = writes[0]
-    if write.role not in (OperandRole.RESULT, OperandRole.IMPLICIT) or write.unit_count != 1 or write.register_part is not None:
+    if write.role not in (OperandRole.RESULT, OperandRole.IMPLICIT) or write.unit_count != 1 or any(alternative.register_part is not None for alternative in write.reg_alts):
         raise ValueError(f"{description} must replace the whole state register")
     if write.role is OperandRole.IMPLICIT and DescriptorFlag.SIDE_EFFECTING not in descriptor.flags:
         raise ValueError(f"{description} without an SSA result must retain its side effect")
@@ -1485,7 +1485,7 @@ def validate_allocation_move_descriptor(
     source_class = register_classes[source_class_name]
     if destination_class.alloc_unit_bits != source_class.alloc_unit_bits:
         raise ValueError(f"{description} changes allocation-unit width from {source_class.alloc_unit_bits} to {destination_class.alloc_unit_bits} bits")
-    if destination.register_part is not None or source.register_part is not None:
+    if any(alternative.register_part is not None for operand in (destination, source) for alternative in operand.reg_alts):
         raise ValueError(f"{description} cannot address register parts")
     if destination.encoding_field_id == 0 or source.encoding_field_id == 0:
         raise ValueError(f"{description} must encode both physical registers")
@@ -1689,18 +1689,27 @@ def validate_descriptor_storage_continuations(
         result = tied_results[0]
         if result.unit_count != operand.unit_count:
             raise ValueError(f"{description} and tied result must have equal unit counts")
-        if operand.register_part is None or result.register_part is None:
-            raise ValueError(f"{description} and tied result must name register parts")
-        source_part = register_parts.get(operand.register_part)
-        result_part = register_parts.get(result.register_part)
-        if source_part is None:
-            raise ValueError(f"{description} references unknown register part '{operand.register_part}'")
-        if result_part is None:
-            raise ValueError(f"{description} tied result references unknown register part '{result.register_part}'")
-        if source_part.reg_class != result_part.reg_class:
-            raise ValueError(f"{description} and tied result use different register classes")
-        if source_part.mask & result_part.mask:
-            raise ValueError(f"{description} and tied result have overlapping register parts")
+        source_parts = {alternative.reg_class: alternative.register_part for alternative in operand.reg_alts if alternative.reg_class is not None}
+        result_parts = {alternative.reg_class: alternative.register_part for alternative in result.reg_alts if alternative.reg_class is not None}
+        if (
+            not source_parts
+            or source_parts.keys() != result_parts.keys()
+            or any(part_name is None for part_name in source_parts.values())
+            or any(part_name is None for part_name in result_parts.values())
+        ):
+            raise ValueError(f"{description} and tied result must name register parts for the same register classes")
+        for register_class, source_part_name in source_parts.items():
+            result_part_name = result_parts[register_class]
+            source_part = register_parts.get(source_part_name)
+            result_part = register_parts.get(result_part_name)
+            if source_part is None:
+                raise ValueError(f"{description} references unknown register part '{source_part_name}'")
+            if result_part is None:
+                raise ValueError(f"{description} tied result references unknown register part '{result_part_name}'")
+            if source_part.reg_class != register_class or result_part.reg_class != register_class:
+                raise ValueError(f"{description} and tied result use register parts for the wrong register class")
+            if source_part.mask & result_part.mask:
+                raise ValueError(f"{description} and tied result have overlapping register parts")
 
 
 def operands_may_share_encoding_field(

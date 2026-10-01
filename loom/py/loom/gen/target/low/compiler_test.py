@@ -39,6 +39,7 @@ from loom.target.test.descriptors import (
     TEST_LOW_CONST_I32_DESCRIPTOR,
     TEST_LOW_CORE_DESCRIPTOR_SET,
     TEST_LOW_LOAD_V4I32_DESCRIPTOR,
+    TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR,
 )
 
 
@@ -56,7 +57,58 @@ def test_operand_alignment_is_part_of_interned_alternative() -> None:
     base = TEST_LOW_ADD_I32_DESCRIPTOR
     operands = tuple(replace(operand, reg_alts=(replace(operand.reg_alts[0], unit_alignment=alignment),)) for operand, alignment in zip(base.operands, (1, 2, 4), strict=True))
     compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(replace(base, operands=operands),)))
-    assert [row[2] for row in compiled.reg_class_alts] == [0, 1, 2]
+    assert [row[3] for row in compiled.reg_class_alts] == [0, 1, 2]
+
+
+def test_register_part_is_owned_by_each_register_alternative() -> None:
+    base = TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR
+    mixed_result = replace(
+        base.operands[0],
+        reg_alts=(
+            base.operands[0].reg_alts[0],
+            RegClassAlt("test.i64"),
+        ),
+    )
+    descriptor = replace(base, operands=(mixed_result, *base.operands[1:]))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+    result_alt_start = compiled.operand_alt_starts[0]
+    result_alternatives = compiled.reg_class_alts[result_alt_start : result_alt_start + 2]
+    assert [row[0] for row in result_alternatives] == [
+        compiled.reg_class_ids["test.i32"],
+        compiled.reg_class_ids["test.i64"],
+    ]
+    assert [row[1] for row in result_alternatives] == [
+        compiled.register_part_ids[base.operands[0].reg_alts[0].register_part],
+        None,
+    ]
+
+
+def test_register_alternative_rejects_part_for_another_class() -> None:
+    base = TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR
+    result = replace(
+        base.operands[0],
+        reg_alts=(replace(base.operands[0].reg_alts[0], reg_class="test.i64"),),
+    )
+    descriptor = replace(base, operands=(result, *base.operands[1:]))
+    with pytest.raises(ValueError, match=r"uses register part .* for register class"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_immediate_alternative_rejects_register_part() -> None:
+    base = TEST_LOW_ADD_I32_DESCRIPTOR
+    operand = replace(
+        base.operands[1],
+        reg_alts=(
+            RegClassAlt(
+                None,
+                flags=(RegClassAltFlag.IMMEDIATE,),
+                register_part=TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR.operands[0].reg_alts[0].register_part,
+            ),
+        ),
+    )
+    descriptor = replace(base, operands=(base.operands[0], operand, *base.operands[2:]))
+    with pytest.raises(ValueError, match="immediate alternative cannot name"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
 
 
 def test_immediate_alternative_has_no_register_alignment() -> None:

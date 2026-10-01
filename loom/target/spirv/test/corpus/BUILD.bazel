@@ -250,6 +250,7 @@ _EXTENDED_TYPES_XFAILS = {
 
 _NO_EXTENDED_TYPES_XFAILS = {
     "memory/address/generic.loom:@generic_copy_half": "TARGET/003",
+    "memory/address/generic.loom:@generic_narrow_half_store": "TARGET/003",
     "memory/address/integer_terms.loom:@narrow_coordinates": "TARGET/003",
     "memory/address/integer_terms.loom:@uniform_narrow_coordinates": "TARGET/003",
     "memory/address/integer_terms.loom:@workgroup_narrow_coordinates": "TARGET/003",

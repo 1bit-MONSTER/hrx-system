@@ -167,25 +167,33 @@ def _i32_operand(field_name: str, *, unit_count: int = 1) -> Operand:
 
 def _i32_low16_result(field_name: str = "dst") -> Operand:
     return Operand(
-        field_name, OperandRole.RESULT, _I32_ALT, register_part=_REG_PART_I32_LOW16
+        field_name,
+        OperandRole.RESULT,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_LOW16),),
     )
 
 
 def _i32_low16_operand(field_name: str) -> Operand:
     return Operand(
-        field_name, OperandRole.OPERAND, _I32_ALT, register_part=_REG_PART_I32_LOW16
+        field_name,
+        OperandRole.OPERAND,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_LOW16),),
     )
 
 
 def _i32_high16_result(field_name: str = "dst") -> Operand:
     return Operand(
-        field_name, OperandRole.RESULT, _I32_ALT, register_part=_REG_PART_I32_HIGH16
+        field_name,
+        OperandRole.RESULT,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_HIGH16),),
     )
 
 
 def _i32_high16_operand(field_name: str) -> Operand:
     return Operand(
-        field_name, OperandRole.OPERAND, _I32_ALT, register_part=_REG_PART_I32_HIGH16
+        field_name,
+        OperandRole.OPERAND,
+        (RegClassAlt(_REG_I32, register_part=_REG_PART_I32_HIGH16),),
     )
 
 
