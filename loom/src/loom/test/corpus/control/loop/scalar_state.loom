@@ -1,7 +1,7 @@
 // Observe scalar loop state through a buffer ABI shared by CPU and GPU
 // targets. Trial ordinals vary signed bounds, trip counts, steps, and the
-// parity-controlled while loop while entropy supplies independent carried
-// values.
+// parity-controlled while loop, and summation range while entropy supplies
+// independent carried values.
 func.def @scalar_loop_state_observations(%ordinal: index, %seed_bits: i64, %output: buffer) {
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
@@ -9,6 +9,7 @@ func.def @scalar_loop_state_observations(%ordinal: index, %seed_bits: i64, %outp
   %c3 = index.constant 3 : index
   %c4 = index.constant 4 : index
   %c5 = index.constant 5 : index
+  %c128 = index.constant 128 : index
   %bounded_ordinal = index.assume %ordinal [range(%ordinal, 0, 8)] : index
   %lower = index.sub %bounded_ordinal, %c4 : index
   %span = index.rem %bounded_ordinal, %c5 : index
@@ -96,34 +97,48 @@ func.def @scalar_loop_state_observations(%ordinal: index, %seed_bits: i64, %outp
     scf.yield %false, %body_right, %body_left : i1, i32, i32
   }
 
+  // Scale the trial ordinal across the original 0..1024 range. The carried
+  // sum makes every induction value and the zero-trip result observable.
+  %sum_end = index.mul %bounded_ordinal, %c128 : index
+  %sum_terminal, %sum = scf.while(%before_position = %c0 : index, %before_sum = %c0 : index) -> (index, index) {
+    %more = index.cmp ult, %before_position, %sum_end : index
+    scf.condition %more, %before_position, %before_sum : i1, index, index
+  } do(%position: index, %partial_sum: index) {
+    %next_sum = index.add %partial_sum, %position : index
+    %next_position = index.add %position, %c1 : index
+    scf.yield %next_position, %next_sum : index, index
+  }
+  %sum_i32 = index.cast %sum : index to i32
+
   %base = index.constant 0 : offset
-  %results = buffer.view %output[%base] : buffer -> view<13xi32>
-  view.store %hash, %results[0] : i32, view<13xi32>
-  view.store %last, %results[1] : i32, view<13xi32>
-  view.store %left, %results[2] : i32, view<13xi32>
-  view.store %right, %results[3] : i32, view<13xi32>
-  view.store %nested, %results[4] : i32, view<13xi32>
-  view.store %unsigned_hash, %results[5] : i32, view<13xi32>
-  view.store %unsigned_terminal, %results[6] : i32, view<13xi32>
-  view.store %while_left, %results[7] : i32, view<13xi32>
-  view.store %while_right, %results[8] : i32, view<13xi32>
-  view.store %positive_hash, %results[9] : i32, view<13xi32>
-  view.store %positive_last, %results[10] : i32, view<13xi32>
-  view.store %negative_hash, %results[11] : i32, view<13xi32>
-  view.store %negative_last, %results[12] : i32, view<13xi32>
+  %results = buffer.view %output[%base] : buffer -> view<14xi32>
+  view.store %hash, %results[0] : i32, view<14xi32>
+  view.store %last, %results[1] : i32, view<14xi32>
+  view.store %left, %results[2] : i32, view<14xi32>
+  view.store %right, %results[3] : i32, view<14xi32>
+  view.store %nested, %results[4] : i32, view<14xi32>
+  view.store %unsigned_hash, %results[5] : i32, view<14xi32>
+  view.store %unsigned_terminal, %results[6] : i32, view<14xi32>
+  view.store %while_left, %results[7] : i32, view<14xi32>
+  view.store %while_right, %results[8] : i32, view<14xi32>
+  view.store %positive_hash, %results[9] : i32, view<14xi32>
+  view.store %positive_last, %results[10] : i32, view<14xi32>
+  view.store %negative_hash, %results[11] : i32, view<14xi32>
+  view.store %negative_last, %results[12] : i32, view<14xi32>
+  view.store %sum_i32, %results[13] : i32, view<14xi32>
   func.return
 }
 
 check.scenario @scalar_loop_state_values {
   check.trial[9](%trial: index, %entropy: check.entropy) {
     %seed_bits = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %output_storage = check.generate.fill value(-889275714) : tensor<21xi32>
-    %output = check.tensor.view %output_storage offset(16) : tensor<21xi32> -> tensor<13xi32>
-    %prefix = check.tensor.view %output_storage offset(0) : tensor<21xi32> -> tensor<4xi32>
-    %suffix = check.tensor.view %output_storage offset(68) : tensor<21xi32> -> tensor<4xi32>
+    %output_storage = check.generate.fill value(-889275714) : tensor<22xi32>
+    %output = check.tensor.view %output_storage offset(16) : tensor<22xi32> -> tensor<14xi32>
+    %prefix = check.tensor.view %output_storage offset(0) : tensor<22xi32> -> tensor<4xi32>
+    %suffix = check.tensor.view %output_storage offset(72) : tensor<22xi32> -> tensor<4xi32>
     %guard = check.generate.fill value(-889275714) : tensor<4xi32>
-    check.compare<@scalar_loop_state_observations>(%trial, %seed_bits, %output) : (index, i64, tensor<13xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<13xi32>
+    check.compare<@scalar_loop_state_observations>(%trial, %seed_bits, %output) : (index, i64, tensor<14xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<14xi32>
       check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xi32>
       check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xi32>
     }
