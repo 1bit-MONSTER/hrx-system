@@ -121,18 +121,23 @@ static bool WaitForQueueCompletion(const iree_hal_amdgpu_libhsa_t* libhsa,
   const uint32_t signal_index = iree_hsa_amd_signal_wait_any(
       IREE_LIBHSA(libhsa), kSignalCount, signals, conditions, values,
       UINT64_MAX, HSA_WAIT_STATE_BLOCKED, /*satisfying_value=*/nullptr);
-  if (signal_index == kCompletionSignalIndex) {
-    return true;
+  if (signal_index >= kSignalCount) {
+    ADD_FAILURE() << "hsa_amd_signal_wait_any returned invalid signal index "
+                  << signal_index;
+    return false;
   }
+  // The multi-signal wait is relaxed. Both signals remain satisfied until this
+  // caller returns; acquire the observed signal before consuming device writes
+  // or callback state, or allowing the next dispatch to reuse kernarg storage.
+  (void)iree_hsa_signal_load_scacquire(IREE_LIBHSA(libhsa),
+                                       signals[signal_index]);
   if (signal_index == kErrorSignalIndex) {
     IREE_TSAN_ACQUIRE(queue_error);
     ADD_FAILURE() << "HSA queue entered terminal error state "
                   << queue_error->status.load(std::memory_order_relaxed);
     return false;
   }
-  ADD_FAILURE() << "hsa_amd_signal_wait_any returned invalid signal index "
-                << signal_index;
-  return false;
+  return true;
 }
 
 static bool CopyMemoryAndWait(const iree_hal_amdgpu_libhsa_t* libhsa,
