@@ -37,6 +37,47 @@ compute-copy entry. The source explicitly bounds that argument by the blit
 table rather than treating it as an engine count. [Topology mask][recommendation]
 [ROCr blit index][on-engine]
 
+## Observing a live KFD queue
+
+The pinned Linux implementation exposes read-only queue attributes below the
+KFD device's sysfs directory. A primary context uses
+`proc/<pid>/queues/<queue-id>/`; a secondary context uses
+`proc/<pid>/context_<context-id>/queues/<queue-id>/`. The directory's queue ID
+belongs to that KFD context, independently of the SDMA engine ID.
+[Process roots][process-root] [Secondary contexts][process-context]
+[Queue directory][queue-directory]
+
+| Attribute | Native value |
+| --- | --- |
+| `type` | Decimal internal `kfd_queue_type`: ordinary SDMA is 1, xGMI SDMA is 3. |
+| `gpuid` | Decimal native GPU-node ID owning the queue. |
+| `size` | Decimal primary ring length in bytes. |
+
+[Attribute readers][queue-attributes] [Attribute declarations][queue-files]
+[Read-only mode][queue-file-mode]
+[Internal type enum][queue-types] [Queue input translation][queue-input]
+
+These values establish queue class and GPU ownership, not physical engine
+affinity. Explicit-engine construction is normalized to ordinary or xGMI type
+by the allocator, and the attributes expose neither `sdma_engine_id` nor the
+original explicit-engine request. The internal type enum also differs from
+the CREATE_QUEUE command-format input: PM4 and AQL compute requests both
+become internal COMPUTE type 0, with their format stored separately. Sysfs
+type 2 therefore does not identify an AQL queue.
+[Engine normalization][allocation] [Type and format translation][queue-input]
+
+A process can correlate one serialized queue creation with the added native
+queue record, checking its GPU ID and ring length while keeping the queue
+alive. Concurrent creation or destruction requires separate correlation; the
+tree is not an atomic inventory snapshot. Metadata presence says nothing
+about pending work, copy completion, payload visibility or safe storage reuse.
+
+Queue-directory creation is best effort: the process queue manager calls
+`kfd_procfs_add_queue` after successful native construction without propagating
+that metadata operation's result. A missing directory consequently does not
+prove that no native queue exists or that queue creation failed.
+[Metadata publication][queue-metadata-publication]
+
 ## Directed topology information
 
 KFD exports link records with `node_from` and `node_to`. The record describes
@@ -215,3 +256,12 @@ same transfer path as an explicitly mapped asynchronous copy.
 [engine-availability]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L1429-L1505
 [engine-override]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_topology.cpp#L465-L499
 [synchronous-copy]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L594-L677
+[process-root]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L393-L408
+[process-context]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L881-L909
+[queue-directory]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L536-L558
+[queue-attributes]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L419-L434
+[queue-files]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L486-L515
+[queue-types]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_priv.h#L439-L446
+[queue-input]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L281-L310
+[queue-metadata-publication]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c#L492-L502
+[queue-file-mode]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_priv.h#L53-L55
