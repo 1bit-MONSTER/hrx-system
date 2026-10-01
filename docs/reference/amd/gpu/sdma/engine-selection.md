@@ -77,6 +77,54 @@ xGMI GPU peer when that pool exists, and the ordinary engine pool otherwise.
 The table is native topology policy, not a portable fixed engine assignment
 for a GFX target. [Recommendation construction][recommendation]
 
+## ROCr copy executor and engine mask
+
+The asynchronous `Runtime::CopyMemory` overload, `CopyMemoryOnEngine`,
+`CopyMemoryStatus`, and `GetPreferredEngine` select the source GPU as the
+executor when the source agent is a GPU, otherwise the destination agent.
+Consequently, an ordinary GPU-to-GPU copy uses the source GPU's blit table
+and native queues. `HSA_REV_COPY_DIR=1` reverses the agent arguments at the
+public asynchronous-copy entries while leaving the address operands in place.
+The engine-status and preferred-engine entries pass their agent arguments
+through without that reversal. [Executor selection][executor]
+[Copy entry points][copy-api-entry] [Engine query entry points][engine-query-entry]
+[Direction flag][direction-flag]
+
+`hsa_amd_memory_async_copy_on_engine` takes a one-bit HSA engine mask.
+`CopyMemoryOnEngine` converts bit `e` to blit-table index `e + 1`; zero and
+multi-bit masks are invalid. Index zero is the compute-copy entry. The table
+index selects a runtime object, whose construction can change the native
+engine request. [Mask conversion][executor] [Blit construction][blit-init]
+
+For an SDMA-enabled base-profile agent, the lazy factory applies the following
+native selection rules. [Factory admission][blit-init]
+
+| Factory predicate in the pinned ROCr source | Native queue selection |
+| --- | --- |
+| Ordinary blit, ISA major 9 and minor at least 4 | Rotate the requested ordinary engine with `(rec_eng + 1) % NumSdmaEngines`. |
+| KFD interface older than 1.17, or ordinary blit on ISA 9.0 with stepping below 10 | Remove the explicit engine request and use pool allocation. |
+| No dedicated xGMI engines | Remove the explicit engine request and select the ordinary pool. |
+| xGMI blit without admitted directed recommendations | `CreateBlitSdma` removes the explicit engine request and selects the xGMI pool. |
+| SDMA initialization fails during a copy request | The lazy factory can construct a compute-copy implementation instead. |
+
+[Factory predicates][blit-init] [xGMI request and initialization][blit-factory]
+[Native queue construction][blit-create]
+
+For example, with two ordinary engines, dedicated xGMI engines, ISA major 9
+and minor at least 4, and KFD interface at least 1.17, a host-to-device copy
+requesting HSA bit 0 reaches blit index 1. Its admitted SDMA factory requests
+native engine 1. This follows from the factory's rotation; the requested HSA
+bit alone is not proof of native engine identity. Likewise, the
+`force_copy_on_sdma` parameter suppresses the
+same-GPU compute-blit selection in `DmaCopyOnEngine`, but does not remove
+the factory's later fallback. [Blit construction][blit-init]
+[Explicit-engine selection][on-engine]
+
+`hsa_amd_memory_copy_engine_status` reports currently free usable blit
+entries, including whether an instantiated entry is SDMA and has pending
+bytes. Its mask is transient availability rather than an immutable engine
+capability or reservation. [Availability query][engine-availability]
+
 ## ROCr transfer policy
 
 The pinned runtime has several selection entry points. Reading its
@@ -90,11 +138,18 @@ preferred-engine path used by `DmaCopy`.
 | `DmaCopyOnEngine`: SDMA selected, distinct GPU agents in one nonzero hive, peer engines available, and dedicated xGMI engines present | Reject a host-facing blit index unless the runtime's recommended-engine override is active. Its comment attributes this restriction to the host-facing engines being unable to drive that xGMI path. |
 | `DmaCopyOnEngine`: peer SDMA disabled for a peer copy, or SDMA globally disabled | Select the compute-copy blit. |
 | `DmaCopyOnEngine`: SDMA selected, exact ISA 9.0.10 | Restrict use of the host-to-device blit for other non-local transfer directions; the source attributes the restriction to a RAS issue. |
-| `DmaPreferredEngine`: ISA major 12 with minor at least 5 | Return all available engines; the source treats them as equivalent instead of imposing the dedicated xGMI/host-facing split. |
-| `DmaPreferredEngine`: ISA major 9 with minor 4 or 5, CPU/GPU transfer | Prefer engine 0 for host-to-device, and engine 1 plus engine 2 when more than two total engines exist for device-to-host. |
+| `DmaPreferredEngine`: ISA major 12 with minor at least 5 | Return a preference mask covering every engine bit, without querying whether it is busy; the source treats these engines as equivalent instead of imposing the dedicated xGMI/host-facing split. |
+| `DmaPreferredEngine`: ISA major 9 with minor 4 or 5, CPU/GPU transfer | Return HSA bit 0 for host-to-device, and bit 1 plus bit 2 when more than two total engines exist for device-to-host. The factory then applies the native-engine mapping above. |
 
 [Recommended-engine admission][register-peer] [Copy entry][copy-entry]
 [Explicit-engine checks][on-engine] [Preferred-engine masks][preferred]
+
+The `rec_sdma_eng_override_` condition comes from topology discovery. That
+scan looks for a single-bit peer recommendation on a GPU with exactly six
+xGMI engines, then propagates a discovered override to later GPU entries.
+Before it finds one, encountering a GPU with any other xGMI-engine count
+ends the scan. This is runtime topology policy, separate from native
+BY_ENG_ID availability. [Topology override construction][engine-override]
 
 For distinct agents with peer SDMA enabled, the topology-based
 `GetBlitObject(dst, src, size)` helper chooses the host-facing path for
@@ -127,6 +182,15 @@ Engine choice does not relax these access, visibility, progress, or lifetime
 requirements. [Copy API contract][copy-contract]
 [Publication and retirement](publication.md)
 
+The synchronous `hsa_memory_copy` implementation has a different ownership
+contract. For allocations owned by different GPUs, its
+`Runtime::CopyMemory(dst, src, size)` path stages through temporary system
+memory, even when the devices are peers. The source explains that this call
+cannot assume peer access remains granted for the copy's duration. Thus this
+API's GPU-to-GPU result does not establish a direct peer route or provide the
+same transfer path as an explicitly mapped asynchronous copy.
+[Synchronous copy and temporary ownership][synchronous-copy]
+
 [allocation]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L1811-L1919
 [uapi]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L61-L98
 [export]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_topology.c#L250-L279
@@ -142,3 +206,12 @@ requirements. [Copy API contract][copy-contract]
 [preferred]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L1507-L1541
 [topology-helper]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3505-L3599
 [copy-contract]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L2096-L2144
+[executor]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L679-L745
+[copy-api-entry]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/hsa_ext_amd.cpp#L435-L518
+[engine-query-entry]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/hsa_ext_amd.cpp#L778-L802
+[direction-flag]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/util/flag.h#L234-L235
+[blit-init]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L974-L1062
+[blit-factory]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L852-L903
+[engine-availability]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L1429-L1505
+[engine-override]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_topology.cpp#L465-L499
+[synchronous-copy]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L594-L677
