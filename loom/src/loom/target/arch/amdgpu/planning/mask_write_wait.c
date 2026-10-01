@@ -24,9 +24,9 @@ enum {
 };
 
 typedef struct loom_amdgpu_mask_write_block_t {
-  // Mask reads after the last local overwrite of each physical register.
+  // Mask reads after the last scalar VALU read or overwrite of each register.
   uint64_t generated[2];
-  // Physical registers overwritten anywhere in the block.
+  // Incoming mask reads cleared by scalar VALU reads or register overwrites.
   uint64_t killed[2];
   // Mask reads reaching the block through any predecessor.
   uint64_t incoming[2];
@@ -203,6 +203,49 @@ iree_status_t loom_amdgpu_mask_write_wait_collect(
     return status;
   }
 
+  loom_amdgpu_mask_write_block_t* block =
+      &state->blocks[packet->node->block_index];
+  uint64_t predicate_reads[2] = {0};
+  if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU)) {
+    const loom_low_descriptor_set_t* descriptor_set =
+        state->schedule->target.descriptor_set;
+    bool resets_mask_reads = false;
+    for (uint16_t i = packet->descriptor->result_count;
+         i < packet->descriptor->operand_count; ++i) {
+      const loom_low_operand_t* operand =
+          &descriptor_set->operands[packet->descriptor->operand_start + i];
+      uint16_t register_class = LOOM_LOW_REG_CLASS_NONE;
+      if (loom_low_descriptor_operand_maps_to_packet_operand(
+              descriptor_set, packet->descriptor, i)) {
+        const loom_low_allocation_assignment_t* assignment =
+            loom_low_packet_descriptor_operand_assignment(state->allocation,
+                                                          packet, i);
+        register_class = assignment->descriptor_reg_class_id;
+        if (operand->role == LOOM_LOW_OPERAND_ROLE_PREDICATE) {
+          loom_amdgpu_mask_write_set_assignment(predicate_reads, assignment);
+        }
+      } else if (iree_any_bit_set(operand->flags,
+                                  LOOM_LOW_OPERAND_FLAG_STATE_READ)) {
+        register_class =
+            descriptor_set->reg_class_alts[operand->reg_class_alt_start]
+                .reg_class_id;
+      }
+      resets_mask_reads |=
+          register_class == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
+          (register_class != LOOM_LOW_REG_CLASS_NONE &&
+           iree_any_bit_set(
+               loom_amdgpu_reg_class_traits(descriptor_set, register_class),
+               LOOM_AMDGPU_REG_CLASS_TRAIT_VCC |
+                   LOOM_AMDGPU_REG_CLASS_TRAIT_M0));
+    }
+    // Reading SGPR, VCC or M0 on VALU replaces the prior lane-mask latch
+    // before this instruction writes its results. EXEC and constants do not.
+    if (resets_mask_reads) {
+      block->generated[0] = block->generated[1] = 0;
+      block->killed[0] = block->killed[1] = UINT64_MAX;
+    }
+  }
+
   uint64_t writes[2] = {0};
   for (uint16_t i = 0; i < packet->node->result_count; ++i) {
     loom_amdgpu_mask_write_set_assignment(
@@ -211,24 +254,10 @@ iree_status_t loom_amdgpu_mask_write_wait_collect(
   }
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_mask_write_record(state, packet, 1, writes, traits));
-  if (!iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU)) {
-    return iree_ok_status();
-  }
-  loom_amdgpu_mask_write_block_t* block =
-      &state->blocks[packet->node->block_index];
-  const loom_low_descriptor_set_t* descriptor_set =
-      state->schedule->target.descriptor_set;
   // Publish reads after overwrites: a carry instruction can read and replace
   // the same mask, and its read must still protect the next overwrite.
-  for (uint16_t i = 0; i < packet->descriptor->operand_count; ++i) {
-    const loom_low_operand_t* operand =
-        &descriptor_set->operands[packet->descriptor->operand_start + i];
-    if (operand->role == LOOM_LOW_OPERAND_ROLE_PREDICATE) {
-      loom_amdgpu_mask_write_set_assignment(
-          block->generated, loom_low_packet_descriptor_operand_assignment(
-                                state->allocation, packet, i));
-    }
-  }
+  block->generated[0] |= predicate_reads[0];
+  block->generated[1] |= predicate_reads[1];
   return iree_ok_status();
 }
 
