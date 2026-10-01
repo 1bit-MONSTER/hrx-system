@@ -1631,7 +1631,7 @@ def test_f32_to_f16_convert_results_use_d16_low_window() -> None:
         descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
         descriptor = descriptors["amdgpu.v_cvt_f16_f32"]
         result = descriptor.operands[0].descriptor_operand
-        assert result.register_part == _REG_PART_VGPR_LOW16
+        assert result.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
         assert result.address_map_kind is OperandAddressMapKind.LOW_SUBSET
         assert result.addressable_unit_count == (
             _D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT
@@ -1648,7 +1648,7 @@ def test_f16_pair_pack_is_available_on_all_targets() -> None:
         assert descriptor is not None, target
         assert descriptor.encoding_name == "ENC_VOP3"
         assert tuple(
-            operand.descriptor_operand.register_part
+            operand.descriptor_operand.reg_alts[0].register_part
             for operand in descriptor.operands[1:]
         ) == (_REG_PART_VGPR_LOW16, _REG_PART_VGPR_LOW16)
 
@@ -3400,7 +3400,8 @@ def test_scalar_f16_fma_descriptors_pin_low16_and_literal_width() -> None:
     ):
         descriptor = descriptors[descriptor_key]
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (
             _REG_PART_VGPR_LOW16,
             _REG_PART_VGPR_LOW16,
@@ -3420,7 +3421,8 @@ def test_scalar_f16_fma_descriptors_pin_low16_and_literal_width() -> None:
             "VSRC1",
         )
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (
             _REG_PART_VGPR_LOW16,
             _REG_PART_VGPR_LOW16,
@@ -3558,7 +3560,8 @@ def test_scalar_float_arithmetic_descriptors_are_arch_specific() -> None:
                 _REG_PART_SGPR_LOW16 if descriptor_key.endswith("f16") else None
             )
             assert all(
-                operand.descriptor_operand.register_part == expected_register_part
+                operand.descriptor_operand.reg_alts[0].register_part
+                == expected_register_part
                 for operand in descriptor.operands
             )
 
@@ -3602,7 +3605,7 @@ def test_scalar_float_conversion_descriptors_are_arch_specific() -> None:
             )
             assert (
                 tuple(
-                    operand.descriptor_operand.register_part
+                    operand.descriptor_operand.reg_alts[0].register_part
                     for operand in descriptor.operands
                 )
                 == register_parts
@@ -3656,7 +3659,8 @@ def test_scalar_float_compare_descriptors_are_arch_specific() -> None:
                 _REG_PART_SGPR_LOW16 if descriptor_key.endswith("f16") else None
             )
             assert all(
-                operand.descriptor_operand.register_part == expected_register_part
+                operand.descriptor_operand.reg_alts[0].register_part
+                == expected_register_part
                 for operand in descriptor.operands
             )
             assert tuple(
@@ -3715,7 +3719,8 @@ def test_scalar_domain_fma_descriptors_pin_sgpr_contracts() -> None:
             operand.descriptor_operand.field_name for operand in descriptor.operands
         ) == ("dst", "acc", "a", "b")
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (None, None, None, None)
         assert descriptor.operands[1].descriptor_operand.role is OperandRole.OPERAND
         assert OperandFlag.IMPLICIT in descriptor.operands[1].descriptor_operand.flags
@@ -3743,7 +3748,8 @@ def test_scalar_domain_fma_descriptors_pin_sgpr_contracts() -> None:
             operand.descriptor_operand.field_name for operand in descriptor.operands
         ) == ("dst", "acc", "a", "b")
         assert tuple(
-            operand.descriptor_operand.register_part for operand in descriptor.operands
+            operand.descriptor_operand.reg_alts[0].register_part
+            for operand in descriptor.operands
         ) == (
             _REG_PART_SGPR_LOW16,
             _REG_PART_SGPR_LOW16,
@@ -3877,7 +3883,9 @@ def test_gfx125x_packed_fp8_to_f16_sources_use_low_half_window() -> None:
         assert descriptor.encoding_name == "ENC_VOP1_VGPR"
         source = descriptor.operands[1]
         assert source.xml_field_name == "VSRC0"
-        assert source.descriptor_operand.register_part == _REG_PART_VGPR_LOW16
+        assert (
+            source.descriptor_operand.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
+        )
         assert (
             source.descriptor_operand.address_map_kind
             is OperandAddressMapKind.LOW_SUBSET
@@ -3900,17 +3908,17 @@ def test_packed8_encode_descriptors_own_numeric_and_partial_result_semantics() -
             low_descriptor = descriptors[f"{key_prefix}.low"]
             high_descriptor = descriptors[f"{key_prefix}.high"]
 
-            assert low_descriptor.operands[0].descriptor_operand.register_part == (
-                _REG_PART_VGPR_LOW16
-            )
+            assert low_descriptor.operands[0].descriptor_operand.reg_alts[
+                0
+            ].register_part == (_REG_PART_VGPR_LOW16)
             assert low_descriptor.fixed_encoding_fields == ((op_sel_field, 0),)
             assert low_descriptor.constraints == ()
 
-            assert high_descriptor.operands[0].descriptor_operand.register_part == (
-                _REG_PART_VGPR_HIGH16
-            )
+            assert high_descriptor.operands[0].descriptor_operand.reg_alts[
+                0
+            ].register_part == (_REG_PART_VGPR_HIGH16)
             accumulator = high_descriptor.operands[1].descriptor_operand
-            assert accumulator.register_part == _REG_PART_VGPR_LOW16
+            assert accumulator.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
             assert OperandFlag.IMPLICIT in accumulator.flags
             assert OperandFlag.STORAGE_CONTINUATION in accumulator.flags
             assert high_descriptor.fixed_encoding_fields == ((op_sel_field, 0b1000),)
@@ -4229,14 +4237,14 @@ def _assert_mix_descriptor_sources(
         ].descriptor_operand
         if source_part == "f16lo":
             expected_op_sel_hi |= 1 << source_index
-            assert operand.register_part == _REG_PART_VGPR_LOW16
+            assert operand.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
         elif source_part == "f16hi":
             expected_op_sel |= 1 << source_index
             expected_op_sel_hi |= 1 << source_index
-            assert operand.register_part == _REG_PART_VGPR_HIGH16
+            assert operand.reg_alts[0].register_part == _REG_PART_VGPR_HIGH16
         else:
             assert source_part == "f32"
-            assert operand.register_part is None
+            assert operand.reg_alts[0].register_part is None
     assert descriptor.fixed_encoding_fields == (
         (op_sel_field, expected_op_sel),
         (op_sel_hi_field, expected_op_sel_hi),
@@ -4267,7 +4275,7 @@ def _assert_mix_descriptor_family(
         source_parts = descriptor_key.removeprefix(f"{descriptor_key_prefix}.").split(
             "_"
         )
-        assert descriptor.operands[0].descriptor_operand.register_part == (
+        assert descriptor.operands[0].descriptor_operand.reg_alts[0].register_part == (
             result_register_part
         )
         source_operand_start = 1
@@ -4402,19 +4410,19 @@ def test_vinterp_descriptors_cover_architectural_half_register_forms() -> None:
                         f"{source_name}_{second_part}"
                     ]
                     if operation == "p10":
-                        assert descriptor.operands[
-                            1
-                        ].descriptor_operand.register_part == (first_register_part)
-                        assert descriptor.operands[
-                            3
-                        ].descriptor_operand.register_part == (second_register_part)
-                    else:
-                        assert descriptor.operands[
+                        assert descriptor.operands[1].descriptor_operand.reg_alts[
                             0
-                        ].descriptor_operand.register_part == (second_register_part)
-                        assert descriptor.operands[
-                            1
-                        ].descriptor_operand.register_part == (first_register_part)
+                        ].register_part == (first_register_part)
+                        assert descriptor.operands[3].descriptor_operand.reg_alts[
+                            0
+                        ].register_part == (second_register_part)
+                    else:
+                        assert descriptor.operands[0].descriptor_operand.reg_alts[
+                            0
+                        ].register_part == (second_register_part)
+                        assert descriptor.operands[1].descriptor_operand.reg_alts[
+                            0
+                        ].register_part == (first_register_part)
                     assert dict(descriptor.fixed_encoding_fields)["OP_SEL"] == (
                         first_op_sel | (second_op_sel << source_shift)
                     )
@@ -4564,7 +4572,9 @@ def test_fma_mix_half_result_source2_literal_forms_cover_zero_addends() -> None:
                         for operand in literal_descriptor.operands
                     ) == ("VDST", "VDST", "SRC0", "SRC1")
                     assert (
-                        literal_descriptor.operands[0].descriptor_operand.register_part
+                        literal_descriptor.operands[0]
+                        .descriptor_operand.reg_alts[0]
+                        .register_part
                         == result_register_part
                     )
                     assert tuple(
@@ -6096,8 +6106,8 @@ def test_d16_high_loads_preserve_tied_low_storage_without_consuming_it() -> None
         descriptor = descriptors[descriptor_key]
         result = descriptor.operands[0].descriptor_operand
         source = descriptor.operands[1].descriptor_operand
-        assert result.register_part == _REG_PART_VGPR_HIGH16
-        assert source.register_part == _REG_PART_VGPR_LOW16
+        assert result.reg_alts[0].register_part == _REG_PART_VGPR_HIGH16
+        assert source.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
         assert OperandFlag.IMPLICIT in source.flags
         assert OperandFlag.STORAGE_CONTINUATION in source.flags
         assert descriptor.constraints == (Constraint(ConstraintKind.TIED, 0, 1),)

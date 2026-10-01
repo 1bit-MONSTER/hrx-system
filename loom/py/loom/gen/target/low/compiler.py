@@ -930,8 +930,9 @@ def _compile_native_asm_value(
         operand = descriptor.operands[operand_index]
         if operand.role is not OperandRole.RESULT and operand.role not in packet_operand_roles:
             raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' native register-part field '{name}' does not name a result or explicit packet operand")
-        if operand.register_part is None:
-            raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' native register-part field '{name}' names a full-register operand")
+        concrete_alternatives = tuple(reg_alt for reg_alt in operand.reg_alts if reg_alt.reg_class is not None)
+        if not concrete_alternatives or any(reg_alt.register_part is None for reg_alt in concrete_alternatives):
+            raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' native register-part field '{name}' names a full-register alternative")
         return CompiledNativeAsmValue(
             kind=kind,
             index=operand_index,
@@ -1216,7 +1217,7 @@ def compile_descriptor_set(
                 operand.encoding_field_id,
                 f"descriptor '{descriptor.key}' operand '{operand.field_name}' encoding field id",
             )
-            concrete_reg_alt_count = 0
+            register_parts_by_class: dict[str, str | None] = {}
             for reg_alt in operand.reg_alts:
                 validation.validate_u16(
                     reg_alt.unit_alignment,
@@ -1229,27 +1230,32 @@ def compile_descriptor_set(
                         raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' has a classless alternative without the immediate flag")
                     if reg_alt.unit_alignment != 1:
                         raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' immediate alternative cannot require register alignment")
+                    if reg_alt.register_part is not None:
+                        raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' immediate alternative cannot name register part '{reg_alt.register_part}'")
                     continue
                 if reg_alt.reg_class not in reg_class_inputs:
                     raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' references unknown register class '{reg_alt.reg_class}'")
+                previous_register_part = register_parts_by_class.setdefault(reg_alt.reg_class, reg_alt.register_part)
+                if previous_register_part != reg_alt.register_part:
+                    raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' has ambiguous register parts for register class '{reg_alt.reg_class}'")
                 if reg_alt.unit_alignment != 1 and RegClassFlag.EXPLICIT_PHYSICAL_REGISTERS in reg_class_inputs[reg_alt.reg_class].flags:
                     raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' explicit physical alternative cannot require numeric register alignment")
                 used_reg_class_names.add(reg_alt.reg_class)
-                concrete_reg_alt_count += 1
-            if operand.register_part is not None:
-                if operand.register_part not in register_part_inputs:
-                    raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' references unknown register part '{operand.register_part}'")
-                if concrete_reg_alt_count != 1:
-                    raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' with a register part must name exactly one concrete register class alternative")
-                register_part = register_part_inputs[operand.register_part]
+                if reg_alt.register_part is None:
+                    continue
+                if reg_alt.register_part not in register_part_inputs:
+                    raise ValueError(
+                        f"descriptor '{descriptor.key}' operand '{operand.field_name}' alternative for register class '{reg_alt.reg_class}' references unknown register part '{reg_alt.register_part}'"
+                    )
+                register_part = register_part_inputs[reg_alt.register_part]
                 validation.validate_register_part(register_part)
                 if register_part.reg_class not in reg_class_inputs:
                     raise ValueError(f"register part '{register_part.name}' references unknown register class '{register_part.reg_class}'")
-                if not any(reg_alt.reg_class == register_part.reg_class for reg_alt in operand.reg_alts):
+                if reg_alt.reg_class != register_part.reg_class:
                     raise ValueError(
-                        f"descriptor '{descriptor.key}' operand '{operand.field_name}' uses register part '{register_part.name}' for register class '{register_part.reg_class}' but the operand does not accept that class"
+                        f"descriptor '{descriptor.key}' operand '{operand.field_name}' alternative for register class '{reg_alt.reg_class}' uses register part '{register_part.name}' for register class '{register_part.reg_class}'"
                     )
-                used_register_part_names.add(operand.register_part)
+                used_register_part_names.add(reg_alt.register_part)
                 used_reg_class_names.add(register_part.reg_class)
             if operand.read_event is not None:
                 used_timing_event_names.add(operand.read_event)
@@ -1451,8 +1457,11 @@ def compile_descriptor_set(
     asm_table_storage = CompiledAsmTableStorage()
     asm_table_storage.append_forms(asm_forms)
 
-    reg_class_alts: list[tuple[int | None, tuple[RegClassAltFlag, ...], int]] = []
-    reg_alt_group_starts: dict[tuple[tuple[int | None, tuple[RegClassAltFlag, ...], int], ...], int] = {}
+    reg_class_alts: list[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int]] = []
+    reg_alt_group_starts: dict[
+        tuple[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int], ...],
+        int,
+    ] = {}
     immediate_encoding_slice_group_starts: dict[tuple[ImmediateEncodingSlice, ...], int] = {}
     effect_group_starts: dict[tuple[Effect, ...], int] = {}
     constraint_group_starts: dict[tuple[Constraint, ...], int] = {}
@@ -1631,9 +1640,13 @@ def compile_descriptor_set(
                 strict=True,
             )
         ):
-            alt_group: tuple[tuple[int | None, tuple[RegClassAltFlag, ...], int], ...] = tuple(
+            alt_group: tuple[
+                tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int],
+                ...,
+            ] = tuple(
                 (
                     None if reg_alt.reg_class is None else reg_class_ids[reg_alt.reg_class],
+                    None if reg_alt.register_part is None else register_part_ids[reg_alt.register_part],
                     reg_alt.flags,
                     reg_alt.unit_alignment.bit_length() - 1,
                 )

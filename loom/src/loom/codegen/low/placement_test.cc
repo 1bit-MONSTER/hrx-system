@@ -86,8 +86,10 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
   const uint16_t candidate_ordinals[] = {0, 0};
   const uint16_t atomic_units[] = {0, 1};
   const loom_low_reg_class_alt_t alternatives[] = {
-      {0, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED, 0},
-      {1, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED, 0},
+      {0, LOOM_LOW_REGISTER_PART_NONE, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED,
+       0},
+      {1, LOOM_LOW_REGISTER_PART_NONE, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED,
+       0},
   };
   loom_low_operand_t operands[2] = {};
   for (uint16_t i = 0; i < 2; ++i) {
@@ -285,10 +287,12 @@ TEST(LowPlacementTest, RetainsOperandConstraintsAcrossExactTiesOnly) {
   classes[0].flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL;
   classes[0].allocatable_count = 7;
   const loom_low_reg_class_alt_t alternatives[] = {
-      {0, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED, 0},
-      {1, 0, 0},
-      {0, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED, 3},
-      {1, 0, 1},
+      {0, LOOM_LOW_REGISTER_PART_NONE, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED,
+       0},
+      {1, LOOM_LOW_REGISTER_PART_NONE, 0, 0},
+      {0, LOOM_LOW_REGISTER_PART_NONE, LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED,
+       3},
+      {1, LOOM_LOW_REGISTER_PART_NONE, 0, 1},
   };
   loom_low_operand_t operands[3] = {};
   for (auto& operand : operands) {

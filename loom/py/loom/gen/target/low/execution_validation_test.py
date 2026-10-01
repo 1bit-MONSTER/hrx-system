@@ -120,7 +120,11 @@ def test_state_assignment_rejects_state_reads_and_unrelated_results() -> None:
 
 def test_state_assignment_requires_whole_singleton_state() -> None:
     assignment = TEST_LOW_STATE_ASSIGN_I32_IMMEDIATE_DESCRIPTOR
-    for write in (replace(assignment.operands[0], unit_count=2), replace(assignment.operands[0], register_part="low_half")):
+    partial_write = replace(
+        assignment.operands[0],
+        reg_alts=(replace(assignment.operands[0].reg_alts[0], register_part="low_half"),),
+    )
+    for write in (replace(assignment.operands[0], unit_count=2), partial_write):
         with pytest.raises(ValueError, match="whole state register"):
             validation.validate_descriptor_state_assignment(replace(assignment, operands=(write,)), _STATE_CLASSES)
     state_class = _STATE_CLASSES[assignment.operands[0].reg_alts[0].reg_class]
@@ -166,7 +170,16 @@ def test_commutative_update_cannot_produce_an_explicit_state_snapshot() -> None:
         validation.validate_descriptor_operands(descriptor)
 
 
-@pytest.mark.parametrize("operand", [replace(_COMMUTATIVE_WRITE, unit_count=2), replace(_COMMUTATIVE_WRITE, register_part="low_half")])
+@pytest.mark.parametrize(
+    "operand",
+    [
+        replace(_COMMUTATIVE_WRITE, unit_count=2),
+        replace(
+            _COMMUTATIVE_WRITE,
+            reg_alts=(replace(_COMMUTATIVE_WRITE.reg_alts[0], register_part="low_half"),),
+        ),
+    ],
+)
 def test_commutative_update_requires_whole_state(operand: Operand) -> None:
     descriptor = replace(_COMMUTATIVE_ADD, operands=(*TEST_LOW_ADD_I32_DESCRIPTOR.operands, operand))
     with pytest.raises(ValueError, match="must update a whole state register"):

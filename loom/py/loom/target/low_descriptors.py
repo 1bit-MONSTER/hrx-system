@@ -452,6 +452,9 @@ class RegClassAlt:
     flags: tuple[RegClassAltFlag, ...] = (RegClassAltFlag.PREFERRED,)
     # Required power-of-two base alignment in allocation units for this operand.
     unit_alignment: int = 1
+    # Register part read or written when this alternative is selected, or None
+    # when the whole register is accessed.
+    register_part: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,7 +470,6 @@ class Operand:
     encoding_field_id: int = 0
     encoding_adapter_id: int = 0
     data_format_id: int = 0
-    register_part: str | None = None
     read_stage: int = 0
     ready_stage: int = 0
     read_event: str | None = None

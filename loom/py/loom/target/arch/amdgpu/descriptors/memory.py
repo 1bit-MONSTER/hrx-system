@@ -1054,12 +1054,11 @@ def _buffer_load_b16_d16_hi_overlay(
                 Operand(
                     "src",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(
                         OperandFlag.IMPLICIT,
                         OperandFlag.STORAGE_CONTINUATION,
                     ),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination register is also the tied "
@@ -1187,12 +1186,11 @@ def _buffer_load_b16_d16_hi_vaddr_offset_overlay(
                 Operand(
                     "src",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(
                         OperandFlag.IMPLICIT,
                         OperandFlag.STORAGE_CONTINUATION,
                     ),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination register is also the tied "
@@ -2998,12 +2996,11 @@ def _global_load_b16_d16_hi_overlay(
             Operand(
                 "src",
                 OperandRole.OPERAND,
-                _VGPR_ALT,
+                (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                 flags=(
                     OperandFlag.IMPLICIT,
                     OperandFlag.STORAGE_CONTINUATION,
                 ),
-                register_part=_REG_PART_VGPR_LOW16,
             ),
             role_exception_reason=(
                 "the encoded destination register is also the tied source "

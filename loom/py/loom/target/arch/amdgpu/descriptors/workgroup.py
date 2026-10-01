@@ -133,12 +133,11 @@ def _ds_load_u16_d16_overlays(
                     Operand(
                         "src",
                         OperandRole.OPERAND,
-                        _VGPR_ALT,
+                        (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                         flags=(
                             OperandFlag.IMPLICIT,
                             OperandFlag.STORAGE_CONTINUATION,
                         ),
-                        register_part=_REG_PART_VGPR_LOW16,
                     ),
                     role_exception_reason=(
                         "the encoded destination register is also the tied "

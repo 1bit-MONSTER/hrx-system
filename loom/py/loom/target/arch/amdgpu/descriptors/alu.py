@@ -4194,9 +4194,8 @@ def _s_fmac_f16_overlay() -> AmdgpuDescriptorOverlay:
                 Operand(
                     "acc",
                     OperandRole.OPERAND,
-                    _SGPR_ALT,
+                    (replace(_SGPR_ALT[0], register_part=_REG_PART_SGPR_LOW16),),
                     flags=(OperandFlag.IMPLICIT,),
-                    register_part=_REG_PART_SGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded low half of the scalar destination register "
@@ -4240,9 +4239,8 @@ def _v_fmac_f16_overlay() -> AmdgpuDescriptorOverlay:
                 Operand(
                     "acc",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(OperandFlag.IMPLICIT,),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination half-register is also the tied "
@@ -4356,9 +4354,8 @@ def _v_mac_f16_overlay() -> AmdgpuDescriptorOverlay:
                 Operand(
                     "acc",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(OperandFlag.IMPLICIT,),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination half-register is also the tied "
@@ -5808,12 +5805,11 @@ def _v_cvt_pk_packed8_encode_overlay(
                 Operand(
                     "acc",
                     OperandRole.OPERAND,
-                    _VGPR_ALT,
+                    (replace(_VGPR_ALT[0], register_part=_REG_PART_VGPR_LOW16),),
                     flags=(
                         OperandFlag.IMPLICIT,
                         OperandFlag.STORAGE_CONTINUATION,
                     ),
-                    register_part=_REG_PART_VGPR_LOW16,
                 ),
                 role_exception_reason=(
                     "the encoded destination register carries the untouched "

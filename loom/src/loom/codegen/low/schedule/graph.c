@@ -551,12 +551,17 @@ loom_low_schedule_descriptor_operand_storage_mask(
     const loom_low_operand_t* operand, loom_value_ordinal_t value_ordinal) {
   const loom_low_descriptor_set_t* descriptor_set =
       state->target.descriptor_set;
-  if (operand->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
+  const uint16_t reg_class_id = state->values[value_ordinal].register_class_id;
+  const loom_low_reg_class_alt_t* alternative =
+      loom_low_operand_reg_class_alt(descriptor_set, operand, reg_class_id);
+  IREE_ASSERT(alternative != NULL,
+              "verified schedule operand register-class alternative");
+  if (alternative->register_part_id == LOOM_LOW_REGISTER_PART_NONE) {
     return loom_low_schedule_value_full_storage_mask(state, value_ordinal);
   }
-  IREE_ASSERT_LT(operand->register_part_id,
+  IREE_ASSERT_LT(alternative->register_part_id,
                  descriptor_set->register_part_count);
-  return descriptor_set->register_parts[operand->register_part_id].mask;
+  return descriptor_set->register_parts[alternative->register_part_id].mask;
 }
 
 static void loom_low_schedule_touch_storage_read_value(

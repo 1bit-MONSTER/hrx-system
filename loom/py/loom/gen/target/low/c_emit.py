@@ -44,12 +44,6 @@ def _has_positive_effect_separations(compiled: CompiledDescriptorSet, view: Desc
     )
 
 
-def _register_part_id_expr(compiled: CompiledDescriptorSet, part_name: str | None) -> str:
-    if part_name is None:
-        return "LOOM_LOW_REGISTER_PART_NONE"
-    return str(compiled.register_part_ids[part_name])
-
-
 def _operand_flag_expr(operand: Operand, rematerializable: bool) -> str:
     flag_expr = c_spelling.flag_expr(operand.flags)
     if not rematerializable:
@@ -574,10 +568,11 @@ def emit_source_for_views(
         [
             [
                 ".reg_class_id = " + ("LOOM_LOW_REG_CLASS_NONE" if reg_class_id is None else str(reg_class_id)) + ",",
+                ".register_part_id = " + ("LOOM_LOW_REGISTER_PART_NONE" if register_part_id is None else str(register_part_id)) + ",",
                 f".flags = {c_spelling.flag_expr(flags)},",
                 f".unit_alignment_log2 = {unit_alignment_log2},",
             ]
-            for reg_class_id, flags, unit_alignment_log2 in compiled.reg_class_alts
+            for reg_class_id, register_part_id, flags, unit_alignment_log2 in compiled.reg_class_alts
         ],
     )
     _emit_array(
@@ -601,7 +596,6 @@ def emit_source_for_views(
                 f".address_state_slot = {operand.address_state_slot},",
                 f".encoding_field_id = {operand.encoding_field_id},",
                 f".data_format_id = {operand.data_format_id},",
-                f".register_part_id = {_register_part_id_expr(compiled, operand.register_part)},",
                 f".read_stage = {operand.read_stage},",
                 f".ready_stage = {operand.ready_stage},",
                 ".read_event_id = " + ("LOOM_LOW_TIMING_EVENT_NONE" if operand.read_event is None else str(compiled.timing_event_ids[operand.read_event])) + ",",

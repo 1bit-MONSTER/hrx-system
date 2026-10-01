@@ -41,6 +41,6 @@ def test_narrow_stores_read_only_the_low_register_part(target: str) -> None:
                     for operand in variant.operands
                     if operand.descriptor_operand.field_name == "value"
                 )
-                assert value.register_part == (
+                assert value.reg_alts[0].register_part == (
                     _REG_PART_VGPR_LOW16 if width < 32 else None
                 ), variant.descriptor_key

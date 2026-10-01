@@ -1119,7 +1119,12 @@ def test_compiler_rejects_overlapping_storage_continuation_parts() -> None:
     operands = list(descriptor.operands)
     operands[1] = replace(
         operands[1],
-        register_part=operands[0].register_part,
+        reg_alts=(
+            replace(
+                operands[1].reg_alts[0],
+                register_part=operands[0].reg_alts[0].register_part,
+            ),
+        ),
     )
     descriptor_set = replace(
         TEST_LOW_CORE_DESCRIPTOR_SET,

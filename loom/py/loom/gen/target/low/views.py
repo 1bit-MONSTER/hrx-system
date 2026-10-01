@@ -293,7 +293,7 @@ def _view_register_classes(
     parts_by_name = {part.name: part for part in compiled.register_parts}
     for descriptor in view_spec.descriptors:
         referenced_classes = {alternative.reg_class for operand in descriptor.operands for alternative in operand.reg_alts if alternative.reg_class is not None}
-        referenced_classes.update(parts_by_name[operand.register_part].reg_class for operand in descriptor.operands if operand.register_part is not None)
+        referenced_classes.update(parts_by_name[alternative.register_part].reg_class for operand in descriptor.operands for alternative in operand.reg_alts if alternative.register_part is not None)
         referenced_classes.update(delta.reg_class for delta in schedules_by_name[descriptor.schedule_class].pressure_deltas)
         missing_classes = referenced_classes - classes_by_name.keys()
         if missing_classes:

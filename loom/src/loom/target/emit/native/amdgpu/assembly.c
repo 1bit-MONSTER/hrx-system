@@ -255,11 +255,18 @@ static iree_status_t loom_amdgpu_append_descriptor_register_part_assignment(
   const loom_low_operand_t* operand =
       &descriptor_set
            ->operands[descriptor->operand_start + descriptor_operand_index];
-  IREE_ASSERT_NE(operand->register_part_id, LOOM_LOW_REGISTER_PART_NONE);
-  IREE_ASSERT_LT(operand->register_part_id,
+  const loom_low_allocation_assignment_t* assignment =
+      loom_low_packet_descriptor_operand_assignment(
+          context->allocation, context->packet, descriptor_operand_index);
+  const loom_low_reg_class_alt_t* alternative = loom_low_operand_reg_class_alt(
+      descriptor_set, operand, assignment->descriptor_reg_class_id);
+  IREE_ASSERT(alternative != NULL,
+              "allocated AMDGPU operand register-class alternative");
+  IREE_ASSERT_NE(alternative->register_part_id, LOOM_LOW_REGISTER_PART_NONE);
+  IREE_ASSERT_LT(alternative->register_part_id,
                  descriptor_set->register_part_count);
   const loom_low_register_part_t* register_part =
-      &descriptor_set->register_parts[operand->register_part_id];
+      &descriptor_set->register_parts[alternative->register_part_id];
   IREE_ASSERT(register_part->reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
               register_part->reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR);
 

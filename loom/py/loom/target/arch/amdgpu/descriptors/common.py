@@ -1500,9 +1500,8 @@ def _sgpr_result(
     return Operand(
         field_name,
         OperandRole.RESULT,
-        _SGPR_ALT,
+        (replace(_SGPR_ALT[0], register_part=register_part),),
         unit_count=units,
-        register_part=register_part,
     )
 
 
@@ -1512,9 +1511,8 @@ def _sgpr_operand(
     return Operand(
         field_name,
         OperandRole.OPERAND,
-        _SGPR_ALT,
+        (replace(_SGPR_ALT[0], register_part=register_part),),
         unit_count=units,
-        register_part=register_part,
     )
 
 
@@ -1726,11 +1724,10 @@ def _vgpr_result(
     return Operand(
         field_name,
         OperandRole.RESULT,
-        _VGPR_ALT,
+        (replace(_VGPR_ALT[0], register_part=register_part),),
         unit_count=units,
         address_map_kind=address_map_kind,
         addressable_unit_count=addressable_unit_count,
-        register_part=register_part,
     )
 
 
@@ -1745,11 +1742,10 @@ def _vgpr_operand(
     return Operand(
         field_name,
         OperandRole.OPERAND,
-        _VGPR_ALT,
+        (replace(_VGPR_ALT[0], register_part=register_part),),
         unit_count=units,
         address_map_kind=address_map_kind,
         addressable_unit_count=addressable_unit_count,
-        register_part=register_part,
     )
 
 
