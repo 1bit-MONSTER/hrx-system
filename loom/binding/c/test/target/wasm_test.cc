@@ -6,9 +6,12 @@
 
 #include "loomc/target/wasm.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "iree/testing/gtest.h"
 #include "loomc/loomc.h"
@@ -32,10 +35,103 @@ using TargetProfilePtr =
 using WorkspacePtr = HandlePtr<loomc_workspace_t, loomc_workspace_release>;
 
 constexpr char kSource[] = R"(
-func.def public @identity(%value: i32) -> (i32) {
+func.def public @sum_to(%value: i32) -> (i32) {
+  func.return %value : i32
+}
+
+func.def public export("artifact_alias") @renamed(%value: i32) -> (i32) {
+  %result = func.call @helper(%value) : (i32) -> (i32)
+  func.return %result : i32
+}
+
+func.def export("private_alias") @helper(%value: i32) -> (i32) {
   func.return %value : i32
 }
 )";
+
+bool ReadU32Leb(const uint8_t** cursor, const uint8_t* end,
+                uint32_t* out_value) {
+  uint32_t value = 0;
+  for (uint32_t shift = 0; shift <= 28; shift += 7) {
+    if (*cursor == end) {
+      return false;
+    }
+    const uint8_t byte = *(*cursor)++;
+    if (shift == 28 && (byte & 0xF0u) != 0) {
+      return false;
+    }
+    value |= static_cast<uint32_t>(byte & 0x7Fu) << shift;
+    if ((byte & 0x80u) == 0) {
+      *out_value = value;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ReadString(const uint8_t** cursor, const uint8_t* end,
+                std::string* out_value) {
+  uint32_t length = 0;
+  if (!ReadU32Leb(cursor, end, &length) ||
+      static_cast<uint64_t>(length) > static_cast<uint64_t>(end - *cursor)) {
+    return false;
+  }
+  out_value->assign(reinterpret_cast<const char*>(*cursor), length);
+  *cursor += length;
+  return true;
+}
+
+// Reads only the standard export section from compiler-owned artifact bytes.
+::testing::AssertionResult ReadFunctionExportNames(
+    loomc_byte_span_t contents, std::vector<std::string>* out_names) {
+  constexpr uint8_t kWasmHeader[] = {0x00, 0x61, 0x73, 0x6D,
+                                     0x01, 0x00, 0x00, 0x00};
+  if (contents.data_length < sizeof(kWasmHeader) ||
+      memcmp(contents.data, kWasmHeader, sizeof(kWasmHeader)) != 0) {
+    return ::testing::AssertionFailure() << "artifact is not a Wasm module";
+  }
+
+  const uint8_t* cursor = contents.data + sizeof(kWasmHeader);
+  const uint8_t* end = contents.data + contents.data_length;
+  while (cursor != end) {
+    const uint8_t section_id = *cursor++;
+    uint32_t section_size = 0;
+    if (!ReadU32Leb(&cursor, end, &section_size) ||
+        static_cast<uint64_t>(section_size) >
+            static_cast<uint64_t>(end - cursor)) {
+      return ::testing::AssertionFailure() << "invalid Wasm section size";
+    }
+    const uint8_t* section_end = cursor + section_size;
+    if (section_id != 7) {
+      cursor = section_end;
+      continue;
+    }
+
+    uint32_t export_count = 0;
+    if (!ReadU32Leb(&cursor, section_end, &export_count)) {
+      return ::testing::AssertionFailure() << "invalid Wasm export count";
+    }
+    for (uint32_t i = 0; i < export_count; ++i) {
+      std::string name;
+      if (!ReadString(&cursor, section_end, &name) || cursor == section_end) {
+        return ::testing::AssertionFailure() << "invalid Wasm export name";
+      }
+      const uint8_t kind = *cursor++;
+      uint32_t index = 0;
+      if (kind != 0 || !ReadU32Leb(&cursor, section_end, &index)) {
+        return ::testing::AssertionFailure()
+               << "expected a function export named '" << name << "'";
+      }
+      out_names->push_back(name);
+    }
+    if (cursor != section_end) {
+      return ::testing::AssertionFailure()
+             << "unexpected trailing Wasm export data";
+    }
+    return ::testing::AssertionSuccess();
+  }
+  return ::testing::AssertionFailure() << "Wasm module has no export section";
+}
 
 std::string ToString(loomc_string_view_t value) {
   return value.data ? std::string(value.data, value.size) : std::string();
@@ -95,7 +191,7 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
       /*.structure_size=*/sizeof(source_options),
       /*.next=*/nullptr,
       /*.format=*/LOOMC_SOURCE_FORMAT_TEXT,
-      /*.identifier=*/loomc_make_cstring_view("identity.loom"),
+      /*.identifier=*/loomc_make_cstring_view("exports.loom"),
       /*.contents=*/loomc_make_byte_span(kSource, sizeof(kSource) - 1),
       /*.storage=*/LOOMC_SOURCE_STORAGE_COPY,
   };
@@ -126,16 +222,22 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
   LOOMC_ASSERT_OK(loomc_compiler_create(
       context.get(), nullptr, loomc_allocator_system(), &raw_compiler));
   CompilerPtr compiler(raw_compiler);
-  const loomc_target_specialization_t specialization = {
-      /*.function_symbol=*/loomc_make_cstring_view("identity"),
-      /*.target_profile=*/target_profile.get(),
+  const loomc_target_specialization_t specializations[] = {
+      {
+          /*.function_symbol=*/loomc_make_cstring_view("sum_to"),
+          /*.target_profile=*/target_profile.get(),
+      },
+      {
+          /*.function_symbol=*/loomc_make_cstring_view("renamed"),
+          /*.target_profile=*/target_profile.get(),
+      },
   };
   const loomc_target_specialization_options_t target_compile_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_TARGET_SPECIALIZATION_OPTIONS,
       /*.structure_size=*/sizeof(target_compile_options),
       /*.next=*/nullptr,
-      /*.specializations=*/&specialization,
-      /*.specialization_count=*/1,
+      /*.specializations=*/specializations,
+      /*.specialization_count=*/IREE_ARRAYSIZE(specializations),
   };
   const loomc_compile_options_t compile_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS,
@@ -165,10 +267,12 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
   loomc_byte_span_t contents = loomc_byte_span_empty();
   LOOMC_ASSERT_OK(loomc_byte_sequence_clone(
       artifact->contents, loomc_allocator_system(), &contents));
-  constexpr uint8_t kWasmHeader[] = {0x00, 0x61, 0x73, 0x6D,
-                                     0x01, 0x00, 0x00, 0x00};
-  ASSERT_GE(contents.data_length, sizeof(kWasmHeader));
-  EXPECT_EQ(memcmp(contents.data, kWasmHeader, sizeof(kWasmHeader)), 0);
+  std::vector<std::string> export_names;
+  ASSERT_TRUE(ReadFunctionExportNames(contents, &export_names));
+  std::sort(export_names.begin(), export_names.end());
+  const std::vector<std::string> expected_export_names = {"artifact_alias",
+                                                          "sum_to"};
+  EXPECT_EQ(export_names, expected_export_names);
   loomc_allocator_free(loomc_allocator_system(), (void*)contents.data);
 }
 

@@ -18,7 +18,6 @@ iree_py_test(
     srcs = ["artifact_test.py"],
     args = [
         "$(location //loom/src/loom/tools/loom-compile:loom-compile)",
-        "$(location sum.loom)",
         "--corpus",
         "$(location //loom/src/loom/test/corpus/source_low:numeric_integer_division.loom-test)",
         "$(location //loom/src/loom/test/corpus/source_low:numeric_unsigned_constant_division.loom-test)",
@@ -28,8 +27,6 @@ iree_py_test(
     data = [
         "integer_division.mjs",
         "integer_division_edges.loom",
-        "sum.loom",
-        "sum.mjs",
         "//loom/src/loom/test/corpus/source_low:numeric_integer_division.loom-test",
         "//loom/src/loom/test/corpus/source_low:numeric_unsigned_constant_division.loom-test",
         "//loom/src/loom/tools/loom-compile",
