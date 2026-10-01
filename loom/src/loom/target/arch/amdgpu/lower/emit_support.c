@@ -1172,8 +1172,7 @@ iree_status_t loom_amdgpu_materialize_low_vgpr_b32_registers(
   const uint32_t unit_count = loom_low_register_type_unit_count(low_type);
   const bool is_vgpr = loom_amdgpu_low_type_is_register_class(
       context, low_type, LOOM_AMDGPU_REG_CLASS_ID_VGPR);
-  if (is_vgpr && unit_count != 0 &&
-      unit_count <= LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES) {
+  if (is_vgpr && unit_count != 0) {
     return iree_ok_status();
   }
 

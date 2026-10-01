@@ -120,7 +120,8 @@ static bool loom_amdgpu_source_value_naturally_prefers_vgpr(
     return true;
   }
   loom_amdgpu_vector_storage_t vector_storage = {0};
-  return loom_amdgpu_type_vector_storage(source_type, &vector_storage) &&
+  return loom_amdgpu_type_vector_register_storage(source_type,
+                                                  &vector_storage) &&
          !iree_any_bit_set(
              loom_amdgpu_vector_storage_kind_flags(vector_storage.kind),
              LOOM_AMDGPU_VECTOR_STORAGE_KIND_FLAG_SGPR_MASK);
@@ -1047,7 +1048,7 @@ static bool loom_amdgpu_source_value_prefers_vgpr_impl(
                        LOOM_AMDGPU_SOURCE_PRODUCER_VECTOR_STORAGE)) {
     loom_amdgpu_vector_storage_t storage = {0};
     return loom_value_def_index(value) == 0 &&
-           loom_amdgpu_type_vector_storage(source_type, &storage) &&
+           loom_amdgpu_type_vector_register_storage(source_type, &storage) &&
            !iree_any_bit_set(
                loom_amdgpu_vector_storage_kind_flags(storage.kind),
                LOOM_AMDGPU_VECTOR_STORAGE_KIND_FLAG_SGPR_MASK);

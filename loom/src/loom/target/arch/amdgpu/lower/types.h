@@ -107,10 +107,18 @@ typedef struct loom_amdgpu_vector_storage_t {
   uint32_t element_bit_count;
 } loom_amdgpu_vector_storage_t;
 
-// Returns true when the source type maps to one of AMDGPU's supported static
-// vector storage classes.
+// Returns true when the source type maps to one of AMDGPU's bounded static
+// vector operation storage classes. Storage rules apply the operation-family
+// element limits; individual consumers may impose tighter register limits.
 bool loom_amdgpu_type_vector_storage(loom_type_t type,
                                      loom_amdgpu_vector_storage_t* out_storage);
+
+// Returns true when the source type has a static AMDGPU register-tuple
+// representation. This representation query accepts every extent fitting a
+// Low register unit count; individual operations impose their own packet or
+// scalarization limits with loom_amdgpu_type_vector_storage().
+bool loom_amdgpu_type_vector_register_storage(
+    loom_type_t type, loom_amdgpu_vector_storage_t* out_storage);
 
 // Returns fixed behavior flags for an AMDGPU vector storage kind.
 loom_amdgpu_vector_storage_kind_flags_t loom_amdgpu_vector_storage_kind_flags(
