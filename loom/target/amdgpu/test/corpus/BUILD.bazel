@@ -86,6 +86,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/conversion/narrow_integer_float.loom",
     "numeric/conversion/narrow_widening.loom",
     "numeric/conversion/scalar_float.loom",
+    "numeric/float/clamp.loom",
     "numeric/float/half_extrema.loom",
     "numeric/float/scalar_f32.loom",
     "numeric/float/scalar_float64.loom",
@@ -220,6 +221,7 @@ loom_corpus_test(
     xfails = {
         AMDGPU_HARDWARE_PROFILE.name: {
             "numeric/conversion/float8_facts.loom:@float8_fact_values": "TARGET/034",
+            "numeric/float/clamp.loom:@clamp_ieee_f32_values": "TARGET/003",
             "numeric/vector/conversion.loom:@halfword_truncation_values": "AMDGPU/023,TARGET/003",
             "numeric/vector/conversion.loom:@packed_nibble_values": "AMDGPU/023,TARGET/003",
         },

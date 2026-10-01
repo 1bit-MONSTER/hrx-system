@@ -35,6 +35,7 @@ loom_corpus_sources(
     "conversion/scalar_float.loom"
     "float/approximate_extended.loom"
     "float/arithmetic.loom"
+    "float/clamp.loom"
     "float/comparison.loom"
     "float/exponential.loom"
     "float/extrema.loom"
