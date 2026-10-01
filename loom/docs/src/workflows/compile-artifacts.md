@@ -164,12 +164,6 @@ those requests concurrently, then binds each resulting executable entry to the
 manifest ordinal that named it. The manifest is the parent commit point: request
 files emitted by a failed command compilation are not a usable artifact set.
 
-The public
-[`loom_command_binary`](build-with-bazel.md#command-binaries-package-schedules-with-their-kernels)
-rule retains the static packaging workflow. It compiles the linked kernel module
-as one executable and exposes it with the manifest and portable artifacts as one
-Bazel product target.
-
 ## Emit a WebAssembly module
 
 An installation with Wasm enabled can compile ordinary functions into a binary

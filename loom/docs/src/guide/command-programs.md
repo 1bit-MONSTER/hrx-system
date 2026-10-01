@@ -332,11 +332,12 @@ ordinary rooted Loom module that can enter the normal target compilation and
 caching workflow. Bodyless entries have no source request and can be supplied
 by an embedding that already owns a compatible executable entry.
 
-In Bazel, [`loom_command_binary`](../workflows/build-with-bazel.md#command-binaries-package-schedules-with-their-kernels)
-performs one selective link and emits the command manifest, `.loomcmd` files,
-and target-specific kernel executable together. Emission stops at the portable
-artifact boundary: loading buffers, binding executables, and issuing the
-schedule remain runtime responsibilities.
+The public LoomC API preserves this relationship by publishing each live
+kernel request while constructing the command product. The request carries its
+exact parent requirement binding, so an embedding can enqueue compilation and
+bind the completed executable without rediscovering correspondence from names
+or files. [Parallelize kernel JIT compilation](../integration/product-frontier.md)
+walks that lifecycle end to end.
 
 ## Keep failures in their owning contract
 

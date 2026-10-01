@@ -9,7 +9,6 @@
 load(
     ":loom_binary.bzl",
     _LoomBinaryInfo = "LoomBinaryInfo",
-    _loom_command_binary = "loom_command_binary",
     _loom_kernel_binary = "loom_kernel_binary",
 )
 load(
@@ -61,7 +60,6 @@ LoomLibraryInfo = _LoomLibraryInfo
 LoomTargetProfileInfo = _LoomTargetProfileInfo
 LoomTargetSetInfo = _LoomTargetSetInfo
 loom_amdgpu_target_profile = _loom_amdgpu_target_profile
-loom_command_binary = _loom_command_binary
 loom_corpus_build = _loom_corpus_build
 loom_corpus_catalog = _loom_corpus_catalog
 loom_corpus_manifest = _loom_corpus_manifest
