@@ -130,3 +130,33 @@ extern unsigned runtime_value;
 struct Descriptor { unsigned value = runtime_value; };
 // ERROR@+1: PARSE/036 "constexpr variable must be initialized"
 constexpr Descriptor invalid{};
+
+// ====
+// A failed temporary must not substitute the enclosing object's member.
+struct Descriptor {
+  unsigned divisor;
+  // WARNING@+1: PARSE/036 "invalid binary expression"
+  unsigned quotient = 32 / divisor;
+  constexpr unsigned read(unsigned value) const {
+    return Descriptor{value}.quotient;
+  }
+};
+constexpr Descriptor outer{8};
+static_assert(outer.read(16) == 2);
+// ERROR@+1: PARSE/036 "static assertion expression is not an integral constant expression"
+static_assert(outer.read(0) == 4);
+
+// ====
+unsigned runtime_value();
+struct Descriptor { unsigned value = runtime_value(); };
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Descriptor invalid = Descriptor();
+
+// ====
+struct Descriptor {
+  unsigned divisor;
+  // WARNING@+1: PARSE/036 "invalid binary expression"
+  unsigned quotient = 32 / divisor;
+};
+// ERROR@+1: PARSE/036 "constexpr variable must be initialized"
+constexpr Descriptor invalid = Descriptor();
