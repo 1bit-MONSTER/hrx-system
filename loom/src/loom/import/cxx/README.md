@@ -240,6 +240,86 @@ and compare against independently calculated results. These source operations
 use the same target lowering as authored Loom; importing them does not select
 an instruction set or alter the target's numerical contracts.
 
+## MXFP4 and MXFP8 groups
+
+`<loomcxx/encoding.h>` describes block formats independently of their runtime
+payloads and scales. A constant parameter aggregate defines an ordinary
+`encoding<schema>` value; `vector::decode` receives the payload and a record of
+named vector operands:
+
+```cpp
+#include <loomcxx/encoding.h>
+#include <loomcxx/vector.h>
+#include <stdfloat>
+
+using Words4 = unsigned __attribute__((ext_vector_type(4)));
+using ScaleWord = unsigned __attribute__((ext_vector_type(1)));
+using BFloat32 = std::bfloat16_t __attribute__((ext_vector_type(32)));
+using Float16 = float __attribute__((ext_vector_type(16)));
+
+struct Scales { ScaleWord scale; };
+
+float mxfp4_group_dot(Words4 payload, ScaleWord scale, BFloat32 activations) {
+  auto schema = loom::encoding::define<loom::encoding::f4e2m1{}>();
+  auto weights = loom::vector::decode<BFloat32>(payload, schema, Scales{scale});
+  Float16 partial = {};
+  partial = loom::vector::dot2f(weights, activations, partial);
+  return loom::vector::reduce::addf(partial, 0.0f);
+}
+```
+
+The default E2M1 schema describes 32 values in four packed words, with
+little-endian nibble order and one E8M0 scale per group of 32. The low byte of
+`scale` supplies that group's exponent; code 127 is identity and code 128 doubles
+the weights. The scale remains a runtime SSA operand. After ordinary cleanup,
+the computation has the same operations as authored Loom:
+
+```loom
+%schema = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=32, payload_packing=little_endian_nibbles, payload_registers=4, scale_format=e8m0, scale_group_elements=32, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
+%weights = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<4xi32>, encoding<schema> -> vector<32xbf16>
+%zero = vector.constant 0.0 : vector<16xf32>
+%partial = vector.dot2f %weights, %activations, %zero : vector<32xbf16>, vector<32xbf16>, vector<16xf32>
+%seed = scalar.constant 0.0 : f32
+%sum = vector.reduce<addf> %partial, %seed : vector<16xf32>, f32
+```
+
+MXFP8 uses the same sequence with a vector of
+`loom::type::float8_e4m3fn_t` from `<loomcxx/numeric.h>` and
+`encoding::define<encoding::f8e4m3fn{}>()`. Both default schemas describe one
+32-value group. Result types are explicit, while payload, schema and auxiliary
+types are deduced. On gfx1250 these examples select four native eight-value
+scaled conversions and sixteen BF16 pair dots before the F32 reduction.
+
+Designated initializers select other group shapes. Two consecutive MXFP4
+groups use `f4e2m1{.payload_elements = 64, .payload_registers = 8}` and two MXFP8
+groups use `f8e4m3fn{.payload_elements = 64}`. Both consume the low two bytes
+of the packed scale word, one per group. Physical payload counts are explicit;
+changing the logical count alone does not change an E2M1 schema's register count.
+
+The [complete MX example](test/mxfp_group_dot.cxx) contains both kernels,
+runtime-scale dot checks, exact adjacent-group decode checks, and their
+independent expected results. Group arithmetic follows the native `dot2f`
+contract above. Decode checks compare BF16 bits, including minimum E8M0 scales
+and the NaN scale code, independently of accumulation tolerance.
+
+Schemas can pass through ordinary helpers and records as
+`loom::type::encoding<loom::encoding::role::schema>`. The small
+`<loomcxx/encoding_type.h>` header provides that type without the format facade;
+layout encodings retain their distinct role. Custom schema factories use
+`[[loom::op("encoding.define", "encoding.family")]]` on a zero-argument function
+template with one constant aggregate argument. Field names match the registered
+family's parameters; integer and boolean fields remain typed, and enum members
+map by spelling rather than C++ numeric ordinal. An alias's fixed parameters
+cannot be overridden. This binding accepts scalar static parameters; array and
+object parameters receive a source diagnostic.
+
+Auxiliary records are flat aggregates of vectors whose field names match the
+encoding vocabulary, such as `scale`, `zero_point`, or `codebook`. Field order
+does not change the key/value association. Schemas that need no auxiliary values
+use `decode<Result>(payload, schema)`. Core verification owns the schema's
+required keys, operand shapes and numerical rules. The headers select neither
+a target nor a decoding instruction.
+
 ## Packed scalar and vector bit casts
 
 `__builtin_bit_cast(DestinationType, value)` reinterprets equal-width scalar
