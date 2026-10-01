@@ -63,7 +63,7 @@ loom_corpus_sources(
     "integer/widening.loom"
     "integer/wide/shifts.loom"
     "integer/wide/subtract.loom"
-    "integer/wide/uniform.loom"
+    "integer/wide/observations.loom"
     "integer/wide/uniform_immediate.loom"
     "predicate/extension.loom"
     "predicate/extract.loom"
