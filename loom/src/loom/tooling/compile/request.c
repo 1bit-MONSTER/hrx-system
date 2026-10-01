@@ -132,9 +132,10 @@ static iree_status_t loom_compile_request_select_emitter(
           "module format");
     }
     case LOOM_COMPILE_PRODUCT_INVALID:
-      IREE_ASSERT_UNREACHABLE("resolved compile product");
-      IREE_BUILTIN_UNREACHABLE();
+      break;
   }
+  IREE_ASSERT_UNREACHABLE("resolved compile product");
+  IREE_BUILTIN_UNREACHABLE();
 }
 
 iree_status_t loom_compile_request_resolve(
