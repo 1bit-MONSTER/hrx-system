@@ -1,0 +1,61 @@
+// RUN: verify
+// ERROR@+1: LOWERING/059 "check.expect.close requires void(T, T, double, double, const char*)"
+[[loom::op("check.expect.close")]] void wrong_signature(float, float, float, float, const char*);
+
+// ====
+// ERROR@+1: LOWERING/059 "check.expect.close requires floating-point scalar or tensor operands"
+[[loom::op("check.expect.close")]] void integer_operands(int, int, double, double, const char*);
+
+// ====
+#include <loomcxx/check.h>
+LOOM_CHECK_CASE(integer_tensors) {
+  const auto values = loom::check::fill<unsigned, 2>(1u);
+  // ERROR@+1: LOWERING/059 "check.expect.close requires floating-point scalar or tensor operands"
+  loom::check::expect_close(values, values, 0.0, 0.0);
+}
+
+// ====
+#include <loomcxx/check.h>
+double runtime_tolerance() { return 0.125; }
+LOOM_CHECK_CASE(runtime_attribute) {
+  const auto tolerance = runtime_tolerance();
+  // ERROR@+1: LOWERING/059 "check attributes require pure scalar constants"
+  loom::check::expect_close(1.0f, 1.0f, tolerance, 0.0);
+}
+
+// ====
+#include <loomcxx/check.h>
+LOOM_CHECK_CASE(negative_absolute) {
+  // ERROR@+1: LOWERING/059 "check tolerances must be finite and non-negative"
+  loom::check::expect_close(1.0f, 1.0f, -0.125, 0.0);
+}
+
+// ====
+#include <loomcxx/check.h>
+LOOM_CHECK_CASE(negative_relative) {
+  // ERROR@+1: LOWERING/059 "check tolerances must be finite and non-negative"
+  loom::check::expect_close(1.0f, 1.0f, 0.0, -0.125);
+}
+
+// ====
+#include <loomcxx/check.h>
+LOOM_CHECK_CASE(infinite_tolerance) {
+  // ERROR@+1: LOWERING/059 "check tolerances must be finite and non-negative"
+  loom::check::expect_close(1.0f, 1.0f, 1.7976931348623157e308 * 2.0, 0.0);
+}
+
+// ====
+#include <loomcxx/check.h>
+LOOM_CHECK_CASE(unknown_nan_policy) {
+  // ERROR@+1: LOWERING/059 "check NaN policy must be 'same' or 'different'"
+  loom::check::expect_close(1.0f, 1.0f, 0.0, 0.0, "equal");
+}
+
+// ====
+#include <loomcxx/check.h>
+float identity(float value) { return value; }
+LOOM_CHECK_CASE(invocation_after_observation) {
+  loom::check::expect_close(1.0f, 1.0f, 0.0, 0.0);
+  // ERROR@+1: LOWERING/059 "check expectations must be terminal"
+  identity(1.0f);
+}

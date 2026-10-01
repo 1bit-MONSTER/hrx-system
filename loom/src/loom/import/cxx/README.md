@@ -155,6 +155,91 @@ vector casts and `__builtin_bit_cast` continue to reinterpret equal-sized
 objects. The importer leaves vector legalization and instruction selection to
 the target compiler.
 
+## Vector dots and reductions
+
+`<loomcxx/vector.h>` exposes seeded dots and reductions without including other
+facades. Argument deduction retains the source formats, lane counts and
+accumulator type:
+
+```cpp
+#include <loomcxx/vector.h>
+#include <stdfloat>
+
+using BFloat16 = std::bfloat16_t __attribute__((ext_vector_type(16)));
+using Float8 = float __attribute__((ext_vector_type(8)));
+
+float weighted_sum(BFloat16 weights, BFloat16 activations, float seed) {
+  Float8 partial = {};
+  partial = loom::vector::dot2f(weights, activations, partial);
+  return loom::vector::reduce::addf(partial, seed);
+}
+```
+
+After ordinary cleanup, the computation is:
+
+```loom
+func.def public @weighted_sum(%weights: vector<16xbf16>, %activations: vector<16xbf16>, %seed: f32) -> (f32) {
+  %zero = vector.constant 0.0 : vector<8xf32>
+  %partial = vector.dot2f %weights, %activations, %zero : vector<16xbf16>, vector<16xbf16>, vector<8xf32>
+  %sum = vector.reduce<addf> %partial, %seed : vector<8xf32>, f32
+  func.return %sum : f32
+}
+```
+
+`dot2f` accepts equal FP16 or BF16 vectors and an F32 accumulator with half as
+many lanes. Each adjacent pair contributes to one accumulator lane using the
+target's native grouped arithmetic. Intermediate precision, rounding and
+subnormal handling can differ from two ordered F32 fused multiply-adds.
+Target-independent folding, facts and scalar expansion use the ordered F32
+reference, so compile-time evaluation remains predictable before a target is
+selected; folded and native results need not have identical bits.
+
+`dotf(lhs, rhs, seed)` produces a scalar, accumulating fused products in logical
+lane order with the input vector's element type. Explicitly widening the inputs
+selects ordered F32 accumulation:
+
+```cpp
+using Float16 = float __attribute__((ext_vector_type(16)));
+
+float ordered_weighted_sum(BFloat16 weights, BFloat16 activations, float seed) {
+  return loom::vector::dotf(__builtin_convertvector(weights, Float16),
+                           __builtin_convertvector(activations, Float16), seed);
+}
+```
+
+Multiplying vectors first and then reducing expresses separately rounded
+products. These distinct source forms preserve the chosen arithmetic in High IR.
+
+The `loom::vector::reduce` namespace provides `addi`, `muli`, `minsi`, `maxsi`,
+`minui`, `maxui`, `andi`, `ori`, `xori`, `addf`, `mulf`, `minimumf`, `maximumf`,
+`minnumf` and `maxnumf`. The vector element, scalar seed and result types must
+match, including integer signedness. Integer arithmetic wraps at the element
+width. Signed and unsigned extrema match their source element interpretation;
+IEEE minimum/maximum propagate NaNs, while the C99-style minnum/maxnum select
+the numeric operand when only one operand is NaN.
+
+Floating reductions preserve logical lane order by default. A custom operation
+declaration can select explicit permissions without changing the facade:
+
+```cpp
+template <class Vector, class Scalar>
+[[loom::op("vector.reduce", "addf", "reassoc")]]
+Scalar reassociated_sum(Vector values, Scalar seed);
+```
+
+`vector.dotf` accepts the same fast-math flag spellings. These permissions
+survive template specialization and combine with explicit importer-wide
+permissions. Integer reductions and `dot2f` have no fast-math arguments.
+Signatures are checked only for concrete specializations that are used; the
+operation and its semantic arguments are checked when declared.
+
+The [packed group example](test/packed_group_dot.cxx) combines ordinary nibble
+indexing, signed codebook lookup, exact byte-to-BF16 conversion, two pair dots,
+a reduction and a scaled epilogue. Its executable checks supply runtime buffers
+and compare against independently calculated results. These source operations
+use the same target lowering as authored Loom; importing them does not select
+an instruction set or alter the target's numerical contracts.
+
 ## Packed scalar and vector bit casts
 
 `__builtin_bit_cast(DestinationType, value)` reinterprets equal-width scalar
@@ -1066,6 +1151,22 @@ arguments match its scalar ABI types. The kernel retains its declared launch
 geometry and configurations. Tensors are test data handles, not C++ pointers
 that can be passed to ordinary functions. `expect_bitwise` compares equal-typed
 tensors exactly, including floating-point payload bits.
+
+`expect_close(actual, expected, absolute_tolerance, relative_tolerance)` compares
+floating scalars or equal-typed floating tensors. Finite elements must satisfy
+`abs(actual - expected) <= absolute_tolerance + relative_tolerance * abs(expected)`.
+Both tolerances are explicit, finite, non-negative compile-time constants. An
+optional final literal `"same"` (the default) accepts two NaNs; `"different"`
+rejects any NaN. Infinities compare only when they have the same sign. For example:
+
+```cpp
+loom::check::expect_close(actual, expected, 1e-5, 1e-4, "different");
+```
+
+This emits `check.expect.close` and uses the runner's existing numerical
+comparison. The source chooses an accuracy requirement independently of the
+kernel's instruction selection; exact storage and guard checks can still use
+`expect_bitwise` in the same case.
 
 These calls produce the same IR as authored Loom checks:
 

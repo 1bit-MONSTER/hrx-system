@@ -4964,6 +4964,9 @@ iree_status_t loom_vector_dotf_facts(loom_fact_context_t* context,
   return iree_ok_status();
 }
 
+// Facts evaluate the target-independent reference even when runtime lowering
+// selects native grouped arithmetic. Constant evaluation must not depend on a
+// target that may be selected after folding or cross-target code motion.
 iree_status_t loom_vector_dot2f_facts(loom_fact_context_t* context,
                                       const loom_module_t* module,
                                       const loom_op_t* op,

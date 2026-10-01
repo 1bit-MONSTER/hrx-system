@@ -42,6 +42,8 @@ loom_check_test_suite(
         "boolean_storage.cxx-test",
         "boolean_storage_cleanup.cxx-test",
         "check.cxx-test",
+        "check_close.cxx-test",
+        "check_close_invalid.cxx-test",
         "check_records.cxx-test",
         "check_resources.cxx-test",
         "class_conversions.cxx-test",
@@ -88,6 +90,7 @@ loom_check_test_suite(
         "offsetof_roundtrip.cxx-test",
         "opaque_pointers.cxx-test",
         "opaque_pointers_invalid.cxx-test",
+        "packed_group_dot.cxx-test",
         "packed_memory.cxx-test",
         "parameter_alignment.cxx-test",
         "parameter_alignment_invalid.cxx-test",
@@ -125,6 +128,8 @@ loom_check_test_suite(
         "vector_list_assignment.cxx-test",
         "vector_list_assignment_invalid.cxx-test",
         "vector_lookup.cxx-test",
+        "vector_math.cxx-test",
+        "vector_math_invalid.cxx-test",
         "vectors.cxx-test",
         "vectors_invalid.cxx-test",
         "view_values.cxx-test",
@@ -134,11 +139,13 @@ loom_check_test_suite(
     ],
     data = [
         "aligned_layout.h",
+        "check_close.cxx",
         "check_records.cxx",
         "enum_semantics.h",
         "locations.h",
         "offsetof_layout.h",
         "packed_enums.h",
+        "packed_group_dot.cxx",
         "packed_layout.h",
         "record_layout.h",
         "record_values.cxx",
@@ -171,6 +178,13 @@ _HOST_COMPATIBILITY = loom_config_compatible_with([
 loom_test(
     name = "boolean_storage_test",
     srcs = ["boolean_storage.cxx"],
+    execution_profiles = [VM_REFERENCE_PROFILE],
+    target_compatible_with = _HOST_COMPATIBILITY,
+)
+
+loom_test(
+    name = "check_close_test",
+    srcs = ["check_close.cxx"],
     execution_profiles = [VM_REFERENCE_PROFILE],
     target_compatible_with = _HOST_COMPATIBILITY,
 )
@@ -434,7 +448,9 @@ loom_test_module(
         "packed_byte_arithmetic",
         "packed_float16_conversion",
         "packed_float8_conversion",
+        "packed_group_dot",
         "vector_lookup",
+        "vector_math",
     ]
 ]
 

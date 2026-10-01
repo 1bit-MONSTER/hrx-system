@@ -94,8 +94,10 @@ class Intrinsics {
   struct TemplateBinding {
     // Immutable source binding interned by the owning translation unit.
     const cxx::Attribute* attribute;
-    // Scalar operation and permissions established at primary admission.
-    std::optional<ScalarOperation> scalar;
+    // Type-independent semantics established at primary admission. Other
+    // bindings resolve their complete contract at concrete specialization.
+    std::variant<std::monostate, ScalarOperation, ShapedIntrinsic::Operation>
+        operation;
   };
 
   Binding resolve(cxx::FunctionSymbol* function,

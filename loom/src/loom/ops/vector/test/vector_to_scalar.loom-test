@@ -1469,8 +1469,8 @@ func.def @static_bitfields(%bytes: vector<2xi8>, %zero: vector<2xi8>) -> (vector
 
 // ====
 
-// dot2f extends each f16/bf16 source lane to f32 before feeding scalar.fmaf,
-// preserving the widened fused pair-dot semantics used by AMDGPU fdot2.
+// Scalar expansion uses dot2f's target-independent reference evaluation:
+// widen the source lanes and accumulate two ordered f32 fused products.
 func.def @static_dot2f(%lhs: vector<2xf16>, %rhs: vector<2xf16>, %acc: vector<1xf32>) -> (vector<1xf32>) {
   %r = vector.dot2f %lhs, %rhs, %acc : vector<2xf16>, vector<2xf16>, vector<1xf32>
   func.return %r : vector<1xf32>

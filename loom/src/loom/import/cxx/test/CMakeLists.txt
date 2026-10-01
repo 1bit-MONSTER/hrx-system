@@ -30,6 +30,8 @@ loom_check_test_suite(
     "boolean_storage.cxx-test"
     "boolean_storage_cleanup.cxx-test"
     "check.cxx-test"
+    "check_close.cxx-test"
+    "check_close_invalid.cxx-test"
     "check_records.cxx-test"
     "check_resources.cxx-test"
     "class_conversions.cxx-test"
@@ -76,6 +78,7 @@ loom_check_test_suite(
     "offsetof_roundtrip.cxx-test"
     "opaque_pointers.cxx-test"
     "opaque_pointers_invalid.cxx-test"
+    "packed_group_dot.cxx-test"
     "packed_memory.cxx-test"
     "parameter_alignment.cxx-test"
     "parameter_alignment_invalid.cxx-test"
@@ -113,6 +116,8 @@ loom_check_test_suite(
     "vector_list_assignment.cxx-test"
     "vector_list_assignment_invalid.cxx-test"
     "vector_lookup.cxx-test"
+    "vector_math.cxx-test"
+    "vector_math_invalid.cxx-test"
     "vectors.cxx-test"
     "vectors_invalid.cxx-test"
     "view_values.cxx-test"
@@ -121,11 +126,13 @@ loom_check_test_suite(
     "volatile_views.cxx-test"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/aligned_layout.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_close.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_records.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/enum_semantics.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/locations.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/offsetof_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_enums.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_group_dot.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/record_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/record_values.cxx"
@@ -148,6 +155,32 @@ loom_execution_test(
     boolean_storage_test_execute_vm_reference_test
   MODULE
     "::boolean_storage_test_module"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+loom_test_module(
+  NAME
+    check_close_test_module
+  SRCS
+    "check_close.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
+    check_close_test_execute_vm_reference_test
+  MODULE
+    "::check_close_test_module"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
     "loom-execution-profile=vm_reference"
@@ -1232,9 +1265,27 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    packed_group_dot_module
+  SRCS
+    "packed_group_dot.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     vector_lookup_module
   SRCS
     "vector_lookup.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    vector_math_module
+  SRCS
+    "vector_math.cxx"
 )
 endif()
 

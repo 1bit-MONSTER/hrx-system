@@ -60,6 +60,7 @@ _MODULES = [
     "packed_byte_arithmetic",
     "packed_float16_conversion",
     "packed_float8_conversion",
+    "packed_group_dot",
     "packed_memory",
     "pointer_origins",
     "pointer_walk",
@@ -75,6 +76,7 @@ _MODULES = [
     "vector_depth",
     "vector_initializers",
     "vector_lookup",
+    "vector_math",
     "vector_values",
     "volatile_memory",
 ]
