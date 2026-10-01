@@ -99,6 +99,7 @@ _KERNEL_SOURCES = [
     "numeric/integer/wide/uniform_immediate.loom",
     "numeric/predicate/extension.loom",
     "numeric/predicate/extract.loom",
+    "numeric/vector/conversion.loom",
     "numeric/vector/integer_widening.loom",
 ]
 

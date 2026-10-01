@@ -20,6 +20,15 @@ loom_corpus_build(
     "function"
   PROFILES
     loom::target::amdgpu::all
+  XFAILS
+    "loom::target::amdgpu::all"
+    "numeric/vector/conversion.loom"
+    "@pack_nibbles"
+    "AMDGPU/023,TARGET/003"
+    "loom::target::amdgpu::all"
+    "numeric/vector/conversion.loom"
+    "@truncate_halfwords"
+    "AMDGPU/023,TARGET/003"
   EXCLUDES
     "loom::target::amdgpu::all"
     "control/branch/structured.loom"
@@ -380,6 +389,13 @@ loom_corpus_test(
     "The source has no AMDGPU device subject."
     "numeric/vector/selection.loom"
     "The source has no AMDGPU device subject."
+  XFAILS
+    "numeric/vector/conversion.loom"
+    "@halfword_truncation_values"
+    "AMDGPU/023,TARGET/003"
+    "numeric/vector/conversion.loom"
+    "@packed_nibble_values"
+    "AMDGPU/023,TARGET/003"
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS
@@ -578,6 +594,8 @@ loom_corpus_test(
     "numeric/predicate/selection.loom"
     "The execution profile does not select this source."
     "numeric/predicate/vector_logic.loom"
+    "The execution profile does not select this source."
+    "numeric/vector/conversion.loom"
     "The execution profile does not select this source."
     "numeric/vector/f32.loom"
     "The execution profile does not select this source."

@@ -302,6 +302,10 @@ _NO_EXTENDED_TYPES_XFAILS = {
     "numeric/conversion/packed_integer_float8.loom:@uitofp_i16_f8E5M2_3": "TARGET/002,TARGET/003",
     "numeric/conversion/packed_integer_float8.loom:@uitofp_i32_f8E5M2_1": "TARGET/002,TARGET/003",
     "numeric/float/narrow_reduction.loom:@narrow_reduction": "TARGET/003",
+    "numeric/vector/conversion.loom:@pack_nibbles": "TARGET/003",
+    "numeric/vector/conversion.loom:@truncate_halfwords": "TARGET/003",
+    "numeric/vector/conversion.loom:@wide_bfloat_conversions": "TARGET/003",
+    "numeric/vector/conversion.loom:@wide_integer_conversions": "TARGET/003",
 }
 
 _SUBGROUP_XFAILS = dict(list(_NO_EXTENDED_TYPES_XFAILS.items()) + list({
@@ -543,6 +547,7 @@ _SPIRV_EXECUTION_ALLOWED_FAILURES = {
     "numeric/float/narrow_reduction.loom:@narrow_reduction_subnormal": "TARGET/003,EXPECT/002",
     "numeric/float/scalar_float64.loom:@scalar_float64_random_values": "TARGET/002",
     "numeric/float/scalar_float64.loom:@scalar_float64_special_values": "TARGET/002",
+    "numeric/vector/conversion.loom:@wide_bfloat_values": "TARGET/003",
     "numeric/vector/packed_selection.loom:@packed_word_selects": "TARGET/003",
 }
 
@@ -562,6 +567,7 @@ loom_corpus_build(
             "numeric/conversion/packed_integer_float8.loom",
             "numeric/float/narrow_reduction.loom",
             "numeric/integer/narrow_consumers.loom",
+            "numeric/vector/conversion.loom",
         ],
         "//loom/target/spirv:vulkan1.3+bda+extended-types": ["kernel/subgroup/ballot.loom"],
         "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal": [
@@ -575,6 +581,7 @@ loom_corpus_build(
             "numeric/conversion/packed_integer_float8.loom",
             "numeric/float/narrow_reduction.loom",
             "numeric/integer/narrow_consumers.loom",
+            "numeric/vector/conversion.loom",
         ],
     },
     catalog = LOOM_CORPUS,

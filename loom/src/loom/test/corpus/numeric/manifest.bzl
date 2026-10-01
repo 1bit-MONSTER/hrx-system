@@ -61,6 +61,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "predicate/selection.loom",
         "predicate/truncation.loom",
         "predicate/vector_logic.loom",
+        "vector/conversion.loom",
         "vector/f32.loom",
         "vector/fields.loom",
         "vector/floating.loom",
