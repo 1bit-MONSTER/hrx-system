@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import struct
 from collections.abc import Iterable
+from dataclasses import replace
 
 import pytest
 
@@ -30,6 +31,7 @@ from loom.target.arch.amd.xdna.aie2p.contracts.packet_conversion import (
     INTEGER_SHIFT_RULE_SHAPES,
     INTEGER_WIDEN_RULE_SHAPES,
     MXFP8_E4M3FN_E8M0_X8_SCHEMA,
+    MXFP8_E4M3FN_E8M0_X32_SCHEMA,
     Float8PacketFormat,
     FloatPacketSourceFormat,
 )
@@ -1138,19 +1140,46 @@ def test_float8_packet_widening_covers_every_native_logical_width() -> None:
                 )
 
 
-def test_mxfp8_decode_has_exact_schema_and_packet_payload() -> None:
-    rule = _rule("native_mxfp8_e4m3fn_e8m0x8_to_bfloat16x8")
-    assert rule.source_op is vector.vector_decode
-    assert rule.guards == (
-        Guard.value_type("payload", Vector("f8E4M3", lanes=8)),
-        Guard.value_storage_operand_schema("schema", MXFP8_E4M3FN_E8M0_X8_SCHEMA),
-        Guard.operand_segment_count("auxiliary", 1),
-        Guard.value_type("auxiliary", Vector("i32", lanes=1), element=0),
-        Guard.value_type("result", Vector("bf16", lanes=8)),
+def test_mxfp8_decode_has_exact_group_schemas_and_shared_packet_program() -> None:
+    rules = tuple(
+        _rule(f"native_mxfp8_e4m3fn_e8m0x{lane_count}_to_bfloat16x{lane_count}")
+        for lane_count in (8, 32)
     )
+    schemas = (MXFP8_E4M3FN_E8M0_X8_SCHEMA, MXFP8_E4M3FN_E8M0_X32_SCHEMA)
+    for lane_count, schema, rule in zip((8, 32), schemas, rules, strict=True):
+        assert rule.source_op is vector.vector_decode
+        assert rule.guards == (
+            Guard.value_type("payload", Vector("f8E4M3", lanes=lane_count)),
+            Guard.value_storage_operand_schema("schema", schema),
+            Guard.operand_segment_count("auxiliary", 1),
+            Guard.value_type("auxiliary", Vector("i32", lanes=1), element=0),
+            Guard.value_type("result", Vector("bf16", lanes=lane_count)),
+        )
+
+    four_x8_group_schema = replace(
+        MXFP8_E4M3FN_E8M0_X32_SCHEMA,
+        scale_group_element_count=8,
+        scale_group_shape=(8,),
+    )
+    assert four_x8_group_schema not in schemas
+    assert rules[0].emit == rules[1].emit
+
+    compiled = compile_lower_rule_set(
+        ContractFragment(
+            name="amd.xdna.aie2p.mxfp8.packet.test",
+            descriptor_set=AIE2P_CORE_DESCRIPTOR_SET,
+            cases=rules,
+        ),
+        dialect_ops={"vector": ALL_VECTOR_OPS},
+    )
+    assert len(compiled.emits) == len(rules[0].emit)
+    assert compiled.rules[0].emit_start == compiled.rules[1].emit_start
+    assert compiled.rules[0].emit_count == compiled.rules[1].emit_count
 
     descriptor_keys = [
-        emit.descriptor.key for emit in rule.emit if isinstance(emit, EmitDescriptorOp)
+        emit.descriptor.key
+        for emit in rules[0].emit
+        if isinstance(emit, EmitDescriptorOp)
     ]
     assert [key for key in descriptor_keys if ".extract." in key] == [
         "amd.xdna.aie2p.extract.i32.immediate"
@@ -1162,8 +1191,10 @@ def test_mxfp8_decode_has_exact_schema_and_packet_payload() -> None:
 
 def _assert_mxfp8_packet_decode_matches_oracle(
     values: Iterable[tuple[int, int]],
+    *,
+    lane_count: int = 8,
 ) -> None:
-    rule = _rule("native_mxfp8_e4m3fn_e8m0x8_to_bfloat16x8")
+    rule = _rule(f"native_mxfp8_e4m3fn_e8m0x{lane_count}_to_bfloat16x{lane_count}")
     for payload_bits, scale_bits in values:
         expected = _reference_mxfp8_e4m3fn_e8m0_to_bf16(payload_bits, scale_bits)
         actual = _evaluate_fp8_packet_lane(rule, payload_bits, scale_value=scale_bits)
@@ -1178,11 +1209,15 @@ def _assert_mxfp8_packet_decode_matches_oracle(
 def test_mxfp8_packet_decode_matches_boundary_oracles() -> None:
     fp8_format = FLOAT8_PACKET_FORMATS[0]
     payloads = _fp8_encoding_boundaries(fp8_format)
-    _assert_mxfp8_packet_decode_matches_oracle(
-        (payload, scale)
-        for payload in payloads
-        for scale in _mxfp8_scale_boundaries(payload)
-    )
+    for lane_count in (8, 32):
+        _assert_mxfp8_packet_decode_matches_oracle(
+            (
+                (payload, scale)
+                for payload in payloads
+                for scale in _mxfp8_scale_boundaries(payload)
+            ),
+            lane_count=lane_count,
+        )
 
 
 @pytest.mark.exhaustive

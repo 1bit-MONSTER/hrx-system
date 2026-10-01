@@ -654,16 +654,29 @@ _FP8_PAYLOAD_AND_SIGN_MASK = 0x807F
 _FP8_SUBNORMAL_THRESHOLD = 0x0080
 _CANONICAL_BF16_NAN = 0x7FC0
 
-MXFP8_E4M3FN_E8M0_X8_SCHEMA = EncodingOperandSummaryDef(
-    element_format=encoding.enum_fact(encoding.NumericFormat, "f8e4m3fn"),
-    scale_format=encoding.enum_fact(encoding.NumericFormat, "e8m0"),
-    payload_packing=encoding.enum_fact(encoding.PayloadPacking, "dense_lanes"),
-    scale_topology=encoding.enum_fact(encoding.ScaleTopology, "block_1d"),
-    affine_policy=encoding.enum_fact(encoding.AffinePolicy, "scale_only"),
-    payload_element_count=8,
-    scale_group_element_count=8,
-    scale_group_shape=(8,),
-    scale_operand_count=1,
+
+def _mxfp8_e4m3fn_e8m0_schema(lane_count: int) -> EncodingOperandSummaryDef:
+    """Builds one exact dense MXFP8 group schema."""
+
+    return EncodingOperandSummaryDef(
+        element_format=encoding.enum_fact(encoding.NumericFormat, "f8e4m3fn"),
+        scale_format=encoding.enum_fact(encoding.NumericFormat, "e8m0"),
+        payload_packing=encoding.enum_fact(encoding.PayloadPacking, "dense_lanes"),
+        scale_topology=encoding.enum_fact(encoding.ScaleTopology, "block_1d"),
+        affine_policy=encoding.enum_fact(encoding.AffinePolicy, "scale_only"),
+        payload_element_count=lane_count,
+        scale_group_element_count=lane_count,
+        scale_group_shape=(lane_count,),
+        scale_operand_count=1,
+    )
+
+
+MXFP8_E4M3FN_E8M0_X8_SCHEMA = _mxfp8_e4m3fn_e8m0_schema(8)
+MXFP8_E4M3FN_E8M0_X32_SCHEMA = _mxfp8_e4m3fn_e8m0_schema(32)
+
+_MXFP8_E4M3FN_E8M0_RULE_SHAPES = (
+    (8, MXFP8_E4M3FN_E8M0_X8_SCHEMA),
+    (32, MXFP8_E4M3FN_E8M0_X32_SCHEMA),
 )
 
 _I32_TO_I16_W_PACK = IntegerPackInstruction("i32", 16, "i16", None)
@@ -1588,7 +1601,10 @@ def _fp8_to_bf16_emits(
     )
 
 
-def _mxfp8_e4m3fn_e8m0_x8_to_bf16_rule() -> DescriptorRule:
+def _mxfp8_e4m3fn_e8m0_to_bf16_rule(
+    lane_count: int,
+    schema: EncodingOperandSummaryDef,
+) -> DescriptorRule:
     """Decodes one MXFP8 block without scalarizing its payload lanes."""
 
     payload_program = _fp8_to_bf16_emits(
@@ -1955,14 +1971,14 @@ def _mxfp8_e4m3fn_e8m0_x8_to_bf16_rule() -> DescriptorRule:
         source_op=vector.vector_decode,
         descriptor=program.emits[-1].descriptor,
         guards=(
-            Guard.value_type("payload", _exact_vector("f8E4M3", 8)),
-            Guard.value_storage_operand_schema("schema", MXFP8_E4M3FN_E8M0_X8_SCHEMA),
+            Guard.value_type("payload", _exact_vector("f8E4M3", lane_count)),
+            Guard.value_storage_operand_schema("schema", schema),
             Guard.operand_segment_count("auxiliary", 1),
             Guard.value_type("auxiliary", _exact_vector("i32", 1), element=0),
-            Guard.value_type("result", _exact_vector("bf16", 8)),
+            Guard.value_type("result", _exact_vector("bf16", lane_count)),
         ),
         emit=(*payload_program.emits, *program.emits),
-        report_key="native_mxfp8_e4m3fn_e8m0x8_to_bfloat16x8",
+        report_key=(f"native_mxfp8_e4m3fn_e8m0x{lane_count}_to_bfloat16x{lane_count}"),
     )
 
 
@@ -2643,7 +2659,10 @@ def _saturating_i4_pack_rule(
 
 
 AIE2P_PACKET_CONVERSION_RULES = (
-    _mxfp8_e4m3fn_e8m0_x8_to_bf16_rule(),
+    *(
+        _mxfp8_e4m3fn_e8m0_to_bf16_rule(lane_count, schema)
+        for lane_count, schema in _MXFP8_E4M3FN_E8M0_RULE_SHAPES
+    ),
     *(
         _saturating_i4_pack_rule(instruction, outer_op, inner_op, value_fields)
         for instruction in INTEGER_PACK_INSTRUCTIONS
