@@ -123,6 +123,7 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
       binding.operation = *encoding;
     } else if (selected->arguments.size() != 1 ||
                (!ViewIntrinsic::supports(selected->arguments[0]->name()) &&
+                !DecodeIntrinsic::supports(selected->arguments[0]->name()) &&
                 !AtomicIntrinsic::supports(selected->arguments[0]->name()) &&
                 !FenceIntrinsic::supports(selected->arguments[0]->name()) &&
                 !SubgroupIntrinsic::supports(selected->arguments[0]->name()) &&
@@ -161,6 +162,10 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
                                         const cxx::Attribute& attribute,
                                         cxx::AST* owner) {
   auto* signature = cxx::type_cast<cxx::FunctionType>(function->type());
+  if (auto decode = DecodeIntrinsic::resolve(
+          unit_, diagnostics_, types_, signature, attribute, module_, owner)) {
+    return *decode;
+  }
   if (auto encoding = EncodingIntrinsic::admit(
           unit_, diagnostics_, module_->context, attribute, owner)) {
     return EncodingIntrinsic::resolve(*encoding, unit_, diagnostics_, types_,
@@ -317,6 +322,9 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
                                      loom_builder_t* builder,
                                      loom_location_id_t location) {
   const auto* binding = &admitted;
+  if (auto* decode = std::get_if<DecodeIntrinsic>(binding)) {
+    return {decode->call(arguments, builder, location)};
+  }
   if (auto* encoding = std::get_if<EncodingIntrinsic>(binding)) {
     return {encoding->call(arena, builder, location)};
   }

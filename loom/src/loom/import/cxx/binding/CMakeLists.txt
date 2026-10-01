@@ -131,6 +131,30 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    decode
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "decode.h"
+  SRCS
+    "decode.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source::error
+    loom::import::cxx::value::types
+    loom::ir
+    loom::ops::encoding
+    loom::ops::vector
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     encoding
   CXX_STANDARD
     23
@@ -269,6 +293,7 @@ loom_cc_library(
     ::assembly
     ::atomic
     ::check
+    ::decode
     ::encoding
     ::kernel
     ::scalar_bindings

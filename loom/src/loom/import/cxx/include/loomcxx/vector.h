@@ -9,6 +9,18 @@
 
 namespace loom::vector {
 
+// Decodes a physical vector into Result using an encoding<schema>. Auxiliary
+// is an ordinary aggregate whose vector fields name schema operands such as
+// scale, zero_point, or codebook. Values remain explicit SSA operands; a schema
+// does not capture them. Payload, Schema and Auxiliary are deduced from values.
+template <class Result, class Payload, class Schema, class Auxiliary>
+[[loom::op("vector.decode")]] Result decode(Payload payload, Schema schema,
+                                            Auxiliary auxiliary);
+
+// Decodes a schema that requires no auxiliary values.
+template <class Result, class Payload, class Schema>
+[[loom::op("vector.decode")]] Result decode(Payload payload, Schema schema);
+
 // Accumulates adjacent FP16 or BF16 pairs into F32 lanes using target-native
 // grouped arithmetic. Both inputs have the same type and twice the
 // accumulator's lane count. Intermediate precision and rounding can differ from

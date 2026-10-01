@@ -97,6 +97,22 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "decode",
+    srcs = ["decode.cc"],
+    hdrs = ["decode.h"],
+    cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
+    cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
+    deps = [
+        "//loom/src/loom/import/cxx/source:error",
+        "//loom/src/loom/import/cxx/value:types",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/encoding",
+        "//loom/src/loom/ops/vector",
+        "//third_party:cxx_parser",
+    ],
+)
+
+loom_cc_library(
     name = "encoding",
     srcs = ["encoding.cc"],
     hdrs = ["encoding.h"],
@@ -190,6 +206,7 @@ loom_cc_library(
         ":assembly",
         ":atomic",
         ":check",
+        ":decode",
         ":encoding",
         ":kernel",
         ":scalar_bindings",

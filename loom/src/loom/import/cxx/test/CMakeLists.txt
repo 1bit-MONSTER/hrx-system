@@ -75,6 +75,7 @@ loom_check_test_suite(
     "locations.cxx-test"
     "loops.cxx-test"
     "macro_operators.cxx-test"
+    "mxfp_group_dot.cxx-test"
     "narrow_float_subtraction.cxx-test"
     "offsetof.cxx-test"
     "offsetof_roundtrip.cxx-test"
@@ -115,6 +116,8 @@ loom_check_test_suite(
     "vector_constants.cxx-test"
     "vector_conversion.cxx-test"
     "vector_conversion_invalid.cxx-test"
+    "vector_decode.cxx-test"
+    "vector_decode_invalid.cxx-test"
     "vector_list_assignment.cxx-test"
     "vector_list_assignment_invalid.cxx-test"
     "vector_lookup.cxx-test"
@@ -132,6 +135,7 @@ loom_check_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/check_records.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/enum_semantics.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/locations.h"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/mxfp_group_dot.cxx"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/offsetof_layout.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_enums.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/test/packed_group_dot.cxx"
@@ -1234,6 +1238,15 @@ loom_test_module(
   SRCS
     "record_memory.cxx"
     "record_memory_kernels.loom"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    mxfp_group_dot_module
+  SRCS
+    "mxfp_group_dot.cxx"
 )
 endif()
 
