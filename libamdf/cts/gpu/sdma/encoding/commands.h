@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "amdf/gpu.h"
 
@@ -64,6 +65,10 @@ class SdmaCommandWriter {
   void CopyLinearRect(uint64_t source, const SdmaLinearLayout& source_layout,
                       uint64_t target, const SdmaLinearLayout& target_layout,
                       const SdmaCopyExtent& extent, uint32_t element_log2);
+  // Copies 1..2^20 inline DWORDs into a DWORD-aligned owned range. The
+  // command storage receives its own copy of the values, and must have room
+  // for the four header DWORDs and all data. Scope follows the family.
+  void WriteLinear(uint64_t target, std::span<const uint32_t> values);
   // Repeats a DWORD pattern over a nonempty DWORD-aligned owned range. The
   // byte length is at most 0x3ffffc, below the conservative 22-bit count bound.
   // Scope follows the family; fill's separate NPD field remains clear.

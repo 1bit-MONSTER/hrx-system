@@ -217,11 +217,12 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   /// COPY_LINEAR_RECT uses those positions in dword 12 when its WIDE layout
   /// is reported. Each scope field is two bits wide.
   /// FENCE, CONSTANT_FILL and TIMESTAMP_GET_GLOBAL scope occupies header bits
-  /// 25:24; POLL_REGMEM uses dword 5 bits 29:28. Scope 3 denotes the system.
+  /// 25:24; WRITE_LINEAR uses dword 3 bits 27:26; POLL_REGMEM uses dword 5
+  /// bits 29:28. Scope 3 denotes the system.
   /// NPD (no prior dependency) occupies COPY_LINEAR/COPY_LINEAR_RECT header
   /// bit 28 and CONSTANT_FILL header bit 29. Field availability does not
-  /// establish
-  /// dependencies or completion. Without this feature scope and NPD are zero.
+  /// establish dependencies or completion. Without this feature scope and
+  /// NPD are zero.
   /// Data commands using system scope realize the site's payload visibility
   /// without a separate stream cache operation. Execution dependencies and
   /// completion remain explicit; this establishes no system atomic reach.

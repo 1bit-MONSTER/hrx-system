@@ -128,6 +128,32 @@ TEST(SdmaEncodingTest, DwordFillHasByteCountAndTargetScope) {
   }
 }
 
+TEST(SdmaEncodingTest, InlineWritesCarryDwordCountsAndCopiedValues) {
+  constexpr std::array<uint32_t, 4> kScopes = {0, 0, 0, 0x0c000000};
+  for (size_t i = 0; i < kFeatures.size(); ++i) {
+    SCOPED_TRACE(kFeatures[i]);
+    std::array<uint32_t, 14> words;
+    words.fill(0x9ac7135b);
+    std::array<uint32_t, 3> values = {0x6d2ac491, 0xb730e85a, 0x1fe43962};
+    SdmaCommandWriter commands(words.data(), kFeatures[i]);
+    commands.WriteLinear(UINT64_C(0x1234567800000ffc),
+                         std::span(values).first(1));
+    commands.WriteLinear(UINT64_C(0x2345678900001ffc), values);
+    // Inline data has been copied into the stream before publication. A
+    // subsequent packet starts after its complete data, not after the header.
+    values.fill(0);
+    commands.Noop();
+    // KFD SDMAWriteDataPacket and PAL BuildUpdateMemoryPacket encode DWORD
+    // counts minus one. Only the scoped layout adds SYS at DW3 bits27:26.
+    const std::array<uint32_t, 14> expected = {
+        2,          0x00000ffc, 0x12345678, kScopes[i],     0x6d2ac491,
+        2,          0x00001ffc, 0x23456789, kScopes[i] | 2, 0x6d2ac491,
+        0xb730e85a, 0x1fe43962, 0,          0x9ac7135b};
+    EXPECT_EQ(commands.word_count(), 13u);
+    EXPECT_EQ(words, expected);
+  }
+}
+
 TEST(SdmaEncodingTest, FenceFieldsFollowTheAdvertisedEncoding) {
   // ROCr BuildFenceCommand uses opcode-only for gfx9, UC3 for gfx10/11,
   // UC3 plus SYS for gfx12, and system scope for the scoped packet layout.

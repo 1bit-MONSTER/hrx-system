@@ -6,6 +6,8 @@
 
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 
+#include <cstring>
+
 void SdmaCommandWriter::AcquireFromSystem() {
   words_[word_count_++] = 17u | (1u << 8);
   words_[word_count_++] = 0;
@@ -67,6 +69,19 @@ void SdmaCommandWriter::CopyLinearRect(uint64_t source,
   words_[word_count_++] = (extent.width - 1) | ((extent.height - 1) << 16);
   words_[word_count_++] =
       (extent.depth - 1) | (scoped ? (3u << 18) | (3u << 26) : 0);
+}
+
+void SdmaCommandWriter::WriteLinear(uint64_t target,
+                                    std::span<const uint32_t> values) {
+  const bool scoped =
+      (features_ & AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE) != 0;
+  words_[word_count_++] = 2;
+  words_[word_count_++] = static_cast<uint32_t>(target);
+  words_[word_count_++] = static_cast<uint32_t>(target >> 32);
+  words_[word_count_++] =
+      static_cast<uint32_t>(values.size() - 1) | (scoped ? 3u << 26 : 0);
+  std::memcpy(words_ + word_count_, values.data(), values.size_bytes());
+  word_count_ += values.size();
 }
 
 void SdmaCommandWriter::Fill32(uint64_t target, uint32_t pattern,
