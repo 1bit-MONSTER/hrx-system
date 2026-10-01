@@ -81,6 +81,32 @@ its owner serializes competing submissions and reservation updates across
 the sequence. It is useful only when both native submission paths honor
 the resulting dependencies. [Explicit/implicit fence bridge][dmabuf-sync-file]
 
+### Peer placement and exporter power
+
+An AMDGPU DMA-BUF attachment's P2P eligibility affects both placement and
+power ownership. In Linux `fe2ec83746e5`, an otherwise eligible attachment
+calls `pm_runtime_get_if_active` on the exporter. An inactive exporter clears
+`peer2peer`; attachment does not wake it to preserve P2P. An active exporter
+stays referenced until detach. With runtime PM disabled, a balancing
+no-resume reference supplies the same detach accounting. Attachment rollback
+also releases the reference. [Attachment and detach][amdgpu-peer-power]
+[Runtime PM reference semantics][runtime-pm-active]
+
+The mapping path starts with GTT placement and includes VRAM only when the
+BO prefers VRAM and that attachment remains P2P-capable. Its pin path also
+checks the other attachments before allowing VRAM. Consequently a shared FD
+and reachable PCIe topology do not promise retained VRAM placement. GC12+
+DCC backing has a separate P2P exclusion because its compression metadata is
+device-local. [Placement and mapping][amdgpu-peer-placement]
+[Compression and route checks][amdgpu-peer-power]
+
+KFD also has a path that shares the original BO for same-hive VRAM mappings
+without creating a DMA-BUF attachment. Its separate DMA-BUF branch reaches
+the exporter/importer protocol. The attachment power reference above belongs
+to that protocol; it is not a universal extra reference taken for every
+peer mapping. Neither path supplies a payload dependency or shader cache
+transition merely by establishing access. [KFD attachment selection][kfd-peer-attachment]
+
 ### CPU access is another handoff
 
 For CPU access through a DMA-BUF mmap, first join preceding device users,
@@ -340,6 +366,10 @@ a finite host join does not establish them.
 
 [rocr-export]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L4425-L4473
 [dmabuf-device]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/dma-buf/dma-buf.c#L660-L686
+[amdgpu-peer-power]: https://github.com/torvalds/linux/blob/fe2ec83746e501645709761605c2464a44fd2929/drivers/gpu/drm/amd/amdgpu/amdgpu_dma_buf.c#L79-L152
+[runtime-pm-active]: https://github.com/torvalds/linux/blob/fe2ec83746e501645709761605c2464a44fd2929/drivers/base/power/runtime.c#L1225-L1265
+[amdgpu-peer-placement]: https://github.com/torvalds/linux/blob/fe2ec83746e501645709761605c2464a44fd2929/drivers/gpu/drm/amd/amdgpu/amdgpu_dma_buf.c#L161-L241
+[kfd-peer-attachment]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c#L917-L955
 [xdna-import]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L999-L1043
 [xdna-free]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L656-L663
 [syncobj]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/drm_syncobj.c#L30-L194

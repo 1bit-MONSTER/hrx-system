@@ -382,6 +382,12 @@ use a different selection rule. The [SDMA engine-selection
 chapter](../sdma/engine-selection.md) traces those predicates and their native
 queue classes. These routing rules supply no additional memory-scope guarantee.
 
+The native attachment also determines whether peer access retains device-local
+placement. AMDGPU's DMA-BUF path couples P2P eligibility to exporter power
+ownership and placement, while KFD can share same-hive backing directly.
+The [external-memory placement contract](../../interop/external-memory.md#peer-placement-and-exporter-power)
+distinguishes those paths from engine selection and payload synchronization.
+
 ## Imported buffers and final use
 
 Linux DMA-BUF supplies an explicit CPU cache-access boundary for mapped
