@@ -946,7 +946,7 @@ def _view_cases():
                     minimum_alignment=(
                         0 if instruction in (BUFFER_LOAD, BUFFER_STORE) else width // 8
                     ),
-                    diagnostic=(
+                    alignment_diagnostic=(
                         None
                         if instruction in (BUFFER_LOAD, BUFFER_STORE)
                         else GuardDiagnostic(

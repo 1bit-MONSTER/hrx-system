@@ -578,16 +578,11 @@ static_assert(sizeof(loom_low_lower_source_memory_address_materializer_t) ==
 
 // Interned diagnostic selection for one source-memory constraint family.
 typedef struct loom_low_lower_source_memory_diagnostics_t {
-  // Diagnostic emitted when the base source-memory constraint rejects.
-  uint16_t constraint_diagnostic_index;
-  // Diagnostic emitted when either byte-offset width check rejects.
-  uint16_t byte_offset_diagnostic_index;
-  // Diagnostic emitted when the address-layout classification rejects.
-  uint16_t address_layout_diagnostic_index;
-  // Diagnostic emitted when complete address materialization rejects.
-  uint16_t address_diagnostic_index;
+  // Diagnostic selected for each exact source-memory rejection reason.
+  uint16_t rejection_diagnostic_indices
+      [LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT];
 } loom_low_lower_source_memory_diagnostics_t;
-static_assert(sizeof(loom_low_lower_source_memory_diagnostics_t) == 8,
+static_assert(sizeof(loom_low_lower_source_memory_diagnostics_t) == 60,
               "source-memory diagnostic rows must remain compact");
 
 typedef struct loom_low_lower_source_memory_t {

@@ -98,6 +98,7 @@ from loom.target.contracts.lower_rule_tables import (
     LowerTiedResult,
     LowerTypePattern,
     LowerValueRef,
+    SourceMemoryRejectionReason,
 )
 from loom.target.contracts.lower_rules import (
     compile_lower_rule_set,
@@ -208,6 +209,7 @@ __all__ = [
     "LowerRuleSpan",
     "LowerSourceNode",
     "LowerSourceMemory",
+    "SourceMemoryRejectionReason",
     "LowerTiedResult",
     "LowerTypePattern",
     "LowerValueRef",

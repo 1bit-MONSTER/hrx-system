@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 from loom.dialect.scalar import ALL_SCALAR_OPS
@@ -78,6 +78,7 @@ from loom.target.contracts import (
     SourceMemoryDynamicIndexSource,
     SourceMemoryIntegerConversion,
     SourceMemoryOperation,
+    SourceMemoryRejectionReason,
     SourceMemoryRootKind,
     SourceNodeRelation,
     SourceOpProject,
@@ -110,6 +111,14 @@ def _expect_value_error(callable_obj: Callable[[], object], message: str) -> Non
         error = exc
     assert error is not None
     assert message in str(error)
+
+
+def _rejection_diagnostic_indices(
+    default: int,
+    overrides: Mapping[SourceMemoryRejectionReason, int] | None = None,
+) -> tuple[int, ...]:
+    overrides = overrides or {}
+    return tuple(overrides.get(reason, default) for reason in SourceMemoryRejectionReason)
 
 
 def test_buffer_type_guard_matches_kind_without_scalar_element_bits() -> None:
@@ -461,18 +470,24 @@ def test_validate_c_table_shape_rejects_source_memory_diagnostic_indices_oob() -
             vector_lane_byte_stride=4,
             static_byte_offset=0,
         ),
-        diagnostic_index=0xFFFF,
-        byte_offset_diagnostic_index=0xFFFF,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(0xFFFF),
     )
 
-    for row, diagnostic_name in (
-        (replace(base_row, address_layout_diagnostic_index=0), "address-layout"),
-        (replace(base_row, address_diagnostic_index=0), "address"),
+    for reason in (
+        SourceMemoryRejectionReason.ADDRESS_LAYOUT,
+        SourceMemoryRejectionReason.ADDRESS_MATERIALIZATION,
     ):
+        row = replace(
+            base_row,
+            rejection_diagnostic_indices=_rejection_diagnostic_indices(
+                0xFFFF,
+                {reason: 0},
+            ),
+        )
         table = _compiled_lower_rule_set(source_memories=(row,))
         _expect_value_error(
             lambda table=table: _validate_c_table_shape(table, _c_shape_contract(), ()),
-            f"lower-rule set 'test.low.generated_c_shape' source-memory 0 {diagnostic_name} diagnostic index references missing diagnostic row",
+            f"lower-rule set 'test.low.generated_c_shape' source-memory 0 {reason.value} diagnostic index references missing diagnostic row",
         )
 
 
@@ -1708,8 +1723,10 @@ def test_source_memory_row_emits_dynamic_byte_stride_any_flag() -> None:
             dynamic_index_source=SourceMemoryDynamicIndexSource.VALUE,
             dynamic_byte_stride=None,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4},
+        ),
     )
 
     fields = source_memory_row(
@@ -1736,8 +1753,10 @@ def test_source_memory_row_emits_cache_policy_any_flag() -> None:
             static_byte_offset=0,
             cache_policy_build_flags=None,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4},
+        ),
     )
 
     fields = source_memory_row(
@@ -1762,9 +1781,13 @@ def test_source_memory_row_emits_compact_address_layout() -> None:
             vector_lane_byte_stride=4,
             static_byte_offset=0,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
-        address_layout_diagnostic_index=5,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {
+                SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4,
+                SourceMemoryRejectionReason.ADDRESS_LAYOUT: 5,
+            },
+        ),
     )
 
     fields = source_memory_row(
@@ -1777,7 +1800,7 @@ def test_source_memory_row_emits_compact_address_layout() -> None:
 
     assert (".address_layout = LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR") in fields
     assert ".diagnostics_index = 0" in fields
-    assert ".address_layout_diagnostic_index = 5" in diagnostic_fields
+    assert (".rejection_diagnostic_indices[LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT] = 5") in diagnostic_fields
 
 
 def test_source_memory_row_emits_preserve_source_index_flag() -> None:
@@ -1795,8 +1818,10 @@ def test_source_memory_row_emits_preserve_source_index_flag() -> None:
             dynamic_view_base_term_count=0,
             preserve_source_index=True,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4},
+        ),
     )
 
     fields = source_memory_row(
@@ -1822,8 +1847,10 @@ def test_source_memory_row_emits_any_positive_dynamic_term_count() -> None:
             dynamic_term_count=None,
             dynamic_term_count_minimum=1,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4},
+        ),
     )
 
     fields = source_memory_row(
@@ -1852,8 +1879,7 @@ def test_source_memory_row_emits_portable_signed_i64_values() -> None:
             dynamic_index_source=SourceMemoryDynamicIndexSource.VALUE,
             dynamic_byte_stride=-(1 << 31),
         ),
-        diagnostic_index=0xFFFF,
-        byte_offset_diagnostic_index=0xFFFF,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(0xFFFF),
     )
 
     fields = source_memory_row(
@@ -1884,8 +1910,10 @@ def test_source_memory_row_emits_dynamic_stride_values_flag() -> None:
             dynamic_byte_stride=None,
             allow_dynamic_stride_values=True,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4},
+        ),
     )
 
     fields = source_memory_row(
@@ -1924,9 +1952,13 @@ def test_source_memory_rows_split_complete_address_materializer() -> None:
             static_byte_offset_maximum=(2**31) - 1,
             dynamic_term_count=None,
         ),
-        diagnostic_index=3,
-        byte_offset_diagnostic_index=4,
-        address_diagnostic_index=5,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(
+            3,
+            {
+                SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH: 4,
+                SourceMemoryRejectionReason.ADDRESS_MATERIALIZATION: 5,
+            },
+        ),
         address_materializer=materializer,
     )
     descriptor_refs = {
@@ -1950,7 +1982,7 @@ def test_source_memory_rows_split_complete_address_materializer() -> None:
     )
 
     assert ".diagnostics_index = 0" in fields
-    assert ".address_diagnostic_index = 5" in diagnostic_fields
+    assert (".rejection_diagnostic_indices[LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_MATERIALIZATION] = 5") in diagnostic_fields
     assert ".root_kind = LOOM_LOW_LOWER_SOURCE_MEMORY_ROOT_ALLOCA" in fields
     assert ".address_materializer_ordinal = 1" in fields
     assert (".base_kind = LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_BASE_VIEW") in materializer_fields
@@ -2098,8 +2130,7 @@ def test_source_memory_conversion_rows_keep_source_kind_and_selector() -> None:
             dynamic_term_count=None,
             dynamic_term_count_minimum=1,
         ),
-        diagnostic_index=0xFFFF,
-        byte_offset_diagnostic_index=0xFFFF,
+        rejection_diagnostic_indices=_rejection_diagnostic_indices(0xFFFF),
         byte_offset_materializer=materializer,
     )
     table = _compiled_lower_rule_set(source_memories=(row,))

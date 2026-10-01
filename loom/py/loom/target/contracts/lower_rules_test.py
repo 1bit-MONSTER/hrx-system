@@ -54,6 +54,7 @@ from loom.target.contracts import (
     SourceMemoryDynamicIndexSource,
     SourceMemoryOperation,
     SourceMemoryProject,
+    SourceMemoryRejectionReason,
     SourceMemoryRootKind,
     SourceNode,
     SourceNodeRelation,
@@ -70,6 +71,7 @@ from loom.target.contracts import (
     binary_descriptor_rules,
     compile_lower_rule_set,
 )
+from loom.target.contracts.lower_rule_diagnostics import _source_memory_diagnostics
 from loom.target.low_descriptors import EnumDomain, EnumValue, Immediate, ImmediateKind
 from loom.target.test.descriptors import (
     TEST_LOW_ACCUMULATE_V8I32_DESCRIPTOR,
@@ -1732,6 +1734,88 @@ def test_source_memory_constraint_rejects_unused_address_layout_diagnostic() -> 
             static_byte_offset=0,
         ),
         "unconstrained source memory cannot have an address-layout diagnostic",
+    )
+
+
+def test_source_memory_constraint_rejects_unused_alignment_diagnostic() -> None:
+    diagnostic = GuardDiagnostic(
+        subject_role="source-memory",
+        subject_name="access",
+        constraint_key="source_memory.minimum_alignment",
+    )
+    _expect_value_error(
+        lambda: SourceMemoryConstraint(
+            operation=SourceMemoryOperation.LOAD,
+            memory_spaces=("global",),
+            element_byte_count=4,
+            vector_lane_count=1,
+            vector_lane_byte_stride=4,
+            static_byte_offset=0,
+            alignment_diagnostic=diagnostic,
+        ),
+        "unconstrained source memory cannot have an alignment diagnostic",
+    )
+
+
+def test_source_memory_alignment_diagnostic_overrides_only_alignment() -> None:
+    general_diagnostic = GuardDiagnostic(
+        subject_role="source-memory",
+        subject_name="general",
+        constraint_key="test.general",
+    )
+    alignment_diagnostic = GuardDiagnostic(
+        subject_role="source-memory",
+        subject_name="alignment",
+        constraint_key="test.alignment",
+    )
+    constraint = SourceMemoryConstraint(
+        operation=SourceMemoryOperation.LOAD,
+        memory_spaces=("global",),
+        element_byte_count=4,
+        vector_lane_count=1,
+        vector_lane_byte_stride=4,
+        static_byte_offset=0,
+        minimum_alignment=4,
+        diagnostic=general_diagnostic,
+        alignment_diagnostic=alignment_diagnostic,
+    )
+
+    diagnostics_by_reason = dict(
+        zip(
+            SourceMemoryRejectionReason,
+            _source_memory_diagnostics(constraint, None),
+            strict=True,
+        )
+    )
+
+    assert (
+        diagnostics_by_reason[SourceMemoryRejectionReason.MINIMUM_ALIGNMENT]
+        is alignment_diagnostic.ref
+    )
+    assert (
+        diagnostics_by_reason[SourceMemoryRejectionReason.MEMORY_SPACE]
+        is general_diagnostic.ref
+    )
+    default_constraint = replace(
+        constraint,
+        diagnostic=None,
+        alignment_diagnostic=None,
+    )
+    default_diagnostics = dict(
+        zip(
+            SourceMemoryRejectionReason,
+            _source_memory_diagnostics(default_constraint, None),
+            strict=True,
+        )
+    )
+    memory_space_ref = default_diagnostics[SourceMemoryRejectionReason.MEMORY_SPACE]
+    assert (
+        next(
+            param.string_value
+            for param in memory_space_ref.params
+            if param.name == "constraint_key"
+        )
+        == "source_memory.memory_space"
     )
 
 

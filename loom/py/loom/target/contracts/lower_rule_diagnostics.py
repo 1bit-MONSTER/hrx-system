@@ -15,7 +15,6 @@ from loom.error.target import (
     ERR_TARGET_005,
     ERR_TARGET_006,
     ERR_TARGET_007,
-    ERR_TARGET_008,
 )
 from loom.target.contracts.diagnostics import (
     DiagnosticRef,
@@ -27,6 +26,7 @@ from loom.target.contracts.diagnostics import (
 )
 from loom.target.contracts.guards import Guard, GuardKind
 from loom.target.contracts.lower_rule_bindings import _f64_bits
+from loom.target.contracts.lower_rule_tables import SourceMemoryRejectionReason
 from loom.target.contracts.patterns import TypePattern
 from loom.target.contracts.source_memory import (
     SourceMemoryAddressMaterializer,
@@ -301,54 +301,42 @@ def _instance_flags_diagnostic(
 
 def _source_memory_diagnostic(
     constraint: SourceMemoryConstraint,
+    reason: SourceMemoryRejectionReason,
+    materializer: SourceMemoryAddressMaterializer | None,
 ) -> DiagnosticRef:
-    if constraint.diagnostic is not None:
-        ref = constraint.diagnostic.ref
+    override = None
+    if reason == SourceMemoryRejectionReason.MINIMUM_ALIGNMENT:
+        override = constraint.alignment_diagnostic
+    elif reason == SourceMemoryRejectionReason.BYTE_OFFSET_WIDTH:
+        override = constraint.byte_offset_diagnostic
+    elif reason == SourceMemoryRejectionReason.ADDRESS_LAYOUT:
+        override = constraint.address_layout_diagnostic
+    elif reason == SourceMemoryRejectionReason.ADDRESS_MATERIALIZATION:
+        override = materializer.diagnostic if materializer is not None else None
+    if override is None:
+        override = constraint.diagnostic
+    if override is not None:
+        ref = override.ref
         if ref is None:
-            raise ValueError("source-memory diagnostic is missing an error ref")
+            raise ValueError(
+                f"source-memory {reason.value} diagnostic is missing an error ref"
+            )
         return ref
-    return target_diagnostic(
-        ERR_TARGET_008,
-        string_param("operation_kind", constraint.operation.value),
+    return _named_constraint_diagnostic(
+        "source-memory",
+        "access",
+        reason.value,
     )
 
 
-def _source_memory_byte_offset_diagnostic(
-    constraint: SourceMemoryConstraint,
-) -> DiagnosticRef:
-    if constraint.byte_offset_diagnostic is not None:
-        ref = constraint.byte_offset_diagnostic.ref
-        if ref is None:
-            raise ValueError(
-                "source-memory byte-offset diagnostic is missing an error ref"
-            )
-        return ref
-    return _source_memory_diagnostic(constraint)
-
-
-def _source_memory_address_layout_diagnostic(
-    constraint: SourceMemoryConstraint,
-) -> DiagnosticRef:
-    if constraint.address_layout_diagnostic is not None:
-        ref = constraint.address_layout_diagnostic.ref
-        if ref is None:
-            raise ValueError(
-                "source-memory address-layout diagnostic is missing an error ref"
-            )
-        return ref
-    return _source_memory_diagnostic(constraint)
-
-
-def _source_memory_address_diagnostic(
+def _source_memory_diagnostics(
     constraint: SourceMemoryConstraint,
     materializer: SourceMemoryAddressMaterializer | None,
-) -> DiagnosticRef:
-    if materializer is not None and materializer.diagnostic is not None:
-        ref = materializer.diagnostic.ref
-        if ref is None:
-            raise ValueError("source-memory address diagnostic is missing an error ref")
-        return ref
-    return _source_memory_diagnostic(constraint)
+) -> tuple[DiagnosticRef, ...]:
+    return tuple(
+        _source_memory_diagnostic(constraint, reason, materializer)
+        for reason in SourceMemoryRejectionReason
+    )
 
 
 def _attr_diagnostic(field: str, attr_type: str) -> DiagnosticRef:

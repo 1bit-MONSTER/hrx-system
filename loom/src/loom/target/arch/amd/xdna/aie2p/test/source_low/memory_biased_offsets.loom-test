@@ -109,9 +109,9 @@ func.def @exchange_large_bias_word(%buffer: buffer, %position: index, %replaceme
   %element = index.add %signed_position, %center : index
   %base = index.constant 0 : offset
   %view = buffer.view %buffer[%base] : buffer -> view<9xi32>
-  // ERROR@+1: TARGET/008 {op_name = "view.load", operation_kind = "load"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.static_offset"}
   %previous = view.load %view[%element] : view<9xi32> -> i32
-  // ERROR@+1: TARGET/008 {op_name = "view.store", operation_kind = "store"}
+  // ERROR@+1: TARGET/003 {constraint_key="source_memory.static_offset"}
   view.store %replacement, %view[%element] : i32, view<9xi32>
   func.return %previous : i32
 }

@@ -84,10 +84,7 @@ from loom.target.contracts.lower_rule_diagnostics import (
     _register_class_diagnostic,
     _register_unit_count_diagnostic,
     _register_unit_count_exact_diagnostic,
-    _source_memory_address_diagnostic,
-    _source_memory_address_layout_diagnostic,
-    _source_memory_byte_offset_diagnostic,
-    _source_memory_diagnostic,
+    _source_memory_diagnostics,
     _static_dim0_multiple_diagnostic,
     _static_element_count_relation_diagnostic,
     _storage_element_format_diagnostic,
@@ -142,7 +139,6 @@ from loom.target.contracts.rules import (
 )
 from loom.target.contracts.source import ValueRef
 from loom.target.contracts.source_memory import (
-    SourceMemoryAddressLayout,
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryConstraint,
@@ -1791,28 +1787,12 @@ class _LowerRuleSetCompiler:
     ) -> int:
         row = LowerSourceMemory(
             constraint,
-            diagnostic_index=self._append_diagnostic_ref(
-                source_op,
-                _source_memory_diagnostic(constraint),
-            ),
-            byte_offset_diagnostic_index=self._append_diagnostic_ref(
-                source_op,
-                _source_memory_byte_offset_diagnostic(constraint),
-            ),
-            address_layout_diagnostic_index=(
-                0xFFFF
-                if constraint.address_layout == SourceMemoryAddressLayout.ANY
-                else self._append_diagnostic_ref(
-                    source_op,
-                    _source_memory_address_layout_diagnostic(constraint),
-                )
-            ),
-            address_diagnostic_index=self._append_diagnostic_ref(
-                source_op,
-                _source_memory_address_diagnostic(
+            rejection_diagnostic_indices=tuple(
+                self._append_diagnostic_ref(source_op, diagnostic)
+                for diagnostic in _source_memory_diagnostics(
                     constraint,
                     address_materializer,
-                ),
+                )
             ),
             byte_offset_materializer=byte_offset_materializer,
             address_materializer=address_materializer,

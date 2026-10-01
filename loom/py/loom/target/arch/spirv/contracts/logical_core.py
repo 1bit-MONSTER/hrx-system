@@ -844,7 +844,7 @@ def _cooperative_matrix_memory(
         dynamic_term_count=None,
         dynamic_index_source=SourceMemoryDynamicIndexSource.NONE,
         address_layout_diagnostic=_cooperative_matrix_compact_tile_diagnostic(),
-        diagnostic=_storage_buffer_alignment_diagnostic(minimum_alignment),
+        alignment_diagnostic=_storage_buffer_alignment_diagnostic(minimum_alignment),
     )
 
 

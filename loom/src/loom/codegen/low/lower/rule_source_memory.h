@@ -69,6 +69,7 @@ bool loom_low_lower_rule_source_memory_matches(
     const loom_low_lower_source_memory_t* source_memory,
     const loom_low_lower_source_memory_diagnostics_t* diagnostics,
     const loom_low_source_memory_access_plan_t* source_memory_access,
+    loom_low_source_memory_access_rejection_flags_t access_rejection_bits,
     uint16_t* out_diagnostic_index);
 
 // Matches every source-memory emit attached to |rule|.

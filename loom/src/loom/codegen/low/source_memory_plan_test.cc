@@ -9,6 +9,74 @@
 namespace loom {
 namespace {
 
+TEST(SourceMemoryAccessPlanTest, ClassifiesRetainedRejectionBits) {
+  const struct {
+    loom_low_source_memory_access_rejection_flags_t bit;
+    loom_low_source_memory_rejection_reason_t reason;
+    iree_string_view_t key;
+  } cases[] = {
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_UNSUPPORTED_OP,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNSUPPORTED_OP,
+       IREE_SV("source_memory.unsupported_op")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DESCRIBE_FAILED,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DESCRIBE_FAILED,
+       IREE_SV("source_memory.describe_failed")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_LAYOUT,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT,
+       IREE_SV("source_memory.layout")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_ELEMENT_WIDTH,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_WIDTH,
+       IREE_SV("source_memory.element_width")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_RANK,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_RANK,
+       IREE_SV("source_memory.vector_rank")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_LANE_COUNT,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_LANE_COUNT,
+       IREE_SV("source_memory.vector_lane_count")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VECTOR_AXIS_STRIDE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VECTOR_AXIS_STRIDE,
+       IREE_SV("source_memory.vector_axis_stride")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_STATIC_OFFSET,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_STATIC_OFFSET,
+       IREE_SV("source_memory.static_offset")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_INDEX_COUNT,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_INDEX_COUNT,
+       IREE_SV("source_memory.dynamic_index_count")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_AXIS,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_AXIS,
+       IREE_SV("source_memory.dynamic_axis")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_DYNAMIC_STRIDE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_DYNAMIC_STRIDE,
+       IREE_SV("source_memory.dynamic_stride")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_SOURCE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_SOURCE,
+       IREE_SV("source_memory.view_source")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_BASE,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE,
+       IREE_SV("source_memory.view_base")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_VIEW_BASE_OVERFLOW,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_VIEW_BASE_OVERFLOW,
+       IREE_SV("source_memory.view_base_overflow")},
+      {LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY,
+       LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_CACHE_POLICY,
+       IREE_SV("source_memory.cache_policy")},
+  };
+
+  for (const auto& test_case : cases) {
+    EXPECT_EQ(loom_low_source_memory_access_rejection_reason(test_case.bit),
+              test_case.reason);
+    EXPECT_TRUE(iree_string_view_equal(
+        loom_low_source_memory_access_rejection_key(test_case.bit),
+        test_case.key));
+  }
+  EXPECT_EQ(loom_low_source_memory_access_rejection_reason(0),
+            LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_REPRESENTABILITY);
+  EXPECT_EQ(loom_low_source_memory_access_rejection_reason(
+                LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_LAYOUT |
+                LOOM_LOW_SOURCE_MEMORY_ACCESS_REJECTION_CACHE_POLICY),
+            LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT);
+}
+
 TEST(SourceMemoryAccessPlanTest, IncludesPhysicalRootByteOffset) {
   loom_low_source_memory_access_plan_t plan = {};
   plan.static_byte_offset = 12;

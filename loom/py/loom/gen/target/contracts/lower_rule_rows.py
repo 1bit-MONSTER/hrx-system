@@ -39,6 +39,7 @@ from loom.target.contracts import (
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryIntegerConversion,
+    SourceMemoryRejectionReason,
     SourceNodeRelation,
     TypePattern,
 )
@@ -369,29 +370,24 @@ def source_memory_row(
 
 def source_memory_diagnostic_indices(
     row: LowerSourceMemory,
-) -> tuple[int, int, int, int]:
-    return (
-        row.diagnostic_index,
-        row.byte_offset_diagnostic_index,
-        row.address_layout_diagnostic_index,
-        row.address_diagnostic_index,
-    )
+) -> tuple[int, ...]:
+    if len(row.rejection_diagnostic_indices) != len(SourceMemoryRejectionReason):
+        raise ValueError("source-memory rejection diagnostic count disagrees with its reasons")
+    return row.rejection_diagnostic_indices
 
 
 def source_memory_diagnostics_row(
-    indices: tuple[int, int, int, int],
+    indices: tuple[int, ...],
 ) -> list[str]:
-    (
-        constraint_diagnostic_index,
-        byte_offset_diagnostic_index,
-        address_layout_diagnostic_index,
-        address_diagnostic_index,
-    ) = indices
+    if len(indices) != len(SourceMemoryRejectionReason):
+        raise ValueError("source-memory rejection diagnostic count disagrees with its reasons")
     return [
-        ".constraint_diagnostic_index = " + lower_rule_spelling.diagnostic_index(constraint_diagnostic_index),
-        ".byte_offset_diagnostic_index = " + lower_rule_spelling.diagnostic_index(byte_offset_diagnostic_index),
-        ".address_layout_diagnostic_index = " + lower_rule_spelling.diagnostic_index(address_layout_diagnostic_index),
-        ".address_diagnostic_index = " + lower_rule_spelling.diagnostic_index(address_diagnostic_index),
+        f".rejection_diagnostic_indices[LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_{reason.name}] = " + lower_rule_spelling.diagnostic_index(index)
+        for reason, index in zip(
+            SourceMemoryRejectionReason,
+            indices,
+            strict=True,
+        )
     ]
 
 
