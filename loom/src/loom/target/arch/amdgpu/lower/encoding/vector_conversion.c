@@ -396,9 +396,10 @@ static bool loom_amdgpu_select_vector_encode_fp8_plan(
     return false;
   }
 
-  return loom_amdgpu_select_fp8_encode_plan(descriptor_set, source_element_type,
-                                            result_element_type,
-                                            schema.element_format, out_plan);
+  return loom_amdgpu_select_fp8_encode_plan(
+      descriptor_set, source_element_type, result_element_type,
+      loom_value_fact_table_lookup(fact_table, source), schema.element_format,
+      out_plan);
 }
 
 iree_status_t loom_amdgpu_low_legality_verify_vector_decode(
@@ -811,6 +812,8 @@ iree_status_t loom_amdgpu_select_vector_16bit_float_conversion_plan(
       *out_selected = loom_amdgpu_select_fp8_encode_plan(
           loom_low_lower_context_descriptor_set(context), source_element_type,
           result_element_type,
+          loom_value_fact_table_lookup(
+              loom_low_lower_context_fact_table(context), source),
           loom_numeric_format_from_scalar_type(result_element_type),
           &fp8_encode);
     } else {
