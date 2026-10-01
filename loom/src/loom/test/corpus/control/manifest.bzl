@@ -15,6 +15,7 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "branch/cfg.loom",
         "branch/effects.loom",
         "branch/guards.loom",
+        "branch/half.loom",
         "branch/results.loom",
         "branch/structured.loom",
         "branch/uniform_predicate.loom",

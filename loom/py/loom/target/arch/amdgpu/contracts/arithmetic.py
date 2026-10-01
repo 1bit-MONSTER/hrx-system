@@ -652,12 +652,15 @@ def _binary_rule(
     source_rhs: str = "rhs",
     f32_operands: bool = False,
     f32_rhs: bool = False,
+    lhs_materializer: ValueMaterializer | None = None,
     rhs_materializer: ValueMaterializer | None = None,
     extra_guards: tuple[Guard, ...] = (),
     report_key: str = "",
 ) -> DescriptorRule:
     if rhs_materializer is not None and (f32_operands or f32_rhs):
         raise ValueError("binary RHS cannot use two materializers")
+    if lhs_materializer is not None and f32_operands:
+        raise ValueError("binary LHS cannot use two materializers")
     descriptor = _descriptor(descriptor_key)
     if f32_operands or f32_rhs:
         rhs_operand = _f32_vgpr_operand(source_rhs)
@@ -665,10 +668,14 @@ def _binary_rule(
         rhs_operand = _materialized_operand(source_rhs, rhs_materializer)
     else:
         rhs_operand = ValueRef.operand(source_rhs)
+    if f32_operands:
+        lhs_operand = _f32_vgpr_operand(source_lhs)
+    elif lhs_materializer is not None:
+        lhs_operand = _materialized_operand(source_lhs, lhs_materializer)
+    else:
+        lhs_operand = ValueRef.operand(source_lhs)
     operands = {
-        descriptor_lhs: _f32_vgpr_operand(source_lhs)
-        if f32_operands
-        else ValueRef.operand(source_lhs),
+        descriptor_lhs: lhs_operand,
         descriptor_rhs: rhs_operand,
     }
     return DescriptorRule(
@@ -4133,6 +4140,8 @@ def _rules() -> tuple[ContractCase, ...]:
                 scalar_arithmetic.scalar_addf,
                 _F16,
                 "amdgpu.v_add_f16",
+                lhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
             ),
             _binary_rule(
                 scalar_arithmetic.scalar_subf,
@@ -4144,6 +4153,8 @@ def _rules() -> tuple[ContractCase, ...]:
                 scalar_arithmetic.scalar_subf,
                 _F16,
                 "amdgpu.v_sub_f16",
+                lhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
             ),
             *_commutative_f32_binary_rules(
                 scalar_arithmetic.scalar_mulf,
@@ -4154,6 +4165,8 @@ def _rules() -> tuple[ContractCase, ...]:
                 scalar_arithmetic.scalar_mulf,
                 _F16,
                 "amdgpu.v_mul_f16",
+                lhs_materializer=REGISTERS_VGPR_MATERIALIZER,
+                rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
             ),
             _f32_neg_rule(scalar_arithmetic.scalar_negf, _F32, f32_operand=True),
             _f32_abs_rule(scalar_arithmetic.scalar_absf, _F32, f32_operand=True),

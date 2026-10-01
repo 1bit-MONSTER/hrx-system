@@ -18,6 +18,7 @@ loom_corpus_sources(
     "branch/cfg.loom"
     "branch/effects.loom"
     "branch/guards.loom"
+    "branch/half.loom"
     "branch/results.loom"
     "branch/structured.loom"
     "branch/uniform_predicate.loom"
