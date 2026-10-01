@@ -1336,6 +1336,7 @@ _BASE_DESCRIPTOR_SPECS = (
         f"{_TARGET_KEY}.extract.i8.immediate",
         "integer.extract.i8",
         "II_VEXTRACT_8_vec_extract_imm_vaddSign0",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "VEXTRACT_8_vec_extract_r_vaddSign0",
@@ -1761,6 +1762,7 @@ _BASE_DESCRIPTOR_SPECS = (
         f"{_TARGET_KEY}.extend.unsigned.i8",
         "integer.extend.unsigned.i8",
         "II_EXTEND_u8",
+        rematerializable=True,
     ),
     _DescriptorSpec(
         "EXTEND_u16",
