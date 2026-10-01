@@ -5,14 +5,12 @@ artifact for selected roots. It is the offline form of the same parse, link,
 configure, specialize, lower, and emit operations available through the `loomc`
 API.
 
-Selected roots infer exactly one product: `kernel` or `module`.
-With explicit `--root` values, `--product` is an optional assertion on that
-result and never reinterprets the roots. With no roots, the module must expose
-at most one category of default entry; `--product` may assert that category but
-cannot select among mixed inputs. `--target=family:selector` supplies a target
-when the roots do not already name one. `--format` requests an exact output
-encoding; when it is omitted, the tool requires one canonical compatible
-format. Reports, manifests, and IR traces are optional evidence products, not
+Selected roots must have exactly one entry category: `kernel` or `module`.
+With no roots, the module must expose at most one category of default entry;
+mixed inputs require explicit roots. `--target=family:selector` supplies a
+target when the roots do not already name one. `--format` requests an exact
+output encoding; when it is omitted, the tool requires one canonical compatible
+format. Reports, manifests, and IR traces are optional evidence artifacts, not
 boilerplate required by every compile.
 
 ## Compile a loadable kernel
@@ -80,7 +78,7 @@ default entry. A kernel-only module selects every kernel entry, a module-only
 input compiles the whole module, and a command-program input is rejected because
 it needs the LoomC transaction described below. Mixed inputs require explicit
 roots. Select one or more entries from a catalog by repeating the flag. Every
-selected root must infer the same product:
+selected root must have the same entry category:
 
 ```shell
 loom-compile catalog.loombc \
@@ -93,8 +91,7 @@ loom-compile catalog.loombc \
 Root selection is reachability, not name filtering after compilation. Unused
 functions, providers, configurations, checks, and kernels are absent from the
 materialized compile module. In a mixed command-and-kernel catalog, name the
-kernel roots explicitly. A product never changes the meaning of explicit
-roots.
+kernel roots explicitly. Root selection never changes the meaning of an entry.
 
 Use [`loom-link`](link-and-package.md#link-transitive-dependencies-incrementally)
 first when several independently shipped modules must be composed. Use

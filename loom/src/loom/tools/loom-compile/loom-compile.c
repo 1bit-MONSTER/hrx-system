@@ -82,33 +82,30 @@ static iree_status_t loom_compile_diagnostic_sink(
   return status;
 }
 
-IREE_FLAG(string, product, "",
-          "Optional product: 'kernel' or 'module'. With explicit "
-          "--root values or one category of default entries this validates "
-          "the inferred product. It never selects among mixed categories.");
 IREE_FLAG(string, format, "",
           "Optional exact artifact format, such as 'amdgpu-hsaco', "
           "'spirv', or 'wasm-binary'. Omit this to "
-          "select the canonical format for the inferred product and target.");
+          "select the canonical format for the selected entries and target.");
 IREE_FLAG(string, target, "",
           "Optional compilation target in family:selector form, such as "
           "'amdgpu:gfx11-generic' or 'spirv:vulkan1.3+bda'. Selects the exact "
           "profile for kernel entries or the public/retained functions of a "
           "module and their callees. Authored targets remain compatibility "
           "requirements; target-free source needs no target attributes.");
-IREE_FLAG_LIST(string, root,
-               "Root symbol to materialize before compilation. Repeat for "
-               "multiple roots. Roots must infer one homogeneous product. "
-               "When omitted, the module must have at most one category of "
-               "default entries; mixed categories require explicit roots. "
-               "Command-program roots require the LoomC command-product "
-               "transaction.");
+IREE_FLAG_LIST(
+    string, root,
+    "Root symbol to materialize before compilation. Repeat for "
+    "multiple roots. Roots must have one homogeneous entry category. "
+    "When omitted, the module must have at most one category of "
+    "default entries; mixed categories require explicit roots. "
+    "Command-program roots require the LoomC command-program "
+    "transaction.");
 IREE_FLAG_LIST_NAMED(
     string, exclude_root, "exclude-root",
     "Member of the selected default root set to omit before target "
     "specialization and dependency materialization. Repeat for multiple "
-    "roots. Product inference occurs before exclusions are applied. Cannot "
-    "be combined with --root.");
+    "roots. Entry category inference occurs before exclusions are applied. "
+    "Cannot be combined with --root.");
 IREE_FLAG(string, pipeline, "default",
           "Pass pipeline to run before artifact emission. Use 'default' or "
           "empty for the selected format's default compile pipeline. 'none' "
@@ -815,8 +812,7 @@ int main(int argc, char** argv) {
       "Compiles a Loom module to a runtime artifact.\n"
       "\n"
       "Usage:\n"
-      "  loom-compile [file.loom] --product=kernel "
-      "--format=amdgpu-hsaco "
+      "  loom-compile [file.loom] --format=amdgpu-hsaco "
       "--target=amdgpu:gfx11-generic --output=kernel.hsaco\n"
       "  loom-compile --agents_md\n"
       "\n"
@@ -898,7 +894,6 @@ int main(int argc, char** argv) {
   if (iree_status_is_ok(status)) {
     const loom_compile_request_options_t request_options = {
         .roots = FLAG_root_list(),
-        .product = iree_make_cstring_view(FLAG_product),
         .format = iree_make_cstring_view(FLAG_format),
         .target = iree_make_cstring_view(FLAG_target),
         .excluded_roots = FLAG_exclude_root_list(),

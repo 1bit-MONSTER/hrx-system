@@ -466,7 +466,6 @@ func.def public @other() {
   const iree_string_view_t excluded_roots[] = {IREE_SV("other")};
   loom_compile_request_options_t options = {};
   options.roots = {IREE_ARRAYSIZE(roots), roots};
-  options.product = IREE_SV("module");
   options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   loom_compile_request_t request = {};
@@ -484,7 +483,6 @@ func.def public @entry() {
 )");
   const iree_string_view_t excluded_roots[] = {IREE_SV("missing")};
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("module");
   options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   loom_compile_request_t request = {};
@@ -505,7 +503,6 @@ func.def @private_helper() {
 )");
   const iree_string_view_t excluded_roots[] = {IREE_SV("private_helper")};
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("module");
   options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(excluded_roots), excluded_roots};
   loom_compile_request_t request = {};
@@ -526,7 +523,6 @@ func.def public @entry() {
       IREE_SV("@entry"),
   };
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("module");
   options.format = IREE_SV("DiagnosticFormat123");
   options.excluded_roots = {IREE_ARRAYSIZE(repeated_roots), repeated_roots};
   loom_compile_request_t request = {};
@@ -544,7 +540,6 @@ func.def abi(array_program) @entry() {
 )");
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   loom_compile_request_options_t options = {};
-  options.product = IREE_SV("kernel");
   options.target = IREE_SV("TargetFamily123:Target456");
   loom_compile_request_t rejected_request = {};
   IREE_EXPECT_STATUS_IS(
@@ -553,7 +548,6 @@ func.def abi(array_program) @entry() {
                                    &request_arena_, &rejected_request));
 
   options.roots = {IREE_ARRAYSIZE(roots), roots};
-  options.product = iree_string_view_empty();
   const loom_compile_request_t request = Resolve(module.get(), options);
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
@@ -604,29 +598,6 @@ command.program.def public @Command123() launch() {
   EXPECT_THAT(status.ToString(), HasSubstr("mixed default entry categories"));
 }
 
-TEST_F(CompileRequestTest, ProductConstraintCannotFilterMixedDefaults) {
-  ModulePtr module = Parse(R"(
-kernel.def @Kernel123() {
-  %one = index.constant 1 : index
-  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
-} launch() {
-  kernel.return
-}
-func.def public @Function123() {
-  func.return
-}
-)");
-  loom_compile_request_options_t options = {
-      /*.roots=*/{},
-      /*.product=*/IREE_SV("kernel"),
-  };
-  loom_compile_request_t request = {};
-  iree::Status status(loom_compile_request_resolve(
-      module.get(), &options, &environment_, &request_arena_, &request));
-  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
-  EXPECT_THAT(status.ToString(), HasSubstr("mixed default entry categories"));
-}
-
 TEST_F(CompileRequestTest, RejectsCommandProgramRoots) {
   ModulePtr module = Parse(R"(
 command.program.def public @Command123() launch() {
@@ -646,7 +617,7 @@ command.program.def public @Command123() launch() {
   }
 }
 
-TEST_F(CompileRequestTest, RoutesKernelPipelineThroughProductBoundary) {
+TEST_F(CompileRequestTest, RoutesKernelPipelineByEntryCategory) {
   ModulePtr module = Parse(R"(
 target.generic<reference> @Target789 {
   subgroup_size = 32
@@ -659,10 +630,7 @@ pipeline.def @GenericPipeline() launch() {
 }
 )");
 
-  loom_compile_request_options_t options = {
-      /*.roots=*/{},
-      /*.product=*/IREE_SV("kernel"),
-  };
+  loom_compile_request_options_t options = {};
   loom_compile_request_t request = Resolve(module.get(), options);
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_KERNEL);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
@@ -676,14 +644,13 @@ pipeline.def @GenericPipeline() launch() {
       /*.count=*/IREE_ARRAYSIZE(generic_roots),
       /*.values=*/generic_roots,
   };
-  options.product = iree_string_view_empty();
   options.format = IREE_SV("DiagnosticFormat123");
   request = Resolve(module.get(), options);
   EXPECT_EQ(request.selection.product, LOOM_COMPILE_PRODUCT_MODULE);
   EXPECT_EQ(request.target_emitter, &kDiagnosticEmitter);
 }
 
-TEST_F(CompileRequestTest, RejectsMixedExplicitRootProducts) {
+TEST_F(CompileRequestTest, RejectsMixedExplicitRootCategories) {
   ModulePtr module = Parse(R"(
 kernel.def @Kernel123() {
   %one = index.constant 1 : index
@@ -713,25 +680,7 @@ command.program.def public @Command123() launch() {
                                    &request_arena_, &request));
 }
 
-TEST_F(CompileRequestTest, ProductConstraintCannotReinterpretRoots) {
-  ModulePtr module = ParseKernel(this, true);
-  const iree_string_view_t roots[] = {IREE_SV("@Kernel123")};
-  const loom_compile_request_options_t options = {
-      /*.roots=*/
-      {
-          /*.count=*/IREE_ARRAYSIZE(roots),
-          /*.values=*/roots,
-      },
-      /*.product=*/IREE_SV("module"),
-  };
-  loom_compile_request_t request = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      loom_compile_request_resolve(module.get(), &options, &environment_,
-                                   &request_arena_, &request));
-}
-
-TEST_F(CompileRequestTest, MatchingProductConstraintPreservesDefaultRoots) {
+TEST_F(CompileRequestTest, ExplicitTargetPreservesDefaultRoots) {
   ModulePtr module = Parse(R"(
 kernel.def @Kernel123() {
   %one = index.constant 1 : index
@@ -742,7 +691,6 @@ kernel.def @Kernel123() {
 )");
   const loom_compile_request_options_t options = {
       /*.roots=*/{},
-      /*.product=*/IREE_SV("kernel"),
       /*.format=*/{},
       /*.target=*/IREE_SV("TargetFamily123:Target456"),
   };
@@ -754,19 +702,6 @@ kernel.def @Kernel123() {
   ASSERT_EQ(request.selection.roots.count, 1u);
   EXPECT_TRUE(iree_string_view_equal(request.selection.roots.values[0],
                                      IREE_SV("Kernel123")));
-}
-
-TEST_F(CompileRequestTest, RejectsUnknownProduct) {
-  ModulePtr module = ParseKernel(this, true);
-  const loom_compile_request_options_t options = {
-      /*.roots=*/{},
-      /*.product=*/IREE_SV("Product123"),
-  };
-  loom_compile_request_t request = {};
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_INVALID_ARGUMENT,
-      loom_compile_request_resolve(module.get(), &options, &environment_,
-                                   &request_arena_, &request));
 }
 
 TEST_F(CompileRequestTest, ModuleFormatSelection) {
@@ -831,7 +766,6 @@ kernel.def @Untargeted() {
 )");
   const loom_compile_request_options_t options = {
       /*.roots=*/{},
-      /*.product=*/IREE_SV("kernel"),
       /*.format=*/{},
       /*.target=*/IREE_SV("TargetFamily123:Target456"),
   };
@@ -893,11 +827,10 @@ TEST_F(CompileRequestTest, ExplicitFormatSelectsNoncanonicalAlternative) {
   EXPECT_EQ(request.target_emitter, &kAlternateEmitter);
 }
 
-TEST_F(CompileRequestTest, DiagnosticFormatCanInspectKernelProduct) {
+TEST_F(CompileRequestTest, DiagnosticFormatCanInspectKernelEntries) {
   ModulePtr module = ParseKernel(this, true);
   const loom_compile_request_options_t options = {
       /*.roots=*/{},
-      /*.product=*/IREE_SV("kernel"),
       /*.format=*/IREE_SV("DiagnosticFormat123"),
   };
   loom_compile_request_t request = {};
