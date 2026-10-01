@@ -44,7 +44,9 @@ TEST(KfdTargetUserQueueTest, KeepsSupportedPlansDense) {
 
   EXPECT_EQ(plans.values[2].family.format_features,
             AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
-                AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR);
+                AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR |
+                AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+                AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z);
   EXPECT_EQ(plans.values[2].family.roles,
             AMDF_QUEUE_ROLE_TRANSFER | AMDF_QUEUE_ROLE_CACHE_CONTROL);
   EXPECT_EQ(plans.values[2].family.cache_operations,
@@ -160,13 +162,17 @@ TEST(KfdTargetUserQueueTest, SdmaFormatsFollowExactIndependentEngineIp) {
   };
   constexpr amdf_queue_format_features_t kClassic =
       AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
-      AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR;
+      AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR |
+      AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+      AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z;
   constexpr amdf_queue_format_features_t kSystem =
-      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM;
+      AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
+      AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+      AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE;
   constexpr Case kCases[] = {
-      {{4, 4, 2, true}, 0},
-      {{4, 4, 4, true}, 0},
-      {{4, 4, 5, true}, 0},
+      {{4, 4, 2, true}, AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT},
+      {{4, 4, 4, true}, AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT},
+      {{4, 4, 5, true}, AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT},
       {{6, 0, 0, true}, kClassic},
       {{6, 0, 1, true}, kClassic},
       {{6, 0, 2, true}, kClassic},

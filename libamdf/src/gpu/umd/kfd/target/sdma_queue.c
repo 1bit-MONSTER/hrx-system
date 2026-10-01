@@ -15,7 +15,9 @@ enum {
 };
 
 // Linux's discovery selects these exact SDMA implementations independently
-// of compute IP. ROCr's fence/scope builders define their user packet fields.
+// of compute IP. ROCr's fence/scope builders and PAL/Mesa's rectangular-copy
+// builders define their user packet fields. Classic Z widens before the
+// separate SDMA7 pitch/coordinate layout change.
 static bool amdf_gpu_kfd_sdma_format_features(
     const amdf_gpu_kfd_ip_version_t* ip,
     amdf_queue_format_features_t* out_features) {
@@ -24,24 +26,30 @@ static bool amdf_gpu_kfd_sdma_format_features(
   }
   if (ip->major == 4 && ip->minor == 4 &&
       (ip->revision == 2 || ip->revision == 4 || ip->revision == 5)) {
-    *out_features = 0;
+    *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT;
     return true;
   }
   if (ip->major == 6 && ((ip->minor == 0 && ip->revision <= 3) ||
                          (ip->minor == 1 && ip->revision <= 4) ||
                          (ip->minor == 4 && ip->revision == 0))) {
     *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE |
-                    AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR;
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z;
     return true;
   }
   if (ip->major == 7 && ip->minor == 0 && ip->revision <= 1) {
     *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-                    AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR;
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_USER_GCR |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE;
     return true;
   }
   if (ip->major == 7 && ip->minor == 1 && ip->revision == 0) {
     *out_features = AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM |
-                    AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE;
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_MEMORY_SCOPE |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT |
+                    AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE;
     return true;
   }
   return false;

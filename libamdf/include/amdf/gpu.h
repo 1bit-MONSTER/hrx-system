@@ -195,7 +195,7 @@ enum amdf_gpu_pm4_format_feature_bits_e {
 /// 64-bit doorbell. An acquire load of a read index at least that value proves
 /// the corresponding ring bytes are no longer in use by the queue. Packets
 /// are dword-aligned and never straddle ring wrap. NOP dwords have value zero.
-/// Optional fence and memory-scope encodings use the reported format features.
+/// Optional commands and field layouts use the reported format features.
 /// Kernel publication accepts an immutable dword-aligned command stream.
 #define AMDF_GPU_SDMA_QUEUE_FORMAT_VERSION_1 1u
 
@@ -214,10 +214,13 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   /// callers leave the optional memory-type and system bits zero.
   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_SYSTEM = UINT64_C(1) << 1,
   /// COPY_LINEAR source/destination scope fields occupy bits 26/18 of dword 2;
+  /// COPY_LINEAR_RECT uses those positions in dword 12 when its WIDE layout
+  /// is reported. Each scope field is two bits wide.
   /// FENCE, CONSTANT_FILL and TIMESTAMP_GET_GLOBAL scope occupies header bits
   /// 25:24; POLL_REGMEM uses dword 5 bits 29:28. Scope 3 denotes the system.
-  /// NPD (no prior dependency) occupies COPY_LINEAR header bit 28 and
-  /// CONSTANT_FILL header bit 29. Field availability does not establish
+  /// NPD (no prior dependency) occupies COPY_LINEAR/COPY_LINEAR_RECT header
+  /// bit 28 and CONSTANT_FILL header bit 29. Field availability does not
+  /// establish
   /// dependencies or completion. Without this feature scope and NPD are zero.
   /// Data commands using system scope realize the site's payload visibility
   /// without a separate stream cache operation. Execution dependencies and
@@ -227,6 +230,39 @@ enum amdf_gpu_sdma_format_feature_bits_e {
   /// Memory type 3 denotes uncached access; callers leave the system bit at
   /// bit 20 zero. This feature and FENCE_SYSTEM are mutually exclusive.
   AMDF_GPU_SDMA_FORMAT_FEATURE_FENCE_MEMORY_TYPE = UINT64_C(1) << 3,
+  /// Thirteen-dword COPY_LINEAR_RECT, opcode 1 and suboperation 4. Header
+  /// bits 31:29 encode log2(element bytes), from 0 through 4. Source and
+  /// destination byte addresses occupy dwords 1:2 and 6:7, low word first.
+  /// Bases and byte pitches are dword-aligned. X coordinates, width, row
+  /// pitch and slice pitch count elements; Y/height count rows and Z/depth
+  /// count slices. Coordinates are direct; positive pitches and extents
+  /// are encoded minus one. Source and destination regions must not overlap.
+  ///
+  /// The classic layout packs source/destination X in bits 13:0 and Y in
+  /// bits 29:16 of dwords 3/8. Dwords 4/9 contain Z in bits 10:0 and row
+  /// pitch in bits 31:13. Dwords 5/10 contain slice pitch in bits 27:0.
+  /// Dword 11 contains width in bits 13:0 and height in bits 29:16; dword 12
+  /// contains depth in bits 10:0. EXTENDED_Z and WIDE modify these fields.
+  /// Other fields are zero unless separately admitted by MEMORY_SCOPE.
+  ///
+  /// Each side addresses base + element_bytes * (x + y * row_pitch +
+  /// z * slice_pitch). The caller owns every selected row and retains all
+  /// accessed backing through completion. Cross-queue producer dependencies,
+  /// the memory-site cache contract and explicit completion still apply.
+  AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT = UINT64_C(1) << 4,
+  /// Classic COPY_LINEAR_RECT with 13-bit Z coordinates and depth-minus-one
+  /// in dwords 4, 9 and 12 bits 12:0. Requires COPY_LINEAR_RECT and is mutually
+  /// exclusive with COPY_LINEAR_RECT_WIDE. All other classic fields remain.
+  AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_EXTENDED_Z = UINT64_C(1) << 5,
+  /// Wide COPY_LINEAR_RECT geometry. Dwords 3/8 contain 16-bit X and Y at
+  /// bits 15:0 and 31:16. Dwords 4/9 contain 14-bit Z at bits 13:0 and
+  /// 16-bit row pitch at bits 31:16. Slice pitch uses all 32 bits of dwords
+  /// 5/10, representing positive counts through 2^32 elements. Dword 11
+  /// contains 16-bit width and height at bits 15:0 and 31:16; dword 12 has
+  /// 14-bit depth at bits 13:0. Addresses, units and minus-one encoding are
+  /// unchanged. Requires COPY_LINEAR_RECT and is mutually exclusive with
+  /// COPY_LINEAR_RECT_EXTENDED_Z. MEMORY_SCOPE independently admits scopes.
+  AMDF_GPU_SDMA_FORMAT_FEATURE_COPY_LINEAR_RECT_WIDE = UINT64_C(1) << 6,
 };
 
 /// First directly published AQL queue format.
