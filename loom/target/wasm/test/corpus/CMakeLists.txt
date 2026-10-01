@@ -152,7 +152,7 @@ loom_corpus_build(
     "loom::target::wasm::simd128"
     "memory/buffer/boundaries.loom"
     "@adjacent_half_snapshot"
-    "WASM/001"
+    "WASM/005"
     "loom::target::wasm::simd128"
     "memory/buffer/boundaries.loom"
     "@captured_lane"
@@ -612,10 +612,6 @@ loom_corpus_build(
     "loom::target::wasm::simd128"
     "numeric/integer/bitfield.loom"
     "@bitfield_predicate"
-    "WASM/001"
-    "loom::target::wasm::simd128"
-    "numeric/integer/bitfield.loom"
-    "@bitfield_widen"
     "WASM/001"
     "loom::target::wasm::simd128"
     "numeric/integer/boundaries.loom"
@@ -1083,6 +1079,15 @@ loom_test_module(
 )
 
 # narrow_widening_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
+
+loom_test_module(
+  NAME
+    narrow_float_sign_test_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/sign.loom"
+)
+
+# narrow_float_sign_test_execute_wasm_hosted_test uses the Bazel execution runner //loom/src/loom/tools/iree-test-loom:iree-test-loom-wasi; no CMake execution target is available.
 
 loom_test_module(
   NAME

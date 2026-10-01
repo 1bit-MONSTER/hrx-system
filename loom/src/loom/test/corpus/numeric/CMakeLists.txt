@@ -40,6 +40,7 @@ loom_corpus_sources(
     "float/scalar_float64.loom"
     "float/selection.loom"
     "float/selectors.loom"
+    "float/sign.loom"
     "float/turns.loom"
     "integer/arithmetic.loom"
     "integer/bitfield.loom"

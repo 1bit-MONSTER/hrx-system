@@ -87,6 +87,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/float/half_extrema.loom",
     "numeric/float/scalar_f32.loom",
     "numeric/float/scalar_float64.loom",
+    "numeric/float/sign.loom",
     "numeric/integer/scalar_observations.loom",
     "numeric/integer/widening.loom",
     "numeric/predicate/lanes.loom",
