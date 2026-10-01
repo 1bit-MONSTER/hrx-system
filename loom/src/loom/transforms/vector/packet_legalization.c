@@ -1772,7 +1772,7 @@ static iree_status_t loom_vector_packet_static_reduce(
 }
 
 static iree_status_t loom_vector_packet_erase_dead_sources(
-    loom_vector_packetization_t* packetization) {
+    loom_vector_packetization_t* packetization, const loom_op_t* excluded_op) {
   loom_rewriter_t* rewriter = packetization->context->rewriter;
   for (uint32_t i = packetization->value_count; i > 0; --i) {
     const loom_vector_packetized_value_t* packetized_value =
@@ -1783,7 +1783,7 @@ static iree_status_t loom_vector_packet_erase_dead_sources(
       continue;
     }
     loom_op_t* op = loom_value_def_op(value);
-    if (op == NULL) {
+    if (op == NULL || op == excluded_op) {
       continue;
     }
     bool erased = false;
@@ -1891,6 +1891,102 @@ iree_status_t loom_vector_packet_legalize_elementwise(
       rewriter, op, &replacement, 1, value_checkpoint));
   IREE_RETURN_IF_ERROR(
       loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_packet_legalize_decomposable_graph(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    const loom_vector_packet_policy_t* policy, bool* out_rewritten) {
+  *out_rewritten = false;
+
+  if (op->result_count != 1 ||
+      !iree_all_bits_set(loom_op_effective_traits(context->module, op),
+                         LOOM_TRAIT_DECOMPOSABLE)) {
+    return iree_ok_status();
+  }
+  const loom_value_id_t source = loom_op_const_results(op)[0];
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, source);
+  loom_vector_packet_shape_t shape = {0};
+  if (!loom_vector_packet_shape_from_type(policy, result_type, &shape)) {
+    const loom_value_id_t* operands = loom_op_const_operands(op);
+    for (uint16_t i = 0; i < op->operand_count; ++i) {
+      const loom_type_t operand_type =
+          loom_module_value_type(context->module, operands[i]);
+      if (loom_vector_packet_shape_from_type(policy, operand_type, &shape)) {
+        break;
+      }
+    }
+    if (shape.lane_count == 0) {
+      return iree_ok_status();
+    }
+  }
+  if (!loom_vector_packet_shape_constrain(policy, result_type, &shape)) {
+    return iree_ok_status();
+  }
+
+  loom_vector_packetization_t packetization = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_vector_packetization_initialize(context, policy, &packetization));
+  packetization.select_captured_values = true;
+  packetization.captured_value_location = op->location;
+  bool producer_selected = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_select_value_shape(
+      &packetization, source, &shape, &producer_selected));
+  if (!producer_selected) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_vector_packet_classify_memory_loads(&packetization, op));
+  if (!loom_vector_packet_can_materialize(&packetization, &shape)) {
+    return iree_ok_status();
+  }
+  bool source_reads_preserved = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_preserve_memory_loads(
+      &packetization, &shape, &source_reads_preserved));
+  if (source_reads_preserved) {
+    *out_rewritten = true;
+    return iree_ok_status();
+  }
+  if (!loom_vector_packet_static_expansion_is_bounded(&packetization, &shape)) {
+    return iree_ok_status();
+  }
+
+  loom_value_id_t* packets = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->arena, shape.chunk_count, sizeof(*packets), (void**)&packets));
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  for (uint32_t chunk_index = 0; chunk_index < shape.chunk_count;
+       ++chunk_index) {
+    const uint32_t lane_offset = chunk_index * shape.chunk_lane_count;
+    const loom_vector_packet_slice_t slice = {
+        .dynamic_lane_offset = LOOM_VALUE_ID_INVALID,
+        .static_lane_offset = lane_offset,
+        .lane_count =
+            iree_min(shape.lane_count - lane_offset, shape.chunk_lane_count),
+    };
+    loom_vector_packetized_value_t* packetized_result = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_packet_materialize(
+        &packetization, source, &slice, &packetized_result));
+    packets[chunk_index] = packetized_result->packet;
+  }
+
+  loom_op_t* concat_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_concat_build(builder, /*axis=*/0, packets,
+                                                shape.chunk_count, result_type,
+                                                op->location, &concat_op));
+  const loom_value_id_t replacement = loom_vector_concat_result(concat_op);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, value_checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  IREE_RETURN_IF_ERROR(
+      loom_vector_packet_erase_dead_sources(&packetization, op));
   *out_rewritten = true;
   return iree_ok_status();
 }
@@ -2070,7 +2166,8 @@ iree_status_t loom_vector_packet_legalize_table_lookup(
   IREE_RETURN_IF_ERROR(
       loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
   if (producer_selected) {
-    IREE_RETURN_IF_ERROR(loom_vector_packet_erase_dead_sources(&packetization));
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_erase_dead_sources(&packetization, NULL));
   }
   *out_rewritten = true;
   return iree_ok_status();
@@ -2178,7 +2275,8 @@ iree_status_t loom_vector_packet_legalize_store(
     IREE_RETURN_IF_ERROR(loom_vector_packet_static_store(
         &packetization, &store_footprint, &shape, store_cache_policy, op));
     IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, op));
-    IREE_RETURN_IF_ERROR(loom_vector_packet_erase_dead_sources(&packetization));
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_erase_dead_sources(&packetization, NULL));
     *out_rewritten = true;
     return iree_ok_status();
   }
@@ -2190,7 +2288,8 @@ iree_status_t loom_vector_packet_legalize_store(
     IREE_RETURN_IF_ERROR(loom_vector_packet_staged_store(
         &packetization, &store_footprint, &shape, store_cache_policy, op));
     IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, op));
-    IREE_RETURN_IF_ERROR(loom_vector_packet_erase_dead_sources(&packetization));
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_erase_dead_sources(&packetization, NULL));
     *out_rewritten = true;
     return iree_ok_status();
   }
@@ -2251,7 +2350,8 @@ iree_status_t loom_vector_packet_legalize_store(
   }
 
   IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, op));
-  IREE_RETURN_IF_ERROR(loom_vector_packet_erase_dead_sources(&packetization));
+  IREE_RETURN_IF_ERROR(
+      loom_vector_packet_erase_dead_sources(&packetization, NULL));
   *out_rewritten = true;
   return iree_ok_status();
 }
@@ -2314,7 +2414,8 @@ iree_status_t loom_vector_packet_legalize_reduce(
         rewriter, op, &accumulator, 1, value_checkpoint));
     IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
         rewriter, op, &accumulator, 1));
-    IREE_RETURN_IF_ERROR(loom_vector_packet_erase_dead_sources(&packetization));
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_erase_dead_sources(&packetization, NULL));
     *out_result = LOOM_VECTOR_PACKET_REDUCE_RESULT_REWRITTEN;
     return iree_ok_status();
   }
@@ -2393,7 +2494,8 @@ iree_status_t loom_vector_packet_legalize_reduce(
       rewriter, op, &accumulator, 1, value_checkpoint));
   IREE_RETURN_IF_ERROR(
       loom_rewriter_replace_all_uses_and_erase(rewriter, op, &accumulator, 1));
-  IREE_RETURN_IF_ERROR(loom_vector_packet_erase_dead_sources(&packetization));
+  IREE_RETURN_IF_ERROR(
+      loom_vector_packet_erase_dead_sources(&packetization, NULL));
   *out_result = LOOM_VECTOR_PACKET_REDUCE_RESULT_REWRITTEN;
   return iree_ok_status();
 }
