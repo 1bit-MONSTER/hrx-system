@@ -85,6 +85,7 @@ _KERNEL_SOURCES = [
     "memory/view/strided_recurrence.loom",
     "memory/view/subview.loom",
     "memory/view/window_walk.loom",
+    "numeric/conversion/integer_widths.loom",
     "numeric/conversion/packed_integer_float.loom",
     "numeric/conversion/packed_integer_float8.loom",
     "numeric/float/approximate_extended.loom",

@@ -19,6 +19,7 @@ loom_corpus_sources(
     "conversion/conversion.loom"
     "conversion/f32_narrowing.loom"
     "conversion/integer_float8.loom"
+    "conversion/integer_widths.loom"
     "conversion/narrow.loom"
     "conversion/narrow_arithmetic.loom"
     "conversion/narrow_integer_float.loom"
