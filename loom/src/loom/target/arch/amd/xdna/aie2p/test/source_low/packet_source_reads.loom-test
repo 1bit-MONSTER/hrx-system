@@ -41,29 +41,20 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @volatile_reduce_i
   %source_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %16 = vlda.512.i32x16.volatile<volatile> %source_view, 0
   %17 = vlda.512.i32x16.volatile<volatile> %source_view, 64
-  %18 = mova.i32 11
-  %19 = vshuffle %16, %16, %18
-  %20 = vadd.32 %16, %19
-  %21 = mova.i32 9
-  %22 = vshuffle %20, %20, %21
-  %23 = vadd.32 %20, %22
-  %24 = mova.i32 7
-  %25 = vshuffle %23, %23, %24
-  %26 = vadd.32 %23, %25
-  %27 = mova.i32 5
-  %28 = vshuffle %26, %26, %27
-  %29 = vadd.32 %26, %28
-  %30 = vextract.32.imm %29, 0
-  %32 = vshuffle %17, %17, %18
-  %33 = vadd.32 %17, %32
-  %35 = vshuffle %33, %33, %21
-  %36 = vadd.32 %33, %35
-  %38 = vshuffle %36, %36, %24
-  %39 = vadd.32 %36, %38
-  %41 = vshuffle %39, %39, %27
-  %42 = vadd.32 %39, %41
-  %43 = vextract.32.imm %42, 0
-  %sum = add.rr %30, %43
+  %18 = vadd.32 %16, %17
+  %19 = mova.i32 11
+  %20 = vshuffle %18, %18, %19
+  %21 = vadd.32 %18, %20
+  %22 = mova.i32 9
+  %23 = vshuffle %21, %21, %22
+  %24 = vadd.32 %21, %23
+  %25 = mova.i32 7
+  %26 = vshuffle %24, %24, %25
+  %27 = vadd.32 %24, %26
+  %28 = mova.i32 5
+  %29 = vshuffle %27, %27, %28
+  %30 = vadd.32 %27, %29
+  %sum = vextract.32.imm %30, 0
   return %sum
 }
 
