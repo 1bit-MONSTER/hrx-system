@@ -32,13 +32,15 @@ IREE_AMDGPU_STATIC_ASSERT(
 // the CP.
 //
 // |dispatch_packet| and |kernarg_ptr| must point to reserved queue storage.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 // The caller owns completion-signal assignment and header commit.
 void iree_hal_amdgpu_device_timestamp_emplace_signal_initialization(
     const iree_hal_amdgpu_device_kernel_args_t* IREE_AMDGPU_RESTRICT
         signal_initialization_kernel_args,
     iree_amd_signal_t* signals, uint32_t signal_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Returns the byte offset of the harvest source table after the kernel args.
 static inline size_t
@@ -71,6 +73,8 @@ iree_hal_amdgpu_device_timestamp_dispatch_harvest_sources(
 // dispatch completion signals into fixed binary timestamp records.
 //
 // |dispatch_packet| and |kernarg_ptr| must point to reserved queue storage.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 // The caller owns completion-signal assignment and header commit.
 iree_hal_amdgpu_dispatch_timestamp_harvest_source_t*
 iree_hal_amdgpu_device_timestamp_emplace_dispatch_harvest(
@@ -78,7 +82,7 @@ iree_hal_amdgpu_device_timestamp_emplace_dispatch_harvest(
         harvest_kernel_args,
     uint32_t source_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 // Kernel arguments for the queue timestamp capture builtin.
 typedef struct iree_hal_amdgpu_queue_timestamp_capture_args_t {
@@ -94,6 +98,8 @@ IREE_AMDGPU_STATIC_ASSERT(
 // timestamp into |target| from a single work-item.
 //
 // |dispatch_packet| and |kernarg_ptr| must point to reserved queue storage.
+// The packet's first word is preserved; |out_setup| receives its setup bits in
+// private storage for the caller's atomic publication.
 // The caller owns completion-signal assignment and header commit, and must
 // give the packet a release scope covering whoever reads |target|.
 void iree_hal_amdgpu_device_timestamp_emplace_queue_capture(
@@ -101,7 +107,7 @@ void iree_hal_amdgpu_device_timestamp_emplace_queue_capture(
         capture_kernel_args,
     iree_amdgpu_device_tick_t* target,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr);
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup);
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)
 

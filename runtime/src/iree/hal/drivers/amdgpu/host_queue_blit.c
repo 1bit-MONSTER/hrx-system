@@ -381,7 +381,8 @@ static iree_status_t iree_hal_amdgpu_host_queue_prepare_fill_dispatch(
   memset(&kernargs, 0, sizeof(kernargs));
   if (IREE_UNLIKELY(!iree_hal_amdgpu_device_buffer_fill_emplace(
           queue->transfer_context, &dispatch_packet, target_device_ptr, length,
-          pattern_bits, (uint8_t)pattern_length, &kernargs))) {
+          pattern_bits, (uint8_t)pattern_length, &kernargs,
+          &dispatch_packet.setup))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported fill dispatch shape (length=%" PRIdsz
                             ", pattern_length=%" PRIhsz ")",
@@ -591,7 +592,7 @@ static iree_status_t iree_hal_amdgpu_host_queue_prepare_copy_dispatch(
   memset(&kernargs, 0, sizeof(kernargs));
   if (IREE_UNLIKELY(!iree_hal_amdgpu_device_buffer_copy_emplace(
           queue->transfer_context, &dispatch_packet, source_device_ptr,
-          target_device_ptr, length, &kernargs))) {
+          target_device_ptr, length, &kernargs, &dispatch_packet.setup))) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "unsupported copy dispatch shape (source_offset=%" PRIdsz
@@ -989,7 +990,7 @@ iree_status_t iree_hal_amdgpu_host_queue_submit_update_with_action(
           queue->transfer_context, &dispatch_packet,
           (const void*)(uintptr_t)
               IREE_HAL_AMDGPU_DEVICE_BUFFER_COPY_STAGED_SOURCE_ALIGNMENT,
-          target_device_ptr, length, &kernargs))) {
+          target_device_ptr, length, &kernargs, &dispatch_packet.setup))) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "unsupported update dispatch shape (target_offset=%" PRIdsz

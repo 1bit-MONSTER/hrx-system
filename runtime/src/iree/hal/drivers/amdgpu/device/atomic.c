@@ -87,11 +87,12 @@ iree_hal_amdgpu_device_atomic_rmw_kernel(
 
 static void iree_hal_amdgpu_device_atomic_emplace_dispatch(
     const iree_hal_amdgpu_device_kernel_args_t* kernel_args,
-    iree_hsa_kernel_dispatch_packet_t* dispatch_packet, void* kernarg_ptr) {
+    iree_hsa_kernel_dispatch_packet_t* dispatch_packet, void* kernarg_ptr,
+    uint16_t* out_setup) {
   const uint32_t workgroup_count[3] = {1, 1, 1};
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       kernel_args, workgroup_count, /*dynamic_workgroup_local_memory=*/0,
-      dispatch_packet, kernarg_ptr);
+      dispatch_packet, kernarg_ptr, out_setup);
 }
 
 void iree_hal_amdgpu_device_atomic_wait_initialize_kernargs(
@@ -128,39 +129,39 @@ void iree_hal_amdgpu_device_atomic_wait_emplace(
     const iree_hal_amdgpu_device_kernels_t* IREE_AMDGPU_RESTRICT kernels,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     const void* target_ptr, iree_hal_atomic_wait_params_t params,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_atomic_wait_initialize_kernargs(
       target_ptr, params,
       (iree_hal_amdgpu_device_atomic_wait_kernargs_t*)kernarg_ptr);
   iree_hal_amdgpu_device_atomic_emplace_dispatch(
       iree_hal_amdgpu_device_atomic_wait_kernel(kernels, params.width),
-      dispatch_packet, kernarg_ptr);
+      dispatch_packet, kernarg_ptr, out_setup);
 }
 
 void iree_hal_amdgpu_device_atomic_store_emplace(
     const iree_hal_amdgpu_device_kernels_t* IREE_AMDGPU_RESTRICT kernels,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     void* target_ptr, iree_hal_atomic_store_params_t params,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_atomic_store_initialize_kernargs(
       target_ptr, params,
       (iree_hal_amdgpu_device_atomic_store_kernargs_t*)kernarg_ptr);
   iree_hal_amdgpu_device_atomic_emplace_dispatch(
       iree_hal_amdgpu_device_atomic_store_kernel(kernels, params.width),
-      dispatch_packet, kernarg_ptr);
+      dispatch_packet, kernarg_ptr, out_setup);
 }
 
 void iree_hal_amdgpu_device_atomic_rmw_emplace(
     const iree_hal_amdgpu_device_kernels_t* IREE_AMDGPU_RESTRICT kernels,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     void* target_ptr, iree_hal_atomic_rmw_params_t params,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_atomic_rmw_initialize_kernargs(
       target_ptr, params,
       (iree_hal_amdgpu_device_atomic_rmw_kernargs_t*)kernarg_ptr);
   iree_hal_amdgpu_device_atomic_emplace_dispatch(
       iree_hal_amdgpu_device_atomic_rmw_kernel(kernels, params.width),
-      dispatch_packet, kernarg_ptr);
+      dispatch_packet, kernarg_ptr, out_setup);
 }
 
 #endif  // !IREE_AMDGPU_TARGET_DEVICE

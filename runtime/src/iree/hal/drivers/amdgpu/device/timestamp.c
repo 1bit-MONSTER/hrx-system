@@ -36,7 +36,7 @@ void iree_hal_amdgpu_device_timestamp_emplace_signal_initialization(
         signal_initialization_kernel_args,
     iree_amd_signal_t* signals, uint32_t signal_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_dispatch_timestamp_signal_initialize_args_t*
       IREE_AMDGPU_RESTRICT kernargs =
           (iree_hal_amdgpu_dispatch_timestamp_signal_initialize_args_t*)
@@ -51,7 +51,8 @@ void iree_hal_amdgpu_device_timestamp_emplace_signal_initialization(
       (uint32_t)IREE_AMDGPU_CEIL_DIV(signal_count, workgroup_size), 1, 1};
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       signal_initialization_kernel_args, workgroup_count,
-      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr);
+      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr,
+      out_setup);
 }
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)
@@ -80,7 +81,7 @@ iree_hal_amdgpu_device_timestamp_emplace_dispatch_harvest(
         harvest_kernel_args,
     uint32_t source_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_dispatch_timestamp_harvest_args_t* IREE_AMDGPU_RESTRICT
       kernargs =
           (iree_hal_amdgpu_dispatch_timestamp_harvest_args_t*)kernarg_ptr;
@@ -97,7 +98,8 @@ iree_hal_amdgpu_device_timestamp_emplace_dispatch_harvest(
       1};
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       harvest_kernel_args, harvest_workgroup_count,
-      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr);
+      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr,
+      out_setup);
   return sources;
 }
 
@@ -132,7 +134,7 @@ void iree_hal_amdgpu_device_timestamp_emplace_queue_capture(
         capture_kernel_args,
     iree_amdgpu_device_tick_t* target,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_queue_timestamp_capture_args_t* IREE_AMDGPU_RESTRICT
       kernargs = (iree_hal_amdgpu_queue_timestamp_capture_args_t*)kernarg_ptr;
   kernargs->target = target;
@@ -142,7 +144,8 @@ void iree_hal_amdgpu_device_timestamp_emplace_queue_capture(
   const uint32_t workgroup_count[3] = {1, 1, 1};
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       capture_kernel_args, workgroup_count,
-      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr);
+      /*dynamic_workgroup_local_memory=*/0, dispatch_packet, kernarg_ptr,
+      out_setup);
 }
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)

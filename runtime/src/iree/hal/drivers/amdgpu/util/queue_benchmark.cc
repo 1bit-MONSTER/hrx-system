@@ -1680,7 +1680,8 @@ class QueueBenchmark : public benchmark::Fixture {
                 sizeof(pre_resolved_dispatch_packet_template_));
     iree_hal_amdgpu_device_dispatch_emplace_packet(
         kernel_args, workgroup_count, dynamic_workgroup_local_memory,
-        &pre_resolved_dispatch_packet_template_, /*kernarg_ptr=*/nullptr);
+        &pre_resolved_dispatch_packet_template_, /*kernarg_ptr=*/nullptr,
+        &pre_resolved_dispatch_packet_template_.setup);
 
     pre_resolved_dispatch_kernargs_ = kernargs;
     pre_resolved_dispatch_kernarg_length_ = kernarg_length;

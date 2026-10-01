@@ -450,8 +450,9 @@ static void iree_hal_amdgpu_blit_emplace_dispatch(
     const iree_hal_amdgpu_device_kernel_args_t* IREE_AMDGPU_RESTRICT
         kernel_args,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    const uint32_t grid_size_x, const uint32_t grid_size_y, void* kernarg_ptr) {
-  dispatch_packet->setup = kernel_args->setup;
+    const uint32_t grid_size_x, const uint32_t grid_size_y, void* kernarg_ptr,
+    uint16_t* out_setup) {
+  *out_setup = kernel_args->setup;
   dispatch_packet->workgroup_size[0] = context->workgroup_size_x;
   dispatch_packet->workgroup_size[1] = 1;
   dispatch_packet->workgroup_size[2] = 1;
@@ -623,7 +624,8 @@ void iree_hal_amdgpu_device_buffer_fill_plan_emplace(
         context,
     const iree_hal_amdgpu_device_buffer_fill_plan_t* IREE_AMDGPU_RESTRICT plan,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* target_ptr, void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* target_ptr, void* IREE_AMDGPU_RESTRICT kernarg_ptr,
+    uint16_t* out_setup) {
   iree_hal_amdgpu_device_buffer_fill_plan_initialize_kernargs(
       plan, target_ptr,
       (iree_hal_amdgpu_device_buffer_fill_kernargs_t*)kernarg_ptr);
@@ -631,7 +633,8 @@ void iree_hal_amdgpu_device_buffer_fill_plan_emplace(
   iree_hal_amdgpu_blit_emplace_dispatch(
       context,
       iree_hal_amdgpu_device_buffer_transfer_kernel_args(context, plan->kernel),
-      dispatch_packet, plan->grid_size[0], plan->grid_size[1], kernarg_ptr);
+      dispatch_packet, plan->grid_size[0], plan->grid_size[1], kernarg_ptr,
+      out_setup);
 }
 
 void iree_hal_amdgpu_device_buffer_fill_plan_initialize_kernargs(
@@ -650,7 +653,7 @@ bool iree_hal_amdgpu_device_buffer_fill_emplace(
         context,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     void* target_ptr, uint64_t length, uint64_t pattern, uint8_t pattern_length,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_buffer_fill_plan_t plan;
   if (IREE_AMDGPU_UNLIKELY(!iree_hal_amdgpu_device_buffer_fill_plan(
           context,
@@ -659,7 +662,7 @@ bool iree_hal_amdgpu_device_buffer_fill_emplace(
     return false;
   }
   iree_hal_amdgpu_device_buffer_fill_plan_emplace(
-      context, &plan, dispatch_packet, target_ptr, kernarg_ptr);
+      context, &plan, dispatch_packet, target_ptr, kernarg_ptr, out_setup);
   return true;
 }
 
@@ -983,7 +986,7 @@ void iree_hal_amdgpu_device_buffer_copy_plan_emplace(
     const iree_hal_amdgpu_device_buffer_copy_plan_t* IREE_AMDGPU_RESTRICT plan,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     const void* source_ptr, void* target_ptr,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_buffer_copy_plan_initialize_kernargs(
       plan, source_ptr, target_ptr,
       (iree_hal_amdgpu_device_buffer_copy_kernargs_t*)kernarg_ptr);
@@ -991,7 +994,8 @@ void iree_hal_amdgpu_device_buffer_copy_plan_emplace(
   iree_hal_amdgpu_blit_emplace_dispatch(
       context,
       iree_hal_amdgpu_device_buffer_transfer_kernel_args(context, plan->kernel),
-      dispatch_packet, plan->grid_size[0], plan->grid_size[1], kernarg_ptr);
+      dispatch_packet, plan->grid_size[0], plan->grid_size[1], kernarg_ptr,
+      out_setup);
 }
 
 void iree_hal_amdgpu_device_buffer_copy_plan_initialize_kernargs(
@@ -1011,7 +1015,7 @@ bool iree_hal_amdgpu_device_buffer_copy_emplace(
         context,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
     const void* source_ptr, void* target_ptr, uint64_t length,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_buffer_copy_plan_t plan;
   if (IREE_AMDGPU_UNLIKELY(!iree_hal_amdgpu_device_buffer_copy_plan(
           context,
@@ -1021,7 +1025,8 @@ bool iree_hal_amdgpu_device_buffer_copy_emplace(
     return false;
   }
   iree_hal_amdgpu_device_buffer_copy_plan_emplace(
-      context, &plan, dispatch_packet, source_ptr, target_ptr, kernarg_ptr);
+      context, &plan, dispatch_packet, source_ptr, target_ptr, kernarg_ptr,
+      out_setup);
   return true;
 }
 

@@ -862,8 +862,8 @@ iree_status_t iree_hal_amdgpu_host_queue_submit_command_buffer_block(
               &queue->transfer_context->kernels
                    ->iree_hal_amdgpu_device_timestamp_harvest_dispatch_records,
               profile_events.event_count, &profile_harvest_packet->dispatch,
-              submission.kernargs.blocks[kernarg_block_count].data);
-      profile_harvest_setup = profile_harvest_packet->dispatch.setup;
+              submission.kernargs.blocks[kernarg_block_count].data,
+              &profile_harvest_setup);
     }
     uint16_t* packet_headers = NULL;
     uint16_t* packet_setups = NULL;

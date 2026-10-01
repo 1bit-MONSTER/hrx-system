@@ -79,12 +79,13 @@ static void SubmitAtomicDispatch(const iree_hal_amdgpu_libhsa_t* libhsa,
   const uint64_t packet_id = iree_hal_amdgpu_aql_ring_reserve(ring, 1);
   iree_hal_amdgpu_aql_packet_t* packet =
       iree_hal_amdgpu_aql_ring_packet(ring, packet_id);
-  emplace(&packet->dispatch);
+  uint16_t setup = 0;
+  emplace(&packet->dispatch, &setup);
   packet->dispatch.completion_signal = completion_signal;
   const uint16_t header = iree_hal_amdgpu_aql_make_header(
       IREE_HSA_PACKET_TYPE_KERNEL_DISPATCH,
       iree_hal_amdgpu_aql_packet_control_barrier_system());
-  iree_hal_amdgpu_aql_ring_commit(packet, header, packet->dispatch.setup);
+  iree_hal_amdgpu_aql_ring_commit(packet, header, setup);
   iree_hal_amdgpu_aql_ring_doorbell(ring, packet_id);
 }
 
@@ -388,10 +389,11 @@ TEST_F(AtomicLiveTest, CompleteKernelMatrix) {
             };
             if (!SubmitAtomicDispatchAndWait(
                     &libhsa, &rings[0], completion_signals[0], &queue_errors[0],
-                    [&](iree_hsa_kernel_dispatch_packet_t* packet) {
+                    [&](iree_hsa_kernel_dispatch_packet_t* packet,
+                        uint16_t* out_setup) {
                       iree_hal_amdgpu_device_atomic_store_emplace(
                           &kernels, packet, target.ptr, params,
-                          memory->kernargs[0]);
+                          memory->kernargs[0], out_setup);
                     })) {
               return false;
             }
@@ -431,10 +433,11 @@ TEST_F(AtomicLiveTest, CompleteKernelMatrix) {
               if (!SubmitAtomicDispatchAndWait(
                       &libhsa, &rings[0], completion_signals[0],
                       &queue_errors[0],
-                      [&](iree_hsa_kernel_dispatch_packet_t* packet) {
+                      [&](iree_hsa_kernel_dispatch_packet_t* packet,
+                          uint16_t* out_setup) {
                         iree_hal_amdgpu_device_atomic_rmw_emplace(
                             &kernels, packet, target.ptr, params,
-                            memory->kernargs[0]);
+                            memory->kernargs[0], out_setup);
                       })) {
                 return false;
               }
@@ -480,10 +483,11 @@ TEST_F(AtomicLiveTest, CompleteKernelMatrix) {
               if (!SubmitAtomicDispatchAndWait(
                       &libhsa, &rings[0], completion_signals[0],
                       &queue_errors[0],
-                      [&](iree_hsa_kernel_dispatch_packet_t* packet) {
+                      [&](iree_hsa_kernel_dispatch_packet_t* packet,
+                          uint16_t* out_setup) {
                         iree_hal_amdgpu_device_atomic_wait_emplace(
                             &kernels, packet, target.ptr, params,
-                            memory->kernargs[0]);
+                            memory->kernargs[0], out_setup);
                       })) {
                 return false;
               }
@@ -506,10 +510,11 @@ TEST_F(AtomicLiveTest, CompleteKernelMatrix) {
             /*.condition=*/IREE_HAL_ATOMIC_WAIT_CONDITION_EQUAL,
         };
         SubmitAtomicDispatch(&libhsa, &rings[0], completion_signals[0],
-                             [&](iree_hsa_kernel_dispatch_packet_t* packet) {
+                             [&](iree_hsa_kernel_dispatch_packet_t* packet,
+                                 uint16_t* out_setup) {
                                iree_hal_amdgpu_device_atomic_wait_emplace(
                                    &kernels, packet, target.ptr, wait_params,
-                                   memory->kernargs[0]);
+                                   memory->kernargs[0], out_setup);
                              });
         const iree_hal_atomic_store_params_t store_params = {
             /*.value=*/1,
@@ -517,10 +522,11 @@ TEST_F(AtomicLiveTest, CompleteKernelMatrix) {
             /*.width=*/width,
         };
         SubmitAtomicDispatch(&libhsa, &rings[1], completion_signals[1],
-                             [&](iree_hsa_kernel_dispatch_packet_t* packet) {
+                             [&](iree_hsa_kernel_dispatch_packet_t* packet,
+                                 uint16_t* out_setup) {
                                iree_hal_amdgpu_device_atomic_store_emplace(
                                    &kernels, packet, target.ptr, store_params,
-                                   memory->kernargs[1]);
+                                   memory->kernargs[1], out_setup);
                              });
         const bool producer_completed = WaitForQueueCompletion(
             &libhsa, completion_signals[1], &queue_errors[1]);

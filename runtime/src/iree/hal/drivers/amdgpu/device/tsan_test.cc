@@ -41,17 +41,23 @@ TEST(TsanTest, QueueInitializeUsesMinimumClearGrid) {
   const iree_hal_amdgpu_tsan_queue_initialize_args_t initialize_args =
       MakeQueueInitializeArgs(/*shadow_size=*/65);
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
+  packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   alignas(16)
       std::array<uint8_t, sizeof(iree_hal_amdgpu_tsan_queue_initialize_args_t)>
           kernargs = {};
 
   iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
       &kernel_args, &initialize_args, /*max_workgroup_count=*/384, &packet,
-      kernargs.data());
+      kernargs.data(), &setup);
 
   const auto* args =
       reinterpret_cast<const iree_hal_amdgpu_tsan_queue_initialize_args_t*>(
           kernargs.data());
+  EXPECT_EQ(packet.header, 0xFFFFu);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 1u);
   EXPECT_EQ(packet.grid_size[0], 96u);
   EXPECT_EQ(args->clear_workgroup_size, 32u);
   EXPECT_EQ(args->clear_byte_stride, 96u);
@@ -63,17 +69,23 @@ TEST(TsanTest, QueueInitializeCapsLargeClearToResidentWork) {
   const iree_hal_amdgpu_tsan_queue_initialize_args_t initialize_args =
       MakeQueueInitializeArgs(/*shadow_size=*/0x20008000ull);
   iree_hsa_kernel_dispatch_packet_t packet = {};
+  uint16_t setup = 0xBEEFu;
+  packet.header = 0xFFFFu;
+  packet.setup = 0xA5A5u;
   alignas(16)
       std::array<uint8_t, sizeof(iree_hal_amdgpu_tsan_queue_initialize_args_t)>
           kernargs = {};
 
   iree_hal_amdgpu_device_tsan_emplace_queue_initialize(
       &kernel_args, &initialize_args, /*max_workgroup_count=*/384, &packet,
-      kernargs.data());
+      kernargs.data(), &setup);
 
   const auto* args =
       reinterpret_cast<const iree_hal_amdgpu_tsan_queue_initialize_args_t*>(
           kernargs.data());
+  EXPECT_EQ(packet.header, 0xFFFFu);
+  EXPECT_EQ(packet.setup, 0xA5A5u);
+  EXPECT_EQ(setup, 1u);
   EXPECT_EQ(packet.grid_size[0], 12288u);
   EXPECT_EQ(args->clear_workgroup_size, 32u);
   EXPECT_EQ(args->clear_byte_stride, 12288u);

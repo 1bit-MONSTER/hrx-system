@@ -174,7 +174,8 @@ iree_status_t iree_hal_amdgpu_aql_atomic_emplace_command(
     iree_hal_command_buffer_t* command_buffer,
     iree_hal_buffer_binding_table_t binding_table,
     const iree_hal_amdgpu_command_buffer_command_header_t* command,
-    iree_hsa_kernel_dispatch_packet_t* dispatch_packet, void* kernarg_ptr) {
+    iree_hsa_kernel_dispatch_packet_t* dispatch_packet, void* kernarg_ptr,
+    uint16_t* out_setup) {
   iree_hal_amdgpu_aql_atomic_target_params_t target_params = {0};
   switch (command->opcode) {
     case IREE_HAL_AMDGPU_COMMAND_BUFFER_OPCODE_ATOMIC_WAIT: {
@@ -201,7 +202,7 @@ iree_status_t iree_hal_amdgpu_aql_atomic_emplace_command(
               .condition = atomic_wait->condition,
               .target_error_mode = atomic_wait->target_error_mode,
           },
-          kernarg_ptr);
+          kernarg_ptr, out_setup);
       return iree_ok_status();
     }
     case IREE_HAL_AMDGPU_COMMAND_BUFFER_OPCODE_ATOMIC_STORE: {
@@ -228,7 +229,7 @@ iree_status_t iree_hal_amdgpu_aql_atomic_emplace_command(
               .width = atomic_store->width,
               .target_error_mode = atomic_store->target_error_mode,
           },
-          kernarg_ptr);
+          kernarg_ptr, out_setup);
       return iree_ok_status();
     }
     case IREE_HAL_AMDGPU_COMMAND_BUFFER_OPCODE_ATOMIC_RMW: {
@@ -255,7 +256,7 @@ iree_status_t iree_hal_amdgpu_aql_atomic_emplace_command(
               .operation = atomic_rmw->operation,
               .target_error_mode = atomic_rmw->target_error_mode,
           },
-          kernarg_ptr);
+          kernarg_ptr, out_setup);
       return iree_ok_status();
     }
     default:

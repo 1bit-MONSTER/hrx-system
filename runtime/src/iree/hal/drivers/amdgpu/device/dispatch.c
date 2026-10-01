@@ -17,8 +17,8 @@ void iree_hal_amdgpu_device_dispatch_emplace_packet(
         kernel_args,
     const uint32_t workgroup_count[3], uint32_t dynamic_workgroup_local_memory,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT dispatch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
-  dispatch_packet->setup = kernel_args->setup;
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
+  *out_setup = kernel_args->setup;
   dispatch_packet->workgroup_size[0] = kernel_args->workgroup_size[0];
   dispatch_packet->workgroup_size[1] = kernel_args->workgroup_size[1];
   dispatch_packet->workgroup_size[2] = kernel_args->workgroup_size[2];
@@ -91,7 +91,7 @@ void iree_hal_amdgpu_device_dispatch_emplace_indirect_params_patch(
     uint16_t dispatch_header, uint16_t dispatch_setup,
     iree_amdgpu_kernel_implicit_args_t* IREE_AMDGPU_RESTRICT implicit_args,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT patch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_dispatch_patch_indirect_params_args_t*
       IREE_AMDGPU_RESTRICT kernargs =
           (iree_hal_amdgpu_device_dispatch_patch_indirect_params_args_t*)
@@ -105,7 +105,8 @@ void iree_hal_amdgpu_device_dispatch_emplace_indirect_params_patch(
   const uint32_t patch_workgroup_count[3] = {1, 1, 1};
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       patch_kernel_args, patch_workgroup_count,
-      /*dynamic_workgroup_local_memory=*/0, patch_packet, kernarg_ptr);
+      /*dynamic_workgroup_local_memory=*/0, patch_packet, kernarg_ptr,
+      out_setup);
 }
 
 void iree_hal_amdgpu_device_dispatch_emplace_pm4_binding_patch(
@@ -116,7 +117,7 @@ void iree_hal_amdgpu_device_dispatch_emplace_pm4_binding_patch(
         entries,
     uint8_t* IREE_AMDGPU_RESTRICT target_base, uint32_t entry_count,
     iree_hsa_kernel_dispatch_packet_t* IREE_AMDGPU_RESTRICT patch_packet,
-    void* IREE_AMDGPU_RESTRICT kernarg_ptr) {
+    void* IREE_AMDGPU_RESTRICT kernarg_ptr, uint16_t* out_setup) {
   iree_hal_amdgpu_device_dispatch_patch_pm4_bindings_args_t*
       IREE_AMDGPU_RESTRICT kernargs =
           (iree_hal_amdgpu_device_dispatch_patch_pm4_bindings_args_t*)
@@ -135,7 +136,8 @@ void iree_hal_amdgpu_device_dispatch_emplace_pm4_binding_patch(
   };
   iree_hal_amdgpu_device_dispatch_emplace_packet(
       patch_kernel_args, patch_workgroup_count,
-      /*dynamic_workgroup_local_memory=*/0, patch_packet, kernarg_ptr);
+      /*dynamic_workgroup_local_memory=*/0, patch_packet, kernarg_ptr,
+      out_setup);
 }
 
 #if defined(IREE_AMDGPU_TARGET_DEVICE)

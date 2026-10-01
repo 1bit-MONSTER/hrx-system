@@ -682,8 +682,7 @@ iree_hal_amdgpu_aql_block_processor_replay_indirect_dispatch_packet_bodies(
            ->iree_hal_amdgpu_device_dispatch_patch_indirect_params,
       workgroup_count_ptr, &dispatch_packet->dispatch, dispatch_header,
       *out_dispatch_setup, implicit_args, &patch_packet->dispatch,
-      patch_kernarg_data);
-  *out_patch_setup = patch_packet->dispatch.setup;
+      patch_kernarg_data, out_patch_setup);
   return iree_ok_status();
 }
 
@@ -706,12 +705,11 @@ iree_hal_amdgpu_aql_block_processor_replay_fill_packet_body(
   if (IREE_UNLIKELY(!iree_hal_amdgpu_device_buffer_fill_emplace(
           processor->transfer_context, &packet->dispatch, target_ptr,
           fill_command->length, fill_command->pattern,
-          fill_command->pattern_length, kernarg_block->data))) {
+          fill_command->pattern_length, kernarg_block->data, out_setup))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported command-buffer fill dispatch shape");
   }
   packet->dispatch.completion_signal = completion_signal;
-  *out_setup = packet->dispatch.setup;
   return iree_ok_status();
 }
 
@@ -750,12 +748,11 @@ iree_hal_amdgpu_aql_block_processor_replay_copy_packet_body(
   }
   if (IREE_UNLIKELY(!iree_hal_amdgpu_device_buffer_copy_emplace(
           processor->transfer_context, &packet->dispatch, source_ptr,
-          target_ptr, copy_command->length, kernarg_block->data))) {
+          target_ptr, copy_command->length, kernarg_block->data, out_setup))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported command-buffer copy dispatch shape");
   }
   packet->dispatch.completion_signal = completion_signal;
-  *out_setup = packet->dispatch.setup;
   return iree_ok_status();
 }
 
@@ -829,7 +826,7 @@ iree_hal_amdgpu_aql_block_processor_replay_update_packet_body(
           processor->transfer_context, &packet->dispatch,
           (const void*)(uintptr_t)
               IREE_HAL_AMDGPU_DEVICE_BUFFER_COPY_STAGED_SOURCE_ALIGNMENT,
-          target_ptr, update_command->length, &kernargs))) {
+          target_ptr, update_command->length, &kernargs, out_setup))) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported command-buffer update dispatch shape");
   }
@@ -841,7 +838,6 @@ iree_hal_amdgpu_aql_block_processor_replay_update_packet_body(
   memcpy(staged_source_bytes, source_bytes, update_command->length);
   packet->dispatch.kernarg_address = kernarg_data;
   packet->dispatch.completion_signal = completion_signal;
-  *out_setup = packet->dispatch.setup;
   return iree_ok_status();
 }
 
@@ -989,9 +985,8 @@ static iree_status_t iree_hal_amdgpu_aql_block_processor_emit_direct_dispatch(
         &processor->transfer_context->kernels
              ->iree_hal_amdgpu_device_grid_sync_gws_initialize,
         grid_sync_info->workgroup_count, &initialize_packet->dispatch,
-        processor->kernargs.blocks[state->kernargs.block].data);
-    processor->packets.setups[first_packet_index] =
-        initialize_packet->dispatch.setup;
+        processor->kernargs.blocks[state->kernargs.block].data,
+        &processor->packets.setups[first_packet_index]);
     const iree_hal_amdgpu_aql_block_processor_packet_flags_t initialize_flags =
         iree_hal_amdgpu_aql_block_processor_packet_flags_merge(
             iree_hal_amdgpu_aql_block_processor_execution_barrier_packet_flags(),
@@ -1126,7 +1121,8 @@ static iree_status_t iree_hal_amdgpu_aql_block_processor_emit_atomic(
   iree_status_t status = iree_hal_amdgpu_aql_atomic_emplace_command(
       processor->transfer_context->kernels, processor->command_buffer,
       processor->bindings.table, command, &packet->dispatch,
-      processor->kernargs.blocks[state->kernargs.block].data);
+      processor->kernargs.blocks[state->kernargs.block].data,
+      &processor->packets.setups[packet_index]);
   if (iree_status_is_ok(status)) {
     processor->packets.headers[packet_index] = iree_hal_amdgpu_aql_make_header(
         IREE_HSA_PACKET_TYPE_KERNEL_DISPATCH,
@@ -1136,7 +1132,6 @@ static iree_status_t iree_hal_amdgpu_aql_block_processor_emit_atomic(
                 processor, state, payload_acquire_packet_count, packet_index,
                 command, packet_flags),
             packet_flags));
-    processor->packets.setups[packet_index] = packet->dispatch.setup;
     ++state->packets.emitted;
     ++state->packets.recorded;
     ++state->kernargs.block;
