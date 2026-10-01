@@ -475,13 +475,32 @@ static iree_status_t loom_compile_product_selection_resolve(
   loom_compile_default_root_summary_t summaries[4];
   IREE_RETURN_IF_ERROR(
       loom_compile_product_selection_summarize_defaults(module, summaries));
-  loom_compile_product_t selected_product = product_constraint;
-  if (selected_product == LOOM_COMPILE_PRODUCT_INVALID) {
-    selected_product = summaries[LOOM_COMPILE_PRODUCT_COMMAND].count != 0
-                           ? LOOM_COMPILE_PRODUCT_COMMAND
-                       : summaries[LOOM_COMPILE_PRODUCT_KERNEL].count != 0
-                           ? LOOM_COMPILE_PRODUCT_KERNEL
-                           : LOOM_COMPILE_PRODUCT_MODULE;
+  const iree_host_size_t category_count =
+      (summaries[LOOM_COMPILE_PRODUCT_COMMAND].count != 0) +
+      (summaries[LOOM_COMPILE_PRODUCT_KERNEL].count != 0) +
+      (summaries[LOOM_COMPILE_PRODUCT_MODULE].count != 0);
+  if (category_count > 1) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "unrooted module has mixed default entry categories; select roots "
+        "explicitly");
+  }
+  const loom_compile_product_t selected_product =
+      summaries[LOOM_COMPILE_PRODUCT_COMMAND].count != 0
+          ? LOOM_COMPILE_PRODUCT_COMMAND
+      : summaries[LOOM_COMPILE_PRODUCT_KERNEL].count != 0
+          ? LOOM_COMPILE_PRODUCT_KERNEL
+          : LOOM_COMPILE_PRODUCT_MODULE;
+  if (product_constraint != LOOM_COMPILE_PRODUCT_INVALID &&
+      product_constraint != selected_product) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "unrooted module resolves to '%.*s'; --product='%.*s' cannot "
+        "reinterpret it",
+        (int)loom_compile_product_name(selected_product).size,
+        loom_compile_product_name(selected_product).data,
+        (int)loom_compile_product_name(product_constraint).size,
+        loom_compile_product_name(product_constraint).data);
   }
   if (selected_product == LOOM_COMPILE_PRODUCT_COMMAND) {
     return loom_compile_product_selection_reject_command();

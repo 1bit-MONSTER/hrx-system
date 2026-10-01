@@ -583,7 +583,7 @@ func.def public @second() {
   EXPECT_EQ(request.selection.roots.count, IREE_ARRAYSIZE(roots));
 }
 
-TEST_F(CompileRequestTest, RejectsUnrootedCommandPrograms) {
+TEST_F(CompileRequestTest, RejectsMixedUnrootedDefaultCategories) {
   ModulePtr module = Parse(R"(
 kernel.def @Kernel123() {
   %one = index.constant 1 : index
@@ -601,7 +601,30 @@ command.program.def public @Command123() launch() {
   iree::Status status(loom_compile_request_resolve(
       module.get(), &options, &environment_, &request_arena_, &request));
   EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
-  EXPECT_THAT(status.ToString(), HasSubstr("loomc_cmd_program_product_build"));
+  EXPECT_THAT(status.ToString(), HasSubstr("mixed default entry categories"));
+}
+
+TEST_F(CompileRequestTest, ProductConstraintCannotFilterMixedDefaults) {
+  ModulePtr module = Parse(R"(
+kernel.def @Kernel123() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+func.def public @Function123() {
+  func.return
+}
+)");
+  loom_compile_request_options_t options = {
+      /*.roots=*/{},
+      /*.product=*/IREE_SV("kernel"),
+  };
+  loom_compile_request_t request = {};
+  iree::Status status(loom_compile_request_resolve(
+      module.get(), &options, &environment_, &request_arena_, &request));
+  EXPECT_THAT(status, StatusIs(iree::StatusCode::kInvalidArgument));
+  EXPECT_THAT(status.ToString(), HasSubstr("mixed default entry categories"));
 }
 
 TEST_F(CompileRequestTest, RejectsCommandProgramRoots) {
@@ -708,17 +731,13 @@ TEST_F(CompileRequestTest, ProductConstraintCannotReinterpretRoots) {
                                    &request_arena_, &request));
 }
 
-TEST_F(CompileRequestTest, ExplicitProductSelectsCanonicalRoots) {
+TEST_F(CompileRequestTest, MatchingProductConstraintPreservesDefaultRoots) {
   ModulePtr module = Parse(R"(
 kernel.def @Kernel123() {
   %one = index.constant 1 : index
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch() {
   kernel.return
-}
-command.program.def public @Command123() launch() {
-  kernel.launch @Kernel123() : ()
-  command.return
 }
 )");
   const loom_compile_request_options_t options = {

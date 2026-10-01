@@ -84,9 +84,8 @@ static iree_status_t loom_compile_diagnostic_sink(
 
 IREE_FLAG(string, product, "",
           "Optional product: 'kernel' or 'module'. With explicit "
-          "--root values this validates their inferred product. With no "
-          "roots this selects the complete default kernel root set or the "
-          "whole module for a module product.");
+          "--root values or one category of default entries this validates "
+          "the inferred product. It never selects among mixed categories.");
 IREE_FLAG(string, format, "",
           "Optional exact artifact format, such as 'amdgpu-hsaco', "
           "'spirv', or 'wasm-binary'. Omit this to "
@@ -100,9 +99,10 @@ IREE_FLAG(string, target, "",
 IREE_FLAG_LIST(string, root,
                "Root symbol to materialize before compilation. Repeat for "
                "multiple roots. Roots must infer one homogeneous product. "
-               "When omitted, --product derives selection from the module; "
-               "without either, command-program roots are rejected, then "
-               "kernel roots take precedence over whole-module emission.");
+               "When omitted, the module must have at most one category of "
+               "default entries; mixed categories require explicit roots. "
+               "Command-program roots require the LoomC command-product "
+               "transaction.");
 IREE_FLAG_LIST_NAMED(
     string, exclude_root, "exclude-root",
     "Member of the selected default root set to omit before target "

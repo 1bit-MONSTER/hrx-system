@@ -80,9 +80,10 @@ typedef struct loom_compile_request_t {
 
 // Resolves one homogeneous product and its compile roots, an optional explicit
 // target, and a target emitter. Explicit roots are borrowed. Otherwise the
-// product selects its complete default root set; an omitted product selects
-// kernel roots before whole-module emission. Command-program roots are rejected
-// because they require the LoomC command-product transaction.
+// module must expose at most one category of default entry; mixed categories
+// require explicit roots. An optional product only asserts the inferred
+// category. Command-program roots are rejected because they require the LoomC
+// command-product transaction.
 // Exclusions apply after inference and derived names are copied into |arena|.
 // Emitter resolution never probes an emitter by compiling. An omitted format
 // selects the target family's unique canonical kernel or module emitter.

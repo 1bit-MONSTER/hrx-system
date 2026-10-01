@@ -261,11 +261,31 @@
       },
       "exit": 1,
       "stderr": {
-        "contains": ["command-program roots require loomc_cmd_program_product_build"]
+        "contains": ["mixed default entry categories"]
       },
       "files": [
         {
           "path": "{tmp}/mixed.bin",
+          "exists": false
+        }
+      ]
+    },
+    {
+      "name": "rejects mixed kernel and module inputs",
+      "run": {
+        "tool": "loom-compile",
+        "args": ["--output={tmp}/mixed-kernel-module.bin"],
+        "stdin": {
+          "text": "kernel.def @kernel() {\n  %one = index.constant 1 : index\n  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index\n} launch() {\n  kernel.return\n}\nfunc.def public @function() {\n  func.return\n}\n"
+        }
+      },
+      "exit": 1,
+      "stderr": {
+        "contains": ["mixed default entry categories"]
+      },
+      "files": [
+        {
+          "path": "{tmp}/mixed-kernel-module.bin",
           "exists": false
         }
       ]

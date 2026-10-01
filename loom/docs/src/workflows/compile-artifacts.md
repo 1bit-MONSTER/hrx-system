@@ -7,8 +7,9 @@ API.
 
 Selected roots infer exactly one product: `kernel` or `module`.
 With explicit `--root` values, `--product` is an optional assertion on that
-result and never reinterprets the roots. With no roots, an explicit product
-selects its canonical root set. `--target=family:selector` supplies a target
+result and never reinterprets the roots. With no roots, the module must expose
+at most one category of default entry; `--product` may assert that category but
+cannot select among mixed inputs. `--target=family:selector` supplies a target
 when the roots do not already name one. `--format` requests an exact output
 encoding; when it is omitted, the tool requires one canonical compatible
 format. Reports, manifests, and IR traces are optional evidence products, not
@@ -74,11 +75,12 @@ build rather than fragmenting into target-specific copies.
 
 ## Select roots from a catalog
 
-When `--root` is omitted, command-program roots are rejected because they need
-the LoomC transaction described below. Otherwise the tool selects every kernel
-entry, or the whole module when no kernel entries exist. Select one or more
-entries from a catalog by repeating the flag. Every selected root must infer
-the same product:
+When `--root` is omitted, the module must contain at most one category of
+default entry. A kernel-only module selects every kernel entry, a module-only
+input compiles the whole module, and a command-program input is rejected because
+it needs the LoomC transaction described below. Mixed inputs require explicit
+roots. Select one or more entries from a catalog by repeating the flag. Every
+selected root must infer the same product:
 
 ```shell
 loom-compile catalog.loombc \
