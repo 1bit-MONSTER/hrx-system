@@ -39,6 +39,11 @@ an older four-byte doorbell recipe. [Ring size][ring-size]
 [Allocation and native resources][blit-create] [Thunk queue creation][thunk-create]
 [Doorbell width][thunk-width]
 
+The [KFD queue-storage contract](../architectures.md#kfd-queue-storage) requires
+native BO mappings for the ring and control words. ROCr's later copy and
+explicit-SDMA allocators request nonpaged system storage to preserve that
+backing independently of pageable SVM payloads.
+
 ROCr also exposes a distinct `SdmaQueue` path through its AMD queue-creation
 extension. That interface explicitly assigns packet production, capacity,
 wrap/padding and publication to a single producer or externally synchronized
@@ -47,6 +52,10 @@ It always requests `HSA_QUEUE_SDMA_BY_ENG_ID`, gated by KFD interface 1.17 or
 later in the pinned implementation. [Extension contract][queue-contract]
 [Size units][queue-size] [Native construction][queue-create]
 [Engine admission][queue-engine]
+
+The [engine-selection contract](engine-selection.md) distinguishes ordinary
+SDMA, xGMI SDMA, and explicitly selected native engines. A mapped peer address
+does not select a suitable engine or replace its transfer-direction checks.
 
 ## Reservation, construction and ordered commit
 

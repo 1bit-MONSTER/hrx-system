@@ -33,12 +33,14 @@ exhaustion and its error/completion behavior are not specified by these
 callers. [PAL wait][pal-wait], [Mesa wait][mesa-wait]
 
 The ordinary ROCr, PAL and Linux memory-equality callers use full masks.
-Mesa's SDMA gang postamble additionally uses greater-or-equal with reference 1
-and a full mask. That caller gives no signed-ordering or counter-wrap contract
-and uses no partial mask. The explicit masked-operand formula in ROCr's newer
-64-bit packet definition is evidence for that form, not a substitute for a
-classic partial-mask contract. [Mesa terminal join][mesa-join], [64-bit
-definition][poll64-layout]
+Mesa's SDMA gang postamble additionally uses comparison 5, greater-or-equal,
+with reference 1 and a full mask. Its comparison selector occupies the same
+header bits 30:28 as equality. That caller gives no signed-ordering or
+counter-wrap contract and uses no partial mask. The explicit masked-operand
+formula in ROCr's newer 64-bit packet definition is evidence for that form,
+not a substitute for a
+classic partial-mask contract. [Mesa terminal join][mesa-join], [comparison
+value][mesa-comparisons], [64-bit definition][poll64-layout]
 
 ## Signal lifetime and actual callers
 
@@ -119,6 +121,7 @@ operation's completion with the next operation's initial state.
 [pal12-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/sdma/gfx12/gfx12_merged_sdma_packets.h#L2887-L2965
 [pal12-wait]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/sdma/gfx12/gfx12DmaCmdBuffer.cpp#L88-L119
 [mesa-wait]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_sdma.c#L47-L57
+[mesa-comparisons]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/sid.h#L90-L93
 [mesa-join]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_queue.c#L1420-L1457
 [linux-poll]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/sdma_v4_4_2.c#L392-L415
 [linux-wait]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/sdma_v4_4_2.c#L1286-L1295

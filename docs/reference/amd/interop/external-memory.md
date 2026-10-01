@@ -81,6 +81,73 @@ its owner serializes competing submissions and reservation updates across
 the sequence. It is useful only when both native submission paths honor
 the resulting dependencies. [Explicit/implicit fence bridge][dmabuf-sync-file]
 
+### DRM handles and CPU mapping ownership
+
+A DMA-BUF FD can travel between devices, while an imported BO handle belongs
+to the importing native device. A CPU mapping through a DRM render FD also
+needs that device's mapping offset. In ROCr `f9ba16bbe70e`, the KFD import
+path obtains the BO and its `mmap_offset` through the same GPU device.
+The thunk's `hsaKmtMemoryGetCpuAddr` returns the result of
+`DRM_AMDGPU_GEM_MMAP`; despite its name, this is an offset for a subsequent
+mapping, not a CPU pointer or a GPU virtual address.
+[Import and offset query][rocr-native-import] [Thunk offset result][thunk-mmap-offset]
+
+ROCr's host-backed virtual-memory allocation chooses the first enabled GPU
+for both the GTT allocation and the shareable-handle construction, and
+retains it as `drm_owner`. For an externally imported allocation without a
+local region, CPU access similarly imports through an enabled GPU to obtain
+the native handle and offset. CPU mapping then uses that owner's render FD;
+native-handle destruction uses the same owner. An allocation in host memory
+still has a GPU-side native owner for these DRM operations.
+[Host allocation owner][rocr-host-owner] [Imported CPU mapping][rocr-cpu-import]
+[Native-handle destruction][rocr-handle-release]
+
+The public VMM import duplicates the incoming FD and defers per-GPU import
+until access is enabled. A successful import therefore lets the caller close
+its original FD without retiring the runtime's backing reference. That
+reference does not reconstruct the exporter's pool metadata: pointer queries
+for imported VMM allocations leave `agentOwner` and `global_flags` unset when
+there is no local region. An importer's native device owner and an allocation's
+original pool owner are different facts.
+[FD ownership][rocr-vmm-import] [Imported pointer information][rocr-import-info]
+
+### PCIe export admission
+
+In the same ROCr revision, `VMemoryExportShareableHandle` rejects re-export
+of imported VMM handles. With `HSA_AMD_DMABUF_MAPPING_TYPE_PCIE`, it requires
+the DRM owner to be a GPU for which `is_xgmi_cpu_gpu()` or `LargeBarEnabled()`
+is true. These are that runtime's export predicates. The function then uses
+the ordinary DMA-BUF export call without passing the flag to the driver.
+Success supplies an admitted handle; the importer's attachment, mapping,
+placement and executing engine still determine the actual transfer route.
+[VMM export and PCIe checks][rocr-vmm-export]
+
+### Peer placement and exporter power
+
+An AMDGPU DMA-BUF attachment's P2P eligibility affects both placement and
+power ownership. In Linux `fe2ec83746e5`, an otherwise eligible attachment
+calls `pm_runtime_get_if_active` on the exporter. An inactive exporter clears
+`peer2peer`; attachment does not wake it to preserve P2P. An active exporter
+stays referenced until detach. With runtime PM disabled, a balancing
+no-resume reference supplies the same detach accounting. Attachment rollback
+also releases the reference. [Attachment and detach][amdgpu-peer-power]
+[Runtime PM reference semantics][runtime-pm-active]
+
+The mapping path starts with GTT placement and includes VRAM only when the
+BO prefers VRAM and that attachment remains P2P-capable. Its pin path also
+checks the other attachments before allowing VRAM. Consequently a shared FD
+and reachable PCIe topology do not promise retained VRAM placement. GC12+
+DCC backing has a separate P2P exclusion because its compression metadata is
+device-local. [Placement and mapping][amdgpu-peer-placement]
+[Compression and route checks][amdgpu-peer-power]
+
+KFD also has a path that shares the original BO for same-hive VRAM mappings
+without creating a DMA-BUF attachment. Its separate DMA-BUF branch reaches
+the exporter/importer protocol. The attachment power reference above belongs
+to that protocol; it is not a universal extra reference taken for every
+peer mapping. Neither path supplies a payload dependency or shader cache
+transition merely by establishing access. [KFD attachment selection][kfd-peer-attachment]
+
 ### CPU access is another handoff
 
 For CPU access through a DMA-BUF mmap, first join preceding device users,
@@ -339,7 +406,19 @@ premises in the [GPU/NPU handoff](../gpu/recipes/gpu-npu.md#output-dma-and-a-rea
 a finite host join does not establish them.
 
 [rocr-export]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/inc/hsa_ext_amd.h#L4425-L4473
+[rocr-native-import]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/driver/kfd/amd_kfd_driver.cpp#L594-L629
+[thunk-mmap-offset]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/libhsakmt/src/memory.c#L1263-L1289
+[rocr-host-owner]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L4377-L4426
+[rocr-cpu-import]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L4600-L4640
+[rocr-handle-release]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L4721-L4733
+[rocr-vmm-import]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L4962-L4975
+[rocr-import-info]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L1109-L1167
+[rocr-vmm-export]: https://github.com/ROCm/rocm-systems/blob/f9ba16bbe70e365b2f59b268e847bef19ad9db6e/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/runtime.cpp#L4930-L4959
 [dmabuf-device]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/dma-buf/dma-buf.c#L660-L686
+[amdgpu-peer-power]: https://github.com/torvalds/linux/blob/fe2ec83746e501645709761605c2464a44fd2929/drivers/gpu/drm/amd/amdgpu/amdgpu_dma_buf.c#L79-L152
+[runtime-pm-active]: https://github.com/torvalds/linux/blob/fe2ec83746e501645709761605c2464a44fd2929/drivers/base/power/runtime.c#L1225-L1265
+[amdgpu-peer-placement]: https://github.com/torvalds/linux/blob/fe2ec83746e501645709761605c2464a44fd2929/drivers/gpu/drm/amd/amdgpu/amdgpu_dma_buf.c#L161-L241
+[kfd-peer-attachment]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c#L917-L955
 [xdna-import]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L999-L1043
 [xdna-free]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_gem.c#L656-L663
 [syncobj]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/drm_syncobj.c#L30-L194

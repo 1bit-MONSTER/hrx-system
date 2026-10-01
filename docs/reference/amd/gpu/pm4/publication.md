@@ -63,6 +63,10 @@ with [command-storage ownership](command-buffers.md#publication-and-memory-owner
 The host barriers below order stores in that mapping; they are not a substitute
 for establishing GPU access or the required mapping policy.
 
+The [KFD queue-storage contract](../architectures.md#kfd-queue-storage) also
+requires the ring and control words to resolve through native BO mappings.
+The separate SVM context-save path does not extend to the ring.
+
 `BaseQueue::PlacePacket` separates construction from publication. Let `C` be
 ring capacity in DWORDs, `R` the reported modulo RPTR, `W` the producer's
 pending modulo position, and `N` the packet size. It leaves one DWORD unused:

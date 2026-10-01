@@ -12,6 +12,11 @@ reads it. Streaming performance monitoring, thread traces and pipeline-statistic
 queries have different representations. [Counter types][counter-types]
 [Actual profiling caller][profiler-begin]
 
+[RADV performance queries](counter-queries.md) compose the same class of native
+counters with Vulkan command lifetimes, a private submission mutex, pass
+selection and derived results. That path's scope, slot and width differences
+remain separate from PAL's global-counter representation below.
+
 ## Owner and applicability
 
 PAL discovers performance-experiment properties from the selected device, then
@@ -211,6 +216,12 @@ universal latch or simultaneous-sample guarantee across all blocks; a live
 counter cannot be treated as frozen merely because a sample command occurred.
 [Workaround predicate][stop-workaround] [Experiment selection][layout-finalize]
 [Alternative sampling states][sample-stop]
+
+GFX12 has a separate sample-transaction ordering requirement. PAL and RADV
+toggle and poll `SQG_PERFCOUNTER_CTRL.DISABLE_ME1PIPE3_PERF` before reading
+counters so that the read follows the sampling write. The exact register,
+phase values and consumer instance policies are in
+[GFX12 sample transaction ordering](counter-queries.md#gfx12-sample-transaction-ordering).
 
 ## A complete cumulative-sample owner
 

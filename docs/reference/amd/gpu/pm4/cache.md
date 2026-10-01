@@ -45,6 +45,56 @@ before its acquire. The firmware predicates and owned-fence alternative for
 [Cache-only acquire][mesa-acquire] [PAL stage join][pal-join]
 [Mesa stage join][mesa-join]
 
+### GFX12 CP and shader handoffs
+
+PAL's GFX12 planner describes shader GL2 as coherent across shader engines,
+while CP accesses MALL directly. Its bypass-GL2 class includes CP, indirect
+arguments, queue atomics and timestamps as well as CPU and memory accesses.
+Those CP clients belong to the GL2 class in its GFX10/GFX11 planner. The same
+producer/consumer operation can therefore need different outer-cache work.
+[GFX12 client classes][pal12-clients] [GFX10/GFX11 classes][pal-clients]
+[GFX12 topology and history][pal12-transition-history]
+
+The GFX12 planner first resolves copy/clear/resolve access masks using the
+actual command-buffer engine history and resource kind. For example, buffer
+copies can leave shader GL2 stale through CP, while image copies use the
+shader path. It then applies these GL2 rules in order:
+
+| Source access | Destination access | GL2 action |
+| --- | --- | --- |
+| Includes a bypass-GL2 client | Includes a GL2 client, or is unknown in a split release | Invalidate and write back, preserving other valid dirty data. |
+| Includes a GL2 client, or is unknown in a split acquire | Includes a bypass-GL2 client | Write back to make the bypass route observe the data. |
+
+[Access normalization][pal12-normalize] [Ordered GL2 rules][pal12-transition-history]
+
+The source need not be a writer in the immediately preceding operation. For
+`shader write → shader read → CP read`, the last transition still needs GL2
+writeback: the shader read does not establish that the earlier dirty data
+reached MALL. PAL receives one transition, rather than the full resource access
+history, and conservatively retains this writeback. A read-to-read label alone
+cannot establish that a cache operation is redundant.
+[History limitation][pal12-transition-history]
+
+Split buffer/global barriers make the missing information explicit:
+`ReleaseInternal` passes destination access zero, while `AcquireInternal`
+passes source access zero. Zero does not make every split half a full flush.
+For example, a shader-only release with an unknown destination contributes no
+GL2 action from the two routing rules; a later acquire for a CP reader requests
+GL2 writeback. On the non-PWS path, PAL joins the release token with
+`WAIT_REG_MEM` before emitting the remaining `ACQUIRE_MEM` actions.
+[Split release][pal12-split-source] [Split acquire][pal12-split-destination]
+[Token wait][pal12-token-wait] [Following cache work][pal12-acquire-tail]
+
+Shader front-end caches retain their own requirement. A destination shader
+read requests K$/V$ invalidation unless PAL's non-global, read-only source
+and compatible-view conditions permit omission. The absence of a GL2 action
+does not remove that work or the execution dependency. The command buffer's
+CP-DMA token path can defer both the DMA join and its cache work until acquire;
+the cache operations remain after DMA completion so an unfinished copy cannot
+make GL2 stale again after it was refreshed.
+[Shader cache conditions][pal12-front-end] [Deferred DMA release][pal12-deferred-dma]
+[DMA acquire and cache planning][pal12-acquire-dma]
+
 ## Ordinary ACQUIRE_MEM representation
 
 `ACQUIRE_MEM` is type-3 opcode `0x58`. The GFX10/GFX11 and GFX12 MEC definitions
@@ -224,6 +274,89 @@ SDMA's GCR and scoped-transfer paths have different fields and callers. Their
 omission of metadata controls does not settle PM4's M$ behavior.
 [SDMA cache operations](../sdma/cache.md)
 
+### Metadata addressing and subresource ranges
+
+PAL's GFX10/GFX11 image path has an additional GL2 writeback/invalidation rule
+for pipe-misaligned metadata. Its explanation identifies different metadata
+addressing by the render backends and texture cache. Direct metadata access
+includes color/depth use and shaders that read or update metadata explicitly;
+indirect access includes shader image reads and writes through resource views.
+A compute layout-transition shader can use the direct mode, so
+`CoherShaderWrite` alone does not identify an indirect access.
+[Addressing premise][pal-metadata-layout] [Access modes][pal-metadata-transition]
+[Layout-transition caller][pal-metadata-blit]
+
+Image finalization records the first affected mip for each plane. `UINT_MAX`
+means none and zero means every mip. A subresource range needs the workaround
+when its highest included mip reaches that plane's threshold for any covered
+plane. The decision concerns the image layout and subresource range, rather
+than the allocation's base-address alignment alone.
+[Finalization caller][pal-metadata-finalize]
+[Threshold construction][pal-metadata-layout] [Range query][pal-metadata-range]
+
+The pinned producer derives these intermediate values:
+
+| Value | PAL calculation |
+| --- | --- |
+| `B`, `S` | `log2(bitsPerTexel / 8)` and `log2(sampleCount)`. |
+| `P`, `F` | Native `GB_ADDR_CONFIG.NUM_PIPES` and `MAX_COMPRESSED_FRAGS` field values. |
+| `C`, GFX10.1 | `min(6, B' + S)`, where `B' = 2` for depth/stencil images with at least eight array slices, otherwise `B`. |
+| `C`, GFX10.3/GFX11 | `B + S`. |
+| `O`, `SO`, `D` | `max(C + P - 8, 0)`, `min(S, O)` and `max(S - F, 0)`, respectively. |
+
+Here PAL's `IsGfx11` means its `GfxIp11_0` or `GfxIp11_5` enum, and its
+`IsGfx103Plus` test is an enum comparison above `GfxIp10_1`. The calculation
+belongs to this GFX10/GFX11 image path. The first-affected-mip rules are:
+
+| Image condition | First affected mip |
+| --- | --- |
+| GFX11 image has a DCC or HTILE metadata mip tail and more than one mip | First mip reported in that tail by the address library; later rules can lower it to zero. |
+| Depth/stencil has HTILE and permits metadata texture fetch, with non-power-of-two VRAM bus width or `O > 0` | Zero. |
+| GFX11 color has DCC and permits metadata texture fetch, with non-power-of-two VRAM bus width or `O > 0` | Zero. |
+| Earlier color path has non-power-of-two VRAM bus width or `SO > D`, and either texture-fetchable DCC or shader-readable compressed FMASK without DCC | Zero. |
+| No applicable condition | `UINT_MAX`. |
+
+[Layout predicates][pal-metadata-predicates] [Mip-tail query][pal-metadata-tail]
+[GFX11 identity][pal-gfx11-identity] [GFX10.3 predicate][pal-gfx103-identity]
+
+The barrier planner conservatively treats a global transition as potentially
+covering such metadata; an image transition can use the range query, while an
+ordinary buffer transition has no image metadata. Applicable writes request
+GL2 writeback and invalidation across access modes. A split release lacks the
+destination access mask, so it retains this refresh for an eligible metadata
+writer instead of assuming that the next access uses the same mode.
+[Planner and exemptions][pal-metadata-transition]
+[Resource-specific inputs][pal-metadata-inputs]
+
+PAL's ordinary access-mask path considers `CoherColorTarget`,
+`CoherDepthStencilTarget`, `CoherShaderWrite` and `CoherPresent` sources. It
+removes buffer-only categories from both masks and the separately handled BLT
+destination categories from the source. It omits this metadata-refresh
+contribution for either of these cases:
+
+| Source and destination | Additional premise |
+| --- | --- |
+| Both masks are exactly `CoherColorTarget`, or both exactly `CoherDepthStencilTarget` | Both accesses use the same direct mode. |
+| Both masks include `CoherShaderWrite` and contain only `CoherShader` bits | The caller establishes `shaderMdAccessIndirectOnly`; a layout-transition BLT does not establish this premise. |
+
+[Exact exemptions][pal-metadata-transition]
+[Layout-transition input][pal-metadata-blit]
+
+Generic copy/clear/resolve destinations take a separate path. It consults the
+command buffer's retained direct/indirect metadata-write history and the
+original source mask before the generic flags lose their meaning. A direct-only
+history can omit refresh when the destination mask is exactly a color target
+or a depth/stencil target. An indirect-only history can omit it when the
+destination includes shader writes, contains only shader bits, and satisfies
+the same indirect-only premise. Both exemptions require that the source contain
+only BLT destination categories after removing buffer-only categories. Mixed
+direct/indirect history retains the refresh. Ordinary BLT cache-dirty flags
+alone are insufficient because clearing them need not have refreshed GL2.
+This GL2 operation is distinct from both
+ordinary GLM invalidation and the disputed `GLM_WB` bit.
+[BLT history and exemptions][pal-metadata-blit-history]
+[Original-mask requirement][pal-metadata-transition]
+
 ## Graphics PWS
 
 Graphics PWS acquire uses 128-byte GCR base/size units and a 25-bit high-size
@@ -232,6 +365,47 @@ to PFP or ME when cache work is attached; Mesa asserts that GCR has no effect
 at the other PWS stages. These fields and counters belong to the graphics
 pipeline. [PAL PWS acquire][pal-pws] [Mesa PWS acquire][mesa-pws-acquire]
 [GFX11 ME size fields][pal-me-sizes]
+
+### Consumer stage and deferred waits
+
+RADV `44cc4ca677a4` derives the latest permissible PWS acquire point from the
+barrier's destination stages, independently of the producer's completion and
+cache actions. It combines pending destinations by retaining the earliest
+required point. The source policy is:
+
+| Destination after stage expansion | Required point |
+| --- | --- |
+| Indirect draw/copy, index input, conditional rendering or command preprocessing | PFP; the stage-flush producer also requests `PFP_SYNC_ME`. |
+| Only early/late fragment tests, fragment shading or color attachment output | `PRE_DEPTH` may be used. |
+| Other nonempty stages, including compute | ME. |
+| No destination stage | No new stage requirement; other pending work still supplies its own requirement. |
+
+[Destination classification and merge][mesa-pws-destination]
+[PFP synchronization producer][mesa-pfp-destination]
+
+For its GFX11+ render-cache release path, RADV attaches the data-cache work to
+`RELEASE_MEM`. The matching acquire retains only a requested instruction-cache
+invalidate. That invalidate forces an ME/PFP wait; a `PRE_DEPTH` acquire has no
+GCR actions. Ordinary draws and mesh draws permit the later point, while
+compute dispatch, ray dispatch and command-buffer finalization do not.
+Device-generated draws also exclude deferral because the command processor
+consumes their generated commands before fragment processing.
+[Release/acquire partition][mesa-pws-partition]
+[Draw caller][mesa-pws-draw] [Mesh caller][mesa-pws-mesh]
+[Compute caller][mesa-pws-compute] [Ray caller][mesa-pws-ray]
+[Finalization caller][mesa-pws-finalize] [Deferral clamp][mesa-pws-resolve]
+
+The actual acquire starts at PFP when `PFP_SYNC_ME` is pending, otherwise ME;
+the destination policy can then choose ME or `PRE_DEPTH` subject to those
+constraints. Only an actual PFP acquire consumes the pending PFP synchronization.
+An ME or `PRE_DEPTH` acquire leaves that obligation for the separate
+`PFP_SYNC_ME` emission. Thus a completed release and a later pipeline wait do
+not, by themselves, order an earlier parser read. This composition is a
+graphics-ring protocol: the shared PWS builder requires `AMD_IP_GFX` and
+GFX11 or later. An ordinary compute-ring acquire keeps its separate encoding
+and producer-completion contract.
+[Stage selection][mesa-pws-partition] [Remaining PFP wait][mesa-pws-pfp-tail]
+[PWS builder predicates][mesa-pws-builder]
 
 ## GFX7–GFX9 and CDNA control words
 
@@ -478,6 +652,17 @@ the address being in host or device memory. [Programming recipes](../recipes/REA
 [linux11-sync]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c#L6846-L6866
 [pal-pws]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdUtil.cpp#L721-L792
 [mesa-pws-acquire]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/common/ac_cmdbuf_cp.c#L146-L177
+[mesa-pws-destination]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L7999-L8052
+[mesa-pfp-destination]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L7843-L7885
+[mesa-pws-partition]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cs.c#L118-L172
+[mesa-pws-draw]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L14275-L14293
+[mesa-pws-mesh]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L14384-L14395
+[mesa-pws-compute]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L15335-L15349
+[mesa-pws-ray]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L15407-L15414
+[mesa-pws-finalize]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L8936-L8948
+[mesa-pws-resolve]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cmd_buffer.c#L16212-L16244
+[mesa-pws-pfp-tail]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_cs.c#L251-L260
+[mesa-pws-builder]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/common/ac_cmdbuf_cp.c#L149-L177
 [pal-split-acquire]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L1711-L1793
 [pal-fence-owner]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfxCmdBuffer.cpp#L480-L501
 [pal-event]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/inc/core/palCmdBuffer.h#L2818-L2862
@@ -517,3 +702,24 @@ the address being in host or device memory. [Programming recipes](../recipes/REA
 [cdna-llvm-acquire]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L11560-L11585
 [cdna-llvm-release]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L12492-L12535
 [cdna-ring-xcc]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L903-L930
+[pal12-clients]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L53-L78
+[pal12-normalize]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L314-L373
+[pal12-transition-history]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L378-L433
+[pal12-split-source]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1516-L1534
+[pal12-split-destination]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1610-L1624
+[pal12-token-wait]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1048-L1067
+[pal12-acquire-tail]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L1100-L1119
+[pal12-front-end]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L435-L465
+[pal12-deferred-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L713-L725
+[pal12-acquire-dma]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L955-L985
+[pal-metadata-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3391-L3409
+[pal-metadata-finalize]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L918-L924
+[pal-metadata-range]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3317-L3332
+[pal-metadata-predicates]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3410-L3500
+[pal-metadata-tail]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Image.cpp#L3057-L3077
+[pal-gfx11-identity]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/device.h#L2328-L2333
+[pal-gfx103-identity]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/device.h#L2515-L2526
+[pal-metadata-transition]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L379-L435
+[pal-metadata-blit-history]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L219-L258
+[pal-metadata-inputs]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9Barrier.h#L330-L355
+[pal-metadata-blit]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L969-L982

@@ -204,6 +204,12 @@ non-temporal packet stores on its x86 path. These stores still need their
 specified ordering when the underlying mapping is write-back.
 [Ring allocation][ring-allocation] [CLR mapping and store rationale][clr-x86]
 
+The [KFD storage contract](../architectures.md#kfd-queue-storage) separately
+requires BO mappings for the ring and control words. ROCr's later nonpaged
+allocation policy preserves that backing when ordinary pageable host storage
+can instead use SVM. Executable access, cache attributes and backing ownership
+are independent allocation properties.
+
 CLR requests a device ring only when its placement setting, Large BAR and
 the queue-creation entry point permit it. On Linux/x86, its ordinary split-store
 path copies the 60-byte body without touching the first DWORD, issues `SFENCE`,

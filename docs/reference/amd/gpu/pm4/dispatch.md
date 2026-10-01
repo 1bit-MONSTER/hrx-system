@@ -126,6 +126,48 @@ multiple of four, with settings that can override the choice. This scheduling
 policy is separate from LDS allocation and does not make dispatch packets
 synchronous. [Resource-limit derivation][pal-limits]
 
+## Shader wait-counter mode: MEM_ORDERED
+
+`COMPUTE_PGM_RSRC1.MEM_ORDERED`, bit 30, controls how a wave's vector-memory
+wait counters account for completed instructions. The compiled waits and the
+bound register must agree about this mode. LLVM's descriptor table describes
+the following behavior; it reserves the bit as zero for GFX6–GFX9.
+[Descriptor field][llvm-mem-ordered]
+
+| Value | Completion accounting in the descriptor's `vmcnt`/`vscnt` model |
+| --- | --- |
+| 0 | Loads and atomics returning a value report completion out of order relative to sample instructions through `vmcnt`. Stores and atomics without a return value report completion in order through `vscnt`. |
+| 1 | Loads, atomics returning a value and sample instructions report completion in order through `vmcnt`. Stores and atomics without a return value still report completion in order through `vscnt`. |
+
+This is instruction-completion accounting within a wave. It supplies neither
+a cross-agent execution dependency nor the [cache operations](cache.md) needed
+to publish or acquire payload data. LLVM's GFX10–GFX11 AMDHSA memory model selects
+in-order load/sample reporting. Other programming models can select the mode
+from the actual program: Mesa's ACO starts with `mem_ordered=false` and sets
+it for `GFX10 <= gfx_level < GFX12` when a wait distinguishes outstanding
+vector-memory instruction classes whose completions need ordering. RADV carries
+that result into compute RSRC1 for `GFX10 <= gfx_level <= GFX11_7`.
+[AMDHSA mode][llvm-amdhsa-waits] [ACO initialization][mesa-wait-initialization]
+[Wait analysis][mesa-wait-analysis] [Compute binding][mesa-wait-binding]
+
+Linked code retains the combined requirement. RADV ORs `mem_ordered` across
+ray-tracing shader configurations before realizing the resource word. PAL's
+compute pipeline consumes the ABI metadata and ORs the bit from linked shader
+libraries. Reusing only the entry shader's original word can lose a callee's
+requirement. The neighboring `FWD_PROGRESS` field is a separate mode.
+[RADV configuration merge][mesa-wait-linking] [PAL metadata][pal-wait-metadata]
+[PAL library linking][pal-wait-linking]
+
+GFX12 applicability differs across the cited sources. LLVM's descriptor table
+labels this field GFX10–GFX12, and PAL's GFX12 register definition retains bit
+30. LLVM's GFX12 memory-model chapter instead describes separate load, store,
+sample and BVH counters, with completion ordered within each type. Mesa excludes
+GFX12 from its `MEM_ORDERED` setting and tracks sample and BVH waits separately
+there. These sources establish the field representation and Mesa's selection
+policy; they do not establish the effect of changing the bit on GFX12.
+[GFX12 register][pal-gfx12-mem-ordered] [GFX12 wait model][llvm-gfx12-waits]
+[Separate wait events][mesa-gfx12-waits]
+
 ## Runtime trap and context state
 
 LLVM's GFX6–11 descriptor contract requires zero in compiler-owned storage for
@@ -283,3 +325,14 @@ join/writeback sequence.
 [kfd-program-address]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/libhsakmt/tests/kfdtest/src/Dispatch.cpp#L113-L179
 [pal-program-address]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PipelineChunkCs.cpp#L155-L169
 [event-values]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/chip/gfx9_plus_merged_enum.h#L14473-L14511
+[llvm-mem-ordered]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/docs/AMDGPUUsage.rst#L6485-L6507
+[llvm-amdhsa-waits]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/docs/AMDGPUUsage.rst#L13546-L13550
+[mesa-wait-initialization]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/compiler/aco_insert_waitcnt.cpp#L1118-L1127
+[mesa-wait-analysis]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/compiler/aco_insert_waitcnt.cpp#L636-L675
+[mesa-wait-binding]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_shader.c#L2493-L2510
+[mesa-wait-linking]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/vulkan/radv_pipeline_rt.c#L1028-L1056
+[pal-wait-metadata]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AbiToPipelineRegisters.h#L1615-L1643
+[pal-wait-linking]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9ComputePipeline.cpp#L329-L359
+[pal-gfx12-mem-ordered]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/chip/gfx12_merged_registers.h#L2486-L2508
+[mesa-gfx12-waits]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/44cc4ca677a4752a10c14194289bde5a6468675e/src/amd/compiler/aco_insert_waitcnt.cpp#L40-L71
+[llvm-gfx12-waits]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/docs/AMDGPUUsage.rst#L15482-L15492
