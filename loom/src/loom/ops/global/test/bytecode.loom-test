@@ -13,6 +13,13 @@ global.rodata.def @empty_rodata = bytes("")
 
 // ====
 
+// Placement relations survive bytecode symbol remapping.
+global.rodata.def @lookup_ab = conflicts([@lookup_cd]) bytes("00112233")
+
+global.rodata.def @lookup_cd = conflicts([@lookup_ab]) bytes("44556677")
+
+// ====
+
 // External payload declarations preserve their declaration role in bytecode.
 global.rodata.decl @external_rodata
 

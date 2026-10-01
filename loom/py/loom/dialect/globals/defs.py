@@ -41,6 +41,7 @@ from loom.assembly import (
 )
 from loom.dsl import (
     ANY,
+    ATTR_TYPE_SYMBOL_SET,
     SYMBOL_DEFINE,
     UNKNOWN_EFFECTS,
     AttrDef,
@@ -179,9 +180,12 @@ global_rodata = Op(
     doc=(
         "Read-only executable data payload. This defines a named artifact "
         "symbol containing uninterpreted bytes, optionally with a stronger "
-        "power-of-two byte alignment requirement. It is used for compiler-owned "
-        "tables and metadata such as sanitizer site records; user-visible value "
-        "globals remain global.constant/global.variable."
+        "power-of-two byte alignment requirement. Bank conflicts form a "
+        "reciprocal relation between definitions that must occupy disjoint "
+        "target-defined storage banks when retained by one resident function. "
+        "It is used for compiler-owned tables and metadata such as sanitizer "
+        "site records; user-visible value globals remain "
+        "global.constant/global.variable."
     ),
     traits=[SYMBOL_DEFINE],
     symbol_def=SymbolDefinition(
@@ -194,11 +198,22 @@ global_rodata = Op(
         AttrDef("symbol", "symbol"),
         AttrDef("contents", "bytes"),
         AttrDef("alignment", "i64", optional=True),
+        AttrDef(
+            "bank_conflicts",
+            ATTR_TYPE_SYMBOL_SET,
+            optional=True,
+            symbol_ref=SymbolReference("read-only data", ["rodata"]),
+            doc=("Read-only data definitions that must occupy disjoint target-defined storage banks in one resident function. Every relation is reciprocal."),
+        ),
     ],
     format=[
         SymbolRef("symbol"),
         EQUALS,
         OptionalGroup([Clause("align", Attr("alignment"))], anchor="alignment"),
+        OptionalGroup(
+            [Clause("conflicts", Attr("bank_conflicts"))],
+            anchor="bank_conflicts",
+        ),
         Attr("contents"),
     ],
     verify="loom_global_rodata_def_verify",

@@ -40,6 +40,13 @@ global.rodata.def @empty_rodata = bytes("")
 
 // ====
 
+// Read-only payload bank conflicts are explicit and reciprocal.
+global.rodata.def @lookup_ab = align(32) conflicts([@lookup_cd]) bytes("00112233")
+
+global.rodata.def @lookup_cd = align(32) conflicts([@lookup_ab]) bytes("44556677")
+
+// ====
+
 // Read-only artifact payload supplied by a later link input.
 global.rodata.decl @external_rodata
 

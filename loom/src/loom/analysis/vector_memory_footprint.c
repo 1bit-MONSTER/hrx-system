@@ -543,28 +543,6 @@ static iree_status_t loom_vector_memory_footprint_fail_linear_span(
   return iree_diagnostic_emit(state->options->emitter, &emission);
 }
 
-static bool loom_vector_memory_footprint_facts_i64_bounds(
-    loom_value_facts_t facts, int64_t* out_lower, int64_t* out_upper) {
-  if (loom_value_facts_is_float(facts)) {
-    return false;
-  }
-  if (facts.range_lo == INT64_MIN || facts.range_hi == INT64_MAX) {
-    return false;
-  }
-  *out_lower = facts.range_lo;
-  *out_upper = facts.range_hi;
-  return true;
-}
-
-static bool loom_vector_memory_footprint_facts_exact_i64(
-    loom_value_facts_t facts, int64_t* out_value) {
-  if (!loom_value_facts_is_exact(facts) || loom_value_facts_is_float(facts)) {
-    return false;
-  }
-  *out_value = facts.range_lo;
-  return true;
-}
-
 static int64_t loom_vector_memory_footprint_vector_axis(
     const loom_vector_memory_access_t* access, uint8_t view_axis) {
   return view_axis >= access->first_vector_axis
@@ -1079,111 +1057,33 @@ static iree_status_t loom_vector_memory_footprint_check_scalar(
   return iree_ok_status();
 }
 
-static bool loom_vector_memory_footprint_iota_bounds_from_facts(
+static bool loom_vector_memory_footprint_offset_bounds_from_facts(
     loom_vector_memory_footprint_state_t* state, loom_value_facts_t facts,
     loom_type_t offsets_type, int64_t* out_lower, int64_t* out_upper) {
   if (loom_type_rank(offsets_type) != 1) {
     return false;
   }
-  loom_value_fact_vector_iota_t iota = {0};
-  if (!loom_value_facts_query_vector_iota(&state->fact_table->context, facts,
-                                          &iota)) {
-    return false;
-  }
 
-  int64_t base_lower = 0;
-  int64_t base_upper = 0;
-  int64_t step = 0;
-  if (!loom_vector_memory_footprint_facts_i64_bounds(iota.base, &base_lower,
-                                                     &base_upper) ||
-      !loom_vector_memory_footprint_facts_exact_i64(iota.step, &step)) {
-    return false;
-  }
-
-  int64_t lane_count_upper = 0;
+  uint64_t maximum_lane_count = UINT64_MAX;
   if (!loom_type_dim_is_dynamic_at(offsets_type, 0)) {
-    lane_count_upper = loom_type_dim_static_size_at(offsets_type, 0);
-    if (lane_count_upper <= 0) {
-      *out_lower = 0;
-      *out_upper = -1;
-      return true;
+    int64_t lane_count = loom_type_dim_static_size_at(offsets_type, 0);
+    if (lane_count >= 0) {
+      maximum_lane_count = (uint64_t)lane_count;
     }
   } else {
     loom_value_facts_t count_facts = loom_value_fact_table_lookup(
         state->fact_table, loom_type_dim_value_id_at(offsets_type, 0));
-    int64_t lane_count_lower = 0;
-    if (!loom_value_facts_is_positive(count_facts) ||
-        !loom_vector_memory_footprint_facts_i64_bounds(
-            count_facts, &lane_count_lower, &lane_count_upper)) {
-      return false;
+    int64_t lane_count_upper = 0;
+    if (loom_value_facts_is_positive(count_facts) &&
+        loom_value_facts_as_non_negative_i64_maximum(count_facts,
+                                                     &lane_count_upper)) {
+      maximum_lane_count = (uint64_t)lane_count_upper;
     }
   }
 
-  int64_t last_lane = 0;
-  int64_t last_delta = 0;
-  if (!iree_checked_sub_i64(lane_count_upper, 1, &last_lane) ||
-      !iree_checked_mul_i64(last_lane, step, &last_delta)) {
-    return false;
-  }
-
-  if (step >= 0) {
-    if (!iree_checked_add_i64(base_upper, last_delta, out_upper)) {
-      return false;
-    }
-    *out_lower = base_lower;
-  } else {
-    if (!iree_checked_add_i64(base_lower, last_delta, out_lower)) {
-      return false;
-    }
-    *out_upper = base_upper;
-  }
-  return true;
-}
-
-static bool loom_vector_memory_footprint_offset_bounds_from_facts(
-    loom_vector_memory_footprint_state_t* state, loom_value_facts_t facts,
-    loom_type_t offsets_type, int64_t* out_lower, int64_t* out_upper) {
-  if (loom_vector_memory_footprint_iota_bounds_from_facts(
-          state, facts, offsets_type, out_lower, out_upper)) {
-    return true;
-  }
-
-  loom_value_fact_uniform_element_t uniform = {0};
-  if (loom_value_facts_query_uniform_element(&state->fact_table->context, facts,
-                                             &uniform)) {
-    return loom_vector_memory_footprint_facts_i64_bounds(uniform.element,
-                                                         out_lower, out_upper);
-  }
-
-  loom_value_fact_small_static_lanes_t lanes = {0};
-  if (!loom_value_facts_query_small_static_lanes(&state->fact_table->context,
-                                                 facts, &lanes)) {
-    return false;
-  }
-  if (lanes.count == 0) {
-    *out_lower = 0;
-    *out_upper = -1;
-    return true;
-  }
-  int64_t lower = INT64_MAX;
-  int64_t upper = INT64_MIN;
-  for (iree_host_size_t i = 0; i < lanes.count; ++i) {
-    int64_t lane_lower = 0;
-    int64_t lane_upper = 0;
-    if (!loom_vector_memory_footprint_facts_i64_bounds(
-            lanes.lanes[i], &lane_lower, &lane_upper)) {
-      return false;
-    }
-    if (lane_lower < lower) {
-      lower = lane_lower;
-    }
-    if (lane_upper > upper) {
-      upper = lane_upper;
-    }
-  }
-  *out_lower = lower;
-  *out_upper = upper;
-  return true;
+  return loom_value_facts_query_vector_integer_bounds(
+      &state->fact_table->context, facts, maximum_lane_count, out_lower,
+      out_upper);
 }
 
 static bool loom_vector_memory_footprint_value_defines_iota(
@@ -1217,7 +1117,7 @@ static iree_status_t loom_vector_memory_footprint_iota_offset_bounds(
   loom_value_facts_t step_facts = loom_value_fact_table_lookup(
       state->fact_table, loom_vector_iota_step(iota_op));
   int64_t step = 0;
-  if (!loom_vector_memory_footprint_facts_exact_i64(step_facts, &step)) {
+  if (!loom_value_facts_as_exact_i64(step_facts, &step)) {
     return iree_ok_status();
   }
 

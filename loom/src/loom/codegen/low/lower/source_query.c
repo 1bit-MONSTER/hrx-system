@@ -164,9 +164,18 @@ static iree_status_t loom_low_lower_source_query_contract(
           },
       .descriptor_matrix = context->policy->descriptor_matrix,
   };
+  *out_result = loom_target_contract_query_result_empty();
+  const loom_target_contract_query_callback_t query_op_contract =
+      context->policy->query_op_contract;
+  if (iree_status_is_ok(status) && query_op_contract.fn != NULL) {
+    status = query_op_contract.fn(query_op_contract.user_data,
+                                  &query_environment, source_op, out_result);
+  }
   if (iree_status_is_ok(status)) {
-    status = loom_low_lower_query_target_contract(
-        &query_environment, &query_options, source_op, out_result);
+    if (out_result->outcome == LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
+      status = loom_low_lower_query_target_contract(
+          &query_environment, &query_options, source_op, out_result);
+    }
   }
 
   context->descriptor_set = saved_descriptor_set;

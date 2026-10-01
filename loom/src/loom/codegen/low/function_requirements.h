@@ -25,6 +25,8 @@ typedef struct loom_low_read_only_data_requirement_t {
   iree_const_byte_span_t contents;
   // Required power-of-two byte alignment.
   uint64_t minimum_alignment;
+  // Definitions that must occupy disjoint target-defined storage banks.
+  loom_symbol_ref_array_t bank_conflicts;
 } loom_low_read_only_data_requirement_t;
 
 // Requirements available before scheduling, allocation, or native emission.

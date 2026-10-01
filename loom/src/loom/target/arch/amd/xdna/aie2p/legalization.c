@@ -9,6 +9,7 @@
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/target/arch/amd/xdna/aie2p/descriptors/core_descriptors.h"
+#include "loom/target/arch/amd/xdna/aie2p/gather.h"
 #include "loom/target/arch/amd/xdna/aie2p/legalization_compare.h"
 #include "loom/target/arch/amd/xdna/aie2p/legalization_table.h"
 #include "loom/transforms/scalar/target_legalization.h"
@@ -238,6 +239,30 @@ static iree_status_t loom_aie2p_legalize_vector_load(
   return iree_ok_status();
 }
 
+static iree_status_t loom_aie2p_legalize_vector_gather(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_aie2p_legalizer_descriptor_set_is_core(context->descriptor_set)) {
+    return iree_ok_status();
+  }
+
+  loom_low_source_memory_access_plan_t access = {0};
+  loom_low_source_memory_access_diagnostic_t diagnostic = {0};
+  loom_aie2p_immutable_gather_match_t match = {0};
+  if (loom_low_source_memory_access_plan_build(context->view_regions, op,
+                                               &access, &diagnostic) &&
+      loom_aie2p_match_immutable_gather(context->module, context->fact_table,
+                                        op, &access, &match)) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_aie2p_legalize_vector_store(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -442,6 +467,11 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
     {
         .root_kind = LOOM_OP_VECTOR_LOAD,
         .legalize = loom_aie2p_legalize_vector_load,
+    },
+    {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,
+        .root_kind = LOOM_OP_VECTOR_GATHER,
+        .legalize = loom_aie2p_legalize_vector_gather,
     },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,

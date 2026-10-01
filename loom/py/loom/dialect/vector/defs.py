@@ -3499,6 +3499,7 @@ vector_extui = _vector_cast(
     doc=("Lanewise unsigned integer extension. Source and result shapes match exactly, and each source lane is zero-extended to the result element width."),
     traits=[SAFE_TO_SPECULATE],
     constraints=[ElementWidthGreaterThan("result", "input")],
+    facts="loom_vector_extui_facts",
 )
 
 vector_trunci = _vector_cast(

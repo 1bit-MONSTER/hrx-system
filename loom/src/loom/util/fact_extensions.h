@@ -550,6 +550,17 @@ bool loom_value_facts_query_vector_iota(const loom_fact_context_t* context,
                                         loom_value_facts_t facts,
                                         loom_value_fact_vector_iota_t* out);
 
+// Returns inclusive integer bounds across every logical lane represented by a
+// uniform-element, small-static-lanes, or vector-iota extension. Iota bounds
+// use |maximum_lane_count| as either the exact static lane count or a proven
+// upper bound; UINT64_MAX means the lane count is unavailable. Empty explicit
+// lane lists and zero-count iotas report the canonical empty interval [0, -1].
+// Returns false when any lane is floating point or unbounded, the iota step is
+// not exact, arithmetic overflows, or |facts| has another extension kind.
+bool loom_value_facts_query_vector_integer_bounds(
+    const loom_fact_context_t* context, loom_value_facts_t facts,
+    uint64_t maximum_lane_count, int64_t* out_lower, int64_t* out_upper);
+
 // Creates facts for a vector.mask.range-style prefix mask.
 iree_status_t loom_value_facts_make_vector_prefix_mask(
     loom_fact_context_t* context, loom_value_fact_vector_prefix_mask_t mask,

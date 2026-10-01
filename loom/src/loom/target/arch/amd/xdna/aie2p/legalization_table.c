@@ -180,8 +180,11 @@ iree_status_t loom_aie2p_table_lookup_rewrite(
       loom_value_fact_table_lookup(context->fact_table, indices);
   loom_value_fact_uniform_element_t uniform = {0};
   if (loom_value_facts_query_uniform_element(&context->fact_table->context,
-                                             index_facts, &uniform)) {
-    // Uniform lookups already admit one broadcast or a single scalar extract.
+                                             index_facts, &uniform) &&
+      loom_value_facts_is_exact(uniform.element)) {
+    // One exact value shared by every lane already admits one broadcast or a
+    // single scalar extract. A non-exact uniform element is only a common lane
+    // envelope and does not prove equal runtime indices.
     return iree_ok_status();
   }
   loom_value_fact_small_static_lanes_t static_indices = {0};

@@ -390,6 +390,52 @@ TEST_F(LowLowerSourceQueryTest, SelectsGeneratedTargetContract) {
   EXPECT_TRUE(iree_string_view_equal(semantic_tag, IREE_SV("integer.add.i32")));
 }
 
+TEST_F(LowLowerSourceQueryTest, TargetOwnedContractComposesWithGeneratedCases) {
+  struct QueryProbe {
+    // Operation owned by the target callback.
+    const loom_op_t* handled_op = nullptr;
+    // Number of target callback invocations.
+    int query_count = 0;
+    // True when the callback observed source-scope analyses.
+    bool observed_source_scope = false;
+  } probe = {/*.handled_op=*/mapped_source_op_};
+  loom_low_lower_policy_t policy = *options_.policy;
+  policy.query_op_contract = {
+      /*.fn=*/[](void* user_data,
+                 const loom_target_contract_query_environment_t* environment,
+                 const loom_op_t* source_op,
+                 loom_target_contract_query_result_t* out_result)
+                  -> iree_status_t {
+        auto* probe = static_cast<QueryProbe*>(user_data);
+        ++probe->query_count;
+        probe->observed_source_scope |= environment->value_domain != nullptr &&
+                                        environment->view_regions != nullptr;
+        *out_result = loom_target_contract_query_result_empty();
+        if (source_op == probe->handled_op) {
+          out_result->outcome = LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+        }
+        return iree_ok_status();
+      },
+      /*.user_data=*/&probe,
+  };
+  options_.policy = &policy;
+  CreateQueryScope();
+
+  loom_target_contract_query_result_t generated_result =
+      loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(QueryContract(source_op_, &generated_result));
+  EXPECT_EQ(generated_result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_NE(generated_result.selected_descriptor, nullptr);
+
+  loom_target_contract_query_result_t target_result =
+      loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(QueryContract(mapped_source_op_, &target_result));
+  EXPECT_EQ(target_result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_EQ(target_result.selected_descriptor, nullptr);
+  EXPECT_EQ(probe.query_count, 2);
+  EXPECT_TRUE(probe.observed_source_scope);
+}
+
 TEST_F(LowLowerSourceQueryTest, NativeContractWithoutMetadataCallback) {
   loom_low_lower_policy_t policy = *options_.policy;
   policy.map_contract_value = {};

@@ -325,11 +325,14 @@ loom_target_pipeline_build_math_legalization_after_authoring_expansion(
 static iree_status_t
 loom_target_pipeline_build_source_safe_normalization_after_legalize(
     loom_builder_t* builder, void* user_data) {
-  (void)user_data;
+  const loom_target_pipeline_build_context_t* context =
+      (const loom_target_pipeline_build_context_t*)user_data;
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
       builder, IREE_SV("decompose-view-transports")));
-  IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
-      builder, IREE_SV("vector-memory-to-scalar")));
+  if (loom_target_pipeline_sanitizer_enabled(context)) {
+    IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
+        builder, IREE_SV("vector-memory-to-scalar")));
+  }
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_run(
       builder, IREE_SV("linearize-view-accesses")));
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_cleanup(builder));

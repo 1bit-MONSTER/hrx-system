@@ -58,6 +58,25 @@ func.def @extsi_uniform_i1(%x: i1) -> (i64, i64) {
 
 // ====
 
+// Unsigned extension describes every lane even when the input vector has no
+// aggregate lane summary. This is the dynamic byte-index domain used by
+// memory-backed lookup tables.
+func.def @extui_unknown_i8_vector(%x: vector<4xi8>) -> (i64, i64) {
+  %wide = vector.extui %x : vector<4xi8> to vector<4xi32>
+  %lane = vector.extract %wide[2] : vector<4xi32> -> i32
+  %lo = test.fact_range_lo %lane : i32 -> i64
+  %hi = test.fact_range_hi %lane : i32 -> i64
+  func.return %lo, %hi : i64, i64
+}
+// ----
+func.def @extui_unknown_i8_vector(%x: vector<4xi8>) -> (i64, i64) {
+  %lo = scalar.constant 0 : i64
+  %hi = scalar.constant 255 : i64
+  func.return %lo, %hi : i64, i64
+}
+
+// ====
+
 // Compile-time vectors have the same value in every workitem even though their
 // logical elements are represented by an extension fact.
 func.def @constant_is_workgroup_uniform() -> (i1, i1) {

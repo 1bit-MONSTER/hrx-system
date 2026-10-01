@@ -168,6 +168,7 @@ loom_corpus_build(
             "function/rodata.loom:@rodata_extents": "TARGET/001",
             "function/rodata.loom:@rodata_length": "TARGET/001",
             "function/rodata.loom:@rodata_table": "TARGET/001",
+            "function/rodata.loom:@rodata_word_gather": "TARGET/001",
             "function/template/expansion.loom:@conditional_cfg_exact": "TARGET/089",
             "memory/address/address.loom:@address_casts": "WASM/001",
             "memory/address/address.loom:@index_loop": "WASM/006",
