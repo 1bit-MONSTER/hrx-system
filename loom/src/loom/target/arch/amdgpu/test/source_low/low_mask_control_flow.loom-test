@@ -349,8 +349,9 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reset_mask_b
 
 // ====
 
-// Either path can retain a distinct mask while a wider structural copy aliases
-// its source. The subsequent scalar write must preserve both possible masks.
+// Either path can retain a distinct mask while a wider structural copy chain
+// aliases its source. Each copy keeps both possible masks protected across
+// repeated placement choices, including the subsequent scalar write.
 // RUN: emit amdgpu-assembly @branch_retained_copy strategy=source fixed=%left_mask:physical_register:0:2 fixed=%right_mask:physical_register:2:2 fixed=%source:physical_register:4:4 fixed=%scalar:physical_register:8:1
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
@@ -366,7 +367,9 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @branch_retai
   %right_selected = v_cndmask_b32 %value, %value, %right_mask
   low.br ^join
 ^join:
-  %copied = copy %source : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x4>
+  %first_copy = copy %source : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x4>
+  %second_copy = copy %first_copy : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x4>
+  %copied = copy %second_copy : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x4>
   %result = s_or_b32 %scalar, %scalar
   return %copied, %result
 }
