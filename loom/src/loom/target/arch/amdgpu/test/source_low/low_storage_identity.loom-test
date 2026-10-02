@@ -1,0 +1,426 @@
+// A non-writing alias shares the source's current contents. The branch keeps
+// the old value observable after the destructive write through that alias.
+// RUN: emit amdgpu-assembly @original_read_alias_write
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @original_read_alias_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  low.br ^exit(%snapshot: reg<amdgpu.vgpr>)
+^exit(%saved: reg<amdgpu.vgpr>):
+  global_store_b32_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+.Lbb1:
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Source ordering isolates allocation: the snapshot must not coalesce with
+// storage overwritten through another name for the same contents.
+// RUN: emit amdgpu-assembly @ordered_original_read_alias_write strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @ordered_original_read_alias_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @alias_read_original_write strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @alias_read_original_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %alias : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @sibling_aliases
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @sibling_aliases(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %reader = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %writer = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %reader : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %writer, %factor, %factor
+  low.br ^exit(%snapshot: reg<amdgpu.vgpr>)
+^exit(%saved: reg<amdgpu.vgpr>):
+  global_store_b32_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+.Lbb1:
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @transitive_aliases strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @transitive_aliases(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %first = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %reader = low.assume %first [range(%first, 0, 1024)] : reg<amdgpu.vgpr>
+  %writer = low.assume %first [range(%first, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %reader : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %writer, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Creating an alias after the copy does not create a new content version.
+// RUN: emit amdgpu-assembly @read_before_alias_definition strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @read_before_alias_definition(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// An optional copy can give the writer independent storage. It is not a
+// required identity, even when its initial bits match the original.
+// RUN: emit amdgpu-assembly @optional_copy_is_not_identity strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @optional_copy_is_not_identity(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %writer = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %writer, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// A second destructive write belongs to a later content version. Taking the
+// earliest write in the entire tied-storage component would miss this capture.
+// RUN: emit amdgpu-assembly @capture_between_writes strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @capture_between_writes(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %first = v_fmac_f32 %seed, %factor, %factor
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %first : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %second = v_fmac_f32 %alias, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %second, %output {offset = 4}
+  return
+}
+
+// ----
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// No save is needed when the copy observes the final content version.
+// RUN: emit amdgpu-assembly @copy_after_last_write strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @copy_after_last_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %first = v_fmac_f32 %seed, %factor, %factor
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<amdgpu.vgpr>
+  %second = v_fmac_f32 %alias, %factor, %factor
+  %snapshot = copy %second : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  global_store_b32_saddr %address, %snapshot, %output
+  return
+}
+
+// ----
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_1)
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v0, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Full-register reads still observe the high half before a partial write.
+// RUN: emit amdgpu-assembly @capture_before_partial_write strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @capture_before_partial_write(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = ds_load_u16_d16_hi %alias, %address
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v2, v0
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_b32 v1, v2, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// The untouched low half can be read through its original alias after a
+// high-half write. Register identity does not erase the partial-write mask.
+// RUN: emit amdgpu-assembly @preserved_half_read strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %changed = ds_load_u16_d16_hi %alias, %address
+  global_store_short_saddr %address, %seed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_short v1, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Required identities survive block-local reader-list resets.
+// RUN: emit amdgpu-assembly @cross_block_alias_ancestry
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @cross_block_alias_ancestry(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %first = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  low.br ^use
+^use:
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  low.br ^exit(%snapshot: reg<amdgpu.vgpr>)
+^exit(%saved: reg<amdgpu.vgpr>):
+  global_store_b32_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+.Lbb1:
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+.Lbb2:
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// The same storage contract applies to the wave64-only target family.
+// RUN: emit amdgpu-assembly @wave64_required_alias
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @wave64_required_alias(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  low.br ^exit(%snapshot: reg<amdgpu.vgpr>)
+^exit(%saved: reg<amdgpu.vgpr>):
+  global_store_dword_saddr %address, %saved, %output
+  global_store_dword_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+.Lbb1:
+  global_store_dword v2, v3, s[0:1] offset:0
+  global_store_dword v2, v0, s[0:1] offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// Optional writer copies retain their own storage choice even when their
+// source and the saved reader have different required-identity names.
+// RUN: emit amdgpu-assembly @optional_writer_through_sibling_aliases strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @optional_writer_through_sibling_aliases(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %reader = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %writer = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %writer_copy = copy %writer : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %snapshot = copy %reader : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %writer_copy, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  v_fmac_f32 v0, v1, v1
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Creating the writer's optional storage after the capture gives the same
+// content-preservation obligation with the opposite sibling visitation order.
+// RUN: emit amdgpu-assembly @optional_writer_after_alias_capture strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @optional_writer_after_alias_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %reader = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %writer = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %snapshot = copy %reader : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %writer_copy = copy %writer : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %changed = v_fmac_f32 %writer_copy, %factor, %factor
+  global_store_b32_saddr %address, %snapshot, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_mov_b32 v3, v0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_fmac_f32 v3, v1, v1
+  global_store_b32 v2, v0, s[0:1] offset:0
+  global_store_b32 v2, v3, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// A read of the preserved low half through an older name must precede a
+// later whole-register write through the partial-write result.
+// RUN: emit amdgpu-assembly @preserved_half_before_full_write
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_before_full_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %partial = ds_load_u16_d16_hi %alias, %address
+  %old_low = v_cvt_f32_f16 %seed
+  %changed = v_fmac_f32 %partial, %factor, %factor
+  low.br ^exit(%old_low: reg<amdgpu.vgpr>)
+^exit(%saved: reg<amdgpu.vgpr>):
+  global_store_b32_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  v_cvt_f32_f16 v3, v0
+  ds_load_u16_d16_hi v0, v2 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_fmac_f32 v0, v1, v1
+.Lbb1:
+  global_store_b32 v2, v3, s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Native ordering alone can accidentally hide a missing storage edge. Select
+// that one edge from the graph independently of unrelated scheduling detail.
+// RUN: with-checks emit low-schedule-json @preserved_half_write_dependency
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_half_write_dependency(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %partial = ds_load_u16_d16_hi %alias, %address
+  %old_low = v_cvt_f32_f16 %seed
+  %changed = v_fmac_f32 %partial, %factor, %factor
+  low.br ^exit(%old_low: reg<amdgpu.vgpr>)
+^exit(%saved: reg<amdgpu.vgpr>):
+  global_store_b32_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+CHECK: *{"from":2,"to":3,"kind":"storage",*

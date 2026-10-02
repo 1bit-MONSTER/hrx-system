@@ -631,20 +631,38 @@ static iree_status_t loom_low_schedule_record_storage_read(
   return iree_ok_status();
 }
 
+// Required ties share physical storage across content versions. Writes consume
+// earlier overlapping reads; preserved partial reads stay on the same owner,
+// including later reads through an older name. Optional copies stay separate.
+static loom_value_ordinal_t loom_low_schedule_storage_read_identity(
+    const loom_low_schedule_build_state_t* state,
+    loom_value_ordinal_t value_ordinal) {
+  return iree_any_bit_set(state->values[value_ordinal].flags,
+                          LOOM_LOW_SCHEDULE_VALUE_FLAG_STORAGE_IDENTITY_ALIAS)
+             ? state->storage_reads.heads[value_ordinal]
+             : value_ordinal;
+}
+
 static iree_status_t loom_low_schedule_add_storage_read(
     loom_low_schedule_build_state_t* state, uint32_t node_index,
     loom_value_ordinal_t value_ordinal, uint32_t unit_offset,
     uint32_t unit_count, loom_low_register_part_mask_t read_mask,
     uint16_t descriptor_operand_index, uint16_t timing_event_id) {
-  // Keep the original read for hard destructive-write ordering. The projected
-  // read additionally preserves the header's optional coalescing lifetime.
+  // Keep the physical-identity read for hard destructive-write ordering. The
+  // projected read additionally preserves the header's coalescing lifetime.
+  const loom_value_ordinal_t identity =
+      loom_low_schedule_storage_read_identity(state, value_ordinal);
   IREE_RETURN_IF_ERROR(loom_low_schedule_record_storage_read(
-      state, node_index, value_ordinal, unit_offset, unit_count, read_mask,
+      state, node_index, identity, unit_offset, unit_count, read_mask,
       descriptor_operand_index, timing_event_id));
   const loom_value_ordinal_t* roots = state->storage_lifetimes.roots;
-  if (roots != NULL && roots[value_ordinal] != value_ordinal) {
+  const loom_value_ordinal_t lifetime_identity =
+      roots != NULL
+          ? loom_low_schedule_storage_read_identity(state, roots[value_ordinal])
+          : identity;
+  if (lifetime_identity != identity) {
     IREE_RETURN_IF_ERROR(loom_low_schedule_record_storage_read(
-        state, node_index, roots[value_ordinal], unit_offset, unit_count,
+        state, node_index, lifetime_identity, unit_offset, unit_count,
         read_mask, descriptor_operand_index, timing_event_id));
   }
   return iree_ok_status();
@@ -654,12 +672,12 @@ static iree_status_t loom_low_schedule_add_storage_write_dependencies(
     loom_low_schedule_build_state_t* state, uint32_t writer_node_index,
     uint16_t value_operand_index,
     loom_low_schedule_dependency_endpoint_t writer_endpoint,
-    loom_value_ordinal_t value_ordinal,
-    loom_value_ordinal_t result_value_ordinal, uint32_t write_unit_offset,
+    loom_value_ordinal_t value_ordinal, uint32_t write_unit_offset,
     uint32_t write_unit_count, loom_low_register_part_mask_t write_mask) {
   if (state->storage_reads.heads == NULL) {
     return iree_ok_status();
   }
+  value_ordinal = loom_low_schedule_storage_read_identity(state, value_ordinal);
   IREE_ASSERT_NE(write_mask, 0u);
   uint32_t read_record_index = state->storage_reads.heads[value_ordinal];
   uint32_t retained_head = LOOM_LOW_SCHEDULE_NODE_NONE;
@@ -695,18 +713,7 @@ static iree_status_t loom_low_schedule_add_storage_write_dependencies(
     }
     read_record_index = next_record_index;
   }
-  state->storage_reads.heads[value_ordinal] = LOOM_LOW_SCHEDULE_NODE_NONE;
-  if (retained_head == LOOM_LOW_SCHEDULE_NODE_NONE) {
-    return iree_ok_status();
-  }
-  if (value_ordinal == result_value_ordinal) {
-    state->storage_reads.heads[value_ordinal] = retained_head;
-    return iree_ok_status();
-  }
-  loom_low_schedule_touch_storage_read_value(state, result_value_ordinal);
-  state->storage_reads.records[retained_tail].next_record =
-      state->storage_reads.heads[result_value_ordinal];
-  state->storage_reads.heads[result_value_ordinal] = retained_head;
+  state->storage_reads.heads[value_ordinal] = retained_head;
   return iree_ok_status();
 }
 
@@ -718,6 +725,7 @@ static iree_status_t loom_low_schedule_add_storage_antidependencies(
   if (state->storage_reads.heads == NULL) {
     return iree_ok_status();
   }
+  value_ordinal = loom_low_schedule_storage_read_identity(state, value_ordinal);
   IREE_ASSERT_NE(write_mask, 0u);
   uint32_t read_record_index = state->storage_reads.heads[value_ordinal];
   while (read_record_index != LOOM_LOW_SCHEDULE_NODE_NONE) {
@@ -923,8 +931,7 @@ static iree_status_t loom_low_schedule_note_tied_storage_writes(
         state, node_index, tied.operand_index,
         loom_low_schedule_value_write_endpoint(
             state, result_ordinals[tied.result_index]),
-        operand_ordinals[tied.operand_index],
-        result_ordinals[tied.result_index], /*write_unit_offset=*/0,
+        operand_ordinals[tied.operand_index], /*write_unit_offset=*/0,
         state->values[result_ordinals[tied.result_index]].unit_count,
         write_mask));
   }
@@ -1616,7 +1623,7 @@ iree_status_t loom_low_schedule_build_dependencies(
 
       // Process tied writes before recording this node's operand reads. This
       // keeps overlapping tied operands from depending on their own writer,
-      // while retained disjoint reads transfer to the tied result value.
+      // while disjoint reads remain pending on their physical storage owner.
       IREE_RETURN_IF_ERROR(
           loom_low_schedule_note_tied_storage_writes(state, node_index));
       IREE_RETURN_IF_ERROR(
