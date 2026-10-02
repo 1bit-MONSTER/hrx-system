@@ -126,7 +126,31 @@ constexpr size_t kMaxExecBoSize = 4096;
 // Linux KMQ allocates instruction and PDI BOs from one process-wide device
 // heap. Keep one command-construction reserve outside retained cache budgets.
 constexpr uint32_t kSharedCodeMemoryBytes = 64u * 1024u * 1024u;
-constexpr uint32_t kSharedCodeMemoryMissReserveBytes = 4u * 1024u * 1024u;
+// Free window kept outside the retained command caches so a fresh command chain
+// *and* a fresh hardware context can be constructed without tripping the device
+// heap's ENOSPC limit.
+//
+// The heap is a real 64 MiB hardware aperture (AIE2_DEVM_SIZE = SZ_64M at
+// dev_mem_base 0x4000000), sub-allocated by the driver with best-fit drm_mm at a
+// 32 KiB alignment quantum (dev_mem_buf_shift=15 on this NPU4/Strix part). Every
+// AMDXDNA_BO_DEV therefore consumes roundup(size, 32 KiB) of heap address space,
+// so the aperture holds exactly 2048 32 KiB slots. live_dev_heap_bytes() now
+// charges that true 32 KiB quantum, so it is an exact, BO-mix-independent mirror
+// of the driver's drm_mm occupancy (the earlier 4 KiB tally undercounted and was
+// mix-dependent, which is why the historical reserve had to be inflated to
+// 34 MiB). With exact accounting the reserve is a principled margin, not a fudge:
+//   - 8 MiB  for a context-create + command-build burst (its transient PDI and
+//     small instruction BOs, which are individually <=64 KiB and fit scattered
+//     32 KiB holes, so this is a total-footprint reserve, not a contiguity one);
+//   - 8 MiB  best-fit fragmentation / large-BO contiguity headroom (an on-device
+//     fragmentation probe showed scattered frees can cap a single contiguous
+//     alloc even with tens of MiB nominally free).
+// Reserving 16 MiB keeps retained real occupancy <= 48 MiB, i.e. >=16 MiB below
+// the hard 64 MiB ceiling, and the chain cache self-trims idle entries against
+// this reserve so a new build's first-try allocation succeeds. This is the
+// proactive alternative to the old "allocation failed, drop idle caches and
+// retry" recovery, which we deliberately avoid (it can leave the NPU wedged).
+constexpr uint32_t kSharedCodeMemoryMissReserveBytes = 16u * 1024u * 1024u;
 
 // The exec BO is large enough to hold many chain slots, but XRT's runlist
 // implementation chunks native command chains at 24 children. Match that
@@ -705,6 +729,10 @@ iree_status_t iree_hal_amdxdna_native_device_query_caps(
   caps.shared_code_memory_miss_reserve_bytes =
       kSharedCodeMemoryMissReserveBytes;
   if (device_is_aie4(device)) {
+    // UMQ has no DEV heap. Leave the shared-memory domain disabled so the
+    // KMQ 64 MiB budget and 16 MiB reserve are not applied here.
+    caps.max_shared_code_memory_bytes = 0;
+    caps.shared_code_memory_miss_reserve_bytes = 0;
     caps.context_image_models =
         IREE_HAL_AMDXDNA_NATIVE_C_CONTEXT_IMAGE_MODEL_NONE;
     caps.dispatch_models = IREE_HAL_AMDXDNA_NATIVE_C_DISPATCH_MODEL_START_DPU;
@@ -781,6 +809,9 @@ iree_status_t iree_hal_amdxdna_native_device_alloc_buffer(
         " flags=0x%08x errno %d",
         (int)type, (uint64_t)size, flags, normalized_err);
   }
+  // DEV-heap accounting is maintained by the shim bo layer (pdev), which sees
+  // both these HAL instruction BOs and the shim-internal PDI/command BOs, so no
+  // per-buffer bookkeeping is needed here.
   *out_buffer = new iree_hal_amdxdna_native_buffer_t(std::move(bo));
   return iree_ok_status();
 }
@@ -1783,6 +1814,19 @@ iree_hal_amdxdna_native_device_c_live_context_image_bytes(
   return device
              ? device->live_context_image_bytes.load(std::memory_order_relaxed)
              : 0;
+}
+
+extern "C" iree_host_size_t
+iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(
+    iree_hal_amdxdna_native_device_t* device) {
+  if (!device || !device->shim_device) return 0;
+  // Exact driver-side occupancy of the 64MiB DEV heap: every live
+  // AMDXDNA_BO_DEV buffer (HAL instruction BOs plus shim-internal PDI/command
+  // BOs), rounded to the driver's 32KiB allocation quantum (dev_mem_buf_shift=15)
+  // so it mirrors real drm_mm address-space consumption rather than the
+  // mix-dependent 4KiB byte-sum. This supersedes the per-counter reconstruction,
+  // which missed the shim-internal BOs.
+  return (iree_host_size_t)device->shim_device->get_dev_heap_used_bytes();
 }
 
 extern "C" iree_hal_amdxdna_native_context_t*

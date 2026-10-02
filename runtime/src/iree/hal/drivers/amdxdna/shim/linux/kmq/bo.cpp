@@ -202,6 +202,39 @@ amdxdna_bo_type flag_to_type(shim_xdna::shim_amdxdna_bo_flags flags) {
   return AMDXDNA_BO_INVALID;
 }
 
+// The driver suballocates AMDXDNA_BO_DEV buffers from the per-client 64MiB DEV
+// heap via best-fit drm_mm, but every node is placed on a 32KiB-aligned boundary
+// (align = 1 << max(PAGE_SHIFT, dev_mem_buf_shift); the NPU4/Strix family sets
+// dev_mem_buf_shift=15 -> 32KiB). Because every allocation must start on a 32KiB
+// boundary, the tail between a BO's end and the next boundary cannot host another
+// BO, so each BO's *real* heap footprint is roundup(size, 32KiB) -- not its
+// 4KiB page-rounded size. The driver's own heap_usage counter (and a naive 4KiB
+// tally) undercount this, which is BO-mix dependent: a small-BO-heavy model can
+// fill the real 64MiB heap while a 4KiB tally still reads far lower. Charging the
+// true 32KiB quantum makes m_dev_heap_used_bytes an exact mirror of the driver's
+// drm_mm occupancy so the HAL's budget is reliable regardless of BO size mix.
+// (Verified on-device: N BOs of any size <=32KiB all exhaust the heap at exactly
+// 2048 allocations == 64MiB of 32KiB slots.) Idempotent per BO via
+// m_dev_heap_charged so the import path and partial-construction failures (which
+// still free through the destructor) stay balanced.
+constexpr size_t kDevHeapAllocQuantumBytes = 32u * 1024u;  // driver dev_mem_buf_shift=15
+
+void charge_dev_heap(shim_xdna::bo& b) {
+  if (b.m_type != AMDXDNA_BO_DEV || b.m_dev_heap_charged != 0) return;
+  const size_t rounded =
+      (b.m_aligned_size + kDevHeapAllocQuantumBytes - 1) &
+      ~(kDevHeapAllocQuantumBytes - 1);
+  b.m_dev_heap_charged = rounded;
+  b.m_pdev.m_dev_heap_used_bytes.fetch_add(rounded, std::memory_order_relaxed);
+}
+
+void refund_dev_heap(shim_xdna::bo& b) {
+  if (b.m_dev_heap_charged == 0) return;
+  b.m_pdev.m_dev_heap_used_bytes.fetch_sub(b.m_dev_heap_charged,
+                                           std::memory_order_relaxed);
+  b.m_dev_heap_charged = 0;
+}
+
 // flash cache line for non coherence memory
 inline int clflush_data(const void* base, size_t offset, size_t len) {
   if (len == 0) return 0;
@@ -349,10 +382,14 @@ int bo::import_bo() {
     return err;
   }
   m_drm_bo = std::make_unique<drm_bo>(*this, bo_info);
+  charge_dev_heap(*this);
   return 0;
 }
 
-void bo::free_bo() { m_drm_bo.reset(); }
+void bo::free_bo() {
+  refund_dev_heap(*this);
+  m_drm_bo.reset();
+}
 
 bo::bo(const pdev& pdev, uint32_t ctx_id, size_t size,
        shim_amdxdna_bo_flags flags, amdxdna_bo_type type)
@@ -384,6 +421,7 @@ bo::bo(const pdev& pdev, uint32_t ctx_id, size_t size,
     return;
   }
   m_drm_bo = std::make_unique<drm_bo>(*this, bo_info);
+  charge_dev_heap(*this);
 
   m_init_errno = mmap_bo(align);
   if (m_init_errno) return;

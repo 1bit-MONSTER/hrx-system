@@ -113,4 +113,30 @@ TEST(SharedCodeMemoryBudgetTest, SaturatedDomainIsZero) {
             0u);
 }
 
+// The context-image budget reserves the single-miss construction block plus a
+// command-cache working set, capping resident context images below the heap so
+// the command caches and command construction always retain headroom.
+TEST(SharedCodeMemoryContextImageBudgetTest, ReservesMissAndWorkingSet) {
+  EXPECT_EQ(iree_hal_amdxdna_shared_code_memory_context_image_budget(
+                kTestSharedCodeMemoryBytes, kTestMissReserveBytes,
+                kTestMissReserveBytes),
+            kTestSharedCodeMemoryBytes - 2u * kTestMissReserveBytes);
+}
+
+// A zero domain (backend without a bounded heap) or reserves that meet/exceed
+// the domain disable the memory bound, returning 0 to preserve count-only
+// behavior instead of an over-tight cap.
+TEST(SharedCodeMemoryContextImageBudgetTest, DisabledWhenUnboundedOrSaturated) {
+  EXPECT_EQ(iree_hal_amdxdna_shared_code_memory_context_image_budget(
+                0, kTestMissReserveBytes, kTestMissReserveBytes),
+            0u);
+  EXPECT_EQ(iree_hal_amdxdna_shared_code_memory_context_image_budget(
+                kTestSharedCodeMemoryBytes, kTestSharedCodeMemoryBytes, 0),
+            0u);
+  EXPECT_EQ(iree_hal_amdxdna_shared_code_memory_context_image_budget(
+                kTestSharedCodeMemoryBytes, kTestSharedCodeMemoryBytes / 2,
+                kTestSharedCodeMemoryBytes / 2),
+            0u);
+}
+
 }  // namespace

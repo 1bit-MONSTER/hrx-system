@@ -8,6 +8,7 @@
 #include <array>
 #include <atomic>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -2992,8 +2993,12 @@ iree_status_t iree_hal_amdxdna_native_device_query_caps(
   caps.max_hardware_contexts =
       iree_hal_amdxdna_native_windows_hardware_context_cache_capacity(
           device->virtual_context_budget, &driver_identity);
-  // Prepared commands and context images are independent KMT allocations, not
-  // consumers of one bounded allocation domain.
+  // Windows command buffers, context images, and model weights are separate
+  // KMT allocations. There is no single DEV heap whose occupancy this runtime
+  // can report, and WDDM CurrentUsage includes the iGPU and model weights, so
+  // it is not a counter that dropping an NPU command cache will lower. Leave
+  // the shared-memory domain disabled. The hardware-context count above is
+  // the Windows bound.
   caps.max_shared_code_memory_bytes = 0;
   caps.shared_code_memory_miss_reserve_bytes = 0;
   caps.context_image_models =
@@ -5202,6 +5207,14 @@ extern "C" void iree_hal_amdxdna_native_context_ref_release(
 extern "C" iree_host_size_t
 iree_hal_amdxdna_native_device_c_live_context_image_bytes(
     iree_hal_amdxdna_native_device_t* device) {
+  (void)device;
+  return 0;
+}
+
+extern "C" iree_host_size_t iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(
+    iree_hal_amdxdna_native_device_t* device) {
+  // Windows has no bounded DEV heap. WDDM CurrentUsage is process video
+  // memory, not occupancy this runtime can free by dropping a command cache.
   (void)device;
   return 0;
 }

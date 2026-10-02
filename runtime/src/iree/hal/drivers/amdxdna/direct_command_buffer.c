@@ -203,12 +203,38 @@ static void iree_hal_amdxdna_chain_cache_apply_shared_code_memory_budget(
     iree_host_size_t max_shared_code_memory_bytes,
     iree_host_size_t miss_reserve_bytes,
     iree_host_size_t live_context_image_bytes,
-    iree_host_size_t single_cache_code_bytes) {
+    iree_host_size_t single_cache_code_bytes,
+    iree_host_size_t real_dev_heap_used_bytes) {
+  // Estimate-based upper bound: keep retained chain code under
+  // (heap - images - single - reserve). This matches the original count-based
+  // behavior and lets the cache grow to the 32MiB ceiling when the heap is not
+  // under pressure.
   iree_host_size_t budget = iree_hal_amdxdna_shared_code_memory_command_budget(
       max_shared_code_memory_bytes, miss_reserve_bytes,
       live_context_image_bytes, single_cache_code_bytes);
   if (budget > (iree_host_size_t)kAmdxdnaChainCommandCacheMaxInstructionBytes) {
     budget = kAmdxdnaChainCommandCacheMaxInstructionBytes;
+  }
+  // The instruction-word estimate undercounts real chain DEV-heap occupancy
+  // (each BO costs roundup(size, 32 KiB)). Lower the chain ceiling only by the
+  // chain cache's own overshoot. Context-image pressure is handled by the
+  // context-image budget; folding the whole heap into this subtraction zeroes
+  // a small chain cache when images, not chains, filled the heap. Idle-only:
+  // trim_for_group does not tear down an in-flight chain.
+  if (max_shared_code_memory_bytes != 0 && budget != 0) {
+    const iree_host_size_t non_chain =
+        live_context_image_bytes + single_cache_code_bytes;
+    const iree_host_size_t chain_real = real_dev_heap_used_bytes > non_chain
+                                            ? real_dev_heap_used_bytes - non_chain
+                                            : 0;
+    if (chain_real > budget) {
+      const iree_host_size_t overshoot = chain_real - budget;
+      const iree_host_size_t accounted_chain =
+          iree_hal_amdxdna_chain_command_cache_total_instruction_bytes(cache);
+      const iree_host_size_t reduced =
+          accounted_chain > overshoot ? accounted_chain - overshoot : 0;
+      if (reduced < budget) budget = reduced;
+    }
   }
   cache->max_instruction_bytes = budget ? budget : 1;
 }
@@ -262,18 +288,17 @@ static iree_status_t iree_hal_amdxdna_alloc_buffer_with_reclaim(
   iree_status_t status = iree_hal_amdxdna_native_device_c_alloc_buffer(
       device->native_device, size, type, out_buffer);
   if (!iree_status_is_unavailable(status)) return status;
+  // The shared code-memory heap is momentarily full. Drop only *idle* cached
+  // resources (chain/single command caches and unleased LRU contexts) and retry
+  // once. We deliberately do not force-evict a leased/in-flight context to
+  // satisfy a buffer allocation: tearing down a context the hardware still
+  // references can wedge the NPU, and that is exactly the failure mode this
+  // path used to risk. The context cache's proactive image-budget eviction
+  // keeps the heap from filling in the first place; if a transient miss still
+  // fails here, returning the recoverable status lets the caller retry, whereas
+  // a forced teardown of live work is not recoverable.
   iree_status_ignore(status);
   iree_hal_amdxdna_device_reclaim_native_resources(device);
-  status = iree_hal_amdxdna_native_device_c_alloc_buffer(
-      device->native_device, size, type, out_buffer);
-  if (!iree_status_is_unavailable(status)) return status;
-  if (iree_hal_amdxdna_tls_single_command_cache_lock_depth != 0 ||
-      iree_hal_amdxdna_tls_chain_command_cache_lock_depth != 0) {
-    return status;
-  }
-  iree_status_ignore(status);
-  iree_hal_amdxdna_context_cache_reclaim(device->context_cache,
-                                         /*force_leased=*/true);
   return iree_hal_amdxdna_native_device_c_alloc_buffer(device->native_device,
                                                        size, type, out_buffer);
 }
@@ -1859,6 +1884,25 @@ iree_hal_amdxdna_direct_command_buffer_submit_accumulated_single(
                              "failed to allocate amdxdna single command cache");
       }
     }
+    if (iree_status_is_ok(status) &&
+        command_buffer->device->native_caps.max_shared_code_memory_bytes !=
+            0) {
+      const iree_host_size_t max_bytes =
+          command_buffer->device->native_caps.max_shared_code_memory_bytes;
+      const iree_host_size_t reserve_bytes =
+          command_buffer->device->native_caps
+              .shared_code_memory_miss_reserve_bytes;
+      const iree_host_size_t target_bytes =
+          max_bytes > reserve_bytes ? max_bytes - reserve_bytes : 0;
+      // No command-cache mutex is held yet, so idle contexts can be dropped
+      // along with idle command entries. Lock order is context, then single,
+      // then chain.
+      if (iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(
+              command_buffer->device->native_device) > target_bytes) {
+        iree_hal_amdxdna_device_reclaim_native_resources(
+            command_buffer->device);
+      }
+    }
     if (iree_status_is_ok(status) && single_command_cache) {
       iree_hal_amdxdna_lock_single_command_cache(single_command_cache);
       single_cache_locked = true;
@@ -1897,6 +1941,26 @@ iree_hal_amdxdna_direct_command_buffer_submit_accumulated_single(
       if (single_cache_entry) submit_command = single_cache_entry->command;
     } else if (iree_status_is_ok(status)) {
       if (!cmd->built) {
+        // The single-cache mutex is already held, so only idle single-cache
+        // entries can be dropped here. Idle contexts were reclaimed above,
+        // before this lock. Taking the context cache now would invert
+        // context -> single.
+        if (single_cache_locked &&
+            command_buffer->device->native_caps.max_shared_code_memory_bytes !=
+                0) {
+          const iree_host_size_t max_bytes =
+              command_buffer->device->native_caps.max_shared_code_memory_bytes;
+          const iree_host_size_t reserve_bytes =
+              command_buffer->device->native_caps
+                  .shared_code_memory_miss_reserve_bytes;
+          const iree_host_size_t target_bytes =
+              max_bytes > reserve_bytes ? max_bytes - reserve_bytes : 0;
+          if (iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(
+                  command_buffer->device->native_device) > target_bytes) {
+            iree_hal_amdxdna_single_command_cache_evict_idle_locked(
+                single_command_cache);
+          }
+        }
         status = iree_hal_amdxdna_make_npu_cmd(
             command_buffer, cmd->src_cu_idx, cmd->src_asm_inst,
             cmd->src_patches, cmd->binding_device_addrs, cmd->binding_buffers,
@@ -2340,6 +2404,7 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_flush_chains(
     } else {
       iree_host_size_t live_context_image_bytes = 0;
       iree_host_size_t single_cache_code_bytes = 0;
+      iree_host_size_t real_dev_heap_used_bytes = 0;
       if (command_buffer->device->native_caps.max_shared_code_memory_bytes !=
           0) {
         // Sample exact native context-image ownership before taking the
@@ -2354,6 +2419,13 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_flush_chains(
         single_cache_code_bytes =
             iree_hal_amdxdna_single_command_cache_retained_code_bytes(
                 command_buffer->device->single_command_cache);
+        // Real, page-rounded DEV-heap occupancy (images + every live CACHEABLE
+        // BO). Drives the overshoot correction so the chain cache trims against
+        // measured pressure, not the instruction-word estimate that undercounts
+        // it.
+        real_dev_heap_used_bytes =
+            iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(
+                command_buffer->device->native_device);
       }
       iree_hal_amdxdna_chain_command_cache_entry_t* chain_cache = NULL;
       {
@@ -2374,7 +2446,8 @@ static iree_status_t iree_hal_amdxdna_direct_command_buffer_flush_chains(
               command_buffer->device->native_caps.max_shared_code_memory_bytes,
               command_buffer->device->native_caps
                   .shared_code_memory_miss_reserve_bytes,
-              live_context_image_bytes, single_cache_code_bytes);
+              live_context_image_bytes, single_cache_code_bytes,
+              real_dev_heap_used_bytes);
         }
         bool exact_cache_hit = false;
         bool device_cache_hit = false;

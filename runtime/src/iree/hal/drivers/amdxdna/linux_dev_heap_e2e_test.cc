@@ -13,7 +13,7 @@
 namespace {
 
 constexpr iree_host_size_t kLinuxDevHeapBytes = 64u * 1024u * 1024u;
-constexpr iree_host_size_t kLinuxMissReserveBytes = 4u * 1024u * 1024u;
+constexpr iree_host_size_t kLinuxMissReserveBytes = 16u * 1024u * 1024u;
 
 iree_hal_amdxdna_native_device_t* TryOpenNativeDevice() {
   iree_hal_amdxdna_device_params params;
@@ -39,8 +39,16 @@ TEST(AmdxdnaDevHeapE2E, QueryCapsAdvertisesLinuxHeapOnlyOnKmq) {
   EXPECT_TRUE(iree_status_is_ok(status));
   iree_status_ignore(status);
 #if defined(__linux__)
-  EXPECT_EQ(caps.max_shared_code_memory_bytes, kLinuxDevHeapBytes);
-  EXPECT_EQ(caps.shared_code_memory_miss_reserve_bytes, kLinuxMissReserveBytes);
+  if (caps.context_image_models ==
+      IREE_HAL_AMDXDNA_NATIVE_C_CONTEXT_IMAGE_MODEL_NONE) {
+    // AIE4/UMQ has no DEV heap, so the KMQ domain stays disabled.
+    EXPECT_EQ(caps.max_shared_code_memory_bytes, 0u);
+    EXPECT_EQ(caps.shared_code_memory_miss_reserve_bytes, 0u);
+  } else {
+    EXPECT_EQ(caps.max_shared_code_memory_bytes, kLinuxDevHeapBytes);
+    EXPECT_EQ(caps.shared_code_memory_miss_reserve_bytes,
+              kLinuxMissReserveBytes);
+  }
 #else
   EXPECT_EQ(caps.max_shared_code_memory_bytes, 0u);
   EXPECT_EQ(caps.shared_code_memory_miss_reserve_bytes, 0u);
@@ -184,6 +192,50 @@ TEST(LinuxDevHeapE2E, CacheableAndInstructionShareTheSameHeap) {
 
   DestroyBuffers(&instruction_buffers);
   DestroyBuffers(&pdi_buffers);
+  iree_hal_amdxdna_native_device_c_destroy(device);
+}
+
+// The shared-heap budget charges every AMDXDNA_BO_DEV at the driver's 32KiB
+// slot size, and a 64MiB heap therefore holds exactly 2048 BOs of any size up
+// to one slot. This is the on-device check of that claim: 4KiB instruction
+// BOs must exhaust at 2048, and the shim counter must move by 32KiB each.
+TEST(LinuxDevHeapE2E, SmallInstructionBosCharge32KiBSlots) {
+  iree_hal_amdxdna_native_device_t* device = TryOpenNativeDevice();
+  if (!device) {
+    GTEST_SKIP() << "no amdxdna device";
+  }
+
+  const iree_host_size_t quantum = 32u * 1024u;
+  const iree_host_size_t baseline =
+      iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(device);
+  std::vector<iree_hal_amdxdna_native_buffer_t*> buffers;
+  for (;;) {
+    iree_hal_amdxdna_native_buffer_t* buffer = nullptr;
+    iree_status_t status =
+        AllocDevHeap(device, 4096, IREE_HAL_AMDXDNA_NATIVE_BUFFER_TYPE_INSTRUCTION,
+                     &buffer);
+    if (iree_status_is_unavailable(status)) {
+      iree_status_ignore(status);
+      break;
+    }
+    if (!iree_status_is_ok(status)) {
+      DestroyBuffers(&buffers);
+      iree_hal_amdxdna_native_device_c_destroy(device);
+      FAIL() << "4KiB instruction BO alloc failed before heap exhaustion";
+    }
+    buffers.push_back(buffer);
+    ASSERT_LE(buffers.size(), 4096u)
+        << "4KiB BOs exceeded 2048 32KiB slots; dev_mem_buf_shift is not 15";
+    EXPECT_EQ(iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(device),
+              baseline + buffers.size() * quantum);
+  }
+
+  EXPECT_EQ(buffers.size(), 2048u);
+  EXPECT_EQ(iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(device),
+            baseline + 2048u * quantum);
+  DestroyBuffers(&buffers);
+  EXPECT_EQ(iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(device),
+            baseline);
   iree_hal_amdxdna_native_device_c_destroy(device);
 }
 

@@ -190,6 +190,34 @@ iree_hal_amdxdna_shared_code_memory_command_budget(
   return max_shared_code_memory_bytes - reserved;
 }
 
+// Returns the ceiling on resident native context-image bytes that keeps the
+// shared code-memory heap from being fully consumed by cached hardware
+// contexts. The chain/single command caches already trim themselves against
+// live context-image bytes (see shared_code_memory_command_budget), but nothing
+// bounds the context images themselves: on a many-kernel workload the cumulative
+// PDI/context-image footprint climbs until images + reserve fill the heap, the
+// command-cache budget saturates to zero, and the next device BO allocation
+// fails with ENOSPC. Bounding the images to this budget lets the context cache
+// evict idle LRU contexts *before* that happens, so allocation never reaches the
+// native allocator's hard limit and no in-flight (leased) context is ever torn
+// down to make room. |command_working_set_bytes| reserves space for the caches
+// and command construction beyond the single-miss reserve. Returns 0 when the
+// backend has no bounded domain (max == 0) or the reserves already exceed it,
+// which disables the memory bound and preserves the count-only behavior.
+static inline iree_host_size_t
+iree_hal_amdxdna_shared_code_memory_context_image_budget(
+    iree_host_size_t max_shared_code_memory_bytes,
+    iree_host_size_t miss_reserve_bytes,
+    iree_host_size_t command_working_set_bytes) {
+  const iree_host_size_t reserved =
+      miss_reserve_bytes + command_working_set_bytes;
+  if (max_shared_code_memory_bytes == 0 ||
+      reserved >= max_shared_code_memory_bytes) {
+    return 0;
+  }
+  return max_shared_code_memory_bytes - reserved;
+}
+
 // Maps an NPU architecture name (e.g. "Phoenix", "Strix", "Strix Halo",
 // "Krackan") to the architecture hardware-context table (6 Phoenix, 32
 // Strix / Strix Halo / Krackan). That is the SW virtual-context list size
@@ -335,6 +363,14 @@ void iree_hal_amdxdna_native_context_ref_release(
 // context images, including cache-evicted contexts retained by in-flight work.
 // Backends without a shared code-memory allocation domain return 0.
 iree_host_size_t iree_hal_amdxdna_native_device_c_live_context_image_bytes(
+    iree_hal_amdxdna_native_device_t* device);
+
+// Returns the real occupancy of the Linux KMQ 64MiB DEV heap: live context
+// images plus every live CACHEABLE/INSTRUCTION BO, each charged at the driver's
+// 32 KiB allocation quantum. Backends without that heap, including Windows and
+// Linux AIE4/UMQ, return 0. Callers must not treat a 0 result as permission to
+// substitute a different resource such as WDDM CurrentUsage.
+iree_host_size_t iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(
     iree_hal_amdxdna_native_device_t* device);
 
 iree_hal_amdxdna_native_context_t* iree_hal_amdxdna_native_context_ref_borrow(

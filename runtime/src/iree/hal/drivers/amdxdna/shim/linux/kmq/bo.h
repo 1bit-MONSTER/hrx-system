@@ -56,6 +56,11 @@ struct bo {
   shim_amdxdna_bo_flags m_flags{};
   amdxdna_bo_type m_type = AMDXDNA_BO_INVALID;
   std::unique_ptr<drm_bo> m_drm_bo;
+  // 32 KiB-quantized bytes this BO has charged to pdev::m_dev_heap_used_bytes,
+  // or 0 if it does not occupy the DEV heap (non-AMDXDNA_BO_DEV) or is not
+  // currently allocated. Kept so alloc and free stay balanced across the import
+  // path and partial-construction failures.
+  size_t m_dev_heap_charged = 0;
   const shared_handle m_import;
   // Only for AMDXDNA_BO_CMD type
   std::map<size_t, uint32_t> m_args_map;

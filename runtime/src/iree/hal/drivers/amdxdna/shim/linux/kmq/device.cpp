@@ -419,6 +419,11 @@ int device::init_errno() const { return m_init_errno; }
 
 const pdev& device::get_pdev() const { return *m_pdev; }
 
+uint64_t device::get_dev_heap_used_bytes() const {
+  return m_pdev ? m_pdev->m_dev_heap_used_bytes.load(std::memory_order_relaxed)
+                : 0;
+}
+
 int device::create_hw_context(const std::vector<uint8_t>& pdi,
                               const std::string& cu_name,
                               const std::map<std::string, uint32_t>& qos,

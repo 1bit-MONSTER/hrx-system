@@ -45,6 +45,10 @@ struct iree_hal_amdxdna_device_context_cache_t {
   iree_hal_amdxdna_context_cache_entry_t* head;
   iree_host_size_t count;
   iree_host_size_t capacity;
+  // Ceiling on cumulative resident context-image bytes (pdi + xclbin) across
+  // cached entries. 0 disables the memory bound (count-only behavior). See
+  // iree_hal_amdxdna_context_cache_set_context_image_budget.
+  iree_host_size_t context_image_budget_bytes;
   iree_hal_amdxdna_context_cache_ops_t ops;
   void* ops_user_data;
 };
@@ -280,17 +284,56 @@ void iree_hal_amdxdna_device_context_cache_clear(
   }
 }
 
-iree_host_size_t iree_hal_amdxdna_context_cache_cached_image_bytes(
+static iree_host_size_t iree_hal_amdxdna_context_cache_cached_image_bytes_locked(
     iree_hal_amdxdna_device_context_cache_t* context_cache) {
-  if (!context_cache) return 0;
   iree_host_size_t total = 0;
-  iree_slim_mutex_lock(&context_cache->mutex);
   for (iree_hal_amdxdna_context_cache_entry_t* entry = context_cache->head;
        entry; entry = entry->next) {
     total += entry->pdi.data_length + entry->xclbin.data_length;
   }
+  return total;
+}
+
+iree_host_size_t iree_hal_amdxdna_context_cache_cached_image_bytes(
+    iree_hal_amdxdna_device_context_cache_t* context_cache) {
+  if (!context_cache) return 0;
+  iree_slim_mutex_lock(&context_cache->mutex);
+  iree_host_size_t total =
+      iree_hal_amdxdna_context_cache_cached_image_bytes_locked(context_cache);
   iree_slim_mutex_unlock(&context_cache->mutex);
   return total;
+}
+
+void iree_hal_amdxdna_context_cache_set_context_image_budget(
+    iree_hal_amdxdna_device_context_cache_t* context_cache,
+    iree_host_size_t budget_bytes) {
+  if (!context_cache) return;
+  iree_slim_mutex_lock(&context_cache->mutex);
+  context_cache->context_image_budget_bytes = budget_bytes;
+  iree_slim_mutex_unlock(&context_cache->mutex);
+}
+
+// Evicts idle (unleased) LRU contexts until admitting |incoming_image_bytes|
+// would keep the resident context-image footprint within the configured budget,
+// or until no idle entry remains. Never force-evicts a leased/in-flight context:
+// tearing down a context that hardware still references can wedge the NPU, so a
+// budget that can only be met by dropping a live context is intentionally left
+// unmet here (the caller proceeds, and the already-bounded command caches trim
+// or the native allocator reports a clean, recoverable error). Caller must hold
+// the cache mutex.
+static void iree_hal_amdxdna_context_cache_evict_idle_for_image_budget_locked(
+    iree_hal_amdxdna_device_context_cache_t* context_cache,
+    iree_host_size_t incoming_image_bytes) {
+  if (context_cache->context_image_budget_bytes == 0) return;
+  while (iree_hal_amdxdna_context_cache_cached_image_bytes_locked(
+             context_cache) +
+             incoming_image_bytes >
+         context_cache->context_image_budget_bytes) {
+    if (!iree_hal_amdxdna_context_cache_evict_lru(context_cache,
+                                                  /*allow_leased=*/false)) {
+      break;
+    }
+  }
 }
 
 void iree_hal_amdxdna_context_cache_reclaim(
@@ -450,6 +493,44 @@ static iree_status_t iree_hal_amdxdna_context_cache_get_or_create_internal(
       return iree_make_status(
           IREE_STATUS_RESOURCE_EXHAUSTED,
           "amdxdna context cache capacity is exhausted by leased entries");
+    }
+  }
+
+  // Also bound the resident context-image footprint against the shared device
+  // code-memory heap. Evicting idle LRU contexts here keeps images + reserve
+  // below the heap size so the create below (and later command construction)
+  // never reaches the native allocator's ENOSPC limit. This is proactive by
+  // design: it evicts before the heap fills instead of reacting to an
+  // allocation failure by force-reclaiming in-flight contexts.
+  iree_hal_amdxdna_context_cache_evict_idle_for_image_budget_locked(
+      context_cache, key_pdi.data_length + key_xclbin.data_length);
+
+  // Drop idle command-cache entries one at a time until this context's image
+  // fits under the construction reserve. The reserve already includes the
+  // create burst, so the image length is the only incoming charge. Idle-only:
+  // the hook never evicts in-flight entries. Stop when an eviction does not
+  // reduce measured occupancy, so a leased remainder cannot spin.
+  if (context_cache->ops.reclaim_one_idle_command &&
+      context_cache->ops.max_shared_code_memory_bytes != 0) {
+    const iree_host_size_t max_bytes =
+        context_cache->ops.max_shared_code_memory_bytes;
+    const iree_host_size_t reserve_bytes =
+        context_cache->ops.shared_code_memory_miss_reserve_bytes;
+    const iree_host_size_t target_bytes =
+        max_bytes > reserve_bytes ? max_bytes - reserve_bytes : 0;
+    const iree_host_size_t incoming_bytes =
+        key_pdi.data_length + key_xclbin.data_length;
+    iree_host_size_t used_bytes =
+        iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(native_device);
+    while (used_bytes + incoming_bytes > target_bytes) {
+      if (!context_cache->ops.reclaim_one_idle_command(
+              context_cache->ops_user_data)) {
+        break;
+      }
+      const iree_host_size_t next_used =
+          iree_hal_amdxdna_native_device_c_live_dev_heap_bytes(native_device);
+      if (next_used >= used_bytes) break;
+      used_bytes = next_used;
     }
   }
 
