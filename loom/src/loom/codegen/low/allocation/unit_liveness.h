@@ -39,6 +39,16 @@ typedef struct loom_low_allocation_unit_liveness_value_t {
   uint32_t acquisition_start_point;
 } loom_low_allocation_unit_liveness_value_t;
 
+// A whole component read at an edge that bypasses the aggregate's SSA storage.
+// Concat relations consume complete source values; a partial source is a
+// separate slice value, not a subrange duplicated in this observation record.
+typedef struct loom_low_allocation_decomposed_use_t {
+  // Next node in the required storage component's observation list, or zero.
+  uint32_t next_node;
+  // Index of the observing operation in canonical liveness operation points.
+  uint32_t operation_index;
+} loom_low_allocation_decomposed_use_t;
+
 // Mutable unit-liveness state indexed by liveness value ordinal. Published
 // per-unit points and storage segments have result-arena lifetime; all other
 // owned state has allocation-decision lifetime.
@@ -58,6 +68,21 @@ typedef struct loom_low_allocation_unit_liveness_t {
   // Values whose concrete storage lifetime is not fully represented by their
   // semantic sparse segments.
   iree_bitmap_t values_with_incomplete_storage_segments;
+  // Required-component observations retained by the existing edge-use producer.
+  // One-based nodes 1..V identify SSA values; V+1..V+D identify decomposed
+  // reads. Each component starts at its origin value and ends at node zero.
+  struct {
+    // Decision-arena-owned successors indexed by value ordinal. An origin's
+    // successor starts its indirect observations and other required members.
+    // NULL without tied components or decomposed reads at control-flow edges.
+    uint32_t* value_links;
+    // Decision-arena-owned decomposed reads, indexed by node minus V+1.
+    loom_low_allocation_decomposed_use_t* entries;
+    // Number of initialized decomposed reads; V+count fits in uint32_t.
+    uint32_t count;
+    // Capacity of the decomposed-read construction array.
+    iree_host_size_t capacity;
+  } observations;
   // Linear physical units implicitly read or written at location zero,
   // indexed by descriptor register class. NULL when no such operands occur.
   // Retaining reads as well as writes anchors every implicit location during

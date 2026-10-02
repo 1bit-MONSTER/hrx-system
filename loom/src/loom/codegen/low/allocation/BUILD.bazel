@@ -243,6 +243,7 @@ loom_cc_library(
     hdrs = ["edge_alias.h"],
     deps = [
         ":assignment",
+        ":unit_liveness",
         "//loom/src/loom/analysis:consumption",
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/codegen/low:placement",

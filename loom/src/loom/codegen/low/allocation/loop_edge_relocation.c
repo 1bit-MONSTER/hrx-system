@@ -518,6 +518,7 @@ static iree_status_t loom_low_allocation_loop_edge_relocation_collect_candidate(
   const loom_low_allocation_edge_alias_context_t edge_alias_context = {
       .placement = state->context->placement,
       .liveness = state->context->liveness,
+      .unit_liveness = state->context->unit_liveness,
       .consumption_query =
           loom_low_allocation_loop_edge_relocation_consumption_query,
       .user_data = state,

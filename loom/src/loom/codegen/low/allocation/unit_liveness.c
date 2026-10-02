@@ -484,11 +484,40 @@ static iree_status_t loom_low_allocation_unit_liveness_note_value_use_at_point(
 }
 
 static iree_status_t
+loom_low_allocation_unit_liveness_initialize_observation_links(
+    loom_low_allocation_unit_liveness_t* unit_liveness,
+    const loom_low_placement_table_t* placement,
+    iree_arena_allocator_t* arena) {
+  if (unit_liveness->observations.value_links != NULL) {
+    return iree_ok_status();
+  }
+  uint32_t* links = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, placement->value_count, sizeof(*links), (void**)&links));
+  memset(links, 0, placement->value_count * sizeof(*links));
+  const loom_value_ordinal_t* origins =
+      placement->tied_storage_origins_by_value_ordinal;
+  if (origins != NULL) {
+    for (loom_value_ordinal_t member = 0; member < placement->value_count;
+         ++member) {
+      const loom_value_ordinal_t origin = origins[member];
+      if (origin != member) {
+        links[member] = links[origin];
+        links[origin] = member + 1;
+      }
+    }
+  }
+  unit_liveness->observations.value_links = links;
+  return iree_ok_status();
+}
+
+static iree_status_t
 loom_low_allocation_unit_liveness_note_contiguous_part_uses_at_point(
     loom_low_allocation_unit_use_index_t* unit_use_index,
     const loom_liveness_analysis_t* liveness,
     const loom_low_placement_table_t* placement,
-    loom_value_ordinal_t aggregate_ordinal, uint32_t point) {
+    loom_value_ordinal_t aggregate_ordinal, uint32_t operation_index,
+    uint32_t point, iree_arena_allocator_t* arena) {
   loom_low_allocation_unit_liveness_t* unit_liveness =
       unit_use_index->unit_liveness;
   const loom_low_placement_relation_range_t range =
@@ -507,6 +536,44 @@ loom_low_allocation_unit_liveness_note_contiguous_part_uses_at_point(
         loom_low_allocation_unit_liveness_note_unit_use_at_point(
             unit_use_index, liveness, relation->source_ordinal,
             relation->source_unit_offset, relation->unit_count, point));
+    IREE_RETURN_IF_ERROR(
+        loom_low_allocation_unit_liveness_initialize_observation_links(
+            unit_liveness, placement, arena));
+    const loom_value_ordinal_t* origins =
+        placement->tied_storage_origins_by_value_ordinal;
+    const loom_value_ordinal_t origin = origins != NULL
+                                            ? origins[relation->source_ordinal]
+                                            : relation->source_ordinal;
+    uint32_t* head = &unit_liveness->observations.value_links[origin];
+    if (*head > placement->value_count) {
+      const loom_low_allocation_decomposed_use_t* previous =
+          &unit_liveness->observations
+               .entries[*head - placement->value_count - 1];
+      if (previous->operation_index == operation_index) {
+        continue;
+      }
+    }
+    if (unit_liveness->observations.count ==
+        UINT32_MAX - placement->value_count) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "storage observation nodes exceed u32 range");
+    }
+    if (unit_liveness->observations.count ==
+        unit_liveness->observations.capacity) {
+      IREE_RETURN_IF_ERROR(
+          iree_arena_grow_array(arena, unit_liveness->observations.count,
+                                unit_liveness->observations.count + 1,
+                                sizeof(*unit_liveness->observations.entries),
+                                &unit_liveness->observations.capacity,
+                                (void**)&unit_liveness->observations.entries));
+    }
+    const uint32_t index = unit_liveness->observations.count++;
+    unit_liveness->observations.entries[index] =
+        (loom_low_allocation_decomposed_use_t){
+            .next_node = *head,
+            .operation_index = operation_index,
+        };
+    *head = placement->value_count + index + 1;
   }
   return iree_ok_status();
 }
@@ -599,7 +666,7 @@ loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
     const loom_liveness_analysis_t* liveness,
     const loom_liveness_operation_point_t* operation_point,
     loom_low_allocation_edge_use_index_t* edge_use_index,
-    bool retain_direct_use_flags) {
+    bool retain_direct_use_flags, iree_arena_allocator_t* arena) {
   const loom_op_t* op = operation_point->op;
   const loom_low_placement_table_t* placement = edge_use_index->placement;
   const loom_low_placement_relation_t* next_edge_relation = NULL;
@@ -678,7 +745,8 @@ loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
       IREE_RETURN_IF_ERROR(
           loom_low_allocation_unit_liveness_note_contiguous_part_uses_at_point(
               unit_use_index, liveness, placement, value_ordinal,
-              operation_point->start_point));
+              (uint32_t)(operation_point - liveness->operation_points),
+              operation_point->start_point, arena));
     }
     if (iree_any_bit_set(
             value_state->direct_use_flags,
@@ -995,7 +1063,7 @@ static iree_status_t loom_low_allocation_unit_liveness_note_operation_unit_uses(
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
           unit_use_index, value_domain, liveness, operation_point,
-          edge_use_index, retain_direct_use_flags));
+          edge_use_index, retain_direct_use_flags, arena));
   if (loom_low_scf_yield_isa(op) &&
       operation_point->parent_operation_index != UINT32_MAX) {
     const uint32_t parent_operation_index =
@@ -1698,6 +1766,11 @@ iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
   }
 
   unit_liveness->tied_storage_placement = placement;
+  if (placement->edge_relation_count != 0) {
+    IREE_RETURN_IF_ERROR(
+        loom_low_allocation_unit_liveness_initialize_observation_links(
+            unit_liveness, placement, decision_arena));
+  }
 
   loom_low_allocation_unit_liveness_retain_tied_component_lifetimes(
       unit_liveness, placement);

@@ -269,6 +269,7 @@ loom_cc_library(
     "edge_alias.c"
   DEPS
     ::assignment
+    ::unit_liveness
     iree::base
     loom::analysis::consumption
     loom::analysis::liveness

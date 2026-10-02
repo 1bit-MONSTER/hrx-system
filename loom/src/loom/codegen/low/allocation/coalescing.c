@@ -83,6 +83,7 @@ loom_low_allocation_coalescing_can_ignore_relation_counterpart_conflict(
   const loom_low_allocation_edge_alias_context_t edge_alias_context = {
       .placement = context->placement,
       .liveness = context->liveness,
+      .unit_liveness = context->search_context->unit_liveness,
       .consumption_query = context->consumption_query,
       .user_data = context->user_data,
   };
@@ -92,8 +93,9 @@ loom_low_allocation_coalescing_can_ignore_relation_counterpart_conflict(
           &edge_alias_context, interval, relation, counterpart,
           destination_unit_offset, destination_unit_count,
           &edge_allows_overlap));
-  if (edge_allows_overlap) {
-    *out_can_ignore = true;
+  if (edge_allows_overlap ||
+      loom_low_placement_cause_is_edge(relation->cause)) {
+    *out_can_ignore = edge_allows_overlap;
     return iree_ok_status();
   }
   *out_can_ignore = !loom_low_allocation_live_range_values_overlap(
@@ -180,7 +182,9 @@ loom_low_allocation_coalescing_value_units_have_direct_use_after_clobber(
             context->user_data, consuming_op->parent_block->parent_region,
             &region_query));
         IREE_RETURN_IF_ERROR(loom_consumption_use_after_query_prepare(
-            region_query, consuming_op, value_id, &use_after_query));
+            region_query, consuming_op->parent_block,
+            consuming_op->block_ordinal + 1, value_id, /*flags=*/0,
+            &use_after_query));
         use_after_query_ready = true;
       }
       use_after_clobber =
