@@ -242,3 +242,68 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @copy_cycle_preserves_dead_mas
   s_mov_b32 s2, s4
 .Lbb1:
   s_endpgm
+
+// ====
+
+// Vector-only gaps preserve the snapshot; a partial overwrite frees only its
+// lower word for copy-cycle scratch, including after another vector-only gap.
+// RUN: emit amdgpu-assembly @copy_cycle_after_partial_mask_overwrite strategy=source fixed=%mask:physical_register:0:2 fixed=%pointer:physical_register:4:2 fixed=%loaded:physical_register:0:1 fixed=%left:physical_register:2:1 fixed=%right:physical_register:3:1 fixed=%joined_left:physical_register:3:1 fixed=%joined_right:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_after_partial_mask_overwrite(%mask: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.sgpr x2>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32 %value, %value, %mask
+  %first = v_add_f32 %selected, %value
+  %loaded = s_load_dword_offset_only %pointer
+  %second = v_add_f32 %first, %value
+  low.br ^join(%left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>)
+^join(%joined_left: reg<amdgpu.sgpr>, %joined_right: reg<amdgpu.sgpr>):
+  return %second, %joined_left, %joined_right
+}
+
+// ----
+  v_cndmask_b32 v1, v0, v0, s[0:1]
+  s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_1) | instid1(VALU_DEP_1)
+  v_add_f32 v1, v1, v0
+  s_load_dword s0, s[4:5] offset:0
+  v_add_f32 v0, v1, v0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_mov_b32 s0, s3
+  s_mov_b32 s3, s2
+  s_mov_b32 s2, s0
+.Lbb1:
+  s_endpgm
+
+// ====
+
+// A scalar read resets the old snapshot, but a later predicate establishes a
+// new protected range before copy-cycle scratch selection.
+// RUN: emit amdgpu-assembly @copy_cycle_after_mask_reset_and_retain strategy=source fixed=%old_mask:physical_register:4:2 fixed=%new_mask:physical_register:0:2 fixed=%scalar:physical_register:6:1 fixed=%left:physical_register:2:1 fixed=%right:physical_register:3:1 fixed=%joined_left:physical_register:3:1 fixed=%joined_right:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_after_mask_reset_and_retain(%old_mask: reg<amdgpu.sgpr x2>, %new_mask: reg<amdgpu.sgpr x2>, %scalar: reg<amdgpu.sgpr>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32 %value, %value, %old_mask
+  %first = v_add_f32 %selected, %value
+  %broadcast = v_mov_b32_copy %scalar
+  %reselected = v_cndmask_b32 %first, %broadcast, %new_mask
+  %second = v_add_f32 %reselected, %value
+  low.br ^join(%left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>)
+^join(%joined_left: reg<amdgpu.sgpr>, %joined_right: reg<amdgpu.sgpr>):
+  return %second, %joined_left, %joined_right
+}
+
+// ----
+  v_cndmask_b32 v1, v0, v0, s[4:5]
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_f32 v1, v1, v0
+  v_mov_b32_copy v2, s6
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_cndmask_b32 v1, v1, v2, s[0:1]
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_f32 v0, v1, v0
+  s_mov_b32 s4, s3
+  s_mov_b32 s3, s2
+  s_mov_b32 s2, s4
+.Lbb1:
+  s_endpgm
