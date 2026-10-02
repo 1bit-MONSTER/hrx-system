@@ -19,6 +19,19 @@ _PRESUBMIT_TEST_SIZE = "small"
 _PRESUBMIT_TEST_TAGS = ["manual"]
 
 py_library(
+    name = "command_line",
+    srcs = ["command_line.py"],
+)
+
+py_test(
+    name = "command_line_test",
+    size = _PRESUBMIT_TEST_SIZE,
+    srcs = ["command_line_test.py"],
+    tags = _PRESUBMIT_TEST_TAGS,
+    deps = [":command_line"],
+)
+
+py_library(
     name = "run_requirements",
     srcs = ["run_requirements.py"],
     data = [
@@ -62,6 +75,7 @@ py_library(
         "source_lock.py",
     ],
     deps = [
+        ":command_line",
         ":run_requirements",
         "//build_tools/bazel:compile_commands_merge_lib",
         "//build_tools/bazel:configure",
@@ -382,6 +396,7 @@ test_suite(
         ":cli_test",
         ":cmake_file_api_test",
         ":cmake_test",
+        ":command_line_test",
         ":command_plan_test",
         ":ctest_test",
         ":doctor_test",

@@ -46,5 +46,6 @@ test_suite(
     tests = [
         ":loom_source_lint_self_test",
         ":presubmit_test",
+        "//loom/build_tools/hygiene:presubmit_tests",
     ],
 )

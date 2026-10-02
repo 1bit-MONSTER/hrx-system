@@ -523,110 +523,6 @@ class LoomPresubmitTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_path_commands_are_batched_below_portable_command_line_limit(self):
-        command_prefix = ["loom-format", "--check"]
-        paths = ["loom/a.loom", "loom/b.loom", "loom/c.loom"]
-        single_path_limit = self.presubmit.command_line_utf16_units(
-            [*command_prefix, paths[0]]
-        )
-
-        commands = self.presubmit.batch_path_commands(
-            command_prefix,
-            paths,
-            max_command_line_utf16_units=single_path_limit,
-        )
-
-        self.assertEqual(
-            commands,
-            [[*command_prefix, path] for path in paths],
-        )
-        for command in commands:
-            self.assertLessEqual(
-                self.presubmit.command_line_utf16_units(command),
-                single_path_limit,
-            )
-
-    def test_path_command_batching_rejects_one_oversized_path(self):
-        command_prefix = ["loom-format", "--check"]
-        prefix_limit = self.presubmit.command_line_utf16_units(command_prefix)
-
-        with self.assertRaisesRegex(
-            ValueError, "path exceeds the portable command-line limit"
-        ):
-            self.presubmit.batch_path_commands(
-                command_prefix,
-                ["loom/a.loom"],
-                max_command_line_utf16_units=prefix_limit,
-            )
-
-    def test_path_batches_preserve_quoting_and_utf16_boundaries(self):
-        command_prefix = ["C:/Program Files/loom-format", "--check"]
-        paths = [
-            "loom/with spaces.loom",
-            'loom/with"quote.loom',
-            "loom/back\\slash.loom",
-            "loom/trailing space\\",
-            "loom/non-bmp-\U0001f600.loom",
-            "loom/tab\tname.loom",
-            "",
-        ]
-        minimum_limit = max(
-            self.presubmit.command_line_utf16_units([*command_prefix, path])
-            for path in paths
-        )
-        full_limit = self.presubmit.command_line_utf16_units([*command_prefix, *paths])
-        for limit in range(minimum_limit, full_limit + 1):
-            with self.subTest(limit=limit):
-                commands = self.presubmit.batch_path_commands(
-                    command_prefix,
-                    paths,
-                    max_command_line_utf16_units=limit,
-                )
-                self.assertEqual(
-                    [path for command in commands for path in command[2:]], paths
-                )
-                for index, command in enumerate(commands):
-                    self.assertEqual(command[:2], command_prefix)
-                    self.assertLessEqual(
-                        self.presubmit.command_line_utf16_units(command), limit
-                    )
-                    if index + 1 < len(commands):
-                        self.assertGreater(
-                            self.presubmit.command_line_utf16_units(
-                                [*command, commands[index + 1][2]]
-                            ),
-                            limit,
-                        )
-
-    def test_path_batching_serializes_each_argument_once(self):
-        command_prefix = ["loom-format", "--check"]
-        paths = [f"loom/path_{index}.loom" for index in range(2000)]
-        with mock.patch.object(
-            self.presubmit.subprocess,
-            "list2cmdline",
-            wraps=subprocess.list2cmdline,
-        ) as render:
-            commands = self.presubmit.batch_path_commands(command_prefix, paths)
-
-        self.assertEqual([path for command in commands for path in command[2:]], paths)
-        self.assertEqual(
-            sum(len(call.args[0]) for call in render.call_args_list),
-            len(command_prefix) + len(paths),
-        )
-
-    def test_path_batching_validates_prefix_even_without_paths(self):
-        for prefix, limit, error in (
-            ([], 100, "command prefix must not be empty"),
-            (["tool"], 0, "command-line limit must be positive"),
-            (["tool"], 4, "command prefix exceeds the portable command-line limit"),
-        ):
-            with self.subTest(prefix=prefix, limit=limit):
-                with self.assertRaisesRegex(ValueError, error):
-                    self.presubmit.batch_path_commands(
-                        prefix, [], max_command_line_utf16_units=limit
-                    )
-        self.assertEqual(self.presubmit.batch_path_commands(["tool"], []), [])
-
     def test_batched_path_command_runs_every_batch_after_failure(self):
         commands = [
             ["loom-format", "--check", "loom/a.loom"],
@@ -1054,9 +950,9 @@ class LoomPresubmitTest(unittest.TestCase):
             ],
         )
 
-    def test_template_checks_include_unchanged_and_new_consumers(self):
+    def test_cmake_template_checks_include_unchanged_and_new_consumers(self):
         checker_path = Path("/tools/loom-check-test")
-        for lane in ("bazel", "cmake"):
+        for lane in ("cmake",):
             with (
                 self.subTest(lane=lane),
                 mock.patch.object(
@@ -1123,11 +1019,44 @@ class LoomPresubmitTest(unittest.TestCase):
                 mock.patch.object(self.presubmit, "run_command") as run_command,
             ):
                 self.assertEqual(
-                    self.presubmit.run_template_checks(lane="bazel", files_from=None),
+                    self.presubmit.run_template_checks(lane="cmake", files_from=None),
                     expected,
                 )
                 self.assertEqual(build_checker.call_count, 1 if paths else 0)
                 run_command.assert_not_called()
+
+    def test_bazel_template_checks_use_declared_action_and_execution_policy(self):
+        for success in (False, True):
+            with (
+                self.subTest(success=success),
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        self.presubmit.project_presubmit.BAZEL_CONFIGS_ENV: json.dumps(
+                            ["remote-execution"]
+                        )
+                    },
+                ),
+                mock.patch.object(
+                    self.presubmit, "run_command", return_value=success
+                ) as run_command,
+            ):
+                self.assertEqual(
+                    self.presubmit.run_template_checks(
+                        lane="bazel", files_from="paths.txt"
+                    ),
+                    success,
+                )
+                run_command.assert_called_once_with(
+                    [
+                        "bazel",
+                        "build",
+                        *self.presubmit.BAZEL_SOURCE_TOOL_ARGS,
+                        "--config=remote-execution",
+                        "//loom/build_tools/hygiene:template_freshness",
+                    ],
+                    "Loom template freshness",
+                )
 
     def test_stale_template_fails_project_hygiene(self):
         args = types.SimpleNamespace(

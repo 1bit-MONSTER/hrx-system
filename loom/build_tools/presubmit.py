@@ -24,6 +24,7 @@ sys.path.insert(0, str(REPO_ROOT / "loom/py"))
 from loom.gen import checked_in_artifacts
 
 from build_tools.devtools import project_presubmit
+from build_tools.devtools.command_line import batch_path_commands
 from build_tools.devtools.source_lock import NonEmptyTrackedFileSnapshot
 
 PROJECT_NAME = "loom"
@@ -87,11 +88,6 @@ LOOM_FORMAT_EXCLUDED_PATHS = frozenset(
     }
 )
 
-# CreateProcess limits its command line to 32,767 UTF-16 code units including
-# the terminator. Keep one portable bound below that ceiling so repository-wide
-# file checks have the same batching behavior on every host.
-MAX_PORTABLE_COMMAND_LINE_UTF16_UNITS = 30_000
-
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Loom project presubmit.")
@@ -112,48 +108,6 @@ def run_command(
         cwd=REPO_ROOT,
         success_exit_codes=success_exit_codes,
     )
-
-
-def command_line_utf16_units(command: list[str]) -> int:
-    rendered_command = subprocess.list2cmdline(command)
-    return len(rendered_command.encode("utf-16-le")) // 2 + 1
-
-
-def batch_path_commands(
-    command_prefix: list[str],
-    paths: list[str],
-    *,
-    max_command_line_utf16_units: int = MAX_PORTABLE_COMMAND_LINE_UTF16_UNITS,
-) -> list[list[str]]:
-    if not command_prefix:
-        raise ValueError("command prefix must not be empty")
-    if max_command_line_utf16_units <= 0:
-        raise ValueError("command-line limit must be positive")
-    prefix_units = command_line_utf16_units(command_prefix)
-    if prefix_units > max_command_line_utf16_units:
-        raise ValueError("command prefix exceeds the portable command-line limit")
-
-    commands: list[list[str]] = []
-    command = list(command_prefix)
-    prefix_length = len(command_prefix)
-    current_units = prefix_units
-    for path in paths:
-        # Windows quotes each argument independently. Its terminating unit
-        # accounts for the separator added before this argument instead.
-        added_units = command_line_utf16_units([path])
-        if current_units + added_units <= max_command_line_utf16_units:
-            command.append(path)
-            current_units += added_units
-            continue
-        if len(command) > prefix_length:
-            commands.append(command)
-        command = [*command_prefix, path]
-        current_units = prefix_units + added_units
-        if current_units > max_command_line_utf16_units:
-            raise ValueError(f"path exceeds the portable command-line limit: {path}")
-    if len(command) > prefix_length:
-        commands.append(command)
-    return commands
 
 
 def run_batched_path_command(
@@ -380,6 +334,17 @@ def run_source_format_maintenance(
 def run_template_checks(*, lane: str, files_from: str | None) -> bool:
     # A changed corpus can invalidate unchanged consumers. Check the complete
     # source set; the native parser owns TEMPLATE discovery and comparison.
+    if lane == "bazel":
+        return run_command(
+            [
+                "bazel",
+                "build",
+                *BAZEL_SOURCE_TOOL_ARGS,
+                *project_presubmit.bazel_config_args(),
+                "//loom/build_tools/hygiene:template_freshness",
+            ],
+            "Loom template freshness",
+        )
     tracked_paths = tracked_lint_source_paths()
     if tracked_paths is None:
         return False
