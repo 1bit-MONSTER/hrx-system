@@ -21,6 +21,7 @@
 #include "loom/sanitizer/options.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/reporting/artifact_manifest.h"
+#include "loom/target/selection.h"
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/compile/configured.h"
 #include "loom/tooling/compile/pipeline.h"
@@ -528,8 +529,7 @@ static iree_string_view_t loom_compile_target_artifact_identifier(
 static iree_status_t loom_compile_emit_target(
     const loom_target_environment_t* target_environment,
     loom_run_session_t* session, const loom_target_emitter_t* target_emitter,
-    const loom_compile_request_t* compile_request,
-    loom_run_module_t* run_module,
+    iree_string_view_t target_key, loom_run_module_t* run_module,
     const loom_compile_options_t* compile_options, iree_allocator_t allocator,
     iree_string_view_t artifact_manifest_output_path, bool* out_emitted) {
   *out_emitted = false;
@@ -555,8 +555,7 @@ static iree_status_t loom_compile_emit_target(
     compile_options->report->artifact_kind =
         LOOM_TARGET_COMPILE_ARTIFACT_KIND_TARGET_ARTIFACT;
     compile_options->report->backend_name = target_emitter->name;
-    compile_options->report->target_key =
-        compile_request->explicit_target.specification.selector;
+    compile_options->report->target_key = target_key;
     compile_options->report->artifact_format = loom_target_artifact_format_name(
         target_emitter->target_artifact_format);
   }
@@ -754,6 +753,8 @@ int main(int argc, char** argv) {
   loom_compile_report_capture_options_t compile_report_options = {0};
   loom_compile_report_capture_t compile_report_capture = {0};
   loom_tooling_pass_trace_t pass_trace = {0};
+  loom_target_specification_t target_specification = {0};
+  const loom_target_profile_t* target_profile = NULL;
   loom_compile_request_t request = {0};
   loom_target_specialization_request_list_t target_specializations = {0};
   loom_pass_pipeline_snapshot_t pipeline_snapshot = {0};
@@ -820,11 +821,21 @@ int main(int argc, char** argv) {
     status = loom_compile_materialize_config_set(
         &session, &run_module, &config_set, &compile_report_capture.report);
   }
+  const iree_string_view_t target =
+      iree_string_view_trim(iree_make_cstring_view(FLAG_target));
+  if (iree_status_is_ok(status) && !iree_string_view_is_empty(target)) {
+    status = loom_target_specification_parse(target, &target_specification);
+  }
+  if (iree_status_is_ok(status) && !iree_string_view_is_empty(target)) {
+    status = loom_target_environment_select_profile(
+        compile_environment->target_environment, &target_specification,
+        &target_profile);
+  }
   if (iree_status_is_ok(status)) {
     const loom_compile_request_options_t request_options = {
         .roots = FLAG_root_list(),
         .format = iree_make_cstring_view(FLAG_format),
-        .target = iree_make_cstring_view(FLAG_target),
+        .target_profile = target_profile,
         .excluded_roots = FLAG_exclude_root_list(),
     };
     status =
@@ -909,8 +920,8 @@ int main(int argc, char** argv) {
   if (iree_status_is_ok(status) && exit_code == 0) {
     status = loom_compile_emit_target(
         compile_environment->target_environment, &session,
-        request.target_emitter, &request, &run_module, &compile_options,
-        allocator, artifact_manifest_output_path, &emitted);
+        request.target_emitter, target_specification.selector, &run_module,
+        &compile_options, allocator, artifact_manifest_output_path, &emitted);
   }
   if (iree_status_is_ok(status) && exit_code == 0 && !emitted) {
     if (compile_options.report != NULL) {

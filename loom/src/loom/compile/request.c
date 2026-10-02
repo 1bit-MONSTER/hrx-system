@@ -496,22 +496,6 @@ static iree_status_t loom_compile_entry_selection_resolve(
       out_selection);
 }
 
-static iree_status_t loom_compile_request_select_explicit_target(
-    iree_string_view_t target_value,
-    const loom_target_environment_t* target_environment,
-    loom_compile_target_selection_t* out_target) {
-  *out_target = (loom_compile_target_selection_t){0};
-  target_value = iree_string_view_trim(target_value);
-  if (iree_string_view_is_empty(target_value)) {
-    return iree_ok_status();
-  }
-  IREE_RETURN_IF_ERROR(loom_target_specification_parse(
-      target_value, &out_target->specification));
-  IREE_RETURN_IF_ERROR(loom_target_environment_select_profile(
-      target_environment, &out_target->specification, &out_target->profile));
-  return iree_ok_status();
-}
-
 static iree_status_t loom_compile_request_select_named_format(
     iree_string_view_t format,
     const loom_target_environment_t* target_environment,
@@ -572,8 +556,8 @@ static iree_status_t loom_compile_request_select_emitter(
       }
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
-          "module entries require --format or a --target with a canonical "
-          "module format");
+          "module entries require an explicit format or a target profile "
+          "with a canonical module format");
     }
     case LOOM_COMPILE_ENTRY_KIND_COMMAND:
     case LOOM_COMPILE_ENTRY_KIND_INVALID:
@@ -600,32 +584,28 @@ iree_status_t loom_compile_request_resolve(
 
   loom_compile_request_t request = {
       .selection = selection,
+      .target_profile = options->target_profile,
   };
-  IREE_RETURN_IF_ERROR(loom_compile_request_select_explicit_target(
-      options->target, target_environment, &request.explicit_target));
-  if (request.explicit_target.profile != NULL &&
-      selection.target_fact_type != NULL &&
-      request.explicit_target.profile->type->fact_type !=
-          selection.target_fact_type) {
+  if (request.target_profile != NULL && selection.target_fact_type != NULL &&
+      request.target_profile->type->fact_type != selection.target_fact_type) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "--target family '%.*s' cannot specialize roots authored for target "
+        "target family '%.*s' cannot specialize roots authored for target "
         "family '%.*s'",
-        (int)request.explicit_target.profile->type->name.size,
-        request.explicit_target.profile->type->name.data,
+        (int)request.target_profile->type->name.size,
+        request.target_profile->type->name.data,
         (int)selection.target_fact_type->name.size,
         selection.target_fact_type->name.data);
   }
   const loom_target_fact_type_t* target_fact_type =
-      request.explicit_target.profile != NULL
-          ? request.explicit_target.profile->type->fact_type
-          : selection.target_fact_type;
+      request.target_profile != NULL ? request.target_profile->type->fact_type
+                                     : selection.target_fact_type;
   if (selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL &&
-      request.explicit_target.profile == NULL &&
+      request.target_profile == NULL &&
       selection.untargeted_kernel_count != 0) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "kernel entries require --target when %u selected root%s "
+        "kernel entries require an explicit target when %u selected root%s "
         "omit target(...) attrs",
         (unsigned)selection.untargeted_kernel_count,
         selection.untargeted_kernel_count == 1 ? "" : "s");
@@ -766,8 +746,7 @@ iree_status_t loom_compile_request_materialize(
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(block_pool, &scratch_arena);
   const iree_host_size_t root_target_count =
-      request->explicit_target.profile != NULL ? request->selection.roots.count
-                                               : 0;
+      request->target_profile != NULL ? request->selection.roots.count : 0;
   loom_symbol_ref_t* root_target_values = NULL;
   iree_status_t status = iree_arena_allocate_array(
       &scratch_arena, root_target_count, sizeof(*root_target_values),
@@ -782,18 +761,18 @@ iree_status_t loom_compile_request_materialize(
   }
 
   loom_target_specialization_request_list_t specializations = {0};
-  if (iree_status_is_ok(status) && request->explicit_target.profile != NULL) {
+  if (iree_status_is_ok(status) && request->target_profile != NULL) {
     iree_arena_allocator_t* specialization_arena =
         request->selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL
             ? &scratch_arena
             : arena;
     status = loom_compile_request_build_specializations(
-        *inout_module, root_targets, request->explicit_target.profile,
+        *inout_module, root_targets, request->target_profile,
         specialization_arena, &specializations);
   }
   if (iree_status_is_ok(status) &&
       request->selection.kind == LOOM_COMPILE_ENTRY_KIND_KERNEL &&
-      request->explicit_target.profile != NULL) {
+      request->target_profile != NULL) {
     loom_target_entry_diagnostic_emitter_t diagnostic_emitter;
     loom_target_entry_diagnostic_emitter_initialize(
         *inout_module, entry_options, LOOM_EMITTER_PASS, &diagnostic_emitter);

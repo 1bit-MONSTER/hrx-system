@@ -291,6 +291,7 @@ loom_cc_library(
     loom::compile::request
     loom::link::linker
     loom::target::entry_selection
+    loom::target::profile
     loom::tooling::compile::configured
     loom::tooling::compile::pipeline
     loom::tooling::config
@@ -369,6 +370,7 @@ loom_cc_library(
     iree::base::internal::arena
     iree::base::tooling::flags
     loom::sanitizer::options
+    loom::target::selection
     loom::tooling::cli::help
     loom::tooling::compile::configured
     loom::tooling::config

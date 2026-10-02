@@ -28,6 +28,7 @@ loom_cc_binary(
     loom::target::entry_selection
     loom::target::low_descriptor_registry
     loom::target::reporting::artifact_manifest
+    loom::target::selection
     loom::tooling::cli::help
     loom::tooling::compile::configured
     loom::tooling::compile::options

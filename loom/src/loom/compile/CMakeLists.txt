@@ -27,7 +27,7 @@ loom_cc_library(
     loom::target::entry_selection
     loom::target::module_specialization
     loom::target::projection
-    loom::target::selection
+    loom::target::provider
     loom::target::specialization
     loom::target::types
   PUBLIC

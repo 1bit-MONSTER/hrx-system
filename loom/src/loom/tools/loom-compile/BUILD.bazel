@@ -31,6 +31,7 @@ loom_cc_binary(
         "//loom/src/loom/sanitizer:options",
         "//loom/src/loom/target:entry_selection",
         "//loom/src/loom/target:low_descriptor_registry",
+        "//loom/src/loom/target:selection",
         "//loom/src/loom/target/reporting:artifact_manifest",
         "//loom/src/loom/tooling/cli:help",
         "//loom/src/loom/tooling/compile:configured",
