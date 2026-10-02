@@ -460,7 +460,7 @@ CHECK: *"space":"scratch","value":{"id":*,"name":"packed","type":"reg<amdgpu.vgp
 
 // ====
 
-// RUN: emit amdgpu-allocation-json @loaded_chained_destructive_sgpr_results allocation-diagnostics=placement-decisions
+// RUN: emit amdgpu-assembly @loaded_chained_destructive_sgpr_results allocation-diagnostics=placement-decisions
 
 amdgpu.target<gfx1100> @target
 
@@ -473,6 +473,14 @@ low.func.def target<amdgpu.rdna3.core>(@target) @loaded_chained_destructive_sgpr
   %active_block_count = s_lshr_b32_rhs_inline %padded_active_row_count, 6
   return %active_block_count
 }
+
+// ----
+  s_load_dword s2, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_addk_i32 s2, s2, 1
+  s_addk_i32 s2, s2, 63
+  s_lshr_b32 s0, s2, 6
+  s_endpgm
 
 // ====
 

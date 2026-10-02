@@ -1408,7 +1408,8 @@ iree_status_t loom_check_execute_emit(
     iree_arena_deinitialize(&diagnostic_arena);
     return status;
   }
-  if (!module || diagnostic_collector.count > 0) {
+  if (!module ||
+      loom_check_diagnostic_collector_has_error(&diagnostic_collector)) {
     status = loom_check_diagnostic_collector_finish(&diagnostic_collector,
                                                     test_case, case_index,
                                                     report, allocator, result);
@@ -1440,7 +1441,7 @@ iree_status_t loom_check_execute_emit(
       iree_arena_deinitialize(&diagnostic_arena);
       return status;
     }
-    if (diagnostic_collector.count > 0) {
+    if (loom_check_diagnostic_collector_has_error(&diagnostic_collector)) {
       status = loom_check_diagnostic_collector_finish(
           &diagnostic_collector, test_case, case_index, report, allocator,
           result);
@@ -1468,13 +1469,13 @@ iree_status_t loom_check_execute_emit(
         .host_allocator = allocator,
         .result = result,
     };
-    iree_host_size_t actual_output_size = result->actual_output.size;
     status = provider->execute(provider, &provider_request);
     iree_arena_deinitialize(&case_arena);
-    if (iree_status_is_ok(status) &&
-        result->actual_output.size != actual_output_size) {
-      result->has_actual_output = true;
-    }
+    // Successful emission owns a comparable output even when it is empty.
+    // Remarks do not suppress that comparison; compilation errors do.
+    result->has_actual_output =
+        iree_status_is_ok(status) &&
+        !loom_check_diagnostic_collector_has_error(&diagnostic_collector);
     loom_input_module_deinitialize(&input);
     diagnostic_collector.module = NULL;
     if (!iree_status_is_ok(status)) {
@@ -1562,7 +1563,8 @@ iree_status_t loom_check_execute_emit(
       iree_arena_deinitialize(&diagnostic_arena);
       return status;
     }
-    if (verify_result.error_count > 0 || diagnostic_collector.count > 0) {
+    if (verify_result.error_count > 0 ||
+        loom_check_diagnostic_collector_has_error(&diagnostic_collector)) {
       status = loom_check_diagnostic_collector_finish(
           &diagnostic_collector, test_case, case_index, report, allocator,
           result);
@@ -1596,8 +1598,9 @@ iree_status_t loom_check_execute_emit(
           loom_low_verify_scratch_for_module(module);
       status = loom_low_verify_module(module, &low_verify_options,
                                       &low_verify_scratch, &low_verify_result);
-      if (iree_status_is_ok(status) && (low_verify_result.error_count > 0 ||
-                                        diagnostic_collector.count > 0)) {
+      if (iree_status_is_ok(status) &&
+          (low_verify_result.error_count > 0 ||
+           loom_check_diagnostic_collector_has_error(&diagnostic_collector))) {
         status = loom_check_diagnostic_collector_finish(
             &diagnostic_collector, test_case, case_index, report, allocator,
             result);

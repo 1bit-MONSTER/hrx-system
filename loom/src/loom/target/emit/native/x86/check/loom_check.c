@@ -140,7 +140,8 @@ static iree_status_t loom_x86_loom_check_emit_provider_execute(
       /*storage_lease_provider=*/NULL, &spill_free_options, &frame,
       &frame_accepted));
   if (request->diagnostic_collector != NULL &&
-      request->diagnostic_collector->count != 0) {
+      loom_check_diagnostic_collector_has_error(
+          request->diagnostic_collector)) {
     return iree_ok_status();
   }
   if (!frame_accepted) {

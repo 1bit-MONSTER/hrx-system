@@ -514,7 +514,8 @@ static iree_status_t loom_amdgpu_loom_check_emit_provider_execute(
       request, &symbol_facts, options.function_symbol_name,
       &schedule_pair_affinities, &schedule_state_reads));
   if (request->diagnostic_collector != NULL &&
-      request->diagnostic_collector->count != 0) {
+      loom_check_diagnostic_collector_has_error(
+          request->diagnostic_collector)) {
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_check_low_emit_packetize_function(
@@ -527,7 +528,8 @@ static iree_status_t loom_amdgpu_loom_check_emit_provider_execute(
       schedule_state_reads, selected_storage_lease_provider,
       &spill_free_options, &frame, &frame_accepted));
   if (request->diagnostic_collector != NULL &&
-      request->diagnostic_collector->count != 0) {
+      loom_check_diagnostic_collector_has_error(
+          request->diagnostic_collector)) {
     return iree_ok_status();
   }
   if (!frame_accepted) {
