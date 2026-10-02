@@ -463,10 +463,11 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @fixed_mask_c
 // ====
 
 // A free copy source lets allocation preserve the predicate before its read.
-// RUN: emit amdgpu-assembly @free_source_mask_copy strategy=source fixed=%mask:physical_register:0:2 fixed=%joined:physical_register:0:2
+// RUN: emit amdgpu-assembly @free_source_mask_copy strategy=source allocation-diagnostics=predicted-spills fixed=%mask:physical_register:0:2 fixed=%joined:physical_register:0:2
 
 amdgpu.target<gfx1151> @target {subgroup_size = 64}
 
+// REMARK@+1: BACKEND/046 {source_value_name="mask", rewritten_operand_count="1"}
 low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @free_source_mask_copy(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
   %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
   low.br ^join(%source: reg<amdgpu.sgpr x2>)

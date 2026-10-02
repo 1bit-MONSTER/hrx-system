@@ -215,7 +215,8 @@ typedef struct loom_check_emit_provider_request_t {
   const loom_target_low_descriptor_registry_t* low_registry;
   // Diagnostic collector for provider diagnostics.
   loom_check_diagnostic_collector_t* diagnostic_collector;
-  // Arena scoped to this emit case for analysis and diagnostics.
+  // Provider workspace, released after execute returns. Separate from the
+  // diagnostic collector's arena so analysis checkpoints cannot retire remarks.
   iree_arena_allocator_t* case_arena;
   // Block pool backing compile pipeline allocations for this emit case.
   iree_arena_block_pool_t* block_pool;

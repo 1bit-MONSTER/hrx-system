@@ -1448,6 +1448,10 @@ iree_status_t loom_check_execute_emit(
       iree_arena_deinitialize(&diagnostic_arena);
       return status;
     }
+    // Providers may rewind workspace while rebuilding a frame. Collected
+    // diagnostics must survive those rewinds and the provider invocation.
+    iree_arena_allocator_t case_arena;
+    iree_arena_initialize(block_pool, &case_arena);
     const loom_check_emit_provider_request_t provider_request = {
         .emit_target = test_case->emit_target,
         .target_name = provider_target_name,
@@ -1459,13 +1463,14 @@ iree_status_t loom_check_execute_emit(
         .source_resolver = source_resolver,
         .low_registry = &low_registry,
         .diagnostic_collector = &diagnostic_collector,
-        .case_arena = &diagnostic_arena,
+        .case_arena = &case_arena,
         .block_pool = block_pool,
         .host_allocator = allocator,
         .result = result,
     };
     iree_host_size_t actual_output_size = result->actual_output.size;
     status = provider->execute(provider, &provider_request);
+    iree_arena_deinitialize(&case_arena);
     if (iree_status_is_ok(status) &&
         result->actual_output.size != actual_output_size) {
       result->has_actual_output = true;
