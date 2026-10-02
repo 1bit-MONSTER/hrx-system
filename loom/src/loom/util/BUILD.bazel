@@ -13,6 +13,26 @@ package(
 )
 
 loom_cc_library(
+    name = "index_set",
+    srcs = ["index_set.c"],
+    hdrs = ["index_set.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+    ],
+)
+
+loom_cc_test(
+    name = "index_set_test",
+    srcs = ["index_set_test.cc"],
+    deps = [
+        ":index_set",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "bstring",
     hdrs = ["bstring.h"],
     deps = [

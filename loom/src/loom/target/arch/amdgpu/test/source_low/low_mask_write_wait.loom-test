@@ -650,3 +650,36 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @free_source_
 .Lbb1:
   s_or_b32 s0, s0, s0
   s_endpgm
+
+// ====
+
+// Independent sink units propagate through interleaved copy chains.
+// RUN: emit amdgpu-assembly @interleaved_mask_copy_chains strategy=source fixed=%mask:physical_register:0:2 fixed=%joined_low:physical_register:0:1 fixed=%joined_high:physical_register:1:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @interleaved_mask_copy_chains(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %source_low = slice %source[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %source_high = slice %source[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %low_first = copy %source_low : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  %high_first = copy %source_high : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  %low_last = copy %low_first : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  %high_last = copy %high_first : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  low.br ^join(%low_last: reg<amdgpu.sgpr>, %high_last: reg<amdgpu.sgpr>)
+^join(%joined_low: reg<amdgpu.sgpr>, %joined_high: reg<amdgpu.sgpr>):
+  %result_low = s_or_b32 %joined_low, %source_low
+  %result_high = s_or_b32 %joined_high, %source_high
+  return %selected, %result_low, %result_high
+}
+
+// ----
+  s_mov_b32 s4, s0
+  s_mov_b32 s5, s1
+  v_cndmask_b32 v0, 0, v0, s[4:5]
+  s_mov_b32 s0, s2
+  s_mov_b32 s1, s3
+.Lbb1:
+  s_or_b32 s0, s0, s2
+  s_or_b32 s1, s1, s3
+  s_endpgm

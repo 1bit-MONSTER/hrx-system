@@ -842,6 +842,7 @@ loom_cc_library(
     loom::ir
     loom::target::registers
     loom::util::cfg_graph
+    loom::util::index_set
   PUBLIC
 )
 

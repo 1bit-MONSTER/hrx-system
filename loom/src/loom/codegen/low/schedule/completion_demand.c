@@ -106,17 +106,8 @@ iree_status_t loom_low_schedule_completion_demand_initialize(
         };
   }
   out_demand->domain_count = domain_count;
-  uint32_t level_bit_count = node_count;
-  do {
-    const uint32_t level_word_count =
-        level_bit_count / 64 + (level_bit_count % 64 != 0);
-    out_demand->nominations
-        .level_starts[out_demand->nominations.level_count++] =
-        out_demand->nominations.words_per_domain;
-    out_demand->nominations.words_per_domain += level_word_count;
-    level_bit_count = level_word_count;
-  } while (level_bit_count > 1);
-  if (!iree_host_size_checked_mul(out_demand->nominations.words_per_domain,
+  out_demand->nominations.layout = loom_index_set_calculate_layout(node_count);
+  if (!iree_host_size_checked_mul(out_demand->nominations.layout.word_count,
                                   domain_count, &word_count) ||
       !iree_host_size_checked_mul(
           word_count, LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_KIND_COUNT,
@@ -138,24 +129,10 @@ void loom_low_schedule_completion_demand_nominate(
     uint32_t consumer) {
   uint64_t* bits = demand->nominations.bits +
                    ((iree_host_size_t)kind * demand->domain_count + domain) *
-                       demand->nominations.words_per_domain;
-  uint32_t bit_index = consumer;
-  bool was_nominated = false;
-  for (uint8_t level = 0; level < demand->nominations.level_count; ++level) {
-    uint64_t* word =
-        &bits[demand->nominations.level_starts[level] + bit_index / 64];
-    const uint64_t bit = UINT64_C(1) << (bit_index % 64);
-    const uint64_t previous = *word;
-    if (level == 0) {
-      was_nominated = (previous & bit) != 0;
-    }
-    *word |= bit;
-    if (previous != 0) {
-      break;
-    }
-    bit_index /= 64;
-  }
-  if (!was_nominated && kind == LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_FINAL) {
+                       demand->nominations.layout.word_count;
+  const bool inserted =
+      loom_index_set_insert(&demand->nominations.layout, bits, consumer);
+  if (inserted && kind == LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_FINAL) {
     ++demand->domain_states[domain].final_nomination_generation;
   }
 }
@@ -168,19 +145,8 @@ void loom_low_schedule_completion_demand_complete(
       uint64_t* bits =
           demand->nominations.bits +
           ((iree_host_size_t)kind * demand->domain_count + domain) *
-              demand->nominations.words_per_domain;
-      uint32_t bit_index = node;
-      for (uint8_t level = 0; level < demand->nominations.level_count;
-           ++level) {
-        uint64_t* word =
-            &bits[demand->nominations.level_starts[level] + bit_index / 64];
-        const uint64_t previous = *word;
-        *word &= ~(UINT64_C(1) << (bit_index % 64));
-        if (previous == 0 || *word != 0) {
-          break;
-        }
-        bit_index /= 64;
-      }
+              demand->nominations.layout.word_count;
+      loom_index_set_erase(&demand->nominations.layout, bits, node);
     }
   }
 }
@@ -235,17 +201,11 @@ uint32_t loom_low_schedule_completion_demand_select(
   const uint64_t* nominations =
       demand->nominations.bits +
       ((iree_host_size_t)nomination_kind * demand->domain_count + domain) *
-          demand->nominations.words_per_domain;
-  uint8_t level = demand->nominations.level_count - 1;
-  uint64_t word = nominations[demand->nominations.level_starts[level]];
-  if (word == 0) {
+          demand->nominations.layout.word_count;
+  const uint32_t root =
+      loom_index_set_select(&demand->nominations.layout, nominations, 0);
+  if (root == LOOM_INDEX_SET_NONE) {
     return LOOM_LOW_SCHEDULE_NODE_NONE;
-  }
-  uint32_t root = (uint32_t)iree_math_count_trailing_zeros_u64(word);
-  while (level != 0) {
-    --level;
-    word = nominations[demand->nominations.level_starts[level] + root];
-    root = root * 64 + (uint32_t)iree_math_count_trailing_zeros_u64(word);
   }
   *root_slot = root;
   loom_low_schedule_completion_demand_mark_root(demand, nodes, channel, root);
@@ -286,8 +246,7 @@ uint32_t loom_low_schedule_completion_demand_select_transaction_final(
   const uint64_t* nominations =
       demand->nominations.bits +
       ((iree_host_size_t)nomination_kind * demand->domain_count + domain) *
-          demand->nominations.words_per_domain +
-      demand->nominations.level_starts[0];
+          demand->nominations.layout.word_count;
   for (uint32_t word_index = 0; word_index < demand->words_per_domain;
        ++word_index) {
     const uint64_t word = nominations[word_index] & parent_bits[word_index];
