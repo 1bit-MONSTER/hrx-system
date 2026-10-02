@@ -64,9 +64,10 @@ iree_status_t loom_low_allocation_write_interference_finalize(
     iree_arena_allocator_t* scratch_arena);
 
 // Returns whether one candidate violates a completed write constraint. Future
-// fixed assignments participate. Forced zero-copy implications propagate into
-// unresolved sources using reusable inference scratch, without assigning them.
-// Required aliases always query their canonical storage origin.
+// fixed assignments participate. Producer-proved zero-copy equations propagate
+// in both directions using reusable inference scratch, without assigning their
+// endpoints. Provisional spills end propagation: spill plans rebuild allocation
+// before emission. Required aliases query their canonical storage origin.
 bool loom_low_allocation_write_interference_conflicts(
     loom_low_allocation_write_interference_t* interference,
     const loom_low_allocation_assignment_map_t* assignments,
@@ -108,7 +109,9 @@ bool loom_low_allocation_write_proposal_conflicts(
     const loom_low_allocation_write_proposal_t* proposal);
 
 // Returns whether a copy-cycle temporary would overwrite a retained unit at
-// |write_point|. Such a temporary has no SSA lifetime of its own.
+// |write_point|. Such a temporary has no SSA lifetime of its own. Move planning
+// supplies final spill-free assignments, with physical locations for every
+// retained origin in the tracked bank.
 bool loom_low_allocation_write_interference_temporary_conflicts(
     const loom_low_allocation_write_interference_t* interference,
     const loom_low_allocation_assignment_map_t* assignments,
