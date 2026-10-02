@@ -129,21 +129,27 @@ def batch_path_commands(
         raise ValueError("command prefix must not be empty")
     if max_command_line_utf16_units <= 0:
         raise ValueError("command-line limit must be positive")
-    if command_line_utf16_units(command_prefix) > max_command_line_utf16_units:
+    prefix_units = command_line_utf16_units(command_prefix)
+    if prefix_units > max_command_line_utf16_units:
         raise ValueError("command prefix exceeds the portable command-line limit")
 
     commands: list[list[str]] = []
     command = list(command_prefix)
     prefix_length = len(command_prefix)
+    current_units = prefix_units
     for path in paths:
-        candidate = [*command, path]
-        if command_line_utf16_units(candidate) <= max_command_line_utf16_units:
+        # Windows quotes each argument independently. Its terminating unit
+        # accounts for the separator added before this argument instead.
+        added_units = command_line_utf16_units([path])
+        if current_units + added_units <= max_command_line_utf16_units:
             command.append(path)
+            current_units += added_units
             continue
         if len(command) > prefix_length:
             commands.append(command)
         command = [*command_prefix, path]
-        if command_line_utf16_units(command) > max_command_line_utf16_units:
+        current_units = prefix_units + added_units
+        if current_units > max_command_line_utf16_units:
             raise ValueError(f"path exceeds the portable command-line limit: {path}")
     if len(command) > prefix_length:
         commands.append(command)

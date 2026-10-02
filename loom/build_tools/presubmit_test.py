@@ -559,6 +559,74 @@ class LoomPresubmitTest(unittest.TestCase):
                 max_command_line_utf16_units=prefix_limit,
             )
 
+    def test_path_batches_preserve_quoting_and_utf16_boundaries(self):
+        command_prefix = ["C:/Program Files/loom-format", "--check"]
+        paths = [
+            "loom/with spaces.loom",
+            'loom/with"quote.loom',
+            "loom/back\\slash.loom",
+            "loom/trailing space\\",
+            "loom/non-bmp-\U0001f600.loom",
+            "loom/tab\tname.loom",
+            "",
+        ]
+        minimum_limit = max(
+            self.presubmit.command_line_utf16_units([*command_prefix, path])
+            for path in paths
+        )
+        full_limit = self.presubmit.command_line_utf16_units([*command_prefix, *paths])
+        for limit in range(minimum_limit, full_limit + 1):
+            with self.subTest(limit=limit):
+                commands = self.presubmit.batch_path_commands(
+                    command_prefix,
+                    paths,
+                    max_command_line_utf16_units=limit,
+                )
+                self.assertEqual(
+                    [path for command in commands for path in command[2:]], paths
+                )
+                for index, command in enumerate(commands):
+                    self.assertEqual(command[:2], command_prefix)
+                    self.assertLessEqual(
+                        self.presubmit.command_line_utf16_units(command), limit
+                    )
+                    if index + 1 < len(commands):
+                        self.assertGreater(
+                            self.presubmit.command_line_utf16_units(
+                                [*command, commands[index + 1][2]]
+                            ),
+                            limit,
+                        )
+
+    def test_path_batching_serializes_each_argument_once(self):
+        command_prefix = ["loom-format", "--check"]
+        paths = [f"loom/path_{index}.loom" for index in range(2000)]
+        with mock.patch.object(
+            self.presubmit.subprocess,
+            "list2cmdline",
+            wraps=subprocess.list2cmdline,
+        ) as render:
+            commands = self.presubmit.batch_path_commands(command_prefix, paths)
+
+        self.assertEqual([path for command in commands for path in command[2:]], paths)
+        self.assertEqual(
+            sum(len(call.args[0]) for call in render.call_args_list),
+            len(command_prefix) + len(paths),
+        )
+
+    def test_path_batching_validates_prefix_even_without_paths(self):
+        for prefix, limit, error in (
+            ([], 100, "command prefix must not be empty"),
+            (["tool"], 0, "command-line limit must be positive"),
+            (["tool"], 4, "command prefix exceeds the portable command-line limit"),
+        ):
+            with self.subTest(prefix=prefix, limit=limit):
+                with self.assertRaisesRegex(ValueError, error):
+                    self.presubmit.batch_path_commands(
+                        prefix, [], max_command_line_utf16_units=limit
+                    )
+        self.assertEqual(self.presubmit.batch_path_commands(["tool"], []), [])
+
     def test_batched_path_command_runs_every_batch_after_failure(self):
         commands = [
             ["loom-format", "--check", "loom/a.loom"],
