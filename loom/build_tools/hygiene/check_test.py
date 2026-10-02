@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Runs the action adapter against the production native template checker."""
+"""Runs action adapters against the production format and policy tools."""
 
 import json
 import subprocess
@@ -17,10 +17,14 @@ from python.runfiles import runfiles
 
 
 class CheckTest(unittest.TestCase):
-    def test_native_diagnostics_and_success_stamp(self):
+    @classmethod
+    def setUpClass(cls):
         resolver = runfiles.Create()
-        runner = resolver.Rlocation(sys.argv[1])
-        checker = resolver.Rlocation(sys.argv[2])
+        cls.runner, cls.checker, cls.formatter, cls.authoring, cls.repository = (
+            resolver.Rlocation(path) for path in sys.argv[1:]
+        )
+
+    def test_native_diagnostics_and_success_stamp(self):
         with tempfile.TemporaryDirectory(prefix="loom hygiene ") as temporary:
             root = Path(temporary)
             source_root = root / "loom/source"
@@ -42,9 +46,10 @@ class CheckTest(unittest.TestCase):
             )
             output = root / "passed"
             command = [
-                runner,
+                self.runner,
+                "--check=templates",
                 "--tool",
-                checker,
+                self.checker,
                 "--sources",
                 str(manifest),
                 "--output",
@@ -76,6 +81,122 @@ class CheckTest(unittest.TestCase):
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("NOT_FOUND", result.stdout + result.stderr)
+            self.assertFalse(output.exists())
+
+    def test_formatter_and_authoring_use_real_tools_and_preserve_inputs(self):
+        for check, tool in (("format", self.formatter), ("authoring", self.authoring)):
+            with (
+                self.subTest(check=check),
+                tempfile.TemporaryDirectory(prefix="hygiene ") as temporary,
+            ):
+                root = Path(temporary)
+                source = root / "unregistered source.loom"
+                source.write_text(
+                    "func.def @example() {\n  func.return\n}\n", encoding="utf-8"
+                )
+                if check == "format":
+                    result = subprocess.run(
+                        [tool, "--in-place", str(source)],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                contents = source.read_text(encoding="utf-8")
+                manifest = root / "sources.json"
+                manifest.write_text(json.dumps([source.name]), encoding="utf-8")
+                output = root / "passed"
+                command = [
+                    self.runner,
+                    "--check=" + check,
+                    "--tool",
+                    tool,
+                    "--sources",
+                    str(manifest),
+                    "--output",
+                    str(output),
+                ]
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(output.read_text(encoding="utf-8"), "PASS\n")
+                output.unlink()
+                invalid = (
+                    contents.replace("  func.return", "\tfunc.return")
+                    if check == "format"
+                    else "%one = scalar.constant 1 : i32\n"
+                )
+                self.assertNotEqual(invalid, contents)
+                source.write_text(invalid, encoding="utf-8")
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(source.name, result.stdout + result.stderr)
+                self.assertFalse(output.exists())
+                self.assertEqual(source.read_text(encoding="utf-8"), invalid)
+                source.write_text(contents, encoding="utf-8")
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_repository_policy_preserves_logical_paths_for_encoded_inputs(self):
+        cases = (
+            (
+                "loom/src/loom/ir/unregistered.c",
+                "iree_arena_allocate(arena, module->values.count);\n",
+                "module-value-cardinality",
+            ),
+            (
+                "loom/src/loom/ir/flags.c",
+                '#include "iree/base/tooling/flags.h"\n',
+                "flag",
+            ),
+            (
+                "loom/src/loom/target/example/BUILD.bazel",
+                'deps = ["//loom/src/loom/tooling/execution/hal:core"]\n',
+                "execution mechanism",
+            ),
+            (
+                "loom/src/loom/test/corpus/authoring/example.loom",
+                "%nb0 : index\n",
+                "byte strides",
+            ),
+        )
+        with tempfile.TemporaryDirectory(prefix="hygiene ") as temporary:
+            root = Path(temporary)
+            manifest = root / "policy_sources.json"
+            output = root / "passed"
+            command = [
+                self.runner,
+                "--check=repository",
+                "--tool",
+                self.repository,
+                "--sources",
+                str(manifest),
+                "--output",
+                str(output),
+            ]
+            for source, contents, diagnostic in cases:
+                with self.subTest(source=source):
+                    payload = root / "encoded-input.source"
+                    manifest.write_text(
+                        json.dumps({source: payload.name}), encoding="utf-8"
+                    )
+                    payload.write_text(contents, encoding="utf-8")
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(source + ":1:", result.stdout + result.stderr)
+                    self.assertIn(diagnostic, result.stdout + result.stderr)
+                    self.assertFalse(output.exists())
+                    payload.write_text("// policy repair\n", encoding="utf-8")
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                    self.assertEqual(output.read_text(encoding="utf-8"), "PASS\n")
+                    output.unlink()
+            payload.unlink()
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FileNotFoundError", result.stdout + result.stderr)
             self.assertFalse(output.exists())
 
 

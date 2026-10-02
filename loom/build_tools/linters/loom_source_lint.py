@@ -36,6 +36,8 @@ casts, and ggml-style byte strides typed as logical indices.
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import sys
 import tempfile
@@ -43,9 +45,17 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "loom/py"))
+
+from loom.tools.source_inventory import (
+    AUTHORING_CORPUS_ROOT,
+    is_repository_policy_path,
+)
+from loom.tools.source_inventory import (
+    REPOSITORY_SOURCE_SUFFIXES as SOURCE_SUFFIXES,
+)
+
 LOOM_SOURCE_ROOT = REPO_ROOT / "loom" / "src" / "loom"
-AUTHORING_CORPUS_ROOT = LOOM_SOURCE_ROOT / "test" / "corpus" / "authoring"
-SOURCE_SUFFIXES = {".c", ".cc", ".h"}
 SPIRV_BACKEND_RELATIVE_ROOTS = (
     "loom/src/loom/target/arch/spirv",
     "loom/src/loom/target/emit/spirv",
@@ -138,8 +148,11 @@ AUTHORING_BYTE_STRIDE_INDEX_PATTERN = re.compile(
 class ApprovedStatement:
     """A reviewed statement that intentionally mentions module value cardinality."""
 
+    # Repository-relative source identity, independent of materialization path.
     path: str
+    # Statement spelling covered by the approval.
     pattern: re.Pattern[str]
+    # Invariant that justifies this use of module cardinality.
     reason: str
 
 
@@ -208,9 +221,13 @@ APPROVED_STATEMENTS = [
 class Finding:
     """A lint finding with enough context for source review."""
 
+    # Logical source path rooted at REPO_ROOT for stable diagnostics.
     path: Path
+    # One-based source line containing the violation.
     line: int
+    # Policy violated by this source.
     message: str
+    # Source excerpt identifying the offending statement.
     context: str
 
 
@@ -226,11 +243,11 @@ def _read_source_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _iter_statements(path: Path) -> list[tuple[int, str]]:
+def _iter_statements(text: str) -> list[tuple[int, str]]:
     statements: list[tuple[int, str]] = []
     start_line = 0
     pending: list[str] = []
-    for line_number, line in enumerate(_read_source_text(path).splitlines(), start=1):
+    for line_number, line in enumerate(text.splitlines(), start=1):
         if not pending:
             start_line = line_number
         pending.append(line.rstrip())
@@ -260,9 +277,9 @@ def _is_suspicious(statement: str) -> bool:
     return CARDINALITY_ALIAS_PATTERN.search(uncommented) is not None
 
 
-def _scan_file(path: Path) -> list[Finding]:
+def _scan_statements(path: Path, text: str) -> list[Finding]:
     findings: list[Finding] = []
-    for line, statement in _iter_statements(path):
+    for line, statement in _iter_statements(text):
         if _is_suspicious(statement) and not _is_approved(path, statement):
             findings.append(
                 Finding(
@@ -276,14 +293,6 @@ def _scan_file(path: Path) -> list[Finding]:
                 )
             )
     return findings
-
-
-def _iter_source_files() -> list[Path]:
-    return sorted(
-        path
-        for path in LOOM_SOURCE_ROOT.rglob("*")
-        if path.is_file() and path.suffix in SOURCE_SUFFIXES
-    )
 
 
 def _format_statement(statement: str) -> str:
@@ -405,25 +414,6 @@ def _scan_spirv_backend_text(
     return findings
 
 
-def _iter_lint_files() -> list[Path]:
-    return sorted(
-        path
-        for path in LOOM_SOURCE_ROOT.rglob("*")
-        if path.is_file()
-        and (
-            path.suffix in SOURCE_SUFFIXES
-            or path.name == "BUILD.bazel"
-            or path.name == "CMakeLists.txt"
-        )
-    )
-
-
-def _iter_authoring_loom_files() -> list[Path]:
-    return sorted(
-        path for path in AUTHORING_CORPUS_ROOT.rglob("*.loom") if path.is_file()
-    )
-
-
 def _scan_authoring_text(path: Path, text: str) -> list[Finding]:
     findings: list[Finding] = []
     for line_number, line in enumerate(text.splitlines(), start=1):
@@ -494,10 +484,6 @@ def _scan_authoring_text(path: Path, text: str) -> list[Finding]:
                 )
             )
     return findings
-
-
-def _scan_authoring_corpus(path: Path) -> list[Finding]:
-    return _scan_authoring_text(path, _read_source_text(path))
 
 
 def _scan_target_execution_text(
@@ -585,54 +571,36 @@ def _scan_target_execution_text(
     return findings
 
 
-def _scan_target_execution_guardrails(path: Path) -> list[Finding]:
-    findings: list[Finding] = []
-    for line, message, context in _scan_target_execution_text(
-        _relative_path(path), _read_source_text(path)
+def _scan_source(relative_path: str, text: str) -> list[Finding]:
+    path = REPO_ROOT / relative_path
+    if relative_path.startswith(AUTHORING_CORPUS_ROOT) and path.suffix == ".loom":
+        return _scan_authoring_text(path, text)
+    findings = _scan_statements(path, text) if path.suffix in SOURCE_SUFFIXES else []
+    for scan in (
+        _scan_core_tooling_flags_text,
+        _scan_target_execution_text,
+        _scan_spirv_backend_text,
     ):
-        findings.append(
-            Finding(
-                path=path,
-                line=line,
-                message=message,
-                context=context,
-            )
-        )
+        for line, message, context in scan(relative_path, text):
+            findings.append(Finding(path, line, message, context))
     return findings
 
 
-def _scan_spirv_backend_guardrails(path: Path) -> list[Finding]:
-    relative_path = _relative_path(path)
-    findings: list[Finding] = []
-    for line, message, context in _scan_spirv_backend_text(
-        relative_path, _read_source_text(path)
-    ):
-        findings.append(
-            Finding(
-                path=path,
-                line=line,
-                message=message,
-                context=context,
+def _source_inputs(manifest: Path | None) -> list[tuple[str, Path]]:
+    if manifest is not None:
+        # The repository rule supplies logical names and encoded data paths;
+        # BUILD.bazel inputs must not define packages in that source view.
+        return [
+            (source, manifest.parent / payload)
+            for source, payload in sorted(
+                json.loads(manifest.read_text(encoding="utf-8")).items()
             )
-        )
-    return findings
-
-
-def _scan_core_tooling_flags_guardrails(path: Path) -> list[Finding]:
-    relative_path = _relative_path(path)
-    findings: list[Finding] = []
-    for line, message, context in _scan_core_tooling_flags_text(
-        relative_path, _read_source_text(path)
-    ):
-        findings.append(
-            Finding(
-                path=path,
-                line=line,
-                message=message,
-                context=context,
-            )
-        )
-    return findings
+        ]
+    return [
+        (_relative_path(path), path)
+        for path in sorted(LOOM_SOURCE_ROOT.rglob("*"))
+        if path.is_file() and is_repository_policy_path(_relative_path(path))
+    ]
 
 
 def _expect_spirv_self_test(
@@ -680,7 +648,7 @@ def _expect_target_execution_self_test(
 def _expect_authoring_self_test(
     name: str, text: str, expected_messages: tuple[str, ...]
 ) -> bool:
-    path = AUTHORING_CORPUS_ROOT / "self_test.loom"
+    path = REPO_ROOT / AUTHORING_CORPUS_ROOT / "self_test.loom"
     findings = _scan_authoring_text(path, text)
     messages = tuple(finding.message for finding in findings)
     if messages == expected_messages:
@@ -876,21 +844,17 @@ kernel.def @copy(%n: index) {
 
 
 def main() -> int:
-    if sys.argv[1:] == ["--self-test"]:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--self-test", action="store_true")
+    mode.add_argument("--manifest", type=Path)
+    arguments = parser.parse_args()
+    if arguments.self_test:
         return _run_self_tests()
-    if len(sys.argv) > 1:
-        print("usage: loom_source_lint.py [--self-test]")
-        return 2
 
     findings: list[Finding] = []
-    for path in _iter_source_files():
-        findings.extend(_scan_file(path))
-    for path in _iter_lint_files():
-        findings.extend(_scan_core_tooling_flags_guardrails(path))
-        findings.extend(_scan_target_execution_guardrails(path))
-        findings.extend(_scan_spirv_backend_guardrails(path))
-    for path in _iter_authoring_loom_files():
-        findings.extend(_scan_authoring_corpus(path))
+    for source, payload in _source_inputs(arguments.manifest):
+        findings.extend(_scan_source(source, _read_source_text(payload)))
 
     if not findings:
         print("loom-source-lint: PASS")

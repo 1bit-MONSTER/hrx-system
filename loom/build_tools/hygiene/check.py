@@ -21,16 +21,29 @@ def main() -> int:
     parser.add_argument("--tool", type=Path, required=True)
     parser.add_argument("--sources", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--check",
+        choices=("templates", "format", "authoring", "repository"),
+        required=True,
+    )
     arguments = parser.parse_args()
     tool = arguments.tool.absolute()
     source_manifest = arguments.sources.absolute()
     output = arguments.output.absolute()
-    paths = json.loads(source_manifest.read_text(encoding="utf-8"))
-    prefix = [str(tool), "--check-templates", "--template-root=."]
+    if arguments.check == "repository":
+        commands = [[str(tool), "--manifest", str(source_manifest)]]
+    else:
+        paths = json.loads(source_manifest.read_text(encoding="utf-8"))
+        flags = {
+            "templates": ["--check-templates", "--template-root=."],
+            "format": ["--check"],
+            "authoring": [],
+        }[arguments.check]
+        commands = batch_path_commands([str(tool), *flags], paths)
     # Keep the portable command bound while passing every source as its own
     # argument. Native flag files cannot carry positional input paths.
     failed = False
-    for command in batch_path_commands(prefix, paths):
+    for command in commands:
         failed = (
             subprocess.run(command, cwd=source_manifest.parent).returncode != 0
             or failed

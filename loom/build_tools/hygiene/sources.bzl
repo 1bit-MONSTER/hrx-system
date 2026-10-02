@@ -37,18 +37,35 @@ def _hygiene_sources_impl(repository_ctx):
 
     for source in inventory["sources"]:
         repository_ctx.symlink(root.get_child(source), source)
+
+    # Build definitions are data here, not package boundaries. Retain their
+    # original names in the manifest for policy selection and diagnostics.
+    policy_inputs = {
+        source: "policy_inputs/" + source + ".source"
+        for source in inventory["policy_sources"]
+    }
+    for source, destination in policy_inputs.items():
+        repository_ctx.symlink(root.get_child(source), destination)
     repository_ctx.file("sources.json", json.encode(inventory["sources"]) + "\n")
+    repository_ctx.file("format_sources.json", json.encode(inventory["format_sources"]) + "\n")
+    repository_ctx.file("policy_sources.json", json.encode(policy_inputs) + "\n")
     repository_ctx.file("BUILD.bazel", """
 package(default_visibility = ["//visibility:public"])
-exports_files(["sources.json"])
+exports_files(["sources.json", "format_sources.json", "policy_sources.json"])
 filegroup(name = "sources", srcs = %s)
-""" % repr(inventory["sources"]))
+filegroup(name = "format_sources", srcs = %s)
+filegroup(name = "policy_sources", srcs = %s)
+""" % (repr(inventory["sources"]), repr(inventory["format_sources"]), repr(policy_inputs.values())))
 
 hygiene_sources = repository_rule(
     implementation = _hygiene_sources_impl,
+    # This view belongs to the working tree, not the fetched-repository cache.
+    # Live directory dependencies cover removed directories and entry-type
+    # changes; persisted repository markers only describe entry names.
+    local = True,
     attrs = {
         "workspace_file": attr.label(mandatory = True),
-        "_inventory": attr.label(default = Label("//loom/build_tools/hygiene:source_inventory.py")),
+        "_inventory": attr.label(default = Label("//loom/py/loom/tools:source_inventory.py")),
         "_python_repository": attr.label(default = Label("@python_3_12_host//:BUILD.bazel")),
     },
 )
