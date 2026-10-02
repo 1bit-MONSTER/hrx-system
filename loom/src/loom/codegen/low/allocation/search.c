@@ -224,9 +224,17 @@ bool loom_low_allocation_search_assignment_conflicts(
     const loom_value_id_t* ignored_storage_lease_value_ids,
     uint16_t ignored_storage_lease_value_count,
     loom_low_allocation_storage_release_policy_t release_policy) {
-  if (loom_low_allocation_write_interference_conflicts(
+  const loom_value_ordinal_t retained_origin =
+      loom_low_allocation_write_interference_conflicting_read(
           context->unit_liveness->write_interference, context->assignment_map,
-          candidate)) {
+          candidate);
+  if (retained_origin != LOOM_VALUE_ORDINAL_INVALID) {
+    if (context->retained_fixed_value_index_plus_one == 0 &&
+        context->target_constraints->fixed_value_count != 0) {
+      context->retained_fixed_value_index_plus_one =
+          context->target_constraints
+              ->fixed_value_indices_by_ordinal[retained_origin];
+    }
     return true;
   }
   if (loom_low_allocation_search_hard_relations_conflict(context, candidate)) {
@@ -663,6 +671,7 @@ bool loom_low_allocation_search_find_free_location(
     loom_low_allocation_search_context_t* context,
     const loom_liveness_interval_t* interval,
     loom_low_allocation_class_capacity_t capacity, uint32_t* out_base) {
+  context->retained_fixed_value_index_plus_one = 0;
   const loom_low_reg_class_t* reg_class =
       &context->descriptor_set->reg_classes[capacity.descriptor_reg_class_id];
   const bool uses_explicit_physical_registers =

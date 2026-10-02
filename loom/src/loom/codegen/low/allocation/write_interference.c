@@ -1190,7 +1190,7 @@ static bool loom_low_write_infer_conflicts(
   return false;
 }
 
-static bool loom_low_write_origin_conflicts(
+static loom_value_ordinal_t loom_low_write_origin_conflicting_read(
     loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
     loom_value_ordinal_t origin, uint32_t base,
@@ -1199,6 +1199,7 @@ static bool loom_low_write_origin_conflicts(
   table->inferred_bases[origin] = base;
   uint32_t pending_count = 1;
   bool conflicts = false;
+  loom_value_ordinal_t retained_origin = LOOM_VALUE_ORDINAL_INVALID;
   for (uint32_t pending = 0; pending < pending_count && !conflicts; ++pending) {
     const loom_low_write_range_t range =
         table->values[table->inferred_origins[pending]].constraints;
@@ -1222,6 +1223,7 @@ static bool loom_low_write_origin_conflicts(
         }
         if (row->source == LOOM_VALUE_ORDINAL_INVALID) {
           conflicts = true;
+          retained_origin = row->retained.value;
           continue;
         }
       } else if (destination == LOOM_LOW_WRITE_LOCATION_SPILLED) {
@@ -1250,12 +1252,15 @@ static bool loom_low_write_origin_conflicts(
             source + row->source_offset - row->destination_offset,
             &pending_count);
       }
+      if (conflicts) {
+        retained_origin = row->retained.value;
+      }
     }
   }
   for (uint32_t i = 0; i < pending_count; ++i) {
     table->inferred_bases[table->inferred_origins[i]] = UINT32_MAX;
   }
-  return conflicts;
+  return retained_origin;
 }
 
 static loom_value_ordinal_t loom_low_write_assignment_origin(
@@ -1267,19 +1272,19 @@ static loom_value_ordinal_t loom_low_write_assignment_origin(
   return table->values[ordinal].origin;
 }
 
-bool loom_low_allocation_write_interference_conflicts(
+loom_value_ordinal_t loom_low_allocation_write_interference_conflicting_read(
     loom_low_allocation_write_interference_t* table,
     const loom_low_allocation_assignment_map_t* assignments,
     const loom_low_allocation_assignment_t* candidate) {
   if (table == NULL || table->constraint_count == 0 ||
       !loom_low_allocation_assignment_is_physical_register_class(
           candidate, table->register_class)) {
-    return false;
+    return LOOM_VALUE_ORDINAL_INVALID;
   }
   const loom_value_ordinal_t origin =
       loom_low_write_assignment_origin(table, assignments, candidate);
-  return loom_low_write_origin_conflicts(table, assignments, origin,
-                                         candidate->location_base, NULL);
+  return loom_low_write_origin_conflicting_read(table, assignments, origin,
+                                                candidate->location_base, NULL);
 }
 
 iree_status_t loom_low_allocation_write_proposal_initialize(
@@ -1333,8 +1338,9 @@ bool loom_low_allocation_write_proposal_conflicts(
     const loom_low_allocation_write_proposal_t* proposal) {
   for (iree_host_size_t i = 0; i < proposal->count; ++i) {
     const loom_value_ordinal_t origin = proposal->origins[i];
-    if (loom_low_write_origin_conflicts(table, assignments, origin,
-                                        proposal->bases[origin], proposal)) {
+    if (loom_low_write_origin_conflicting_read(
+            table, assignments, origin, proposal->bases[origin], proposal) !=
+        LOOM_VALUE_ORDINAL_INVALID) {
       return true;
     }
   }

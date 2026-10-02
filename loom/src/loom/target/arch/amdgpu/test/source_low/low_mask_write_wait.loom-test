@@ -684,3 +684,219 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @interleaved_
   s_or_b32 s0, s0, s2
   s_or_b32 s1, s1, s3
   s_endpgm
+
+// ====
+
+// Hardware retention outlives the mask's semantic interval. Detach that mask,
+// not the later fixed join, when the computed source needs distinct storage.
+// RUN: emit amdgpu-assembly @computed_mask_sink strategy=source allocation-diagnostics=predicted-spills fixed=%mask:physical_register:0:2 fixed=%joined:physical_register:0:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+// REMARK@+1: BACKEND/046 {source_value_name="mask", split_value_name="mask_split", rewritten_operand_count="1"}
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @computed_mask_sink(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %source = s_or_b32 %input, %input
+  %copied = copy %source : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  low.br ^join(%copied: reg<amdgpu.sgpr>)
+^join(%joined: reg<amdgpu.sgpr>):
+  %result = s_or_b32 %joined, %source
+  return %selected, %result
+}
+
+// ----
+  s_mov_b32 s4, s0
+  s_mov_b32 s5, s1
+  v_cndmask_b32 v0, 0, v0, s[4:5]
+  s_or_b32 s1, s2, s2
+  s_mov_b32 s0, s1
+.Lbb1:
+  s_or_b32 s0, s0, s1
+  s_endpgm
+
+// ====
+
+// Separate retained reads publish separate blockers in one allocation. Both
+// detachments preserve the paired sources without scratch or completion waits.
+// RUN: emit amdgpu-assembly @independent_computed_masks strategy=source allocation-diagnostics=predicted-spills fixed=%first_mask:physical_register:0:2 fixed=%first_joined:physical_register:0:2 fixed=%second_mask:physical_register:2:2 fixed=%second_joined:physical_register:2:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+// REMARK@+2: BACKEND/046 {source_value_name="first_mask", rewritten_operand_count="1"}
+// REMARK@+1: BACKEND/046 {source_value_name="second_mask", rewritten_operand_count="1"}
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @independent_computed_masks(%value: reg<amdgpu.vgpr>, %first_mask: reg<amdgpu.sgpr x2>, %second_mask: reg<amdgpu.sgpr x2>, %input: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>, reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %first_selected = v_cndmask_b32_src0_inline %value, %first_mask {false_value = 0}
+  %first_source = s_or_b64 %input, %input
+  %first_copy = copy %first_source : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr x2>
+  low.br ^first_join(%first_copy: reg<amdgpu.sgpr x2>)
+^first_join(%first_joined: reg<amdgpu.sgpr x2>):
+  %first_result = s_or_b64 %first_joined, %first_source
+  %second_selected = v_cndmask_b32_src0_inline %value, %second_mask {false_value = 0}
+  %second_source = s_or_b64 %input, %input
+  %second_copy = copy %second_source : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr x2>
+  low.br ^second_join(%second_copy: reg<amdgpu.sgpr x2>)
+^second_join(%second_joined: reg<amdgpu.sgpr x2>):
+  %second_result = s_or_b64 %second_joined, %second_source
+  return %first_selected, %first_result, %second_selected, %second_result
+}
+
+// ----
+  s_mov_b32 s6, s2
+  s_mov_b32 s7, s3
+  s_mov_b32 s2, s0
+  s_mov_b32 s3, s1
+  v_cndmask_b32 v1, 0, v0, s[2:3]
+  s_or_b64 s[8:9], s[4:5], s[4:5]
+  s_mov_b32 s0, s8
+  s_mov_b32 s1, s9
+.Lbb1:
+  s_or_b64 s[0:1], s[0:1], s[8:9]
+  v_cndmask_b32 v0, 0, v0, s[6:7]
+  s_or_b64 s[4:5], s[4:5], s[4:5]
+  s_mov_b32 s2, s4
+  s_mov_b32 s3, s5
+.Lbb2:
+  s_or_b64 s[2:3], s[2:3], s[4:5]
+  s_endpgm
+
+// ====
+
+// Two scalar sinks name one retained mask. Preserve it once for both spills.
+// RUN: emit amdgpu-assembly @shared_retained_mask strategy=source allocation-diagnostics=predicted-spills fixed=%mask:physical_register:0:2 fixed=%joined_low:physical_register:0:1 fixed=%joined_high:physical_register:1:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+// REMARK@+1: BACKEND/046 {source_value_name="mask", rewritten_operand_count="1"}
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @shared_retained_mask(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %source_low = s_or_b32 %input, %input
+  %source_high = s_and_b32 %input, %input
+  %copy_low = copy %source_low : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  %copy_high = copy %source_high : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  low.br ^join(%copy_low: reg<amdgpu.sgpr>, %copy_high: reg<amdgpu.sgpr>)
+^join(%joined_low: reg<amdgpu.sgpr>, %joined_high: reg<amdgpu.sgpr>):
+  %result_low = s_or_b32 %joined_low, %source_low
+  %result_high = s_or_b32 %joined_high, %source_high
+  return %selected, %result_low, %result_high
+}
+
+// ----
+  s_mov_b32 s4, s0
+  s_mov_b32 s5, s1
+  v_cndmask_b32 v0, 0, v0, s[4:5]
+  s_or_b32 s3, s2, s2
+  s_and_b32 s2, s2, s2
+  s_mov_b32 s0, s3
+  s_mov_b32 s1, s2
+.Lbb1:
+  s_or_b32 s0, s0, s3
+  s_or_b32 s1, s1, s2
+  s_endpgm
+
+// ====
+
+// The second predicate read replaces the first retained mask. Semantic
+// interval overlap alone must not select the first mask for detachment.
+// RUN: emit amdgpu-assembly @latest_retained_mask strategy=source allocation-diagnostics=predicted-spills fixed=%first_mask:physical_register:0:2 fixed=%second_mask:physical_register:4:2 fixed=%first_joined:physical_register:0:2 fixed=%second_joined:physical_register:4:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+// REMARK@+1: BACKEND/046 {source_value_name="second_mask", rewritten_operand_count="1"}
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @latest_retained_mask(%value: reg<amdgpu.vgpr>, %first_mask: reg<amdgpu.sgpr x2>, %second_mask: reg<amdgpu.sgpr x2>, %input: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %first_selected = v_cndmask_b32_src0_inline %value, %first_mask {false_value = 0}
+  %second_selected = v_cndmask_b32_src0_inline %value, %second_mask {false_value = 0}
+  %source = s_or_b64 %input, %input
+  %first_copy = copy %source : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr x2>
+  %second_copy = copy %source : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr x2>
+  low.br ^join(%first_copy: reg<amdgpu.sgpr x2>, %second_copy: reg<amdgpu.sgpr x2>)
+^join(%first_joined: reg<amdgpu.sgpr x2>, %second_joined: reg<amdgpu.sgpr x2>):
+  %first_result = s_or_b64 %first_joined, %source
+  %second_result = s_or_b64 %second_joined, %source
+  return %first_selected, %second_selected, %first_result, %second_result
+}
+
+// ----
+  s_mov_b32 s6, s4
+  s_mov_b32 s7, s5
+  v_cndmask_b32 v1, 0, v0, s[0:1]
+  v_cndmask_b32 v0, 0, v0, s[6:7]
+  s_or_b64 s[2:3], s[2:3], s[2:3]
+  s_mov_b32 s0, s2
+  s_mov_b32 s1, s3
+  s_mov_b32 s4, s0
+  s_mov_b32 s5, s1
+  s_mov_b32 s0, s2
+  s_mov_b32 s1, s3
+.Lbb1:
+  s_or_b64 s[0:1], s[0:1], s[2:3]
+  s_or_b64 s[2:3], s[4:5], s[2:3]
+  s_endpgm
+
+// ====
+
+// Retained-read rejection also occurs without any fixed-value index. A free
+// source can simply choose a register outside the retained mask.
+// RUN: emit amdgpu-assembly @unfixed_retained_mask strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @unfixed_retained_mask(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %input: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %source = s_or_b32 %input, %input
+  %copied = copy %source : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  low.br ^join(%copied: reg<amdgpu.sgpr>)
+^join(%joined: reg<amdgpu.sgpr>):
+  %result = s_or_b32 %joined, %source
+  return %selected, %result
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_or_b32 s2, s2, s2
+  s_mov_b32 s3, s2
+.Lbb1:
+  s_or_b32 s2, s3, s2
+  s_endpgm
+
+// ====
+
+// The longer-lived shared source revisits the first blocker after a separate
+// mask has entered the batch. Each fixed mask is still detached exactly once.
+// RUN: emit amdgpu-assembly @nonconsecutive_shared_retained_mask strategy=source allocation-diagnostics=predicted-spills fixed=%first_mask:physical_register:0:2 fixed=%second_mask:physical_register:2:2 fixed=%first_joined_low:physical_register:0:1 fixed=%first_joined_high:physical_register:1:1 fixed=%second_joined:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+// REMARK@+2: BACKEND/046 {source_value_name="first_mask", rewritten_operand_count="1"}
+// REMARK@+1: BACKEND/046 {source_value_name="second_mask", rewritten_operand_count="1"}
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @nonconsecutive_shared_retained_mask(%value: reg<amdgpu.vgpr>, %first_mask: reg<amdgpu.sgpr x2>, %second_mask: reg<amdgpu.sgpr x2>, %first_source: reg<amdgpu.sgpr>, %second_source: reg<amdgpu.sgpr>, %shared_source: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>, reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %first_selected = v_cndmask_b32_src0_inline %value, %first_mask {false_value = 0}
+  %first_copy = copy %first_source : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  %shared_copy = copy %shared_source : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  low.br ^first_join(%first_copy: reg<amdgpu.sgpr>, %shared_copy: reg<amdgpu.sgpr>)
+^first_join(%first_joined_low: reg<amdgpu.sgpr>, %first_joined_high: reg<amdgpu.sgpr>):
+  %first_result_low = s_or_b32 %first_joined_low, %first_source
+  %first_result_high = s_or_b32 %first_joined_high, %shared_source
+  %second_selected = v_cndmask_b32_src0_inline %value, %second_mask {false_value = 0}
+  %second_copy = copy %second_source : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  low.br ^second_join(%second_copy: reg<amdgpu.sgpr>)
+^second_join(%second_joined: reg<amdgpu.sgpr>):
+  %second_result = s_or_b32 %second_joined, %second_source
+  return %first_selected, %first_result_low, %first_result_high, %second_selected, %second_result, %shared_source
+}
+
+// ----
+  s_mov_b32 s8, s2
+  s_mov_b32 s9, s3
+  s_mov_b32 s2, s0
+  s_mov_b32 s3, s1
+  v_cndmask_b32 v1, 0, v0, s[2:3]
+  s_mov_b32 s0, s4
+  s_mov_b32 s1, s6
+.Lbb1:
+  s_or_b32 s0, s0, s4
+  s_or_b32 s1, s1, s6
+  v_cndmask_b32 v0, 0, v0, s[8:9]
+  s_mov_b32 s2, s5
+.Lbb2:
+  s_or_b32 s2, s2, s5
+  s_endpgm

@@ -63,12 +63,12 @@ iree_status_t loom_low_allocation_write_interference_finalize(
     const loom_low_placement_table_t* placement, iree_arena_allocator_t* arena,
     iree_arena_allocator_t* scratch_arena);
 
-// Returns whether one candidate violates a completed write constraint. Future
+// Returns the retained origin rejecting a candidate, or INVALID. Future
 // fixed assignments participate. Producer-proved zero-copy equations propagate
 // in both directions using reusable inference scratch, without assigning their
 // endpoints. Provisional spills end propagation: spill plans rebuild allocation
 // before emission. Required aliases query their canonical storage origin.
-bool loom_low_allocation_write_interference_conflicts(
+loom_value_ordinal_t loom_low_allocation_write_interference_conflicting_read(
     loom_low_allocation_write_interference_t* interference,
     const loom_low_allocation_assignment_map_t* assignments,
     const loom_low_allocation_assignment_t* candidate);

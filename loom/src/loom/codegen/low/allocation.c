@@ -476,6 +476,8 @@ iree_status_t loom_low_allocate_function(
         .unit_point_count = state.unit_liveness.point_count,
         .spill_plans = state.interval_assignment.spill_plans,
         .spill_plan_count = state.interval_assignment.spill_plan_count,
+        .retained_fixed_values =
+            state.interval_assignment.retained_fixed_values,
         .remarks = state.interval_assignment.remarks,
         .remark_count = state.interval_assignment.remark_count,
         .failure = state.target_constraints.failure,

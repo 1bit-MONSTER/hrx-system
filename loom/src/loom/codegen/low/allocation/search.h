@@ -70,6 +70,9 @@ typedef struct loom_low_allocation_search_context_t {
   loom_low_allocation_scalar_packing_t scalar_packing;
   // Optional retained scalar physical-domain preferences for this attempt.
   const loom_low_allocation_physical_domains_t* physical_domains;
+  // First fixed retained origin rejecting a location in the current search,
+  // encoded as its fixed-value index plus one. Zero means none encountered.
+  uint32_t retained_fixed_value_index_plus_one;
 } loom_low_allocation_search_context_t;
 
 // Reusable spill-search arrays owned by one interval-assignment attempt. Start
