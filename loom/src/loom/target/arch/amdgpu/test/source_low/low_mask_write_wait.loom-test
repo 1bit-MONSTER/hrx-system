@@ -462,6 +462,31 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @fixed_mask_c
 
 // ====
 
+// A free copy source lets allocation preserve the predicate before its read.
+// RUN: emit amdgpu-assembly @free_source_mask_copy strategy=source fixed=%mask:physical_register:0:2 fixed=%joined:physical_register:0:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @free_source_mask_copy(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  low.br ^join(%source: reg<amdgpu.sgpr x2>)
+^join(%joined: reg<amdgpu.sgpr x2>):
+  %result = s_or_b64 %joined, %source
+  return %selected, %result
+}
+
+// ----
+  s_mov_b32 s4, s0
+  s_mov_b32 s5, s1
+  v_cndmask_b32 v0, 0, v0, s[4:5]
+  s_mov_b32 s0, s2
+  s_mov_b32 s1, s3
+.Lbb1:
+  s_or_b64 s[0:1], s[0:1], s[2:3]
+  s_endpgm
+
+// ====
+
 // Overwriting the lower unit retires that unit, not the complete predicate pair.
 // RUN: emit amdgpu-assembly @partial_fixed_mask_copy strategy=source fixed=%mask:physical_register:0:2 fixed=%source:physical_register:4:1 fixed=%joined:physical_register:0:1
 
@@ -485,6 +510,34 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @partial_fixe
   s_or_b32 s0, s0, s4
   s_or_b32 s2, s4, s4
   s_or_b32 s0, s0, s2
+  s_endpgm
+
+// ====
+
+// A one-unit fixed destination also permits a free-source copy without a wait.
+// RUN: emit amdgpu-assembly @partial_free_source_mask_copy strategy=source fixed=%mask:physical_register:0:2 fixed=%joined:physical_register:0:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @partial_free_source_mask_copy(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  low.br ^join(%source: reg<amdgpu.sgpr>)
+^join(%joined: reg<amdgpu.sgpr>):
+  %lower = s_or_b32 %joined, %source
+  %upper = s_or_b32 %source, %source
+  %result = s_or_b32 %lower, %upper
+  return %selected, %result
+}
+
+// ----
+  s_mov_b32 s4, s0
+  s_mov_b32 s5, s1
+  v_cndmask_b32 v0, 0, v0, s[4:5]
+  s_mov_b32 s0, s2
+.Lbb1:
+  s_or_b32 s0, s0, s2
+  s_or_b32 s1, s2, s2
+  s_or_b32 s0, s0, s1
   s_endpgm
 
 // ====
