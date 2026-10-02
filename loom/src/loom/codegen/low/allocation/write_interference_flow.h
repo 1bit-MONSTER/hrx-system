@@ -33,6 +33,9 @@ typedef struct loom_low_write_flow_t {
   uint32_t block_count;
   // Arena-owned successor block indices.
   uint32_t* successors;
+  // Recycled construction buffer with at least |block_count| uninitialized
+  // entries for the solver's worklist; no graph facts remain in this storage.
+  uint32_t* worklist;
 } loom_low_write_flow_t;
 
 iree_status_t loom_low_write_flow_build(

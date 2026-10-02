@@ -788,28 +788,48 @@ static iree_status_t loom_low_write_finalize_impl(
   memset(incoming, 0, flow.block_count * byte_count);
   iree_bitmap_t active = {.bit_count = table->retained_unit_count,
                           .words = active_words};
-  // All transfers are monotone gen/kill maps. Incoming sets grow by union;
-  // alternatives never become a simultaneous liveness clique.
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (uint32_t b = 0; b < flow.block_count; ++b) {
-      const loom_low_write_flow_block_t* block = &flow.blocks[b];
-      memcpy(active_words, incoming + b * word_count, byte_count);
-      for (uint32_t p = block->begin; p < block->end; ++p) {
-        if (table->events[p].reset) {
-          iree_bitmap_reset_all(active);
-        }
-        loom_low_write_transfer(table, p, units, active);
+  // All transfers are monotone gen/kill maps. Only changed incoming sets
+  // require another evaluation. Seed every span: local reads can generate
+  // retained state even without incoming bits or reachable predecessors.
+  uint32_t* pending_next = flow.worklist;
+  for (uint32_t b = 0; b < flow.block_count; ++b) {
+    pending_next[b] = b + 1;
+  }
+  uint32_t pending_head = 0;
+  uint32_t pending_tail = flow.block_count - 1;
+  pending_next[pending_tail] = UINT32_MAX;
+  while (pending_head != UINT32_MAX) {
+    const uint32_t b = pending_head;
+    pending_head = pending_next[b];
+    // A self-link marks absence; queued links name a distinct next span or
+    // UINT32_MAX at the tail. Removing membership before transfer permits
+    // a self-loop to enqueue this span again without a separate bitmap.
+    pending_next[b] = b;
+    const loom_low_write_flow_block_t* block = &flow.blocks[b];
+    memcpy(active_words, incoming + b * word_count, byte_count);
+    for (uint32_t p = block->begin; p < block->end; ++p) {
+      if (table->events[p].reset) {
+        iree_bitmap_reset_all(active);
       }
-      for (uint32_t s = 0; s < block->successor_count; ++s) {
-        uint64_t* next =
-            incoming + flow.successors[block->successor_start + s] * word_count;
-        for (iree_host_size_t w = 0; w < word_count; ++w) {
-          const uint64_t added = active_words[w] & ~next[w];
-          next[w] |= added;
-          changed |= added != 0;
+      loom_low_write_transfer(table, p, units, active);
+    }
+    for (uint32_t s = 0; s < block->successor_count; ++s) {
+      const uint32_t successor = flow.successors[block->successor_start + s];
+      uint64_t* next = incoming + successor * word_count;
+      bool changed = false;
+      for (iree_host_size_t w = 0; w < word_count; ++w) {
+        const uint64_t added = active_words[w] & ~next[w];
+        next[w] |= added;
+        changed |= added != 0;
+      }
+      if (changed && pending_next[successor] == successor) {
+        if (pending_head == UINT32_MAX) {
+          pending_head = successor;
+        } else {
+          pending_next[pending_tail] = successor;
         }
+        pending_tail = successor;
+        pending_next[successor] = UINT32_MAX;
       }
     }
   }

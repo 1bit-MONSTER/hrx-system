@@ -281,3 +281,68 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @condition_retains_mask(%condi
 
 // ----
 CHECK: *"name":"scratch","type":"reg<amdgpu.sgpr>"*,"location":{"kind":"physical_register","base":2,"count":1}*
+
+// ====
+
+// The local mask is dead in SSA, but its read crosses the backedge to the write.
+// Redefining the fixed mask needs a dependency; the independent scalar result
+// must still stay outside the retained pair.
+// RUN: emit amdgpu-assembly @local_mask_backedge strategy=source fixed=%mask:physical_register:0:2 fixed=%source:physical_register:4:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @local_mask_backedge(%source: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) asm {
+  low.br ^overwrite
+^overwrite:
+  %result = s_or_b32 %source, %source
+  low.br ^retain
+^retain:
+  %mask = v_cmp_eq_i32 %value, %value
+  %selected = v_cndmask_b32 %value, %value, %mask
+  low.br ^bridge
+^bridge:
+  low.br ^overwrite
+}
+
+// ----
+.Lbb1:
+  s_or_b32 s2, s4, s4
+.Lbb2:
+  v_cmp_eq_i32 s[0:1], v0, v0
+  s_waitcnt_depctr 0xf19f
+  s_delay_alu instid0(VALU_DEP_1)
+  v_cndmask_b32 v1, v0, v0, s[0:1]
+.Lbb3:
+  s_branch .Lbb1
+
+// ====
+
+// A scalar VALU read closes that window before the next iteration's write.
+// RUN: emit amdgpu-assembly @reset_mask_backedge strategy=source fixed=%mask:physical_register:0:2 fixed=%source:physical_register:4:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reset_mask_backedge(%source: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) asm {
+  low.br ^overwrite
+^overwrite:
+  %result = s_or_b32 %source, %source
+  low.br ^retain
+^retain:
+  %mask = v_cmp_eq_i32 %value, %value
+  %selected = v_cndmask_b32 %value, %value, %mask
+  low.br ^reset
+^reset:
+  %broadcast = v_mov_b32_copy %source
+  low.br ^overwrite
+}
+
+// ----
+.Lbb1:
+  s_or_b32 s0, s4, s4
+.Lbb2:
+  v_cmp_eq_i32 s[0:1], v0, v0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_cndmask_b32 v1, v0, v0, s[0:1]
+.Lbb3:
+  v_mov_b32_copy v1, s4
+  s_branch .Lbb1

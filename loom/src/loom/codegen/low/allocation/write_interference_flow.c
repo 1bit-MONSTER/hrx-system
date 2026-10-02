@@ -179,5 +179,8 @@ iree_status_t loom_low_write_flow_build(
     out_flow->successors[span->successor_start + span->successor_count++] =
         blocks_by_point[edges[e].target];
   }
+  // Point-to-span translation ends here. Its point_count entries cover the
+  // solver's block_count links without extending the construction lifetime.
+  out_flow->worklist = blocks_by_point;
   return iree_ok_status();
 }
