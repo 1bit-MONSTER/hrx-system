@@ -177,6 +177,11 @@ void iree_hal_amdxdna_single_command_cache_entry_discard(
 void iree_hal_amdxdna_single_command_cache_evict_idle(
     iree_hal_amdxdna_device_single_command_cache_t* cache);
 
+// Drops the least-recently-used idle single-command entry. Returns false when
+// every retained entry is in flight or the cache is empty.
+bool iree_hal_amdxdna_single_command_cache_evict_one_idle(
+    iree_hal_amdxdna_device_single_command_cache_t* cache);
+
 // Returns native code bytes retained by all single-command cache entries.
 // O(1) and lock-free; callers use this as an admission snapshot.
 iree_host_size_t iree_hal_amdxdna_single_command_cache_retained_code_bytes(

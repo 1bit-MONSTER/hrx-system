@@ -42,8 +42,21 @@ typedef struct iree_hal_amdxdna_context_cache_ops_t {
       void* user_data, iree_hal_amdxdna_native_context_ref_t* context_ref);
   // Optional native resource-pressure recovery hook. Called once after context
   // creation returns UNAVAILABLE so idle command resources can be dropped
-  // before retrying. Runs with the context-cache mutex held.
+  // before retrying. Idle-only, so it never tears down in-flight work. Runs
+  // with the context-cache mutex held.
   void (*reclaim_create_unavailable)(void* user_data);
+  // Drops one idle command-cache entry and returns true when an entry was
+  // freed. Used to trim toward a heap target before context creation. Idle-only.
+  // Runs with the context-cache mutex held.
+  bool (*reclaim_one_idle_command)(void* user_data);
+  // Shared DEV-heap size and construction reserve, or 0 when the backend has no
+  // bounded heap. When set, the cache proactively drops idle command resources
+  // before creating a context whose image would push live heap occupancy past
+  // (max - reserve), so the PDI allocation and the command construction that
+  // follows succeed on the first try instead of tripping ENOSPC and recovering
+  // reactively.
+  iree_host_size_t max_shared_code_memory_bytes;
+  iree_host_size_t shared_code_memory_miss_reserve_bytes;
 } iree_hal_amdxdna_context_cache_ops_t;
 
 // Full identity of a cached hardware context. Two contexts are interchangeable
@@ -88,6 +101,18 @@ iree_hal_amdxdna_device_context_cache_create_with_ops(
 // default. Exported so the policy can be unit tested without a device.
 iree_host_size_t iree_hal_amdxdna_context_cache_resolve_capacity(
     iree_host_size_t hardware_context_budget);
+
+// Bounds the cumulative resident context-image bytes the cache keeps alive so
+// the shared device code-memory heap is never fully consumed by cached hardware
+// contexts. When |budget_bytes| is nonzero, get_or_create proactively evicts
+// idle (unleased) LRU contexts before creating a new one so that the resident
+// image footprint stays within budget; leased/in-flight contexts are never
+// force-evicted by this path. Zero (the default) disables the memory bound and
+// keeps the count-only behavior. See
+// iree_hal_amdxdna_shared_code_memory_context_image_budget for the value.
+void iree_hal_amdxdna_context_cache_set_context_image_budget(
+    iree_hal_amdxdna_device_context_cache_t* context_cache,
+    iree_host_size_t budget_bytes);
 
 void iree_hal_amdxdna_device_context_cache_destroy(
     iree_hal_amdxdna_device_context_cache_t* context_cache);

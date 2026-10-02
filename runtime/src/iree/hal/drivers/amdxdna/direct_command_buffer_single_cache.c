@@ -92,6 +92,24 @@ void iree_hal_amdxdna_single_command_cache_evict_idle(
   iree_slim_mutex_unlock(&cache->mutex);
 }
 
+bool iree_hal_amdxdna_single_command_cache_evict_one_idle(
+    iree_hal_amdxdna_device_single_command_cache_t* cache) {
+  if (!cache) return false;
+  iree_slim_mutex_lock(&cache->mutex);
+  iree_hal_amdxdna_single_command_cache_entry_t* entry = NULL;
+  for (iree_host_size_t i = 0; i < cache->entry_count; ++i) {
+    iree_hal_amdxdna_single_command_cache_entry_t* candidate =
+        &cache->entries[i];
+    if (!candidate->command || candidate->in_flight_count != 0) continue;
+    if (!entry || candidate->last_use < entry->last_use) entry = candidate;
+  }
+  if (entry) {
+    iree_hal_amdxdna_single_command_cache_entry_deinitialize(cache, entry);
+  }
+  iree_slim_mutex_unlock(&cache->mutex);
+  return entry != NULL;
+}
+
 iree_host_size_t iree_hal_amdxdna_single_command_cache_retained_code_bytes(
     iree_hal_amdxdna_device_single_command_cache_t* cache) {
   if (!cache) return 0;

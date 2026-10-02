@@ -503,6 +503,78 @@ TEST_F(ContextCachePolicyTest, CachedImageBytesSumsCachedImages) {
   EXPECT_EQ(iree_hal_amdxdna_context_cache_cached_image_bytes(cache_), 5120u);
 }
 
+// A context-image budget makes get_or_create proactively evict idle LRU
+// contexts *before* creating a new one, so the resident image footprint never
+// exceeds the shared code-memory heap. This is the Linux analog of the Windows
+// context-count cap: evict ahead of the hard limit instead of reacting to an
+// allocation failure. With a 4-image budget, inserting 8 distinct idle contexts
+// must retire the four oldest and keep only the four most recent resident.
+TEST_F(ContextCachePolicyTest, ContextImageBudgetEvictsIdleLruBeforeCreate) {
+  CreateCache(/*capacity=*/32);  // large enough that count is not the limiter
+  const iree_host_size_t pdi_size = 1u << 20;
+  iree_hal_amdxdna_context_cache_set_context_image_budget(cache_,
+                                                          4u * pdi_size);
+  for (uint8_t key = 1; key <= 8; ++key) {
+    std::vector<uint8_t> pdi(pdi_size, key);
+    iree_hal_amdxdna_native_context_ref_t* context_ref = nullptr;
+    iree_status_t status = iree_hal_amdxdna_context_cache_get_or_create(
+        cache_, nullptr, IREE_HAL_AMDXDNA_NATIVE_C_CONTEXT_IMAGE_MODEL_PDI,
+        Bytes(pdi), iree_const_byte_span_empty(), IREE_SV("MLIR_AIE"),
+        /*partition_cols=*/0, &context_ref);
+    ASSERT_TRUE(iree_status_is_ok(status));
+    iree_status_ignore(status);
+    // Release the caller's ref so an eviction drops the last reference and the
+    // native context is actually destroyed.
+    factory_.ReleaseCaller(context_ref);
+    // The budget is enforced on every insert; the resident set never overshoots.
+    EXPECT_LE(iree_hal_amdxdna_context_cache_cached_image_bytes(cache_),
+              4u * pdi_size);
+  }
+  EXPECT_EQ(iree_hal_amdxdna_context_cache_cached_image_bytes(cache_),
+            4u * pdi_size);
+  // The four oldest contexts were retired; the four newest are still resident.
+  for (uint8_t key = 1; key <= 4; ++key) {
+    EXPECT_EQ(factory_.destroy_counts[key].load(), 1) << "key " << (int)key;
+  }
+  for (uint8_t key = 5; key <= 8; ++key) {
+    EXPECT_EQ(factory_.destroy_counts[key].load(), 0) << "key " << (int)key;
+  }
+}
+
+// The budget path must never force-evict a leased (in-flight) context. Tearing
+// down a hardware context that outstanding work still references is exactly the
+// NPU-wedge failure mode we are avoiding, so when only leased entries remain the
+// resident footprint is allowed to exceed the budget rather than dropping live
+// work. All six pinned contexts survive even though they double the budget.
+TEST_F(ContextCachePolicyTest, ContextImageBudgetNeverForceEvictsLeasedContexts) {
+  CreateCache(/*capacity=*/32);
+  const iree_host_size_t pdi_size = 1u << 20;
+  iree_hal_amdxdna_context_cache_set_context_image_budget(cache_,
+                                                          3u * pdi_size);
+  std::vector<iree_hal_amdxdna_context_cache_lease_t*> leases;
+  for (uint8_t key = 1; key <= 6; ++key) {
+    std::vector<uint8_t> pdi(pdi_size, key);
+    iree_hal_amdxdna_context_cache_lease_t* lease = nullptr;
+    iree_status_t status = iree_hal_amdxdna_context_cache_pin(
+        cache_, nullptr, IREE_HAL_AMDXDNA_NATIVE_C_CONTEXT_IMAGE_MODEL_PDI,
+        Bytes(pdi), iree_const_byte_span_empty(), IREE_SV("MLIR_AIE"),
+        /*partition_cols=*/0, nullptr, &lease);
+    ASSERT_TRUE(iree_status_is_ok(status));
+    iree_status_ignore(status);
+    ASSERT_NE(lease, nullptr);
+    leases.push_back(lease);
+  }
+  // No leased context was force-evicted to honor the budget.
+  EXPECT_EQ(iree_hal_amdxdna_context_cache_cached_image_bytes(cache_),
+            6u * pdi_size);
+  for (uint8_t key = 1; key <= 6; ++key) {
+    EXPECT_EQ(factory_.destroy_counts[key].load(), 0) << "key " << (int)key;
+  }
+  for (auto* lease : leases) {
+    iree_hal_amdxdna_context_cache_lease_release(lease);
+  }
+}
+
 // Drive the real context cache (with injected native creation) until context
 // images occupy half a shared code-memory domain. The command-cache budget
 // must then drop below its default cap so a 20+12MiB fill evicts before the

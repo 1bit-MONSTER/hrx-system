@@ -306,9 +306,21 @@ void iree_hal_amdxdna_chain_command_cache_entry_discard(
 void iree_hal_amdxdna_chain_command_cache_evict_idle(
     iree_hal_amdxdna_device_chain_command_cache_t* cache);
 
+// Drops the least-recently-used idle chain entry. Returns false when every
+// retained entry is in flight or the cache is empty.
+bool iree_hal_amdxdna_chain_command_cache_evict_one_idle(
+    iree_hal_amdxdna_device_chain_command_cache_t* cache);
+
 // Same as evict_idle; the caller must already hold cache->mutex.
 void iree_hal_amdxdna_chain_command_cache_evict_idle_locked(
     iree_hal_amdxdna_device_chain_command_cache_t* cache);
+
+// Returns the summed instruction-word footprint currently retained by all
+// entries (the same accounting the fit/trim budget uses). The caller must hold
+// cache->mutex. Used to translate a real DEV-heap overshoot into how far the
+// accounted ceiling must drop so trim evicts idle entries proactively.
+iree_host_size_t iree_hal_amdxdna_chain_command_cache_total_instruction_bytes(
+    const iree_hal_amdxdna_device_chain_command_cache_t* cache);
 
 // Always re-map a cached control-code BO before rewriting it.
 //

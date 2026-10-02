@@ -75,10 +75,22 @@ static void iree_hal_amdxdna_device_reclaim_context_create_unavailable(
     void* user_data) {
   iree_hal_amdxdna_device* device = (iree_hal_amdxdna_device*)user_data;
   // Called with the context-cache mutex held. Preserve the global lock order:
-  // context -> single -> chain.
+  // context -> single -> chain. Each evict call locks and unlocks one cache.
   iree_hal_amdxdna_single_command_cache_evict_idle(
       device->single_command_cache);
   iree_hal_amdxdna_chain_command_cache_evict_idle(device->chain_command_cache);
+}
+
+static bool iree_hal_amdxdna_device_reclaim_one_idle_command(void* user_data) {
+  iree_hal_amdxdna_device* device = (iree_hal_amdxdna_device*)user_data;
+  // One idle chain entry, then one idle single entry. Each call releases its
+  // mutex before returning, so this does not nest single under chain.
+  if (iree_hal_amdxdna_chain_command_cache_evict_one_idle(
+          device->chain_command_cache)) {
+    return true;
+  }
+  return iree_hal_amdxdna_single_command_cache_evict_one_idle(
+      device->single_command_cache);
 }
 
 static void iree_hal_amdxdna_device_deinitialize(
@@ -1927,6 +1939,16 @@ iree_status_t iree_hal_amdxdna_device_create(
     if (device->native_caps.max_shared_code_memory_bytes != 0) {
       context_cache_ops.reclaim_create_unavailable =
           iree_hal_amdxdna_device_reclaim_context_create_unavailable;
+      context_cache_ops.reclaim_one_idle_command =
+          iree_hal_amdxdna_device_reclaim_one_idle_command;
+      // Let the context cache proactively trim idle command caches before a
+      // context create that would otherwise fill the shared DEV heap, so the
+      // PDI allocation succeeds first-try (contexts and command code share the
+      // one heap).
+      context_cache_ops.max_shared_code_memory_bytes =
+          device->native_caps.max_shared_code_memory_bytes;
+      context_cache_ops.shared_code_memory_miss_reserve_bytes =
+          device->native_caps.shared_code_memory_miss_reserve_bytes;
     }
     device->context_cache =
         iree_hal_amdxdna_device_context_cache_create_with_ops(
@@ -1935,6 +1957,20 @@ iree_status_t iree_hal_amdxdna_device_create(
     if (!device->context_cache) {
       status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                                 "failed to allocate amdxdna context cache");
+    } else if (device->native_caps.max_shared_code_memory_bytes != 0) {
+      // Bound resident context images against the same shared code-memory heap
+      // the command caches draw from, reserving the single-miss construction
+      // block plus an equal command-cache working set. This makes the context
+      // cache evict idle LRU contexts before the heap fills, so allocation
+      // never hits the native ENOSPC path that used to force-reclaim in-flight
+      // contexts (a NPU-wedge risk).
+      iree_hal_amdxdna_context_cache_set_context_image_budget(
+          device->context_cache,
+          iree_hal_amdxdna_shared_code_memory_context_image_budget(
+              device->native_caps.max_shared_code_memory_bytes,
+              device->native_caps.shared_code_memory_miss_reserve_bytes,
+              /*command_working_set_bytes=*/
+              device->native_caps.shared_code_memory_miss_reserve_bytes));
     }
   }
   if (iree_status_is_ok(status)) {
