@@ -1,0 +1,86 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+# bazel-to-cmake: skip
+
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
+load(":checks.bzl", "loom_hygiene_check")
+
+package(default_visibility = ["//visibility:public"])
+
+py_binary(
+    name = "check",
+    srcs = ["check.py"],
+    python_version = "PY3",
+    deps = ["//build_tools/devtools:command_line"],
+)
+
+py_test(
+    name = "check_test",
+    size = "small",
+    srcs = ["check_test.py"],
+    args = [
+        "$(rlocationpath :check)",
+        "$(rlocationpath //loom/src/loom/tools/loom-check:loom-check-test)",
+        "$(rlocationpath //loom/src/loom/tools/loom-format:loom-format)",
+        "$(rlocationpath //loom/py/loom/tools:loom-lint)",
+        "$(rlocationpath //loom/build_tools:loom_source_lint)",
+    ],
+    data = [
+        ":check",
+        "//loom/build_tools:loom_source_lint",
+        "//loom/py/loom/tools:loom-lint",
+        "//loom/src/loom/tools/loom-check:loom-check-test",
+        "//loom/src/loom/tools/loom-format",
+    ],
+    tags = ["manual"],
+    deps = ["@rules_python//python/runfiles"],
+)
+
+test_suite(
+    name = "presubmit_tests",
+    tags = ["manual"],
+    tests = [
+        ":check_test",
+        "//loom/py/loom/tools:source_inventory_test",
+    ],
+)
+
+loom_hygiene_check(
+    name = "template_freshness",
+    testonly = True,
+    check = "templates",
+    tags = ["manual"],
+)
+
+loom_hygiene_check(
+    name = "source_format",
+    check = "format",
+    tags = ["manual"],
+)
+
+loom_hygiene_check(
+    name = "authoring_policy",
+    check = "authoring",
+    tags = ["manual"],
+)
+
+loom_hygiene_check(
+    name = "repository_policy",
+    check = "repository",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "checks",
+    testonly = True,
+    srcs = [
+        ":authoring_policy",
+        ":repository_policy",
+        ":source_format",
+        ":template_freshness",
+    ],
+    tags = ["manual"],
+)

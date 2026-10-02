@@ -6,6 +6,16 @@
 
 """Bazel module fragment for Loom-specific dependencies."""
 
+hygiene_sources = use_repo_rule(
+    "//loom/build_tools/hygiene:sources.bzl",
+    "hygiene_sources",
+)
+
+hygiene_sources(
+    name = "loom_hygiene_sources",
+    workspace_file = "//:MODULE.bazel",
+)
+
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",

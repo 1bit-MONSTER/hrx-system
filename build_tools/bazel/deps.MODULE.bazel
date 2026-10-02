@@ -74,7 +74,7 @@ register_toolchains("//build_tools/macos:all")
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.defaults(python_version = "3.12")
 python.toolchain(python_version = "3.12")
-use_repo(python, "python_3_12")
+use_repo(python, "python_3_12", "python_3_12_host")
 
 amdgpu_device_toolchain_repo = use_repo_rule(
     "//build_tools/amdgpu:device_toolchain_repository.bzl",

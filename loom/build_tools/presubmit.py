@@ -22,8 +22,10 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "loom/py"))
 
 from loom.gen import checked_in_artifacts
+from loom.tools.source_inventory import is_format_source_path, is_lint_source_path
 
 from build_tools.devtools import project_presubmit
+from build_tools.devtools.command_line import batch_path_commands
 from build_tools.devtools.source_lock import NonEmptyTrackedFileSnapshot
 
 PROJECT_NAME = "loom"
@@ -70,27 +72,7 @@ LOOM_FORMAT_BAZEL_TARGET = "//loom/src/loom/tools/loom-format:loom-format"
 LOOM_FORMAT_CMAKE_TARGET = "loom::tools::loom-format"
 LOOM_CHECK_BAZEL_TARGET = "//loom/src/loom/tools/loom-check:loom-check-test"
 LOOM_CHECK_CMAKE_TARGET = "loom::tools::loom-check::loom-check-test"
-LOOM_LINT_BAZEL_TARGET = "//loom/py/loom/tools:loom-lint"
-LOOM_LINT_CMAKE_TARGET = "loom::py::loom::tools::loom-lint"
 LOOM_LINT_PYTHON_SOURCE = "loom/py/loom/tools/source_lint.py"
-LOOM_LINT_SUFFIXES = frozenset({".loom", ".loom-test"})
-LOOM_FORMAT_SUFFIXES = frozenset({".loom", ".loom-test"})
-# Syntax-corpus modules retain their exact parser/printer fixture contract rather
-# than the verified canonical-source contract enforced by loom-format.
-LOOM_FORMAT_EXCLUDED_PREFIXES = ("loom/src/loom/test/corpus/text/",)
-# These exact modules intentionally fail semantic verification to test public
-# diagnostics. New invalid-looking filenames are not excluded automatically.
-LOOM_FORMAT_EXCLUDED_PATHS = frozenset(
-    {
-        "loom/src/loom/tooling/target/amdgpu/test/amdgpu_bad_return.loom",
-        "loom/src/loom/tools/iree-benchmark-loom/testdata/duplicate_symbol.loom",
-    }
-)
-
-# CreateProcess limits its command line to 32,767 UTF-16 code units including
-# the terminator. Keep one portable bound below that ceiling so repository-wide
-# file checks have the same batching behavior on every host.
-MAX_PORTABLE_COMMAND_LINE_UTF16_UNITS = 30_000
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -112,42 +94,6 @@ def run_command(
         cwd=REPO_ROOT,
         success_exit_codes=success_exit_codes,
     )
-
-
-def command_line_utf16_units(command: list[str]) -> int:
-    rendered_command = subprocess.list2cmdline(command)
-    return len(rendered_command.encode("utf-16-le")) // 2 + 1
-
-
-def batch_path_commands(
-    command_prefix: list[str],
-    paths: list[str],
-    *,
-    max_command_line_utf16_units: int = MAX_PORTABLE_COMMAND_LINE_UTF16_UNITS,
-) -> list[list[str]]:
-    if not command_prefix:
-        raise ValueError("command prefix must not be empty")
-    if max_command_line_utf16_units <= 0:
-        raise ValueError("command-line limit must be positive")
-    if command_line_utf16_units(command_prefix) > max_command_line_utf16_units:
-        raise ValueError("command prefix exceeds the portable command-line limit")
-
-    commands: list[list[str]] = []
-    command = list(command_prefix)
-    prefix_length = len(command_prefix)
-    for path in paths:
-        candidate = [*command, path]
-        if command_line_utf16_units(candidate) <= max_command_line_utf16_units:
-            command.append(path)
-            continue
-        if len(command) > prefix_length:
-            commands.append(command)
-        command = [*command_prefix, path]
-        if command_line_utf16_units(command) > max_command_line_utf16_units:
-            raise ValueError(f"path exceeds the portable command-line limit: {path}")
-    if len(command) > prefix_length:
-        commands.append(command)
-    return commands
 
 
 def run_batched_path_command(
@@ -219,20 +165,6 @@ def run_generated_artifact_maintenance(
     )
 
 
-def is_format_source_path(path: str) -> bool:
-    source_path = PurePosixPath(path)
-    if "\\" in path or source_path.as_posix() != path or ".." in source_path.parts:
-        return False
-    if (
-        not path.startswith(PROJECT_ROOT)
-        or source_path.suffix not in LOOM_FORMAT_SUFFIXES
-    ):
-        return False
-    if path in LOOM_FORMAT_EXCLUDED_PATHS:
-        return False
-    return not any(path.startswith(prefix) for prefix in LOOM_FORMAT_EXCLUDED_PREFIXES)
-
-
 def existing_format_source_paths(paths: list[str]) -> list[str]:
     return sorted(
         {
@@ -266,17 +198,6 @@ def _tracked_project_paths() -> list[str] | None:
 def tracked_format_source_paths() -> list[str] | None:
     paths = _tracked_project_paths()
     return None if paths is None else existing_format_source_paths(paths)
-
-
-def is_lint_source_path(path: str) -> bool:
-    source_path = PurePosixPath(path)
-    return (
-        "\\" not in path
-        and source_path.as_posix() == path
-        and ".." not in source_path.parts
-        and path.startswith(PROJECT_ROOT)
-        and source_path.suffix in LOOM_LINT_SUFFIXES
-    )
 
 
 def existing_lint_source_paths(paths: list[str]) -> list[str]:
@@ -326,7 +247,15 @@ def validate_cmake_source_format_configuration() -> bool:
 def run_source_format_maintenance(
     *, lane: str, files_from: str | None, fix: bool
 ) -> bool:
-    tracked_paths = tracked_format_source_paths()
+    # Bazel owns the complete read-only sweep. Only explicit source mutation
+    # requires a local formatter, and only when selected Loom text exists.
+    if lane == "bazel" and not fix:
+        return True
+    tracked_paths = (
+        []
+        if lane == "bazel" and files_from is not None
+        else tracked_format_source_paths()
+    )
     if tracked_paths is None:
         return False
     if files_from is None:
@@ -364,6 +293,8 @@ def run_source_format_maintenance(
         ):
             return False
 
+    if lane == "bazel":
+        return True
     return run_batched_path_command(
         [str(formatter_path), "--check"],
         check_paths,
@@ -371,7 +302,21 @@ def run_source_format_maintenance(
     )
 
 
-def run_template_checks(*, lane: str, files_from: str | None) -> bool:
+def run_bazel_hygiene() -> bool:
+    return run_command(
+        [
+            "bazel",
+            "build",
+            "--keep_going",
+            *BAZEL_SOURCE_TOOL_ARGS,
+            *project_presubmit.bazel_config_args(),
+            "//loom/build_tools/hygiene:checks",
+        ],
+        "Loom source hygiene",
+    )
+
+
+def run_cmake_template_checks(*, files_from: str | None) -> bool:
     # A changed corpus can invalidate unchanged consumers. Check the complete
     # source set; the native parser owns TEMPLATE discovery and comparison.
     tracked_paths = tracked_lint_source_paths()
@@ -388,7 +333,7 @@ def run_template_checks(*, lane: str, files_from: str | None) -> bool:
     checker_path = project_presubmit.build_and_resolve_executable(
         PROJECT_NAME,
         REPO_ROOT,
-        lane=lane,
+        lane="cmake",
         bazel_target=LOOM_CHECK_BAZEL_TARGET,
         cmake_target=LOOM_CHECK_CMAKE_TARGET,
         bazel_args=BAZEL_SOURCE_TOOL_ARGS,
@@ -402,7 +347,7 @@ def run_template_checks(*, lane: str, files_from: str | None) -> bool:
     )
 
 
-def run_source_lint(*, lane: str, files_from: str | None) -> bool:
+def run_cmake_source_lint(*, files_from: str | None) -> bool:
     tracked_paths = tracked_lint_source_paths()
     if tracked_paths is None:
         return False
@@ -415,25 +360,11 @@ def run_source_lint(*, lane: str, files_from: str | None) -> bool:
 
     public_lint_ok = True
     if check_paths:
-        if lane == "bazel":
-            linter_path = project_presubmit.build_and_resolve_executable(
-                PROJECT_NAME,
-                REPO_ROOT,
-                lane=lane,
-                bazel_target=LOOM_LINT_BAZEL_TARGET,
-                cmake_target=LOOM_LINT_CMAKE_TARGET,
-                bazel_args=BAZEL_SOURCE_TOOL_ARGS,
-            )
-            linter_command = [] if linter_path is None else [str(linter_path)]
-        elif lane == "cmake":
-            # CMake models Python entrypoints as source-bearing custom targets,
-            # not native executable artifacts. The public linter is deliberately
-            # standalone, so the source lane can invoke that same entrypoint.
-            linter_command = [sys.executable, LOOM_LINT_PYTHON_SOURCE]
-        else:
-            raise ValueError(f"unknown lane: {lane}")
-        public_lint_ok = bool(linter_command) and run_batched_path_command(
-            linter_command, check_paths, "Loom authoring policy"
+        # The CMake source-bearing Python target has no executable artifact.
+        public_lint_ok = run_batched_path_command(
+            [sys.executable, LOOM_LINT_PYTHON_SOURCE],
+            check_paths,
+            "Loom authoring policy",
         )
 
     repository_lint_ok = run_command(
@@ -692,8 +623,13 @@ def run_presubmit(args: argparse.Namespace) -> int:
             )
             and ok
         )
-        ok = run_template_checks(lane=args.lane, files_from=args.files_from) and ok
-        ok = run_source_lint(lane=args.lane, files_from=args.files_from) and ok
+        if args.lane == "bazel":
+            ok = run_bazel_hygiene() and ok
+        elif args.lane == "cmake":
+            ok = run_cmake_template_checks(files_from=args.files_from) and ok
+            ok = run_cmake_source_lint(files_from=args.files_from) and ok
+        else:
+            raise ValueError(f"unknown lane: {args.lane}")
     if args.tests:
         if args.lane == "bazel":
             ok = run_bazel_tests(args.files_from) and ok

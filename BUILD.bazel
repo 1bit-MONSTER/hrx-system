@@ -7,6 +7,8 @@
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "requirements-analysis.lock.txt",
+    "requirements-importers-tilelang.lock.txt",
     ".github/scripts/check_vulkan_hardware_environment.sh",
     ".github/scripts/fetch_rocm_toolchain.sh",
     ".github/workflows/ci_iree.yml",
@@ -17,3 +19,12 @@ exports_files([
     ".github/workflows/test_core_linux_gpu.yml",
     ".github/workflows/test_core_linux_gpu_source.yml",
 ])
+
+filegroup(
+    name = "devtools_wrappers",
+    srcs = glob([
+        "build_tools/bin/iree-bazel-*",
+        "build_tools/bin/iree-cmake-*",
+    ]),
+    visibility = ["//build_tools/devtools:__pkg__"],
+)

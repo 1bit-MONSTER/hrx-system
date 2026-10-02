@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@rules_python//python:defs.bzl", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_test")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -26,6 +26,7 @@ py_test(
     deps = [
         "//build_tools/devtools",
         "//loom/py/loom/gen:checked_in_artifacts",
+        "//loom/py/loom/tools:source_inventory",
     ],
 )
 
@@ -36,6 +37,14 @@ py_test(
     args = ["--self-test"],
     main = "linters/loom_source_lint.py",
     tags = ["manual"],
+    deps = ["//loom/py/loom/tools:source_inventory"],
+)
+
+py_binary(
+    name = "loom_source_lint",
+    srcs = ["linters/loom_source_lint.py"],
+    main = "linters/loom_source_lint.py",
+    deps = ["//loom/py/loom/tools:source_inventory"],
 )
 
 # Project policy tests run in the repository Presubmit lane when this
@@ -46,5 +55,6 @@ test_suite(
     tests = [
         ":loom_source_lint_self_test",
         ":presubmit_test",
+        "//loom/build_tools/hygiene:presubmit_tests",
     ],
 )
