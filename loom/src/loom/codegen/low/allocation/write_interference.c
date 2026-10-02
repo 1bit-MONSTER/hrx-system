@@ -123,10 +123,8 @@ struct loom_low_allocation_write_interference_t {
   iree_host_size_t retained_capacity;
   // Final conditional physical-write exclusions.
   loom_low_write_constraint_t* constraints;
-  // Number of initialized constraints.
+  // Exact number of rows in the finalized constraint table.
   iree_host_size_t constraint_count;
-  // Capacity of |constraints| during finalization.
-  iree_host_size_t constraint_capacity;
   // Constraint indices grouped by any participating storage origin.
   uint32_t* constraint_indices;
   // Reusable candidate-local equality propagation workspace.
@@ -375,19 +373,6 @@ static bool loom_low_write_transfer(
   return invalidated;
 }
 
-static iree_status_t loom_low_write_append_constraint(
-    loom_low_allocation_write_interference_t* table,
-    loom_low_write_constraint_t constraint, iree_arena_allocator_t* arena) {
-  if (table->constraint_count == table->constraint_capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        arena, table->constraint_count, table->constraint_count + 1,
-        sizeof(*table->constraints), &table->constraint_capacity,
-        (void**)&table->constraints));
-  }
-  table->constraints[table->constraint_count++] = constraint;
-  return iree_ok_status();
-}
-
 static iree_status_t loom_low_write_snapshot(
     loom_low_allocation_write_interference_t* table,
     const loom_low_write_retained_t* units, iree_bitmap_t active,
@@ -418,9 +403,33 @@ static iree_status_t loom_low_write_snapshot(
   return iree_ok_status();
 }
 
-static iree_status_t loom_low_write_record_point(
-    loom_low_allocation_write_interference_t* table, uint32_t point,
-    iree_arena_allocator_t* arena) {
+static iree_status_t loom_low_write_count_constraints(
+    loom_low_allocation_write_interference_t* table, uint32_t point) {
+  const loom_low_write_event_t* event = &table->events[point];
+  if (event->retained.count == 0) {
+    return iree_ok_status();
+  }
+  for (uint32_t a = event->access; a != UINT32_MAX;
+       a = table->accesses[a].next) {
+    const loom_low_write_access_t* access = &table->accesses[a];
+    if (iree_any_bit_set(access->flags, LOOM_LOW_WRITE_ACCESS_INTERFERE)) {
+      const uint32_t write_count =
+          access->source != LOOM_VALUE_ORDINAL_INVALID ? access->count : 1;
+      const uint64_t row_count = (uint64_t)event->retained.count * write_count;
+      if (row_count > UINT32_MAX - table->constraint_count) {
+        return iree_make_status(
+            IREE_STATUS_RESOURCE_EXHAUSTED,
+            "retained-write table exceeds u32 index capacity");
+      }
+      table->constraint_count += row_count;
+    }
+  }
+  return iree_ok_status();
+}
+
+static loom_low_write_constraint_t* loom_low_write_record_point(
+    const loom_low_allocation_write_interference_t* table, uint32_t point,
+    loom_low_write_constraint_t* next_constraint) {
   const loom_low_write_event_t* event = &table->events[point];
   for (uint32_t r = 0; r < event->retained.count; ++r) {
     const loom_low_write_retained_t range =
@@ -434,21 +443,18 @@ static iree_status_t loom_low_write_record_point(
       const bool copy = access->source != LOOM_VALUE_ORDINAL_INVALID;
       const uint32_t row_count = copy ? access->count : 1;
       for (uint32_t unit = 0; unit < row_count; ++unit) {
-        IREE_RETURN_IF_ERROR(loom_low_write_append_constraint(
-            table,
-            (loom_low_write_constraint_t){
-                .destination = access->value,
-                .destination_offset = access->offset + unit,
-                .count = copy ? 1 : access->count,
-                .retained = range,
-                .source = access->source,
-                .source_offset = access->source_offset + unit,
-            },
-            arena));
+        *next_constraint++ = (loom_low_write_constraint_t){
+            .destination = access->value,
+            .destination_offset = access->offset + unit,
+            .count = copy ? 1 : access->count,
+            .retained = range,
+            .source = access->source,
+            .source_offset = access->source_offset + unit,
+        };
       }
     }
   }
-  return iree_ok_status();
+  return next_constraint;
 }
 
 // Weighted identities record base(value) - base(parent). Equations arise only
@@ -699,12 +705,16 @@ static iree_status_t loom_low_write_index_constraints(
       ++table->values[row->source].constraints.count;
     }
   }
-  uint32_t count = 0;
+  uint64_t count = 0;
   for (uint32_t v = 0; v < table->value_count; ++v) {
     loom_low_write_range_t* range = &table->values[v].constraints;
-    range->start = count;
+    range->start = (uint32_t)count;
     count += range->count;
     range->count = 0;
+  }
+  if (count > UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "retained-write table exceeds u32 index capacity");
   }
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, count, sizeof(*table->constraint_indices),
@@ -852,9 +862,19 @@ static iree_status_t loom_low_write_finalize_impl(
             loom_low_write_snapshot(table, units, active, arena, &snapshot));
       }
       table->events[p].retained = snapshot;
-      IREE_RETURN_IF_ERROR(loom_low_write_record_point(table, p, arena));
+      IREE_RETURN_IF_ERROR(loom_low_write_count_constraints(table, p));
       snapshot_invalidated = loom_low_write_transfer(table, p, units, active);
     }
+  }
+  // Immutable snapshots and collected access extents determine the exact row
+  // count. Allocate once so superseded growth buffers do not remain live in
+  // the decision arena. Queries retain the same contiguous row representation.
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, table->constraint_count,
+                                                 sizeof(*table->constraints),
+                                                 (void**)&table->constraints));
+  loom_low_write_constraint_t* next_constraint = table->constraints;
+  for (uint32_t p = 1; p < table->point_count; ++p) {
+    next_constraint = loom_low_write_record_point(table, p, next_constraint);
   }
   IREE_RETURN_IF_ERROR(loom_low_write_classify_copy_chains(
       table, liveness, placement, scratch_arena));

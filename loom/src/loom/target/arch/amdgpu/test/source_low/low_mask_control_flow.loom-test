@@ -346,3 +346,58 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reset_mask_b
 .Lbb3:
   v_mov_b32_copy v1, s4
   s_branch .Lbb1
+
+// ====
+
+// Either path can retain a distinct mask while a wider structural copy aliases
+// its source. The subsequent scalar write must preserve both possible masks.
+// RUN: emit amdgpu-assembly @branch_retained_copy strategy=source fixed=%left_mask:physical_register:0:2 fixed=%right_mask:physical_register:2:2 fixed=%source:physical_register:4:4 fixed=%scalar:physical_register:8:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @branch_retained_copy(%condition: reg<amdgpu.scc>, %value: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x4>, %scalar: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x4>, reg<amdgpu.sgpr>) asm {
+  low.cond_br %condition, ^left, ^right : reg<amdgpu.scc>
+^left:
+  %left_mask = v_cmp_eq_i32 %value, %value
+  %left_selected = v_cndmask_b32 %value, %value, %left_mask
+  low.br ^join
+^right:
+  %right_mask = v_cmp_eq_i32 %value, %value
+  %right_selected = v_cndmask_b32 %value, %value, %right_mask
+  low.br ^join
+^join:
+  %copied = copy %source : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x4>
+  %result = s_or_b32 %scalar, %scalar
+  return %copied, %result
+}
+
+// ----
+  s_cbranch_scc0 .Lbb2
+.Lbb1:
+  v_cmp_eq_i32 s[0:1], v0, v0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_cndmask_b32 v0, v0, v0, s[0:1]
+  s_branch .Lbb3
+.Lbb2:
+  v_cmp_eq_i32 s[2:3], v0, v0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_cndmask_b32 v0, v0, v0, s[2:3]
+.Lbb3:
+  s_or_b32 s8, s8, s8
+  s_endpgm
+
+// ====
+
+// A retained mask with no subsequent writes has snapshots but no constraints.
+// RUN: emit amdgpu-assembly @retained_without_writes strategy=source
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @retained_without_writes(%mask: reg<amdgpu.sgpr x2>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %selected = v_cndmask_b32 %value, %value, %mask
+  return %selected
+}
+
+// ----
+  v_cndmask_b32 v0, v0, v0, s[0:1]
+  s_endpgm
