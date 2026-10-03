@@ -503,8 +503,14 @@ loom_cc_library(
 
 loom_cc_library(
     name = "placement",
-    srcs = ["placement.c"],
-    hdrs = ["placement.h"],
+    srcs = [
+        "placement.c",
+        "placement_capture.c",
+    ],
+    hdrs = [
+        "placement.h",
+        "placement_capture.h",
+    ],
     deps = [
         ":descriptors",
         ":placement_recipe",
@@ -512,6 +518,7 @@ loom_cc_library(
         ":storage_relation",
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",

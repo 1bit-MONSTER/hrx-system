@@ -120,6 +120,17 @@ typedef struct loom_low_placement_build_state_t {
   loom_low_placement_relation_t* relations;
   // Final whole-value edge relation indices in liveness operation order.
   uint32_t* edge_relation_indices;
+  // Storage summary populated during collection and indexed during append.
+  struct {
+    // Final mandatory writing relation indices in liveness operation order.
+    uint32_t* write_relation_indices;
+    // Number of writing relations counted during collection.
+    uint32_t write_relation_count;
+    // Number of write indices populated at their final relation locations.
+    uint32_t appended_write_relation_count;
+    // Alias families present before optional storage refinement.
+    loom_low_placement_storage_flags_t flags;
+  } storage;
   // Relation ranges indexed by result ordinal or hard-location storage owner.
   // Before prefixing, start marks a reserved defining-transfer first slot.
   loom_low_placement_relation_range_t* ranges_by_result_ordinal;
@@ -268,6 +279,21 @@ static iree_status_t loom_low_placement_collect_relation(
     IREE_ASSERT_LT(state->edge_relation_count, UINT32_MAX);
     ++state->edge_relation_count;
   }
+  if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
+    if (iree_any_bit_set(relation->flags,
+                         LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE)) {
+      ++state->storage.write_relation_count;
+    } else {
+      state->storage.flags |= LOOM_LOW_PLACEMENT_STORAGE_FLAG_IDENTITY_ALIASES;
+    }
+  } else if (relation->cause >= LOOM_LOW_PLACEMENT_CAUSE_LOW_COPY &&
+             relation->cause <= LOOM_LOW_PLACEMENT_CAUSE_LOW_CONCAT &&
+             loom_low_placement_relation_can_alias(collected_relation)) {
+    state->storage.flags |= LOOM_LOW_PLACEMENT_STORAGE_FLAG_OPTIONAL_ALIASES;
+    if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_CONCAT) {
+      state->storage.flags |= LOOM_LOW_PLACEMENT_STORAGE_FLAG_CONCAT;
+    }
+  }
   ++state->relation_count;
   return iree_ok_status();
 }
@@ -409,6 +435,20 @@ static void loom_low_placement_append_relation(
     IREE_ASSERT_LT(state->appended_edge_relation_count,
                    state->edge_relation_count);
     state->edge_relation_indices[state->appended_edge_relation_count++] =
+        (uint32_t)relation_index;
+  }
+  if (iree_any_bit_set(relation->flags,
+                       LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE)) {
+    const uint32_t write_index = state->storage.appended_write_relation_count++;
+    // Required writes belong to region-free packets. Liveness collection
+    // order therefore preserves their write points even across nested regions.
+    IREE_ASSERT(
+        write_index == 0 ||
+            state->relations[state->storage
+                                 .write_relation_indices[write_index - 1]]
+                    .write_point <= relation->write_point,
+        "required writes must retain liveness point order");
+    state->storage.write_relation_indices[write_index] =
         (uint32_t)relation_index;
   }
   ++state->appended_relation_count;
@@ -1334,6 +1374,12 @@ static iree_status_t loom_low_placement_build(
                                   sizeof(*state->edge_relation_indices),
                                   (void**)&state->edge_relation_indices));
   }
+  if (state->storage.write_relation_count > 0) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        state->arena, state->storage.write_relation_count,
+        sizeof(*state->storage.write_relation_indices),
+        (void**)&state->storage.write_relation_indices));
+  }
   IREE_RETURN_IF_ERROR(loom_low_placement_build_tied_storage_origins(state));
   loom_low_placement_prefix_ranges(state);
   for (iree_host_size_t i = 0; i < relation_count; ++i) {
@@ -1346,7 +1392,11 @@ static iree_status_t loom_low_placement_build(
   IREE_RETURN_IF_ERROR(loom_low_placement_build_storage_value_order(state));
   IREE_RETURN_IF_ERROR(
       loom_low_placement_index_preferences(state, out_preferences));
-  IREE_RETURN_IF_ERROR(loom_low_placement_mark_identity_edges(state));
+  const iree_arena_checkpoint_t identity_checkpoint =
+      iree_arena_checkpoint_save(state->scratch_arena);
+  iree_status_t identity_status = loom_low_placement_mark_identity_edges(state);
+  iree_arena_checkpoint_restore(&identity_checkpoint);
+  IREE_RETURN_IF_ERROR(identity_status);
 
   // Every exact tied component uses one base. Retain its strongest packet
   // requirement once, before fixed-input validation or allocation can place
@@ -1395,6 +1445,12 @@ static iree_status_t loom_low_placement_build(
       .relation_count = relation_count,
       .edge_relation_indices = state->edge_relation_indices,
       .edge_relation_count = state->edge_relation_count,
+      .storage =
+          {
+              .write_relation_indices = state->storage.write_relation_indices,
+              .write_relation_count = state->storage.write_relation_count,
+              .flags = state->storage.flags,
+          },
       .location_relation_count = state->location_relation_count,
       .hard_location_relation_count = state->hard_location_relation_count,
       .packet_move_group_count = state->packet_move_group_count,
@@ -1412,7 +1468,8 @@ static iree_status_t loom_low_placement_build(
           state->tied_storage_origins_by_value_ordinal,
       .operand_constraints_by_interval = state->operand_constraints_by_interval,
   };
-  return iree_ok_status();
+  return loom_low_placement_captures_build(state->liveness, out_table,
+                                           state->arena, state->scratch_arena);
 }
 
 iree_status_t loom_low_placement_analyze_region(

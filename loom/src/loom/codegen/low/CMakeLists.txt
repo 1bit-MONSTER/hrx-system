@@ -521,8 +521,10 @@ loom_cc_library(
     placement
   HDRS
     "placement.h"
+    "placement_capture.h"
   SRCS
     "placement.c"
+    "placement_capture.c"
   DEPS
     ::descriptors
     ::placement_recipe
@@ -533,6 +535,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::liveness
     loom::ir
+    loom::ops::low
   PUBLIC
 )
 

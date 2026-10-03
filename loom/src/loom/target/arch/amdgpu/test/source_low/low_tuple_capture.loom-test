@@ -1,0 +1,422 @@
+// Concat results capture their component contents at the concat, even when
+// branch transport is decomposed and a required source write intervenes.
+// RUN: emit amdgpu-assembly @branch_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @branch_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @source_copy_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @source_copy_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %snapshot = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %initial = concat(%snapshot, %snapshot) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @writer_copy_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @writer_copy_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %mutable = copy %seed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %mutable, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_fmac_f32 v4, v0, v0
+  v_mov_b32 v3, v2
+.Lbb1:
+  global_store_b64 v1, v[2:3], s[0:1] offset:0
+  global_store_b32 v1, v4, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @mixed_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @mixed_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %address, %initial, %output {offset = 16}
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_mov_b32 v5, v0
+  global_store_b64 v2, v[4:5], s[0:1] offset:16
+  v_fmac_f32 v0, v1, v1
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @required_alias_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @required_alias_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @distinct_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @distinct_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %factor) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v2, v0
+  v_fmac_f32 v0, v3, v3
+.Lbb1:
+  global_store_b64 v1, v[2:3], s[0:1] offset:0
+  global_store_b32 v1, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @lane_capture
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @lane_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  %low = slice %saved[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %high = slice %saved[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  global_store_b32_saddr %address, %low, %output
+  global_store_b32_saddr %address, %high, %output {offset = 4}
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b32 v2, v4, s[0:1] offset:0
+  global_store_b32 v2, v5, s[0:1] offset:4
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @capture_between_writes
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @capture_between_writes(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %first = v_fmac_f32 %seed, %factor, %factor
+  %initial = concat(%first, %first) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %first, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @capture_after_last_write
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @capture_after_last_write(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  %initial = concat(%changed, %changed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v4, v0
+  v_mov_b32 v5, v0
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @stable_edge_components
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @stable_edge_components(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %factor) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  return
+}
+
+// ----
+.Lbb1:
+  global_store_b64 v2, v[0:1], s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @duplicate_required_aliases
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @duplicate_required_aliases(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %alias = low.assume %seed [range(%seed, 0, 1024)] : reg<amdgpu.vgpr>
+  %initial = concat(%seed, %alias) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %alias, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @partial_write_capture
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @partial_write_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = ds_load_u16_d16_hi %seed, %address
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v2, v0
+  ds_load_u16_d16_hi v0, v1 offset:0
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mov_b32 v3, v2
+.Lbb1:
+  global_store_b64 v1, v[2:3], s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @wave64_capture
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @wave64_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_dwordx2_saddr %address, %saved, %output
+  global_store_dword_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_dwordx2 v2, v[4:5], s[0:1] offset:0
+  global_store_dword v2, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @rdna3_capture
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @rdna3_capture(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_fmac_f32 v0, v1, v1
+  s_delay_alu instid0(VALU_DEP_2)
+  v_mov_b32 v5, v4
+.Lbb1:
+  global_store_b64 v2, v[4:5], s[0:1] offset:0
+  global_store_b32 v2, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// The aggregate is not live on the writing path. That write must not create
+// an eager capture before the conditional branch.
+// RUN: emit amdgpu-assembly @write_on_disjoint_path
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @write_on_disjoint_path(%condition: reg<amdgpu.scc>, %seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.cond_br %condition, ^write, ^forward : reg<amdgpu.scc>
+^write:
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  global_store_b32_saddr %address, %changed, %output
+  return
+^forward:
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  global_store_b64_saddr %address, %saved, %output
+  return
+}
+
+// ----
+  s_cbranch_scc0 .Lbb2
+.Lbb1:
+  v_fmac_f32 v0, v2, v2
+  global_store_b32 v3, v0, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+.Lbb2:
+  v_mov_b32 v1, v0
+.Lbb3:
+  global_store_b64 v3, v[0:1], s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// Once the edge has transported the captured bits, a later source write
+// must respect the successor argument's independent contents.
+// RUN: emit amdgpu-assembly @write_after_transport
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @write_after_transport(%seed: reg<amdgpu.vgpr>, %factor: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %initial = concat(%seed, %seed) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^output(%initial: reg<amdgpu.vgpr x2>)
+^output(%saved: reg<amdgpu.vgpr x2>):
+  %changed = v_fmac_f32 %seed, %factor, %factor
+  global_store_b64_saddr %address, %saved, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 8}
+  return
+}
+
+// ----
+  v_mov_b32 v4, v0
+  v_mov_b32 v5, v0
+.Lbb1:
+  global_store_b64 v3, v[4:5], s[0:1] offset:0
+  v_fmac_f32 v0, v2, v2
+  global_store_b32 v3, v0, s[0:1] offset:8
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm

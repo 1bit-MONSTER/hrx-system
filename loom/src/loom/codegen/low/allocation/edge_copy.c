@@ -169,9 +169,11 @@ static void loom_low_allocation_edge_copy_record_branch_payload_segments(
     }
     const uint32_t branch_source_delta =
         relation->result_unit_offset - branch_relation->source_unit_offset;
+    const loom_low_placement_concat_source_t source =
+        loom_low_placement_concat_source(context->placement, range.start + i);
     loom_low_allocation_edge_copy_record_segment(
-        builder, payload_index, relation->source_ordinal,
-        branch_relation->result_ordinal, relation->source_unit_offset,
+        builder, payload_index, source.value_ordinal,
+        branch_relation->result_ordinal, source.unit_offset,
         branch_relation->result_unit_offset + branch_source_delta,
         relation->unit_count);
     covered_unit_count += relation->unit_count;

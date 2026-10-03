@@ -101,21 +101,16 @@ static iree_status_t loom_low_allocation_refine_destructive_reuse_build(
                                 sizeof(*first_writes), (void**)&first_writes));
   memset(first_writes, 0xFF,
          unit_liveness->point_count * sizeof(*first_writes));
-  for (iree_host_size_t i = 0; i < placement->relation_count; ++i) {
-    const loom_low_placement_relation_t* relation = &placement->relations[i];
-    if (!loom_low_allocation_reuse_relation(relation)) {
-      continue;
-    }
+  for (uint32_t i = 0; i < placement->storage.write_relation_count; ++i) {
+    const loom_low_placement_relation_t* relation =
+        &placement->relations[placement->storage.write_relation_indices[i]];
     const uint32_t source_start =
         loom_low_allocation_content_unit_start(
             unit_liveness, content_unit_starts, relation->source_ordinal) +
         relation->source_unit_offset;
-    if (iree_any_bit_set(relation->flags,
-                         LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE)) {
-      for (uint32_t unit = 0; unit < relation->unit_count; ++unit) {
-        first_writes[source_start + unit] =
-            iree_min(first_writes[source_start + unit], relation->write_point);
-      }
+    for (uint32_t unit = 0; unit < relation->unit_count; ++unit) {
+      first_writes[source_start + unit] =
+          iree_min(first_writes[source_start + unit], relation->write_point);
     }
   }
 
@@ -177,28 +172,16 @@ iree_status_t loom_low_allocation_refine_destructive_reuse(
     const loom_low_allocation_unit_liveness_t* unit_liveness,
     const loom_liveness_analysis_t* liveness,
     loom_low_placement_table_t* placement, iree_arena_allocator_t* arena) {
-  bool has_write = false;
-  bool has_optional_alias = false;
-  bool has_identity_aliases = false;
-  for (iree_host_size_t i = 0; i < placement->relation_count; ++i) {
-    const loom_low_placement_relation_t* relation = &placement->relations[i];
-    if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-      const bool writes_storage = iree_any_bit_set(
-          relation->flags, LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE);
-      has_write |= writes_storage;
-      has_identity_aliases |= !writes_storage;
-    } else {
-      has_optional_alias |= loom_low_allocation_reuse_relation(relation);
-    }
-    if (has_write && has_optional_alias && has_identity_aliases) {
-      break;
-    }
-  }
-  if (!has_write || !has_optional_alias) {
+  if (placement->storage.write_relation_count == 0 ||
+      !iree_any_bit_set(placement->storage.flags,
+                        LOOM_LOW_PLACEMENT_STORAGE_FLAG_OPTIONAL_ALIASES)) {
     return iree_ok_status();
   }
   iree_arena_allocator_t scratch;
   iree_arena_initialize(arena->block_pool, &scratch);
+  const bool has_identity_aliases =
+      iree_any_bit_set(placement->storage.flags,
+                       LOOM_LOW_PLACEMENT_STORAGE_FLAG_IDENTITY_ALIASES);
   iree_status_t status = loom_low_allocation_refine_destructive_reuse_build(
       unit_liveness, liveness, placement, has_identity_aliases, &scratch);
   iree_arena_deinitialize(&scratch);

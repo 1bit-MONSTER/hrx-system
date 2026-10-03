@@ -90,40 +90,39 @@ static iree_status_t loom_low_allocation_packet_move_record_group(
   loom_low_move_t* raw_moves =
       loom_low_allocation_move_plan_raw_moves(context->move_plan);
   iree_host_size_t raw_move_count = 0;
-  const bool omit_concat =
-      packet_move_kind == LOOM_LOW_ALLOCATION_PACKET_MOVE_OP_CONCAT &&
-      !loom_low_allocation_move_topology_concat_requires_packet_materialization_for_module(
-          context->move_plan->context.assignment_map.module, op);
-  if (!omit_concat) {
-    const loom_low_placement_relation_range_t range =
-        loom_low_placement_relation_range_for_value_ordinal(context->placement,
-                                                            result_ordinal);
-    for (uint32_t i = 0; i < range.count; ++i) {
-      const loom_low_placement_relation_t* relation =
-          &context->placement->relations[range.start + i];
-      if (relation->op != op || relation->cause != cause) {
-        continue;
-      }
-      const loom_low_allocation_assignment_t* destination_assignment =
-          loom_low_allocation_packet_move_assignment(
-              &context->move_plan->context.assignment_map,
-              relation->result_ordinal);
-      const loom_low_allocation_assignment_t* source_assignment =
-          loom_low_allocation_packet_move_assignment(
-              &context->move_plan->context.assignment_map,
-              relation->source_ordinal);
-      for (uint32_t unit_index = 0; unit_index < relation->unit_count;
-           ++unit_index) {
-        raw_moves[raw_move_count++] = (loom_low_move_t){
-            .destination = loom_low_allocation_assignment_unit_location(
-                context->move_plan->context.descriptor_set,
-                destination_assignment,
-                relation->result_unit_offset + unit_index),
-            .source = loom_low_allocation_assignment_unit_location(
-                context->move_plan->context.descriptor_set, source_assignment,
-                relation->source_unit_offset + unit_index),
-        };
-      }
+  const loom_low_placement_relation_range_t range =
+      loom_low_placement_relation_range_for_value_ordinal(context->placement,
+                                                          result_ordinal);
+  for (uint32_t i = 0; i < range.count; ++i) {
+    const loom_low_placement_relation_t* relation =
+        &context->placement->relations[range.start + i];
+    if (relation->op != op || relation->cause != cause) {
+      continue;
+    }
+    if (cause == LOOM_LOW_PLACEMENT_CAUSE_LOW_CONCAT &&
+        !iree_any_bit_set(relation->flags,
+                          LOOM_LOW_PLACEMENT_RELATION_FLAG_MATERIALIZE_PART)) {
+      continue;
+    }
+    const loom_low_allocation_assignment_t* destination_assignment =
+        loom_low_allocation_packet_move_assignment(
+            &context->move_plan->context.assignment_map,
+            relation->result_ordinal);
+    const loom_low_allocation_assignment_t* source_assignment =
+        loom_low_allocation_packet_move_assignment(
+            &context->move_plan->context.assignment_map,
+            relation->source_ordinal);
+    for (uint32_t unit_index = 0; unit_index < relation->unit_count;
+         ++unit_index) {
+      raw_moves[raw_move_count++] = (loom_low_move_t){
+          .destination = loom_low_allocation_assignment_unit_location(
+              context->move_plan->context.descriptor_set,
+              destination_assignment,
+              relation->result_unit_offset + unit_index),
+          .source = loom_low_allocation_assignment_unit_location(
+              context->move_plan->context.descriptor_set, source_assignment,
+              relation->source_unit_offset + unit_index),
+      };
     }
   }
 

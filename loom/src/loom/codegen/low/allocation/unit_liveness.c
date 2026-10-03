@@ -530,20 +530,26 @@ loom_low_allocation_unit_liveness_note_contiguous_part_uses_at_point(
         relation->kind != LOOM_LOW_PLACEMENT_RELATION_CONTIGUOUS_PART) {
       continue;
     }
+    const loom_low_placement_concat_source_t source =
+        loom_low_placement_concat_source(placement, range.start + i);
     iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
-                    relation->source_ordinal);
+                    source.value_ordinal);
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_unit_liveness_note_unit_use_at_point(
-            unit_use_index, liveness, relation->source_ordinal,
-            relation->source_unit_offset, relation->unit_count, point));
+            unit_use_index, liveness, source.value_ordinal, source.unit_offset,
+            relation->unit_count, point));
+    if (source.value_ordinal == aggregate_ordinal) {
+      // This read observes the aggregate's own captured storage and is
+      // already represented by its direct SSA use at the edge.
+      continue;
+    }
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_unit_liveness_initialize_observation_links(
             unit_liveness, placement, arena));
     const loom_value_ordinal_t* origins =
         placement->tied_storage_origins_by_value_ordinal;
-    const loom_value_ordinal_t origin = origins != NULL
-                                            ? origins[relation->source_ordinal]
-                                            : relation->source_ordinal;
+    const loom_value_ordinal_t origin =
+        origins != NULL ? origins[source.value_ordinal] : source.value_ordinal;
     uint32_t* head = &unit_liveness->observations.value_links[origin];
     if (*head > placement->value_count) {
       const loom_low_allocation_decomposed_use_t* previous =

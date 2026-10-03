@@ -116,15 +116,6 @@ low.func.def target<test.low.core>(@test_target) @branch_only_concat(%cond: reg<
 }
 )";
 
-static const char kMaterializedConcatFunction[] = R"(
-test.target<low_core> @test_target
-
-low.func.def target<test.low.core>(@test_target) @materialized_concat(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32 x2>) asm {
-  %pair = concat(%lhs, %rhs) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
-  return %pair
-}
-)";
-
 TEST_F(LowAllocationMoveTopologyTest, ClassifiesPacketMoveOps) {
   ModulePtr module = ParseModule(kBranchOnlyConcatFunction);
   ASSERT_NE(module.get(), nullptr);
@@ -154,34 +145,6 @@ TEST_F(LowAllocationMoveTopologyTest, ClassifiesPacketMoveOps) {
   EXPECT_TRUE(loom_low_allocation_move_topology_op_has_packet_moves(concat_op));
   EXPECT_FALSE(
       loom_low_allocation_move_topology_op_has_packet_moves(return_op));
-}
-
-TEST_F(LowAllocationMoveTopologyTest, ClassifiesConcatMaterialization) {
-  ModulePtr branch_module = ParseModule(kBranchOnlyConcatFunction);
-  ASSERT_NE(branch_module.get(), nullptr);
-  loom_op_t* branch_function =
-      FindLowFunction(branch_module.get(), IREE_SV("branch_only_concat"));
-  loom_region_t* branch_body = loom_low_func_def_body(branch_function);
-  const loom_op_t* branch_concat =
-      FindFirstOp(branch_body, loom_low_concat_isa);
-  ASSERT_NE(branch_concat, nullptr);
-
-  ModulePtr materialized_module = ParseModule(kMaterializedConcatFunction);
-  ASSERT_NE(materialized_module.get(), nullptr);
-  loom_op_t* materialized_function = FindLowFunction(
-      materialized_module.get(), IREE_SV("materialized_concat"));
-  loom_region_t* materialized_body =
-      loom_low_func_def_body(materialized_function);
-  const loom_op_t* materialized_concat =
-      FindFirstOp(materialized_body, loom_low_concat_isa);
-  ASSERT_NE(materialized_concat, nullptr);
-
-  EXPECT_FALSE(
-      loom_low_allocation_move_topology_concat_requires_packet_materialization_for_module(
-          branch_module.get(), branch_concat));
-  EXPECT_TRUE(
-      loom_low_allocation_move_topology_concat_requires_packet_materialization_for_module(
-          materialized_module.get(), materialized_concat));
 }
 
 }  // namespace

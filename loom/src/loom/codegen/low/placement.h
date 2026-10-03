@@ -19,6 +19,7 @@
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/liveness.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/placement_capture.h"
 #include "loom/codegen/low/placement_recipe.h"
 #include "loom/ir/ir.h"
 #include "loom/ir/local_value_domain.h"
@@ -70,6 +71,12 @@ enum loom_low_placement_relation_flag_bits_e {
   // structural copies. Its source can share storage with the still-observable
   // destination. Destructive tied results do not preserve bit identity.
   LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE = 1u << 4,
+  // The concat part's edge reads use a saved aggregate component instead of
+  // rereading the original source after a required storage write.
+  LOOM_LOW_PLACEMENT_RELATION_FLAG_CAPTURED_PART = 1u << 5,
+  // This concat part must be materialized at the concat's program point.
+  // Other parts are transported directly by their decomposed edge reads.
+  LOOM_LOW_PLACEMENT_RELATION_FLAG_MATERIALIZE_PART = 1u << 6,
 };
 
 // Bitset of loom_low_placement_relation_flag_bits_e values.
@@ -203,6 +210,16 @@ typedef struct loom_low_placement_operand_constraints_t {
   bool has_target_address_state;
 } loom_low_placement_operand_constraints_t;
 
+enum loom_low_placement_storage_flag_bits_e {
+  // Copy, move, slice, or concat relations can optionally share storage.
+  LOOM_LOW_PLACEMENT_STORAGE_FLAG_OPTIONAL_ALIASES = 1u << 0,
+  // Nonwriting required aliases share a content version with their source.
+  LOOM_LOW_PLACEMENT_STORAGE_FLAG_IDENTITY_ALIASES = 1u << 1,
+  // Concat components need packet-versus-edge transport planning.
+  LOOM_LOW_PLACEMENT_STORAGE_FLAG_CONCAT = 1u << 2,
+};
+typedef uint8_t loom_low_placement_storage_flags_t;
+
 // Placement analysis table for one target-low function body.
 typedef struct loom_low_placement_table_t {
   // Module containing the analyzed low function.
@@ -226,6 +243,15 @@ typedef struct loom_low_placement_table_t {
   const uint32_t* edge_relation_indices;
   // Number of entries in |edge_relation_indices|.
   uint32_t edge_relation_count;
+  // Storage facts retained while collecting relations, before alias refinement.
+  struct {
+    // Mandatory writing relation indices in nondecreasing write-point order.
+    const uint32_t* write_relation_indices;
+    // Number of entries in write_relation_indices.
+    uint32_t write_relation_count;
+    // Alias families present in the collected structural storage relations.
+    loom_low_placement_storage_flags_t flags;
+  } storage;
   // Number of relations constraining concrete location choice.
   iree_host_size_t location_relation_count;
   // Number of hard relations constraining concrete location choice.
@@ -268,6 +294,11 @@ typedef struct loom_low_placement_table_t {
   // optional slice/concat aliases are checked at their concrete derived base.
   const loom_low_placement_operand_constraints_t*
       operand_constraints_by_interval;
+  // Exceptional concat sources, sorted by their placement relation index.
+  // NULL when every edge can read the original component storage.
+  const loom_low_placement_capture_t* captures;
+  // Number of initialized exceptional concat source rows.
+  uint32_t capture_count;
 } loom_low_placement_table_t;
 
 // One allocation-local instruction preference bound during placement analysis.
