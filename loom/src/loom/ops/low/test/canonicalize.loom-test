@@ -1,5 +1,44 @@
 // RUN: pass canonicalize
 
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @tied_result_capture_before_write(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.tied.any %source
+  %saved = slice %first[0] : reg<test.i32> -> reg<test.i32>
+  %second = test.tied.any %first
+  return %saved, %second
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @tied_result_capture_before_write(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.tied.any %source
+  %saved = slice %first[0] : reg<test.i32> -> reg<test.i32>
+  %second = test.tied.any %first
+  return %saved, %second
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @tied_result_capture(%source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %first = test.tied.any %source
+  %saved = slice %first[0] : reg<test.i32> -> reg<test.i32>
+  return %saved
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @tied_result_capture(%source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %first = test.tied.any %source
+  return %first
+}
+
+// ====
+
 test.target<low_core> @test_target
 
 low.func.def target<test.low.core>(@test_target) @identity_slice(%source: reg<test.i32 x2>) -> (reg<test.i32 x2>) asm {
@@ -66,4 +105,226 @@ test.target<low_core> @test_target
 low.func.def target<test.low.core>(@test_target) @whole_concat_use_preserves_identity(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32 x2>, reg<test.i32>) asm {
   %pair = concat(%lhs, %rhs) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
   return %pair, %lhs
+}
+
+// ====
+
+// Even an identity-width slice preserves the value before a destructive use.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @identity_capture_before_write(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @identity_capture_before_write(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @concat_capture_before_write(%source: reg<test.i32>, %other: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %pair = concat(%source, %other) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  %saved = slice %pair[0] : reg<test.i32 x2> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @concat_capture_before_write(%source: reg<test.i32>, %other: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @concat_capture_after_write(%source: reg<test.i32>, %other: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %pair = concat(%source, %other) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  %changed = test.tied.any %source
+  %saved = slice %pair[0] : reg<test.i32 x2> -> reg<test.i32>
+  return %saved, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @concat_capture_after_write(%source: reg<test.i32>, %other: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ====
+
+// Combining offsets must retain the inner projection's observation point.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @nested_capture_across_move(%source: reg<test.i32 x4>) -> (reg<test.i32>, reg<test.i32 x4>) asm {
+  %middle = slice %source[1] : reg<test.i32 x4> -> reg<test.i32 x2>
+  %moved = move %source : reg<test.i32 x4> -> reg<test.i32 x4>
+  %saved = slice %middle[1] : reg<test.i32 x2> -> reg<test.i32>
+  return %saved, %moved
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @nested_capture_across_move(%source: reg<test.i32 x4>) -> (reg<test.i32>, reg<test.i32 x4>) asm {
+  %saved = slice %source[2] : reg<test.i32 x4> -> reg<test.i32>
+  %moved = move %source : reg<test.i32 x4> -> reg<test.i32 x4>
+  return %saved, %moved
+}
+
+// ====
+
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @projection_and_source_consumed_independently(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %saved_changed = test.tied.any %saved
+  %source_changed = test.tied.any %source
+  return %saved_changed, %source_changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @projection_and_source_consumed_independently(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %saved_changed = test.tied.any %saved
+  %source_changed = test.tied.any %source
+  return %saved_changed, %source_changed
+}
+
+// ====
+
+// Read-only projections may share a capture. Consumed projections retain their
+// independent identities, even when the original operands are equal.
+// RUN: pass canonicalize,low-cse,low-dce
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @duplicate_readonly_captures(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %pair = concat(%source, %source) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  %changed = test.tied.any %source
+  %low = slice %pair[0] : reg<test.i32 x2> -> reg<test.i32>
+  %high = slice %pair[1] : reg<test.i32 x2> -> reg<test.i32>
+  return %low, %high, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @duplicate_readonly_captures(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %high = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %high, %high, %changed
+}
+
+// ====
+
+// RUN: pass canonicalize,low-cse,low-dce
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @duplicate_consumed_captures(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %pair = concat(%source, %source) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  %changed = test.tied.any %source
+  %low = slice %pair[0] : reg<test.i32 x2> -> reg<test.i32>
+  %high = slice %pair[1] : reg<test.i32 x2> -> reg<test.i32>
+  %low_changed = test.tied.any %low
+  %high_changed = test.tied.any %high
+  return %low_changed, %high_changed, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @duplicate_consumed_captures(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
+  %high = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %low = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  %low_changed = test.tied.any %low
+  %high_changed = test.tied.any %high
+  return %low_changed, %high_changed, %changed
+}
+
+// ====
+
+// An alias's single direct use is not independent of its parent observations.
+// RUN: pass canonicalize,low-cse,low-dce
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @capture_alias_before_parent_write(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %source [range(%source, 0, 1024)] : reg<test.i32>
+  %saved = slice %alias[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @capture_alias_before_parent_write(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %source [range(%source, 0, 1024)] : reg<test.i32>
+  %saved = slice %alias[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %source
+  return %saved, %changed
+}
+
+// ====
+
+// RUN: pass canonicalize,low-cse,low-dce
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @consume_alias_capture_independently(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %source [range(%source, 0, 1024)] : reg<test.i32>
+  %saved = slice %alias[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %saved
+  return %source, %changed
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @consume_alias_capture_independently(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %alias = low.assume %source [range(%source, 0, 1024)] : reg<test.i32>
+  %saved = slice %alias[0] : reg<test.i32> -> reg<test.i32>
+  %changed = test.tied.any %saved
+  return %source, %changed
+}
+
+// ====
+
+// Several read-only observers do not require separate owners.
+// RUN: pass canonicalize,low-cse,low-dce
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @forward_readonly_capture(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %source = test.add.i32 %lhs, %rhs
+  %saved = slice %source[0] : reg<test.i32> -> reg<test.i32>
+  %first = test.add.i32 %source, %lhs
+  %second = test.add.i32 %saved, %rhs
+  return %first, %second
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @forward_readonly_capture(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %source = test.add.i32 %lhs, %rhs
+  %first = test.add.i32 %source, %lhs
+  %second = test.add.i32 %source, %rhs
+  return %first, %second
 }
