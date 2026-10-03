@@ -8,7 +8,6 @@
 
 #include <string.h>
 
-#include "loom/analysis/ownership.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ir/structural_hash.h"
@@ -456,48 +455,22 @@ uint32_t loom_expression_observe_barriers(
 // Semantic eligibility and replacement
 //===----------------------------------------------------------------------===//
 
-static bool loom_expression_result_transfers_operand_ownership(
-    const loom_module_t* module, const loom_op_t* op, uint16_t result_index,
-    uint16_t* out_operand_index) {
-  loom_ownership_result_effect_t effect = {0};
-  if (!loom_ownership_result_effect_at(module, op, result_index, &effect) ||
-      (effect.effect != LOOM_RESULT_OWNERSHIP_TIED &&
-       effect.effect != LOOM_RESULT_OWNERSHIP_MOVED)) {
-    return false;
-  }
-  *out_operand_index = effect.source_operand_index;
-  return true;
-}
-
 static bool loom_expression_op_transfers_operand_ownership(
     const loom_module_t* module, const loom_op_t* op) {
-  for (uint16_t i = 0; i < op->result_count; ++i) {
-    uint16_t operand_index = 0;
-    if (loom_expression_result_transfers_operand_ownership(module, op, i,
-                                                           &operand_index)) {
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  const loom_use_index_t* indices = loom_op_operand_use_indices(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    const loom_value_t* value = loom_module_value(module, operands[i]);
+    const loom_use_t use = loom_value_uses(value)[indices[i]];
+    if (iree_any_bit_set(loom_use_flags(use), LOOM_USE_FLAG_CONSUMES)) {
       return true;
     }
   }
   return false;
 }
 
-static bool loom_expression_use_consumes_operand(const loom_module_t* module,
-                                                 const loom_use_t use) {
-  const loom_op_t* user_op = loom_use_user_op(use);
-  const uint16_t operand_index = loom_use_operand_index(use);
-  for (uint16_t i = 0; i < user_op->result_count; ++i) {
-    uint16_t source_operand_index = 0;
-    if (loom_expression_result_transfers_operand_ownership(
-            module, user_op, i, &source_operand_index) &&
-        source_operand_index == operand_index) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool loom_expression_result_is_consumed(const loom_module_t* module,
-                                               const loom_op_t* op) {
+static bool loom_expression_result_has_sensitive_ownership(
+    const loom_module_t* module, const loom_op_t* op) {
   const loom_value_id_t* results = loom_op_results((loom_op_t*)op);
   for (uint16_t i = 0; i < op->result_count; ++i) {
     const loom_value_id_t result = results[i];
@@ -505,11 +478,8 @@ static bool loom_expression_result_is_consumed(const loom_module_t* module,
       continue;
     }
     const loom_value_t* value = loom_module_value(module, result);
-    const loom_use_t* use = NULL;
-    loom_value_for_each_use(value, use) {
-      if (loom_expression_use_consumes_operand(module, *use)) {
-        return true;
-      }
+    if (loom_value_ownership_use_count(value) != 0) {
+      return true;
     }
   }
   return false;
@@ -518,7 +488,7 @@ static bool loom_expression_result_is_consumed(const loom_module_t* module,
 bool loom_expression_can_share_result_ownership(const loom_module_t* module,
                                                 const loom_op_t* op) {
   return !loom_expression_op_transfers_operand_ownership(module, op) &&
-         !loom_expression_result_is_consumed(module, op);
+         !loom_expression_result_has_sensitive_ownership(module, op);
 }
 
 bool loom_expression_is_reusable(const loom_expression_cursor_t* cursor) {

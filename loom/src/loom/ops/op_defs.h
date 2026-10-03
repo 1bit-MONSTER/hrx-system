@@ -27,6 +27,7 @@
 #include "loom/ir/types.h"
 #include "loom/ops/attribute_accessors.h"
 #include "loom/ops/format.h"
+#include "loom/ops/use_list.h"
 #include "loom/util/bstring.h"
 
 // Annotation for parameters that may be NULL or zero. No-op macro that
@@ -1864,22 +1865,6 @@ iree_status_t loom_region_remove_blocks(loom_module_t* module,
 // path) to maintain the invariant that every operand has a corresponding
 // use entry on the referenced value.
 
-// Adds a use record: |user_op| uses value |value_id| at |operand_index|.
-// Handles inline-to-overflow transition via arena allocation on the module.
-iree_status_t loom_value_add_use(loom_module_t* module,
-                                 loom_value_id_t value_id, loom_op_t* user_op,
-                                 uint16_t operand_index);
-
-// Removes a use record: |user_op| no longer uses |value_id| at
-// |operand_index|. Reads the operand's retained use index, swaps with the last
-// entry, and updates the moved operand's index in O(1). Returns
-// IREE_STATUS_NOT_FOUND if the index does not name the matching entry.
-// No overflow-to-inline transition (arena cannot free the overflow
-// array; loom_module_compute_uses handles repack).
-iree_status_t loom_value_remove_use(loom_module_t* module,
-                                    loom_value_id_t value_id,
-                                    loom_op_t* user_op, uint16_t operand_index);
-
 // Finalizes a newly-built op: registers all operand uses and performs
 // any other per-op bookkeeping. Called as the tail return from every
 // builder: `return loom_builder_finalize_op(builder, *out_op);`
@@ -1898,50 +1883,6 @@ iree_status_t loom_op_set_attr(loom_module_t* module, loom_op_t* op,
 // descriptor, and legacy bytecode kind. Idempotent.
 void loom_module_link_symbol_defining_op(loom_module_t* module, loom_op_t* op,
                                          const loom_op_vtable_t* vtable);
-
-// Changes an operand on an existing op, maintaining use lists. Removes
-// the use from the old value, writes the new value ID, and adds a use
-// to the new value. Skips LOOM_VALUE_ID_INVALID for both old and new.
-iree_status_t loom_op_set_operand(loom_module_t* module, loom_op_t* op,
-                                  uint16_t operand_index,
-                                  loom_value_id_t new_value_id);
-
-// Replaces all uses of |old_id| with |new_id|. Walks old's operand use list,
-// patches each user op's operand slot, bulk-transfers those use entries to
-// new's list, and rewrites SSA references embedded in value types and operation
-// attributes with one shared immutable substitution context. Each embedded
-// reference owner publishes consistently with its index, but an allocation
-// failure can leave earlier owners changed. Ordinary operands are transferred
-// only after all embedded references succeed. No-op if old_id == new_id.
-iree_status_t loom_value_replace_all_uses_with(loom_module_t* module,
-                                               loom_value_id_t old_id,
-                                               loom_value_id_t new_id);
-
-// Same as replace_all_uses_with, but skips uses where the user op is
-// |except_op|. This filtered form only rewrites operand slots; embedded type
-// references have no user op to predicate against. Used during pattern rewrites
-// where the replacement op also references the old value.
-iree_status_t loom_value_replace_all_uses_except(loom_module_t* module,
-                                                 loom_value_id_t old_id,
-                                                 loom_value_id_t new_id,
-                                                 const loom_op_t* except_op);
-
-// Predicate-based RAUW. Replaces operand uses of |old_id| with |new_id| only
-// where |predicate| returns true for the user op. Embedded type references are
-// intentionally not rewritten by this filtered form.
-typedef bool (*loom_use_predicate_fn)(const loom_op_t* user_op,
-                                      void* user_data);
-iree_status_t loom_value_replace_uses_if(loom_module_t* module,
-                                         loom_value_id_t old_id,
-                                         loom_value_id_t new_id,
-                                         loom_use_predicate_fn predicate,
-                                         void* user_data);
-
-// Rebuilds all use lists from scratch by walking every live op in the
-// module. Clears all values' use data, then re-adds uses from operands.
-// Used after parsing (the parser fills operands but not use lists) and
-// as a recovery path after bulk IR mutations.
-iree_status_t loom_module_compute_uses(loom_module_t* module);
 
 #ifdef __cplusplus
 }

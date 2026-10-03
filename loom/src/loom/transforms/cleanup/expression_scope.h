@@ -115,7 +115,8 @@ bool loom_expression_is_reusable(const loom_expression_cursor_t* cursor);
 
 // Tests whether sharing results preserves ownership: the op neither transfers
 // operand ownership into results nor produces results consumed by a later move
-// or tied update. Effect and structural eligibility remain the caller's policy.
+// or tied update, or shared through a required-identity use. Effect and
+// structural eligibility remain the caller's policy.
 bool loom_expression_can_share_result_ownership(const loom_module_t* module,
                                                 const loom_op_t* op);
 

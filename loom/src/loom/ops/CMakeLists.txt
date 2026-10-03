@@ -16,8 +16,10 @@ loom_cc_library(
     "attribute_accessors.h"
     "builder_macros.h"
     "op_defs.h"
+    "use_list.h"
   SRCS
     "op_defs.c"
+    "use_list.c"
   DEPS
     ::format
     iree::base
@@ -44,6 +46,23 @@ loom_cc_library(
     loom::ir
     loom::util::bstring
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    use_list_test
+  SRCS
+    "use_list_test.cc"
+  DEPS
+    ::op_defs
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::low
+    loom::ops::scalar
+    loom::ops::test
+    loom::target::registers
 )
 
 loom_cc_test(
