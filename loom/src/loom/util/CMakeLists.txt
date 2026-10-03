@@ -357,6 +357,7 @@ loom_cc_test(
     loom::analysis::condition_edge_projection
     loom::analysis::condition_facts
     loom::ir
+    loom::ops::cfg
     loom::ops::index
     loom::ops::scalar
     loom::ops::scf
