@@ -194,6 +194,7 @@ static inline void loom_low_schedule_reset_candidate_operand_uses(
         pressure_state->candidate_operand_ordinals[i];
     pressure_state->candidate_operand_use_counts[value_ordinal] = 0;
     pressure_state->candidate_scratch_counts[value_ordinal] = 0;
+    state->values[value_ordinal].candidate_transferred_units = 0;
     state->values[value_ordinal].flags &=
         ~(LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_ALIAS_CLAIM |
           LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_LATE_READ);

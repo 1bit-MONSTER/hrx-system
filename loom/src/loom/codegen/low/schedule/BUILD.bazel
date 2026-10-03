@@ -224,6 +224,39 @@ loom_cc_test(
 )
 
 loom_cc_test(
+    name = "pressure_alias_test",
+    srcs = [
+        "context.h",
+        "pressure.h",
+        "pressure_alias.h",
+        "pressure_alias_test.cc",
+        "ready_policy.h",
+        "setup_order.h",
+        "storage_lifetime.h",
+        "storage_relation_index.h",
+    ],
+    deps = [
+        ":dependency_index",
+        ":ready_frontier",
+        ":resource_calendar",
+        ":schedule",
+        "//loom/src/loom/analysis:liveness",
+        "//loom/src/loom/codegen/low:function",
+        "//loom/src/loom/codegen/low:memory_access",
+        "//loom/src/loom/codegen/low:representation_binding",
+        "//loom/src/loom/codegen/low:storage_relation",
+        "//loom/src/loom/codegen/low:target_binding",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/util:cfg_graph",
+        "//loom/src/loom/util:segmented_storage",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
     name = "completion_demand_test",
     srcs = ["completion_demand_test.cc"],
     deps = [

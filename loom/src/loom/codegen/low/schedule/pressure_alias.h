@@ -86,11 +86,12 @@ typedef struct loom_low_schedule_pressure_alias_transfer_t {
   uint32_t late_units;
 } loom_low_schedule_pressure_alias_transfer_t;
 
-// Returns alias-owned units at the write and post-instruction boundaries.
+// Returns alias-owned units at the write and post-instruction boundaries and
+// retains incoming transfers for the candidate's subsequent result scoring.
 loom_low_schedule_pressure_alias_transfer_t
 loom_low_schedule_pressure_alias_candidate_transfer_from_source(
     const loom_low_schedule_build_state_t* state,
-    const loom_low_schedule_pressure_state_t* pressure_state,
+    loom_low_schedule_pressure_state_t* pressure_state,
     loom_value_ordinal_t source_ordinal);
 
 // Returns units a candidate result can alias after candidate operand deaths.

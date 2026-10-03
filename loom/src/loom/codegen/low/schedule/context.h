@@ -190,6 +190,8 @@ typedef struct loom_low_schedule_value_record_t {
   uint32_t unit_count;
   // Live units currently charged to this value in the pressure model.
   uint32_t live_unit_count;
+  // Units inherited before result writes while scoring the current candidate.
+  uint32_t candidate_transferred_units;
   // Remaining operand uses in the current simulated block schedule.
   uint32_t remaining_use_count;
   // Least expensive local exit for a compiler-produced unspillable value.

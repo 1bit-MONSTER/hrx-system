@@ -238,6 +238,38 @@ loom_cc_test(
 
 loom_cc_test(
   NAME
+    pressure_alias_test
+  SRCS
+    "context.h"
+    "pressure.h"
+    "pressure_alias.h"
+    "pressure_alias_test.cc"
+    "ready_policy.h"
+    "setup_order.h"
+    "storage_lifetime.h"
+    "storage_relation_index.h"
+  DEPS
+    ::dependency_index
+    ::ready_frontier
+    ::resource_calendar
+    ::schedule
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::analysis::liveness
+    loom::codegen::low::function
+    loom::codegen::low::memory_access
+    loom::codegen::low::representation_binding
+    loom::codegen::low::storage_relation
+    loom::codegen::low::target_binding
+    loom::ir
+    loom::util::cfg_graph
+    loom::util::segmented_storage
+)
+
+loom_cc_test(
+  NAME
     completion_demand_test
   SRCS
     "completion_demand_test.cc"
