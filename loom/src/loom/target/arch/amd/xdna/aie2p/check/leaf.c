@@ -36,9 +36,9 @@ static iree_status_t loom_aie2p_leaf_check_execute(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "aie2p-leaf requires a Low function symbol");
   }
-  loom_check_low_emit_fixed_value_spec_t
-      fixed_specs[LOOM_CHECK_LOW_EMIT_MAX_ALLOCATION_FIXED_VALUES];
-  iree_host_size_t fixed_spec_count = 0;
+  loom_check_low_emit_fixed_value_spec_list_t fixed_specs;
+  IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
+      remaining, request->case_arena, &fixed_specs));
   iree_string_view_t registers = iree_string_view_empty();
   loom_aie2p_leaf_check_report_t report_kind =
       LOOM_AIE2P_LEAF_CHECK_REPORT_NONE;
@@ -50,8 +50,7 @@ static iree_status_t loom_aie2p_leaf_check_execute(
     iree_string_view_split(token, '=', &name, &value);
     if (iree_string_view_equal(name, IREE_SV("fixed"))) {
       IREE_RETURN_IF_ERROR(loom_check_low_emit_parse_fixed_value_spec(
-          value, IREE_SV("aie2p-leaf"), fixed_specs,
-          IREE_ARRAYSIZE(fixed_specs), &fixed_spec_count));
+          value, IREE_SV("aie2p-leaf"), &fixed_specs));
     } else if (iree_string_view_equal(name, IREE_SV("registers"))) {
       registers = value;
     } else if (iree_string_view_equal(name, IREE_SV("report")) &&
@@ -90,7 +89,7 @@ static iree_status_t loom_aie2p_leaf_check_execute(
   };
   bool resolved = false;
   IREE_RETURN_IF_ERROR(loom_check_low_emit_resolve_fixed_value_specs(
-      request->module, function, fixed_specs, fixed_spec_count, emitter,
+      request->module, function, fixed_specs.specs, fixed_specs.count, emitter,
       &options.allocation_fixed_values, &options.allocation_fixed_value_count,
       &resolved, request->case_arena));
   if (!resolved) {

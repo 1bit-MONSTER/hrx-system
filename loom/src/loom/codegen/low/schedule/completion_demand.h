@@ -11,13 +11,11 @@
 
 #include "loom/codegen/low/schedule/dependency_index.h"
 #include "loom/codegen/low/schedule/types.h"
+#include "loom/util/index_set.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Six 64-way summary levels cover every 32-bit schedule-node index.
-#define LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_LEVEL_CAPACITY 6u
 
 typedef enum loom_low_schedule_completion_nomination_kind_e {
   // Exact final consumer of a live value.
@@ -71,13 +69,8 @@ typedef struct loom_low_schedule_completion_demand_t {
   struct {
     // Consumer nominations and summaries by nomination kind then domain.
     uint64_t* bits;
-    // Word offset of each summary level within one domain, leaves first.
-    uint32_t
-        level_starts[LOOM_LOW_SCHEDULE_COMPLETION_NOMINATION_LEVEL_CAPACITY];
-    // Total nomination and summary words in each domain.
-    uint32_t words_per_domain;
-    // Number of populated level_starts entries.
-    uint8_t level_count;
+    // Shared membership layout for every kind and pressure domain.
+    loom_index_set_layout_t layout;
   } nominations;
 } loom_low_schedule_completion_demand_t;
 

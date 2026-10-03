@@ -76,6 +76,12 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "read_retention",
+    hdrs = ["read_retention.h"],
+    deps = [":descriptors"],
+)
+
+loom_cc_library(
     name = "descriptor_traits",
     srcs = ["descriptor_traits.c"],
     hdrs = ["descriptor_traits.h"],
@@ -497,8 +503,14 @@ loom_cc_library(
 
 loom_cc_library(
     name = "placement",
-    srcs = ["placement.c"],
-    hdrs = ["placement.h"],
+    srcs = [
+        "placement.c",
+        "placement_capture.c",
+    ],
+    hdrs = [
+        "placement.h",
+        "placement_capture.h",
+    ],
     deps = [
         ":descriptors",
         ":placement_recipe",
@@ -506,6 +518,7 @@ loom_cc_library(
         ":storage_relation",
         "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",
@@ -567,6 +580,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/allocation:target_constraints",
         "//loom/src/loom/codegen/low/allocation:unit_liveness",
         "//loom/src/loom/codegen/low/allocation:unit_location",
+        "//loom/src/loom/codegen/low/allocation:write_interference",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",

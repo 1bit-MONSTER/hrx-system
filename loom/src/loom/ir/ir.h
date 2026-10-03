@@ -159,13 +159,22 @@ typedef uint8_t loom_field_ref_t;
 // On 64-bit: the op pointer and operand index are packed into a single
 // uint64_t. Userspace heap pointers on x86-64 and AArch64 use at most
 // 48 bits; the upper 16 bits carry the operand index. This gives direct
-// pointer access with no table indirection.
+// pointer access with no table indirection. The aligned pointer's low two bits
+// retain the consuming/required-identity classification of this occurrence.
 //
 // On 32-bit builds: the natural struct layout is 8 bytes because
 // pointers are 4 bytes. No packing needed.
 //
 // Both representations fit 3 uses inline in the value's 24-byte union,
 // preserving the 64-byte cache-line-aligned value layout.
+
+enum loom_use_flag_bits_e {
+  // The operand transfers or terminates its linear ownership.
+  LOOM_USE_FLAG_CONSUMES = 1u << 0,
+  // A result preserves this operand's identity rather than capturing a copy.
+  LOOM_USE_FLAG_IDENTITY = 1u << 1,
+};
+typedef uint8_t loom_use_flags_t;
 
 #if defined(IREE_PTR_SIZE_64)
 
@@ -178,14 +187,26 @@ typedef uint64_t loom_use_t;
 #define LOOM_USE_POINTER_MASK UINT64_C(0x0000FFFFFFFFFFFF)
 
 static inline loom_use_t loom_use_make(loom_op_t* user_op,
-                                       uint16_t operand_index) {
+                                       uint16_t operand_index,
+                                       loom_use_flags_t flags) {
   IREE_ASSERT(((uintptr_t)user_op & ~LOOM_USE_POINTER_MASK) == 0,
               "op pointer exceeds 48-bit address space");
-  return (uint64_t)(uintptr_t)user_op | ((uint64_t)operand_index << 48);
+  IREE_ASSERT(((uintptr_t)user_op & 3u) == 0,
+              "op alignment must leave room for ownership use tags");
+  return (uint64_t)(uintptr_t)user_op | ((uint64_t)operand_index << 48) | flags;
 }
 
 static inline loom_op_t* loom_use_user_op(loom_use_t use) {
-  return (loom_op_t*)(uintptr_t)(use & LOOM_USE_POINTER_MASK);
+  return (loom_op_t*)(uintptr_t)(use & (LOOM_USE_POINTER_MASK & ~UINT64_C(3)));
+}
+
+static inline loom_use_flags_t loom_use_flags(loom_use_t use) {
+  return (loom_use_flags_t)(use & 3u);
+}
+
+static inline loom_use_t loom_use_with_flags(loom_use_t use,
+                                             loom_use_flags_t flags) {
+  return (use & ~UINT64_C(3)) | flags;
 }
 
 static inline uint16_t loom_use_operand_index(loom_use_t use) {
@@ -195,19 +216,33 @@ static inline uint16_t loom_use_operand_index(loom_use_t use) {
 #else  // 32-bit
 
 typedef struct loom_use_t {
+  // Operation owning the operand occurrence.
   loom_op_t* user_op;
+  // Flat operand position within user_op.
   uint16_t operand_index;
-  uint16_t reserved;
+  // Ownership classification retained when operand uses are registered.
+  uint16_t flags;
 } loom_use_t;
 
 static inline loom_use_t loom_use_make(loom_op_t* user_op,
-                                       uint16_t operand_index) {
-  loom_use_t use = {user_op, operand_index, 0};
+                                       uint16_t operand_index,
+                                       loom_use_flags_t flags) {
+  loom_use_t use = {user_op, operand_index, flags};
   return use;
 }
 
 static inline loom_op_t* loom_use_user_op(loom_use_t use) {
   return use.user_op;
+}
+
+static inline loom_use_flags_t loom_use_flags(loom_use_t use) {
+  return (loom_use_flags_t)use.flags;
+}
+
+static inline loom_use_t loom_use_with_flags(loom_use_t use,
+                                             loom_use_flags_t flags) {
+  use.flags = flags;
+  return use;
 }
 
 static inline uint16_t loom_use_operand_index(loom_use_t use) {
@@ -422,22 +457,27 @@ typedef iree_alignas(64) struct loom_value_t {
 
   // Inline use storage (common path) or overflow pointer.
   //
-  // When use_count <= LOOM_VALUE_INLINE_USE_COUNT:
+  // When LOOM_VALUE_FLAG_OVERFLOW_USES is clear:
   //   Uses are stored directly in inline_uses[0..use_count-1].
   //   No pointer chase, no arena allocation.
   //
-  // When use_count > LOOM_VALUE_INLINE_USE_COUNT:
-  //   LOOM_VALUE_FLAG_OVERFLOW_USES is set.
+  // After use_count exceeds LOOM_VALUE_INLINE_USE_COUNT:
+  //   LOOM_VALUE_FLAG_OVERFLOW_USES remains set, including after removals.
   //   overflow_uses points to an arena-allocated array of
   //   overflow_capacity entries. When use_count reaches
   //   overflow_capacity, a new 2x array is arena-allocated and
   //   the old one is abandoned (arena frees all at module destruction).
   union {
+    // Up to three operand occurrences retained directly in the value.
     loom_use_t inline_uses[LOOM_VALUE_INLINE_USE_COUNT];
     struct {
+      // Module-arena storage for all operand occurrences after overflow.
       loom_use_t* overflow_uses;
+      // Number of use slots allocated at overflow_uses.
       uint32_t overflow_capacity;
-      uint32_t _reserved_0;
+      // Number of occurrences carrying consumption or identity ownership.
+      uint32_t overflow_ownership_use_count;
+      // Padding preserving the same union layout as three inline uses.
       uint64_t _reserved_1;
     };
   };
@@ -479,6 +519,22 @@ static inline loom_use_t* loom_value_uses_mutable(loom_value_t* value) {
     return value->overflow_uses;
   }
   return value->inline_uses;
+}
+
+// Exact ownership-sensitive occurrence count. Inline storage requires at most
+// three cached-tag reads; overflow storage retains the count during mutation.
+// No user operation or transitive alias is inspected by this query.
+static inline uint32_t loom_value_ownership_use_count(
+    const loom_value_t* value) {
+  if (loom_value_has_overflow_uses(value)) {
+    return value->overflow_ownership_use_count;
+  }
+  uint32_t count = 0;
+  for (uint32_t i = 0; i < LOOM_VALUE_INLINE_USE_COUNT && i < value->use_count;
+       ++i) {
+    count += loom_use_flags(value->inline_uses[i]) != 0;
+  }
+  return count;
 }
 
 // Returns true if the value has no ordinary operand uses. Embedded references

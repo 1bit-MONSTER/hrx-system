@@ -425,7 +425,8 @@ loom_low_allocation_interval_assignment_consumption_query_callback(
 static iree_status_t loom_low_allocation_interval_assignment_record_spill(
     loom_low_allocation_interval_assignment_state_t* state,
     uint32_t assignment_index,
-    const loom_low_allocation_class_capacity_t* capacity) {
+    const loom_low_allocation_class_capacity_t* capacity,
+    uint32_t retained_fixed_value_index_plus_one) {
   if (!state->spill_decisions) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         state->scratch_arena, state->interval_count,
@@ -437,6 +438,31 @@ static iree_status_t loom_low_allocation_interval_assignment_record_spill(
           .budget_units =
               capacity->is_bounded ? capacity->max_units : UINT32_MAX,
       };
+  if (retained_fixed_value_index_plus_one != 0) {
+    loom_low_allocation_retained_fixed_values_t* retained =
+        &state->result.retained_fixed_values;
+    if (retained->next_indices_plus_one == NULL) {
+      const iree_host_size_t fixed_value_count =
+          state->context->target_constraints->fixed_value_count;
+      IREE_RETURN_IF_ERROR(
+          iree_arena_allocate_array(state->context->arena, fixed_value_count,
+                                    sizeof(*retained->next_indices_plus_one),
+                                    (void**)&retained->next_indices_plus_one));
+      memset(retained->next_indices_plus_one, 0,
+             fixed_value_count * sizeof(*retained->next_indices_plus_one));
+    }
+    if (retained_fixed_value_index_plus_one != retained->last_index_plus_one &&
+        retained->next_indices_plus_one[retained_fixed_value_index_plus_one -
+                                        1] == 0) {
+      if (retained->last_index_plus_one != 0) {
+        retained->next_indices_plus_one[retained->last_index_plus_one - 1] =
+            retained_fixed_value_index_plus_one;
+      } else {
+        retained->first_index_plus_one = retained_fixed_value_index_plus_one;
+      }
+      retained->last_index_plus_one = retained_fixed_value_index_plus_one;
+    }
+  }
   return iree_ok_status();
 }
 
@@ -459,7 +485,8 @@ loom_low_allocation_interval_assignment_spill_active_assignment(
   assignment->location_count = assignment->unit_count;
   state->next_spill_slot += assignment->unit_count;
   return loom_low_allocation_interval_assignment_record_spill(
-      state, assignment_index, capacity);
+      state, assignment_index, capacity,
+      /*retained_fixed_value_index_plus_one=*/0);
 }
 
 static iree_status_t
@@ -831,6 +858,8 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
     uint32_t location_base = 0;
     bool assigned = loom_low_allocation_search_find_free_location(
         &search_context, interval, capacity, &location_base);
+    const uint32_t retained_fixed_value_index_plus_one =
+        search_context.retained_fixed_value_index_plus_one;
     const bool requires_register =
         loom_low_allocation_storage_lease_state_value_has_records(
             context->storage_leases, context->liveness, interval->value_id) ||
@@ -897,7 +926,8 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
     if (!assigned) {
       state->next_spill_slot += interval->unit_count;
       IREE_RETURN_IF_ERROR(loom_low_allocation_interval_assignment_record_spill(
-          state, assignment_index, &capacity));
+          state, assignment_index, &capacity,
+          retained_fixed_value_index_plus_one));
     }
   }
   return iree_ok_status();
@@ -938,13 +968,14 @@ static iree_status_t loom_low_allocation_interval_assignment_finalize_spills(
 
 iree_status_t loom_low_allocation_interval_assignment_build(
     const loom_low_allocation_interval_assignment_context_t* context,
+    iree_arena_allocator_t* scratch_arena,
     loom_low_allocation_interval_assignment_result_t* out_result) {
   *out_result = (loom_low_allocation_interval_assignment_result_t){0};
-  iree_arena_allocator_t scratch_arena;
-  iree_arena_initialize(context->arena->block_pool, &scratch_arena);
+  const iree_arena_checkpoint_t scratch_checkpoint =
+      iree_arena_checkpoint_save(scratch_arena);
   loom_low_allocation_interval_assignment_state_t state = {
       .context = context,
-      .scratch_arena = &scratch_arena,
+      .scratch_arena = scratch_arena,
   };
   iree_status_t status = loom_low_allocation_interval_assignment_assign(&state);
   if (iree_status_is_ok(status)) {
@@ -953,6 +984,6 @@ iree_status_t loom_low_allocation_interval_assignment_build(
   if (iree_status_is_ok(status)) {
     *out_result = state.result;
   }
-  iree_arena_deinitialize(&scratch_arena);
+  iree_arena_checkpoint_restore(&scratch_checkpoint);
   return status;
 }

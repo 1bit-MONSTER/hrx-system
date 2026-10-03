@@ -28,25 +28,12 @@
 extern "C" {
 #endif
 
-typedef enum loom_low_allocation_live_range_split_trigger_e {
-  // Unknown or uninitialized split trigger.
-  LOOM_LOW_ALLOCATION_LIVE_RANGE_SPLIT_TRIGGER_UNKNOWN = 0,
-  // A predicted spill plan triggered an attempt to detach a fixed value.
-  LOOM_LOW_ALLOCATION_LIVE_RANGE_SPLIT_TRIGGER_SPILL_PLAN = 1,
-} loom_low_allocation_live_range_split_trigger_t;
-
+// Aggregate edits from one fixed-value detachment batch.
 typedef struct loom_low_allocation_live_range_split_result_t {
-  // Fixed SSA value whose later users were redirected to the transfer result.
-  loom_value_id_t source_value_id;
-  // Transfer result carrying the ordinary virtual live range.
-  loom_value_id_t split_value_id;
-  // Original allocation assignment associated with |source_value_id|, or
-  // UINT32_MAX when the fixed value had no completed assignment.
-  uint32_t source_assignment_index;
   // Number of low.copy or low.move transfer packets inserted.
   uint32_t transfer_packet_count;
-  // Number of operand uses rewritten to |split_value_id|.
-  uint32_t rewritten_operand_count;
+  // Total operand uses rewritten across all detached values.
+  uint64_t rewritten_operand_count;
 } loom_low_allocation_live_range_split_result_t;
 
 // One committed detached-copy edit used to repair placement-sensitive pairs.
@@ -69,15 +56,18 @@ typedef struct loom_low_allocation_pair_replication_result_t {
   uint64_t baseline_satisfied_packet_savings;
 } loom_low_allocation_pair_replication_result_t;
 
-// Attempts to repair one predicted spill plan by detaching an overlapping
-// fixed value from its fixed physical location.
+// Detaches each distinct fixed retained-read blocker recorded by allocation.
+// Immutable fixed IDs and classes remain valid edit inputs while uses are
+// rewritten; liveness and assignments are not queried after edits.
+// If no retained blocker can be detached, attempts one ordinary overlapping
+// fixed value instead. Each detached value emits its decision to |emitter|.
 //
 // Returns OK with a zero result when no fixed value is a safe split candidate.
-// When a value is rewritten, callers must rebuild allocation before consulting
-// the old allocation table again.
-iree_status_t loom_low_allocation_split_fixed_value_spill_plan(
+// Callers rebuild allocation once after the complete batch. Temporary
+// rewriter storage retires before return; new IR belongs to the module.
+iree_status_t loom_low_allocation_split_fixed_value_spill_plans(
     loom_module_t* module, const loom_low_allocation_table_t* table,
-    iree_arena_allocator_t* arena,
+    iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* arena,
     loom_low_allocation_live_range_split_result_t* out_result);
 
 // Replicates shared operands when concrete placement-pair recipes predict that
@@ -107,13 +97,6 @@ iree_status_t loom_low_allocation_rollback_pair_replication(
     loom_module_t* module,
     const loom_low_allocation_pair_replication_result_t* result,
     iree_arena_allocator_t* arena);
-
-// Emits a structured remark describing a successful live-range split result.
-iree_status_t loom_low_allocation_live_range_split_emit_decision(
-    const loom_low_allocation_table_t* table,
-    loom_low_allocation_live_range_split_trigger_t trigger,
-    const loom_low_allocation_live_range_split_result_t* result,
-    iree_diagnostic_emitter_t emitter);
 
 #ifdef __cplusplus
 }  // extern "C"

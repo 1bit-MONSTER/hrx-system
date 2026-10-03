@@ -240,7 +240,6 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::internal::arena
-    loom::analysis::ownership
     loom::ir
     loom::ops::op_defs
     loom::util::dominance

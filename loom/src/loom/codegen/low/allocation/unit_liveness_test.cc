@@ -16,6 +16,7 @@
 #include "loom/ir/types.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/registers.h"
+#include "loom/util/cfg_graph.h"
 
 namespace loom {
 namespace {
@@ -26,6 +27,7 @@ class LowAllocationUnitLivenessTest : public ::testing::Test {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
+    iree_arena_initialize(&block_pool_, &decision_arena_);
     loom_context_initialize(iree_allocator_system(), &context_);
     iree_host_size_t vtable_count = 0;
     const auto* vtables = loom_low_dialect_vtables(&vtable_count);
@@ -35,6 +37,7 @@ class LowAllocationUnitLivenessTest : public ::testing::Test {
   }
 
   void TearDown() override {
+    iree_arena_deinitialize(&decision_arena_);
     iree_arena_deinitialize(&arena_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
@@ -76,13 +79,18 @@ class LowAllocationUnitLivenessTest : public ::testing::Test {
       const loom_liveness_analysis_t* liveness,
       const loom_low_placement_table_t* placement) {
     IREE_ASSERT_OK(loom_low_allocation_unit_liveness_retain_tied_storage(
-        unit_liveness, liveness, placement, &arena_));
+        unit_liveness, liveness, placement, &arena_, &decision_arena_));
     loom_low_allocation_unit_liveness_propagate_storage_relations(unit_liveness,
                                                                   placement);
   }
 
+  // Shared block pool for result, decision, and construction lifetimes.
   iree_arena_block_pool_t block_pool_;
+  // Retains published point/segment arrays and prerequisite analyses.
   iree_arena_allocator_t arena_;
+  // Owns query metadata used only while making allocation decisions.
+  iree_arena_allocator_t decision_arena_;
+  // Dialect context for resolved descriptor operations.
   loom_context_t context_;
 };
 
@@ -192,12 +200,42 @@ TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
   liveness.blocks = &block;
   liveness.block_count = 1;
   loom_low_allocation_unit_liveness_t result = {};
+  loom_cfg_graph_t cfg_graph = {};
+  IREE_ASSERT_OK(
+      loom_cfg_graph_build(module, module->body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &domain, &liveness, &arena_, &result));
+      &target, nullptr, &domain, &liveness, &cfg_graph, &arena_,
+      &decision_arena_, &result));
   ASSERT_NE(result.implicit_location_counts_by_reg_class, nullptr);
   EXPECT_EQ(result.implicit_location_counts_by_reg_class[0], 3u);
   EXPECT_EQ(result.implicit_location_counts_by_reg_class[1], 1u);
   EXPECT_EQ(result.clobbers.count, 1u);
+  loom_local_value_domain_release(&domain);
+  loom_module_free(module);
+}
+
+TEST_F(LowAllocationUnitLivenessTest, ExcludesRequiredStorageComponents) {
+  loom_module_t* module = AllocateModule();
+  const loom_value_id_t values[] = {DefineValue(module), DefineValue(module),
+                                    DefineValue(module)};
+  loom_local_value_domain_t domain = {};
+  AcquireValueDomain(module, values, IREE_ARRAYSIZE(values), &domain);
+  const loom_value_ordinal_t roots[] = {1, 1, 2};
+  loom_low_placement_table_t placement = {};
+  placement.module = module;
+  placement.tied_storage_origins_by_value_ordinal = roots;
+  loom_low_allocation_unit_liveness_t unit_liveness = {};
+  unit_liveness.tied_storage_placement = &placement;
+
+  for (uint32_t ignored = 0; ignored < 2; ++ignored) {
+    for (uint32_t value = 0; value < 3; ++value) {
+      EXPECT_EQ(loom_low_allocation_unit_liveness_storage_is_ignored(
+                    &unit_liveness, values[value], &values[ignored], 1),
+                value < 2);
+    }
+  }
+  EXPECT_FALSE(loom_low_allocation_unit_liveness_storage_is_ignored(
+      &unit_liveness, values[0], nullptr, 0));
   loom_local_value_domain_release(&domain);
   loom_module_free(module);
 }
@@ -239,8 +277,11 @@ TEST_F(LowAllocationUnitLivenessTest, InitializesUnitStartsAndBoundaryUses) {
       intervals, IREE_ARRAYSIZE(intervals), blocks, IREE_ARRAYSIZE(blocks));
 
   loom_low_allocation_unit_liveness_t unit_liveness = {};
+  loom_cfg_graph_t cfg_graph = {};
+  IREE_ASSERT_OK(loom_cfg_graph_build(module, body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &value_domain, &liveness, &arena_, &unit_liveness));
+      &target, nullptr, &value_domain, &liveness, &cfg_graph, &arena_,
+      &decision_arena_, &unit_liveness));
 
   EXPECT_EQ(loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
                 &unit_liveness, &liveness, /*value_ordinal=*/0),
@@ -248,6 +289,13 @@ TEST_F(LowAllocationUnitLivenessTest, InitializesUnitStartsAndBoundaryUses) {
   EXPECT_EQ(loom_low_allocation_unit_liveness_point_start_for_value_ordinal(
                 &unit_liveness, &liveness, /*value_ordinal=*/1),
             2u);
+  EXPECT_EQ(unit_liveness.values[0].acquisition_start_point, 2u);
+  EXPECT_EQ(unit_liveness.values[1].acquisition_start_point, 3u);
+  EXPECT_GT(decision_arena_.used_allocation_size, 0u);
+  // Published points survive freeing all allocation-decision storage, not
+  // merely returning its blocks to the reusable pool.
+  iree_arena_reset(&decision_arena_);
+  iree_arena_block_pool_trim(&block_pool_);
   ASSERT_EQ(unit_liveness.point_count, 3u);
   EXPECT_EQ(unit_liveness.start_points[0], 2u);
   EXPECT_EQ(unit_liveness.start_points[1], 2u);
@@ -255,8 +303,6 @@ TEST_F(LowAllocationUnitLivenessTest, InitializesUnitStartsAndBoundaryUses) {
   EXPECT_EQ(unit_liveness.end_points[0], 6u);
   EXPECT_EQ(unit_liveness.end_points[1], 6u);
   EXPECT_EQ(unit_liveness.end_points[2], 4u);
-  EXPECT_EQ(unit_liveness.values[0].acquisition_start_point, 2u);
-  EXPECT_EQ(unit_liveness.values[1].acquisition_start_point, 3u);
 
   loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
@@ -309,8 +355,11 @@ TEST_F(LowAllocationUnitLivenessTest, ExtendsTiedResultSourceUnits) {
   liveness.value_segment_ranges = value_segment_ranges;
 
   loom_low_allocation_unit_liveness_t unit_liveness = {};
+  loom_cfg_graph_t cfg_graph = {};
+  IREE_ASSERT_OK(loom_cfg_graph_build(module, body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &value_domain, &liveness, &arena_, &unit_liveness));
+      &target, nullptr, &value_domain, &liveness, &cfg_graph, &arena_,
+      &decision_arena_, &unit_liveness));
   ASSERT_EQ(unit_liveness.point_count, 4u);
   EXPECT_EQ(unit_liveness.end_points[0], 1u);
   EXPECT_EQ(unit_liveness.end_points[1], 1u);
@@ -606,6 +655,24 @@ TEST_F(LowAllocationUnitLivenessTest,
   EXPECT_FALSE(
       loom_low_allocation_unit_liveness_storage_component_live_at_point(
           &linear_liveness, &liveness, &placement, 0, 0, 1, 19));
+
+  // Only the range lookup is decision-owned. Published segments retain the
+  // semantic prefix and tied-source reservations after that lookup is freed.
+  EXPECT_GT(decision_arena_.used_allocation_size, 0u);
+  iree_arena_reset(&decision_arena_);
+  iree_arena_block_pool_trim(&block_pool_);
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(segments); ++i) {
+    EXPECT_EQ(unit_liveness.storage_segments.entries[i].start_point,
+              segments[i].start_point);
+    EXPECT_EQ(unit_liveness.storage_segments.entries[i].end_point,
+              segments[i].end_point);
+  }
+  EXPECT_EQ(retained[0].start_point, 2u);
+  EXPECT_EQ(retained[0].end_point, 8u);
+  EXPECT_EQ(retained[1].start_point, 10u);
+  EXPECT_EQ(retained[1].end_point, 14u);
+  EXPECT_EQ(retained[2].start_point, 16u);
+  EXPECT_EQ(retained[2].end_point, 19u);
 }
 
 TEST_F(LowAllocationUnitLivenessTest,
@@ -750,8 +817,11 @@ TEST_F(LowAllocationUnitLivenessTest,
       intervals, IREE_ARRAYSIZE(intervals), blocks, IREE_ARRAYSIZE(blocks));
 
   loom_low_allocation_unit_liveness_t unit_liveness = {};
+  loom_cfg_graph_t cfg_graph = {};
+  IREE_ASSERT_OK(loom_cfg_graph_build(module, body, &arena_, &cfg_graph));
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_initialize(
-      &target, nullptr, &value_domain, &liveness, &arena_, &unit_liveness));
+      &target, nullptr, &value_domain, &liveness, &cfg_graph, &arena_,
+      &decision_arena_, &unit_liveness));
 
   loom_low_placement_relation_t relations[] = {
       {

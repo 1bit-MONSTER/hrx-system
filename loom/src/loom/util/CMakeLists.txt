@@ -11,6 +11,30 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    index_set
+  HDRS
+    "index_set.h"
+  SRCS
+    "index_set.c"
+  DEPS
+    iree::base
+    iree::base::internal
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    index_set_test
+  SRCS
+    "index_set_test.cc"
+  DEPS
+    ::index_set
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     bstring
   HDRS
     "bstring.h"

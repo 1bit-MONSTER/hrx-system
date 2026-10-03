@@ -1435,6 +1435,70 @@ def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
         )
 
 
+def test_mask_writer_scalar_data_has_execution_mode_read_lifetime() -> None:
+    for overlays, late_read_subgroup_size in (
+        (_gfx940_core_overlays(), None),
+        (_gfx950_core_overlays(), None),
+        (_gfx11_core_overlays(), 64),
+        (_gfx115x_core_overlays(), 64),
+        (_gfx12_core_overlays(), 64),
+        (_gfx125x_core_overlays(), 64),
+    ):
+        for descriptor in overlays:
+            # Independently audit all scalar lane-mask results, including new
+            # instruction families that are not in the timing declaration.
+            mask_writer = descriptor.schedule_class == _SCHEDULE_VALU and any(
+                row.descriptor_operand.role is OperandRole.RESULT
+                and row.descriptor_operand.unit_count == 2
+                and any(
+                    alternative.reg_class == _REG_SGPR
+                    for alternative in row.descriptor_operand.reg_alts
+                )
+                for row in descriptor.operands
+            )
+            for row in descriptor.operands:
+                operand = row.descriptor_operand
+                for alternative in operand.reg_alts:
+                    expected = (
+                        late_read_subgroup_size
+                        if mask_writer
+                        and operand.role is OperandRole.OPERAND
+                        and alternative.reg_class == _REG_SGPR
+                        else None
+                    )
+                    assert alternative.late_read_subgroup_size == expected, (
+                        descriptor.descriptor_key,
+                        operand.field_name,
+                        alternative.reg_class,
+                    )
+            if descriptor.instruction_name == "V_ADD_CO_U32":
+                assert descriptor.constraints == ()
+
+
+def test_vector_carry_and_borrow_inputs_are_predicates() -> None:
+    for overlays in (
+        _gfx940_core_overlays(),
+        _gfx950_core_overlays(),
+        _gfx11_core_overlays(),
+        _gfx115x_core_overlays(),
+        _gfx12_core_overlays(),
+        _gfx125x_core_overlays(),
+    ):
+        descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
+        for descriptor_key, field_name in (
+            ("amdgpu.v_add_co_ci_u32", "carry_in"),
+            ("amdgpu.v_sub_co_ci_u32", "borrow_in"),
+        ):
+            descriptor = descriptors[descriptor_key]
+            predicate = next(
+                operand.descriptor_operand
+                for operand in descriptor.operands
+                if operand.descriptor_operand.field_name == field_name
+            )
+            assert predicate.role is OperandRole.PREDICATE
+            assert predicate.unit_count == 2
+
+
 def test_integer_binary_src0_accepts_scalar_or_vector_registers() -> None:
     descriptor_keys = (
         "amdgpu.v_mul_lo_u32",
@@ -3069,6 +3133,31 @@ def test_cdna_scoped_cache_controls_expose_sc_immediates() -> None:
             )
             assert _immediate_default(descriptor.immediates, "sc0") == 0
             assert _immediate_default(descriptor.immediates, "sc1") == 0
+
+
+def test_scalar_wide_shift_inline_forms_preserve_operands_and_state() -> None:
+    for builder in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS.values():
+        descriptors = {
+            descriptor.descriptor_key: descriptor
+            for descriptor in builder.overlay_rows()
+        }
+        for mnemonic in ("s_lshl_b64", "s_lshr_b64", "s_ashr_i64"):
+            source = descriptors[f"amdgpu.{mnemonic}"]
+            inline = descriptors[f"amdgpu.{mnemonic}.rhs_inline"]
+            assert len(source.operand_forms) == 1
+            form = source.operand_forms[0]
+            assert form.replacement_descriptor == inline.descriptor_key
+            assert form.matches[0].source_operand == "shift"
+            assert form.immediate_field == "shift"
+            assert inline.operands == source.operands[:2]
+            assert inline.implicit_operands == source.implicit_operands
+            assert inline.implicit_operands
+            assert inline.flags == source.flags
+            assert inline.immediate_fields == ("SSRC1",)
+            assert len(inline.immediates) == 1
+            assert inline.immediates[0].field_name == "shift"
+            assert inline.immediates[0].encoding_id == _SOURCE_INLINE_U32_ENCODING_ID
+            assert inline.immediates[0].unsigned_max == 64
 
 
 def test_vop3_shift_immediate_is_constrained_to_inline_source_selector() -> None:

@@ -266,6 +266,30 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
   iree_arena_block_pool_deinitialize(&pool);
 }
 
+TEST(LowPlacementTest, StorageCompositionDoesNotImplyBitIdentity) {
+  loom_low_placement_relation_t write = {};
+  write.source_ordinal = 0;
+  write.result_ordinal = 1;
+  write.unit_count = 2;
+  write.cause = LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT;
+  write.flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_HARD |
+                LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE |
+                LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE;
+  loom_low_placement_relation_t edge = {};
+  edge.source_ordinal = 1;
+  edge.result_ordinal = 2;
+  edge.unit_count = 2;
+  edge.cause = LOOM_LOW_PLACEMENT_CAUSE_LOW_BRANCH;
+  edge.flags = LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE |
+               LOOM_LOW_PLACEMENT_RELATION_FLAG_IDENTITY_EDGE;
+
+  loom_low_placement_relation_t composed = {};
+  ASSERT_TRUE(loom_low_placement_relation_compose(&write, &edge, &composed));
+  EXPECT_EQ(composed.source_ordinal, 0u);
+  EXPECT_EQ(composed.result_ordinal, 2u);
+  EXPECT_EQ(composed.flags, LOOM_LOW_PLACEMENT_RELATION_FLAG_CAN_ALIAS_STORAGE);
+}
+
 TEST(LowPlacementTest, RetainsOperandConstraintsAcrossExactTiesOnly) {
   iree_arena_block_pool_t pool;
   iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool);

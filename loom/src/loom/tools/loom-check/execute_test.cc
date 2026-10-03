@@ -145,22 +145,38 @@ iree_status_t TestEmitProviderExecute(
     const loom_check_emit_provider_t* provider,
     const loom_check_emit_provider_request_t* request) {
   (void)provider;
-  if (iree_string_view_equal(request->target_options,
-                             IREE_SV("status-after-diagnostic"))) {
+  const bool status_after_diagnostic = iree_string_view_equal(
+      request->target_options, IREE_SV("status-after-diagnostic"));
+  if (status_after_diagnostic ||
+      iree_string_view_equal(request->target_options, IREE_SV("remark")) ||
+      iree_string_view_equal(request->target_options,
+                             IREE_SV("empty-remark")) ||
+      iree_string_view_equal(request->target_options, IREE_SV("error"))) {
     loom_diagnostic_param_t params[] = {
         loom_param_string(IREE_SV("fake.emit")),
     };
     loom_diagnostic_t diagnostic = {
-        /*.severity=*/LOOM_DIAGNOSTIC_ERROR,
+        /*.severity=*/status_after_diagnostic ||
+                iree_string_view_equal(request->target_options,
+                                       IREE_SV("error"))
+            ? LOOM_DIAGNOSTIC_ERROR
+            : LOOM_DIAGNOSTIC_REMARK,
         /*.error=*/loom_error_def_lookup(LOOM_ERROR_DOMAIN_PARSE, 6),
         /*.params=*/params,
         /*.param_count=*/IREE_ARRAYSIZE(params),
         /*.emitter=*/LOOM_EMITTER_PASS,
     };
+    diagnostic.origin.filename = request->filename;
+    diagnostic.origin.start_line = 1;
     IREE_RETURN_IF_ERROR(loom_check_diagnostic_collector_sink(
         request->diagnostic_collector, &diagnostic));
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "synthetic provider status");
+    if (status_after_diagnostic) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "synthetic provider status");
+    }
+    if (!iree_string_view_equal(request->target_options, IREE_SV("remark"))) {
+      return iree_ok_status();
+    }
   }
   return iree_string_builder_append_cstring(&request->result->actual_output,
                                             "fake emit\n");
@@ -1347,6 +1363,57 @@ TEST_F(ExecuteTest, EmitProviderStatusIsNotMaskedByMatchedDiagnostic) {
   EXPECT_EQ(result.raw_outcome, LOOM_CHECK_FAIL);
   EXPECT_EQ(result.final_outcome, LOOM_CHECK_FAIL);
   EXPECT_NE(DetailString(result).find("INVALID_ARGUMENT"), std::string::npos);
+  loom_check_result_deinitialize(&result);
+}
+
+TEST_F(ExecuteTest, EmitProviderRemarksPreserveOutputComparison) {
+  struct Case {
+    // Provider mode selects whether successful output is empty.
+    const char* request;
+    // Complete output expected alongside the remark.
+    const char* expected;
+    // A matched remark cannot hide an output mismatch.
+    loom_check_outcome_t outcome;
+  };
+  const Case cases[] = {
+      {"remark", "fake emit\n", LOOM_CHECK_PASS},
+      {"remark", "wrong output\n", LOOM_CHECK_FAIL},
+      {"empty-remark", "fake emit\n", LOOM_CHECK_FAIL},
+      {"empty-remark", "", LOOM_CHECK_PASS},
+  };
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.request);
+    SCOPED_TRACE(test_case.expected);
+    std::string source = std::string("// RUN: emit fake-emit ") +
+                         test_case.request +
+                         "\n// REMARK: PARSE/006\n"
+                         "func.def @f() {\n"
+                         "  func.return\n"
+                         "}\n"
+                         "// ----\n" +
+                         test_case.expected;
+    loom_check_result_t result;
+    IREE_ASSERT_OK(ExecuteFirstWithEnvironment(
+        source.c_str(), &provider_environment_, &result));
+    EXPECT_EQ(result.raw_outcome, test_case.outcome) << DetailString(result);
+    EXPECT_EQ(result.final_outcome, test_case.outcome);
+    EXPECT_TRUE(result.has_actual_output);
+    loom_check_result_deinitialize(&result);
+  }
+}
+
+TEST_F(ExecuteTest, EmitProviderExpectedErrorHasNoComparableOutput) {
+  loom_check_result_t result;
+  IREE_ASSERT_OK(
+      ExecuteFirstWithEnvironment("// RUN: emit fake-emit error\n"
+                                  "// ERROR: PARSE/006\n"
+                                  "func.def @f() {\n"
+                                  "  func.return\n"
+                                  "}\n",
+                                  &provider_environment_, &result));
+  EXPECT_EQ(result.raw_outcome, LOOM_CHECK_PASS) << DetailString(result);
+  EXPECT_EQ(result.final_outcome, LOOM_CHECK_PASS);
+  EXPECT_FALSE(result.has_actual_output);
   loom_check_result_deinitialize(&result);
 }
 

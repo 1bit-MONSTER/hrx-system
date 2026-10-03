@@ -1,0 +1,139 @@
+// RUN: emit amdgpu-native-words @else_mask strategy=source
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.cdna3.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x89FE0002
+0xBF840001
+0xBEFE0102
+0xBF810000
+
+// ====
+
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.cdna4.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x89FE0002
+0xBF840001
+0xBEFE0102
+0xBF810000
+
+// ====
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x91FE0002
+0xBFA10001
+0xBEFE0102
+0xBFB00000
+
+// ====
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x91FE0002
+0xBFA10001
+0xBEFE0102
+0xBFB00000
+
+// ====
+
+amdgpu.target<gfx1170> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna4m.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x91FE0002
+0xBFA10001
+0xBEFE0102
+0xBFB00000
+
+// ====
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna4.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x91FE0002
+0xBFA10001
+0xBEFE0102
+0xBFB00000
+
+// ====
+
+amdgpu.target<gfx1250> @target {subgroup_size = 32}
+
+low.func.def schedule(locked) target<amdgpu.rdna4.gfx125x.core>(@target) @else_mask(%saved: reg<amdgpu.sgpr x2>, %condition: reg<amdgpu.sgpr x2>) asm {
+  %active = s_andn2_b64_exec %saved, %condition
+  low.cond_br %active, ^selected, ^exit : reg<amdgpu.scc>
+^selected:
+  s_mov_b64_exec %saved
+  low.br ^exit
+^exit:
+  return
+}
+
+// ----
+0x91FE0002
+0xBFA10001
+0xBEFE0102
+0xBFB00000

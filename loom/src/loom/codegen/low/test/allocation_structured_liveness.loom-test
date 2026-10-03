@@ -208,3 +208,148 @@ low.func.def target<test.low.core>(@target) @while_condition_capture(%condition:
 
 // ----
 CHECK: spills: 0
+
+// ====
+// A captured initial value is still read after each changing-state handoff.
+// RUN: emit low-allocation @for_entry_capture diagnostics=placement-decisions
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @for_entry_capture(%lo: reg<test.i32>, %hi: reg<test.i32>, %step: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="seed", result_value_name="state", decision="rejected"}
+  %result = low.scf.for signed [%lo to %hi step %step] iter_args(%seed: reg<test.i32>) -> (reg<test.i32>) do(%iv: reg<test.i32>, %state: reg<test.i32>) {
+    %next = test.add.i32 %state, %seed
+    // REMARK@+2: BACKEND/043 {source_value_name="next", result_value_name="state", decision="accepted"}
+    // REMARK@+1: BACKEND/043 {source_value_name="next", result_value_name="result", decision="accepted"}
+    low.scf.yield %next : reg<test.i32>
+  }
+  return %result
+}
+
+// ----
+low-allocation @for_entry_capture
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 8
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+classes:
+  test.i32: assignments=8 units=8 target_ids=5 physical=0 spill_slots=0 unassigned=0
+
+// ====
+// The loop's own upper-bound read is later than the initial state handoff.
+// RUN: emit low-allocation @for_entry_upper_bound diagnostics=placement-decisions
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @for_entry_upper_bound(%lo: reg<test.i32>, %hi: reg<test.i32>, %step: reg<test.i32>) -> (reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="hi", result_value_name="state", decision="rejected"}
+  %result = low.scf.for signed [%lo to %hi step %step] iter_args(%hi: reg<test.i32>) -> (reg<test.i32>) do(%iv: reg<test.i32>, %state: reg<test.i32>) {
+    %next = test.add.i32 %state, %step
+    // REMARK@+2: BACKEND/043 {source_value_name="next", result_value_name="state", decision="accepted"}
+    // REMARK@+1: BACKEND/043 {source_value_name="next", result_value_name="result", decision="accepted"}
+    low.scf.yield %next : reg<test.i32>
+  }
+  return %result
+}
+
+// ----
+low-allocation @for_entry_upper_bound
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 7
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+classes:
+  test.i32: assignments=7 units=7 target_ids=4 physical=0 spill_slots=0 unassigned=0
+
+// ====
+// The implicit counter increment must keep its step across state updates.
+// RUN: emit low-allocation @for_entry_step diagnostics=placement-decisions
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @for_entry_step(%lo: reg<test.i32>, %hi: reg<test.i32>, %step: reg<test.i32>) -> (reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="step", result_value_name="state", decision="rejected"}
+  %result = low.scf.for signed [%lo to %hi step %step] iter_args(%step: reg<test.i32>) -> (reg<test.i32>) do(%iv: reg<test.i32>, %state: reg<test.i32>) {
+    %next = test.add.i32 %state, %hi
+    // REMARK@+2: BACKEND/043 {source_value_name="next", result_value_name="state", decision="accepted"}
+    // REMARK@+1: BACKEND/043 {source_value_name="next", result_value_name="result", decision="accepted"}
+    low.scf.yield %next : reg<test.i32>
+  }
+  return %result
+}
+
+// ----
+low-allocation @for_entry_step
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 7
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+classes:
+  test.i32: assignments=7 units=7 target_ids=4 physical=0 spill_slots=0 unassigned=0
+
+// ====
+// The lower bound is read only on entry, so its state alias remains legal.
+// RUN: emit low-allocation @for_entry_releases_lower_bound fixed=%lo:target_id:0:1 fixed=%state:target_id:0:1
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @for_entry_releases_lower_bound(%lo: reg<test.i32>, %hi: reg<test.i32>, %step: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = low.scf.for signed [%lo to %hi step %step] iter_args(%lo: reg<test.i32>) -> (reg<test.i32>) do(%iv: reg<test.i32>, %state: reg<test.i32>) {
+    %next = test.add.i32 %state, %hi
+    low.scf.yield %next : reg<test.i32>
+  }
+  return %result
+}
+
+// ----
+low-allocation @for_entry_releases_lower_bound
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 7
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+classes:
+  test.i32: assignments=7 units=7 target_ids=4 physical=0 spill_slots=0 unassigned=0
+
+// ====
+// The while backedge cannot overwrite the initial value captured by its body.
+// RUN: emit low-allocation @while_entry_capture diagnostics=placement-decisions
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @while_entry_capture(%condition: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/043 {source_value_name="seed", result_value_name="before", decision="rejected"}
+  %result = low.scf.while(%before = %seed : reg<test.i32>) -> (reg<test.i32>) {
+    // REMARK@+2: BACKEND/043 {source_value_name="before", result_value_name="state", decision="accepted"}
+    // REMARK@+1: BACKEND/043 {source_value_name="before", result_value_name="result", decision="accepted"}
+    low.scf.condition %condition, %before : reg<test.i32>, reg<test.i32>
+  } do(%state: reg<test.i32>) {
+    %next = test.add.i32 %state, %seed
+    // REMARK@+1: BACKEND/043 {source_value_name="next", result_value_name="before", decision="accepted"}
+    low.scf.yield %next : reg<test.i32>
+  }
+  return %result
+}
+
+// ----
+low-allocation @while_entry_capture
+target: target
+descriptor_set: test.low.core
+mode: virtual
+assignments: 6
+remarks: 0
+spills: 0
+copies: coalesced=0 materialized=0
+classes:
+  test.i32: assignments=6 units=6 target_ids=3 physical=0 spill_slots=0 unassigned=0

@@ -108,6 +108,10 @@ static iree_status_t loom_low_schedule_resolve_descriptor(
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER;
   }
   if (iree_any_bit_set(packet.descriptor->flags,
+                       LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ)) {
+    node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS;
+  }
+  if (iree_any_bit_set(packet.descriptor->flags,
                        LOOM_LOW_DESCRIPTOR_FLAG_BARRIER)) {
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_SOURCE_ORDER_BOUNDARY;
   }
@@ -627,20 +631,38 @@ static iree_status_t loom_low_schedule_record_storage_read(
   return iree_ok_status();
 }
 
+// Required ties share physical storage across content versions. Writes consume
+// earlier overlapping reads; preserved partial reads stay on the same owner,
+// including later reads through an older name. Optional copies stay separate.
+static loom_value_ordinal_t loom_low_schedule_storage_read_identity(
+    const loom_low_schedule_build_state_t* state,
+    loom_value_ordinal_t value_ordinal) {
+  return iree_any_bit_set(state->values[value_ordinal].flags,
+                          LOOM_LOW_SCHEDULE_VALUE_FLAG_STORAGE_IDENTITY_ALIAS)
+             ? state->storage_reads.heads[value_ordinal]
+             : value_ordinal;
+}
+
 static iree_status_t loom_low_schedule_add_storage_read(
     loom_low_schedule_build_state_t* state, uint32_t node_index,
     loom_value_ordinal_t value_ordinal, uint32_t unit_offset,
     uint32_t unit_count, loom_low_register_part_mask_t read_mask,
     uint16_t descriptor_operand_index, uint16_t timing_event_id) {
-  // Keep the original read for hard destructive-write ordering. The projected
-  // read additionally preserves the header's optional coalescing lifetime.
+  // Keep the physical-identity read for hard destructive-write ordering. The
+  // projected read additionally preserves the header's coalescing lifetime.
+  const loom_value_ordinal_t identity =
+      loom_low_schedule_storage_read_identity(state, value_ordinal);
   IREE_RETURN_IF_ERROR(loom_low_schedule_record_storage_read(
-      state, node_index, value_ordinal, unit_offset, unit_count, read_mask,
+      state, node_index, identity, unit_offset, unit_count, read_mask,
       descriptor_operand_index, timing_event_id));
   const loom_value_ordinal_t* roots = state->storage_lifetimes.roots;
-  if (roots != NULL && roots[value_ordinal] != value_ordinal) {
+  const loom_value_ordinal_t lifetime_identity =
+      roots != NULL
+          ? loom_low_schedule_storage_read_identity(state, roots[value_ordinal])
+          : identity;
+  if (lifetime_identity != identity) {
     IREE_RETURN_IF_ERROR(loom_low_schedule_record_storage_read(
-        state, node_index, roots[value_ordinal], unit_offset, unit_count,
+        state, node_index, lifetime_identity, unit_offset, unit_count,
         read_mask, descriptor_operand_index, timing_event_id));
   }
   return iree_ok_status();
@@ -650,12 +672,12 @@ static iree_status_t loom_low_schedule_add_storage_write_dependencies(
     loom_low_schedule_build_state_t* state, uint32_t writer_node_index,
     uint16_t value_operand_index,
     loom_low_schedule_dependency_endpoint_t writer_endpoint,
-    loom_value_ordinal_t value_ordinal,
-    loom_value_ordinal_t result_value_ordinal, uint32_t write_unit_offset,
+    loom_value_ordinal_t value_ordinal, uint32_t write_unit_offset,
     uint32_t write_unit_count, loom_low_register_part_mask_t write_mask) {
   if (state->storage_reads.heads == NULL) {
     return iree_ok_status();
   }
+  value_ordinal = loom_low_schedule_storage_read_identity(state, value_ordinal);
   IREE_ASSERT_NE(write_mask, 0u);
   uint32_t read_record_index = state->storage_reads.heads[value_ordinal];
   uint32_t retained_head = LOOM_LOW_SCHEDULE_NODE_NONE;
@@ -691,18 +713,7 @@ static iree_status_t loom_low_schedule_add_storage_write_dependencies(
     }
     read_record_index = next_record_index;
   }
-  state->storage_reads.heads[value_ordinal] = LOOM_LOW_SCHEDULE_NODE_NONE;
-  if (retained_head == LOOM_LOW_SCHEDULE_NODE_NONE) {
-    return iree_ok_status();
-  }
-  if (value_ordinal == result_value_ordinal) {
-    state->storage_reads.heads[value_ordinal] = retained_head;
-    return iree_ok_status();
-  }
-  loom_low_schedule_touch_storage_read_value(state, result_value_ordinal);
-  state->storage_reads.records[retained_tail].next_record =
-      state->storage_reads.heads[result_value_ordinal];
-  state->storage_reads.heads[result_value_ordinal] = retained_head;
+  state->storage_reads.heads[value_ordinal] = retained_head;
   return iree_ok_status();
 }
 
@@ -714,6 +725,7 @@ static iree_status_t loom_low_schedule_add_storage_antidependencies(
   if (state->storage_reads.heads == NULL) {
     return iree_ok_status();
   }
+  value_ordinal = loom_low_schedule_storage_read_identity(state, value_ordinal);
   IREE_ASSERT_NE(write_mask, 0u);
   uint32_t read_record_index = state->storage_reads.heads[value_ordinal];
   while (read_record_index != LOOM_LOW_SCHEDULE_NODE_NONE) {
@@ -919,8 +931,7 @@ static iree_status_t loom_low_schedule_note_tied_storage_writes(
         state, node_index, tied.operand_index,
         loom_low_schedule_value_write_endpoint(
             state, result_ordinals[tied.result_index]),
-        operand_ordinals[tied.operand_index],
-        result_ordinals[tied.result_index], /*write_unit_offset=*/0,
+        operand_ordinals[tied.operand_index], /*write_unit_offset=*/0,
         state->values[result_ordinals[tied.result_index]].unit_count,
         write_mask));
   }
@@ -1394,16 +1405,24 @@ static iree_status_t loom_low_schedule_initialize_node_value_ordinals(
   node->result_count = op->result_count;
   const uint32_t total_value_count =
       (uint32_t)op->operand_count + (uint32_t)op->result_count;
-  if (total_value_count >
-      LOOM_LOW_SCHEDULE_NODE_INLINE_VALUE_ORDINAL_CAPACITY) {
+  const uint32_t late_read_word_count =
+      iree_any_bit_set(node->flags, LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS)
+          ? ((uint32_t)op->operand_count + 31u) / 32u
+          : 0;
+  const uint32_t payload_count = total_value_count + late_read_word_count;
+  if (payload_count > LOOM_LOW_SCHEDULE_NODE_INLINE_VALUE_ORDINAL_CAPACITY) {
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_VALUE_ORDINALS_OVERFLOW;
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-        state->arena, total_value_count,
+        state->arena, payload_count,
         sizeof(*node->value_ordinals.overflow_value_ordinals),
         (void**)&node->value_ordinals.overflow_value_ordinals));
   }
   loom_value_ordinal_t* value_ordinals =
       loom_low_schedule_node_value_ordinals(node);
+  if (late_read_word_count != 0) {
+    memset(value_ordinals + total_value_count, 0,
+           late_read_word_count * sizeof(*value_ordinals));
+  }
   const loom_value_id_t* operands = loom_op_const_operands(op);
   for (uint16_t i = 0; i < op->operand_count; ++i) {
     value_ordinals[i] =
@@ -1604,7 +1623,7 @@ iree_status_t loom_low_schedule_build_dependencies(
 
       // Process tied writes before recording this node's operand reads. This
       // keeps overlapping tied operands from depending on their own writer,
-      // while retained disjoint reads transfer to the tied result value.
+      // while disjoint reads remain pending on their physical storage owner.
       IREE_RETURN_IF_ERROR(
           loom_low_schedule_note_tied_storage_writes(state, node_index));
       IREE_RETURN_IF_ERROR(
@@ -1648,6 +1667,21 @@ iree_status_t loom_low_schedule_build_dependencies(
                               descriptor_operand_indices[operand_index]];
           reads_descriptor_state = iree_any_bit_set(
               operand->flags, LOOM_LOW_OPERAND_FLAG_STATE_READ);
+          if (iree_any_bit_set(node->flags,
+                               LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS)) {
+            const loom_target_bundle_t* bundle =
+                loom_low_resolved_target_bundle(&state->target);
+            if (loom_low_operand_reads_after_write(
+                    state->target.descriptor_set, operand,
+                    state->values[operand_ordinal].register_class_id,
+                    bundle != NULL ? bundle->snapshot->subgroup_size : 0)) {
+              uint32_t* words = loom_low_schedule_node_value_ordinals(
+                                    &state->nodes[node_index]) +
+                                node->operand_count + node->result_count;
+              words[operand_index / 32u] |= UINT32_C(1)
+                                            << (operand_index % 32u);
+            }
+          }
         }
         if (descriptor == NULL || reads_descriptor_state) {
           IREE_RETURN_IF_ERROR(loom_low_schedule_note_state_value_read(

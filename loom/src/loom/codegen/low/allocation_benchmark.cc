@@ -558,12 +558,15 @@ class AllocationBenchmark {
       result.value_count = placement.value_count;
       benchmark::DoNotOptimize(placement.relations);
     } else if (phase_ == Phase::kUnitLiveness) {
+      iree_arena_allocator_t decision_arena;
+      iree_arena_initialize(&analysis_pool_, &decision_arena);
       loom_low_allocation_unit_liveness_t unit_liveness = {};
       IREE_CHECK_OK(loom_low_allocation_unit_liveness_initialize(
-          &model_.target, &placement_, &model_.value_domain, &liveness_, &arena,
-          &unit_liveness));
+          &model_.target, &placement_, &model_.value_domain, &liveness_,
+          &model_.cfg_graph, &arena, &decision_arena, &unit_liveness));
       result.value_count = liveness_.value_count;
       benchmark::DoNotOptimize(unit_liveness.end_points);
+      iree_arena_deinitialize(&decision_arena);
     } else {
       loom_low_allocation_options_t options = {};
       options.fixed_values = fixed_values_.data();

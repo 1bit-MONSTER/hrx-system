@@ -585,11 +585,15 @@ def _predefined(
 
 
 def _instruction_encoding_opcode(
-    spec: AmdgpuIsaFactSource, instruction_name: str, encoding_name: str
+    spec: AmdgpuIsaFactSource,
+    instruction_name: str,
+    encoding_name: str,
+    *,
+    include_aliases: bool = False,
 ) -> int:
     opcodes = set()
     for summary in spec.instruction_encoding_summaries(
-        (instruction_name,), include_aliases=False
+        (instruction_name,), include_aliases=include_aliases
     ):
         if summary.encoding_name == encoding_name:
             opcodes.add(summary.opcode)
@@ -1908,6 +1912,7 @@ _MANUAL_SCALAR_DESCRIPTOR_KEYS = (
     "amdgpu.s_mov_b64_exec",
     "amdgpu.s_mov_b64_exec.full",
     "amdgpu.s_mov_b64_exec_read",
+    "amdgpu.s_andn2_b64_exec",
     "amdgpu.s_xor_b64_exec",
 )
 
@@ -1955,6 +1960,9 @@ def _manual_scalar_descriptors(
     s_mov_b32_opcode = _instruction_encoding_opcode(spec, "S_MOV_B32", "ENC_SOP1")
     s_getpc_b64_opcode = _instruction_encoding_opcode(spec, "S_GETPC_B64", "ENC_SOP1")
     s_mov_b64_opcode = _instruction_encoding_opcode(spec, "S_MOV_B64", "ENC_SOP1")
+    s_andn2_b64_opcode = _instruction_encoding_opcode(
+        spec, "S_ANDN2_B64", "ENC_SOP2", include_aliases=True
+    )
     s_xor_b64_opcode = _instruction_encoding_opcode(spec, "S_XOR_B64", "ENC_SOP2")
     return (
         Descriptor(
@@ -2177,6 +2185,51 @@ def _manual_scalar_descriptors(
             encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP1,
             encoding_id=s_mov_b64_opcode,
             flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+        Descriptor(
+            key="amdgpu.s_andn2_b64_exec",
+            mnemonic="s_andn2_b64",
+            semantic_tag="control.exec.and_not",
+            operands=(
+                _scc_result("active"),
+                Operand(
+                    "saved_exec",
+                    OperandRole.OPERAND,
+                    _SGPR_ALT,
+                    encoding_field_id=amdgpu_encoding_field_id("SSRC0"),
+                    unit_count=2,
+                ),
+                Operand(
+                    "condition",
+                    OperandRole.OPERAND,
+                    _SGPR_ALT,
+                    encoding_field_id=amdgpu_encoding_field_id("SSRC1"),
+                    unit_count=2,
+                ),
+                _exec_clobber("exec_out"),
+            ),
+            encoding_field_values=(
+                EncodingFieldValue(
+                    amdgpu_encoding_field_id("SDST"),
+                    spec.operand_predefined_value("OPR_SDST_EXEC", "EXEC_LO"),
+                ),
+            ),
+            asm_forms=_asm(
+                mnemonic="s_andn2_b64_exec",
+                native_assembly_mnemonic="s_andn2_b64",
+                results=("active",),
+                operands=("saved_exec", "condition"),
+                native_assembly_values=(
+                    _native_literal("exec"),
+                    _native_operand("saved_exec"),
+                    _native_operand("condition"),
+                ),
+            ),
+            effects=(_CONVERGENT_EFFECT,),
+            schedule_class=_SCHEDULE_SALU,
+            encoding_format_id=AMDGPU_ENCODING_FORMAT_SOP2,
+            encoding_id=s_andn2_b64_opcode,
+            flags=(DescriptorFlag.SIDE_EFFECTING,),
         ),
         Descriptor(
             key="amdgpu.s_xor_b64_exec",

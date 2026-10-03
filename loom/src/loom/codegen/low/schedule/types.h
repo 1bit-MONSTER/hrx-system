@@ -78,6 +78,9 @@ enum loom_low_schedule_node_flag_bits_e {
   LOOM_LOW_SCHEDULE_NODE_FLAG_ZERO_ISSUE_WIDTH = 1u << 7,
   // Setup whose complete consumer chain must follow its external prerequisites.
   LOOM_LOW_SCHEDULE_NODE_FLAG_ORDERED_SETUP = 1u << 8,
+  // Ordinal payload ends with a u32 bitmap of inputs read through result
+  // writes.
+  LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS = 1u << 9,
 };
 typedef uint16_t loom_low_schedule_node_flags_t;
 
@@ -324,7 +327,8 @@ typedef struct loom_low_schedule_node_t {
   loom_low_schedule_node_flags_t flags;
   // Dense schedule-class identifier, or LOOM_LOW_SCHEDULE_CLASS_NONE.
   uint16_t schedule_class_id;
-  // Operand ordinals followed by result ordinals. Small nodes store ordinals
+  // Operand ordinals followed by result ordinals and, with LATE_READS, an
+  // operand-indexed u32 bitmap. Small nodes store the complete payload
   // inline to avoid an extra pointer chase; large nodes store one contiguous
   // arena allocation through overflow_value_ordinals.
   union {
@@ -367,6 +371,19 @@ static inline const loom_value_ordinal_t*
 loom_low_schedule_node_const_operand_ordinals(
     const loom_low_schedule_node_t* node) {
   return loom_low_schedule_node_const_value_ordinals(node);
+}
+
+// Consumes read timing resolved once against the effective target and selected
+// operand register classes during graph construction.
+static inline bool loom_low_schedule_node_operand_reads_after_write(
+    const loom_low_schedule_node_t* node, uint16_t operand_index) {
+  if (!iree_any_bit_set(node->flags, LOOM_LOW_SCHEDULE_NODE_FLAG_LATE_READS)) {
+    return false;
+  }
+  const uint32_t* words = loom_low_schedule_node_const_value_ordinals(node) +
+                          node->operand_count + node->result_count;
+  return (words[operand_index / 32u] &
+          (UINT32_C(1) << (operand_index % 32u))) != 0;
 }
 
 static inline loom_value_ordinal_t* loom_low_schedule_node_result_ordinals(

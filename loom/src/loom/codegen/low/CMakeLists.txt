@@ -29,6 +29,16 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    read_retention
+  HDRS
+    "read_retention.h"
+  DEPS
+    ::descriptors
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     descriptor_traits
   HDRS
     "descriptor_traits.h"
@@ -511,8 +521,10 @@ loom_cc_library(
     placement
   HDRS
     "placement.h"
+    "placement_capture.h"
   SRCS
     "placement.c"
+    "placement_capture.c"
   DEPS
     ::descriptors
     ::placement_recipe
@@ -523,6 +535,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::liveness
     loom::ir
+    loom::ops::low
   PUBLIC
 )
 
@@ -587,6 +600,7 @@ loom_cc_library(
     loom::codegen::low::allocation::target_constraints
     loom::codegen::low::allocation::unit_liveness
     loom::codegen::low::allocation::unit_location
+    loom::codegen::low::allocation::write_interference
     loom::codegen::low::schedule
     loom::error::emitter
     loom::error::error_defs

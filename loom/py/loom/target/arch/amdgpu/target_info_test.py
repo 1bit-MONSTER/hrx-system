@@ -293,6 +293,27 @@ def test_tensor_issue_drain_covers_exact_and_generic_gfx125x() -> None:
     assert amdgpu_target_info_by_name("gfx1250-a0").processor == "gfx1250"
 
 
+def test_wave64_valu_mask_write_hazard_covers_gfx11_processors() -> None:
+    assert {
+        info.processor
+        for info in AMDGPU_PROCESSOR_INFOS
+        if info.features.scheduling & AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR
+    } == {
+        "gfx1100",
+        "gfx1101",
+        "gfx1102",
+        "gfx1103",
+        "gfx1150",
+        "gfx1151",
+        "gfx1152",
+        "gfx1153",
+        "gfx1170",
+        "gfx1171",
+        "gfx1172",
+        "gfx11-generic",
+    }
+
+
 def test_generic_descriptor_sets_have_independent_contracts() -> None:
     descriptor_sets_by_key = {info.key: info for info in AMDGPU_DESCRIPTOR_SET_INFOS}
     processors_by_name = {info.processor: info for info in AMDGPU_PROCESSOR_INFOS}

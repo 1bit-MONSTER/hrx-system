@@ -234,6 +234,7 @@ loom_cc_library(
     ::storage_lease
     ::target_constraints
     ::unit_liveness
+    ::write_interference
     iree::base
     iree::base::internal
     iree::base::internal::arena
@@ -268,6 +269,7 @@ loom_cc_library(
     "edge_alias.c"
   DEPS
     ::assignment
+    ::unit_liveness
     iree::base
     loom::analysis::consumption
     loom::analysis::liveness
@@ -727,6 +729,7 @@ loom_cc_library(
     ::storage_lease
     ::target_constraints
     ::unit_liveness
+    ::write_interference
     iree::base
     iree::base::internal::arena
     loom::analysis::consumption
@@ -820,6 +823,48 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    write_interference
+  HDRS
+    "write_interference.h"
+  SRCS
+    "write_interference.c"
+  DEPS
+    ::assignment
+    ::assignment_map
+    ::move
+    ::write_interference_flow
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::liveness
+    loom::codegen::low::descriptors
+    loom::codegen::low::placement
+    loom::codegen::low::read_retention
+    loom::codegen::low::target_binding
+    loom::ir
+    loom::target::registers
+    loom::util::cfg_graph
+    loom::util::index_set
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    write_interference_flow
+  HDRS
+    "write_interference_flow.h"
+  SRCS
+    "write_interference_flow.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::liveness
+    loom::ops::low
+    loom::util::cfg_graph
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     unit_liveness
   HDRS
     "unit_liveness.h"
@@ -829,6 +874,7 @@ loom_cc_library(
     ::assignment
     ::live_range
     ::storage
+    ::write_interference
     iree::base
     iree::base::internal::arena
     loom::analysis::liveness
@@ -838,7 +884,9 @@ loom_cc_library(
     loom::codegen::low::target_binding
     loom::ir
     loom::ops::low
+    loom::target::registers
     loom::util::adaptive_sort
+    loom::util::cfg_graph
   PUBLIC
 )
 
@@ -885,6 +933,7 @@ loom_cc_test(
     loom::ir
     loom::ops::low
     loom::target::registers
+    loom::util::cfg_graph
 )
 
 loom_cc_library(
@@ -1050,6 +1099,7 @@ loom_cc_library(
     ::storage_liveness_index
     ::target_constraints
     ::unit_liveness
+    ::write_interference
     iree::base
     iree::base::internal::arena
     loom::codegen::low::descriptors

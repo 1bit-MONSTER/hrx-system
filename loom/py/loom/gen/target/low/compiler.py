@@ -436,6 +436,10 @@ def derive_descriptor_projections(
         derived_flags.append(DescriptorFlag.ENUM_IMMEDIATES)
     if has_early_clobber_constraint and not has_early_clobber_flag:
         derived_flags.append(DescriptorFlag.EARLY_CLOBBER)
+    if DescriptorFlag.LATE_READ in descriptor.flags:
+        raise ValueError(f"descriptor '{descriptor.key}' authors the derived late-read flag")
+    if any(alternative.late_read_subgroup_size is not None for operand in descriptor.operands for alternative in operand.reg_alts):
+        derived_flags.append(DescriptorFlag.LATE_READ)
     has_variadic_operand = operand_layout.has_variadic_operands
     has_variadic_flag = DescriptorFlag.VARIADIC_OPERANDS in descriptor.flags
     if has_variadic_flag and not has_variadic_operand:
@@ -1212,13 +1216,21 @@ def compile_descriptor_set(
             elif immediate.enum_domain is not None:
                 raise ValueError(f"descriptor '{descriptor.key}' non-enum immediate '{immediate.field_name}' references enum domain '{immediate.enum_domain}'")
             validation.validate_immediate_default(descriptor, immediate, enum_domain_inputs)
-        for operand in descriptor.operands:
+        for operand_index, operand in enumerate(descriptor.operands):
             validation.validate_u16(
                 operand.encoding_field_id,
                 f"descriptor '{descriptor.key}' operand '{operand.field_name}' encoding field id",
             )
             register_parts_by_class: dict[str, str | None] = {}
             for reg_alt in operand.reg_alts:
+                if RegClassAltFlag.LATE_READ in reg_alt.flags:
+                    raise ValueError(f"descriptor '{descriptor.key}' operand '{operand.field_name}' authors the derived late-read flag")
+                if reg_alt.late_read_subgroup_size is not None:
+                    validation.validate_u16(reg_alt.late_read_subgroup_size, f"descriptor '{descriptor.key}' operand '{operand.field_name}' late-read subgroup size")
+                    if reg_alt.reg_class is None or operand.role not in (OperandRole.OPERAND, OperandRole.PREDICATE, OperandRole.RESOURCE):
+                        raise ValueError(f"descriptor '{descriptor.key}' late read requires an explicit register input")
+                    if any(constraint.kind is ConstraintKind.TIED and constraint.rhs_operand_index == operand_index for constraint in descriptor.constraints):
+                        raise ValueError(f"descriptor '{descriptor.key}' late read cannot share a tied result's storage")
                 validation.validate_u16(
                     reg_alt.unit_alignment,
                     f"descriptor '{descriptor.key}' operand '{operand.field_name}' register alignment",
@@ -1457,9 +1469,9 @@ def compile_descriptor_set(
     asm_table_storage = CompiledAsmTableStorage()
     asm_table_storage.append_forms(asm_forms)
 
-    reg_class_alts: list[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int]] = []
+    reg_class_alts: list[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int, int]] = []
     reg_alt_group_starts: dict[
-        tuple[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int], ...],
+        tuple[tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int, int], ...],
         int,
     ] = {}
     immediate_encoding_slice_group_starts: dict[tuple[ImmediateEncodingSlice, ...], int] = {}
@@ -1641,14 +1653,15 @@ def compile_descriptor_set(
             )
         ):
             alt_group: tuple[
-                tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int],
+                tuple[int | None, int | None, tuple[RegClassAltFlag, ...], int, int],
                 ...,
             ] = tuple(
                 (
                     None if reg_alt.reg_class is None else reg_class_ids[reg_alt.reg_class],
                     None if reg_alt.register_part is None else register_part_ids[reg_alt.register_part],
-                    reg_alt.flags,
+                    reg_alt.flags + ((RegClassAltFlag.LATE_READ,) if reg_alt.late_read_subgroup_size is not None else ()),
                     reg_alt.unit_alignment.bit_length() - 1,
+                    reg_alt.late_read_subgroup_size or 0,
                 )
                 for reg_alt in operand.reg_alts
             )

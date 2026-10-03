@@ -1,0 +1,309 @@
+// Allocation without a scheduler retains the mask after its final SSA use.
+// RUN: with-checks emit low-allocation-json @dead_mask fixed=%mask:physical_register:0:2 fixed=%source:physical_register:4:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @dead_mask(%mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32 %value, %value, %mask
+  %result = s_or_b32 %source, %source
+  return %selected, %result
+}
+
+// ----
+CHECK: *"name":"result","type":"reg<amdgpu.sgpr>"*,"location":{"kind":"physical_register","base":2,"count":1}*
+
+// ====
+
+// RUN: emit amdgpu-assembly @wave64_overlaps_sixteen_carry_predicates strategy=resource-stall
+
+amdgpu.target<gfx1100> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @wave64_overlaps_sixteen_carry_predicates(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_add_co_ci_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_add_co_ci_u32 %sum0_hi, %term_hi, %carry1
+  %sum2_lo, %carry2 = v_add_co_u32 %sum1_lo, %term_lo
+  %sum2_hi, %carry2_out = v_add_co_ci_u32 %sum1_hi, %term_hi, %carry2
+  %sum3_lo, %carry3 = v_add_co_u32 %sum2_lo, %term_lo
+  %sum3_hi, %carry3_out = v_add_co_ci_u32 %sum2_hi, %term_hi, %carry3
+  %sum4_lo, %carry4 = v_add_co_u32 %sum3_lo, %term_lo
+  %sum4_hi, %carry4_out = v_add_co_ci_u32 %sum3_hi, %term_hi, %carry4
+  %sum5_lo, %carry5 = v_add_co_u32 %sum4_lo, %term_lo
+  %sum5_hi, %carry5_out = v_add_co_ci_u32 %sum4_hi, %term_hi, %carry5
+  %sum6_lo, %carry6 = v_add_co_u32 %sum5_lo, %term_lo
+  %sum6_hi, %carry6_out = v_add_co_ci_u32 %sum5_hi, %term_hi, %carry6
+  %sum7_lo, %carry7 = v_add_co_u32 %sum6_lo, %term_lo
+  %sum7_hi, %carry7_out = v_add_co_ci_u32 %sum6_hi, %term_hi, %carry7
+  %sum8_lo, %carry8 = v_add_co_u32 %sum7_lo, %term_lo
+  %sum8_hi, %carry8_out = v_add_co_ci_u32 %sum7_hi, %term_hi, %carry8
+  %sum9_lo, %carry9 = v_add_co_u32 %sum8_lo, %term_lo
+  %sum9_hi, %carry9_out = v_add_co_ci_u32 %sum8_hi, %term_hi, %carry9
+  %sum10_lo, %carry10 = v_add_co_u32 %sum9_lo, %term_lo
+  %sum10_hi, %carry10_out = v_add_co_ci_u32 %sum9_hi, %term_hi, %carry10
+  %sum11_lo, %carry11 = v_add_co_u32 %sum10_lo, %term_lo
+  %sum11_hi, %carry11_out = v_add_co_ci_u32 %sum10_hi, %term_hi, %carry11
+  %sum12_lo, %carry12 = v_add_co_u32 %sum11_lo, %term_lo
+  %sum12_hi, %carry12_out = v_add_co_ci_u32 %sum11_hi, %term_hi, %carry12
+  %sum13_lo, %carry13 = v_add_co_u32 %sum12_lo, %term_lo
+  %sum13_hi, %carry13_out = v_add_co_ci_u32 %sum12_hi, %term_hi, %carry13
+  %sum14_lo, %carry14 = v_add_co_u32 %sum13_lo, %term_lo
+  %sum14_hi, %carry14_out = v_add_co_ci_u32 %sum13_hi, %term_hi, %carry14
+  %sum15_lo, %carry15 = v_add_co_u32 %sum14_lo, %term_lo
+  %sum15_hi, %carry15_out = v_add_co_ci_u32 %sum14_hi, %term_hi, %carry15
+  return %sum15_lo, %sum15_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[2:3], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[2:3]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @wave32_keeps_default_carry_schedule strategy=resource-stall
+
+amdgpu.target<gfx1100> @target {subgroup_size = 32}
+
+low.func.def target<amdgpu.rdna3.core>(@target) @wave32_keeps_default_carry_schedule(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_add_co_ci_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_add_co_ci_u32 %sum0_hi, %term_hi, %carry1
+  return %sum1_lo, %sum1_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_keeps_default_carry_schedule strategy=resource-stall
+
+amdgpu.target<gfx942> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_keeps_default_carry_schedule(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_addc_co_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_addc_co_u32 %sum0_hi, %term_hi, %carry1
+  return %sum1_lo, %sum1_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_nop 1
+  v_addc_co_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_nop 1
+  v_addc_co_u32 v1, s[0:1], v1, v3, s[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @rdna4_keeps_default_carry_schedule strategy=resource-stall
+
+amdgpu.target<gfx1200> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna4.core>(@target) @rdna4_keeps_default_carry_schedule(%base_lo: reg<amdgpu.vgpr>, %base_hi: reg<amdgpu.vgpr>, %term_lo: reg<amdgpu.vgpr>, %term_hi: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum0_lo, %carry0 = v_add_co_u32 %base_lo, %term_lo
+  %sum0_hi, %carry0_out = v_add_co_ci_u32 %base_hi, %term_hi, %carry0
+  %sum1_lo, %carry1 = v_add_co_u32 %sum0_lo, %term_lo
+  %sum1_hi, %carry1_out = v_add_co_ci_u32 %sum0_hi, %term_hi, %carry1
+  return %sum1_lo, %sum1_hi
+}
+
+// ----
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  v_add_co_u32 v0, s[0:1], v0, v2
+  s_wait_alu depctr(0)
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_add_co_ci_u32 v1, s[0:1], v1, v3, s[0:1]
+  s_endpgm
+
+// ====
+
+// A scalar memory result replaces the remembered words without an ALU hazard.
+// RUN: emit amdgpu-assembly @memory_replaces_mask strategy=source fixed=%mask:physical_register:0:2 fixed=%pointer:physical_register:4:2 fixed=%loaded:physical_register:0:2
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @memory_replaces_mask(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %loaded = s_load_dwordx2_offset_only %pointer
+  %result = s_or_b64 %loaded, %pointer
+  return %selected, %result
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_load_dwordx2 s[0:1], s[4:5] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_or_b64 s[0:1], s[0:1], s[4:5]
+  s_endpgm
+
+// ====
+
+// A one-word memory result leaves the other remembered word protected.
+// RUN: emit amdgpu-assembly @memory_replaces_lower_word strategy=source fixed=%mask:physical_register:0:2 fixed=%pointer:physical_register:4:2 fixed=%loaded:physical_register:0:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @memory_replaces_lower_word(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %loaded = s_load_dword_offset_only %pointer
+  %pointer_word = slice %pointer[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %lower = s_or_b32 %loaded, %pointer_word
+  %upper = s_or_b32 %pointer_word, %pointer_word
+  %result = s_or_b32 %lower, %upper
+  return %selected, %result
+}
+
+// ----
+  v_cndmask_b32 v0, 0, v0, s[0:1]
+  s_load_dword s0, s[4:5] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_or_b32 s0, s0, s4
+  s_or_b32 s2, s4, s4
+  s_or_b32 s0, s0, s2
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @copy_cycle_preserves_dead_mask strategy=source fixed=%mask:physical_register:0:2 fixed=%left:physical_register:2:1 fixed=%right:physical_register:3:1 fixed=%joined_left:physical_register:3:1 fixed=%joined_right:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @copy_cycle_preserves_dead_mask(%mask: reg<amdgpu.sgpr x2>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>, %lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32 %lhs, %rhs, %mask
+  low.br ^join(%left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>)
+^join(%joined_left: reg<amdgpu.sgpr>, %joined_right: reg<amdgpu.sgpr>):
+  return %selected, %joined_left, %joined_right
+}
+
+// ----
+  v_cndmask_b32 v0, v0, v1, s[0:1]
+  s_mov_b32 s4, s3
+  s_mov_b32 s3, s2
+  s_mov_b32 s2, s4
+.Lbb1:
+  s_endpgm
+
+// ====
+
+// Vector-only gaps preserve the snapshot; a partial overwrite frees only its
+// lower word for copy-cycle scratch, including after another vector-only gap.
+// RUN: emit amdgpu-assembly @copy_cycle_after_partial_mask_overwrite strategy=source fixed=%mask:physical_register:0:2 fixed=%pointer:physical_register:4:2 fixed=%loaded:physical_register:0:1 fixed=%left:physical_register:2:1 fixed=%right:physical_register:3:1 fixed=%joined_left:physical_register:3:1 fixed=%joined_right:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_after_partial_mask_overwrite(%mask: reg<amdgpu.sgpr x2>, %pointer: reg<amdgpu.sgpr x2>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32 %value, %value, %mask
+  %first = v_add_f32 %selected, %value
+  %loaded = s_load_dword_offset_only %pointer
+  %second = v_add_f32 %first, %value
+  low.br ^join(%left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>)
+^join(%joined_left: reg<amdgpu.sgpr>, %joined_right: reg<amdgpu.sgpr>):
+  return %second, %joined_left, %joined_right
+}
+
+// ----
+  v_cndmask_b32 v1, v0, v0, s[0:1]
+  s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_1) | instid1(VALU_DEP_1)
+  v_add_f32 v1, v1, v0
+  s_load_dword s0, s[4:5] offset:0
+  v_add_f32 v0, v1, v0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  s_mov_b32 s0, s3
+  s_mov_b32 s3, s2
+  s_mov_b32 s2, s0
+.Lbb1:
+  s_endpgm
+
+// ====
+
+// A scalar read resets the old snapshot, but a later predicate establishes a
+// new protected range before copy-cycle scratch selection.
+// RUN: emit amdgpu-assembly @copy_cycle_after_mask_reset_and_retain strategy=source fixed=%old_mask:physical_register:4:2 fixed=%new_mask:physical_register:0:2 fixed=%scalar:physical_register:6:1 fixed=%left:physical_register:2:1 fixed=%right:physical_register:3:1 fixed=%joined_left:physical_register:3:1 fixed=%joined_right:physical_register:2:1
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_after_mask_reset_and_retain(%old_mask: reg<amdgpu.sgpr x2>, %new_mask: reg<amdgpu.sgpr x2>, %scalar: reg<amdgpu.sgpr>, %left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) asm {
+  %selected = v_cndmask_b32 %value, %value, %old_mask
+  %first = v_add_f32 %selected, %value
+  %broadcast = v_mov_b32_copy %scalar
+  %reselected = v_cndmask_b32 %first, %broadcast, %new_mask
+  %second = v_add_f32 %reselected, %value
+  low.br ^join(%left: reg<amdgpu.sgpr>, %right: reg<amdgpu.sgpr>)
+^join(%joined_left: reg<amdgpu.sgpr>, %joined_right: reg<amdgpu.sgpr>):
+  return %second, %joined_left, %joined_right
+}
+
+// ----
+  v_cndmask_b32 v1, v0, v0, s[4:5]
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_f32 v1, v1, v0
+  v_mov_b32_copy v2, s6
+  s_delay_alu instid0(VALU_DEP_1) | instid1(VALU_DEP_2)
+  v_cndmask_b32 v1, v1, v2, s[0:1]
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_f32 v0, v1, v0
+  s_mov_b32 s4, s3
+  s_mov_b32 s3, s2
+  s_mov_b32 s2, s4
+.Lbb1:
+  s_endpgm

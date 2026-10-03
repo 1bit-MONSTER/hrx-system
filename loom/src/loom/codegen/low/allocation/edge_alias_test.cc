@@ -131,9 +131,11 @@ class LowAllocationEdgeAliasTest : public ::testing::Test {
     counterpart.unit_count = counterpart_interval.unit_count;
     counterpart.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
     counterpart.location_count = counterpart_interval.unit_count;
+    loom_low_allocation_unit_liveness_t unit_liveness = {};
     loom_low_allocation_edge_alias_context_t context = {};
     context.placement = &placement;
     context.liveness = &liveness;
+    context.unit_liveness = &unit_liveness;
     bool allows_overlap = false;
     IREE_CHECK_OK(loom_low_allocation_edge_alias_allows_counterpart_overlap(
         &context, &intervals[candidate_ordinal], &relation, &counterpart,

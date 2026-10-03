@@ -586,9 +586,15 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
         key="x86.scalar.sub.if_uge.imm.gpr32",
         mnemonic="sub.cmovb",
         semantic_tag="integer.subtract_if_unsigned_ge.i32",
-        operands=(_gpr32_result(), _gpr32_operand("lhs")),
+        operands=(
+            _gpr32_result(),
+            Operand(
+                "lhs",
+                OperandRole.OPERAND,
+                (RegClassAlt(_REG_GPR32, late_read_subgroup_size=0),),
+            ),
+        ),
         immediates=(_IMM32_IMMEDIATE,),
-        constraints=(Constraint(ConstraintKind.EARLY_CLOBBER, 0),),
         asm_forms=_asm(
             mnemonic="sub.if_uge.imm.gpr32",
             results=("dst",),

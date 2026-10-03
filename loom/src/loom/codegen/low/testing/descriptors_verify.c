@@ -2291,7 +2291,11 @@ static iree_status_t loom_low_verify_descriptor(
           LOOM_LOW_DESCRIPTOR_FLAG_EARLY_CLOBBER |
           LOOM_LOW_DESCRIPTOR_FLAG_VARIADIC_OPERANDS |
           LOOM_LOW_DESCRIPTOR_FLAG_ALLOCATION_MOVE |
-          LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY,
+          LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY |
+          LOOM_LOW_DESCRIPTOR_FLAG_ENUM_IMMEDIATES |
+          LOOM_LOW_DESCRIPTOR_FLAG_SAFE_TO_SPECULATE |
+          LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT |
+          LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ,
       "descriptor", descriptor_index));
   iree_string_view_t descriptor_key = iree_string_view_empty();
   IREE_RETURN_IF_ERROR(loom_low_verify_non_empty_required_string(
@@ -3039,14 +3043,24 @@ static iree_status_t loom_low_verify_reg_class_alt(
     const loom_low_descriptor_set_t* descriptor_set, uint32_t alt_index) {
   const loom_low_reg_class_alt_t* alt =
       &descriptor_set->reg_class_alts[alt_index];
-  IREE_RETURN_IF_ERROR(
-      loom_low_verify_known_flags(alt->flags,
-                                  LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED |
-                                      LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE |
-                                      LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY,
-                                  "register-class alternative", alt_index));
+  IREE_RETURN_IF_ERROR(loom_low_verify_known_flags(
+      alt->flags,
+      LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED |
+          LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE |
+          LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY |
+          LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ,
+      "register-class alternative", alt_index));
   const bool is_immediate =
       (alt->flags & LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE) != 0;
+  const bool is_late_read =
+      iree_any_bit_set(alt->flags, LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ);
+  if ((is_immediate && is_late_read) ||
+      (!is_late_read && alt->late_read_subgroup_size != 0)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "low register-class alternative %" PRIu32
+                            " has inconsistent late-read timing",
+                            alt_index);
+  }
   if (is_immediate) {
     if (alt->reg_class_id != LOOM_LOW_REG_CLASS_NONE) {
       return iree_make_status(

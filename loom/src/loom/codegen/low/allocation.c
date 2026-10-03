@@ -20,6 +20,7 @@
 #include "loom/codegen/low/allocation/target_constraints.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/allocation/unit_location.h"
+#include "loom/codegen/low/allocation/write_interference.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/schedule/types.h"
@@ -131,7 +132,8 @@ static iree_status_t loom_low_allocation_repair_fragmentation(
     loom_low_allocation_build_state_t* state,
     const loom_low_function_model_t* model,
     const loom_local_value_domain_t* value_domain,
-    const iree_arena_checkpoint_t* assignment_checkpoint) {
+    const iree_arena_checkpoint_t* assignment_checkpoint,
+    iree_arena_allocator_t* decision_arena) {
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(state->arena->block_pool, &scratch_arena);
 
@@ -178,8 +180,8 @@ static iree_status_t loom_low_allocation_repair_fragmentation(
             LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_FRAGMENTATION_REPAIR,
             &scratch_arena, &scratch_target_constraints,
             &scratch_storage_leases);
-    status = loom_low_allocation_interval_assignment_build(&scratch_context,
-                                                           &scratch_result);
+    status = loom_low_allocation_interval_assignment_build(
+        &scratch_context, decision_arena, &scratch_result);
   }
   if (iree_status_is_ok(status)) {
     const bool use_repair =
@@ -208,13 +210,14 @@ static iree_status_t loom_low_allocation_repair_fragmentation(
 // sequencing workspace are private to this construction; only completed move
 // rows and scratch-write indices survive in the allocation result.
 static iree_status_t loom_low_allocation_build_moves(
-    loom_low_allocation_build_state_t* state) {
+    loom_low_allocation_build_state_t* state,
+    iree_arena_allocator_t* decision_arena) {
   if (state->placement.packet_move_group_count == 0 &&
       state->placement.edge_copy_group_count == 0) {
     return iree_ok_status();
   }
-  iree_arena_allocator_t scratch_arena;
-  iree_arena_initialize(state->arena->block_pool, &scratch_arena);
+  const iree_arena_checkpoint_t scratch_checkpoint =
+      iree_arena_checkpoint_save(decision_arena);
   const loom_low_allocation_move_plan_context_t move_plan_context = {
       .descriptor_set = state->target.descriptor_set,
       .target_constraints = &state->target_constraints,
@@ -229,7 +232,7 @@ static iree_status_t loom_low_allocation_build_moves(
       state->placement.max_move_group_unit_count;
   iree_status_t status = loom_low_allocation_move_plan_initialize(
       &move_plan_context, move_input_capacity, raw_group_capacity, state->arena,
-      &scratch_arena, &state->move_plan);
+      decision_arena, &state->move_plan);
   if (iree_status_is_ok(status)) {
     const loom_low_allocation_edge_copy_context_t edge_copy_context = {
         .placement = &state->placement,
@@ -246,7 +249,7 @@ static iree_status_t loom_low_allocation_build_moves(
     status = loom_low_allocation_packet_move_plan_build(
         &packet_move_context, state->arena, &state->packet_move_plan);
   }
-  iree_arena_deinitialize(&scratch_arena);
+  iree_arena_checkpoint_restore(&scratch_checkpoint);
   return status;
 }
 
@@ -306,12 +309,13 @@ iree_status_t loom_low_allocate_function(
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_unit_liveness_initialize(
-        &state.target, &state.placement, value_domain, &state.liveness, arena,
-        &state.unit_liveness);
+        &state.target, &state.placement, value_domain, &state.liveness,
+        &model->cfg_graph, arena, &decision_arena, &state.unit_liveness);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_unit_liveness_retain_tied_storage(
-        &state.unit_liveness, &state.liveness, &state.placement, arena);
+        &state.unit_liveness, &state.liveness, &state.placement, arena,
+        &decision_arena);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
     status = loom_low_allocation_refine_destructive_reuse(
@@ -326,6 +330,19 @@ iree_status_t loom_low_allocate_function(
         &state.target_constraints, &state.liveness, value_domain,
         &state.unit_liveness, &state.placement, options->fixed_values,
         options->fixed_value_count, arena);
+  }
+  if (iree_status_is_ok(status) && state.target_constraints.error_count == 0) {
+    for (iree_host_size_t i = 0; i < state.target_constraints.fixed_value_count;
+         ++i) {
+      const loom_low_allocation_resolved_fixed_value_t* fixed =
+          &state.target_constraints.fixed_values[i];
+      loom_low_allocation_write_interference_note_fixed(
+          state.unit_liveness.write_interference, fixed->value_ordinal,
+          &fixed->assignment);
+    }
+    status = loom_low_allocation_write_interference_finalize(
+        state.unit_liveness.write_interference, &state.liveness,
+        &model->cfg_graph, &state.placement, &decision_arena, arena);
   }
   const iree_arena_checkpoint_t interval_assignment_checkpoint =
       iree_arena_checkpoint_save(arena);
@@ -343,7 +360,8 @@ iree_status_t loom_low_allocate_function(
                 &state, model, LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_FIRST_FIT,
                 arena, &state.target_constraints, &state.storage_leases);
     status = loom_low_allocation_interval_assignment_build(
-        &interval_assignment_context, &state.interval_assignment);
+        &interval_assignment_context, &decision_arena,
+        &state.interval_assignment);
   }
   // Required register values can fail first-fit placement through fragmentation
   // just as spillable values can. Their retained failure is provisional until
@@ -355,7 +373,8 @@ iree_status_t loom_low_allocate_function(
        loom_low_allocation_failure_is_present(
            &state.target_constraints.failure))) {
     status = loom_low_allocation_repair_fragmentation(
-        &state, model, value_domain, &interval_assignment_checkpoint);
+        &state, model, value_domain, &interval_assignment_checkpoint,
+        &decision_arena);
   }
   // Backedge placement belongs to the final physical assignment. Spill repair
   // rewrites the IR and rebuilds the frame, so relocating a provisional spill
@@ -366,7 +385,7 @@ iree_status_t loom_low_allocate_function(
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
       assignment_is_final) {
     const iree_arena_checkpoint_t relocation_checkpoint =
-        iree_arena_checkpoint_save(arena);
+        iree_arena_checkpoint_save(&decision_arena);
     const loom_low_allocation_loop_edge_relocation_context_t
         loop_edge_relocation_context = {
             .module = state.module,
@@ -383,7 +402,7 @@ iree_status_t loom_low_allocate_function(
             .assignment_count = state.interval_assignment.assignment_count,
             .assignment_indices_by_value_ordinal =
                 state.interval_assignment.assignment_indices_by_value_ordinal,
-            .arena = arena,
+            .arena = &decision_arena,
         };
     loom_low_allocation_loop_edge_relocation_result_t
         loop_edge_relocation_result = {0};
@@ -409,7 +428,7 @@ iree_status_t loom_low_allocate_function(
   // against registers that repair will release.
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
       assignment_is_final) {
-    status = loom_low_allocation_build_moves(&state);
+    status = loom_low_allocation_build_moves(&state, &decision_arena);
   }
   if (iree_status_is_ok(status) && state.target_constraints.error_count == 0 &&
       assignment_is_final) {
@@ -457,6 +476,8 @@ iree_status_t loom_low_allocate_function(
         .unit_point_count = state.unit_liveness.point_count,
         .spill_plans = state.interval_assignment.spill_plans,
         .spill_plan_count = state.interval_assignment.spill_plan_count,
+        .retained_fixed_values =
+            state.interval_assignment.retained_fixed_values,
         .remarks = state.interval_assignment.remarks,
         .remark_count = state.interval_assignment.remark_count,
         .failure = state.target_constraints.failure,

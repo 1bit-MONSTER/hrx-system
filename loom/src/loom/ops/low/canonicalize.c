@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "loom/ir/module.h"
+#include "loom/ops/low/capture.h"
 #include "loom/ops/low/ops.h"
 #include "loom/rewrite/rewriter.h"
 #include "loom/target/registers.h"
@@ -24,8 +25,40 @@ static loom_op_t* loom_low_defining_op(loom_rewriter_t* rewriter,
   return loom_value_def_op(value);
 }
 
-static iree_status_t loom_low_replace_single_result_with_value(
-    loom_op_t* op, loom_rewriter_t* rewriter, loom_value_id_t replacement) {
+// A projection captures contents, not a required alias of the original source.
+// Keep a changing source's capture at its original point when composing
+// projections. Stable sources can retain the outer observation point without
+// extending lifetimes or perturbing the schedule.
+static iree_status_t loom_low_slice_replace_at(loom_op_t* op,
+                                               loom_rewriter_t* rewriter,
+                                               loom_op_t* capture_op,
+                                               loom_value_id_t source,
+                                               int64_t offset) {
+  const bool source_is_stable =
+      loom_low_capture_source_is_stable(rewriter->module, source);
+  const loom_type_t result_type =
+      loom_module_value_type(rewriter->module, loom_low_slice_result(op));
+  // Read-only identity projections need no intermediate owner. Prove this
+  // before creating a capture so its construction and removal do not restart
+  // fact propagation or enqueue the same users twice.
+  if (source_is_stable && offset == 0 &&
+      loom_type_equal(loom_module_value_type(rewriter->module, source),
+                      result_type) &&
+      loom_value_ownership_use_count(loom_module_value(
+          rewriter->module, loom_low_slice_result(op))) == 0) {
+    return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &source, 1);
+  }
+  loom_builder_set_before(&rewriter->builder,
+                          source_is_stable ? op : capture_op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_op_t* replacement_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_slice_build(&rewriter->builder, source, offset,
+                                            result_type, op->location,
+                                            &replacement_op));
+  const loom_value_id_t replacement = loom_low_slice_result(replacement_op);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, value_checkpoint));
   return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement,
                                                   1);
 }
@@ -84,7 +117,7 @@ static iree_status_t loom_low_slice_canonicalize_concat_slice(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(
-      loom_low_replace_single_result_with_value(op, rewriter, replacement));
+      loom_low_slice_replace_at(op, rewriter, concat_op, replacement, 0));
   *out_changed = true;
   return iree_ok_status();
 }
@@ -101,30 +134,9 @@ static iree_status_t loom_low_slice_canonicalize_nested_slice(
   }
 
   const loom_value_id_t inner_source = loom_low_slice_source(inner_slice_op);
-  const loom_type_t inner_source_type =
-      loom_module_value_type(rewriter->module, inner_source);
-  const loom_type_t result_type =
-      loom_module_value_type(rewriter->module, loom_low_slice_result(op));
   const int64_t combined_offset = inner_offset + outer_offset;
-  if (combined_offset == 0 && loom_type_equal(result_type, inner_source_type)) {
-    IREE_RETURN_IF_ERROR(
-        loom_low_replace_single_result_with_value(op, rewriter, inner_source));
-    *out_changed = true;
-    return iree_ok_status();
-  }
-
-  loom_builder_set_before(&rewriter->builder, op);
-  loom_value_id_t value_checkpoint = loom_rewriter_value_checkpoint(rewriter);
-
-  loom_op_t* replacement_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_slice_build(&rewriter->builder, inner_source,
-                                            combined_offset, result_type,
-                                            op->location, &replacement_op));
-  loom_value_id_t replacement = loom_low_slice_result(replacement_op);
-  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
-      rewriter, op, &replacement, 1, value_checkpoint));
-  IREE_RETURN_IF_ERROR(
-      loom_low_replace_single_result_with_value(op, rewriter, replacement));
+  IREE_RETURN_IF_ERROR(loom_low_slice_replace_at(
+      op, rewriter, inner_slice_op, inner_source, combined_offset));
   *out_changed = true;
   return iree_ok_status();
 }
@@ -138,7 +150,13 @@ iree_status_t loom_low_slice_canonicalize(loom_op_t* op,
       loom_module_value_type(rewriter->module, loom_low_slice_result(op));
   if (loom_low_slice_offset(op) == 0 &&
       loom_type_equal(source_type, result_type)) {
-    return loom_low_replace_single_result_with_value(op, rewriter, source);
+    if (loom_low_capture_can_forward(rewriter->module, source,
+                                     loom_low_slice_result(op), 1)) {
+      return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &source, 1);
+    }
+    // An identity-width projection still separates subsequent ownership and
+    // content changes. Allocation may coalesce it when its observations allow.
+    return iree_ok_status();
   }
 
   loom_op_t* source_op = loom_low_defining_op(rewriter, source);

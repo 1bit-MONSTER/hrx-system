@@ -139,6 +139,86 @@ low.func.def target<test.low.core>(@test_target) @consumed_results_do_not_cse(%l
 
 // ====
 
+// Required identity through an alias is also an ownership boundary. Merging
+// the two add results would overwrite the separately observed second value.
+// RUN: with-low-asm pass low-cse
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @aliased_existing_result_does_not_cse(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.add.i32 %lhs, %rhs
+  %second = test.add.i32 %lhs, %rhs
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %changed, %second
+}
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @aliased_existing_result_does_not_cse(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.add.i32 %lhs, %rhs
+  %second = test.add.i32 %lhs, %rhs
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %changed, %second
+}
+
+// ====
+
+// The candidate producer can carry the alias constraint even when the earlier
+// producer has only ordinary reads. Eligibility must protect both owners.
+// RUN: with-low-asm pass low-cse
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @aliased_candidate_result_does_not_cse(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.add.i32 %lhs, %rhs
+  %second = test.add.i32 %lhs, %rhs
+  %alias = low.assume %second [range(%second, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %first, %changed
+}
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @aliased_candidate_result_does_not_cse(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.add.i32 %lhs, %rhs
+  %second = test.add.i32 %lhs, %rhs
+  %alias = low.assume %second [range(%second, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %alias
+  return %first, %changed
+}
+
+// ====
+
+// The first alias edge protects the capture without walking the rest of the
+// alias chain at each expression query.
+// RUN: with-low-asm pass low-cse
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @transitive_alias_result_does_not_cse(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.add.i32 %lhs, %rhs
+  %second = test.add.i32 %lhs, %rhs
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %next_alias = low.assume %alias [range(%alias, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %next_alias
+  return %changed, %second
+}
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @transitive_alias_result_does_not_cse(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %first = test.add.i32 %lhs, %rhs
+  %second = test.add.i32 %lhs, %rhs
+  %alias = low.assume %first [range(%first, 0, 1024)] : reg<test.i32>
+  %next_alias = low.assume %alias [range(%alias, 0, 1024)] : reg<test.i32>
+  %changed = test.tied.any %next_alias
+  return %changed, %second
+}
+
+// ====
+
 // Descriptor-backed reads are CSE candidates until a descriptor-backed write
 // invalidates the read scope.
 // RUN: with-low-asm pass low-cse

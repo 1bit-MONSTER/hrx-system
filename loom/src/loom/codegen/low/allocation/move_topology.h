@@ -29,13 +29,6 @@ typedef enum loom_low_allocation_packet_move_op_kind_e {
   LOOM_LOW_ALLOCATION_PACKET_MOVE_OP_CONCAT = 4,
 } loom_low_allocation_packet_move_op_kind_t;
 
-// Returns true when a low.concat must materialize its result as packet-local
-// storage in |module|. Branch-edge copies can decompose low.concat payloads
-// directly into block arguments, so branch-only concats do not require
-// packet-local moves.
-bool loom_low_allocation_move_topology_concat_requires_packet_materialization_for_module(
-    const loom_module_t* module, const loom_op_t* op);
-
 // Classifies low operations that may require packet-local structural moves.
 loom_low_allocation_packet_move_op_kind_t
 loom_low_allocation_move_topology_packet_move_op_kind(const loom_op_t* op);

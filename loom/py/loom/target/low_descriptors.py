@@ -106,6 +106,7 @@ class RegClassAltFlag(CEnum):
     PREFERRED = "LOOM_LOW_REG_CLASS_ALT_FLAG_PREFERRED"
     IMMEDIATE = "LOOM_LOW_REG_CLASS_ALT_FLAG_IMMEDIATE"
     PHYSICAL_ONLY = "LOOM_LOW_REG_CLASS_ALT_FLAG_PHYSICAL_ONLY"
+    LATE_READ = "LOOM_LOW_REG_CLASS_ALT_FLAG_LATE_READ"
 
 
 class RegClassFlag(CEnum):
@@ -279,6 +280,7 @@ class DescriptorFlag(CEnum):
     ENUM_IMMEDIATES = "LOOM_LOW_DESCRIPTOR_FLAG_ENUM_IMMEDIATES"
     SAFE_TO_SPECULATE = "LOOM_LOW_DESCRIPTOR_FLAG_SAFE_TO_SPECULATE"
     STATE_ASSIGNMENT = "LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT"
+    LATE_READ = "LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ"
 
 
 class DescriptorOpKind(CEnum):
@@ -455,6 +457,10 @@ class RegClassAlt:
     # Register part read or written when this alternative is selected, or None
     # when the whole register is accessed.
     register_part: str | None = None
+    # Input storage remains live through result writes. None selects ordinary
+    # read-before-write timing; zero applies in every execution mode, and a
+    # positive size restricts the late read to that selected subgroup width.
+    late_read_subgroup_size: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

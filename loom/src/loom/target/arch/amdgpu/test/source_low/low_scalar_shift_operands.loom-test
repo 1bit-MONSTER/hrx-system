@@ -1,0 +1,901 @@
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @left_shift_counts_gfx942(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @left_shift_counts_gfx942(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @logical_shift_counts_gfx942(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @logical_shift_counts_gfx942(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @arithmetic_shift_counts_gfx942(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @arithmetic_shift_counts_gfx942(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx942 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @scalar_shift_encoding_gfx942(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x8E828000
+0x8F84A000
+0x9086BF00
+0xBF810000
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @left_shift_counts_gfx950(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @left_shift_counts_gfx950(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @logical_shift_counts_gfx950(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @logical_shift_counts_gfx950(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @arithmetic_shift_counts_gfx950(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @arithmetic_shift_counts_gfx950(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx950 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @scalar_shift_encoding_gfx950(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x8E828000
+0x8F84A000
+0x9086BF00
+0xBF810000
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @left_shift_counts_gfx1100(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @left_shift_counts_gfx1100(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @logical_shift_counts_gfx1100(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @logical_shift_counts_gfx1100(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @arithmetic_shift_counts_gfx1100(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @arithmetic_shift_counts_gfx1100(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx1100 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @scalar_shift_encoding_gfx1100(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x84828000
+0x8584A000
+0x8686BF00
+0xBFB00000
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @s_lshl_b64_inline_out_of_range(%value: reg<amdgpu.sgpr x2>) asm {
+  // ERROR@+1: STRUCTURE/014 {attr_name="shift", actual_value="65", expected_constraint="0..64"}
+  %shifted = s_lshl_b64_rhs_inline %value, 65
+  return
+}
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @s_lshr_b64_inline_out_of_range(%value: reg<amdgpu.sgpr x2>) asm {
+  // ERROR@+1: STRUCTURE/014 {attr_name="shift", actual_value="65", expected_constraint="0..64"}
+  %shifted = s_lshr_b64_rhs_inline %value, 65
+  return
+}
+
+// ====
+
+// RUN: verify
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @s_ashr_i64_inline_out_of_range(%value: reg<amdgpu.sgpr x2>) asm {
+  // ERROR@+1: STRUCTURE/014 {attr_name="shift", actual_value="65", expected_constraint="0..64"}
+  %shifted = s_ashr_i64_rhs_inline %value, 65
+  return
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @left_shift_counts_gfx1151(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @left_shift_counts_gfx1151(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @logical_shift_counts_gfx1151(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @logical_shift_counts_gfx1151(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @arithmetic_shift_counts_gfx1151(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @arithmetic_shift_counts_gfx1151(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx1151 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @scalar_shift_encoding_gfx1151(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x84828000
+0x8584A000
+0x8686BF00
+0xBFB00000
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @left_shift_counts_gfx1170(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @left_shift_counts_gfx1170(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @logical_shift_counts_gfx1170(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @logical_shift_counts_gfx1170(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @arithmetic_shift_counts_gfx1170(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @arithmetic_shift_counts_gfx1170(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx1170 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @scalar_shift_encoding_gfx1170(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x84828000
+0x8584A000
+0x8686BF00
+0xBFB00000
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @left_shift_counts_gfx1200(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @left_shift_counts_gfx1200(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @logical_shift_counts_gfx1200(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @logical_shift_counts_gfx1200(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @arithmetic_shift_counts_gfx1200(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @arithmetic_shift_counts_gfx1200(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx1200 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @scalar_shift_encoding_gfx1200(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x84828000
+0x8584A000
+0x8686BF00
+0xBFB00000
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @left_shift_counts_gfx1250(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshl_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshl_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshl_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshl_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @left_shift_counts_gfx1250(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshl_b64_rhs_inline %value, 0
+  %shift_31 = s_lshl_b64_rhs_inline %value, 31
+  %shift_63 = s_lshl_b64_rhs_inline %value, 63
+  %shift_64 = s_lshl_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshl_b64 %value, %count_65
+  %dynamic = s_lshl_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @logical_shift_counts_gfx1250(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_lshr_b64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_lshr_b64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_lshr_b64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_lshr_b64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @logical_shift_counts_gfx1250(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_lshr_b64_rhs_inline %value, 0
+  %shift_31 = s_lshr_b64_rhs_inline %value, 31
+  %shift_63 = s_lshr_b64_rhs_inline %value, 63
+  %shift_64 = s_lshr_b64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_lshr_b64 %value, %count_65
+  %dynamic = s_lshr_b64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: pass low-select-operand-forms,low-cse,low-dce
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @arithmetic_shift_counts_gfx1250(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %count_0 = s_mov_b32 0
+  %shift_0 = s_ashr_i64 %value, %count_0
+  %count_31 = s_mov_b32 31
+  %shift_31 = s_ashr_i64 %value, %count_31
+  %count_63 = s_mov_b32 63
+  %shift_63 = s_ashr_i64 %value, %count_63
+  %count_64 = s_mov_b32 64
+  %shift_64 = s_ashr_i64 %value, %count_64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ----
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @arithmetic_shift_counts_gfx1250(%value: reg<amdgpu.sgpr x2>, %dynamic_count: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %shift_0 = s_ashr_i64_rhs_inline %value, 0
+  %shift_31 = s_ashr_i64_rhs_inline %value, 31
+  %shift_63 = s_ashr_i64_rhs_inline %value, 63
+  %shift_64 = s_ashr_i64_rhs_inline %value, 64
+  %count_65 = s_mov_b32 65
+  %shift_65 = s_ashr_i64 %value, %count_65
+  %dynamic = s_ashr_i64 %value, %dynamic_count
+  return %shift_0, %shift_31, %shift_63, %shift_64, %shift_65, %dynamic
+}
+
+// ====
+
+// RUN: emit amdgpu-native-words @scalar_shift_encoding_gfx1250 strategy=source waits=none fixed=%value:physical_register:0:2 fixed=%left:physical_register:2:2 fixed=%logical:physical_register:4:2 fixed=%arithmetic:physical_register:6:2
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @scalar_shift_encoding_gfx1250(%value: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>, reg<amdgpu.sgpr x2>) asm {
+  %left = s_lshl_b64_rhs_inline %value, 0
+  %logical = s_lshr_b64_rhs_inline %value, 32
+  %arithmetic = s_ashr_i64_rhs_inline %value, 63
+  return %left, %logical, %arithmetic
+}
+
+// ----
+0x84828000
+0x8584A000
+0x8686BF00
+0xBFB00000

@@ -1,0 +1,137 @@
+// Wide required aliases use the indexed active storage path without fixed slots.
+// RUN: with-checks emit low-allocation-json @wide_identity
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @wide_identity(%condition: reg<test.i32>, %seed: reg<test.i32 x32>) -> (reg<test.i32 x32>) asm {
+  low.br ^loop(%seed: reg<test.i32 x32>)
+^loop(%current: reg<test.i32 x32>):
+  %alias = low.assume %current [range(%current, 0, 1024)] : reg<test.i32 x32>
+  %first = slice %alias[0] : reg<test.i32 x32> -> reg<test.i32 x16>
+  %second = slice %current[16] : reg<test.i32 x32> -> reg<test.i32 x16>
+  %same = concat(%first, %second) : (reg<test.i32 x16>, reg<test.i32 x16>) -> reg<test.i32 x32>
+  low.cond_br %condition, ^back, ^exit : reg<test.i32>
+^back:
+  low.br ^loop(%same: reg<test.i32 x32>)
+^exit:
+  return %current
+}
+
+// ----
+CHECK: *"name":"same","type":"reg<test.i32 x32>"*,"location":{"kind":"target_id","base":0,"count":32}*
+
+// ====
+// The reconstructed edge payload and the still-observable header are identical.
+// RUN: with-checks emit low-allocation-json @identity fixed=%current:target_id:0:2
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @identity(%condition: reg<test.i32>, %seed: reg<test.i32 x2>) -> (reg<test.i32 x2>) asm {
+  low.br ^loop(%seed: reg<test.i32 x2>)
+^loop(%current: reg<test.i32 x2>):
+  %alias = low.assume %current [range(%current, 0, 1024)] : reg<test.i32 x2>
+  %first = slice %alias[0] : reg<test.i32 x2> -> reg<test.i32>
+  %forwarded = copy %first : reg<test.i32> -> reg<test.i32>
+  %second = slice %current[1] : reg<test.i32 x2> -> reg<test.i32>
+  %same = concat(%forwarded, %second) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  low.cond_br %condition, ^back, ^exit : reg<test.i32>
+^back:
+  low.br ^loop(%same: reg<test.i32 x2>)
+^exit:
+  return %current
+}
+
+// ----
+CHECK: *"name":"same","type":"reg<test.i32 x2>"*,"location":{"kind":"target_id","base":0,"count":2}*
+CHECK: *"coalesced_copy_count":1,"materialized_copy_count":0,*
+
+// ====
+// Nonconsecutive physical-register IDs preserve the same unit identities.
+// RUN: with-checks emit low-allocation-json @explicit_identity fixed=%current:physical_register:5:2
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @explicit_identity(%condition: reg<test.i32>, %seed: reg<test.explicit32 x2>) -> (reg<test.explicit32 x2>) asm {
+  low.br ^loop(%seed: reg<test.explicit32 x2>)
+^loop(%current: reg<test.explicit32 x2>):
+  %alias = low.assume %current [range(%current, 0, 1024)] : reg<test.explicit32 x2>
+  %first = slice %alias[0] : reg<test.explicit32 x2> -> reg<test.explicit32>
+  %second = slice %current[1] : reg<test.explicit32 x2> -> reg<test.explicit32>
+  %same = concat(%first, %second) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  low.cond_br %condition, ^back, ^exit : reg<test.i32>
+^back:
+  low.br ^loop(%same: reg<test.explicit32 x2>)
+^exit:
+  return %current
+}
+
+// ----
+CHECK: *"name":"same","type":"reg<test.explicit32 x2>"*,"location":{"kind":"physical_register","base":5,"count":2}*
+
+// ====
+// A permutation must preserve the original header until the exit decision.
+// RUN: with-checks emit low-allocation-json @permuted fixed=%current:target_id:0:2
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @permuted(%condition: reg<test.i32>, %seed: reg<test.i32 x2>) -> (reg<test.i32 x2>) asm {
+  low.br ^loop(%seed: reg<test.i32 x2>)
+^loop(%current: reg<test.i32 x2>):
+  %first = slice %current[0] : reg<test.i32 x2> -> reg<test.i32>
+  %second = slice %current[1] : reg<test.i32 x2> -> reg<test.i32>
+  %swapped = concat(%second, %first) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  low.cond_br %condition, ^back, ^exit : reg<test.i32>
+^back:
+  low.br ^loop(%swapped: reg<test.i32 x2>)
+^exit:
+  return %current
+}
+
+// ----
+CHECK: *"name":"swapped","type":"reg<test.i32 x2>"*,"location":{"kind":"target_id","base":3,"count":2}*
+
+// ====
+// Preserving one unit does not establish identity for the whole edge.
+// RUN: with-checks emit low-allocation-json @partial fixed=%current:target_id:0:2
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @partial(%condition: reg<test.i32>, %seed: reg<test.i32 x2>) -> (reg<test.i32 x2>) asm {
+  low.br ^loop(%seed: reg<test.i32 x2>)
+^loop(%current: reg<test.i32 x2>):
+  %first = slice %current[0] : reg<test.i32 x2> -> reg<test.i32>
+  %repeated = concat(%first, %first) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
+  low.cond_br %condition, ^back, ^exit : reg<test.i32>
+^back:
+  low.br ^loop(%repeated: reg<test.i32 x2>)
+^exit:
+  return %current
+}
+
+// ----
+CHECK: *"name":"repeated","type":"reg<test.i32 x2>"*,"location":{"kind":"target_id","base":3,"count":2}*
+
+// ====
+// Required storage ties write new bits and cannot inherit copy identity.
+// RUN: with-checks emit low-allocation-json @destructive fixed=%current:target_id:0:4
+
+test.target<low_core> @target
+
+low.func.def schedule(locked) target<test.low.core>(@target) @destructive(%condition: reg<test.i32>, %seed: reg<test.i32 x4>) -> (reg<test.i32 x4>) asm {
+  low.br ^loop(%seed: reg<test.i32 x4>)
+^loop(%current: reg<test.i32 x4>):
+  %copied = copy %current : reg<test.i32 x4> -> reg<test.i32 x4>
+  %changed = test.early_tied.v4i32 %copied
+  %first = slice %changed[0] : reg<test.i32 x4> -> reg<test.i32 x2>
+  %second = slice %changed[2] : reg<test.i32 x4> -> reg<test.i32 x2>
+  %reassembled = concat(%first, %second) : (reg<test.i32 x2>, reg<test.i32 x2>) -> reg<test.i32 x4>
+  low.cond_br %condition, ^back, ^exit : reg<test.i32>
+^back:
+  low.br ^loop(%reassembled: reg<test.i32 x4>)
+^exit:
+  return %current
+}
+
+// ----
+CHECK: *"name":"reassembled","type":"reg<test.i32 x4>"*,"location":{"kind":"target_id","base":5,"count":4}*
+CHECK: *"coalesced_copy_count":0,"materialized_copy_count":1,*

@@ -8,24 +8,6 @@
 
 #include "loom/ops/low/ops.h"
 
-bool loom_low_allocation_move_topology_concat_requires_packet_materialization_for_module(
-    const loom_module_t* module, const loom_op_t* op) {
-  IREE_ASSERT_ARGUMENT(module);
-  IREE_ASSERT_ARGUMENT(op);
-  if (!loom_low_concat_isa(op)) {
-    return true;
-  }
-  const loom_value_t* result =
-      loom_module_value(module, loom_low_concat_result(op));
-  const loom_use_t* use = NULL;
-  loom_value_for_each_use(result, use) {
-    if (!loom_low_br_isa(loom_use_user_op(*use))) {
-      return true;
-    }
-  }
-  return false;
-}
-
 loom_low_allocation_packet_move_op_kind_t
 loom_low_allocation_move_topology_packet_move_op_kind(const loom_op_t* op) {
   IREE_ASSERT_ARGUMENT(op);

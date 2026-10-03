@@ -571,8 +571,9 @@ def emit_source_for_views(
                 ".register_part_id = " + ("LOOM_LOW_REGISTER_PART_NONE" if register_part_id is None else str(register_part_id)) + ",",
                 f".flags = {c_spelling.flag_expr(flags)},",
                 f".unit_alignment_log2 = {unit_alignment_log2},",
+                f".late_read_subgroup_size = {late_read_subgroup_size},",
             ]
-            for reg_class_id, register_part_id, flags, unit_alignment_log2 in compiled.reg_class_alts
+            for reg_class_id, register_part_id, flags, unit_alignment_log2, late_read_subgroup_size in compiled.reg_class_alts
         ],
     )
     _emit_array(

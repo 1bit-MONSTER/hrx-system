@@ -23,11 +23,13 @@ class LowAllocationIntervalAssignmentTest : public ::testing::Test {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(),
                                      &block_pool_);
     iree_arena_initialize(&block_pool_, &arena_);
+    iree_arena_initialize(&block_pool_, &decision_arena_);
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
 
   void TearDown() override {
+    iree_arena_deinitialize(&decision_arena_);
     iree_arena_deinitialize(&arena_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&block_pool_);
@@ -48,8 +50,13 @@ class LowAllocationIntervalAssignmentTest : public ::testing::Test {
     return value_id;
   }
 
+  // Shared pool for published results and allocation decision storage.
   iree_arena_block_pool_t block_pool_;
+  // Owns prerequisite analyses and published assignment tables.
   iree_arena_allocator_t arena_;
+  // Owns allocation decisions and checkpoint-scoped assignment scratch.
+  iree_arena_allocator_t decision_arena_;
+  // Context for the module-local value domain.
   loom_context_t context_;
 };
 
@@ -154,10 +161,19 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.arena=*/&arena_,
   };
   loom_low_allocation_interval_assignment_result_t result = {};
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  // The enclosing allocator may retain facts in the scratch arena's prefix.
+  uint32_t* retained_fact = nullptr;
+  IREE_ASSERT_OK(iree_arena_allocate(&decision_arena_, sizeof(*retained_fact),
+                                     (void**)&retained_fact));
+  *retained_fact = 42;
+  const iree_host_size_t decision_bytes = decision_arena_.used_allocation_size;
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
+  EXPECT_EQ(decision_arena_.used_allocation_size, decision_bytes);
+  EXPECT_EQ(*retained_fact, 42u);
 
   // The returned tables remain valid after assignment scratch is reclaimed.
+  iree_arena_reset(&decision_arena_);
   iree_arena_block_pool_trim(&block_pool_);
   ASSERT_EQ(result.assignment_count, 1u);
   ASSERT_NE(result.assignments, nullptr);
@@ -371,8 +387,8 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.arena=*/&arena_,
   };
   loom_low_allocation_interval_assignment_result_t result = {};
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
 
   ASSERT_EQ(result.assignment_count, 3u);
   EXPECT_FALSE(result.has_packable_aggregates);
@@ -390,8 +406,8 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       IREE_ARRAYSIZE(view_ordinals);
   descriptor_set.physical_register_view_count =
       IREE_ARRAYSIZE(physical_register_views);
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
   ASSERT_EQ(result.assignment_count, 3u);
   EXPECT_EQ(result.assignments[0].location_base, 1u);
   EXPECT_EQ(result.assignments[1].location_base, 0u);
@@ -556,8 +572,8 @@ TEST_F(LowAllocationIntervalAssignmentTest,
       /*.arena=*/&arena_,
   };
   loom_low_allocation_interval_assignment_result_t result = {};
-  IREE_ASSERT_OK(
-      loom_low_allocation_interval_assignment_build(&context, &result));
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &context, &decision_arena_, &result));
 
   ASSERT_EQ(result.assignment_count, 2u);
   EXPECT_EQ(result.assignment_indices_by_value_ordinal[0], 0u);

@@ -49,9 +49,11 @@ class DestructiveReuseTest : public ::testing::Test {
   void SetUp() override {
     iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool_);
     iree_arena_initialize(&pool_, &arena_);
+    iree_arena_initialize(&pool_, &decision_arena_);
   }
 
   void TearDown() override {
+    iree_arena_deinitialize(&decision_arena_);
     iree_arena_deinitialize(&arena_);
     iree_arena_block_pool_deinitialize(&pool_);
   }
@@ -124,6 +126,7 @@ class DestructiveReuseTest : public ::testing::Test {
         {0, 1}, {1, 1}, {2, 2}, {4, 0}, {4, 0}};
     const loom_value_ordinal_t storage_order[] = {1, 0, 2, 3, 4};
     const loom_value_ordinal_t tied_origins[] = {2, 2, 2, 3, 4};
+    const uint32_t write_relations[] = {1};
     loom_low_placement_table_t placement = {};
     placement.relations = relations_;
     placement.relation_count = IREE_ARRAYSIZE(relations_);
@@ -132,16 +135,21 @@ class DestructiveReuseTest : public ::testing::Test {
     placement.storage_value_order = storage_order;
     placement.storage_value_order_count = IREE_ARRAYSIZE(storage_order);
     placement.tied_storage_origins_by_value_ordinal = tied_origins;
+    placement.storage = {write_relations, IREE_ARRAYSIZE(write_relations),
+                         LOOM_LOW_PLACEMENT_STORAGE_FLAG_OPTIONAL_ALIASES |
+                             LOOM_LOW_PLACEMENT_STORAGE_FLAG_IDENTITY_ALIASES};
     IREE_ASSERT_OK(loom_low_allocation_unit_liveness_retain_tied_storage(
-        &units, &liveness, &placement, &arena_));
+        &units, &liveness, &placement, &arena_, &decision_arena_));
     IREE_ASSERT_OK(loom_low_allocation_refine_destructive_reuse(
         &units, &liveness, &placement, &arena_));
   }
 
   // Owns scratch blocks reused by each refinement.
   iree_arena_block_pool_t pool_;
-  // Supplies temporary analysis storage.
+  // Owns physical segment arrays and refinement scratch.
   iree_arena_allocator_t arena_;
+  // Owns query metadata used only while making allocation decisions.
+  iree_arena_allocator_t decision_arena_;
   // Retains permissions for the identity, write, and two borrowed words.
   loom_low_placement_relation_t relations_[4];
 };
@@ -221,6 +229,7 @@ TEST_F(DestructiveReuseTest, PreservesRequiredTiedFamilyObservations) {
       {0, 1}, {1, 1}, {2, 0}, {2, 1}};
   const loom_value_ordinal_t storage_order[] = {1, 3, 0, 2};
   const loom_value_ordinal_t tied_origins[] = {0, 0, 2, 2};
+  const uint32_t write_relations[] = {1};
   loom_low_placement_table_t placement = {};
   placement.relations = relations;
   placement.relation_count = IREE_ARRAYSIZE(relations);
@@ -229,9 +238,12 @@ TEST_F(DestructiveReuseTest, PreservesRequiredTiedFamilyObservations) {
   placement.storage_value_order = storage_order;
   placement.storage_value_order_count = IREE_ARRAYSIZE(storage_order);
   placement.tied_storage_origins_by_value_ordinal = tied_origins;
+  placement.storage = {write_relations, IREE_ARRAYSIZE(write_relations),
+                       LOOM_LOW_PLACEMENT_STORAGE_FLAG_OPTIONAL_ALIASES |
+                           LOOM_LOW_PLACEMENT_STORAGE_FLAG_IDENTITY_ALIASES};
 
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_retain_tied_storage(
-      &units, &liveness, &placement, &arena_));
+      &units, &liveness, &placement, &arena_, &decision_arena_));
   IREE_ASSERT_OK(loom_low_allocation_refine_destructive_reuse(
       &units, &liveness, &placement, &arena_));
   EXPECT_FALSE(loom_low_placement_relation_can_alias(&relations[0]));
@@ -286,6 +298,7 @@ TEST_F(DestructiveReuseTest, PreservesMappedResultUnitAcrossSourceWrite) {
       {0, 0}, {0, 1}, {1, 1}, {2, 1}};
   const loom_value_ordinal_t storage_order[] = {2, 3, 1, 0};
   const loom_value_ordinal_t tied_origins[] = {0, 1, 0, 1};
+  const uint32_t write_relations[] = {1};
   loom_low_placement_table_t placement = {};
   placement.relations = relations;
   placement.relation_count = IREE_ARRAYSIZE(relations);
@@ -294,9 +307,12 @@ TEST_F(DestructiveReuseTest, PreservesMappedResultUnitAcrossSourceWrite) {
   placement.storage_value_order = storage_order;
   placement.storage_value_order_count = IREE_ARRAYSIZE(storage_order);
   placement.tied_storage_origins_by_value_ordinal = tied_origins;
+  placement.storage = {write_relations, IREE_ARRAYSIZE(write_relations),
+                       LOOM_LOW_PLACEMENT_STORAGE_FLAG_OPTIONAL_ALIASES |
+                           LOOM_LOW_PLACEMENT_STORAGE_FLAG_IDENTITY_ALIASES};
 
   IREE_ASSERT_OK(loom_low_allocation_unit_liveness_retain_tied_storage(
-      &units, &liveness, &placement, &arena_));
+      &units, &liveness, &placement, &arena_, &decision_arena_));
   IREE_ASSERT_OK(loom_low_allocation_refine_destructive_reuse(
       &units, &liveness, &placement, &arena_));
   EXPECT_FALSE(loom_low_placement_relation_can_alias(&relations[0]));

@@ -76,8 +76,13 @@ struct loom_low_schedule_pressure_state_t {
   loom_value_ordinal_t* candidate_operand_ordinals;
   // Scratch live-unit delta by descriptor register-class ID.
   int64_t* candidate_delta_units_by_reg_class;
-  // Units created during the Early phase by descriptor register-class ID.
-  uint64_t* candidate_early_added_units_by_reg_class;
+  // Candidate instruction-phase overlap, indexed by descriptor register class.
+  struct {
+    // Result storage created before ordinary input reads complete.
+    uint64_t* early_added_units;
+    // Dying input units retained through result writes.
+    uint64_t* late_released_units;
+  } candidate_lifetime;
   // Downstream headroom reserved by the current candidate, indexed by
   // register-packing resource.
   uint32_t* candidate_register_packing_activation_units;
@@ -189,8 +194,10 @@ static inline void loom_low_schedule_reset_candidate_operand_uses(
         pressure_state->candidate_operand_ordinals[i];
     pressure_state->candidate_operand_use_counts[value_ordinal] = 0;
     pressure_state->candidate_scratch_counts[value_ordinal] = 0;
+    state->values[value_ordinal].candidate_transferred_units = 0;
     state->values[value_ordinal].flags &=
-        ~LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_ALIAS_CLAIM;
+        ~(LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_ALIAS_CLAIM |
+          LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_LATE_READ);
   }
   pressure_state->candidate_operand_count = 0;
 }

@@ -163,7 +163,7 @@ def _explicit_components_admit_placement(
                 is_early_clobber=operand_index in early_clobber_results,
             )
             reads_pre |= operand_reads_pre
-            writes_post |= operand_writes_post
+            writes_post |= operand_writes_post or any(alternative.late_read_subgroup_size is not None for alternative in operand.reg_alts)
         if domain is None:
             continue
         if not domain:
@@ -561,6 +561,7 @@ def validate_physical_descriptor_set(
             legal_resource_keys: set[str] | None = None
             pre_width = 0
             post_width = 0
+            late_widths: dict[str, int] = {}
             for operand_index, operand, physical_classes in component_rows:
                 operand_resource_keys = {_physical_resource_key(register_class) for register_class in physical_classes}
                 if legal_resource_keys is None:
@@ -575,16 +576,24 @@ def validate_physical_descriptor_set(
                     pre_width = max(pre_width, operand.unit_count)
                 if writes_post:
                     post_width = max(post_width, operand.unit_count)
+                physical_class_names = {register_class.name for register_class in physical_classes}
+                for alternative in operand.reg_alts:
+                    if alternative.late_read_subgroup_size is not None and alternative.reg_class in physical_class_names:
+                        resource_key = _physical_resource_key(register_classes[alternative.reg_class])
+                        late_widths[resource_key] = max(late_widths.get(resource_key, 0), operand.unit_count)
             if not legal_resource_keys:
                 operand_names = ", ".join(operand.field_name for _, operand, _ in component_rows)
                 raise ValueError(f"descriptor set '{descriptor_set.key}' descriptor '{descriptor.key}' tied physical component [{operand_names}] has no common storage resource")
-            components.append(
+            # Each bank sees only the timing of its selected alternatives. The
+            # envelope covers every execution width supported by the descriptor.
+            components.extend(
                 _PhysicalComponent(
                     operand_indices=tuple(operand_index for operand_index, _, _ in component_rows),
-                    resource_keys=frozenset(legal_resource_keys),
+                    resource_keys=frozenset((resource_key,)),
                     pre_width=pre_width,
-                    post_width=post_width,
+                    post_width=max(post_width, late_widths.get(resource_key, 0)),
                 )
+                for resource_key in sorted(legal_resource_keys)
             )
 
         _validate_physical_metric(
