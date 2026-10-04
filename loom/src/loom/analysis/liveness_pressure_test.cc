@@ -21,17 +21,35 @@ namespace {
 
 class LivenessPressureTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool_);
+  static iree_status_t Allocate(void* self, iree_allocator_command_t command,
+                                const void* parameters, void** pointer) {
+    auto* test = static_cast<LivenessPressureTest*>(self);
+    if (command != IREE_ALLOCATOR_COMMAND_FREE &&
+        test->allocation_count_++ == test->failure_index_) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "injected pressure allocation failure");
+    }
+    const auto allocator = iree_allocator_system();
+    return allocator.ctl(allocator.self, command, parameters, pointer);
+  }
+
+  void InitializeStorage(iree_host_size_t block_size = 4096) {
+    allocation_count_ = 0;
+    failure_index_ = SIZE_MAX;
+    iree_arena_block_pool_initialize(block_size, {this, Allocate}, &pool_);
     iree_arena_initialize(&pool_, &scratch_);
     iree_arena_initialize(&pool_, &result_);
   }
 
-  void TearDown() override {
+  void DeinitializeStorage() {
     iree_arena_deinitialize(&result_);
     iree_arena_deinitialize(&scratch_);
     iree_arena_block_pool_deinitialize(&pool_);
   }
+
+  void SetUp() override { InitializeStorage(); }
+
+  void TearDown() override { DeinitializeStorage(); }
 
   static loom_liveness_value_class_t RegisterClass() {
     loom_liveness_value_class_t result = {};
@@ -179,6 +197,20 @@ class LivenessPressureTest : public ::testing::Test {
     }
   }
 
+  void AddDensePressureValues() {
+    blocks_[0].block = &block_storage_[0];
+    blocks_[0].start_point = 0;
+    blocks_[0].end_point = 3998;
+    blocks_[1].block = &block_storage_[1];
+    blocks_[1].start_point = 3999;
+    blocks_[1].end_point = 3999;
+    // Four thousand point/class cells equal the four thousand endpoints,
+    // selecting the dense sweep exactly at its admission boundary.
+    for (uint32_t i = 0; i < 2000; ++i) {
+      AddValue(3 * i, RegisterClass(), 1 + i % 4, {{0, 3999}});
+    }
+  }
+
   // Storage shared by scratch and result arenas.
   iree_arena_block_pool_t pool_;
   // Transient pressure computation storage.
@@ -199,6 +231,10 @@ class LivenessPressureTest : public ::testing::Test {
   std::vector<loom_liveness_segment_range_t> ranges_;
   // Increasing, disjoint segments for each value.
   std::vector<loom_liveness_segment_t> segments_;
+  // Attempted backing allocations, excluding frees.
+  iree_host_size_t allocation_count_ = 0;
+  // Allocation selected for injected failure, or SIZE_MAX.
+  iree_host_size_t failure_index_ = SIZE_MAX;
 };
 
 TEST_F(LivenessPressureTest, EmptyRangesNeedNoStorage) {
@@ -312,6 +348,50 @@ TEST_F(LivenessPressureTest, ChecksLiveWidthAfterSimultaneousEndpoints) {
       IREE_STATUS_OUT_OF_RANGE,
       loom_liveness_compute_segment_pressure(&analysis, &scratch_, &result_,
                                              &summaries, &count));
+}
+
+TEST_F(LivenessPressureTest, DenseColumnsReusePoolBlocks) {
+  AddDensePressureValues();
+  DeinitializeStorage();
+  InitializeStorage(32 * 1024);
+  ASSERT_NO_FATAL_FAILURE(CheckReference());
+  const auto allocation_count = allocation_count_;
+  for (int epoch = 0; epoch < 3; ++epoch) {
+    SCOPED_TRACE(epoch);
+    ASSERT_NO_FATAL_FAILURE(CheckReference());
+    iree_arena_block_pool_statistics_t statistics = {};
+    iree_arena_block_pool_query_statistics(&pool_, &statistics);
+    EXPECT_EQ(statistics.oversized_allocation_count, 0u);
+    EXPECT_EQ(allocation_count_, allocation_count);
+  }
+}
+
+TEST_F(LivenessPressureTest, BackingFailureLeavesNoPublishedPressure) {
+  AddDensePressureValues();
+  DeinitializeStorage();
+  InitializeStorage(32 * 1024);
+  ASSERT_NO_FATAL_FAILURE(CheckReference());
+  const auto allocation_count = allocation_count_;
+  ASSERT_GT(allocation_count, 1u);
+  const auto analysis = Analysis();
+  for (iree_host_size_t i = 0; i < allocation_count; ++i) {
+    SCOPED_TRACE(i);
+    DeinitializeStorage();
+    InitializeStorage(32 * 1024);
+    failure_index_ = i;
+    const loom_liveness_pressure_summary_t unpublished = {};
+    const loom_liveness_pressure_summary_t* summaries = &unpublished;
+    iree_host_size_t count = 1;
+    IREE_ASSERT_STATUS_IS(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        loom_liveness_compute_segment_pressure(&analysis, &scratch_, &result_,
+                                               &summaries, &count));
+    EXPECT_EQ(allocation_count_, i + 1);
+    EXPECT_EQ(summaries, nullptr);
+    EXPECT_EQ(count, 0u);
+    failure_index_ = SIZE_MAX;
+    ASSERT_NO_FATAL_FAILURE(CheckReference());
+  }
 }
 
 }  // namespace
