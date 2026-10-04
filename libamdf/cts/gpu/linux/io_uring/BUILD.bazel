@@ -1,0 +1,32 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
+
+package(
+    default_visibility = ["//visibility:private"],
+    features = ["layering_check"],
+    licenses = ["notice"],  # Apache 2.0
+)
+
+exports_files(["README.md"])
+
+amdf_cts_test_suite(
+    name = "file_io",
+    srcs = ["file_io_test.cc"],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//libamdf/cts/gpu/kernels:file_exchange",
+        "//libamdf/cts/gpu/kernels:file_exchange_kernels",
+        "//libamdf/cts/gpu/pm4:dispatch_fixture",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//third_party:google_test",
+    ],
+)

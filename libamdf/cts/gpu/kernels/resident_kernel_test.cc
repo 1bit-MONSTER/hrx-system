@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "libamdf/cts/gpu/kernels/file_exchange.h"
+#include "libamdf/cts/gpu/kernels/file_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/product_test.h"
 #include "libamdf/cts/gpu/kernels/resident_channels.h"
 #include "libamdf/cts/gpu/kernels/resident_channels_kernels.h"
@@ -39,6 +41,15 @@ void CheckResidentProducts(const kernels::KernelSet& products,
     EXPECT_EQ(kernel.program.argument_preload, 0u);
     EXPECT_EQ(kernel.program.resource2 & 0x1fffu, 4u);
   }
+}
+
+TEST(KernelTest, FileExchangeProductsPreserveTheCallerContract) {
+  namespace protocol = kernels::file_exchange;
+  CheckResidentProducts(
+      protocol::kKernels, protocol::kArgumentByteOffsets,
+      protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
+      sizeof(protocol::Arguments), sizeof(protocol::Arguments),
+      alignof(protocol::Arguments));
 }
 
 TEST(KernelTest, ResidentExchangeProductsPreserveTheCallerContract) {

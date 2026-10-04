@@ -30,6 +30,14 @@ allocation addresses directly. The caller checks the required wave32,
 kernarg-pointer, group-X and local-X initial-register contract, with no
 private or group storage. [PM4 dispatch contract](../../../../docs/reference/amd/gpu/pm4/dispatch.md)
 
+[file_exchange.loom](file_exchange.loom) owns an initially empty Linux io_uring
+SQ/CQ for one finite invocation. It reads a response-selected file block,
+transforms its words, writes another block, and reloads that block into a
+different payload window. The [native file I/O cases](../linux/io_uring/README.md)
+check complete transcripts, payload guards, native error results and final
+file contents. The kernel uses system release/acquire for intermediate ring
+and payload handoffs; its outer PM4 stream owns startup and final completion.
+
 The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) selects
 the same transform set by physical endpoint identity and uses the selected
 resources unchanged through USER or KERNEL PM4

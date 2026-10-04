@@ -26,6 +26,7 @@ identity, independent observation and checked retirement.
 | Bounded CPU/GPU streaming and closure | [PM4/SDMA host streams](recipes/pm4_sdma_streaming_test.cc) | Reusable payload and command storage, source/readback acknowledgments, retained outputs, 32-bit control-token boundaries, and exact per-slot/native retirement. Closure preserves pending accepted ingress and distinguishes unused preparation from submitted work. |
 | Physical peer construction and SDMA | [joint memory](peer/memory_group_test.cc), [SYSTEM round trips](peer/sdma_system_test.cc) | Explicit endpoint selection, joint attachment, changing bidirectional device-driven payloads and complete backing/command checks before retirement. |
 | Physical peer AQL | [native signals and peer-local memory](peer/aql/local_memory_test.cc) | Both signal directions, both LOCAL memory owners and producers, queried SYSTEM scopes, consumer-first dependency, changing transforms and complete output before independent joins. |
+| GPU initiated file transfers | [Linux io_uring](linux/io_uring/README.md) | GPU-owned SQ/CQ, causal buffered/direct read-transform-write-reload, short reads/EOF, native errors, complete payloads and guards, ring reuse and checked retirement. One request is outstanding; this is not an overlap or durability witness. |
 | CPU/NPU execution | [CPU/XDNA recipes](../xdna/recipes/README.md) | Allocated/registered backing, queried host publication/acquisition, changed arithmetic outputs, full guards and native retirement. |
 | Finite GPU/NPU execution | [GPU/XDNA recipes](../interop/gpu/xdna/recipes/README.md#finite-recipes) | GPU transfers or shaders produce NPU inputs and consume its output; native phases are joined on the host without intermediate CPU payload access. |
 | Resident GPU/NPU execution | [resident recipes](../interop/gpu/xdna/recipes/README.md#resident-exchange) | Both dataflow initiators, one/two credits, independently progressing workers, complete per-generation transcripts, backing/payload layouts, startup abort and final drain. The host does not relay intermediate work. |
@@ -111,6 +112,7 @@ Ordinary GPU corpora have the following process-lifetime test targets. Appending
 | Single-GPU recipes | `//libamdf/cts/gpu/recipes:recipes_dynamic` |
 | Peer construction and SDMA | `//libamdf/cts/gpu/peer:peer_dynamic` |
 | Peer AQL | `//libamdf/cts/gpu/peer/aql:aql_dynamic` |
+| Linux GPU file transfers | `//libamdf/cts/gpu/linux/io_uring:file_io_dynamic` |
 | CPU/NPU recipes | `//libamdf/cts/xdna/recipes:execution_dynamic` |
 | GPU/NPU recipes | `//libamdf/cts/interop/gpu/xdna/recipes:execution_dynamic` |
 

@@ -70,6 +70,7 @@ PACKAGE_POLICIES = [
         packages = [
             "libamdf/cts/gpu/aql",
             "libamdf/cts/gpu/kernels",
+            "libamdf/cts/gpu/linux/io_uring",
             "libamdf/cts/gpu/peer/aql",
             "libamdf/cts/gpu/pm4",
             "libamdf/cts/gpu/recipes",

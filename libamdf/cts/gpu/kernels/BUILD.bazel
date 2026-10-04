@@ -29,6 +29,7 @@ exports_files([
     "completed_tick_rdna4_gfx125x.loom",
     "completed_tick_rdna4_gfx1251.loom",
     "completed_tick_rdna4_gfx1250_a0.loom",
+    "file_exchange.loom",
     "geometry_ids.loom",
     "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
@@ -55,7 +56,7 @@ _KERNEL_TARGETS = sorted([
     if not target.endswith("-generic")
 ])
 
-# Resident GPU/XDNA programs are submitted through the RDNA PM4 path.
+# Resident exchange programs are submitted through the RDNA PM4 path.
 _RDNA_KERNEL_TARGETS = [target for target in _KERNEL_TARGETS if not target.startswith("gfx9")]
 
 _KERNEL_TARGETS_BY_CAPABILITY = {
@@ -176,6 +177,20 @@ amdf_cts_gpu_kernel_set(
     targets = _RDNA_KERNEL_TARGETS,
 )
 
+amdf_cc_library(
+    name = "file_exchange",
+    testonly = True,
+    hdrs = ["file_exchange.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "file_exchange_kernels",
+    srcs = ["file_exchange.loom"],
+    entry_point = "file_exchange",
+    namespace = "kernels::file_exchange",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
 amdf_cts_gpu_kernel_set(
     name = "resident_channels_kernels",
     srcs = _COMPLETED_TICK_SRCS + ["resident_channels.loom"],
@@ -254,6 +269,8 @@ amdf_cc_library(
     srcs = ["resident_kernel_test.cc"],
     target_compatible_with = select(_RDNA_DESCRIPTOR_CONFIGS),
     deps = [
+        ":file_exchange",
+        ":file_exchange_kernels",
         ":product_test",
         ":resident_channels",
         ":resident_channels_kernels",
