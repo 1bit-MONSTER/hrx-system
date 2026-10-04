@@ -29,11 +29,6 @@ GLOBAL_TEST_TRIGGERS = (
     ".bazel_to_cmake.cfg.py",
     "requirements",
 )
-RESOURCE_TEST_TAG_FILTERS = (
-    "-iree-run-requirement=runtime.resource.amd_gpu",
-    "-iree-run-requirement=vulkan.resource.device",
-    "-iree-run-requirement=runtime.resource.webgpu_device",
-)
 BAZEL_TEST_EXCLUDES = (
     "-//runtime/src/iree/hal/drivers/task/executable/elf:elf_module_test",
 )
@@ -83,7 +78,6 @@ def bazel_test_command() -> list[str]:
         "test",
         "--config=presubmit",
         *project_presubmit.bazel_config_args(),
-        "--test_tag_filters=" + ",".join(RESOURCE_TEST_TAG_FILTERS),
         "--",
         "//runtime/...",
         *BAZEL_TEST_EXCLUDES,

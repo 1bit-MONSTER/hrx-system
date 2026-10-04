@@ -74,6 +74,7 @@ py_library(
         "smoke_test_lib.py",
         "source_lock.py",
     ],
+    data = ["tsan.supp"],
     deps = [
         ":command_line",
         ":run_requirements",
@@ -90,6 +91,7 @@ py_binary(
         "ci.py",
         "ci_config.py",
     ],
+    data = ["tsan.supp"],
     deps = [
         ":run_requirements",
         "//build_tools/ci:windows_diagnostics",

@@ -124,7 +124,11 @@ void CaptureDeviceEvent(void* user_data, const hrx_device_event_t* event) {
   capture->events.push_back(std::move(captured));
 }
 
-TEST(HipDeviceEventSinkTest, RedirectsBlockingPrintfAcrossRuntimeLifetimes) {
+// Requires device libraries using the stack/tag hostcall ABI; phase/occupancy
+// device libraries are incompatible with this provider. With a matching device
+// library, opt in using --gtest_also_run_disabled_tests.
+TEST(HipDeviceEventSinkTest,
+     DISABLED_RedirectsBlockingPrintfAcrossRuntimeLifetimes) {
   if (hrx_cts_amdgpu_hip_printf_test_kernels_size() == 0) {
     GTEST_SKIP() << "ROCm device libraries are unavailable";
   }

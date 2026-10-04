@@ -29,17 +29,14 @@ class RuntimePresubmitTest(unittest.TestCase):
     def setUpClass(cls):
         cls.presubmit = load_presubmit_module()
 
-    def test_bazel_tests_exclude_runtime_resource_requirements(self):
+    def test_bazel_tests_leave_resource_selection_to_execution_policy(self):
         command = self.presubmit.bazel_test_command()
 
         self.assertEqual(command[:3], ["bazel", "test", "--config=presubmit"])
         self.assertIn("--", command)
         self.assertIn("//runtime/...", command)
 
-        tag_filter = next(
-            arg for arg in command if arg.startswith("--test_tag_filters=")
-        )
-        self.assertIn("-iree-run-requirement=runtime.resource.amd_gpu", tag_filter)
+        self.assertFalse(any(arg.startswith("--test_tag_filters=") for arg in command))
         self.assertIn(
             "-//runtime/src/iree/hal/drivers/task/executable/elf:elf_module_test",
             command,

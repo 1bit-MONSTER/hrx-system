@@ -935,7 +935,10 @@ TEST(HipModuleExecutionTest,
   }
 }
 
-TEST(HipModuleExecutionTest, BlockingPrintfDirectAndGraphReplay) {
+// Requires device libraries using the stack/tag hostcall ABI; phase/occupancy
+// device libraries are incompatible with this provider. With a matching device
+// library, opt in using --gtest_also_run_disabled_tests.
+TEST(HipModuleExecutionTest, DISABLED_BlockingPrintfDirectAndGraphReplay) {
   if (hrx_cts_amdgpu_hip_printf_test_kernels_size() == 0) {
     GTEST_SKIP() << "ROCm device libraries are unavailable";
   }
