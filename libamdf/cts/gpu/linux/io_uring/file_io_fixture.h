@@ -11,17 +11,21 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/kernel.h"
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 enum class FileMode { kBuffered, kDirect };
-enum class FileIoPath { kDevice, kHostRelay };
+enum class FileIoPath { kDevice, kHostRelay, kHostWait };
+
+// Stable transport name used by correctness receipts and measured samples.
+const char* FileIoPathName(FileIoPath path);
 
 // Owns the Linux and GPU lifetimes of caller-supplied rings and I/O payloads.
-// The device path needs only cold setup and idle wakes. The host comparator
-// forwards identical SQEs/CQEs without touching payloads or dispatching work.
+// The device path needs only cold setup and idle wakes. The host comparators
+// forward identical SQEs/CQEs without touching payloads or dispatching work.
 class GpuFileIoFixture : public Pm4DispatchTest {
  protected:
   void SetUp() override;
@@ -33,7 +37,8 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // Creates and unlinks a private file; direct mode requires its native
   // contract.
   void CreateFile(const std::vector<uint32_t>& words, FileMode mode);
-  // Retains fixed file/buffer references and enables a restricted SQPOLL ring.
+  // Retains fixed file/buffer references and enables a restricted native ring.
+  // Host-wait rings have no SQPOLL thread; other paths use the poller.
   void CreateRing(GpuMemory* payload, FileIoPath path = FileIoPath::kDevice,
                   uint32_t idle_milliseconds = 1);
   // CPU address of a control word at a returned native ring offset.
@@ -43,6 +48,9 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // Advances the host comparator's request/completion handoffs, if selected.
   // One host owner calls this until the finite GPU owner completes.
   void RelayFileIo();
+  // Submits available requests and waits for one actual completion. Only the
+  // host consumes the native CQ, so its wait condition cannot be stolen.
+  void SubmitAndWait(uint64_t* enter_calls);
   // Runs one finite owner with the selected control service, then retires it.
   void Execute(const kernels::Kernel& kernel, GpuMemory* arguments,
                GpuMemory* completion, const char* property_prefix);
@@ -52,14 +60,21 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // Native page size used by registration, ring storage, guards and file
   // blocks.
   size_t page_byte_length_ = 0;
-  // Registered ring backing borrowed through queue-first base teardown.
-  GpuMemory* ring_memory_ = nullptr;
+  // One native ring and its optional host relay share an independent lifetime.
+  struct Ring {
+    // Registered native backing borrowed through queue-first base teardown.
+    GpuMemory* memory = nullptr;
+    // Separate GPU-facing control backing for either host comparator.
+    GpuMemory* relay_memory = nullptr;
+    // Native returned ring geometry and flags.
+    io_uring_params parameters = {};
+    // Owns native progress and fixed file/buffer references until teardown.
+    int file = -1;
+  };
+  // Active ring borrowed from rings_; changed only between retired dispatches.
+  Ring* ring_ = nullptr;
   // GPU-facing ring: native backing or a distinct host-relayed control ring.
   GpuMemory* device_ring_memory_ = nullptr;
-  // Native returned ring geometry and flags.
-  io_uring_params parameters_ = {};
-  // Ring descriptor owning the poller and registered file/buffer references.
-  int ring_file_ = -1;
   // Private unlinked regular file used by this case only.
   int data_file_ = -1;
 
@@ -72,6 +87,8 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   };
   // Caller mappings released only after both users relinquish their accesses.
   std::vector<CallerPages> caller_pages_;
+  // Independent native owners retained through all GPU queue retirement.
+  std::vector<std::unique_ptr<Ring>> rings_;
 };
 
 #endif  // AMDF_CTS_GPU_LINUX_IO_URING_FILE_IO_FIXTURE_H_

@@ -266,10 +266,19 @@ cover the same one-credit, concurrent, held-reader and failure families as the
 native path. This establishes a correctness baseline for isolating control
 handoff costs; ordinary CTS execution does not measure those costs.
 
+The `host_wait` comparator uses the same control relay without SQPOLL. Its
+single CPU owner [submits available requests and waits][enter] for one actual
+completion with `IORING_ENTER_GETEVENTS`. The native CQ belongs exclusively to
+that CPU: the GPU consumes the separate relayed CQ and cannot remove the native
+wait condition. Completion publication precedes the next host service delay.
+With no outstanding I/O the host still polls GPU admission; this path removes
+the kernel polling thread, not the need to observe new device requests.
+Both host paths cover the complete fifteen-case correctness family.
+
 ## Completion driven latency comparison
 
 [file_latency_test.cc](file_latency_test.cc) runs one through four causal streams
-with the same [GPU program](../../kernels/file_latency.loom) on both transports.
+with the same [GPU program](../../kernels/file_latency.loom) on all three transports.
 Each completion immediately admits its stream's successor. File keys depend on
 three words from the previous response; the host has no prepared request list.
 Read/write/reload cases write disjoint scattered output blocks and reload into
@@ -295,18 +304,24 @@ Ordinary CTS performs eight rounds per stream without printing performance
 samples. An optimized run sets `AMDF_IO_REPETITIONS` (1 through 31) and requires
 an existing `BENCHMARK_LOCK_LEASE_ID`. That environment value is a launch
 precondition, not proof of machine isolation; the runner's broker and host-health
-record supply that evidence. The same executable and library serve both paths.
-One warm-up pair precedes alternating A/B and B/A pairs. Both paths in a pair
-use the same seed, geometry and fixed consumer count. Fixed counts are 1024
+record supply that evidence. The same executable and library serve all paths.
+One warm-up triple precedes rotated and reversed three-path epochs; six epochs
+cover all transport-order permutations. Paths within an epoch use the same
+seed, geometry and fixed consumer count. Separate native rings retain their
+own backing and registrations across retired dispatches. Fixed counts are 1024
 dependent lookups, 256 consumers per independent stream or 64 KiB chain, eight
 4 MiB consumers per stream, and 128/64 sparse consumers respectively.
 
 `AMDF_IO_IDLE_MS` selects the native SQPOLL idle policy (default 1 millisecond).
 `AMDF_IO_SERVICE_US` selects a requested delay between host service passes;
-omitting it selects busy polling. Both transports use the same selected policy.
+omitting it selects busy polling between service calls. All transports use the
+same selected policy; `host_wait` additionally sleeps for actual I/O completion.
 Scheduling and timer slack can exceed a requested polling interval. Wake calls
-are coalesced by published SQ tail, and each sample begins with an observed
+are coalesced by published SQ tail, and SQPOLL samples begin with an observed
 sleeping poller. No policy value is a timeout on valid asynchronous work.
+`poller_idle_ms` identifies the shared comparison setting; `idle_ms` and
+`setup_flags` describe the actual ring, with zero idle time and no SQPOLL flag
+for `host_wait`.
 
 Each `AMDF_IO_SAMPLE` JSON line reports the following distinct intervals:
 
@@ -318,12 +333,16 @@ Each `AMDF_IO_SAMPLE` JSON line reports the following distinct intervals:
 | `host_cpu_ns` | The service thread's CPU time over the host interval. |
 | `sqpoll_cpu_us` | Kernel `SqTotalTime` delta sampled around that interval. |
 | `sqpoll_tail_cpu_us` | Additional poller CPU time through its observed return to sleep. |
+| `submit_wait_calls` | Non-SQPOLL submission/completion wait syscalls, including interrupted calls. |
+| `wake_calls` | SQPOLL wake syscalls, coalesced by the published tail. |
 
 Kernel accounting samples bracket rather than exactly coincide with the host
 interval. The two CPU owners do not double count one another, but their sum is
 not whole-machine CPU consumption: interrupt, worker and other kernel threads
 are not attributed by these counters. Poller tail cost is reported separately,
-not silently excluded from a resource-cost conclusion.
+not silently excluded from a resource-cost conclusion. The non-SQPOLL path has
+no poller, so both poller CPU counters are zero; its calling-thread kernel work
+is included in `host_cpu_ns`. None of these counters measures joules.
 
 Clock conversion uses `AMDGPU_INFO_DEV_INFO.gpu_counter_freq`, not GPU operating
 MHz or KFD's host-clock frequency. Every sample checks that its shader clock
@@ -331,7 +350,7 @@ interval fits inside enclosing `AMDGPU_INFO_TIMESTAMP` observations on the same
 native device. The interval must fit the shader's 32-bit counter width. The
 [clock reference](../../../../../docs/reference/amd/gpu/observability.md)
 describes those domains. Request timestamp and transcript overhead is shared
-by both paths; results characterize this instrumented native boundary, not a
+by all paths; results characterize this instrumented native boundary, not a
 complete serving engine or contention with independent compute workers.
 
 The runnable target is `:file_io_dynamic_bin`; the ordinary `:file_io_dynamic`
@@ -345,6 +364,7 @@ state and the exact policy settings; a successful CTS run alone is insufficient.
 
 [model]: https://github.com/axboe/liburing/blob/master/man/io_uring.7
 [setup]: https://github.com/axboe/liburing/blob/master/man/io_uring_setup.2
+[enter]: https://github.com/axboe/liburing/blob/master/man/io_uring_enter.2
 [sqpoll]: https://github.com/torvalds/linux/blob/master/io_uring/sqpoll.c
 [memmap]: https://github.com/torvalds/linux/blob/master/io_uring/memmap.c
 [iomap]: https://github.com/torvalds/linux/blob/master/fs/iomap/direct-io.c

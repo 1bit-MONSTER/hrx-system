@@ -102,6 +102,8 @@ struct Sample {
   uint64_t poller_tail_microseconds = 0;
   // Idle wake syscalls, coalesced by the published native tail.
   uint64_t wake_calls = 0;
+  // Ordinary submission/completion waits; this path has no SQPOLL thread.
+  uint64_t enter_calls = 0;
   // DRM GPU-clock samples enclosing the complete shader clock interval.
   uint64_t clock_before = 0;
   // DRM GPU-clock sample after final completion and queue retirement.
@@ -156,7 +158,11 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   }
 
   void PollerCpu(uint64_t* microseconds) {
-    std::ifstream stream("/proc/self/fdinfo/" + std::to_string(ring_file_));
+    if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
+      *microseconds = 0;
+      return;
+    }
+    std::ifstream stream("/proc/self/fdinfo/" + std::to_string(ring_->file));
     ASSERT_TRUE(stream.is_open());
     std::string line;
     bool found = false;
@@ -172,8 +178,10 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   }
 
   void WaitIdle() {
-    while (!(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.flags)) &
-             IORING_SQ_NEED_WAKEUP)) {
+    while (
+        (ring_->parameters.flags & IORING_SETUP_SQPOLL) &&
+        !(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
+          IORING_SQ_NEED_WAKEUP)) {
       std::this_thread::yield();
     }
   }
@@ -194,7 +202,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_before));
     ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_before));
     uint32_t wake_tail =
-        GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.tail));
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
     ASSERT_NO_FATAL_FAILURE(ThreadNanoseconds(&host_before));
     const uint64_t wall_before = WallNanoseconds();
     ASSERT_NO_FATAL_FAILURE(
@@ -204,11 +212,13 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     while (GpuLoadAcquire<uint32_t>(completion_address) != 1) {
       RelayFileIo();
       const uint32_t tail =
-          GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.tail));
-      if (tail != wake_tail &&
-          (GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.flags)) &
-           IORING_SQ_NEED_WAKEUP)) {
-        const long result = syscall(__NR_io_uring_enter, ring_file_, 0, 0,
+          GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
+      if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
+        ASSERT_NO_FATAL_FAILURE(SubmitAndWait(&sample->enter_calls));
+      } else if (tail != wake_tail && (GpuLoadAcquire<uint32_t>(RingWord(
+                                           ring_->parameters.sq_off.flags)) &
+                                       IORING_SQ_NEED_WAKEUP)) {
+        const long result = syscall(__NR_io_uring_enter, ring_->file, 0, 0,
                                     IORING_ENTER_SQ_WAKEUP, nullptr, 0);
         if (result < 0 && errno == EINTR) {
           continue;
@@ -243,6 +253,15 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_idle));
     ASSERT_GE(poller_idle, poller_after);
     sample->poller_tail_microseconds = poller_idle - poller_after;
+    if (ring_->parameters.flags & IORING_SETUP_SQPOLL) {
+      EXPECT_GT(sample->wake_calls, 0u);
+      EXPECT_EQ(sample->enter_calls, 0u);
+    } else {
+      EXPECT_GT(sample->enter_calls, 0u);
+      EXPECT_EQ(sample->wake_calls, 0u);
+      EXPECT_EQ(sample->poller_microseconds, 0u);
+      EXPECT_EQ(sample->poller_tail_microseconds, 0u);
+    }
   }
 
   void CheckEpoch(const Profile& profile, const protocol::Arguments& arguments,
@@ -257,14 +276,16 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_EQ(summary->completed, summary->submitted);
     const uint32_t position = arguments.initial_position + summary->submitted;
     for (const uint32_t offset :
-         {parameters_.sq_off.head, parameters_.sq_off.tail,
-          parameters_.cq_off.head, parameters_.cq_off.tail}) {
+         {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
+          ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
       ASSERT_EQ(GpuLoadAcquire<uint32_t>(RingWord(offset)), position);
     }
-    ASSERT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.dropped)),
-              0u);
-    ASSERT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.overflow)),
-              0u);
+    ASSERT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.dropped)),
+        0u);
+    ASSERT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.overflow)),
+        0u);
     ASSERT_GE(sample.clock_after, sample.clock_before);
     ASSERT_LT(sample.clock_after - sample.clock_before, UINT32_MAX);
     const uint32_t enclosing_ticks = sample.clock_after - sample.clock_before;
@@ -366,7 +387,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   }
 
   void PrintSample(const Profile& profile, const protocol::Arguments& arguments,
-                   FileIoPath path, uint32_t epoch, const Sample& sample,
+                   FileIoPath path, uint32_t epoch,
+                   uint32_t poller_idle_milliseconds, const Sample& sample,
                    GpuMemory* state, GpuMemory* records) {
     const auto* summary =
         static_cast<const protocol::Summary*>(state->host.pointer);
@@ -375,8 +397,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     const uint32_t count =
         profile.depth * arguments.round_count * profile.phases;
     std::ostringstream output;
-    output << "AMDF_IO_SAMPLE {\"path\":\""
-           << (path == FileIoPath::kDevice ? "device" : "host_relay")
+    output << "AMDF_IO_SAMPLE {\"path\":\"" << FileIoPathName(path)
            << "\",\"mode\":\""
            << (GetParam() == FileMode::kDirect ? "direct" : "buffered")
            << "\",\"epoch\":" << epoch << ",\"bytes\":" << profile.byte_length
@@ -384,7 +405,9 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
            << ",\"rounds\":" << arguments.round_count
            << ",\"gap_us\":" << profile.gap_microseconds
            << ",\"clock_khz\":" << frequency_khz_
-           << ",\"idle_ms\":" << parameters_.sq_thread_idle
+           << ",\"idle_ms\":" << ring_->parameters.sq_thread_idle
+           << ",\"poller_idle_ms\":" << poller_idle_milliseconds
+           << ",\"setup_flags\":" << ring_->parameters.flags
            << ",\"service_us\":" << service_microseconds_
            << ",\"seed\":" << arguments.seed
            << ",\"physical_requests\":" << summary->submitted
@@ -392,7 +415,9 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
            << ",\"host_cpu_ns\":" << sample.host_nanoseconds
            << ",\"sqpoll_cpu_us\":" << sample.poller_microseconds
            << ",\"sqpoll_tail_cpu_us\":" << sample.poller_tail_microseconds
-           << ",\"wake_calls\":" << sample.wake_calls << ",\"device_ticks\":"
+           << ",\"wake_calls\":" << sample.wake_calls
+           << ",\"submit_wait_calls\":" << sample.enter_calls
+           << ",\"device_ticks\":"
            << uint32_t(summary->end_tick - summary->begin_tick)
            << ",\"request_ticks\":[";
     for (uint32_t i = 0; i < count; ++i) {
@@ -419,8 +444,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
       ASSERT_EQ(summary->submitted, profile.depth);
     }
     for (const uint32_t offset :
-         {parameters_.sq_off.head, parameters_.sq_off.tail,
-          parameters_.cq_off.head, parameters_.cq_off.tail}) {
+         {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
+          ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
       ASSERT_EQ(GpuLoadAcquire<uint32_t>(RingWord(offset)),
                 values.initial_position + summary->submitted);
     }
@@ -511,7 +536,9 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
         2 * profile.depth * stride + page_byte_length_, kGuard, &payload));
     ASSERT_NO_FATAL_FAILURE(
         CreateRing(payload, FileIoPath::kHostRelay, idle_milliseconds));
-    GpuMemory* relay_ring = device_ring_memory_;
+    Ring* poll_ring = ring_;
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, FileIoPath::kHostWait));
+    Ring* wait_ring = ring_;
     ASSERT_NO_FATAL_FAILURE(CreateMemory(
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &state));
     ASSERT_NO_FATAL_FAILURE(
@@ -532,23 +559,29 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
                                            "file_latency"));
     // Each epoch owns a short finite command stream, outside timing. Release
     // after completion prevents live queue accumulation across repetitions.
+    constexpr std::array paths = {FileIoPath::kDevice, FileIoPath::kHostRelay,
+                                  FileIoPath::kHostWait};
     for (uint32_t epoch = 0; epoch <= repetitions; ++epoch) {
-      for (uint32_t order = 0; order < 2; ++order) {
-        const FileIoPath path = ((epoch + order) & 1) ? FileIoPath::kHostRelay
-                                                      : FileIoPath::kDevice;
+      for (uint32_t order = 0; order < paths.size(); ++order) {
+        // Rotate the starting transport and reverse direction every cycle.
+        // Six measured epochs cover all permutations of the three paths.
+        const uint32_t direction = ((epoch / paths.size()) & 1) ? 2 : 1;
+        const FileIoPath path =
+            paths[(epoch + direction * order) % paths.size()];
+        ring_ = path == FileIoPath::kHostWait ? wait_ring : poll_ring;
         device_ring_memory_ =
-            path == FileIoPath::kDevice ? ring_memory_ : relay_ring;
+            path == FileIoPath::kDevice ? ring_->memory : ring_->relay_memory;
         const uint32_t position =
-            GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.tail));
-        if (path == FileIoPath::kHostRelay) {
-          std::memset(relay_ring->host.pointer, 0,
-                      relay_ring->host.byte_length);
+            GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
+        if (path != FileIoPath::kDevice) {
+          std::memset(device_ring_memory_->host.pointer, 0,
+                      device_ring_memory_->host.byte_length);
           const uintptr_t control =
-              reinterpret_cast<uintptr_t>(relay_ring->host.pointer) +
+              reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer) +
               page_byte_length_;
           for (const uint32_t offset :
-               {parameters_.sq_off.head, parameters_.sq_off.tail,
-                parameters_.cq_off.head, parameters_.cq_off.tail}) {
+               {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
+                ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
             GpuStoreRelease<uint32_t>(control + offset, position);
           }
         }
@@ -562,17 +595,17 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
         std::memset(completion->host.pointer, 0, completion->host.byte_length);
         const protocol::Arguments values = {
             .submission_entries = device_ring_memory_->device_address,
-            .submission_tail = RingAddress(parameters_.sq_off.tail),
-            .completion_entries = RingAddress(parameters_.cq_off.cqes),
-            .completion_head = RingAddress(parameters_.cq_off.head),
-            .completion_tail = RingAddress(parameters_.cq_off.tail),
+            .submission_tail = RingAddress(ring_->parameters.sq_off.tail),
+            .completion_entries = RingAddress(ring_->parameters.cq_off.cqes),
+            .completion_head = RingAddress(ring_->parameters.cq_off.head),
+            .completion_tail = RingAddress(ring_->parameters.cq_off.tail),
             .payload = payload->device_address + page_byte_length_,
             .state = state->device_address,
             .records = records->device_address + kGuardWords * 4,
             .host_payload = reinterpret_cast<uintptr_t>(payload->host.pointer) +
                             page_byte_length_,
-            .submission_mask = parameters_.sq_entries - 1,
-            .completion_mask = parameters_.cq_entries - 1,
+            .submission_mask = ring_->parameters.sq_entries - 1,
+            .completion_mask = ring_->parameters.cq_entries - 1,
             .initial_position = position,
             .depth = profile.depth,
             .round_count = rounds,
@@ -609,7 +642,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
           ASSERT_EQ(fdatasync(data_file_), 0);
         }
         if (measurement && epoch != 0) {
-          PrintSample(profile, values, path, epoch, sample, state, records);
+          PrintSample(profile, values, path, epoch, idle_milliseconds, sample,
+                      state, records);
         }
       }
     }

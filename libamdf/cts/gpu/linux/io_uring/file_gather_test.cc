@@ -16,6 +16,7 @@
 #include <cstring>
 #include <limits>
 #include <span>
+#include <tuple>
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/file_gather_kernels.h"
@@ -205,18 +206,18 @@ class GpuFileGatherTest : public GpuFileIoFixture {
     std::memset(completion->host.pointer, 0, completion->host.byte_length);
     const protocol::Arguments device_arguments = {
         .submission_entries = device_ring_memory_->device_address,
-        .submission_tail = RingAddress(parameters_.sq_off.tail),
-        .completion_entries = RingAddress(parameters_.cq_off.cqes),
-        .completion_head = RingAddress(parameters_.cq_off.head),
-        .completion_tail = RingAddress(parameters_.cq_off.tail),
+        .submission_tail = RingAddress(ring_->parameters.sq_off.tail),
+        .completion_entries = RingAddress(ring_->parameters.cq_off.cqes),
+        .completion_head = RingAddress(ring_->parameters.cq_off.head),
+        .completion_tail = RingAddress(ring_->parameters.cq_off.tail),
         .payload = payload->device_address + page_byte_length_,
         .state = state->device_address + kGuardWords * sizeof(uint32_t),
         .records = records->device_address + kGuardWords * sizeof(uint32_t),
         .requests = requests->device_address + kGuardWords * sizeof(uint32_t),
         .host_payload = reinterpret_cast<uintptr_t>(payload->host.pointer) +
                         page_byte_length_,
-        .submission_mask = parameters_.sq_entries - 1,
-        .completion_mask = parameters_.cq_entries - 1,
+        .submission_mask = ring_->parameters.sq_entries - 1,
+        .completion_mask = ring_->parameters.cq_entries - 1,
         .peer_round_count = kPeerRounds,
         .word_count = word_count,
         .seed = kSeed,
@@ -511,25 +512,28 @@ class GpuFileGatherTest : public GpuFileIoFixture {
     EXPECT_EQ(std::memcmp(arguments->host.pointer, expected_arguments.data(),
                           expected_arguments.size()),
               0);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.head)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.head)),
               summary.submitted);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.tail)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail)),
               summary.submitted);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.head)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.head)),
               summary.completed);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.tail)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.tail)),
               summary.completed);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.dropped)),
-              0u);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.overflow)),
-              0u);
+    EXPECT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.dropped)),
+        0u);
+    EXPECT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.overflow)),
+        0u);
     const auto* native = reinterpret_cast<const io_uring_cqe*>(
-        RingWord(parameters_.cq_off.cqes));
-    for (uint32_t position = summary.completed > parameters_.cq_entries
-                                 ? summary.completed - parameters_.cq_entries
-                                 : 0;
+        RingWord(ring_->parameters.cq_off.cqes));
+    for (uint32_t position =
+             summary.completed > ring_->parameters.cq_entries
+                 ? summary.completed - ring_->parameters.cq_entries
+                 : 0;
          position < summary.completed; ++position) {
-      const auto& entry = native[position & (parameters_.cq_entries - 1)];
+      const auto& entry = native[position & (ring_->parameters.cq_entries - 1)];
       const uint32_t ticket = completion_tickets[position];
       ASSERT_NE(ticket, kAbsent);
       const auto& request = journal[ticket];
@@ -582,40 +586,52 @@ TEST_F(GpuFileGatherTest,
   Run(FileMode::kBuffered, 0, Fault::kNone, 4);
 }
 
-class GpuFileGatherRelayTest : public GpuFileGatherTest,
-                               public ::testing::WithParamInterface<uint32_t> {
-};
+class GpuFileGatherRelayTest
+    : public GpuFileGatherTest,
+      public ::testing::WithParamInterface<std::tuple<uint32_t, FileIoPath>> {};
 
 TEST_P(GpuFileGatherRelayTest, BufferedHeldReader) {
-  Run(FileMode::kBuffered, GetParam(), Fault::kNone, protocol::kRequestCapacity,
-      FileIoPath::kHostRelay);
+  Run(FileMode::kBuffered, std::get<0>(GetParam()), Fault::kNone,
+      protocol::kRequestCapacity, std::get<1>(GetParam()));
 }
 
 TEST_P(GpuFileGatherRelayTest, DirectHeldReader) {
-  Run(FileMode::kDirect, GetParam(), Fault::kNone, protocol::kRequestCapacity,
-      FileIoPath::kHostRelay);
+  Run(FileMode::kDirect, std::get<0>(GetParam()), Fault::kNone,
+      protocol::kRequestCapacity, std::get<1>(GetParam()));
 }
 
-INSTANTIATE_TEST_SUITE_P(AllSlots, GpuFileGatherRelayTest,
-                         ::testing::Values(0u, 1u, 2u));
+INSTANTIATE_TEST_SUITE_P(
+    AllSlots, GpuFileGatherRelayTest,
+    ::testing::Combine(::testing::Values(0u, 1u, 2u),
+                       ::testing::Values(FileIoPath::kHostRelay,
+                                         FileIoPath::kHostWait)));
 
 class GpuFileGatherRelayErrorTest
     : public GpuFileGatherTest,
-      public ::testing::WithParamInterface<Fault> {};
+      public ::testing::WithParamInterface<std::tuple<Fault, FileIoPath>> {};
 
 TEST_P(GpuFileGatherRelayErrorTest, StopsPublicationAndDrains) {
-  Run(FileMode::kBuffered, 1, GetParam(), protocol::kRequestCapacity,
-      FileIoPath::kHostRelay);
+  Run(FileMode::kBuffered, 1, std::get<0>(GetParam()),
+      protocol::kRequestCapacity, std::get<1>(GetParam()));
 }
 
-INSTANTIATE_TEST_SUITE_P(AllPhases, GpuFileGatherRelayErrorTest,
-                         ::testing::Values(Fault::kInvalidFile,
-                                           Fault::kInvalidWrite,
-                                           Fault::kInvalidReload,
-                                           Fault::kShortInput));
+INSTANTIATE_TEST_SUITE_P(
+    AllPhases, GpuFileGatherRelayErrorTest,
+    ::testing::Combine(
+        ::testing::Values(Fault::kInvalidFile, Fault::kInvalidWrite,
+                          Fault::kInvalidReload, Fault::kShortInput),
+        ::testing::Values(FileIoPath::kHostRelay, FileIoPath::kHostWait)));
 
-TEST_F(GpuFileGatherTest, HostRelayFullJournalDrainsAcceptedRequests) {
-  Run(FileMode::kBuffered, 0, Fault::kNone, 4, FileIoPath::kHostRelay);
+class GpuFileGatherRelayJournalTest
+    : public GpuFileGatherTest,
+      public ::testing::WithParamInterface<FileIoPath> {};
+
+TEST_P(GpuFileGatherRelayJournalTest, FullJournalDrainsAcceptedRequests) {
+  Run(FileMode::kBuffered, 0, Fault::kNone, 4, GetParam());
 }
+
+INSTANTIATE_TEST_SUITE_P(HostPaths, GpuFileGatherRelayJournalTest,
+                         ::testing::Values(FileIoPath::kHostRelay,
+                                           FileIoPath::kHostWait));
 
 }  // namespace

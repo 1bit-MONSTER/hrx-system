@@ -101,17 +101,17 @@ class GpuFileIoTest : public GpuFileIoFixture {
 
     const protocol::Arguments device_arguments = {
         .submission_entries = device_ring_memory_->device_address,
-        .submission_tail = RingAddress(parameters_.sq_off.tail),
-        .completion_entries = RingAddress(parameters_.cq_off.cqes),
-        .completion_head = RingAddress(parameters_.cq_off.head),
-        .completion_tail = RingAddress(parameters_.cq_off.tail),
+        .submission_tail = RingAddress(ring_->parameters.sq_off.tail),
+        .completion_entries = RingAddress(ring_->parameters.cq_off.cqes),
+        .completion_head = RingAddress(ring_->parameters.cq_off.head),
+        .completion_tail = RingAddress(ring_->parameters.cq_off.tail),
         .payload = payload->device_address + page_byte_length_,
         .records =
             records->device_address + kRecordGuardWords * sizeof(uint32_t),
         .host_payload = reinterpret_cast<uintptr_t>(payload->host.pointer) +
                         page_byte_length_,
-        .submission_mask = parameters_.sq_entries - 1,
-        .completion_mask = parameters_.cq_entries - 1,
+        .submission_mask = ring_->parameters.sq_entries - 1,
+        .completion_mask = ring_->parameters.cq_entries - 1,
         .round_count = round_count,
         .word_count = word_count,
         .file_block_mask = kFileBlockCount - 1,
@@ -186,24 +186,28 @@ class GpuFileIoTest : public GpuFileIoFixture {
     EXPECT_EQ(std::memcmp(arguments->host.pointer, &device_arguments,
                           kernel.arguments.byte_length),
               0);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.head)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.head)),
               request_count);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.tail)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail)),
               request_count);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.head)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.head)),
               request_count);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.tail)),
+    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.tail)),
               request_count);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.dropped)),
-              0u);
-    EXPECT_EQ(GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.overflow)),
-              0u);
+    EXPECT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.dropped)),
+        0u);
+    EXPECT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.overflow)),
+        0u);
     const auto* completions = reinterpret_cast<const io_uring_cqe*>(
-        RingWord(parameters_.cq_off.cqes));
+        RingWord(ring_->parameters.cq_off.cqes));
     for (uint32_t recent = 0;
-         recent < std::min(request_count, parameters_.cq_entries); ++recent) {
+         recent < std::min(request_count, ring_->parameters.cq_entries);
+         ++recent) {
       const uint32_t ticket = request_count - recent - 1;
-      const auto& entry = completions[ticket & (parameters_.cq_entries - 1)];
+      const auto& entry =
+          completions[ticket & (ring_->parameters.cq_entries - 1)];
       EXPECT_EQ(entry.user_data, ticket);
       EXPECT_EQ(entry.flags, 0u);
     }
@@ -232,20 +236,31 @@ TEST_F(GpuFileIoTest, InvalidFixedFileRetiresWithTheNativeError) {
   Run(FileMode::kBuffered, Workload::kInvalidFile);
 }
 
-TEST_F(GpuFileIoTest, HostRelayBufferedCausalReadWriteReload) {
-  Run(FileMode::kBuffered, Workload::kRoundTrip, FileIoPath::kHostRelay);
+class GpuFileHostIoTest : public GpuFileIoTest,
+                          public ::testing::WithParamInterface<FileIoPath> {};
+
+TEST_P(GpuFileHostIoTest, BufferedCausalReadWriteReload) {
+  Run(FileMode::kBuffered, Workload::kRoundTrip, GetParam());
 }
 
-TEST_F(GpuFileIoTest, HostRelayDirectCausalReadWriteReload) {
-  Run(FileMode::kDirect, Workload::kRoundTrip, FileIoPath::kHostRelay);
+TEST_P(GpuFileHostIoTest, DirectCausalReadWriteReload) {
+  Run(FileMode::kDirect, Workload::kRoundTrip, GetParam());
 }
 
-TEST_F(GpuFileIoTest, HostRelayPartialReadThenEof) {
-  Run(FileMode::kBuffered, Workload::kShortInput, FileIoPath::kHostRelay);
+TEST_P(GpuFileHostIoTest, PartialReadThenEof) {
+  Run(FileMode::kBuffered, Workload::kShortInput, GetParam());
 }
 
-TEST_F(GpuFileIoTest, HostRelayInvalidFixedFile) {
-  Run(FileMode::kBuffered, Workload::kInvalidFile, FileIoPath::kHostRelay);
+TEST_P(GpuFileHostIoTest, InvalidFixedFile) {
+  Run(FileMode::kBuffered, Workload::kInvalidFile, GetParam());
 }
+
+INSTANTIATE_TEST_SUITE_P(HostPaths, GpuFileHostIoTest,
+                         ::testing::Values(FileIoPath::kHostRelay,
+                                           FileIoPath::kHostWait),
+                         [](const auto& info) {
+                           return info.param == FileIoPath::kHostRelay ? "Relay"
+                                                                       : "Wait";
+                         });
 
 }  // namespace
