@@ -230,6 +230,12 @@ def _descriptor_wait_packet_rows(
     if counter_mask == 0:
         return None, ()
     owner = f"AMDGPU wait descriptor '{descriptor.key}'"
+    # Wait nodes retain immutable bounds, not mutable producer state. Enforce
+    # those disjoint roles before the planner consumes generated descriptors.
+    if any(effect.kind is not EffectKind.COUNTER or effect.counter_id == 0 for effect in descriptor.effects):
+        raise ValueError(f"{owner} must have only concrete counter effects")
+    if descriptor.operands or descriptor.storage_leases:
+        raise ValueError(f"{owner} cannot have register operands or storage leases")
     if descriptor.key not in descriptor_ref_key_set:
         raise ValueError(f"{owner} requires a descriptor ref")
     if len(descriptor.immediates) > _WAIT_PACKET_IMMEDIATE_CAPACITY:
