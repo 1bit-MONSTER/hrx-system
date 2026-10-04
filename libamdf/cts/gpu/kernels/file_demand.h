@@ -11,6 +11,9 @@
 
 namespace kernels::file_demand {
 
+inline constexpr uint32_t kMaximumCredits = 256;
+inline constexpr uint32_t kMaximumFileBlocks = 1024;
+
 // Finite offered demands are independent of I/O completion. One GPU owner
 // performs admission, key deduplication, native publication and retirement.
 // A separately submitted instance can compute while that owner performs I/O.
@@ -27,11 +30,11 @@ struct alignas(16) Arguments {
   uint64_t completion_tail;
   // GPU address of the first guard-separated payload window.
   uint64_t payload;
-  // GPU address of Summary followed by credit_count Slot objects.
+  // GPU output address of Summary followed by credit_count Slot objects.
   uint64_t state;
   // GPU address of demand_count records, with immutable offered inputs.
   uint64_t records;
-  // GPU address of file_block_mask + 1 zero-initialized key-to-slot cells.
+  // GPU output address of file_block_mask + 1 final key-to-slot cells.
   uint64_t keys;
   // GPU address of shared background-work startup and terminal state.
   uint64_t background;
@@ -43,13 +46,14 @@ struct alignas(16) Arguments {
   uint32_t completion_mask;
   // Retired native SQ/CQ position at entry.
   uint32_t initial_position;
-  // Independent payload credits, below both native ring capacities.
+  // Independent payload credits, at most kMaximumCredits and below ring
+  // capacity.
   uint32_t credit_count;
   // Number of scheduled logical demands, including duplicate readers.
   uint32_t demand_count;
   // Power-of-two number of words transferred by each physical I/O.
   uint32_t word_count;
-  // Power-of-two immutable input-bank capacity minus one.
+  // Power-of-two input-bank capacity minus one, below kMaximumFileBlocks.
   uint32_t file_block_mask;
   // Byte stride between input and reload windows, including guards.
   uint32_t payload_stride;
@@ -130,6 +134,11 @@ struct Slot {
   // Reserved zero words keep each credit on a sixteen-byte boundary.
   std::array<uint32_t, 2> reserved;
 };
+
+// Private ownership storage is workgroup-local, not a CPU/GPU shared mailbox.
+inline constexpr uint32_t kGroupByteLength =
+    sizeof(Summary) + kMaximumCredits * sizeof(Slot) +
+    kMaximumFileBlocks * sizeof(uint32_t);
 
 struct Record {
   // Offered time relative to Summary.begin_tick, independent of completion.

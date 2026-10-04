@@ -417,8 +417,16 @@ backing still retained by a reader. A ready queue rotates held readers so they
 cannot stop other ready consumers or completion processing. Only the last
 reader returns a credit to the free list. KV chains retain exclusive ownership
 through read, write and reload; they do not deduplicate mutable blocks.
-One coordinator owns these structures. This measures a finite storage-channel
-witness, not independently dispatched model matmuls or a selected cache API.
+One coordinator owns these structures in 20,544 bytes of workgroup-local
+storage: a summary, up to 256 credits, and a 1,024-entry key map. None is a
+CPU/GPU mailbox. Keeping private ownership state local separates its accesses
+from the native ring's system-scope visibility operations. The SQ/CQ, payloads,
+and per-request journal remain globally visible. Final private state is
+exported for host verification only after all accepted I/O and readers retire;
+dispatch wall time includes initialization and export. The scheduled clock
+starts after initialization and ends before export. This measures a finite
+storage-channel witness, not independently dispatched model matmuls or a
+selected cache API.
 
 All five measured configurations use identical GPU programs, offered manifests
 and payloads: native SQPOLL with busy or requested 50 µs host service, busy

@@ -6,6 +6,9 @@
 // key map coalesces immutable reads; KV chains have exclusive credits. The
 // ready queue rotates held readers so one retention interval cannot stall
 // other readers. Only the last reader returns backing to the free list.
+// The workgroup owns its bookkeeping in LDS and exports final state only
+// after retirement. Native rings, payload and the timestamp journal stay
+// globally visible; no other actor accesses the private owner state.
 // Role one is independent arithmetic on a separately submitted GPU queue.
 // Both roles are finite under the caller's completion/stop ownership contract.
 
@@ -101,9 +104,11 @@ kernel.def export("file_demand") @file_demand() {
     %cqes = buffer.assume.alignment %completion_entries {minimum_alignment = 8} : buffer
     %cq_head = buffer.assume.alignment %completion_head {minimum_alignment = 4} : buffer
     %cq_tail = buffer.assume.alignment %completion_tail {minimum_alignment = 4} : buffer
-    %table = buffer.assume.alignment %state {minimum_alignment = 4} : buffer
+    %table_capacity = index.constant 16448 : offset
+    %table = buffer.alloca<workgroup> align(4) %table_capacity : buffer
     %journal = buffer.assume.alignment %records {minimum_alignment = 4} : buffer
-    %key_buffer = buffer.assume.alignment %keys {minimum_alignment = 4} : buffer
+    %map_capacity = index.constant 4096 : offset
+    %key_buffer = buffer.alloca<workgroup> align(4) %map_capacity : buffer
     %sqe_bytes = index.constant 64 : offset
     %cqe_bytes = index.constant 16 : offset
     %summary_bytes = index.constant 64 : offset
@@ -124,7 +129,19 @@ kernel.def export("file_demand") @file_demand() {
     %summary = buffer.view %table[%origin] : buffer -> view<16xi32>
     %start = index.constant 0 : index
     %step = index.constant 1 : index
-    %slots = index.cast %credit_count : i32 to index
+    %slots_input = index.cast %credit_count : i32 to index
+    %slots = index.assume %slots_input [range(%slots_input, 1, 256)] : index
+    %table_blocks = scalar.addi %credit_count, %one : i32
+    %table_word_count = scalar.muli %table_blocks, %sixteen : i32
+    %table_count_input = index.cast %table_word_count : i32 to index
+    %table_count = index.assume %table_count_input [range(%table_count_input, 16, 4112)] : index
+    %table_words = buffer.view %table[%origin] : buffer -> view<[%table_count]xi32>
+    scf.for %word = [%start to %table_count step %step] {
+      view.store %zero, %table_words[%word] : i32, view<[%table_count]xi32>
+    }
+    scf.for %key = [%start to %block_count step %step] {
+      view.store %zero, %map[%key] : i32, view<[%block_count]xi32>
+    }
     scf.for %slot = [%start to %slots step %step] {
       %ordinal = index.cast %slot : index to i32
       %encoded = scalar.addi %ordinal, %two : i32
@@ -189,7 +206,8 @@ kernel.def export("file_demand") @file_demand() {
           %available = scalar.cmpi ne, %selected, %zero : i32
           scf.if %available {
             %slot = scalar.subi %selected, %one : i32
-            %slot_index = index.cast %slot : i32 to index
+            %slot_input = index.cast %slot : i32 to index
+            %slot_index = index.assume %slot_input [range(%slot_input, 0, 255)] : index
             %relative = index.scale %slot_index, %slot_bytes : index, offset -> offset
             %offset = index.add %summary_bytes, %relative : offset
             %owner = buffer.view %table[%offset] : buffer -> view<16xi32>
@@ -254,7 +272,8 @@ kernel.def export("file_demand") @file_demand() {
       %publish = scalar.andi %has_issue, %healthy : i1
       %after_tail = scf.if %publish -> (i32) {
         %slot = scalar.subi %selected, %one : i32
-        %slot_index = index.cast %slot : i32 to index
+        %slot_input = index.cast %slot : i32 to index
+        %slot_index = index.assume %slot_input [range(%slot_input, 0, 255)] : index
         %relative = index.scale %slot_index, %slot_bytes : index, offset -> offset
         %offset = index.add %summary_bytes, %relative : offset
         %owner = buffer.view %table[%offset] : buffer -> view<16xi32>
@@ -338,7 +357,8 @@ kernel.def export("file_demand") @file_demand() {
         %preserved = scf.select %healthy, %next_status, %status : i32
         %process = scalar.andi %positive, %healthy : i1
         scf.if %process {
-          %slot_index = index.cast %slot : i32 to index
+          %slot_input = index.cast %slot : i32 to index
+          %slot_index = index.assume %slot_input [range(%slot_input, 0, 255)] : index
           %relative = index.scale %slot_index, %slot_bytes : index, offset -> offset
           %offset = index.add %summary_bytes, %relative : offset
           %owner = buffer.view %table[%offset] : buffer -> view<16xi32>
@@ -370,7 +390,8 @@ kernel.def export("file_demand") @file_demand() {
                 view.store %encoded, %summary[11] : i32, view<16xi32>
               } else {
                 %last_slot = scalar.subi %ready_tail, %one : i32
-                %last_index = index.cast %last_slot : i32 to index
+                %last_input = index.cast %last_slot : i32 to index
+                %last_index = index.assume %last_input [range(%last_input, 0, 255)] : index
                 %last_relative = index.scale %last_index, %slot_bytes : index, offset -> offset
                 %last_offset = index.add %summary_bytes, %last_relative : offset
                 %last_owner = buffer.view %table[%last_offset] : buffer -> view<16xi32>
@@ -398,7 +419,8 @@ kernel.def export("file_demand") @file_demand() {
       %consume = scalar.andi %has_reader, %still_healthy : i1
       scf.if %consume {
         %slot = scalar.subi %ready, %one : i32
-        %slot_index = index.cast %slot : i32 to index
+        %slot_input = index.cast %slot : i32 to index
+        %slot_index = index.assume %slot_input [range(%slot_input, 0, 255)] : index
         %relative = index.scale %slot_index, %slot_bytes : index, offset -> offset
         %offset = index.add %summary_bytes, %relative : offset
         %owner = buffer.view %table[%offset] : buffer -> view<16xi32>
@@ -481,7 +503,8 @@ kernel.def export("file_demand") @file_demand() {
             view.store %ready, %summary[11] : i32, view<16xi32>
           } else {
             %last_slot = scalar.subi %ready_tail, %one : i32
-            %last_index = index.cast %last_slot : i32 to index
+            %last_input = index.cast %last_slot : i32 to index
+            %last_index = index.assume %last_input [range(%last_input, 0, 255)] : index
             %last_relative = index.scale %last_index, %slot_bytes : index, offset -> offset
             %last_offset = index.add %summary_bytes, %last_relative : offset
             %last_owner = buffer.view %table[%last_offset] : buffer -> view<16xi32>
@@ -529,6 +552,18 @@ kernel.def export("file_demand") @file_demand() {
     %end = template.apply<@completed_tick>() : () -> (i32)
     view.store %end, %summary[4] : i32, view<16xi32>
     view.atomic.store %one, %work[2] {ordering = release, scope = system} : i32, view<5xi32>
+    %state_output = buffer.assume.alignment %state {minimum_alignment = 4} : buffer
+    %state_words = buffer.view %state_output[%origin] : buffer -> view<[%table_count]xi32>
+    scf.for %word = [%start to %table_count step %step] {
+      %value = view.load %table_words[%word] : view<[%table_count]xi32> -> i32
+      view.store %value, %state_words[%word] : i32, view<[%table_count]xi32>
+    }
+    %map_output = buffer.assume.alignment %keys {minimum_alignment = 4} : buffer
+    %map_words = buffer.view %map_output[%origin] : buffer -> view<[%block_count]xi32>
+    scf.for %key = [%start to %block_count step %step] {
+      %value = view.load %map[%key] : view<[%block_count]xi32> -> i32
+      view.store %value, %map_words[%key] : i32, view<[%block_count]xi32>
+    }
   }
   kernel.return
 }

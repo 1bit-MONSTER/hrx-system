@@ -1043,6 +1043,7 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
 
   void RunDemand(const DemandProfile& profile,
                  InputFault fault = InputFault::kNone) {
+    ASSERT_LE(profile.credits, demand::kMaximumCredits);
     const auto* kernel = demand::kKernels.Find(gpu_endpoint_info_);
     ASSERT_NE(kernel, nullptr);
     ASSERT_NO_FATAL_FAILURE(OpenClock());
@@ -1059,6 +1060,7 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
     const uint32_t blocks = fault == InputFault::kShortFile ? 1
                             : profile.byte_length >= 262144 ? 64
                                                             : 256;
+    ASSERT_LE(blocks, demand::kMaximumFileBlocks);
     std::vector<uint32_t> expected_file(
         (blocks + 3 * profile.credits) * word_count, kGuard);
     for (uint32_t block = 0; block < blocks; ++block) {

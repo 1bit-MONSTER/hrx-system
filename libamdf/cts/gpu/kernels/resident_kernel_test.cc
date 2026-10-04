@@ -29,7 +29,8 @@ void CheckResidentProducts(const kernels::KernelSet& products,
                            std::span<const uint32_t> lengths,
                            std::span<const std::string_view> kinds,
                            uint32_t semantic_byte_length,
-                           uint32_t slot_byte_length, uint32_t slot_alignment) {
+                           uint32_t slot_byte_length, uint32_t slot_alignment,
+                           uint32_t group_byte_length) {
   ASSERT_FALSE(products.variants.empty());
   for (const auto& kernel : products.variants) {
     SCOPED_TRACE(kernel.target);
@@ -40,7 +41,7 @@ void CheckResidentProducts(const kernels::KernelSet& products,
               (std::array<uint32_t, 3>{1, 1, 1}));
     EXPECT_EQ(kernel.wavefront_size, 32u);
     EXPECT_EQ(kernel.private_segment_byte_length, 0u);
-    EXPECT_EQ(kernel.group_segment_byte_length, 0u);
+    EXPECT_EQ(kernel.group_segment_byte_length, group_byte_length);
     // PM4 supplies the kernarg pointer. A single workitem needs no group or
     // local ID inputs, private-segment state, or kernarg preload registers.
     EXPECT_EQ(kernel.program.code_properties, 0x408u);
@@ -55,7 +56,7 @@ TEST(KernelTest, FileExchangeProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       sizeof(protocol::Arguments), sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), 0);
 }
 
 TEST(KernelTest, FileGatherProductsPreserveTheCallerContract) {
@@ -64,7 +65,7 @@ TEST(KernelTest, FileGatherProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), 0);
 }
 
 TEST(KernelTest, FileLatencyProductsPreserveTheCallerContract) {
@@ -73,7 +74,7 @@ TEST(KernelTest, FileLatencyProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), 0);
 }
 
 TEST(KernelTest, FileDemandProductsPreserveTheCallerContract) {
@@ -82,7 +83,7 @@ TEST(KernelTest, FileDemandProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), protocol::kGroupByteLength);
 }
 
 TEST(KernelTest, ResidentExchangeProductsPreserveTheCallerContract) {
@@ -91,7 +92,7 @@ TEST(KernelTest, ResidentExchangeProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), 0);
 }
 
 TEST(KernelTest, ResidentChannelProductsPreserveTheCallerContract) {
@@ -100,7 +101,7 @@ TEST(KernelTest, ResidentChannelProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), 0);
 }
 
 TEST(KernelTest, ResidentNpuInitiatedProductsPreserveTheCallerContract) {
@@ -109,7 +110,7 @@ TEST(KernelTest, ResidentNpuInitiatedProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       protocol::kArgumentByteLength, sizeof(protocol::Arguments),
-      alignof(protocol::Arguments));
+      alignof(protocol::Arguments), 0);
 }
 
 }  // namespace
