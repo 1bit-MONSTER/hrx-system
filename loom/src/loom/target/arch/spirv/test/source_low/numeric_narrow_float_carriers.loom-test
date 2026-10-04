@@ -1,0 +1,442 @@
+// RUN: emit source-low output=low control-flow=structured-low
+
+// Extended scalar types without SPV_KHR_bfloat16.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
+
+func.def target(@target) @narrow_bfloat_carrier(%input: f32) -> (i16) {
+  %narrow = scalar.fptrunc %input : f32 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  func.return %bits : i16
+}
+
+func.def target(@target) @narrow_f8e4m3_carrier(%input: f32) -> (i8) {
+  %narrow = scalar.fptrunc %input : f32 to f8E4M3
+  %bits = scalar.bitcast %narrow : f8E4M3 to i8
+  func.return %bits : i8
+}
+
+func.def target(@target) @narrow_f8e5m2_carrier(%input: f32) -> (i8) {
+  %narrow = scalar.fptrunc %input : f32 to f8E5M2
+  %bits = scalar.bitcast %narrow : f8E5M2 to i8
+  func.return %bits : i8
+}
+
+func.def target(@target) @narrow_binary64_bfloat_carrier(%input: f64) -> (i16) {
+  %narrow = scalar.fptrunc %input : f64 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  func.return %bits : i16
+}
+
+func.def target(@target) @narrow_bfloat_f8e4m3_carrier(%input: bf16) -> (i8) {
+  %narrow = scalar.fptrunc %input : bf16 to f8E4M3
+  %bits = scalar.bitcast %narrow : f8E4M3 to i8
+  func.return %bits : i8
+}
+
+func.def target(@target) @narrow_bfloat_f8e5m2_carrier(%input: bf16) -> (i8) {
+  %narrow = scalar.fptrunc %input : bf16 to f8E5M2
+  %bits = scalar.bitcast %narrow : f8E5M2 to i8
+  func.return %bits : i8
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_bfloat_carrier(%input: reg<spirv.id : f32>) -> (reg<spirv.id : i16>) asm {
+  %26 = OpBitcast.f32.i32 %input : reg<spirv.id>
+  %27 = OpConstant.i32 16 : reg<spirv.id>
+  %28 = OpShiftRightLogical %26, %27 : reg<spirv.id>
+  %29 = OpConstant.i32 1 : reg<spirv.id>
+  %30 = OpBitwiseAnd %28, %29 : reg<spirv.id>
+  %31 = OpConstant.i32 32767 : reg<spirv.id>
+  %32 = OpIAdd %31, %30 : reg<spirv.id>
+  %33 = OpIAdd %26, %32 : reg<spirv.id>
+  %34 = OpShiftRightLogical %33, %27 : reg<spirv.id>
+  %35 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %36 = OpBitwiseAnd %26, %35 : reg<spirv.id>
+  %37 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %38 = OpSGreaterThan %36, %37 : reg<spirv.id>
+  %39 = OpConstant.i32 64 : reg<spirv.id>
+  %40 = OpBitwiseOr %28, %39 : reg<spirv.id>
+  %narrow = OpSelect %38, %40, %34
+  %bits = OpSConvert.i32.i16 %narrow
+  return %bits
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_f8e4m3_carrier(%input: reg<spirv.id : f32>) -> (reg<spirv.id : i8>) asm {
+  %45 = OpBitcast.f32.i32 %input : reg<spirv.id>
+  %46 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %47 = OpBitwiseAnd %45, %46 : reg<spirv.id>
+  %48 = OpConstant.i32 24 : reg<spirv.id>
+  %49 = OpShiftRightLogical %47, %48 : reg<spirv.id>
+  %50 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %51 = OpBitwiseAnd %45, %50 : reg<spirv.id>
+  %52 = OpConstant.i32 8388607 : reg<spirv.id>
+  %53 = OpBitwiseAnd %51, %52 : reg<spirv.id>
+  %54 = OpConstant.i32 8388608 : reg<spirv.id>
+  %55 = OpBitwiseOr %53, %54 : reg<spirv.id>
+  %56 = OpConstant.i32 23 : reg<spirv.id>
+  %57 = OpShiftRightLogical %51, %56 : reg<spirv.id>
+  %58 = OpConstant.i32 120 : reg<spirv.id>
+  %59 = OpSGreaterThan %57, %58 : reg<spirv.id>
+  %60 = OpSelect %59, %58, %57 : reg<spirv.id>
+  %61 = OpConstant.i32 141 : reg<spirv.id>
+  %62 = OpISub %61, %60 : reg<spirv.id>
+  %63 = OpConstant.i32 31 : reg<spirv.id>
+  %64 = OpSGreaterThan %62, %63 : reg<spirv.id>
+  %65 = OpSelect %64, %63, %62 : reg<spirv.id>
+  %66 = OpShiftRightLogical %55, %65 : reg<spirv.id>
+  %67 = OpConstant.i32 1 : reg<spirv.id>
+  %68 = OpISub %65, %67 : reg<spirv.id>
+  %69 = OpShiftLeftLogical %67, %68 : reg<spirv.id>
+  %70 = OpISub %69, %67 : reg<spirv.id>
+  %71 = OpBitwiseAnd %66, %67 : reg<spirv.id>
+  %72 = OpIAdd %55, %70 : reg<spirv.id>
+  %73 = OpIAdd %72, %71 : reg<spirv.id>
+  %74 = OpShiftRightLogical %73, %65 : reg<spirv.id>
+  %75 = OpConstant.i32 20 : reg<spirv.id>
+  %76 = OpShiftRightLogical %51, %75 : reg<spirv.id>
+  %78 = OpBitwiseAnd %76, %67 : reg<spirv.id>
+  %79 = OpConstant.i32 -1006108673 : reg<spirv.id>
+  %80 = OpIAdd %51, %79 : reg<spirv.id>
+  %81 = OpIAdd %80, %78 : reg<spirv.id>
+  %82 = OpShiftRightLogical %81, %75 : reg<spirv.id>
+  %83 = OpConstant.i32 1015021568 : reg<spirv.id>
+  %84 = OpSLessThan %51, %83 : reg<spirv.id>
+  %85 = OpSelect %84, %74, %82 : reg<spirv.id>
+  %87 = OpConstant.i32 127 : reg<spirv.id>
+  %88 = OpConstant.i32 126 : reg<spirv.id>
+  %89 = OpSGreaterThanEqual %85, %87 : reg<spirv.id>
+  %90 = OpSelect %89, %88, %85 : reg<spirv.id>
+  %92 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %93 = OpSGreaterThan %51, %92 : reg<spirv.id>
+  %94 = OpSelect %93, %87, %90 : reg<spirv.id>
+  %95 = OpBitwiseOr %49, %94 : reg<spirv.id>
+  %bits = OpSConvert.i32.i8 %95
+  return %bits
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_f8e5m2_carrier(%input: reg<spirv.id : f32>) -> (reg<spirv.id : i8>) asm {
+  %99 = OpBitcast.f32.i32 %input : reg<spirv.id>
+  %100 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %101 = OpBitwiseAnd %99, %100 : reg<spirv.id>
+  %102 = OpConstant.i32 24 : reg<spirv.id>
+  %103 = OpShiftRightLogical %101, %102 : reg<spirv.id>
+  %104 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %105 = OpBitwiseAnd %99, %104 : reg<spirv.id>
+  %106 = OpConstant.i32 8388607 : reg<spirv.id>
+  %107 = OpBitwiseAnd %105, %106 : reg<spirv.id>
+  %108 = OpConstant.i32 8388608 : reg<spirv.id>
+  %109 = OpBitwiseOr %107, %108 : reg<spirv.id>
+  %110 = OpConstant.i32 23 : reg<spirv.id>
+  %111 = OpShiftRightLogical %105, %110 : reg<spirv.id>
+  %112 = OpConstant.i32 112 : reg<spirv.id>
+  %113 = OpSGreaterThan %111, %112 : reg<spirv.id>
+  %114 = OpSelect %113, %112, %111 : reg<spirv.id>
+  %115 = OpConstant.i32 134 : reg<spirv.id>
+  %116 = OpISub %115, %114 : reg<spirv.id>
+  %117 = OpConstant.i32 31 : reg<spirv.id>
+  %118 = OpSGreaterThan %116, %117 : reg<spirv.id>
+  %119 = OpSelect %118, %117, %116 : reg<spirv.id>
+  %120 = OpShiftRightLogical %109, %119 : reg<spirv.id>
+  %121 = OpConstant.i32 1 : reg<spirv.id>
+  %122 = OpISub %119, %121 : reg<spirv.id>
+  %123 = OpShiftLeftLogical %121, %122 : reg<spirv.id>
+  %124 = OpISub %123, %121 : reg<spirv.id>
+  %125 = OpBitwiseAnd %120, %121 : reg<spirv.id>
+  %126 = OpIAdd %109, %124 : reg<spirv.id>
+  %127 = OpIAdd %126, %125 : reg<spirv.id>
+  %128 = OpShiftRightLogical %127, %119 : reg<spirv.id>
+  %129 = OpConstant.i32 21 : reg<spirv.id>
+  %130 = OpShiftRightLogical %105, %129 : reg<spirv.id>
+  %132 = OpBitwiseAnd %130, %121 : reg<spirv.id>
+  %133 = OpConstant.i32 -938475521 : reg<spirv.id>
+  %134 = OpIAdd %105, %133 : reg<spirv.id>
+  %135 = OpIAdd %134, %132 : reg<spirv.id>
+  %136 = OpShiftRightLogical %135, %129 : reg<spirv.id>
+  %137 = OpConstant.i32 947912704 : reg<spirv.id>
+  %138 = OpSLessThan %105, %137 : reg<spirv.id>
+  %139 = OpSelect %138, %128, %136 : reg<spirv.id>
+  %140 = OpConstant.i32 124 : reg<spirv.id>
+  %141 = OpSGreaterThanEqual %139, %140 : reg<spirv.id>
+  %142 = OpSelect %141, %140, %139 : reg<spirv.id>
+  %143 = OpConstant.i32 127 : reg<spirv.id>
+  %144 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %145 = OpSGreaterThan %105, %144 : reg<spirv.id>
+  %146 = OpSelect %145, %143, %142 : reg<spirv.id>
+  %147 = OpBitwiseOr %103, %146 : reg<spirv.id>
+  %bits = OpSConvert.i32.i8 %147
+  return %bits
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_binary64_bfloat_carrier(%input: reg<spirv.id : f64>) -> (reg<spirv.id : i16>) asm {
+  %151 = OpBitcast.f64.i64 %input : reg<spirv.id>
+  %152 = OpConstant.i64 -9223372036854775808 : reg<spirv.id>
+  %153 = OpBitwiseAnd.i64 %151, %152 : reg<spirv.id>
+  %154 = OpConstant.i64 48 : reg<spirv.id>
+  %155 = OpShiftRightLogical.i64 %153, %154 : reg<spirv.id>
+  %156 = OpConstant.i64 9223372036854775807 : reg<spirv.id>
+  %157 = OpBitwiseAnd.i64 %151, %156 : reg<spirv.id>
+  %158 = OpConstant.i64 4503599627370495 : reg<spirv.id>
+  %159 = OpBitwiseAnd.i64 %157, %158 : reg<spirv.id>
+  %160 = OpConstant.i64 4503599627370496 : reg<spirv.id>
+  %161 = OpBitwiseOr.i64 %159, %160 : reg<spirv.id>
+  %162 = OpConstant.i64 52 : reg<spirv.id>
+  %163 = OpShiftRightLogical.i64 %157, %162 : reg<spirv.id>
+  %164 = OpConstant.i64 896 : reg<spirv.id>
+  %165 = OpSGreaterThan.i64 %163, %164 : reg<spirv.id>
+  %166 = OpSelect.i64 %165, %164, %163 : reg<spirv.id>
+  %167 = OpConstant.i64 942 : reg<spirv.id>
+  %168 = OpISub.i64 %167, %166 : reg<spirv.id>
+  %169 = OpConstant.i64 63 : reg<spirv.id>
+  %170 = OpSGreaterThan.i64 %168, %169 : reg<spirv.id>
+  %171 = OpSelect.i64 %170, %169, %168 : reg<spirv.id>
+  %172 = OpShiftRightLogical.i64 %161, %171 : reg<spirv.id>
+  %173 = OpConstant.i64 1 : reg<spirv.id>
+  %174 = OpISub.i64 %171, %173 : reg<spirv.id>
+  %175 = OpShiftLeftLogical.i64 %173, %174 : reg<spirv.id>
+  %176 = OpISub.i64 %175, %173 : reg<spirv.id>
+  %177 = OpBitwiseAnd.i64 %172, %173 : reg<spirv.id>
+  %178 = OpIAdd.i64 %161, %176 : reg<spirv.id>
+  %179 = OpIAdd.i64 %178, %177 : reg<spirv.id>
+  %180 = OpShiftRightLogical.i64 %179, %171 : reg<spirv.id>
+  %181 = OpConstant.i64 45 : reg<spirv.id>
+  %182 = OpShiftRightLogical.i64 %157, %181 : reg<spirv.id>
+  %184 = OpBitwiseAnd.i64 %182, %173 : reg<spirv.id>
+  %185 = OpConstant.i64 -4035207673937920001 : reg<spirv.id>
+  %186 = OpIAdd.i64 %157, %185 : reg<spirv.id>
+  %187 = OpIAdd.i64 %186, %184 : reg<spirv.id>
+  %188 = OpShiftRightLogical.i64 %187, %181 : reg<spirv.id>
+  %189 = OpConstant.i64 4039728865751334912 : reg<spirv.id>
+  %190 = OpSLessThan.i64 %157, %189 : reg<spirv.id>
+  %191 = OpSelect.i64 %190, %180, %188 : reg<spirv.id>
+  %192 = OpConstant.i64 32640 : reg<spirv.id>
+  %193 = OpSGreaterThanEqual.i64 %191, %192 : reg<spirv.id>
+  %194 = OpSelect.i64 %193, %192, %191 : reg<spirv.id>
+  %197 = OpShiftRightLogical.i64 %159, %181 : reg<spirv.id>
+  %198 = OpBitwiseOr.i64 %192, %197 : reg<spirv.id>
+  %199 = OpConstant.i64 64 : reg<spirv.id>
+  %200 = OpBitwiseOr.i64 %198, %199 : reg<spirv.id>
+  %201 = OpConstant.i64 9218868437227405312 : reg<spirv.id>
+  %202 = OpSGreaterThan.i64 %157, %201 : reg<spirv.id>
+  %203 = OpSelect.i64 %202, %200, %194 : reg<spirv.id>
+  %204 = OpBitwiseOr.i64 %155, %203 : reg<spirv.id>
+  %narrow = OpSConvert.i64.i32 %204
+  %bits = OpSConvert.i32.i16 %narrow
+  return %bits
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_bfloat_f8e4m3_carrier(%input: reg<spirv.id : i32>) -> (reg<spirv.id : i8>) asm {
+  %209 = OpConstant.i32 16 : reg<spirv.id>
+  %210 = OpShiftLeftLogical %input, %209 : reg<spirv.id>
+  %211 = OpBitcast.i32.f32 %210 : reg<spirv.id>
+  %212 = OpBitcast.f32.i32 %211 : reg<spirv.id>
+  %213 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %214 = OpBitwiseAnd %212, %213 : reg<spirv.id>
+  %215 = OpConstant.i32 24 : reg<spirv.id>
+  %216 = OpShiftRightLogical %214, %215 : reg<spirv.id>
+  %217 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %218 = OpBitwiseAnd %212, %217 : reg<spirv.id>
+  %219 = OpConstant.i32 8388607 : reg<spirv.id>
+  %220 = OpBitwiseAnd %218, %219 : reg<spirv.id>
+  %221 = OpConstant.i32 8388608 : reg<spirv.id>
+  %222 = OpBitwiseOr %220, %221 : reg<spirv.id>
+  %223 = OpConstant.i32 23 : reg<spirv.id>
+  %224 = OpShiftRightLogical %218, %223 : reg<spirv.id>
+  %225 = OpConstant.i32 120 : reg<spirv.id>
+  %226 = OpSGreaterThan %224, %225 : reg<spirv.id>
+  %227 = OpSelect %226, %225, %224 : reg<spirv.id>
+  %228 = OpConstant.i32 141 : reg<spirv.id>
+  %229 = OpISub %228, %227 : reg<spirv.id>
+  %230 = OpConstant.i32 31 : reg<spirv.id>
+  %231 = OpSGreaterThan %229, %230 : reg<spirv.id>
+  %232 = OpSelect %231, %230, %229 : reg<spirv.id>
+  %233 = OpShiftRightLogical %222, %232 : reg<spirv.id>
+  %234 = OpConstant.i32 1 : reg<spirv.id>
+  %235 = OpISub %232, %234 : reg<spirv.id>
+  %236 = OpShiftLeftLogical %234, %235 : reg<spirv.id>
+  %237 = OpISub %236, %234 : reg<spirv.id>
+  %238 = OpBitwiseAnd %233, %234 : reg<spirv.id>
+  %239 = OpIAdd %222, %237 : reg<spirv.id>
+  %240 = OpIAdd %239, %238 : reg<spirv.id>
+  %241 = OpShiftRightLogical %240, %232 : reg<spirv.id>
+  %242 = OpConstant.i32 20 : reg<spirv.id>
+  %243 = OpShiftRightLogical %218, %242 : reg<spirv.id>
+  %245 = OpBitwiseAnd %243, %234 : reg<spirv.id>
+  %246 = OpConstant.i32 -1006108673 : reg<spirv.id>
+  %247 = OpIAdd %218, %246 : reg<spirv.id>
+  %248 = OpIAdd %247, %245 : reg<spirv.id>
+  %249 = OpShiftRightLogical %248, %242 : reg<spirv.id>
+  %250 = OpConstant.i32 1015021568 : reg<spirv.id>
+  %251 = OpSLessThan %218, %250 : reg<spirv.id>
+  %252 = OpSelect %251, %241, %249 : reg<spirv.id>
+  %254 = OpConstant.i32 127 : reg<spirv.id>
+  %255 = OpConstant.i32 126 : reg<spirv.id>
+  %256 = OpSGreaterThanEqual %252, %254 : reg<spirv.id>
+  %257 = OpSelect %256, %255, %252 : reg<spirv.id>
+  %259 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %260 = OpSGreaterThan %218, %259 : reg<spirv.id>
+  %261 = OpSelect %260, %254, %257 : reg<spirv.id>
+  %262 = OpBitwiseOr %216, %261 : reg<spirv.id>
+  %bits = OpSConvert.i32.i8 %262
+  return %bits
+}
+
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_bfloat_f8e5m2_carrier(%input: reg<spirv.id : i32>) -> (reg<spirv.id : i8>) asm {
+  %266 = OpConstant.i32 16 : reg<spirv.id>
+  %267 = OpShiftLeftLogical %input, %266 : reg<spirv.id>
+  %268 = OpBitcast.i32.f32 %267 : reg<spirv.id>
+  %269 = OpBitcast.f32.i32 %268 : reg<spirv.id>
+  %270 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %271 = OpBitwiseAnd %269, %270 : reg<spirv.id>
+  %272 = OpConstant.i32 24 : reg<spirv.id>
+  %273 = OpShiftRightLogical %271, %272 : reg<spirv.id>
+  %274 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %275 = OpBitwiseAnd %269, %274 : reg<spirv.id>
+  %276 = OpConstant.i32 8388607 : reg<spirv.id>
+  %277 = OpBitwiseAnd %275, %276 : reg<spirv.id>
+  %278 = OpConstant.i32 8388608 : reg<spirv.id>
+  %279 = OpBitwiseOr %277, %278 : reg<spirv.id>
+  %280 = OpConstant.i32 23 : reg<spirv.id>
+  %281 = OpShiftRightLogical %275, %280 : reg<spirv.id>
+  %282 = OpConstant.i32 112 : reg<spirv.id>
+  %283 = OpSGreaterThan %281, %282 : reg<spirv.id>
+  %284 = OpSelect %283, %282, %281 : reg<spirv.id>
+  %285 = OpConstant.i32 134 : reg<spirv.id>
+  %286 = OpISub %285, %284 : reg<spirv.id>
+  %287 = OpConstant.i32 31 : reg<spirv.id>
+  %288 = OpSGreaterThan %286, %287 : reg<spirv.id>
+  %289 = OpSelect %288, %287, %286 : reg<spirv.id>
+  %290 = OpShiftRightLogical %279, %289 : reg<spirv.id>
+  %291 = OpConstant.i32 1 : reg<spirv.id>
+  %292 = OpISub %289, %291 : reg<spirv.id>
+  %293 = OpShiftLeftLogical %291, %292 : reg<spirv.id>
+  %294 = OpISub %293, %291 : reg<spirv.id>
+  %295 = OpBitwiseAnd %290, %291 : reg<spirv.id>
+  %296 = OpIAdd %279, %294 : reg<spirv.id>
+  %297 = OpIAdd %296, %295 : reg<spirv.id>
+  %298 = OpShiftRightLogical %297, %289 : reg<spirv.id>
+  %299 = OpConstant.i32 21 : reg<spirv.id>
+  %300 = OpShiftRightLogical %275, %299 : reg<spirv.id>
+  %302 = OpBitwiseAnd %300, %291 : reg<spirv.id>
+  %303 = OpConstant.i32 -938475521 : reg<spirv.id>
+  %304 = OpIAdd %275, %303 : reg<spirv.id>
+  %305 = OpIAdd %304, %302 : reg<spirv.id>
+  %306 = OpShiftRightLogical %305, %299 : reg<spirv.id>
+  %307 = OpConstant.i32 947912704 : reg<spirv.id>
+  %308 = OpSLessThan %275, %307 : reg<spirv.id>
+  %309 = OpSelect %308, %298, %306 : reg<spirv.id>
+  %310 = OpConstant.i32 124 : reg<spirv.id>
+  %311 = OpSGreaterThanEqual %309, %310 : reg<spirv.id>
+  %312 = OpSelect %311, %310, %309 : reg<spirv.id>
+  %313 = OpConstant.i32 127 : reg<spirv.id>
+  %314 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %315 = OpSGreaterThan %275, %314 : reg<spirv.id>
+  %316 = OpSelect %315, %313, %312 : reg<spirv.id>
+  %317 = OpBitwiseOr %273, %316 : reg<spirv.id>
+  %bits = OpSConvert.i32.i8 %317
+  return %bits
+}
+
+// ====
+
+// Extended scalar types without SPV_KHR_bfloat16.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
+
+func.def target(@target) @narrow_bfloat_bits_to_float8_carriers(%input: i16) -> (i8, i8) {
+  %bfloat = scalar.bitcast %input : i16 to bf16
+  %e4m3 = scalar.fptrunc %bfloat : bf16 to f8E4M3
+  %e5m2 = scalar.fptrunc %bfloat : bf16 to f8E5M2
+  %e4m3_bits = scalar.bitcast %e4m3 : f8E4M3 to i8
+  %e5m2_bits = scalar.bitcast %e5m2 : f8E5M2 to i8
+  func.return %e4m3_bits, %e5m2_bits : i8, i8
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_bfloat_bits_to_float8_carriers(%input: reg<spirv.id : i16>) -> (reg<spirv.id : i8>, reg<spirv.id : i8>) asm {
+  %11 = OpBitcast.i16.u16 %input
+  %12 = OpUConvert.u16.u32 %11
+  %bfloat = OpBitcast.u32.i32 %12
+  %14 = OpConstant.i32 16 : reg<spirv.id>
+  %15 = OpShiftLeftLogical %bfloat, %14 : reg<spirv.id>
+  %16 = OpBitcast.i32.f32 %15 : reg<spirv.id>
+  %17 = OpBitcast.f32.i32 %16 : reg<spirv.id>
+  %18 = OpConstant.i32 -2147483648 : reg<spirv.id>
+  %19 = OpBitwiseAnd %17, %18 : reg<spirv.id>
+  %20 = OpConstant.i32 24 : reg<spirv.id>
+  %21 = OpShiftRightLogical %19, %20 : reg<spirv.id>
+  %22 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %23 = OpBitwiseAnd %17, %22 : reg<spirv.id>
+  %24 = OpConstant.i32 8388607 : reg<spirv.id>
+  %25 = OpBitwiseAnd %23, %24 : reg<spirv.id>
+  %26 = OpConstant.i32 8388608 : reg<spirv.id>
+  %27 = OpBitwiseOr %25, %26 : reg<spirv.id>
+  %28 = OpConstant.i32 23 : reg<spirv.id>
+  %29 = OpShiftRightLogical %23, %28 : reg<spirv.id>
+  %30 = OpConstant.i32 120 : reg<spirv.id>
+  %31 = OpSGreaterThan %29, %30 : reg<spirv.id>
+  %32 = OpSelect %31, %30, %29 : reg<spirv.id>
+  %33 = OpConstant.i32 141 : reg<spirv.id>
+  %34 = OpISub %33, %32 : reg<spirv.id>
+  %35 = OpConstant.i32 31 : reg<spirv.id>
+  %36 = OpSGreaterThan %34, %35 : reg<spirv.id>
+  %37 = OpSelect %36, %35, %34 : reg<spirv.id>
+  %38 = OpShiftRightLogical %27, %37 : reg<spirv.id>
+  %39 = OpConstant.i32 1 : reg<spirv.id>
+  %40 = OpISub %37, %39 : reg<spirv.id>
+  %41 = OpShiftLeftLogical %39, %40 : reg<spirv.id>
+  %42 = OpISub %41, %39 : reg<spirv.id>
+  %43 = OpBitwiseAnd %38, %39 : reg<spirv.id>
+  %44 = OpIAdd %27, %42 : reg<spirv.id>
+  %45 = OpIAdd %44, %43 : reg<spirv.id>
+  %46 = OpShiftRightLogical %45, %37 : reg<spirv.id>
+  %47 = OpConstant.i32 20 : reg<spirv.id>
+  %48 = OpShiftRightLogical %23, %47 : reg<spirv.id>
+  %50 = OpBitwiseAnd %48, %39 : reg<spirv.id>
+  %51 = OpConstant.i32 -1006108673 : reg<spirv.id>
+  %52 = OpIAdd %23, %51 : reg<spirv.id>
+  %53 = OpIAdd %52, %50 : reg<spirv.id>
+  %54 = OpShiftRightLogical %53, %47 : reg<spirv.id>
+  %55 = OpConstant.i32 1015021568 : reg<spirv.id>
+  %56 = OpSLessThan %23, %55 : reg<spirv.id>
+  %57 = OpSelect %56, %46, %54 : reg<spirv.id>
+  %59 = OpConstant.i32 127 : reg<spirv.id>
+  %60 = OpConstant.i32 126 : reg<spirv.id>
+  %61 = OpSGreaterThanEqual %57, %59 : reg<spirv.id>
+  %62 = OpSelect %61, %60, %57 : reg<spirv.id>
+  %64 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %65 = OpSGreaterThan %23, %64 : reg<spirv.id>
+  %66 = OpSelect %65, %59, %62 : reg<spirv.id>
+  %67 = OpBitwiseOr %21, %66 : reg<spirv.id>
+  %e4m3_bits = OpSConvert.i32.i8 %67
+  %85 = OpConstant.i32 112 : reg<spirv.id>
+  %86 = OpSGreaterThan %29, %85 : reg<spirv.id>
+  %87 = OpSelect %86, %85, %29 : reg<spirv.id>
+  %88 = OpConstant.i32 134 : reg<spirv.id>
+  %89 = OpISub %88, %87 : reg<spirv.id>
+  %91 = OpSGreaterThan %89, %35 : reg<spirv.id>
+  %92 = OpSelect %91, %35, %89 : reg<spirv.id>
+  %93 = OpShiftRightLogical %27, %92 : reg<spirv.id>
+  %95 = OpISub %92, %39 : reg<spirv.id>
+  %96 = OpShiftLeftLogical %39, %95 : reg<spirv.id>
+  %97 = OpISub %96, %39 : reg<spirv.id>
+  %98 = OpBitwiseAnd %93, %39 : reg<spirv.id>
+  %99 = OpIAdd %27, %97 : reg<spirv.id>
+  %100 = OpIAdd %99, %98 : reg<spirv.id>
+  %101 = OpShiftRightLogical %100, %92 : reg<spirv.id>
+  %102 = OpConstant.i32 21 : reg<spirv.id>
+  %103 = OpShiftRightLogical %23, %102 : reg<spirv.id>
+  %105 = OpBitwiseAnd %103, %39 : reg<spirv.id>
+  %106 = OpConstant.i32 -938475521 : reg<spirv.id>
+  %107 = OpIAdd %23, %106 : reg<spirv.id>
+  %108 = OpIAdd %107, %105 : reg<spirv.id>
+  %109 = OpShiftRightLogical %108, %102 : reg<spirv.id>
+  %110 = OpConstant.i32 947912704 : reg<spirv.id>
+  %111 = OpSLessThan %23, %110 : reg<spirv.id>
+  %112 = OpSelect %111, %101, %109 : reg<spirv.id>
+  %113 = OpConstant.i32 124 : reg<spirv.id>
+  %114 = OpSGreaterThanEqual %112, %113 : reg<spirv.id>
+  %115 = OpSelect %114, %113, %112 : reg<spirv.id>
+  %119 = OpSelect %65, %59, %115 : reg<spirv.id>
+  %120 = OpBitwiseOr %21, %119 : reg<spirv.id>
+  %e5m2_bits = OpSConvert.i32.i8 %120
+  return %e4m3_bits, %e5m2_bits
+}

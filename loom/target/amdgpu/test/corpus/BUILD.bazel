@@ -82,6 +82,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "memory/view/scalar_exchange.loom",
     "numeric/conversion/bfloat_rounding.loom",
     "numeric/conversion/f32_narrowing.loom",
+    "numeric/conversion/float_narrowing_matrix.loom",
     "numeric/conversion/integer_float8.loom",
     "numeric/conversion/narrow_arithmetic.loom",
     "numeric/conversion/narrow_integer_float.loom",
@@ -222,6 +223,7 @@ loom_corpus_test(
     xfails = {
         AMDGPU_HARDWARE_PROFILE.name: {
             "numeric/conversion/float8_facts.loom:@float8_fact_values": "TARGET/034",
+            "numeric/conversion/float_narrowing_matrix.loom:@f64_narrowing_matrix_values": "TARGET/003",
             "numeric/float/clamp.loom:@clamp_ieee_f32_values": "TARGET/003",
             "numeric/integer/constant_unsigned_division.loom:@constant_scalar_quotient_values": "TARGET/001",
             "numeric/vector/conversion.loom:@halfword_truncation_values": "AMDGPU/023,TARGET/003",

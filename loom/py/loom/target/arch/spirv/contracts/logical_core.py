@@ -34,7 +34,11 @@ from loom.target.arch.spirv.builtins import (
     BuiltinScalarIndexQuery,
 )
 from loom.target.arch.spirv.contracts.atomic import SPIRV_ATOMIC_CONTRACT_CASES
-from loom.target.arch.spirv.contracts.bfloat import bfloat_narrow_rule
+from loom.target.arch.spirv.contracts.bfloat import (
+    bfloat_carrier_from_i16_rule,
+    bfloat_carrier_to_i16_rule,
+    bfloat_narrow_rules,
+)
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
 )
@@ -47,6 +51,7 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 from loom.target.arch.spirv.contracts.extended_math import (
     SPIRV_EXTENDED_MATH_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
@@ -1431,9 +1436,10 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
             row.source_op_key == "fptrunc" and row.result_type.source_type == "bf16"
         )
     ]
-    rules.extend(
-        (bfloat_narrow_rule(preserve_nan=False), bfloat_narrow_rule(preserve_nan=True))
-    )
+    rules.extend(bfloat_narrow_rules())
+    rules.append(bfloat_carrier_from_i16_rule())
+    rules.append(bfloat_carrier_to_i16_rule())
+    rules.extend(float8_narrow_rules())
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
     rules.extend(
         integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)
