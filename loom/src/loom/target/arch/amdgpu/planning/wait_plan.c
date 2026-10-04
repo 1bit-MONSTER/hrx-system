@@ -3981,8 +3981,6 @@ static void loom_amdgpu_wait_plan_emit_counter_progress(
     uint32_t units) {
   const loom_low_packet_progress_event_t event = {
       .progress_class_id = counter_id,
-      .progress_class_name =
-          loom_amdgpu_wait_counter_progress_class_name(counter_id),
       .action = action,
       .units = units,
   };
@@ -4126,6 +4124,7 @@ static iree_status_t loom_amdgpu_wait_plan_build_common_tables(
         .user_data = builder,
         .event_count = builder->progress_event_count,
         .query = loom_amdgpu_wait_plan_progress_query,
+        .class_name = loom_amdgpu_wait_counter_progress_class_name,
     };
     IREE_RETURN_IF_ERROR(loom_low_packet_progress_build(
         builder->schedule, builder->allocation, &progress_provider,

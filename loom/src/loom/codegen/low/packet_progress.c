@@ -33,11 +33,7 @@ static void loom_low_packet_progress_append_event(
   const loom_low_packet_view_t* packet = state->current_packet;
   state->records[state->record_count++] = (loom_low_packet_progress_record_t){
       .packet_index = packet->packet_index,
-      .node_index = packet->node_index,
-      .block_index = packet->node->block_index,
-      .scheduled_ordinal = packet->node->scheduled_ordinal,
       .progress_class_id = event->progress_class_id,
-      .progress_class_name = event->progress_class_name,
       .action = event->action,
       .units = event->units,
   };
@@ -87,6 +83,7 @@ iree_status_t loom_low_packet_progress_build(
       .allocation = allocation,
       .records = records,
       .record_count = state.record_capacity,
+      .class_name = provider->class_name,
   };
   return iree_ok_status();
 }

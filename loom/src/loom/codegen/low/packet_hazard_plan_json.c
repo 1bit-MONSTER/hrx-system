@@ -135,6 +135,8 @@ iree_status_t loom_low_packet_progress_write_json_array(
   const iree_host_size_t record_count = progress ? progress->record_count : 0;
   for (iree_host_size_t i = 0; i < record_count; ++i) {
     const loom_low_packet_progress_record_t* record = &progress->records[i];
+    const loom_low_packet_view_t packet =
+        loom_low_packet_at(progress->schedule, record->packet_index);
     IREE_RETURN_IF_ERROR(loom_json_array_begin_element(&array));
     loom_json_object_writer_t object;
     IREE_RETURN_IF_ERROR(loom_json_object_begin(stream, &object));
@@ -143,15 +145,16 @@ iree_status_t loom_low_packet_progress_write_json_array(
     IREE_RETURN_IF_ERROR(loom_json_object_write_host_size_field(
         &object, IREE_SV("packet"), record->packet_index));
     IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
-        &object, IREE_SV("node"), record->node_index));
+        &object, IREE_SV("node"), packet.node_index));
     IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
-        &object, IREE_SV("block"), record->block_index));
+        &object, IREE_SV("block"), packet.node->block_index));
     IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
-        &object, IREE_SV("scheduled_ordinal"), record->scheduled_ordinal));
+        &object, IREE_SV("scheduled_ordinal"), packet.node->scheduled_ordinal));
     IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
         &object, IREE_SV("class_id"), record->progress_class_id));
     IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
-        &object, IREE_SV("class_name"), record->progress_class_name));
+        &object, IREE_SV("class_name"),
+        progress->class_name(record->progress_class_id)));
     IREE_RETURN_IF_ERROR(loom_json_object_write_string_field(
         &object, IREE_SV("action"),
         loom_low_packet_progress_action_name(record->action)));

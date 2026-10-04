@@ -27,7 +27,9 @@ extern "C" {
 // Sentinel for absent packet-progress record indices.
 #define LOOM_LOW_PACKET_PROGRESS_RECORD_INDEX_NONE UINT32_MAX
 
-typedef enum loom_low_packet_progress_action_e {
+typedef uint8_t loom_low_packet_progress_action_t;
+
+enum loom_low_packet_progress_action_e {
   // Unknown or uninitialized progress action.
   LOOM_LOW_PACKET_PROGRESS_ACTION_UNKNOWN = 0,
   // Packet advances the progress class by |units|.
@@ -37,14 +39,19 @@ typedef enum loom_low_packet_progress_action_e {
   // Packet bounds outstanding work in the progress class by |units|. This
   // does not identify completed producers or advance elapsed-work progress.
   LOOM_LOW_PACKET_PROGRESS_ACTION_BOUND = 3,
-} loom_low_packet_progress_action_t;
+};
+
+// Maps a target-owned progress-class identifier to its stable diagnostic name.
+// This stateless target vocabulary is independent of per-function provider
+// state. The progress table retains the function and calls it only when names
+// are requested, after provider construction state may have been released.
+typedef iree_string_view_t (*loom_low_packet_progress_class_name_fn_t)(
+    uint16_t progress_class_id);
 
 // Target-emitted progress fact for the current packet.
 typedef struct loom_low_packet_progress_event_t {
   // Target-owned progress-class identifier.
   uint16_t progress_class_id;
-  // Borrowed stable progress-class name for diagnostics and traces.
-  iree_string_view_t progress_class_name;
   // Progress operation performed by the packet.
   loom_low_packet_progress_action_t action;
   // Units advanced for ADVANCE, zero for RESET, or nonzero outstanding-work
@@ -78,22 +85,16 @@ typedef struct loom_low_packet_progress_provider_t {
   iree_host_size_t event_count;
   // Progress query callback.
   loom_low_packet_progress_query_fn_t query;
+  // Stable target vocabulary, required when |event_count| is nonzero.
+  loom_low_packet_progress_class_name_fn_t class_name;
 } loom_low_packet_progress_provider_t;
 
 // One progress event attached to a scheduled packet.
 typedef struct loom_low_packet_progress_record_t {
   // Packet ordinal in final scheduled order.
   iree_host_size_t packet_index;
-  // Schedule node represented by |packet_index|.
-  uint32_t node_index;
-  // Region block containing |node_index|.
-  uint32_t block_index;
-  // Scheduled ordinal within |block_index|.
-  uint32_t scheduled_ordinal;
   // Target-owned progress-class identifier.
   uint16_t progress_class_id;
-  // Borrowed stable progress-class name.
-  iree_string_view_t progress_class_name;
   // Progress operation performed by the packet.
   loom_low_packet_progress_action_t action;
   // Units advanced for ADVANCE, zero for RESET, or nonzero outstanding-work
@@ -101,9 +102,14 @@ typedef struct loom_low_packet_progress_record_t {
   uint32_t units;
 } loom_low_packet_progress_record_t;
 
+static_assert(sizeof(loom_low_packet_progress_record_t) ==
+                  sizeof(iree_host_size_t) + 8,
+              "packet-progress records retain only packet and event facts");
+
 // Ordered target-progress sidecar for one scheduled and allocated low function.
 typedef struct loom_low_packet_progress_table_t {
-  // Schedule table walked to build this progress table.
+  // Borrowed immutable schedule, which outlives this table. Packet identities
+  // and block/ordinal metadata remain indexed in the schedule.
   const loom_low_schedule_table_t* schedule;
   // Allocation table paired with |schedule|.
   const loom_low_allocation_table_t* allocation;
@@ -111,6 +117,8 @@ typedef struct loom_low_packet_progress_table_t {
   const loom_low_packet_progress_record_t* records;
   // Number of entries in |records|.
   iree_host_size_t record_count;
+  // Stable target vocabulary retained independently of provider state.
+  loom_low_packet_progress_class_name_fn_t class_name;
 } loom_low_packet_progress_table_t;
 
 // Sparse record-chain entry for one progress class.
