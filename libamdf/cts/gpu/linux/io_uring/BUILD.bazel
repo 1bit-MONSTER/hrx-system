@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
 load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
 
 package(
@@ -14,6 +15,23 @@ package(
 
 exports_files(["README.md"])
 
+amdf_cc_library(
+    name = "file_io_fixture",
+    testonly = True,
+    srcs = ["file_io_fixture.cc"],
+    hdrs = ["file_io_fixture.h"],
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+    deps = [
+        "//libamdf/cts/gpu/kernels:kernel",
+        "//libamdf/cts/gpu/pm4:dispatch_fixture",
+        "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//third_party:google_test",
+    ],
+)
+
 amdf_cts_test_suite(
     name = "file_io",
     srcs = ["file_io_test.cc"],
@@ -23,10 +41,9 @@ amdf_cts_test_suite(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        ":file_io_fixture",
         "//libamdf/cts/gpu/kernels:file_exchange",
         "//libamdf/cts/gpu/kernels:file_exchange_kernels",
-        "//libamdf/cts/gpu/pm4:dispatch_fixture",
-        "//libamdf/cts/gpu/pm4/encoding:commands",
         "//third_party:google_test",
     ],
 )

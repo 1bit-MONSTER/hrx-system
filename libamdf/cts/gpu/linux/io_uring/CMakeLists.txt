@@ -12,16 +12,34 @@ iree_add_all_subdirs()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
+    file_io_fixture
+  HDRS
+    "file_io_fixture.h"
+  SRCS
+    "file_io_fixture.cc"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::kernel
+    libamdf::cts::gpu::pm4::dispatch_fixture
+    libamdf::cts::gpu::pm4::encoding::commands
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+iree_cc_library(
+  NAME
     file_io_cases
   SRCS
     "file_io_test.cc"
   DEPS
+    ::file_io_fixture
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::kernels::file_exchange
     libamdf::cts::gpu::kernels::file_exchange_kernels
-    libamdf::cts::gpu::pm4::dispatch_fixture
-    libamdf::cts::gpu::pm4::encoding::commands
   TESTONLY
   ALWAYSLINK
   PUBLIC
