@@ -49,6 +49,15 @@ and error drain without assuming FIFO completion. The
 full journals stop issuance and drain instead of overrunning oracle storage.
 Logical consumers remain in one invocation, not separate matmul workgroups.
 
+[file_latency.loom](file_latency.loom) provides a matched native/host-relayed
+measurement workload with up to four completion-driven streams. It probes
+returned bytes to choose subsequent file keys, records reference-clock
+intervals, and supports read-only or scattered read/write/reload chains.
+The [latency oracle](../linux/io_uring/file_latency_test.cc) checks causal
+results, complete final buffers and file contents, and clock-domain brackets.
+Its [measurement contract](../linux/io_uring/README.md#completion-driven-latency-comparison)
+separates ordinary correctness runs from optimized, isolated comparisons.
+
 The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) selects
 the same transform set by physical endpoint identity and uses the selected
 resources unchanged through USER or KERNEL PM4

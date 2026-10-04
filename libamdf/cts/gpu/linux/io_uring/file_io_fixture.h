@@ -34,7 +34,8 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // contract.
   void CreateFile(const std::vector<uint32_t>& words, FileMode mode);
   // Retains fixed file/buffer references and enables a restricted SQPOLL ring.
-  void CreateRing(GpuMemory* payload, FileIoPath path = FileIoPath::kDevice);
+  void CreateRing(GpuMemory* payload, FileIoPath path = FileIoPath::kDevice,
+                  uint32_t idle_milliseconds = 1);
   // CPU address of a control word at a returned native ring offset.
   uintptr_t RingWord(uint32_t offset) const;
   // GPU address corresponding to a returned ring offset in the selected path.

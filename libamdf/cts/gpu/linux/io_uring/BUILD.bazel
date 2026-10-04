@@ -37,6 +37,7 @@ amdf_cts_test_suite(
     srcs = [
         "file_gather_test.cc",
         "file_io_test.cc",
+        "file_latency_test.cc",
     ],
     target_compatible_with = [
         "@platforms//os:linux",
@@ -49,6 +50,9 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/kernels:file_exchange_kernels",
         "//libamdf/cts/gpu/kernels:file_gather",
         "//libamdf/cts/gpu/kernels:file_gather_kernels",
+        "//libamdf/cts/gpu/kernels:file_latency",
+        "//libamdf/cts/gpu/kernels:file_latency_kernels",
         "//third_party:google_test",
+        "//third_party:linux_amdgpu_uapi",
     ],
 )

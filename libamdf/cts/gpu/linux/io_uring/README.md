@@ -266,7 +266,85 @@ cover the same one-credit, concurrent, held-reader and failure families as the
 native path. This establishes a correctness baseline for isolating control
 handoff costs; ordinary CTS execution does not measure those costs.
 
+## Completion driven latency comparison
+
+[file_latency_test.cc](file_latency_test.cc) runs one through four causal streams
+with the same [GPU program](../../kernels/file_latency.loom) on both transports.
+Each completion immediately admits its stream's successor. File keys depend on
+three words from the previous response; the host has no prepared request list.
+Read/write/reload cases write disjoint scattered output blocks and reload into
+separate guarded windows. Payload consumption is a three-word probe, not a
+matmul. The CPU oracle checks every probe and dependency, every final payload
+word, untouched guards and state, terminal native positions, and the whole file.
+Error cases establish stop/drain on missing fixed files and partial reads ending
+at EOF. Direct I/O can modify the unreported tail inside a requested EOF block:
+Linux's [iomap completion][iomap] trims the reported count to file length after
+transfer. Only returned bytes are meaningful; guards outside the entire
+submitted destination remain protected and incomplete inputs are never consumed.
+
+The six profiles cover dependent 4 KiB lookups, four independent 4 KiB streams,
+64 KiB block round trips, four 4 MiB block streams, and 4 KiB arrivals separated
+by 200 microseconds or 2 milliseconds. The buffered files are warm page-cache
+controls. `O_DIRECT` exercises the filesystem's direct path; neither mode
+establishes cold controller caches or a production model's access distribution.
+The largest private file is 128 MiB. No model, raw device or existing file is
+modified. File initialization and between-sample writeback flushing occur
+outside timing; timed write completion is not a durability boundary.
+
+Ordinary CTS performs eight rounds per stream without printing performance
+samples. An optimized run sets `AMDF_IO_REPETITIONS` (1 through 31) and requires
+an existing `BENCHMARK_LOCK_LEASE_ID`. That environment value is a launch
+precondition, not proof of machine isolation; the runner's broker and host-health
+record supply that evidence. The same executable and library serve both paths.
+One warm-up pair precedes alternating A/B and B/A pairs. Both paths in a pair
+use the same seed, geometry and fixed consumer count. Fixed counts are 1024
+dependent lookups, 256 consumers per independent stream or 64 KiB chain, eight
+4 MiB consumers per stream, and 128/64 sparse consumers respectively.
+
+`AMDF_IO_IDLE_MS` selects the native SQPOLL idle policy (default 1 millisecond).
+`AMDF_IO_SERVICE_US` selects a requested delay between host service passes;
+omitting it selects busy polling. Both transports use the same selected policy.
+Scheduling and timer slack can exceed a requested polling interval. Wake calls
+are coalesced by published SQ tail, and each sample begins with an observed
+sleeping poller. No policy value is a timeout on valid asynchronous work.
+
+Each `AMDF_IO_SAMPLE` JSON line reports the following distinct intervals:
+
+| Measurement | Boundary |
+| --- | --- |
+| `request_ticks` | First GPU SQ-tail publication through completion acquisition, payload probes and result stores; positive short retries retain the initial timestamp. |
+| `device_ticks` | Initial device request preparation through final device consumption, including programmed arrival gaps. |
+| `wall_ns` | Host queue publication through observed final GPU completion. |
+| `host_cpu_ns` | The service thread's CPU time over the host interval. |
+| `sqpoll_cpu_us` | Kernel `SqTotalTime` delta sampled around that interval. |
+| `sqpoll_tail_cpu_us` | Additional poller CPU time through its observed return to sleep. |
+
+Kernel accounting samples bracket rather than exactly coincide with the host
+interval. The two CPU owners do not double count one another, but their sum is
+not whole-machine CPU consumption: interrupt, worker and other kernel threads
+are not attributed by these counters. Poller tail cost is reported separately,
+not silently excluded from a resource-cost conclusion.
+
+Clock conversion uses `AMDGPU_INFO_DEV_INFO.gpu_counter_freq`, not GPU operating
+MHz or KFD's host-clock frequency. Every sample checks that its shader clock
+interval fits inside enclosing `AMDGPU_INFO_TIMESTAMP` observations on the same
+native device. The interval must fit the shader's 32-bit counter width. The
+[clock reference](../../../../../docs/reference/amd/gpu/observability.md)
+describes those domains. Request timestamp and transcript overhead is shared
+by both paths; results characterize this instrumented native boundary, not a
+complete serving engine or contention with independent compute workers.
+
+The runnable target is `:file_io_dynamic_bin`; the ordinary `:file_io_dynamic`
+target supplies ASAN correctness. Optimized builds use the repository benchmark
+flags and an explicit runner ISA. A measurement invocation supplies the built
+library with `--amdf_library`, selects the physical GPU, and filters
+`FileModes/GpuFileLatencyTest.*`. The file's XML retains device, filesystem,
+kernel and compiled-image identity. Performance results require the matched
+JSON samples plus artifact digests, compiler flags, broker lease, machine
+state and the exact policy settings; a successful CTS run alone is insufficient.
+
 [model]: https://github.com/axboe/liburing/blob/master/man/io_uring.7
 [setup]: https://github.com/axboe/liburing/blob/master/man/io_uring_setup.2
 [sqpoll]: https://github.com/torvalds/linux/blob/master/io_uring/sqpoll.c
 [memmap]: https://github.com/torvalds/linux/blob/master/io_uring/memmap.c
+[iomap]: https://github.com/torvalds/linux/blob/master/fs/iomap/direct-io.c

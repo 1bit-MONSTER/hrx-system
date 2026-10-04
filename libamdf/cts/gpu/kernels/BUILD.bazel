@@ -31,6 +31,7 @@ exports_files([
     "completed_tick_rdna4_gfx1250_a0.loom",
     "file_exchange.loom",
     "file_gather.loom",
+    "file_latency.loom",
     "geometry_ids.loom",
     "lds_exchange.loom",
     "pattern_fill_unaligned.loom",
@@ -206,6 +207,20 @@ amdf_cts_gpu_kernel_set(
     targets = _RDNA_KERNEL_TARGETS,
 )
 
+amdf_cc_library(
+    name = "file_latency",
+    testonly = True,
+    hdrs = ["file_latency.h"],
+)
+
+amdf_cts_gpu_kernel_set(
+    name = "file_latency_kernels",
+    srcs = _COMPLETED_TICK_SRCS + ["file_latency.loom"],
+    entry_point = "file_latency",
+    namespace = "kernels::file_latency",
+    targets = _RDNA_KERNEL_TARGETS,
+)
+
 amdf_cts_gpu_kernel_set(
     name = "resident_channels_kernels",
     srcs = _COMPLETED_TICK_SRCS + ["resident_channels.loom"],
@@ -288,6 +303,8 @@ amdf_cc_library(
         ":file_exchange_kernels",
         ":file_gather",
         ":file_gather_kernels",
+        ":file_latency",
+        ":file_latency_kernels",
         ":product_test",
         ":resident_channels",
         ":resident_channels_kernels",

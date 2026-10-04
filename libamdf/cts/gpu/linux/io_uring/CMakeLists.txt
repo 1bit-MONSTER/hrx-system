@@ -35,7 +35,9 @@ iree_cc_library(
   SRCS
     "file_gather_test.cc"
     "file_io_test.cc"
+    "file_latency_test.cc"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     ::file_io_fixture
     amdf::headers
     iree::third_party::google_test
@@ -43,6 +45,8 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::file_exchange_kernels
     libamdf::cts::gpu::kernels::file_gather
     libamdf::cts::gpu::kernels::file_gather_kernels
+    libamdf::cts::gpu::kernels::file_latency
+    libamdf::cts::gpu::kernels::file_latency_kernels
   TESTONLY
   ALWAYSLINK
   PUBLIC

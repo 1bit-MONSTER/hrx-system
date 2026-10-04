@@ -147,7 +147,8 @@ void GpuFileIoFixture::CreateFile(const std::vector<uint32_t>& words,
   }
 }
 
-void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path) {
+void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
+                                  uint32_t idle_milliseconds) {
   // Eight ordinary SQEs and sixteen ordinary CQEs each fit one base page.
   // NO_SQARRAY omits the extra submission-index array. Returned offsets,
   // not a copied kernel-private header, locate every shared control word.
@@ -155,7 +156,7 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path) {
       CreateRegisteredPages(2 * page_byte_length_, 0, &ring_memory_));
   parameters_.flags = IORING_SETUP_SQPOLL | IORING_SETUP_NO_MMAP |
                       IORING_SETUP_NO_SQARRAY | IORING_SETUP_R_DISABLED;
-  parameters_.sq_thread_idle = 1;
+  parameters_.sq_thread_idle = idle_milliseconds;
   parameters_.sq_off.user_addr =
       reinterpret_cast<uintptr_t>(ring_memory_->host.pointer);
   parameters_.cq_off.user_addr =
