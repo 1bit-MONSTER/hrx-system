@@ -7,6 +7,8 @@
 #include "loom/analysis/liveness.h"
 
 #include <string>
+#include <tuple>
+#include <vector>
 
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
@@ -392,10 +394,10 @@ class LivenessStorageTest : public LivenessTest {
     return allocator.ctl(allocator.self, command, parameters, pointer);
   }
 
-  void InitializeStorage() {
+  void InitializeStorage(iree_host_size_t block_size = 128 * 1024) {
     allocation_count_ = 0;
     failure_index_ = SIZE_MAX;
-    iree_arena_block_pool_initialize(128 * 1024, {this, Allocate},
+    iree_arena_block_pool_initialize(block_size, {this, Allocate},
                                      &result_pool_);
     iree_arena_initialize(&result_pool_, &result_arena_);
   }
@@ -418,6 +420,7 @@ class LivenessStorageTest : public LivenessTest {
 
   void BuildChain(uint16_t block_count, uint16_t argument_count = 8,
                   uint16_t result_count = 8) {
+    ASSERT_LE(result_count, argument_count);
     loom_module_t* module = nullptr;
     IREE_ASSERT_OK(loom_module_allocate(&context_, IREE_SV("test"),
                                         &block_pool_, nullptr,
@@ -431,17 +434,15 @@ class LivenessStorageTest : public LivenessTest {
         loom_builder_intern_string(&builder, IREE_SV("chain"), &name_id));
     uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
     IREE_ASSERT_OK(loom_module_add_symbol(module, name_id, &symbol_id));
-    loom_type_t types[8];
-    for (auto& type : types) {
-      type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
-    }
+    std::vector<loom_type_t> types(argument_count,
+                                   loom_type_scalar(LOOM_SCALAR_TYPE_I32));
     loom_op_t* function = nullptr;
     IREE_ASSERT_OK(loom_func_def_build(
         &builder, 0, 0, 0, 0, 0, 0, 0, loom_symbol_ref_null(), 0,
         loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
-        loom_named_attr_slice_empty(), {0, symbol_id}, types, argument_count,
-        types, result_count, nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN,
-        &function));
+        loom_named_attr_slice_empty(), {0, symbol_id}, types.data(),
+        argument_count, types.data(), result_count, nullptr, 0, nullptr, 0,
+        LOOM_LOCATION_UNKNOWN, &function));
     body_ = loom_func_like_body(loom_func_like_cast(module, function));
     body_->flags |= LOOM_REGION_INSTANCE_FLAG_CFG;
     loom_block_t* entry = loom_region_entry_block(body_);
@@ -456,9 +457,12 @@ class LivenessStorageTest : public LivenessTest {
       loom_builder_set_block(&builder, successor);
     }
     loom_op_t* return_op = nullptr;
-    IREE_ASSERT_OK(loom_func_return_build(&builder, entry->arg_ids,
-                                          result_count, LOOM_LOCATION_UNKNOWN,
-                                          &return_op));
+    // The live suffix follows any unused arguments in the local value domain.
+    const auto* results = result_count == 0
+                              ? nullptr
+                              : entry->arg_ids + argument_count - result_count;
+    IREE_ASSERT_OK(loom_func_return_build(&builder, results, result_count,
+                                          LOOM_LOCATION_UNKNOWN, &return_op));
   }
 
   void ExpectSegments(const loom_liveness_analysis_t& analysis) {
@@ -500,7 +504,7 @@ class LivenessStorageTest : public LivenessTest {
   ModulePtr module_;
   // CFG whose entry arguments stay live through the last block's return.
   loom_region_t* body_ = nullptr;
-  // Production-sized pool shared by analysis results and internal scratch.
+  // Pool shared by analysis results and internal scratch.
   iree_arena_block_pool_t result_pool_ = {};
   // Result lifetime ends between repeated analyses, retaining reusable blocks.
   iree_arena_allocator_t result_arena_ = {};
@@ -561,8 +565,16 @@ TEST_F(LivenessStorageTest, UnusedValuesHaveEmptySegmentRanges) {
   }
 }
 
-TEST_F(LivenessStorageTest, BackingFailureLeavesNoPublishedAnalysis) {
-  ASSERT_NO_FATAL_FAILURE(BuildChain(1025));
+class LivenessStorageFailureTest
+    : public LivenessStorageTest,
+      public ::testing::WithParamInterface<
+          std::tuple<uint16_t, uint16_t, iree_host_size_t>> {};
+
+TEST_P(LivenessStorageFailureTest, BackingFailureLeavesNoPublishedAnalysis) {
+  const auto [block_count, value_count, block_size] = GetParam();
+  ASSERT_NO_FATAL_FAILURE(BuildChain(block_count, value_count, value_count));
+  DeinitializeStorage();
+  InitializeStorage(block_size);
   loom_liveness_analysis_t analysis = {};
   IREE_ASSERT_OK(loom_liveness_analyze_region(module_.get(), body_,
                                               &result_arena_, &analysis));
@@ -572,7 +584,7 @@ TEST_F(LivenessStorageTest, BackingFailureLeavesNoPublishedAnalysis) {
   for (iree_host_size_t i = 0; i < allocation_count; ++i) {
     SCOPED_TRACE(i);
     DeinitializeStorage();
-    InitializeStorage();
+    InitializeStorage(block_size);
     failure_index_ = i;
     IREE_ASSERT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
                           loom_liveness_analyze_region(
@@ -590,6 +602,86 @@ TEST_F(LivenessStorageTest, BackingFailureLeavesNoPublishedAnalysis) {
     ASSERT_NO_FATAL_FAILURE(ExpectSegments(analysis));
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(Construction, LivenessStorageFailureTest,
+                         ::testing::Values(std::make_tuple(1025, 8, 128 * 1024),
+                                           std::make_tuple(1, 800, 32 * 1024)));
+
+class LivenessIntervalStorageTest
+    : public LivenessStorageTest,
+      public ::testing::WithParamInterface<
+          std::tuple<uint16_t, loom_local_value_domain_flags_t>> {};
+
+TEST_P(LivenessIntervalStorageTest, CompactIntervalsRetainOnlyLiveMetadata) {
+  const auto [result_count, flags] = GetParam();
+  ASSERT_NO_FATAL_FAILURE(BuildChain(1, 800, result_count));
+  auto* entry = loom_region_entry_block(body_);
+  DeinitializeStorage();
+  InitializeStorage(32 * 1024);
+  iree_host_size_t first_allocation_count = 0;
+  for (int epoch = 0; epoch < 3; ++epoch) {
+    SCOPED_TRACE(epoch);
+    loom_local_value_domain_t domain = {};
+    const auto acquire =
+        iree_any_bit_set(flags, LOOM_LOCAL_VALUE_DOMAIN_FLAG_REGION_TREE)
+            ? loom_local_value_domain_acquire_for_region_tree
+            : loom_local_value_domain_acquire_for_region;
+    IREE_ASSERT_OK(acquire(module_.get(), body_, &result_arena_, &domain));
+    loom_liveness_analysis_t analysis = {};
+    IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
+        &domain, loom_liveness_order_empty(), &result_arena_, &analysis));
+    loom_local_value_domain_release(&domain);
+    EXPECT_EQ(analysis.value_count, 800u);
+    ASSERT_EQ(analysis.interval_count, result_count);
+    EXPECT_EQ(analysis.segment_count, result_count);
+    for (uint16_t i = 0; i < entry->arg_count; ++i) {
+      const auto ordinal = FindValueOrdinal(analysis, entry->arg_ids[i]);
+      const auto* interval =
+          loom_liveness_interval_for_value_ordinal(&analysis, ordinal);
+      if (i < 800 - result_count) {
+        EXPECT_EQ(interval, nullptr);
+        continue;
+      }
+      ASSERT_NE(interval, nullptr);
+      EXPECT_EQ(interval->value_id, entry->arg_ids[i]);
+      EXPECT_EQ(interval->start_point, 0u);
+      EXPECT_EQ(interval->end_point, 1u);
+      EXPECT_EQ(interval->definition_point, 0u);
+      EXPECT_EQ(interval->unit_count, 1u);
+      EXPECT_EQ(interval->value_class.type_kind, LOOM_TYPE_SCALAR);
+      EXPECT_EQ(interval->value_class.element_type, LOOM_SCALAR_TYPE_I32);
+      EXPECT_EQ(interval->value_class.register_class_id,
+                LOOM_LOW_REGISTER_CLASS_ID_INVALID);
+      EXPECT_EQ(interval->value_class.register_descriptor_set_stable_id, 0u);
+    }
+    const auto* pressure = FindScalarPressure(analysis, LOOM_SCALAR_TYPE_I32);
+    if (result_count == 0) {
+      EXPECT_EQ(pressure, nullptr);
+    } else {
+      ASSERT_NE(pressure, nullptr);
+      EXPECT_EQ(pressure->peak_live_values, result_count);
+      EXPECT_EQ(pressure->peak_live_units, result_count);
+      EXPECT_EQ(pressure->peak_point, 0u);
+    }
+    iree_arena_block_pool_statistics_t statistics = {};
+    iree_arena_block_pool_query_statistics(&result_pool_, &statistics);
+    EXPECT_EQ(statistics.oversized_allocation_count, 0u);
+    if (epoch == 0) {
+      first_allocation_count = allocation_count_;
+    } else {
+      EXPECT_EQ(allocation_count_, first_allocation_count);
+    }
+    iree_arena_reset(&result_arena_);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    BoundCollection, LivenessIntervalStorageTest,
+    ::testing::Combine(
+        ::testing::Values(0, 1, 400, 800),
+        ::testing::Values(loom_local_value_domain_flags_t{0},
+                          loom_local_value_domain_flags_t{
+                              LOOM_LOCAL_VALUE_DOMAIN_FLAG_REGION_TREE})));
 
 TEST_F(LivenessTest, CfgLoopPropagatesFixedPointLiveness) {
   ModulePtr module = ParseModule(R"(
