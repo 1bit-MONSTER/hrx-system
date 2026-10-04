@@ -249,6 +249,23 @@ consumer publication, or application-level cache ownership. Checkpointing
 further needs consistent tensor versions and a separate durability/publication
 boundary. Those gates remain distinct from the native ownership proof.
 
+## Matched host relay
+
+The host-relay cases run the same compiled GPU programs and full numerical,
+file, guard, lifetime and error-drain oracles through an additional control
+handoff. The GPU publishes SQEs into a separate registered ring. One host owner
+copies those records into the native SQ and copies native CQEs back to the
+GPU-facing CQ. Acquire/release publication carries payload visibility across
+that handoff; payloads themselves use the same registered I/O windows and are
+never copied by the relay. Source decisions and arithmetic remain on the GPU.
+
+This comparator retains one persistent dispatch, fixed files/buffers and
+SQPOLL. It introduces neither a dispatch per request nor an application-payload
+staging copy. Both paths still require idle poller wakes. Fifteen relay cases
+cover the same one-credit, concurrent, held-reader and failure families as the
+native path. This establishes a correctness baseline for isolating control
+handoff costs; ordinary CTS execution does not measure those costs.
+
 [model]: https://github.com/axboe/liburing/blob/master/man/io_uring.7
 [setup]: https://github.com/axboe/liburing/blob/master/man/io_uring_setup.2
 [sqpoll]: https://github.com/torvalds/linux/blob/master/io_uring/sqpoll.c

@@ -145,7 +145,8 @@ class GpuFileGatherTest : public GpuFileIoFixture {
   }
 
   void Run(FileMode mode, uint32_t held_slot, Fault fault = Fault::kNone,
-           uint32_t request_capacity = protocol::kRequestCapacity) {
+           uint32_t request_capacity = protocol::kRequestCapacity,
+           FileIoPath path = FileIoPath::kDevice) {
     const auto* product = protocol::kKernels.Find(gpu_endpoint_info_);
     ASSERT_NE(product, nullptr) << "missing compiled file-gather kernel";
     const auto& kernel = *product;
@@ -193,7 +194,7 @@ class GpuFileGatherTest : public GpuFileIoFixture {
     GpuMemory* completion = nullptr;
     ASSERT_NO_FATAL_FAILURE(CreateRegisteredPages(
         expected_payload.size() * sizeof(uint32_t), kGuard, &payload));
-    ASSERT_NO_FATAL_FAILURE(CreateRing(payload));
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, path));
     ASSERT_NO_FATAL_FAILURE(CreateGuardedMemory(expected_state, &state));
     ASSERT_NO_FATAL_FAILURE(CreateGuardedMemory(expected_records, &records));
     ASSERT_NO_FATAL_FAILURE(CreateGuardedMemory(expected_requests, &requests));
@@ -203,7 +204,7 @@ class GpuFileGatherTest : public GpuFileIoFixture {
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &completion));
     std::memset(completion->host.pointer, 0, completion->host.byte_length);
     const protocol::Arguments device_arguments = {
-        .submission_entries = ring_memory_->device_address,
+        .submission_entries = device_ring_memory_->device_address,
         .submission_tail = RingAddress(parameters_.sq_off.tail),
         .completion_entries = RingAddress(parameters_.cq_off.cqes),
         .completion_head = RingAddress(parameters_.cq_off.head),
@@ -579,6 +580,42 @@ TEST_F(GpuFileGatherTest,
 TEST_F(GpuFileGatherTest,
        FullJournalStopsPublicationAndDrainsTwoAcceptedRequests) {
   Run(FileMode::kBuffered, 0, Fault::kNone, 4);
+}
+
+class GpuFileGatherRelayTest : public GpuFileGatherTest,
+                               public ::testing::WithParamInterface<uint32_t> {
+};
+
+TEST_P(GpuFileGatherRelayTest, BufferedHeldReader) {
+  Run(FileMode::kBuffered, GetParam(), Fault::kNone, protocol::kRequestCapacity,
+      FileIoPath::kHostRelay);
+}
+
+TEST_P(GpuFileGatherRelayTest, DirectHeldReader) {
+  Run(FileMode::kDirect, GetParam(), Fault::kNone, protocol::kRequestCapacity,
+      FileIoPath::kHostRelay);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllSlots, GpuFileGatherRelayTest,
+                         ::testing::Values(0u, 1u, 2u));
+
+class GpuFileGatherRelayErrorTest
+    : public GpuFileGatherTest,
+      public ::testing::WithParamInterface<Fault> {};
+
+TEST_P(GpuFileGatherRelayErrorTest, StopsPublicationAndDrains) {
+  Run(FileMode::kBuffered, 1, GetParam(), protocol::kRequestCapacity,
+      FileIoPath::kHostRelay);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllPhases, GpuFileGatherRelayErrorTest,
+                         ::testing::Values(Fault::kInvalidFile,
+                                           Fault::kInvalidWrite,
+                                           Fault::kInvalidReload,
+                                           Fault::kShortInput));
+
+TEST_F(GpuFileGatherTest, HostRelayFullJournalDrainsAcceptedRequests) {
+  Run(FileMode::kBuffered, 0, Fault::kNone, 4, FileIoPath::kHostRelay);
 }
 
 }  // namespace

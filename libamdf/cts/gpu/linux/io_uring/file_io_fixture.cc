@@ -147,7 +147,7 @@ void GpuFileIoFixture::CreateFile(const std::vector<uint32_t>& words,
   }
 }
 
-void GpuFileIoFixture::CreateRing(GpuMemory* payload) {
+void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path) {
   // Eight ordinary SQEs and sixteen ordinary CQEs each fit one base page.
   // NO_SQARRAY omits the extra submission-index array. Returned offsets,
   // not a copied kernel-private header, locate every shared control word.
@@ -204,6 +204,13 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload) {
   RecordProperty("io_setup_features", parameters_.features);
   RecordProperty("io_submission_entries", parameters_.sq_entries);
   RecordProperty("io_completion_entries", parameters_.cq_entries);
+  device_ring_memory_ = ring_memory_;
+  if (path == FileIoPath::kHostRelay) {
+    ASSERT_NO_FATAL_FAILURE(
+        CreateRegisteredPages(2 * page_byte_length_, 0, &device_ring_memory_));
+  }
+  RecordProperty("io_path",
+                 path == FileIoPath::kDevice ? "device" : "host_relay");
 }
 
 uintptr_t GpuFileIoFixture::RingWord(uint32_t offset) const {
@@ -212,7 +219,56 @@ uintptr_t GpuFileIoFixture::RingWord(uint32_t offset) const {
 }
 
 uint64_t GpuFileIoFixture::RingAddress(uint32_t offset) const {
-  return ring_memory_->device_address + page_byte_length_ + offset;
+  return device_ring_memory_->device_address + page_byte_length_ + offset;
+}
+
+void GpuFileIoFixture::RelayFileIo() {
+  if (device_ring_memory_ == ring_memory_) {
+    return;
+  }
+  const uintptr_t device_base =
+      reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer);
+  const uintptr_t device_control = device_base + page_byte_length_;
+  auto* native_submissions =
+      static_cast<io_uring_sqe*>(ring_memory_->host.pointer);
+  const auto* device_submissions =
+      reinterpret_cast<const io_uring_sqe*>(device_base);
+  const auto* native_completions =
+      reinterpret_cast<const io_uring_cqe*>(RingWord(parameters_.cq_off.cqes));
+  auto* device_completions =
+      reinterpret_cast<io_uring_cqe*>(device_control + parameters_.cq_off.cqes);
+
+  // Completion publication also carries the kernel's payload writes to the
+  // GPU. Returning native CQ space does not release an application payload.
+  // These finite owners bound outstanding work below both ring capacities;
+  // no producer can lap its consumer even if the host drains CQs first.
+  uint32_t consumed =
+      GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.head));
+  const uint32_t completed =
+      GpuLoadAcquire<uint32_t>(RingWord(parameters_.cq_off.tail));
+  if (consumed != completed) {
+    for (; consumed != completed; ++consumed) {
+      const uint32_t index = consumed & (parameters_.cq_entries - 1);
+      device_completions[index] = native_completions[index];
+    }
+    GpuStoreRelease<uint32_t>(RingWord(parameters_.cq_off.head), completed);
+    GpuStoreRelease<uint32_t>(device_control + parameters_.cq_off.tail,
+                              completed);
+  }
+
+  uint32_t submitted =
+      GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.tail));
+  const uint32_t available =
+      GpuLoadAcquire<uint32_t>(device_control + parameters_.sq_off.tail);
+  if (submitted != available) {
+    for (; submitted != available; ++submitted) {
+      const uint32_t index = submitted & (parameters_.sq_entries - 1);
+      native_submissions[index] = device_submissions[index];
+    }
+    GpuStoreRelease<uint32_t>(RingWord(parameters_.sq_off.tail), available);
+    GpuStoreRelease<uint32_t>(device_control + parameters_.sq_off.head,
+                              available);
+  }
 }
 
 void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
@@ -249,8 +305,9 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
   uint64_t wake_count = 0;
   while (GpuLoadAcquire<uint32_t>(
              reinterpret_cast<uintptr_t>(completion->host.pointer)) != 1) {
-    // This control service never reads a CQ or any device payload, publishes
-    // an SQE, or changes a ring position. It only wakes an idle kernel owner.
+    RelayFileIo();
+    // Waking an idle kernel owner is separate from the optional control-record
+    // relay. Neither path reads or modifies application payloads.
     if ((GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.flags)) &
          IORING_SQ_NEED_WAKEUP) &&
         GpuLoadAcquire<uint32_t>(RingWord(parameters_.sq_off.head)) !=
@@ -266,6 +323,27 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
     std::this_thread::yield();
   }
   ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
+  if (device_ring_memory_ != ring_memory_) {
+    const uintptr_t device_control =
+        reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer) +
+        page_byte_length_;
+    for (const uint32_t offset :
+         {parameters_.sq_off.head, parameters_.sq_off.tail,
+          parameters_.cq_off.head, parameters_.cq_off.tail}) {
+      EXPECT_EQ(GpuLoadAcquire<uint32_t>(device_control + offset),
+                GpuLoadAcquire<uint32_t>(RingWord(offset)));
+    }
+    EXPECT_EQ(std::memcmp(device_ring_memory_->host.pointer,
+                          ring_memory_->host.pointer,
+                          parameters_.sq_entries * sizeof(io_uring_sqe)),
+              0);
+    EXPECT_EQ(std::memcmp(reinterpret_cast<const void*>(
+                              device_control + parameters_.cq_off.cqes),
+                          reinterpret_cast<const void*>(
+                              RingWord(parameters_.cq_off.cqes)),
+                          parameters_.cq_entries * sizeof(io_uring_cqe)),
+              0);
+  }
   RecordProperty("io_idle_wake_calls", std::to_string(wake_count));
 }
 

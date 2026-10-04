@@ -50,7 +50,8 @@ uint32_t InputWord(uint32_t block, uint32_t word) {
 
 class GpuFileIoTest : public GpuFileIoFixture {
  protected:
-  void Run(FileMode mode, Workload workload) {
+  void Run(FileMode mode, Workload workload,
+           FileIoPath path = FileIoPath::kDevice) {
     const auto* product = protocol::kKernels.Find(gpu_endpoint_info_);
     ASSERT_NE(product, nullptr) << "missing compiled file-exchange kernel";
     const auto& kernel = *product;
@@ -79,7 +80,7 @@ class GpuFileIoTest : public GpuFileIoFixture {
     GpuMemory* payload = nullptr;
     ASSERT_NO_FATAL_FAILURE(
         CreateRegisteredPages(7 * page_byte_length_, kGuard, &payload));
-    ASSERT_NO_FATAL_FAILURE(CreateRing(payload));
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, path));
     const size_t record_word_count =
         2 * kRecordGuardWords + protocol::kSummaryWordCount +
         round_count * (protocol::kRecordHeaderWordCount + word_count);
@@ -99,7 +100,7 @@ class GpuFileIoTest : public GpuFileIoFixture {
     std::memset(completion->host.pointer, 0, completion->host.byte_length);
 
     const protocol::Arguments device_arguments = {
-        .submission_entries = ring_memory_->device_address,
+        .submission_entries = device_ring_memory_->device_address,
         .submission_tail = RingAddress(parameters_.sq_off.tail),
         .completion_entries = RingAddress(parameters_.cq_off.cqes),
         .completion_head = RingAddress(parameters_.cq_off.head),
@@ -229,6 +230,22 @@ TEST_F(GpuFileIoTest,
 
 TEST_F(GpuFileIoTest, InvalidFixedFileRetiresWithTheNativeError) {
   Run(FileMode::kBuffered, Workload::kInvalidFile);
+}
+
+TEST_F(GpuFileIoTest, HostRelayBufferedCausalReadWriteReload) {
+  Run(FileMode::kBuffered, Workload::kRoundTrip, FileIoPath::kHostRelay);
+}
+
+TEST_F(GpuFileIoTest, HostRelayDirectCausalReadWriteReload) {
+  Run(FileMode::kDirect, Workload::kRoundTrip, FileIoPath::kHostRelay);
+}
+
+TEST_F(GpuFileIoTest, HostRelayPartialReadThenEof) {
+  Run(FileMode::kBuffered, Workload::kShortInput, FileIoPath::kHostRelay);
+}
+
+TEST_F(GpuFileIoTest, HostRelayInvalidFixedFile) {
+  Run(FileMode::kBuffered, Workload::kInvalidFile, FileIoPath::kHostRelay);
 }
 
 }  // namespace
