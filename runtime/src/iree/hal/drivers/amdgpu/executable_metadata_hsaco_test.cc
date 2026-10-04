@@ -465,6 +465,61 @@ TEST(ExecutableMetadataHsacoTest, PopulatesElfOnlyCustomDirectExport) {
   iree_hal_amdgpu_executable_metadata_free(metadata);
 }
 
+TEST(ExecutableMetadataHsacoTest, PreservesParameterRangesWithElfOnlyExports) {
+  const auto source_data = SourceCodeObjectData();
+  std::vector<uint8_t> loaded_storage = MakeLoadedCodeObjectData();
+  const auto loaded_data = LoadedCodeObjectData(loaded_storage);
+  std::vector<iree_hal_amdgpu_hsaco_metadata_arg_t> args = {
+      MakeArg(ViewFromCodeObjectData(source_data, "lhs"), 0, 8,
+              IREE_HAL_AMDGPU_HSACO_METADATA_ARG_KIND_GLOBAL_BUFFER,
+              ViewFromCodeObjectData(source_data, "global_buffer")),
+      MakeArg(ViewFromCodeObjectData(source_data, "scale"), 8, 4,
+              IREE_HAL_AMDGPU_HSACO_METADATA_ARG_KIND_BY_VALUE,
+              ViewFromCodeObjectData(source_data, "by_value")),
+  };
+  auto kernel = MakeKernel(ViewFromCodeObjectData(source_data, "test"),
+                           ViewFromCodeObjectData(source_data, "test.kd"),
+                           /*kernarg_segment_size=*/16, args);
+  iree_hal_amdgpu_hsaco_metadata_elf_kernel_symbol_t symbols[] = {
+      {ViewFromCodeObjectData(source_data, "direct"),
+       ViewFromCodeObjectData(source_data, "direct.kd")},
+      {ViewFromCodeObjectData(source_data, "implicit"),
+       ViewFromCodeObjectData(source_data, "implicit.kd")},
+  };
+  iree_hal_amdgpu_hsaco_metadata_t hsaco_metadata = {};
+  hsaco_metadata.elf_data = source_data;
+  hsaco_metadata.kernel_count = 1;
+  hsaco_metadata.kernels = &kernel;
+  hsaco_metadata.elf_kernel_symbol_count = 2;
+  hsaco_metadata.elf_kernel_symbols = symbols;
+  auto* metadata = AllocateAndPopulate(&hsaco_metadata, loaded_data);
+  ASSERT_EQ(metadata->export_count, 3);
+  ASSERT_EQ(metadata->parameter_count, 2);
+  EXPECT_EQ(metadata->reflection[0].parameter_offset, 0);
+  EXPECT_EQ(metadata->reflection[0].parameter_count, 2);
+  for (size_t i = 1; i < metadata->export_count; ++i) {
+    EXPECT_EQ(metadata->reflection[i].parameter_offset, 2);
+    EXPECT_EQ(metadata->reflection[i].parameter_count, 0);
+  }
+  // Executable reflection derives each range from adjacent export offsets,
+  // using the total parameter count as the final sentinel.
+  for (size_t i = 0; i < metadata->export_count; ++i) {
+    const auto begin = metadata->reflection[i].parameter_offset;
+    const auto end = i + 1 < metadata->export_count
+                         ? metadata->reflection[i + 1].parameter_offset
+                         : metadata->parameter_count;
+    EXPECT_GE(end, begin);
+    EXPECT_EQ(end - begin, metadata->reflection[i].parameter_count);
+  }
+  ExpectRebasedView(loaded_data, args[0].name, metadata->parameters[0].name);
+  EXPECT_EQ(metadata->parameters[0].type,
+            IREE_HAL_EXECUTABLE_FUNCTION_PARAMETER_TYPE_BINDING);
+  EXPECT_EQ(metadata->parameters[0].native_abi_offset, 0);
+  ExpectRebasedView(loaded_data, args[1].name, metadata->parameters[1].name);
+  EXPECT_EQ(metadata->parameters[1].native_abi_offset, 8);
+  iree_hal_amdgpu_executable_metadata_free(metadata);
+}
+
 TEST(ExecutableMetadataHsacoTest, RejectsLoadedCodeObjectStringMismatch) {
   const iree_const_byte_span_t source_code_object_data = SourceCodeObjectData();
   std::vector<uint8_t> loaded_code_object_storage = MakeLoadedCodeObjectData();

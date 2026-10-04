@@ -141,7 +141,9 @@ enum BuildKernelMetadataFlagBits : uint32_t {
 };
 
 static std::vector<uint8_t> BuildKernelMetadata(
-    uint32_t flags = kBuildKernelMetadataNone) {
+    uint32_t flags = kBuildKernelMetadataNone,
+    iree_string_view_t name = IREE_SV("vector_add"),
+    iree_string_view_t symbol = IREE_SV("vector_add.kd")) {
   const bool out_of_range_arg =
       (flags & kBuildKernelMetadataOutOfRangeArg) != 0;
   const bool unknown_value_kind =
@@ -177,8 +179,8 @@ static std::vector<uint8_t> BuildKernelMetadata(
                    (omit_vgpr_count ? 1 : 0) +
                    (has_cluster_dimensions ? 1 : 0) +
                    (uniform_workgroups || invalid_uniform_workgroups ? 1 : 0));
-  AppendStringField(&output, IREE_SV(".name"), IREE_SV("vector_add"));
-  AppendStringField(&output, IREE_SV(".symbol"), IREE_SV("vector_add.kd"));
+  AppendStringField(&output, IREE_SV(".name"), name);
+  AppendStringField(&output, IREE_SV(".symbol"), symbol);
   AppendUintField(&output, IREE_SV(".kernarg_segment_size"), 24);
   AppendUintField(&output, IREE_SV(".kernarg_segment_align"), 8);
   AppendUintField(&output, IREE_SV(".group_segment_fixed_size"), 1024);
@@ -424,6 +426,39 @@ static std::vector<uint8_t> BuildElfWithMetadata(
   return BuildElfWithNote(metadata, IREE_SV("AMDGPU"), 32);
 }
 
+// Models both notes linked into one PT_NOTE and notes in separate segments.
+static std::vector<uint8_t> BuildElfWithMetadataNotes(
+    const std::vector<uint8_t>& first, const std::vector<uint8_t>& second,
+    bool separate_segments) {
+  constexpr size_t kProgramHeaderOffset = 64;
+  constexpr size_t kProgramHeaderSize = 56;
+  constexpr size_t kNoteOffset = 128;
+  std::vector<uint8_t> elf = BuildElfWithMetadata(first);
+  std::vector<uint8_t> second_elf = BuildElfWithMetadata(second);
+  const size_t first_note_size = elf.size() - kNoteOffset;
+  const size_t second_note_size = second_elf.size() - kNoteOffset;
+  if (separate_segments) {
+    // Make room for another program header before the first note.
+    elf.insert(elf.begin() + kNoteOffset, kProgramHeaderSize, 0);
+    StoreU16LE(&elf, 56, 2);
+    StoreU64LE(&elf, kProgramHeaderOffset + 8,
+               kNoteOffset + kProgramHeaderSize);
+    const size_t second_header = kProgramHeaderOffset + kProgramHeaderSize;
+    StoreU32LE(&elf, second_header, 4);  // PT_NOTE.
+    StoreU64LE(&elf, second_header + 8, elf.size());
+    StoreU64LE(&elf, second_header + 32, second_note_size);
+    StoreU64LE(&elf, second_header + 40, second_note_size);
+    StoreU64LE(&elf, second_header + 48, 4);
+  } else {
+    StoreU64LE(&elf, kProgramHeaderOffset + 32,
+               first_note_size + second_note_size);
+    StoreU64LE(&elf, kProgramHeaderOffset + 40,
+               first_note_size + second_note_size);
+  }
+  elf.insert(elf.end(), second_elf.begin() + kNoteOffset, second_elf.end());
+  return elf;
+}
+
 static void AlignVector(std::vector<uint8_t>* output, size_t alignment) {
   while ((output->size() % alignment) != 0) {
     output->push_back(0);
@@ -589,6 +624,95 @@ TEST(HsacoMetadataTest, RejectsInvalidUniformWorkgroupValue) {
 
   iree_hal_amdgpu_hsaco_metadata_t metadata;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        iree_hal_amdgpu_hsaco_metadata_initialize_from_elf(
+                            ByteSpan(elf), iree_allocator_system(), &metadata));
+}
+
+TEST(HsacoMetadataTest, MergesAllMetadataNotes) {
+  for (bool separate_segments : {false, true}) {
+    SCOPED_TRACE(separate_segments);
+    std::vector<uint8_t> elf = BuildElfWithMetadataNotes(
+        BuildKernelMetadata(),
+        BuildKernelMetadata(kBuildKernelMetadataUniformWorkgroups,
+                            IREE_SV("extra_kernel"),
+                            IREE_SV("extra_kernel.kd")),
+        separate_segments);
+
+    iree_hal_amdgpu_hsaco_metadata_t metadata;
+    IREE_ASSERT_OK(iree_hal_amdgpu_hsaco_metadata_initialize_from_elf(
+        ByteSpan(elf), iree_allocator_system(), &metadata));
+    ASSERT_EQ(metadata.kernel_count, 2);
+    ASSERT_EQ(metadata.arg_count, 8);
+    EXPECT_EQ(metadata.reflection_name_storage_size, 22);
+    EXPECT_EQ(metadata.arg_name_storage_size, 24);
+    EXPECT_EQ(ToString(metadata.kernels[0].symbol_name), "vector_add.kd");
+    EXPECT_EQ(ToString(metadata.kernels[1].symbol_name), "extra_kernel.kd");
+    EXPECT_FALSE(metadata.kernels[0].uniform_workgroup_size);
+    EXPECT_TRUE(metadata.kernels[1].uniform_workgroup_size);
+    for (size_t i = 0; i < 2; ++i) {
+      const auto& kernel = metadata.kernels[i];
+      ASSERT_EQ(kernel.arg_count, 4);
+      ASSERT_EQ(kernel.args, metadata.args + i * 4);
+      EXPECT_EQ(kernel.kernarg_segment_size, 24);
+      EXPECT_EQ(kernel.arg_name_storage_size, 12);
+      EXPECT_EQ(ToString(kernel.args[0].name), "lhs");
+      EXPECT_EQ(kernel.args[0].offset, 0);
+      EXPECT_EQ(kernel.args[0].kind,
+                IREE_HAL_AMDGPU_HSACO_METADATA_ARG_KIND_GLOBAL_BUFFER);
+      EXPECT_EQ(ToString(kernel.args[1].name), "rhs");
+      EXPECT_EQ(kernel.args[1].offset, 8);
+      EXPECT_EQ(ToString(kernel.args[2].name), "n");
+      EXPECT_EQ(kernel.args[2].offset, 16);
+      EXPECT_EQ(ToString(kernel.args[3].name), "alpha");
+      EXPECT_EQ(kernel.args[3].offset, 20);
+      EXPECT_EQ(kernel.args[3].kind,
+                IREE_HAL_AMDGPU_HSACO_METADATA_ARG_KIND_BY_VALUE);
+    }
+    const iree_hal_amdgpu_hsaco_metadata_kernel_t* kernel = nullptr;
+    IREE_EXPECT_OK(iree_hal_amdgpu_hsaco_metadata_find_kernel_by_symbol(
+        &metadata, IREE_SV("extra_kernel.kd"), &kernel));
+    EXPECT_EQ(kernel, &metadata.kernels[1]);
+    iree_hal_amdgpu_hsaco_metadata_deinitialize(&metadata);
+  }
+}
+
+TEST(HsacoMetadataTest, LaterMetadataNotePreventsElfOnlyClassification) {
+  std::vector<uint8_t> elf =
+      AddSyntheticCandidateSymbolSection(BuildElfWithMetadataNotes(
+          BuildKernelMetadata(),
+          BuildKernelMetadata(kBuildKernelMetadataNone, IREE_SV("extra_kernel"),
+                              IREE_SV("extra_kernel.kd")),
+          /*separate_segments=*/false));
+  iree_hal_amdgpu_hsaco_metadata_t metadata;
+  IREE_ASSERT_OK(iree_hal_amdgpu_hsaco_metadata_initialize_from_elf(
+      ByteSpan(elf), iree_allocator_system(), &metadata));
+  EXPECT_EQ(metadata.kernel_count, 2);
+  EXPECT_EQ(metadata.elf_kernel_symbol_count, 0);
+  iree_hal_amdgpu_hsaco_metadata_deinitialize(&metadata);
+}
+
+TEST(HsacoMetadataTest, RejectsMalformedLaterMetadataNote) {
+  for (bool separate_segments : {false, true}) {
+    SCOPED_TRACE(separate_segments);
+    std::vector<uint8_t> elf = BuildElfWithMetadataNotes(
+        BuildKernelMetadata(), BuildMalformedMissingKernelFieldsMetadata(),
+        separate_segments);
+    iree_hal_amdgpu_hsaco_metadata_t metadata;
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_INVALID_ARGUMENT,
+        iree_hal_amdgpu_hsaco_metadata_initialize_from_elf(
+            ByteSpan(elf), iree_allocator_system(), &metadata));
+  }
+}
+
+TEST(HsacoMetadataTest, RejectsConflictingTargetsAcrossMetadataNotes) {
+  std::vector<uint8_t> elf = BuildElfWithMetadataNotes(
+      BuildKernelMetadata(),
+      BuildKernelMetadata(kBuildKernelMetadataClusterDimensions,
+                          IREE_SV("extra_kernel"), IREE_SV("extra_kernel.kd")),
+      /*separate_segments=*/false);
+  iree_hal_amdgpu_hsaco_metadata_t metadata;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_hal_amdgpu_hsaco_metadata_initialize_from_elf(
                             ByteSpan(elf), iree_allocator_system(), &metadata));
 }
