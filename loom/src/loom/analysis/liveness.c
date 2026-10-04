@@ -62,6 +62,24 @@ typedef struct loom_liveness_mutable_segment_t {
   loom_liveness_segment_t segment;
 } loom_liveness_mutable_segment_t;
 
+#define LOOM_LIVENESS_SEGMENTS_PER_CHUNK 256u
+
+typedef struct loom_liveness_segment_chunk_t {
+  // Next chunk in append order, or NULL for the partial or full tail.
+  struct loom_liveness_segment_chunk_t* next;
+  // Initialized records fill every chunk except possibly the tail.
+  loom_liveness_mutable_segment_t values[LOOM_LIVENESS_SEGMENTS_PER_CHUNK];
+} loom_liveness_segment_chunk_t;
+
+typedef struct loom_liveness_segment_stream_t {
+  // Scratch-owned chunks in increasing block order.
+  loom_liveness_segment_chunk_t* head;
+  // Chunk receiving appended records, or NULL for an empty stream.
+  loom_liveness_segment_chunk_t* tail;
+  // Total initialized records, including the occupied prefix of the tail.
+  iree_host_size_t count;
+} loom_liveness_segment_stream_t;
+
 typedef struct loom_liveness_pressure_state_t {
   // Mutable pressure summaries being built.
   loom_liveness_pressure_summary_t* summaries;
@@ -101,11 +119,7 @@ typedef struct loom_liveness_build_state_t {
   // Mutable intervals indexed by region-local value ordinal.
   loom_liveness_mutable_interval_t* interval_states;
   // Block-local segments collected in increasing block order.
-  loom_liveness_mutable_segment_t* segments;
-  // Number of initialized entries in |segments|.
-  iree_host_size_t segment_count;
-  // Number of allocated entries in |segments|.
-  iree_host_size_t segment_capacity;
+  loom_liveness_segment_stream_t segments;
   // Mutable block-local segment starts indexed by value ordinal.
   uint32_t* segment_start_points;
   // Mutable block-local segment ends indexed by value ordinal.
@@ -350,14 +364,21 @@ static iree_status_t loom_liveness_append_segment(
   if (start_point >= end_point) {
     return iree_ok_status();
   }
-  if (state->segment_count >= state->segment_capacity) {
-    const iree_host_size_t minimum_capacity = state->segment_count + 1;
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        state->scratch_arena, state->segment_count, minimum_capacity,
-        sizeof(*state->segments), &state->segment_capacity,
-        (void**)&state->segments));
+  const iree_host_size_t chunk_index =
+      state->segments.count % LOOM_LIVENESS_SEGMENTS_PER_CHUNK;
+  if (chunk_index == 0) {
+    loom_liveness_segment_chunk_t* chunk = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(state->scratch_arena,
+                                             sizeof(*chunk), (void**)&chunk));
+    chunk->next = NULL;
+    if (state->segments.tail) {
+      state->segments.tail->next = chunk;
+    } else {
+      state->segments.head = chunk;
+    }
+    state->segments.tail = chunk;
   }
-  state->segments[state->segment_count++] = (loom_liveness_mutable_segment_t){
+  state->segments.tail->values[chunk_index] = (loom_liveness_mutable_segment_t){
       .value_ordinal = value_ordinal,
       .segment =
           {
@@ -365,6 +386,7 @@ static iree_status_t loom_liveness_append_segment(
               .end_point = end_point,
           },
   };
+  ++state->segments.count;
   return iree_ok_status();
 }
 
@@ -1254,7 +1276,7 @@ static iree_status_t loom_liveness_finalize_segment_array(
   if (state->value_count == 0) {
     return iree_ok_status();
   }
-  if (state->segment_count > UINT32_MAX) {
+  if (state->segments.count > UINT32_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "liveness segment count exceeds uint32_t");
   }
@@ -1264,11 +1286,19 @@ static iree_status_t loom_liveness_finalize_segment_array(
       iree_arena_allocate_array(state->result_arena, state->value_count,
                                 sizeof(*ranges), (void**)&ranges));
   memset(ranges, 0, state->value_count * sizeof(*ranges));
-  for (iree_host_size_t i = 0; i < state->segment_count; ++i) {
-    const loom_value_ordinal_t value_ordinal = state->segments[i].value_ordinal;
-    IREE_ASSERT_LT(value_ordinal, state->value_count);
-    IREE_ASSERT_NE(ranges[value_ordinal].count, UINT32_MAX);
-    ++ranges[value_ordinal].count;
+  for (const loom_liveness_segment_chunk_t* chunk = state->segments.head; chunk;
+       chunk = chunk->next) {
+    const iree_host_size_t count =
+        chunk->next
+            ? LOOM_LIVENESS_SEGMENTS_PER_CHUNK
+            : (state->segments.count - 1u) % LOOM_LIVENESS_SEGMENTS_PER_CHUNK +
+                  1u;
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      const loom_value_ordinal_t value_ordinal = chunk->values[i].value_ordinal;
+      IREE_ASSERT_LT(value_ordinal, state->value_count);
+      IREE_ASSERT_NE(ranges[value_ordinal].count, UINT32_MAX);
+      ++ranges[value_ordinal].count;
+    }
   }
 
   uint32_t next_start = 0;
@@ -1277,12 +1307,12 @@ static iree_status_t loom_liveness_finalize_segment_array(
     IREE_ASSERT_LE(ranges[i].count, UINT32_MAX - next_start);
     next_start += ranges[i].count;
   }
-  IREE_ASSERT_EQ(next_start, (uint32_t)state->segment_count);
+  IREE_ASSERT_EQ(next_start, (uint32_t)state->segments.count);
 
   loom_liveness_segment_t* segments = NULL;
-  if (state->segment_count != 0) {
+  if (state->segments.count != 0) {
     IREE_RETURN_IF_ERROR(
-        iree_arena_allocate_array(state->result_arena, state->segment_count,
+        iree_arena_allocate_array(state->result_arena, state->segments.count,
                                   sizeof(*segments), (void**)&segments));
   }
   uint32_t* cursors = NULL;
@@ -1292,15 +1322,23 @@ static iree_status_t loom_liveness_finalize_segment_array(
   for (iree_host_size_t i = 0; i < state->value_count; ++i) {
     cursors[i] = ranges[i].start;
   }
-  for (iree_host_size_t i = 0; i < state->segment_count; ++i) {
-    const loom_liveness_mutable_segment_t* mutable_segment =
-        &state->segments[i];
-    segments[cursors[mutable_segment->value_ordinal]++] =
-        mutable_segment->segment;
+  for (const loom_liveness_segment_chunk_t* chunk = state->segments.head; chunk;
+       chunk = chunk->next) {
+    const iree_host_size_t count =
+        chunk->next
+            ? LOOM_LIVENESS_SEGMENTS_PER_CHUNK
+            : (state->segments.count - 1u) % LOOM_LIVENESS_SEGMENTS_PER_CHUNK +
+                  1u;
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      const loom_liveness_mutable_segment_t* mutable_segment =
+          &chunk->values[i];
+      segments[cursors[mutable_segment->value_ordinal]++] =
+          mutable_segment->segment;
+    }
   }
 
   *out_segments = segments;
-  *out_segment_count = state->segment_count;
+  *out_segment_count = state->segments.count;
   *out_value_segment_ranges = ranges;
   return iree_ok_status();
 }
