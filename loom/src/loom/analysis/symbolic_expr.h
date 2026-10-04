@@ -53,6 +53,7 @@ extern "C" {
 #define LOOM_SYMBOLIC_EXPR_DEFAULT_TERM_LIMIT 64
 
 typedef struct loom_symbolic_expr_memo_entry_t loom_symbolic_expr_memo_entry_t;
+typedef struct loom_symbolic_expr_memo_chunk_t loom_symbolic_expr_memo_chunk_t;
 typedef struct loom_symbolic_congruence_t loom_symbolic_congruence_t;
 typedef struct loom_symbolic_projection_t loom_symbolic_projection_t;
 typedef struct loom_cfg_value_identity_table_t loom_cfg_value_identity_table_t;
@@ -152,11 +153,20 @@ typedef struct loom_symbolic_expr_context_t {
   // Maximum number of terms retained before degrading to facts-only.
   iree_host_size_t maximum_term_count;
 
-  // Memo entries indexed by storage ordinal.
-  loom_symbolic_expr_memo_entry_t* memo_entries;
-
-  // Allocated memo entry count.
-  iree_host_size_t memo_capacity;
+  // Live memo payloads reused across resets. Index cells are invalidated at
+  // reset; payload chunks retain their high-water capacity.
+  struct {
+    // Stable live entry by storage ordinal, or NULL when absent.
+    loom_symbolic_expr_memo_entry_t** entries;
+    // Number of initialized ordinal index cells.
+    iree_host_size_t capacity;
+    // First reusable chunk containing entries and their owning ordinals.
+    loom_symbolic_expr_memo_chunk_t* first;
+    // Chunk containing the live tail, used only while count is nonzero.
+    loom_symbolic_expr_memo_chunk_t* current;
+    // Number of initialized payload slots in the current epoch.
+    uint32_t count;
+  } memo;
 
   // Exact digit proofs owned by this context. Only projected values allocate
   // records; their memo slots retain indices into this array.
@@ -168,15 +178,6 @@ typedef struct loom_symbolic_expr_context_t {
     // Allocated record count, retained across context resets.
     iree_host_size_t capacity;
   } projections;
-
-  // Storage ordinals whose memo entries are live in the current epoch.
-  loom_value_ordinal_t* touched_memo_ordinals;
-
-  // Number of populated entries in touched_memo_ordinals.
-  iree_host_size_t touched_memo_ordinal_count;
-
-  // Allocated entry count in touched_memo_ordinals.
-  iree_host_size_t touched_memo_ordinal_capacity;
 
   // Condition-refined fact memo entries indexed by storage ordinal.
   loom_symbolic_expr_condition_fact_memo_entry_t* condition_fact_memo_entries;

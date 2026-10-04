@@ -6,6 +6,8 @@
 
 #include "loom/analysis/symbolic_expr.h"
 
+#include <vector>
+
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/analysis/symbolic_congruence.h"
@@ -72,7 +74,7 @@ TEST_F(SymbolicExprTest, LocalDomainRegistersHighIdsCreatedAfterAcquisition) {
   EXPECT_EQ(expression.constant, 42);
   EXPECT_NE(loom_local_value_domain_try_ordinal(&value_domain, value_id),
             LOOM_VALUE_ORDINAL_INVALID);
-  EXPECT_LT(expression_context_.memo_capacity, 64u);
+  EXPECT_LT(expression_context_.memo.capacity, 64u);
 
   loom_symbolic_expr_context_reset(&expression_context_);
   loom_symbolic_expr_summary_t summary = {};
@@ -953,6 +955,180 @@ TEST_F(SymbolicExprTest, WrappedAdditionRetainsOnlyAModularGuarantee) {
                                                             -255, -255));
   EXPECT_FALSE(
       loom_symbolic_congruence_excludes_difference(&wrapped, &original, 1, 1));
+}
+
+class SymbolicExprStorageTest : public SymbolicExprTest {
+ protected:
+  static iree_status_t Allocate(void* self, iree_allocator_command_t command,
+                                const void* parameters, void** pointer) {
+    auto* test = static_cast<SymbolicExprStorageTest*>(self);
+    if (command != IREE_ALLOCATOR_COMMAND_FREE &&
+        test->allocation_count_++ == test->failure_index_) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "injected symbolic memo allocation failure");
+    }
+    const auto allocator = iree_allocator_system();
+    return allocator.ctl(allocator.self, command, parameters, pointer);
+  }
+
+  void InitializeStorage(iree_host_size_t block_size = 128 * 1024) {
+    allocation_count_ = 0;
+    failure_index_ = SIZE_MAX;
+    iree_arena_block_pool_initialize(block_size, {this, Allocate}, &memo_pool_);
+    iree_arena_initialize(&memo_pool_, &memo_arena_);
+    loom_symbolic_expr_context_initialize(module_, nullptr, &fact_table_,
+                                          &memo_arena_, &expression_context_);
+  }
+
+  void DeinitializeStorage() {
+    iree_arena_deinitialize(&memo_arena_);
+    iree_arena_block_pool_deinitialize(&memo_pool_);
+  }
+
+  void SetUp() override {
+    SymbolicExprTest::SetUp();
+    InitializeStorage();
+  }
+
+  void TearDown() override {
+    DeinitializeStorage();
+    SymbolicExprTest::TearDown();
+  }
+
+  void BuildConstants(uint32_t count) {
+    for (uint32_t i = 0; i < count; ++i) {
+      values_.push_back(loom_index_constant_result(BuildIndexConstant(i)));
+    }
+  }
+
+  void ExpectConstant(uint32_t index) {
+    loom_symbolic_expr_t expression = {};
+    IREE_ASSERT_OK(loom_symbolic_expr_from_value(&expression_context_,
+                                                 values_[index], &expression));
+    EXPECT_TRUE(loom_symbolic_expr_is_constant(&expression));
+    EXPECT_EQ(expression.constant, index);
+    loom_symbolic_expr_summary_t summary = {};
+    ASSERT_TRUE(loom_symbolic_expr_context_try_lookup_summary(
+        &expression_context_, values_[index], &summary));
+    EXPECT_TRUE(loom_symbolic_expr_is_constant(&summary.expression));
+    EXPECT_EQ(summary.expression.constant, index);
+  }
+
+  void ExpectNoOversizedAllocations() {
+    iree_arena_block_pool_statistics_t statistics = {};
+    iree_arena_block_pool_query_statistics(&memo_pool_, &statistics);
+    EXPECT_EQ(statistics.oversized_allocation_count, 0u);
+  }
+
+  // Real constant producer results, allocated outside observed memo storage.
+  std::vector<loom_value_id_t> values_;
+  // Pool observing only expression reconstruction and its temporary arenas.
+  iree_arena_block_pool_t memo_pool_ = {};
+  // Memo and returned expression payload lifetime.
+  iree_arena_allocator_t memo_arena_ = {};
+  // Attempted backing allocations, excluding frees.
+  iree_host_size_t allocation_count_ = 0;
+  // Backing allocation to fail, or SIZE_MAX for normal execution.
+  iree_host_size_t failure_index_ = SIZE_MAX;
+};
+
+TEST_F(SymbolicExprStorageTest, SparseLocalOrdinalsOnlyAllocateLivePayloads) {
+  BuildConstants(2050);
+  loom_local_value_domain_t domain = {};
+  IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region(
+      module_, module_->body, &analysis_arena_, &domain));
+  ASSERT_GE(domain.value_count, 2050u);
+  loom_symbolic_expr_context_initialize(module_, &domain, &fact_table_,
+                                        &memo_arena_, &expression_context_);
+  ASSERT_NO_FATAL_FAILURE(ExpectConstant(2049));
+  ExpectNoOversizedAllocations();
+  const auto allocations = allocation_count_;
+  loom_symbolic_expr_context_reset(&expression_context_);
+  ASSERT_NO_FATAL_FAILURE(ExpectConstant(0));
+  loom_symbolic_expr_summary_t summary = {};
+  EXPECT_FALSE(loom_symbolic_expr_context_try_lookup_summary(
+      &expression_context_, values_.back(), &summary));
+  ASSERT_NO_FATAL_FAILURE(ExpectConstant(2049));
+  EXPECT_EQ(allocation_count_, allocations);
+  loom_local_value_domain_release(&domain);
+}
+
+class SymbolicExprStorageBoundaryTest
+    : public SymbolicExprStorageTest,
+      public ::testing::WithParamInterface<uint32_t> {};
+
+TEST_P(SymbolicExprStorageBoundaryTest, ResetReusesPayloadAndInvalidatesKeys) {
+  const uint32_t count = GetParam();
+  BuildConstants(count + 1);
+  for (uint32_t i = 0; i < count; ++i) {
+    ASSERT_NO_FATAL_FAILURE(ExpectConstant(i));
+  }
+  ExpectNoOversizedAllocations();
+  const auto allocations = allocation_count_;
+  for (int epoch = 0; epoch < 3; ++epoch) {
+    loom_symbolic_expr_context_reset(&expression_context_);
+    loom_symbolic_expr_summary_t summary = {};
+    for (const auto value : values_) {
+      EXPECT_FALSE(loom_symbolic_expr_context_try_lookup_summary(
+          &expression_context_, value, &summary));
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      const uint32_t index = epoch % 2 == 0 ? count - i - 1 : i;
+      ASSERT_NO_FATAL_FAILURE(ExpectConstant(index));
+    }
+    EXPECT_EQ(allocation_count_, allocations);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(MemoChunks, SymbolicExprStorageBoundaryTest,
+                         ::testing::Values(0u, 1u, 31u, 32u, 33u, 511u, 512u,
+                                           513u, 2049u));
+
+TEST_F(SymbolicExprStorageTest, LivePayloadFitsSmallPoolBlocks) {
+  BuildConstants(257);
+  DeinitializeStorage();
+  InitializeStorage(4096);
+  ASSERT_NO_FATAL_FAILURE(ExpectConstant(256));
+  for (uint32_t i = 0; i < 256; ++i) {
+    ASSERT_NO_FATAL_FAILURE(ExpectConstant(i));
+  }
+  ExpectNoOversizedAllocations();
+}
+
+TEST_F(SymbolicExprStorageTest, ExpansionFailureCanBeRetriedWithoutReset) {
+  const auto source = DefineI64Value();
+  DefineFacts(source, loom_value_facts_make(-1024, 1024, 1));
+  auto value = source;
+  for (int i = 0; i < 256; ++i) {
+    loom_op_t* negate = nullptr;
+    IREE_ASSERT_OK(loom_scalar_negi_build(
+        &builder_, value, loom_type_scalar(LOOM_SCALAR_TYPE_I64),
+        LOOM_LOCATION_UNKNOWN, &negate));
+    value = loom_scalar_negi_result(negate);
+  }
+  DeinitializeStorage();
+  InitializeStorage(4096);
+  loom_symbolic_expr_t expression = {};
+  IREE_ASSERT_OK(
+      loom_symbolic_expr_from_value(&expression_context_, value, &expression));
+  const auto allocations = allocation_count_;
+  ASSERT_GT(allocations, 1u);
+  for (iree_host_size_t i = 0; i < allocations; ++i) {
+    SCOPED_TRACE(i);
+    DeinitializeStorage();
+    InitializeStorage(4096);
+    failure_index_ = i;
+    IREE_ASSERT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
+                          loom_symbolic_expr_from_value(&expression_context_,
+                                                        value, &expression));
+    EXPECT_EQ(allocation_count_, i + 1);
+    failure_index_ = SIZE_MAX;
+    IREE_ASSERT_OK(loom_symbolic_expr_from_value(&expression_context_, value,
+                                                 &expression));
+    ASSERT_EQ(expression.term_count, 1u);
+    EXPECT_EQ(expression.terms[0].value_id, source);
+    EXPECT_EQ(expression.terms[0].coefficient, 1);
+  }
 }
 
 }  // namespace

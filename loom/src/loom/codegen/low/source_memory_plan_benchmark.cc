@@ -101,9 +101,8 @@ class SourceMemoryPlanBenchmark {
       }
     }
     benchmark::DoNotOptimize(last_plan_);
-    symbolic_memo_capacity_ = expression_context.memo_capacity;
-    symbolic_memo_populated_entries_ =
-        expression_context.touched_memo_ordinal_count;
+    symbolic_memo_capacity_ = expression_context.memo.capacity;
+    symbolic_memo_populated_entries_ = expression_context.memo.count;
     symbolic_projection_count_ = expression_context.projections.count;
     symbolic_projection_capacity_ = expression_context.projections.capacity;
     analysis_arena_used_bytes_ = analysis_arena.used_allocation_size;
