@@ -47,7 +47,7 @@ iree_py_library(
     loom::py::loom::target::arch::spirv::scalar_memory
     loom::py::loom::target::arch::spirv::subgroup
     loom::py::loom::target::contracts::contracts
-    loom::py::loom::target::emit::f32_narrowing
+    loom::py::loom::target::emit::float_narrowing
 )
 
 iree_py_test(
@@ -97,9 +97,11 @@ iree_py_test(
   MAIN
     "../../../../tools/pytest_style_runner.py"
   SRCS
+    "float_narrowing_test.py"
     "index_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
+    "loom.target.arch.spirv.contracts.float_narrowing_test"
     "loom.target.arch.spirv.contracts.index_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts

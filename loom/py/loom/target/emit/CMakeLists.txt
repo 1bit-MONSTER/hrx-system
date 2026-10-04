@@ -20,9 +20,9 @@ iree_py_library(
 
 iree_py_library(
   NAME
-    f32_narrowing
+    float_narrowing
   SRCS
-    "f32_narrowing.py"
+    "float_narrowing.py"
   DEPS
     loom::py::loom::target::low_descriptors
     loom::py::loom::target::contracts::contracts

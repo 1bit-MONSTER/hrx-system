@@ -1,0 +1,294 @@
+// Canonicalizes destination NaNs while preserving every finite value, zero,
+// and infinity bit-for-bit. NaN payload and sign choices are target-defined.
+func.def inline @canonicalize_float8_bits(%e4m3: i32, %e5m2: i32) -> (i32, i32) {
+  %magnitude_mask = scalar.constant 127 : i32
+  %e4m3_nan_bits = scalar.constant 127 : i32
+  %e4m3_magnitude = scalar.andi %e4m3, %magnitude_mask : i32
+  %e4m3_is_nan = scalar.cmpi eq, %e4m3_magnitude, %e4m3_nan_bits : i32
+  %canonical_e4m3 = scf.select %e4m3_is_nan, %e4m3_nan_bits, %e4m3 : i32
+  %e5m2_infinity_bits = scalar.constant 124 : i32
+  %e5m2_nan_bits = scalar.constant 126 : i32
+  %e5m2_magnitude = scalar.andi %e5m2, %magnitude_mask : i32
+  %e5m2_is_nan = scalar.cmpi ugt, %e5m2_magnitude, %e5m2_infinity_bits : i32
+  %canonical_e5m2 = scf.select %e5m2_is_nan, %e5m2_nan_bits, %e5m2 : i32
+  func.return %canonical_e4m3, %canonical_e5m2 : i32, i32
+}
+
+func.def inline @canonicalize_bfloat_bits(%bf16: i32) -> (i32) {
+  %bf16_magnitude_mask = scalar.constant 32767 : i32
+  %bf16_infinity_bits = scalar.constant 32640 : i32
+  %bf16_nan_bits = scalar.constant 32704 : i32
+  %bf16_magnitude = scalar.andi %bf16, %bf16_magnitude_mask : i32
+  %bf16_is_nan = scalar.cmpi ugt, %bf16_magnitude, %bf16_infinity_bits : i32
+  %canonical_bf16 = scf.select %bf16_is_nan, %bf16_nan_bits, %bf16 : i32
+  func.return %canonical_bf16 : i32
+}
+
+// Observes each software-lowered F64 destination through its integer carrier
+// so every non-NaN result remains exactly comparable. Native F32/F16
+// conversions have their own floating-environment coverage.
+func.def inline @narrow_f64_bits(%bits: i64) -> (i32, i32, i32) {
+  %input = scalar.bitcast %bits : i64 to f64
+  %bf16 = scalar.fptrunc %input : f64 to bf16
+  %e4m3 = scalar.fptrunc %input : f64 to f8E4M3
+  %e5m2 = scalar.fptrunc %input : f64 to f8E5M2
+  %bf16_bits = scalar.bitcast %bf16 : bf16 to i16
+  %e4m3_bits = scalar.bitcast %e4m3 : f8E4M3 to i8
+  %e5m2_bits = scalar.bitcast %e5m2 : f8E5M2 to i8
+  %wide_bf16_bits = scalar.extui %bf16_bits : i16 to i32
+  %wide_e4m3_bits = scalar.extui %e4m3_bits : i8 to i32
+  %wide_e5m2_bits = scalar.extui %e5m2_bits : i8 to i32
+  %canonical_bf16 = func.call @canonicalize_bfloat_bits(%wide_bf16_bits) : (i32) -> (i32)
+  %canonical_e4m3, %canonical_e5m2 = func.call @canonicalize_float8_bits(%wide_e4m3_bits, %wide_e5m2_bits) : (i32, i32) -> (i32, i32)
+  func.return %canonical_bf16, %canonical_e4m3, %canonical_e5m2 : i32, i32, i32
+}
+
+// Every supplied positive encoding is paired with the corresponding negative
+// encoding. This makes signed zero and both sides of each boundary observable.
+func.def @narrow_f64_pairs(%input: buffer, %bf16_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c1 = index.constant 1 : index
+  %sign = scalar.constant -9223372036854775808 : i64
+  %input_view = buffer.view %input[%base] : buffer -> view<64xi64>
+  %bf16_view = buffer.view %bf16_output[%base] : buffer -> view<128xi32>
+  %e4m3_view = buffer.view %e4m3_output[%base] : buffer -> view<128xi32>
+  %e5m2_view = buffer.view %e5m2_output[%base] : buffer -> view<128xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %positive_bits = view.load %input_view[%i] : view<64xi64> -> i64
+    %negative_bits = scalar.ori %positive_bits, %sign : i64
+    %positive_bf16, %positive_e4m3, %positive_e5m2 = func.call @narrow_f64_bits(%positive_bits) : (i64) -> (i32, i32, i32)
+    %negative_bf16, %negative_e4m3, %negative_e5m2 = func.call @narrow_f64_bits(%negative_bits) : (i64) -> (i32, i32, i32)
+    %position = index.mul %i, %c2 : index
+    %negative_position = index.add %position, %c1 : index
+    view.store %positive_bf16, %bf16_view[%position] : i32, view<128xi32>
+    view.store %negative_bf16, %bf16_view[%negative_position] : i32, view<128xi32>
+    view.store %positive_e4m3, %e4m3_view[%position] : i32, view<128xi32>
+    view.store %negative_e4m3, %e4m3_view[%negative_position] : i32, view<128xi32>
+    view.store %positive_e5m2, %e5m2_view[%position] : i32, view<128xi32>
+    view.store %negative_e5m2, %e5m2_view[%negative_position] : i32, view<128xi32>
+  }
+  func.return
+}
+
+func.def inline @narrow_f64_window(%window_base: i64, %output_offset: index, %bf16_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c1 = index.constant 1 : index
+  %sign = scalar.constant -9223372036854775808 : i64
+  %bounded_output_offset = index.assume %output_offset [range(%output_offset, 0, 3072)] : index
+  %bf16_view = buffer.view %bf16_output[%base] : buffer -> view<3200xi32>
+  %e4m3_view = buffer.view %e4m3_output[%base] : buffer -> view<3200xi32>
+  %e5m2_view = buffer.view %e5m2_output[%base] : buffer -> view<3200xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %ordinal = index.cast %i : index to i64
+    %positive_bits = scalar.addi %window_base, %ordinal : i64
+    %negative_bits = scalar.ori %positive_bits, %sign : i64
+    %positive_bf16, %positive_e4m3, %positive_e5m2 = func.call @narrow_f64_bits(%positive_bits) : (i64) -> (i32, i32, i32)
+    %negative_bf16, %negative_e4m3, %negative_e5m2 = func.call @narrow_f64_bits(%negative_bits) : (i64) -> (i32, i32, i32)
+    %pair_offset = index.mul %i, %c2 : index
+    %position = index.add %bounded_output_offset, %pair_offset : index
+    %negative_position = index.add %position, %c1 : index
+    view.store %positive_bf16, %bf16_view[%position] : i32, view<3200xi32>
+    view.store %negative_bf16, %bf16_view[%negative_position] : i32, view<3200xi32>
+    view.store %positive_e4m3, %e4m3_view[%position] : i32, view<3200xi32>
+    view.store %negative_e4m3, %e4m3_view[%negative_position] : i32, view<3200xi32>
+    view.store %positive_e5m2, %e5m2_view[%position] : i32, view<3200xi32>
+    view.store %negative_e5m2, %e5m2_view[%negative_position] : i32, view<3200xi32>
+  }
+  func.return
+}
+
+// Each source window straddles a destination zero/subnormal, normal, rounding,
+// overflow, infinity, or NaN boundary. The runtime offset keeps values dynamic.
+func.def @narrow_f64_boundaries(%runtime_offset: i64, %bf16_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %offset0 = index.constant 0 : index
+  %offset1 = index.constant 128 : index
+  %offset2 = index.constant 256 : index
+  %offset3 = index.constant 384 : index
+  %offset4 = index.constant 512 : index
+  %offset5 = index.constant 640 : index
+  %offset6 = index.constant 768 : index
+  %offset7 = index.constant 896 : index
+  %offset8 = index.constant 1024 : index
+  %offset9 = index.constant 1152 : index
+  %offset10 = index.constant 1280 : index
+  %offset11 = index.constant 1408 : index
+  %offset12 = index.constant 1536 : index
+  %offset13 = index.constant 1664 : index
+  %offset14 = index.constant 1792 : index
+  %offset15 = index.constant 1920 : index
+  %offset16 = index.constant 2048 : index
+  %offset17 = index.constant 2176 : index
+  %offset18 = index.constant 2304 : index
+  %offset19 = index.constant 2432 : index
+  %offset20 = index.constant 2560 : index
+  %offset21 = index.constant 2688 : index
+  %offset22 = index.constant 2816 : index
+  %offset23 = index.constant 2944 : index
+  %offset24 = index.constant 3072 : index
+  %window0 = scalar.constant 0 : i64
+  %window1 = scalar.constant 4003700068732370912 : i64
+  %window2 = scalar.constant 4039728865751334880 : i64
+  %window3 = scalar.constant 4607200010986061792 : i64
+  %window4 = scalar.constant 5183625578917396448 : i64
+  %window5 = scalar.constant 4562146422526312416 : i64
+  %window6 = scalar.constant 4580160821035794400 : i64
+  %window7 = scalar.constant 4607463893776728032 : i64
+  %window8 = scalar.constant 4646870390516219872 : i64
+  %window9 = scalar.constant 4530621225134718944 : i64
+  %window10 = scalar.constant 4544132024016830432 : i64
+  %window11 = scalar.constant 4607745368753438688 : i64
+  %window12 = scalar.constant 4678677062884524000 : i64
+  %window13 = scalar.constant 9218868437227405280 : i64
+  %window14 = scalar.constant 3931642474694442976 : i64
+  %window15 = scalar.constant 4039728865214463968 : i64
+  %window16 = scalar.constant 4607182419068452832 : i64
+  %window17 = scalar.constant 5183643170835005408 : i64
+  %window18 = scalar.constant 4039693681379246048 : i64
+  %window19 = scalar.constant 4494592428115754976 : i64
+  %window20 = scalar.constant 4544127625970319328 : i64
+  %window21 = scalar.constant 4607184617823272928 : i64
+  %window22 = scalar.constant 4679237813814689760 : i64
+  %window23 = scalar.constant 4579597871082373088 : i64
+  %window24 = scalar.constant 4543006124109987808 : i64
+  %base0 = scalar.addi %window0, %runtime_offset : i64
+  %base1 = scalar.addi %window1, %runtime_offset : i64
+  %base2 = scalar.addi %window2, %runtime_offset : i64
+  %base3 = scalar.addi %window3, %runtime_offset : i64
+  %base4 = scalar.addi %window4, %runtime_offset : i64
+  %base5 = scalar.addi %window5, %runtime_offset : i64
+  %base6 = scalar.addi %window6, %runtime_offset : i64
+  %base7 = scalar.addi %window7, %runtime_offset : i64
+  %base8 = scalar.addi %window8, %runtime_offset : i64
+  %base9 = scalar.addi %window9, %runtime_offset : i64
+  %base10 = scalar.addi %window10, %runtime_offset : i64
+  %base11 = scalar.addi %window11, %runtime_offset : i64
+  %base12 = scalar.addi %window12, %runtime_offset : i64
+  %base13 = scalar.addi %window13, %runtime_offset : i64
+  %base14 = scalar.addi %window14, %runtime_offset : i64
+  %base15 = scalar.addi %window15, %runtime_offset : i64
+  %base16 = scalar.addi %window16, %runtime_offset : i64
+  %base17 = scalar.addi %window17, %runtime_offset : i64
+  %base18 = scalar.addi %window18, %runtime_offset : i64
+  %base19 = scalar.addi %window19, %runtime_offset : i64
+  %base20 = scalar.addi %window20, %runtime_offset : i64
+  %base21 = scalar.addi %window21, %runtime_offset : i64
+  %base22 = scalar.addi %window22, %runtime_offset : i64
+  %base23 = scalar.addi %window23, %runtime_offset : i64
+  %base24 = scalar.addi %window24, %runtime_offset : i64
+  func.call @narrow_f64_window(%base0, %offset0, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base1, %offset1, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base2, %offset2, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base3, %offset3, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base4, %offset4, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base5, %offset5, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base6, %offset6, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base7, %offset7, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base8, %offset8, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base9, %offset9, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base10, %offset10, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base11, %offset11, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base12, %offset12, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base13, %offset13, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base14, %offset14, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base15, %offset15, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base16, %offset16, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base17, %offset17, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base18, %offset18, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base19, %offset19, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base20, %offset20, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base21, %offset21, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base22, %offset22, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base23, %offset23, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.call @narrow_f64_window(%base24, %offset24, %bf16_output, %e4m3_output, %e5m2_output) : (i64, index, buffer, buffer, buffer)
+  func.return
+}
+
+// Exhaustively narrows every F16 and BF16 bit pattern to both FP8 formats.
+func.def @narrow_16bit_float8(%input: buffer, %half_e4m3_output: buffer, %half_e5m2_output: buffer, %bfloat_e4m3_output: buffer, %bfloat_e5m2_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %half_input = buffer.view %input[%base] : buffer -> view<65536xf16>
+  %bfloat_input = buffer.view %input[%base] : buffer -> view<65536xi16>
+  %half_e4m3_view = buffer.view %half_e4m3_output[%base] : buffer -> view<65536xi32>
+  %half_e5m2_view = buffer.view %half_e5m2_output[%base] : buffer -> view<65536xi32>
+  %bfloat_e4m3_view = buffer.view %bfloat_e4m3_output[%base] : buffer -> view<65536xi32>
+  %bfloat_e5m2_view = buffer.view %bfloat_e5m2_output[%base] : buffer -> view<65536xi32>
+  scf.for %i = [%begin to %end step %step] {
+    %half = view.load %half_input[%i] : view<65536xf16> -> f16
+    %bfloat_bits = view.load %bfloat_input[%i] : view<65536xi16> -> i16
+    %bfloat = scalar.bitcast %bfloat_bits : i16 to bf16
+    %half_e4m3 = scalar.fptrunc %half : f16 to f8E4M3
+    %half_e5m2 = scalar.fptrunc %half : f16 to f8E5M2
+    %bfloat_e4m3 = scalar.fptrunc %bfloat : bf16 to f8E4M3
+    %bfloat_e5m2 = scalar.fptrunc %bfloat : bf16 to f8E5M2
+    %half_e4m3_bits = scalar.bitcast %half_e4m3 : f8E4M3 to i8
+    %half_e5m2_bits = scalar.bitcast %half_e5m2 : f8E5M2 to i8
+    %bfloat_e4m3_bits = scalar.bitcast %bfloat_e4m3 : f8E4M3 to i8
+    %bfloat_e5m2_bits = scalar.bitcast %bfloat_e5m2 : f8E5M2 to i8
+    %wide_half_e4m3 = scalar.extui %half_e4m3_bits : i8 to i32
+    %wide_half_e5m2 = scalar.extui %half_e5m2_bits : i8 to i32
+    %wide_bfloat_e4m3 = scalar.extui %bfloat_e4m3_bits : i8 to i32
+    %wide_bfloat_e5m2 = scalar.extui %bfloat_e5m2_bits : i8 to i32
+    %canonical_half_e4m3, %canonical_half_e5m2 = func.call @canonicalize_float8_bits(%wide_half_e4m3, %wide_half_e5m2) : (i32, i32) -> (i32, i32)
+    %canonical_bfloat_e4m3, %canonical_bfloat_e5m2 = func.call @canonicalize_float8_bits(%wide_bfloat_e4m3, %wide_bfloat_e5m2) : (i32, i32) -> (i32, i32)
+    view.store %canonical_half_e4m3, %half_e4m3_view[%i] : i32, view<65536xi32>
+    view.store %canonical_half_e5m2, %half_e5m2_view[%i] : i32, view<65536xi32>
+    view.store %canonical_bfloat_e4m3, %bfloat_e4m3_view[%i] : i32, view<65536xi32>
+    view.store %canonical_bfloat_e5m2, %bfloat_e5m2_view[%i] : i32, view<65536xi32>
+  }
+  func.return
+}
+
+check.scenario @f64_narrowing_matrix_values {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(0 to 9223372036854775807) : tensor<64xi64>
+    %bf16_output = check.generate.fill value(-1) : tensor<128xi32>
+    %e4m3_output = check.generate.fill value(-1) : tensor<128xi32>
+    %e5m2_output = check.generate.fill value(-1) : tensor<128xi32>
+    check.compare<@narrow_f64_pairs>(%input, %bf16_output, %e4m3_output, %e5m2_output) : (tensor<64xi64>, tensor<128xi32>, tensor<128xi32>, tensor<128xi32>) -> () {
+      check.expect.bitwise actual(%bf16_output) expected(%bf16_output) : tensor<128xi32>
+      check.expect.bitwise actual(%e4m3_output) expected(%e4m3_output) : tensor<128xi32>
+      check.expect.bitwise actual(%e5m2_output) expected(%e5m2_output) : tensor<128xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %runtime_offset = check.literal value(0) : i64
+    %bf16_output = check.generate.fill value(-1) : tensor<3200xi32>
+    %e4m3_output = check.generate.fill value(-1) : tensor<3200xi32>
+    %e5m2_output = check.generate.fill value(-1) : tensor<3200xi32>
+    check.compare<@narrow_f64_boundaries>(%runtime_offset, %bf16_output, %e4m3_output, %e5m2_output) : (i64, tensor<3200xi32>, tensor<3200xi32>, tensor<3200xi32>) -> () {
+      check.expect.bitwise actual(%bf16_output) expected(%bf16_output) : tensor<3200xi32>
+      check.expect.bitwise actual(%e4m3_output) expected(%e4m3_output) : tensor<3200xi32>
+      check.expect.bitwise actual(%e5m2_output) expected(%e5m2_output) : tensor<3200xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @narrow_16bit_float8_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %half_e4m3_output = check.generate.fill value(-1) : tensor<65536xi32>
+    %half_e5m2_output = check.generate.fill value(-1) : tensor<65536xi32>
+    %bfloat_e4m3_output = check.generate.fill value(-1) : tensor<65536xi32>
+    %bfloat_e5m2_output = check.generate.fill value(-1) : tensor<65536xi32>
+    check.compare<@narrow_16bit_float8>(%input, %half_e4m3_output, %half_e5m2_output, %bfloat_e4m3_output, %bfloat_e5m2_output) : (tensor<65536xi16>, tensor<65536xi32>, tensor<65536xi32>, tensor<65536xi32>, tensor<65536xi32>) -> () {
+      check.expect.bitwise actual(%half_e4m3_output) expected(%half_e4m3_output) : tensor<65536xi32>
+      check.expect.bitwise actual(%half_e5m2_output) expected(%half_e5m2_output) : tensor<65536xi32>
+      check.expect.bitwise actual(%bfloat_e4m3_output) expected(%bfloat_e4m3_output) : tensor<65536xi32>
+      check.expect.bitwise actual(%bfloat_e5m2_output) expected(%bfloat_e5m2_output) : tensor<65536xi32>
+    }
+  }
+  check.return
+}

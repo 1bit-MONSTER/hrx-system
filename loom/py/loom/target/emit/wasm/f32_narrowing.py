@@ -16,14 +16,16 @@ from loom.target.contracts import (
     TypePattern,
     ValueRef,
 )
-from loom.target.emit.f32_narrowing import (
+from loom.target.emit.float_narrowing import (
     F8E4M3_FORMAT,
     F8E5M2_FORMAT,
     F16_FORMAT,
-    F32NarrowingDescriptors,
-    F32NarrowingFormat,
+    F32_FORMAT,
+    FloatNarrowingDescriptors,
+    NarrowFloatFormat,
+    NarrowFloatSubnormalRounding,
     build_f32_to_bf16_emits,
-    build_f32_to_narrow_float_emits,
+    build_float_to_narrow_float_emits,
 )
 from loom.target.low_descriptors import Descriptor
 
@@ -36,27 +38,28 @@ _F32 = Scalar("f32")
 
 def _narrowing_descriptors(
     descriptor_lookup: Callable[[str], Descriptor],
-) -> F32NarrowingDescriptors:
-    return F32NarrowingDescriptors(
-        i32_constant=descriptor_lookup("wasm.i32.const"),
-        f32_constant=descriptor_lookup("wasm.f32.const"),
-        i32_add=descriptor_lookup("wasm.i32.add"),
-        i32_subtract=descriptor_lookup("wasm.i32.sub"),
-        i32_shift_right_logical=descriptor_lookup("wasm.i32.shr_u"),
-        i32_bitwise_and=descriptor_lookup("wasm.i32.and"),
-        i32_bitwise_or=descriptor_lookup("wasm.i32.or"),
-        i32_less_than_nonnegative=descriptor_lookup("wasm.i32.lt_u"),
-        i32_greater_than_equal_nonnegative=descriptor_lookup("wasm.i32.ge_u"),
-        i32_greater_than_nonnegative=descriptor_lookup("wasm.i32.gt_u"),
-        f32_add=descriptor_lookup("wasm.f32.add"),
-        reinterpret_f32_as_i32=descriptor_lookup("wasm.i32.reinterpret_f32"),
-        reinterpret_i32_as_f32=descriptor_lookup("wasm.f32.reinterpret_i32"),
-        i32_select=descriptor_lookup("wasm.i32.select"),
+) -> FloatNarrowingDescriptors:
+    return FloatNarrowingDescriptors(
+        integer_constant=descriptor_lookup("wasm.i32.const"),
+        float_constant=descriptor_lookup("wasm.f32.const"),
+        integer_add=descriptor_lookup("wasm.i32.add"),
+        integer_subtract=descriptor_lookup("wasm.i32.sub"),
+        integer_shift_left=descriptor_lookup("wasm.i32.shl"),
+        integer_shift_right_logical=descriptor_lookup("wasm.i32.shr_u"),
+        integer_bitwise_and=descriptor_lookup("wasm.i32.and"),
+        integer_bitwise_or=descriptor_lookup("wasm.i32.or"),
+        integer_less_than_nonnegative=descriptor_lookup("wasm.i32.lt_u"),
+        integer_greater_than_equal_nonnegative=descriptor_lookup("wasm.i32.ge_u"),
+        integer_greater_than_nonnegative=descriptor_lookup("wasm.i32.gt_u"),
+        float_add=descriptor_lookup("wasm.f32.add"),
+        reinterpret_float_as_integer=descriptor_lookup("wasm.i32.reinterpret_f32"),
+        reinterpret_integer_as_float=descriptor_lookup("wasm.f32.reinterpret_i32"),
+        integer_select=descriptor_lookup("wasm.i32.select"),
     )
 
 
 def _f32_to_bf16_rule(
-    descriptors: F32NarrowingDescriptors,
+    descriptors: FloatNarrowingDescriptors,
     type_guard: Callable[[str, TypePattern], Guard],
 ) -> DescriptorRule:
     emits = build_f32_to_bf16_emits(
@@ -77,17 +80,19 @@ def _f32_to_bf16_rule(
 
 
 def _f32_to_narrow_float_rule(
-    descriptors: F32NarrowingDescriptors,
+    descriptors: FloatNarrowingDescriptors,
     type_guard: Callable[[str, TypePattern], Guard],
     result_type: TypePattern,
-    narrow_format: F32NarrowingFormat,
+    narrow_format: NarrowFloatFormat,
     report_key: str,
 ) -> DescriptorRule:
-    emits = build_f32_to_narrow_float_emits(
+    emits = build_float_to_narrow_float_emits(
         descriptors,
+        F32_FORMAT,
         narrow_format,
         ValueRef.operand("input"),
         ValueRef.result("result"),
+        subnormal_rounding=NarrowFloatSubnormalRounding.RNE_FLOAT_ADD,
     )
     return DescriptorRule(
         source_op=scalar_conversion.scalar_fptrunc,

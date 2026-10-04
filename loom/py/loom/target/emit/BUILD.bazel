@@ -18,8 +18,8 @@ iree_py_library(
 )
 
 iree_py_library(
-    name = "f32_narrowing",
-    srcs = ["f32_narrowing.py"],
+    name = "float_narrowing",
+    srcs = ["float_narrowing.py"],
     deps = [
         "//loom/py/loom/target:low_descriptors",
         "//loom/py/loom/target/contracts",

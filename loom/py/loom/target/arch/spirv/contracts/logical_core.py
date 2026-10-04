@@ -35,9 +35,9 @@ from loom.target.arch.spirv.builtins import (
 )
 from loom.target.arch.spirv.contracts.atomic import SPIRV_ATOMIC_CONTRACT_CASES
 from loom.target.arch.spirv.contracts.bfloat import (
+    bfloat_carrier_from_i16_rule,
     bfloat_carrier_to_i16_rule,
-    bfloat_narrow_carrier_rule,
-    bfloat_narrow_native_rule,
+    bfloat_narrow_rules,
 )
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
@@ -1436,15 +1436,9 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
             row.source_op_key == "fptrunc" and row.result_type.source_type == "bf16"
         )
     ]
-    rules.extend(
-        (
-            bfloat_narrow_native_rule(preserve_nan=False),
-            bfloat_narrow_native_rule(preserve_nan=True),
-            bfloat_narrow_carrier_rule(preserve_nan=False),
-            bfloat_narrow_carrier_rule(preserve_nan=True),
-            bfloat_carrier_to_i16_rule(),
-        )
-    )
+    rules.extend(bfloat_narrow_rules())
+    rules.append(bfloat_carrier_from_i16_rule())
+    rules.append(bfloat_carrier_to_i16_rule())
     rules.extend(float8_narrow_rules())
     rules.extend(_unsigned_conversion_rule(row) for row in UNSIGNED_SCALAR_CONVERSIONS)
     rules.extend(
