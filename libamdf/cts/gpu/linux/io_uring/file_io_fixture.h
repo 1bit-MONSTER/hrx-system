@@ -18,7 +18,7 @@
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 enum class FileMode { kBuffered, kDirect };
-enum class FileIoPath { kDevice, kHostRelay, kHostWait };
+enum class FileIoPath { kDevice, kHostRelay, kHostWait, kHostPoll };
 
 // Stable transport name used by correctness receipts and measured samples.
 const char* FileIoPathName(FileIoPath path);
@@ -38,9 +38,11 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // contract.
   void CreateFile(const std::vector<uint32_t>& words, FileMode mode);
   // Retains fixed file/buffer references and enables a restricted native ring.
-  // Host-wait rings have no SQPOLL thread; other paths use the poller.
+  // Ordinary host submission has no SQPOLL thread. Entry count is a power of
+  // two; backing includes the returned native control and completion layout.
   void CreateRing(GpuMemory* payload, FileIoPath path = FileIoPath::kDevice,
-                  uint32_t idle_milliseconds = 1);
+                  uint32_t idle_milliseconds = 1,
+                  uint32_t submission_entries = 8);
   // CPU address of a control word at a returned native ring offset.
   uintptr_t RingWord(uint32_t offset) const;
   // GPU address corresponding to a returned ring offset in the selected path.
@@ -48,9 +50,10 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // Advances the host comparator's request/completion handoffs, if selected.
   // One host owner calls this until the finite GPU owner completes.
   void RelayFileIo();
-  // Submits available requests and waits for one actual completion. Only the
-  // host consumes the native CQ, so its wait condition cannot be stolen.
-  void SubmitAndWait(uint64_t* enter_calls);
+  // Submits and services task work without a kernel poller. The wait strategy
+  // sleeps for one completion; the poll strategy returns without waiting.
+  // Only this host owner consumes the native CQ.
+  void ServiceHostIo(uint64_t* enter_calls);
   // Runs one finite owner with the selected control service, then retires it.
   void Execute(const kernels::Kernel& kernel, GpuMemory* arguments,
                GpuMemory* completion, const char* property_prefix);
@@ -68,6 +71,10 @@ class GpuFileIoFixture : public Pm4DispatchTest {
     GpuMemory* relay_memory = nullptr;
     // Native returned ring geometry and flags.
     io_uring_params parameters = {};
+    // Native submission strategy, fixed when the ring is created.
+    FileIoPath path = FileIoPath::kDevice;
+    // Byte offset from backing base to shared control and CQ storage.
+    size_t control_offset = 0;
     // Owns native progress and fixed file/buffer references until teardown.
     int file = -1;
   };

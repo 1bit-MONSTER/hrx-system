@@ -6,6 +6,7 @@
 #include <drm/amdgpu_drm.h>
 #include <fcntl.h>
 #include <immintrin.h>
+#include <sched.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -102,8 +103,14 @@ struct Sample {
   uint64_t poller_tail_microseconds = 0;
   // Idle wake syscalls, coalesced by the published native tail.
   uint64_t wake_calls = 0;
-  // Ordinary submission/completion waits; this path has no SQPOLL thread.
+  // Ordinary submission/task-work service calls, with or without waiting.
   uint64_t enter_calls = 0;
+  // Userspace service owner's native thread ID.
+  int host_thread = 0;
+  // CPU executing the service owner before measured publication.
+  int host_start_cpu = -1;
+  // CPU executing the service owner after measured completion.
+  int host_end_cpu = -1;
   // DRM GPU-clock samples enclosing the complete shader clock interval.
   uint64_t clock_before = 0;
   // DRM GPU-clock sample after final completion and queue retirement.
@@ -160,6 +167,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   void PollerCpu(uint64_t* microseconds) {
     if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
       *microseconds = 0;
+      poller_thread_ = -1;
+      poller_cpu_ = -1;
       return;
     }
     std::ifstream stream("/proc/self/fdinfo/" + std::to_string(ring_->file));
@@ -171,10 +180,17 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
         std::istringstream value(line.substr(12));
         ASSERT_TRUE(value >> *microseconds);
         found = true;
+      } else if (line.starts_with("SqThread:")) {
+        std::istringstream value(line.substr(9));
+        ASSERT_TRUE(value >> poller_thread_);
+      } else if (line.starts_with("SqThreadCpu:")) {
+        std::istringstream value(line.substr(12));
+        ASSERT_TRUE(value >> poller_cpu_);
       }
     }
     ASSERT_FALSE(stream.bad());
     ASSERT_TRUE(found) << "kernel did not expose SQPOLL CPU accounting";
+    ASSERT_GT(poller_thread_, 0);
   }
 
   void WaitIdle() {
@@ -201,6 +217,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     uint64_t host_before = 0;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_before));
     ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_before));
+    sample->host_thread = gettid();
+    sample->host_start_cpu = sched_getcpu();
     uint32_t wake_tail =
         GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
     ASSERT_NO_FATAL_FAILURE(ThreadNanoseconds(&host_before));
@@ -214,7 +232,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
       const uint32_t tail =
           GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
       if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
-        ASSERT_NO_FATAL_FAILURE(SubmitAndWait(&sample->enter_calls));
+        ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&sample->enter_calls));
       } else if (tail != wake_tail && (GpuLoadAcquire<uint32_t>(RingWord(
                                            ring_->parameters.sq_off.flags)) &
                                        IORING_SQ_NEED_WAKEUP)) {
@@ -242,6 +260,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     uint64_t host_after = 0;
     ASSERT_NO_FATAL_FAILURE(ThreadNanoseconds(&host_after));
     sample->host_nanoseconds = host_after - host_before;
+    sample->host_end_cpu = sched_getcpu();
     uint64_t poller_after = 0;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_after));
     ASSERT_GE(poller_after, poller_before);
@@ -413,11 +432,17 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
            << ",\"physical_requests\":" << summary->submitted
            << ",\"wall_ns\":" << sample.wall_nanoseconds
            << ",\"host_cpu_ns\":" << sample.host_nanoseconds
+           << ",\"host_thread\":" << sample.host_thread
+           << ",\"host_start_cpu\":" << sample.host_start_cpu
+           << ",\"host_end_cpu\":" << sample.host_end_cpu
+           << ",\"sqpoll_thread\":" << poller_thread_
+           << ",\"sqpoll_last_cpu\":" << poller_cpu_
+           << ",\"host_waits_for_io\":"
+           << (path == FileIoPath::kHostWait ? "true" : "false")
            << ",\"sqpoll_cpu_us\":" << sample.poller_microseconds
            << ",\"sqpoll_tail_cpu_us\":" << sample.poller_tail_microseconds
            << ",\"wake_calls\":" << sample.wake_calls
-           << ",\"submit_wait_calls\":" << sample.enter_calls
-           << ",\"device_ticks\":"
+           << ",\"submit_calls\":" << sample.enter_calls << ",\"device_ticks\":"
            << uint32_t(summary->end_tick - summary->begin_tick)
            << ",\"request_ticks\":[";
     for (uint32_t i = 0; i < count; ++i) {
@@ -539,6 +564,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     Ring* poll_ring = ring_;
     ASSERT_NO_FATAL_FAILURE(CreateRing(payload, FileIoPath::kHostWait));
     Ring* wait_ring = ring_;
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, FileIoPath::kHostPoll));
+    Ring* host_poll_ring = ring_;
     ASSERT_NO_FATAL_FAILURE(CreateMemory(
         AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE, 4096, &state));
     ASSERT_NO_FATAL_FAILURE(
@@ -560,15 +587,18 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     // Each epoch owns a short finite command stream, outside timing. Release
     // after completion prevents live queue accumulation across repetitions.
     constexpr std::array paths = {FileIoPath::kDevice, FileIoPath::kHostRelay,
-                                  FileIoPath::kHostWait};
+                                  FileIoPath::kHostWait, FileIoPath::kHostPoll};
     for (uint32_t epoch = 0; epoch <= repetitions; ++epoch) {
       for (uint32_t order = 0; order < paths.size(); ++order) {
         // Rotate the starting transport and reverse direction every cycle.
-        // Six measured epochs cover all permutations of the three paths.
-        const uint32_t direction = ((epoch / paths.size()) & 1) ? 2 : 1;
+        // Eight measured epochs balance every path across every position,
+        // once in each direction. This is not all twenty-four permutations.
+        const uint32_t direction = ((epoch / paths.size()) & 1) ? 3 : 1;
         const FileIoPath path =
             paths[(epoch + direction * order) % paths.size()];
-        ring_ = path == FileIoPath::kHostWait ? wait_ring : poll_ring;
+        ring_ = path == FileIoPath::kHostWait   ? wait_ring
+                : path == FileIoPath::kHostPoll ? host_poll_ring
+                                                : poll_ring;
         device_ring_memory_ =
             path == FileIoPath::kDevice ? ring_->memory : ring_->relay_memory;
         const uint32_t position =
@@ -578,7 +608,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
                       device_ring_memory_->host.byte_length);
           const uintptr_t control =
               reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer) +
-              page_byte_length_;
+              ring_->control_offset;
           for (const uint32_t offset :
                {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
                 ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
@@ -657,6 +687,10 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   uint32_t frequency_khz_ = 0;
   // Requested delay between host service passes; zero selects busy polling.
   uint32_t service_microseconds_ = 0;
+  // SQPOLL native thread ID from fdinfo, or -1 for ordinary submission.
+  int poller_thread_ = -1;
+  // SQPOLL's last reported CPU, not a promise of fixed affinity.
+  int poller_cpu_ = -1;
 };
 
 TEST_P(GpuFileLatencyTest, DependentLookup4KiB) { Run({4096, 1, 1, 0, 1024}); }

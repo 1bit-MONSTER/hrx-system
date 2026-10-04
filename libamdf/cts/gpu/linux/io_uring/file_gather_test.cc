@@ -604,7 +604,8 @@ INSTANTIATE_TEST_SUITE_P(
     AllSlots, GpuFileGatherRelayTest,
     ::testing::Combine(::testing::Values(0u, 1u, 2u),
                        ::testing::Values(FileIoPath::kHostRelay,
-                                         FileIoPath::kHostWait)));
+                                         FileIoPath::kHostWait,
+                                         FileIoPath::kHostPoll)));
 
 class GpuFileGatherRelayErrorTest
     : public GpuFileGatherTest,
@@ -620,7 +621,8 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(Fault::kInvalidFile, Fault::kInvalidWrite,
                           Fault::kInvalidReload, Fault::kShortInput),
-        ::testing::Values(FileIoPath::kHostRelay, FileIoPath::kHostWait)));
+        ::testing::Values(FileIoPath::kHostRelay, FileIoPath::kHostWait,
+                          FileIoPath::kHostPoll)));
 
 class GpuFileGatherRelayJournalTest
     : public GpuFileGatherTest,
@@ -632,6 +634,7 @@ TEST_P(GpuFileGatherRelayJournalTest, FullJournalDrainsAcceptedRequests) {
 
 INSTANTIATE_TEST_SUITE_P(HostPaths, GpuFileGatherRelayJournalTest,
                          ::testing::Values(FileIoPath::kHostRelay,
-                                           FileIoPath::kHostWait));
+                                           FileIoPath::kHostWait,
+                                           FileIoPath::kHostPoll));
 
 }  // namespace

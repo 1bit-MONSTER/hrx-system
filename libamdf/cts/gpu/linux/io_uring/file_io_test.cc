@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <tuple>
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/file_exchange.h"
@@ -51,7 +52,8 @@ uint32_t InputWord(uint32_t block, uint32_t word) {
 class GpuFileIoTest : public GpuFileIoFixture {
  protected:
   void Run(FileMode mode, Workload workload,
-           FileIoPath path = FileIoPath::kDevice) {
+           FileIoPath path = FileIoPath::kDevice,
+           uint32_t submission_entries = 8) {
     const auto* product = protocol::kKernels.Find(gpu_endpoint_info_);
     ASSERT_NE(product, nullptr) << "missing compiled file-exchange kernel";
     const auto& kernel = *product;
@@ -80,7 +82,7 @@ class GpuFileIoTest : public GpuFileIoFixture {
     GpuMemory* payload = nullptr;
     ASSERT_NO_FATAL_FAILURE(
         CreateRegisteredPages(7 * page_byte_length_, kGuard, &payload));
-    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, path));
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, path, 1, submission_entries));
     const size_t record_word_count =
         2 * kRecordGuardWords + protocol::kSummaryWordCount +
         round_count * (protocol::kRecordHeaderWordCount + word_count);
@@ -257,10 +259,27 @@ TEST_P(GpuFileHostIoTest, InvalidFixedFile) {
 
 INSTANTIATE_TEST_SUITE_P(HostPaths, GpuFileHostIoTest,
                          ::testing::Values(FileIoPath::kHostRelay,
-                                           FileIoPath::kHostWait),
+                                           FileIoPath::kHostWait,
+                                           FileIoPath::kHostPoll),
                          [](const auto& info) {
-                           return info.param == FileIoPath::kHostRelay ? "Relay"
-                                                                       : "Wait";
+                           return FileIoPathName(info.param);
                          });
+
+class GpuFileRingGeometryTest
+    : public GpuFileIoTest,
+      public ::testing::WithParamInterface<std::tuple<FileIoPath, uint32_t>> {};
+
+TEST_P(GpuFileRingGeometryTest, DirectRoundTrip) {
+  Run(FileMode::kDirect, Workload::kRoundTrip, std::get<0>(GetParam()),
+      std::get<1>(GetParam()));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    NativeLayouts, GpuFileRingGeometryTest,
+    ::testing::Combine(::testing::Values(FileIoPath::kDevice,
+                                         FileIoPath::kHostRelay,
+                                         FileIoPath::kHostWait,
+                                         FileIoPath::kHostPoll),
+                       ::testing::Values(8u, 64u, 256u, 512u)));
 
 }  // namespace

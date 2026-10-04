@@ -25,10 +25,6 @@
 #include <thread>
 #include <utility>
 
-namespace {
-constexpr uint32_t kSubmissionEntries = 8;
-}  // namespace
-
 const char* FileIoPathName(FileIoPath path) {
   switch (path) {
     case FileIoPath::kDevice:
@@ -37,6 +33,8 @@ const char* FileIoPathName(FileIoPath path) {
       return "host_relay";
     case FileIoPath::kHostWait:
       return "host_wait";
+    case FileIoPath::kHostPoll:
+      return "host_poll";
   }
   std::abort();
 }
@@ -162,34 +160,44 @@ void GpuFileIoFixture::CreateFile(const std::vector<uint32_t>& words,
 }
 
 void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
-                                  uint32_t idle_milliseconds) {
+                                  uint32_t idle_milliseconds,
+                                  uint32_t submission_entries) {
   rings_.push_back(std::make_unique<Ring>());
   ring_ = rings_.back().get();
-  // Eight ordinary SQEs and sixteen ordinary CQEs each fit one base page.
-  // NO_SQARRAY omits the extra submission-index array. Returned offsets,
-  // not a copied kernel-private header, locate every shared control word.
+  ring_->path = path;
+  ring_->control_offset =
+      (submission_entries * sizeof(io_uring_sqe) + page_byte_length_ - 1) &
+      ~(page_byte_length_ - 1);
+  // Reserve one page for native control words and page-rounded CQEs. Returned
+  // offsets, not a copied kernel-private header, locate shared control words.
+  // NO_SQARRAY omits the extra submission-index array.
+  const size_t control_length =
+      page_byte_length_ +
+      ((2 * submission_entries * sizeof(io_uring_cqe) + page_byte_length_ - 1) &
+       ~(page_byte_length_ - 1));
+  const size_t ring_length = ring_->control_offset + control_length;
   ASSERT_NO_FATAL_FAILURE(
-      CreateRegisteredPages(2 * page_byte_length_, 0, &ring_->memory));
+      CreateRegisteredPages(ring_length, 0, &ring_->memory));
   ring_->parameters.flags =
       IORING_SETUP_NO_MMAP | IORING_SETUP_NO_SQARRAY | IORING_SETUP_R_DISABLED;
-  if (path != FileIoPath::kHostWait) {
+  if (path == FileIoPath::kDevice || path == FileIoPath::kHostRelay) {
     ring_->parameters.flags |= IORING_SETUP_SQPOLL;
     ring_->parameters.sq_thread_idle = idle_milliseconds;
   }
   ring_->parameters.sq_off.user_addr =
       reinterpret_cast<uintptr_t>(ring_->memory->host.pointer);
   ring_->parameters.cq_off.user_addr =
-      ring_->parameters.sq_off.user_addr + page_byte_length_;
+      ring_->parameters.sq_off.user_addr + ring_->control_offset;
   ring_->file = static_cast<int>(
-      syscall(__NR_io_uring_setup, kSubmissionEntries, &ring_->parameters));
+      syscall(__NR_io_uring_setup, submission_entries, &ring_->parameters));
   ASSERT_GE(ring_->file, 0) << "io_uring_setup: " << std::strerror(errno);
-  ASSERT_EQ(ring_->parameters.sq_entries, kSubmissionEntries);
+  ASSERT_EQ(ring_->parameters.sq_entries, submission_entries);
   ASSERT_GE(ring_->parameters.cq_entries, ring_->parameters.sq_entries);
   ASSERT_LE(ring_->parameters.cq_off.cqes +
                 ring_->parameters.cq_entries * sizeof(io_uring_cqe),
-            page_byte_length_);
+            control_length);
   ASSERT_LE(ring_->parameters.sq_entries * sizeof(io_uring_sqe),
-            page_byte_length_);
+            ring_->control_offset);
 
   const struct iovec region = {payload->host.pointer,
                                static_cast<size_t>(payload->host.byte_length)};
@@ -228,7 +236,7 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
   device_ring_memory_ = ring_->memory;
   if (path != FileIoPath::kDevice) {
     ASSERT_NO_FATAL_FAILURE(
-        CreateRegisteredPages(2 * page_byte_length_, 0, &ring_->relay_memory));
+        CreateRegisteredPages(ring_length, 0, &ring_->relay_memory));
     device_ring_memory_ = ring_->relay_memory;
   }
   RecordProperty("io_path", FileIoPathName(path));
@@ -236,11 +244,11 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
 
 uintptr_t GpuFileIoFixture::RingWord(uint32_t offset) const {
   return reinterpret_cast<uintptr_t>(ring_->memory->host.pointer) +
-         page_byte_length_ + offset;
+         ring_->control_offset + offset;
 }
 
 uint64_t GpuFileIoFixture::RingAddress(uint32_t offset) const {
-  return device_ring_memory_->device_address + page_byte_length_ + offset;
+  return device_ring_memory_->device_address + ring_->control_offset + offset;
 }
 
 void GpuFileIoFixture::RelayFileIo() {
@@ -249,7 +257,7 @@ void GpuFileIoFixture::RelayFileIo() {
   }
   const uintptr_t device_base =
       reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer);
-  const uintptr_t device_control = device_base + page_byte_length_;
+  const uintptr_t device_control = device_base + ring_->control_offset;
   auto* native_submissions =
       static_cast<io_uring_sqe*>(ring_->memory->host.pointer);
   const auto* device_submissions =
@@ -294,7 +302,7 @@ void GpuFileIoFixture::RelayFileIo() {
   }
 }
 
-void GpuFileIoFixture::SubmitAndWait(uint64_t* enter_calls) {
+void GpuFileIoFixture::ServiceHostIo(uint64_t* enter_calls) {
   const uint32_t tail =
       GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
   const uint32_t head =
@@ -308,12 +316,13 @@ void GpuFileIoFixture::SubmitAndWait(uint64_t* enter_calls) {
     return;
   }
   ++*enter_calls;
-  const long result = syscall(__NR_io_uring_enter, ring_->file, tail - head, 1,
-                              IORING_ENTER_GETEVENTS, nullptr, 0);
+  const uint32_t minimum = ring_->path == FileIoPath::kHostWait ? 1 : 0;
+  const long result = syscall(__NR_io_uring_enter, ring_->file, tail - head,
+                              minimum, IORING_ENTER_GETEVENTS, nullptr, 0);
   if (result < 0 && errno == EINTR) {
     return;
   }
-  ASSERT_GE(result, 0) << "submit and wait: " << std::strerror(errno);
+  ASSERT_GE(result, 0) << "host submission: " << std::strerror(errno);
   // Publish the completion before applying the next host service delay.
   RelayFileIo();
 }
@@ -356,7 +365,7 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
              reinterpret_cast<uintptr_t>(completion->host.pointer)) != 1) {
     RelayFileIo();
     if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
-      ASSERT_NO_FATAL_FAILURE(SubmitAndWait(&enter_count));
+      ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&enter_count));
       std::this_thread::yield();
       continue;
     }
@@ -380,7 +389,7 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
   if (device_ring_memory_ != ring_->memory) {
     const uintptr_t device_control =
         reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer) +
-        page_byte_length_;
+        ring_->control_offset;
     for (const uint32_t offset :
          {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
           ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
@@ -399,7 +408,7 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
               0);
   }
   RecordProperty("io_idle_wake_calls", std::to_string(wake_count));
-  RecordProperty("io_submit_wait_calls", std::to_string(enter_count));
+  RecordProperty("io_submit_calls", std::to_string(enter_count));
 }
 
 void GpuFileIoFixture::VerifyFile(const std::vector<uint32_t>& expected_file,

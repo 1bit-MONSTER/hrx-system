@@ -273,12 +273,40 @@ that CPU: the GPU consumes the separate relayed CQ and cannot remove the native
 wait condition. Completion publication precedes the next host service delay.
 With no outstanding I/O the host still polls GPU admission; this path removes
 the kernel polling thread, not the need to observe new device requests.
-Both host paths cover the complete fifteen-case correctness family.
+The `host_poll` comparator uses the same ordinary native ring and relay, but
+passes `min_complete=0` to each GETEVENTS service call. One userspace CPU
+owner submits and runs kernel task work without sleeping for I/O; there is no
+SQPOLL thread. This separates the cost of a relay from the cost of a second
+polling CPU or a completion sleep. All three host strategies cover the complete
+fifteen-case correctness family. Additional direct-I/O cases qualify 8, 64,
+256 and 512 native SQ entries across all four paths; backing scales with the
+actual SQE extent and returned CQ layout.
+
+### CPU execution model
+
+Every transport uses the GPU to generate requests and consume data. IRQ and
+possible I/O-worker execution are not eliminated by any of these paths.
+
+| Transport | Userspace CPU owner | SQPOLL CPU owner | Request dependency |
+| --- | --- | --- | --- |
+| `device` | Busy or paced idle-wake helper | One polling thread | No per-request userspace relay while SQPOLL is awake |
+| `host_relay` | Busy or paced SQE/CQE relay | One polling thread | Both record handoffs require userspace service |
+| `host_poll` | Busy or paced relay and nonblocking syscall service | None | Both handoffs require userspace service; no I/O sleep |
+| `host_wait` | Relay and syscall service; sleeps for a pending completion | None | Both handoffs require userspace service; new demand can wait behind the sleep |
+
+The busy `device` and `host_relay` configurations therefore have two CPU
+polling loops, not zero or one. The shader's completion loop runs on the GPU.
+A paced wake helper removes continuous userspace spinning, not SQPOLL's CPU
+cost. None of these descriptions claims that every loop remains scheduled
+100% of elapsed time. The host thread ID, its start/end CPUs, and SQPOLL's
+thread ID and last reported CPU accompany each measured sample. IDs identify
+owners; start/end CPU observations do not establish fixed affinity or exclude
+intervening migration.
 
 ## Completion driven latency comparison
 
 [file_latency_test.cc](file_latency_test.cc) runs one through four causal streams
-with the same [GPU program](../../kernels/file_latency.loom) on all three transports.
+with the same [GPU program](../../kernels/file_latency.loom) on all four transports.
 Each completion immediately admits its stream's successor. File keys depend on
 three words from the previous response; the host has no prepared request list.
 Read/write/reload cases write disjoint scattered output blocks and reload into
@@ -305,8 +333,9 @@ samples. An optimized run sets `AMDF_IO_REPETITIONS` (1 through 31) and requires
 an existing `BENCHMARK_LOCK_LEASE_ID`. That environment value is a launch
 precondition, not proof of machine isolation; the runner's broker and host-health
 record supply that evidence. The same executable and library serve all paths.
-One warm-up triple precedes rotated and reversed three-path epochs; six epochs
-cover all transport-order permutations. Paths within an epoch use the same
+One warm-up pass precedes rotated and reversed four-path epochs; eight epochs
+balance every path across each position in both directions, not all twenty-four
+permutations. Paths within an epoch use the same
 seed, geometry and fixed consumer count. Separate native rings retain their
 own backing and registrations across retired dispatches. Fixed counts are 1024
 dependent lookups, 256 consumers per independent stream or 64 KiB chain, eight
@@ -333,7 +362,7 @@ Each `AMDF_IO_SAMPLE` JSON line reports the following distinct intervals:
 | `host_cpu_ns` | The service thread's CPU time over the host interval. |
 | `sqpoll_cpu_us` | Kernel `SqTotalTime` delta sampled around that interval. |
 | `sqpoll_tail_cpu_us` | Additional poller CPU time through its observed return to sleep. |
-| `submit_wait_calls` | Non-SQPOLL submission/completion wait syscalls, including interrupted calls. |
+| `submit_calls` | Non-SQPOLL submission/task-work service syscalls, including interrupted calls; `host_waits_for_io` distinguishes blocking from polling. |
 | `wake_calls` | SQPOLL wake syscalls, coalesced by the published tail. |
 
 Kernel accounting samples bracket rather than exactly coincide with the host
