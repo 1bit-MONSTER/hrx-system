@@ -39,6 +39,7 @@ class LibamdfPresubmitTest(unittest.TestCase):
         self.assertEqual(command.count("--config=presubmit"), 0)
         self.assertIn("--//libamdf/config:enabled=true", command)
         self.assertIn("//libamdf/...", command)
+        self.assertFalse(any(arg.startswith("--test_tag_filters=") for arg in command))
 
     def test_bazel_tests_use_selected_execution_policy(self):
         with mock.patch.dict(

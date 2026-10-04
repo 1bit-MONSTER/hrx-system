@@ -38,12 +38,6 @@ GLOBAL_TEST_TRIGGERS = (
     ".bazel_to_cmake.cfg.py",
     "requirements",
 )
-RESOURCE_TEST_TAG_FILTERS = (
-    "-manual",
-    "-iree-run-requirement=runtime.resource.amd_gpu",
-    "-iree-run-requirement=vulkan.resource.device",
-    "-iree-run-requirement=runtime.resource.webgpu_device",
-)
 CTEST_RESOURCE_LABEL_EXCLUDE_REGEX = "runtime-resource="
 CMAKE_SOURCE_FORMAT_TARGET_DEFINES = (
     ("amdgpu", "LOOM_TARGET_AMDGPU"),
@@ -383,11 +377,14 @@ def bazel_test_command(target_pattern_file: Path | None = None) -> list[str]:
         "test",
         *BAZEL_TEST_CONFIGURATION_ARGS,
         *project_presubmit.bazel_config_args(),
-        "--test_tag_filters=" + ",".join(RESOURCE_TEST_TAG_FILTERS),
+        "--test_tag_filters=-manual",
     ]
     if target_pattern_file is None:
         command.append(BAZEL_FULL_TEST_TARGET)
     else:
+        # Query-expanded affected tests have the same compatibility selection
+        # semantics as the full suite, not user-explicit target intent.
+        command.append("--skip_incompatible_explicit_targets")
         command.append(f"--target_pattern_file={target_pattern_file}")
     return command
 

@@ -36,7 +36,7 @@ class LoomPresubmitTest(unittest.TestCase):
     def setUpClass(cls):
         cls.presubmit = load_presubmit_module()
 
-    def test_bazel_tests_exclude_unrunnable_tests(self):
+    def test_bazel_tests_preserve_manual_filter_without_hardware_blacklists(self):
         command = self.presubmit.bazel_test_command()
 
         self.assertEqual(command[:3], ["bazel", "test", "--config=presubmit"])
@@ -50,16 +50,15 @@ class LoomPresubmitTest(unittest.TestCase):
         tag_filter = next(
             arg for arg in command if arg.startswith("--test_tag_filters=")
         )
-        self.assertIn("-manual", tag_filter)
-        self.assertIn("-iree-run-requirement=runtime.resource.amd_gpu", tag_filter)
-        self.assertIn("-iree-run-requirement=vulkan.resource.device", tag_filter)
-        self.assertNotIn("loom.resource", tag_filter)
+        self.assertEqual(tag_filter, "--test_tag_filters=-manual")
+        self.assertNotIn("--skip_incompatible_explicit_targets", command)
 
     def test_bazel_test_command_reads_affected_targets_from_file(self):
         target_pattern_file = Path("/tmp/loom-affected-tests")
         command = self.presubmit.bazel_test_command(target_pattern_file)
 
         self.assertEqual(command[-1], f"--target_pattern_file={target_pattern_file}")
+        self.assertIn("--skip_incompatible_explicit_targets", command)
         self.assertNotIn("//loom/...", command)
         self.assertIn("--//loom/config/import:enable=cxx", command)
 
