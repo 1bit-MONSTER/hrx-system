@@ -58,6 +58,18 @@ results, complete final buffers and file contents, and clock-domain brackets.
 Its [measurement contract](../linux/io_uring/README.md#completion-driven-latency-comparison)
 separates ordinary correctness runs from optimized, isolated comparisons.
 
+[file_demand.loom](file_demand.loom) separates scheduled logical arrivals from
+finite payload credits. One GPU owner hashes keys, coalesces immutable reads,
+publishes native requests and retires ready readers without a batch join.
+Scattered KV chains retain a credit through writeback and reload. Its journal
+records offered arrival, admission, usable-data probing and final release;
+generation checks prevent reusing backing before the final reader retires.
+The [scheduled-demand cases](../linux/io_uring/README.md#scheduled-demand-and-bounded-backing)
+offer bursts of 32 through 256 requests and compare four transports plus a
+paced native wake policy. A separately submitted instance can perform
+independent arithmetic while I/O progresses. It is a bounded ownership and
+latency experiment, not a model kernel or production storage scheduler.
+
 The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) selects
 the same transform set by physical endpoint identity and uses the selected
 resources unchanged through USER or KERNEL PM4

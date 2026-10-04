@@ -41,6 +41,8 @@ iree_cc_library(
     ::file_io_fixture
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::gpu::kernels::file_demand
+    libamdf::cts::gpu::kernels::file_demand_kernels
     libamdf::cts::gpu::kernels::file_exchange
     libamdf::cts::gpu::kernels::file_exchange_kernels
     libamdf::cts::gpu::kernels::file_gather

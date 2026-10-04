@@ -391,6 +391,67 @@ kernel and compiled-image identity. Performance results require the matched
 JSON samples plus artifact digests, compiler flags, broker lease, machine
 state and the exact policy settings; a successful CTS run alone is insufficient.
 
+## Scheduled demand and bounded backing
+
+`FileModes/GpuFileDemandTest.*` uses [file_demand.loom](../../kernels/file_demand.loom)
+to measure demand latency with 32, 64, 128 or 256 logical arrivals in each burst.
+Four bursts form an epoch. Their offered times are fixed before execution and
+do not wait for I/O completion or free backing. The primary interval is
+`ready - arrival`: scheduled GPU demand through the consumer's first returned
+payload probe. `admitted - arrival` exposes queueing before a credit is acquired;
+`released - ready` includes deliberately retained readers. Physical read, write
+and reload intervals remain separate from logical request latency.
+
+| Profile | Physical operation | Offered work and ownership |
+| --- | --- | --- |
+| `lookup32/64/128/256` | 4 KiB read | Matching burst and credit counts, four bursts 1 ms apart. |
+| `lookup_backlog` | 4 KiB read | 256-demand bursts, 32 credits, every seventh reader retained for 200 µs. |
+| `lookup_staggered` | 4 KiB read | 32-demand bursts 40 µs apart, 64 credits, independent GPU arithmetic. |
+| `expert_tiles` | 256 KiB read | 256-demand bursts over 16 keys, 32 credits, every seventh reader retained for 2 ms. |
+| `expert_pressure` | 256 KiB read | 256-demand bursts over 64 keys, eight credits, retained readers and independent arithmetic. |
+| `kv_blocks` | 64 KiB read/write/reload | 256-demand bursts, 64 credits, scattered output blocks and a separate reload bank. |
+
+The GPU hashes each offered key seed and looks up a direct key-to-credit map.
+Matching immutable demands join an existing read, including already completed
+backing still retained by a reader. A ready queue rotates held readers so they
+cannot stop other ready consumers or completion processing. Only the last
+reader returns a credit to the free list. KV chains retain exclusive ownership
+through read, write and reload; they do not deduplicate mutable blocks.
+One coordinator owns these structures. This measures a finite storage-channel
+witness, not independently dispatched model matmuls or a selected cache API.
+
+All five measured configurations use identical GPU programs, offered manifests
+and payloads: native SQPOLL with busy or requested 50 µs host service, busy
+relayed SQPOLL, ordinary host polling, and ordinary host completion waits.
+The paced policy changes only the native idle-wake helper. Ten measured epochs
+balance all configurations over each order position in both directions after
+one warm-up epoch. `AMDF_IO_REPETITIONS` selects the fixed measured count under
+the same benchmark-lease requirement as the causal cases. These scenarios
+fix SQPOLL idle at 1 ms and their own five-policy matrix; the causal cases'
+`AMDF_IO_SERVICE_US` and `AMDF_IO_IDLE_MS` overrides do not alter them.
+
+Each `AMDF_IO_DEMAND` line contains all requests, with column names and times
+relative to the same GPU reference-clock origin. Reported `burst` is offered
+concurrency, not observed device queue depth. `peak_outstanding`, `peak_credits`,
+physical request count and duplicate count show what actually happened.
+Outstanding means submitted but not yet GPU-reaped; it includes completed CQEs,
+so it is not an NVMe hardware queue-depth counter. Timing
+can change the overlap of duplicate readers and therefore physical read count.
+The comparison preserves identical logical work rather than assuming equal
+physical work. Thread IDs, CPU time, syscall counts and service policies retain
+the execution model described above. CPU time is neither request latency nor
+an energy measurement.
+
+The optional second GPU queue performs checkable integer arithmetic until the
+I/O owner publishes its terminal stop. Its startup completes outside timing;
+there is no CPU dispatch per request. This establishes simultaneous progress,
+not representative matmul saturation. The host verifies every consumer result,
+physical phase order, previous-generation release, final backing and file
+contents, guards and native ring retirement. Absent files and a partial read
+ending at EOF exercise stop/drain without consuming incomplete payloads.
+The largest scheduled-demand file is 40 MiB; registered payload is at most
+16.3 MiB, referenced by three retained rings. Writes are not durability claims.
+
 [model]: https://github.com/axboe/liburing/blob/master/man/io_uring.7
 [setup]: https://github.com/axboe/liburing/blob/master/man/io_uring_setup.2
 [enter]: https://github.com/axboe/liburing/blob/master/man/io_uring_enter.2

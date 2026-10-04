@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "libamdf/cts/gpu/kernels/file_demand.h"
+#include "libamdf/cts/gpu/kernels/file_demand_kernels.h"
 #include "libamdf/cts/gpu/kernels/file_exchange.h"
 #include "libamdf/cts/gpu/kernels/file_exchange_kernels.h"
 #include "libamdf/cts/gpu/kernels/file_gather.h"
@@ -67,6 +69,15 @@ TEST(KernelTest, FileGatherProductsPreserveTheCallerContract) {
 
 TEST(KernelTest, FileLatencyProductsPreserveTheCallerContract) {
   namespace protocol = kernels::file_latency;
+  CheckResidentProducts(
+      protocol::kKernels, protocol::kArgumentByteOffsets,
+      protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
+      protocol::kArgumentByteLength, sizeof(protocol::Arguments),
+      alignof(protocol::Arguments));
+}
+
+TEST(KernelTest, FileDemandProductsPreserveTheCallerContract) {
+  namespace protocol = kernels::file_demand;
   CheckResidentProducts(
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,

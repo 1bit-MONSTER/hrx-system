@@ -27,6 +27,8 @@
 #include <thread>
 #include <vector>
 
+#include "libamdf/cts/gpu/kernels/file_demand.h"
+#include "libamdf/cts/gpu/kernels/file_demand_kernels.h"
 #include "libamdf/cts/gpu/kernels/file_latency_kernels.h"
 #include "libamdf/cts/gpu/linux/io_uring/file_io_fixture.h"
 
@@ -680,7 +682,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_NO_FATAL_FAILURE(VerifyFile(expected_file, GetParam()));
   }
 
- private:
+ protected:
   // Read-only DRM descriptor matched to the active endpoint's device identity.
   int clock_file_ = -1;
   // Nominal reference-counter frequency from AMDGPU_INFO_DEV_INFO, in kHz.
@@ -711,6 +713,626 @@ TEST_P(GpuFileLatencyTest, ShortInputThenEofDrainsWithoutConsumption) {
 }
 
 INSTANTIATE_TEST_SUITE_P(FileModes, GpuFileLatencyTest,
+                         ::testing::Values(FileMode::kBuffered,
+                                           FileMode::kDirect),
+                         [](const auto& info) {
+                           return info.param == FileMode::kDirect ? "Direct"
+                                                                  : "Buffered";
+                         });
+
+namespace demand = kernels::file_demand;
+
+// Offered bursts are independent of the transport's completion rate. Credits
+// bound backing, not demand count; duplicate readers retain the same credit.
+struct DemandProfile {
+  // Stable workload name in retained measurement records.
+  const char* name;
+  // Bytes in one physical operation; an expert tile is not a whole expert.
+  uint32_t byte_length;
+  // Logical readers offered in each burst.
+  uint32_t burst;
+  // Maximum independently owned payload windows.
+  uint32_t credits;
+  // Distinct keys before the offered manifest repeats a key.
+  uint32_t distinct_keys;
+  // Microseconds between bursts; zero offers the entire manifest at once.
+  uint32_t interval_microseconds;
+  // Every seventh reader retains backing for this interval after its probe.
+  uint32_t hold_microseconds;
+  // One for reads, three for scattered read/write/reload.
+  uint32_t phases;
+  // Enables the independent GPU arithmetic instance.
+  bool background;
+};
+
+class GpuFileDemandTest : public GpuFileLatencyTest {
+ protected:
+  uint32_t Ticks(uint32_t microseconds) const {
+    return uint64_t{frequency_khz_} * microseconds / 1000;
+  }
+
+  void CheckDemand(const DemandProfile& profile,
+                   const demand::Arguments& arguments, InputFault fault,
+                   GpuMemory* payload, GpuMemory* state, GpuMemory* records,
+                   GpuMemory* keys, const Sample& sample,
+                   const std::vector<demand::Record>& offered,
+                   std::vector<uint32_t>* expected_file) {
+    const auto* summary =
+        static_cast<const demand::Summary*>(state->host.pointer);
+    const auto* slots = reinterpret_cast<const demand::Slot*>(summary + 1);
+    const auto* rows = reinterpret_cast<const demand::Record*>(
+        static_cast<const uint32_t*>(records->host.pointer) + kGuardWords);
+    ASSERT_EQ(summary->status, fault == InputFault::kNone         ? 0
+                               : fault == InputFault::kAbsentFile ? -EBADF
+                                                                  : -ENODATA);
+    ASSERT_EQ(summary->completed, summary->submitted);
+    ASSERT_GT(summary->submitted, 0u);
+    ASSERT_LE(summary->peak_outstanding, arguments.credit_count);
+    ASSERT_LE(summary->peak_credits, arguments.credit_count);
+    ASSERT_EQ(summary->live_credits, 0u);
+    ASSERT_EQ(summary->ready_head, 0u);
+    ASSERT_EQ(summary->ready_tail, 0u);
+    ASSERT_EQ(summary->issue, 0u);
+    const uint32_t position = arguments.initial_position + summary->submitted;
+    for (const uint32_t offset :
+         {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
+          ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
+      ASSERT_EQ(GpuLoadAcquire<uint32_t>(RingWord(offset)), position);
+    }
+    ASSERT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.dropped)),
+        0u);
+    ASSERT_EQ(
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.overflow)),
+        0u);
+    ASSERT_GE(sample.clock_after, sample.clock_before);
+    ASSERT_LT(sample.clock_after - sample.clock_before, UINT32_MAX);
+    ASSERT_LE(uint32_t(summary->begin_tick - uint32_t(sample.clock_before)),
+              uint32_t(summary->end_tick - uint32_t(sample.clock_before)));
+    ASSERT_LE(uint32_t(summary->end_tick - uint32_t(sample.clock_before)),
+              sample.clock_after - sample.clock_before);
+    const auto elapsed = [summary](uint32_t tick) {
+      return uint32_t(tick - summary->begin_tick);
+    };
+    struct Generation {
+      // First logical reader that allocated the physical backing.
+      const demand::Record* leader = nullptr;
+      // Latest consumer release, relative to the experiment origin.
+      uint32_t release = 0;
+    };
+    std::vector<std::vector<Generation>> generations(profile.credits);
+    uint32_t duplicates = 0;
+    for (uint32_t i = 0; i < arguments.demand_count; ++i) {
+      SCOPED_TRACE(i);
+      const auto& row = rows[i];
+      ASSERT_EQ(row.arrival_ticks, offered[i].arrival_ticks);
+      ASSERT_EQ(row.key_seed, offered[i].key_seed);
+      ASSERT_EQ(row.hold_ticks, offered[i].hold_ticks);
+      if (fault != InputFault::kNone) {
+        ASSERT_EQ(row.observed, 0u);
+        ASSERT_EQ(row.ready_tick, 0u);
+        ASSERT_EQ(row.end_tick, 0u);
+        ASSERT_EQ(row.result, 0u);
+        continue;
+      }
+      ASSERT_LT(row.slot, profile.credits);
+      ASSERT_GT(row.generation, 0u);
+      ASSERT_LE(row.generation, arguments.demand_count);
+      ASSERT_EQ(row.key, Hash(row.key_seed) & arguments.file_block_mask);
+      ASSERT_EQ(row.observed, 1u);
+      const uint32_t first = InputWord(row.key, 0);
+      const uint32_t selected =
+          InputWord(row.key, row.key & (arguments.word_count - 1));
+      const uint32_t last = InputWord(row.key, arguments.word_count - 1);
+      ASSERT_EQ(row.first, first);
+      ASSERT_EQ(row.selected, selected);
+      ASSERT_EQ(row.last, last);
+      ASSERT_EQ(row.result, Hash((first ^ selected ^ last) + row.key_seed));
+      ASSERT_GE(elapsed(row.admitted_tick), row.arrival_ticks);
+      ASSERT_GE(elapsed(row.ready_tick), elapsed(row.admitted_tick));
+      ASSERT_GE(elapsed(row.end_tick), elapsed(row.ready_tick));
+      ASSERT_GE(uint32_t(row.end_tick - row.ready_tick), row.hold_ticks);
+      ASSERT_LE(elapsed(row.end_tick), elapsed(summary->end_tick));
+      ASSERT_LE(elapsed(row.read_begin), elapsed(row.read_end));
+      ASSERT_LE(elapsed(row.read_end), elapsed(row.ready_tick));
+      if (profile.phases == 3) {
+        ASSERT_EQ(row.shared, 0u);
+        ASSERT_LE(elapsed(row.read_end), elapsed(row.write_begin));
+        ASSERT_LE(elapsed(row.write_begin), elapsed(row.write_end));
+        ASSERT_LE(elapsed(row.write_end), elapsed(row.reload_begin));
+        ASSERT_LE(elapsed(row.reload_begin), elapsed(row.reload_end));
+        ASSERT_LE(elapsed(row.reload_end), elapsed(row.ready_tick));
+      } else {
+        ASSERT_EQ(row.write_begin, 0u);
+        ASSERT_EQ(row.write_end, 0u);
+        ASSERT_EQ(row.reload_begin, 0u);
+        ASSERT_EQ(row.reload_end, 0u);
+      }
+      ASSERT_LT(uint32_t(row.ticket - arguments.initial_position),
+                summary->submitted);
+      auto& owners = generations[row.slot];
+      if (owners.size() < row.generation) {
+        ASSERT_EQ(owners.size() + 1, row.generation);
+        owners.emplace_back();
+      }
+      auto& owner = owners[row.generation - 1];
+      if (!row.shared) {
+        ASSERT_EQ(owner.leader, nullptr);
+        owner.leader = &row;
+        ASSERT_LE(elapsed(row.admitted_tick), elapsed(row.read_begin));
+      } else {
+        ASSERT_EQ(row.shared, 1u);
+        ASSERT_NE(owner.leader, nullptr);
+        ASSERT_EQ(row.key, owner.leader->key);
+        ASSERT_EQ(row.read_begin, owner.leader->read_begin);
+        ASSERT_EQ(row.read_end, owner.leader->read_end);
+        ASSERT_EQ(row.ticket, owner.leader->ticket);
+        ++duplicates;
+      }
+      owner.release = std::max(owner.release, elapsed(row.end_tick));
+    }
+    if (fault == InputFault::kNone) {
+      ASSERT_EQ(summary->admitted, arguments.demand_count);
+      ASSERT_EQ(summary->consumed, arguments.demand_count);
+      ASSERT_EQ(summary->deduplicated, duplicates);
+      ASSERT_GE(summary->submitted,
+                (arguments.demand_count - duplicates) * profile.phases);
+      std::vector<bool> free_slots(profile.credits);
+      uint32_t free = summary->free_head;
+      for (uint32_t i = 0; i < profile.credits; ++i) {
+        ASSERT_GE(free, 1u);
+        ASSERT_LE(free, profile.credits);
+        ASSERT_FALSE(free_slots[free - 1]);
+        free_slots[free - 1] = true;
+        free = slots[free - 1].next;
+      }
+      ASSERT_EQ(free, 0u);
+      for (uint32_t i = 0; i < arguments.demand_count; ++i) {
+        const auto& row = rows[i];
+        const uint32_t previous =
+            row.generation == 1
+                ? 0
+                : summary->begin_tick +
+                      generations[row.slot][row.generation - 2].release;
+        ASSERT_EQ(row.previous_release, previous);
+        if (row.generation != 1) {
+          ASSERT_GE(elapsed(row.admitted_tick), elapsed(previous));
+        }
+      }
+      const auto* map = static_cast<const uint32_t*>(keys->host.pointer);
+      for (uint32_t i = 0; i <= arguments.file_block_mask; ++i) {
+        ASSERT_EQ(map[i], 0u);
+      }
+    } else {
+      ASSERT_EQ(summary->consumed, 0u);
+      ASSERT_LE(summary->admitted, arguments.demand_count);
+    }
+    const auto* words = static_cast<const uint32_t*>(payload->host.pointer);
+    const uint32_t guard_words = page_byte_length_ / 4;
+    const uint32_t stride_words = arguments.payload_stride / 4;
+    for (uint32_t slot = 0; slot < profile.credits; ++slot) {
+      ASSERT_EQ(slots[slot].readers, 0u);
+      ASSERT_EQ(slots[slot].first_reader, 0u);
+      ASSERT_EQ(slots[slot].last_reader, 0u);
+      if (fault == InputFault::kNone) {
+        ASSERT_EQ(slots[slot].generation, generations[slot].size());
+        if (!generations[slot].empty()) {
+          ASSERT_EQ(elapsed(slots[slot].last_release),
+                    generations[slot].back().release);
+          const auto& leader = *generations[slot].back().leader;
+          ASSERT_EQ(slots[slot].submit_tick, profile.phases == 3
+                                                 ? leader.reload_begin
+                                                 : leader.read_begin);
+          ASSERT_EQ(slots[slot].ready_tick,
+                    profile.phases == 3 ? leader.reload_end : leader.read_end);
+          ASSERT_EQ(slots[slot].phase_end_tick, slots[slot].ready_tick);
+          ASSERT_EQ(slots[slot].ticket, leader.ticket);
+        }
+      }
+      for (uint32_t word = 0; word < arguments.word_count; ++word) {
+        const bool populated = slots[slot].generation != 0;
+        uint32_t expected =
+            populated ? InputWord(slots[slot].key, word) : kGuard;
+        if (fault == InputFault::kAbsentFile) {
+          expected = kGuard;
+        } else if (fault == InputFault::kShortFile &&
+                   word >= arguments.word_count / 2) {
+          // The direct EOF block can contain unreported bytes inside the
+          // submitted destination. None becomes a logical consumer result.
+          if (GetParam() == FileMode::kDirect && populated) {
+            continue;
+          }
+          expected = kGuard;
+        }
+        ASSERT_EQ(words[guard_words + slot * stride_words + word], expected);
+        ASSERT_EQ(
+            words[guard_words + (slot + profile.credits) * stride_words + word],
+            profile.phases == 3 && populated ? expected : kGuard);
+        if (profile.phases == 3 && populated) {
+          (*expected_file)[(arguments.file_block_mask + 1 + slot * 3) *
+                               arguments.word_count +
+                           word] = expected;
+        }
+      }
+    }
+    for (uint32_t window = 0; window <= 2 * profile.credits; ++window) {
+      for (uint32_t word = 0; word < guard_words; ++word) {
+        ASSERT_EQ(words[window * stride_words + word], kGuard);
+      }
+    }
+    const auto* record_words =
+        static_cast<const uint32_t*>(records->host.pointer);
+    for (uint32_t word = 0; word < kGuardWords; ++word) {
+      ASSERT_EQ(record_words[word], kGuard);
+      ASSERT_EQ(
+          record_words[kGuardWords +
+                       arguments.demand_count * sizeof(demand::Record) / 4 +
+                       word],
+          kGuard);
+    }
+  }
+
+  void PrintDemand(const DemandProfile& profile,
+                   const demand::Arguments& arguments, FileIoPath path,
+                   uint32_t epoch, const Sample& sample, GpuMemory* state,
+                   GpuMemory* records, const demand::Background& background) {
+    const auto* summary =
+        static_cast<const demand::Summary*>(state->host.pointer);
+    const auto* rows = reinterpret_cast<const demand::Record*>(
+        static_cast<const uint32_t*>(records->host.pointer) + kGuardWords);
+    const auto elapsed = [summary](uint32_t tick) {
+      return uint32_t(tick - summary->begin_tick);
+    };
+    std::ostringstream output;
+    output << "AMDF_IO_DEMAND {\"profile\":\"" << profile.name
+           << "\",\"path\":\"" << FileIoPathName(path) << "\",\"mode\":\""
+           << (GetParam() == FileMode::kDirect ? "direct" : "buffered")
+           << "\",\"epoch\":" << epoch << ",\"bytes\":" << profile.byte_length
+           << ",\"burst\":" << profile.burst
+           << ",\"credits\":" << profile.credits
+           << ",\"demands\":" << arguments.demand_count
+           << ",\"distinct_keys\":" << profile.distinct_keys
+           << ",\"interval_us\":" << profile.interval_microseconds
+           << ",\"hold_us\":" << profile.hold_microseconds
+           << ",\"phases\":" << profile.phases
+           << ",\"clock_khz\":" << frequency_khz_
+           << ",\"service_us\":" << service_microseconds_
+           << ",\"idle_ms\":" << ring_->parameters.sq_thread_idle
+           << ",\"setup_flags\":" << ring_->parameters.flags
+           << ",\"physical_requests\":" << summary->submitted
+           << ",\"deduplicated\":" << summary->deduplicated
+           << ",\"peak_outstanding\":" << summary->peak_outstanding
+           << ",\"peak_credits\":" << summary->peak_credits
+           << ",\"wall_ns\":" << sample.wall_nanoseconds
+           << ",\"host_cpu_ns\":" << sample.host_nanoseconds
+           << ",\"host_thread\":" << sample.host_thread
+           << ",\"host_start_cpu\":" << sample.host_start_cpu
+           << ",\"host_end_cpu\":" << sample.host_end_cpu
+           << ",\"sqpoll_thread\":" << poller_thread_
+           << ",\"sqpoll_last_cpu\":" << poller_cpu_
+           << ",\"host_waits_for_io\":"
+           << (path == FileIoPath::kHostWait ? "true" : "false")
+           << ",\"sqpoll_cpu_us\":" << sample.poller_microseconds
+           << ",\"sqpoll_tail_cpu_us\":" << sample.poller_tail_microseconds
+           << ",\"wake_calls\":" << sample.wake_calls
+           << ",\"submit_calls\":" << sample.enter_calls
+           << ",\"device_ticks\":" << elapsed(summary->end_tick)
+           << ",\"background_iterations\":" << background.iterations
+           << ",\"columns\":[\"arrival\",\"admitted\",\"ready\",\"released\","
+              "\"shared\",\"slot\",\"generation\",\"read_begin\",\"read_end\","
+              "\"write_begin\",\"write_end\",\"reload_begin\",\"reload_end\"]"
+           << ",\"requests\":[";
+    for (uint32_t i = 0; i < arguments.demand_count; ++i) {
+      if (i) {
+        output << ',';
+      }
+      const auto& row = rows[i];
+      output << '[' << row.arrival_ticks << ',' << elapsed(row.admitted_tick)
+             << ',' << elapsed(row.ready_tick) << ',' << elapsed(row.end_tick)
+             << ',' << row.shared << ',' << row.slot << ',' << row.generation
+             << ',' << elapsed(row.read_begin) << ',' << elapsed(row.read_end);
+      for (uint32_t tick :
+           {row.write_begin, row.write_end, row.reload_begin, row.reload_end}) {
+        output << ',' << (profile.phases == 3 ? elapsed(tick) : 0);
+      }
+      output << ']';
+    }
+    output << "]}";
+    std::puts(output.str().c_str());
+  }
+
+  void RunDemand(const DemandProfile& profile,
+                 InputFault fault = InputFault::kNone) {
+    const auto* kernel = demand::kKernels.Find(gpu_endpoint_info_);
+    ASSERT_NE(kernel, nullptr);
+    ASSERT_NO_FATAL_FAILURE(OpenClock());
+    uint32_t repetitions = 1;
+    ASSERT_NO_FATAL_FAILURE(
+        EnvironmentCount("AMDF_IO_REPETITIONS", 31, &repetitions));
+    const bool measurement = std::getenv("AMDF_IO_REPETITIONS") != nullptr &&
+                             fault == InputFault::kNone;
+    if (measurement) {
+      ASSERT_NE(std::getenv("BENCHMARK_LOCK_LEASE_ID"), nullptr);
+    }
+    const uint32_t count = profile.burst * 4;
+    const uint32_t word_count = profile.byte_length / 4;
+    const uint32_t blocks = fault == InputFault::kShortFile ? 1
+                            : profile.byte_length >= 262144 ? 64
+                                                            : 256;
+    std::vector<uint32_t> expected_file(
+        (blocks + 3 * profile.credits) * word_count, kGuard);
+    for (uint32_t block = 0; block < blocks; ++block) {
+      for (uint32_t word = 0; word < word_count; ++word) {
+        expected_file[block * word_count + word] = InputWord(block, word);
+      }
+    }
+    if (fault == InputFault::kShortFile) {
+      expected_file.resize(word_count / 2);
+    }
+    ASSERT_NO_FATAL_FAILURE(CreateFile(expected_file, GetParam()));
+    if (IsSkipped()) {
+      return;
+    }
+    ASSERT_EQ(fdatasync(data_file_), 0);
+    const uint32_t stride = profile.byte_length + page_byte_length_;
+    const size_t record_bytes =
+        2 * kGuardWords * 4 + count * sizeof(demand::Record);
+    GpuMemory* payload = nullptr;
+    GpuMemory* state = nullptr;
+    GpuMemory* records = nullptr;
+    GpuMemory* keys = nullptr;
+    GpuMemory* arguments = nullptr;
+    GpuMemory* completion = nullptr;
+    GpuMemory* background = nullptr;
+    GpuMemory* background_arguments = nullptr;
+    GpuMemory* background_completion = nullptr;
+    ASSERT_NO_FATAL_FAILURE(CreateRegisteredPages(
+        2 * profile.credits * stride + page_byte_length_, kGuard, &payload));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateRing(payload, FileIoPath::kHostRelay, 1, 512));
+    Ring* poll_ring = ring_;
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, FileIoPath::kHostWait, 1, 512));
+    Ring* wait_ring = ring_;
+    ASSERT_NO_FATAL_FAILURE(CreateRing(payload, FileIoPath::kHostPoll, 1, 512));
+    Ring* host_poll_ring = ring_;
+    const amdf_memory_access_t access =
+        AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(
+        access,
+        sizeof(demand::Summary) + profile.credits * sizeof(demand::Slot),
+        &state));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(access, record_bytes, &records));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(access, blocks * 4, &keys));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &arguments));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(access, 4096, &completion));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(access, 4096, &background));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateMemory(AMDF_MEMORY_ACCESS_READ, 4096, &background_arguments));
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(access, 4096, &background_completion));
+    Pm4ComputeProgram program = {0,
+                                 kernel->program.resource1,
+                                 kernel->program.resource2,
+                                 kernel->program.resource3,
+                                 kernel->group_segment_byte_length,
+                                 {1, 1, 1}};
+    ASSERT_NO_FATAL_FAILURE(PrepareProgram(kernel->executable,
+                                           kernel->entry_byte_offset, &program,
+                                           "file_demand"));
+    struct Transport {
+      // Native submission and completion ownership.
+      FileIoPath path;
+      // Requested host service interval; zero is a busy owner.
+      uint32_t service_microseconds;
+    };
+    constexpr std::array transports = {Transport{FileIoPath::kDevice, 0},
+                                       Transport{FileIoPath::kDevice, 50},
+                                       Transport{FileIoPath::kHostRelay, 0},
+                                       Transport{FileIoPath::kHostWait, 0},
+                                       Transport{FileIoPath::kHostPoll, 0}};
+    std::vector<uint32_t> seeds(blocks, 0);
+    uint32_t remaining = blocks;
+    for (uint32_t seed = 1; remaining; ++seed) {
+      const uint32_t key = Hash(seed) & (blocks - 1);
+      if (!seeds[key]) {
+        seeds[key] = seed;
+        --remaining;
+      }
+    }
+    for (uint32_t epoch = 0; epoch <= repetitions; ++epoch) {
+      std::vector<demand::Record> offered(count);
+      for (uint32_t i = 0; i < count; ++i) {
+        auto& row = offered[i];
+        row.arrival_ticks =
+            Ticks((i / profile.burst) * profile.interval_microseconds);
+        const uint32_t key =
+            ((i % profile.distinct_keys) * 73 + epoch * 17) & (blocks - 1);
+        row.key_seed = seeds[key];
+        row.hold_ticks = i % 7 == 0 ? Ticks(profile.hold_microseconds) : 0;
+      }
+      for (uint32_t order = 0; order < transports.size(); ++order) {
+        const uint32_t direction = epoch / transports.size() % 2 ? 4 : 1;
+        const auto transport =
+            transports[(epoch + direction * order) % transports.size()];
+        const FileIoPath path = transport.path;
+        service_microseconds_ = transport.service_microseconds;
+        ring_ = path == FileIoPath::kHostWait   ? wait_ring
+                : path == FileIoPath::kHostPoll ? host_poll_ring
+                                                : poll_ring;
+        device_ring_memory_ =
+            path == FileIoPath::kDevice ? ring_->memory : ring_->relay_memory;
+        const uint32_t position =
+            GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
+        if (path != FileIoPath::kDevice) {
+          std::memset(device_ring_memory_->host.pointer, 0,
+                      device_ring_memory_->host.byte_length);
+          const uintptr_t control =
+              reinterpret_cast<uintptr_t>(device_ring_memory_->host.pointer) +
+              ring_->control_offset;
+          for (uint32_t offset :
+               {ring_->parameters.sq_off.head, ring_->parameters.sq_off.tail,
+                ring_->parameters.cq_off.head, ring_->parameters.cq_off.tail}) {
+            GpuStoreRelease<uint32_t>(control + offset, position);
+          }
+        }
+        std::fill_n(static_cast<uint32_t*>(payload->host.pointer),
+                    payload->host.byte_length / 4, kGuard);
+        std::memset(state->host.pointer, 0, state->host.byte_length);
+        std::memset(keys->host.pointer, 0, keys->host.byte_length);
+        std::fill_n(static_cast<uint32_t*>(records->host.pointer),
+                    record_bytes / 4, kGuard);
+        std::memcpy(static_cast<uint32_t*>(records->host.pointer) + kGuardWords,
+                    offered.data(), count * sizeof(demand::Record));
+        for (GpuMemory* memory :
+             {completion, background, background_completion}) {
+          std::memset(memory->host.pointer, 0, memory->host.byte_length);
+        }
+        const demand::Arguments values = {
+            .submission_entries = device_ring_memory_->device_address,
+            .submission_tail = RingAddress(ring_->parameters.sq_off.tail),
+            .completion_entries = RingAddress(ring_->parameters.cq_off.cqes),
+            .completion_head = RingAddress(ring_->parameters.cq_off.head),
+            .completion_tail = RingAddress(ring_->parameters.cq_off.tail),
+            .payload = payload->device_address + page_byte_length_,
+            .state = state->device_address,
+            .records = records->device_address + kGuardWords * 4,
+            .keys = keys->device_address,
+            .background = background->device_address,
+            .host_payload = reinterpret_cast<uintptr_t>(payload->host.pointer) +
+                            page_byte_length_,
+            .submission_mask = ring_->parameters.sq_entries - 1,
+            .completion_mask = ring_->parameters.cq_entries - 1,
+            .initial_position = position,
+            .credit_count = profile.credits,
+            .demand_count = count,
+            .word_count = word_count,
+            .file_block_mask = blocks - 1,
+            .payload_stride = stride,
+            .phase_count = profile.phases,
+            .file_index = fault == InputFault::kAbsentFile ? 1u : 0u,
+            .role = 0,
+            .background_enabled = profile.background ? 1u : 0u};
+        std::memcpy(arguments->host.pointer, &values, sizeof(values));
+        GpuCommandQueue* queue = nullptr;
+        ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+        GpuCommandQueue* background_queue = nullptr;
+        if (profile.background) {
+          demand::Arguments background_values = values;
+          background_values.role = 1;
+          std::memcpy(background_arguments->host.pointer, &background_values,
+                      sizeof(background_values));
+          ASSERT_NO_FATAL_FAILURE(CreateQueue(&background_queue));
+          Pm4CommandWriter background_commands(background_queue->words().data(),
+                                               *pm4_profile_);
+          background_commands.SystemBarrier();
+          background_commands.BindCompute(program,
+                                          background_arguments->device_address);
+          background_commands.DispatchWave32(1, 1, 1);
+          background_commands.SystemBarrier();
+          background_commands.WriteData32(background_completion->device_address,
+                                          1);
+          background_commands.PadToEightWords();
+          ASSERT_NO_FATAL_FAILURE(background_queue->Publish(
+              api_, gpu_api_, background_commands.word_count()));
+          const uintptr_t started =
+              reinterpret_cast<uintptr_t>(background->host.pointer) +
+              offsetof(demand::Background, started);
+          while (!GpuLoadAcquire<uint32_t>(started)) {
+            std::this_thread::yield();
+          }
+        }
+        Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
+        Sample sample;
+        RunEpoch(queue, &commands, program, arguments, completion, &sample);
+        if (background_queue) {
+          if (HasFatalFailure()) {
+            // The host owns cancellation if I/O service cannot finish. Keep
+            // the arithmetic queue's storage alive until its explicit stop.
+            const uintptr_t work =
+                reinterpret_cast<uintptr_t>(background->host.pointer);
+            GpuStoreRelease<uint32_t>(work + offsetof(demand::Background, run),
+                                      1);
+            GpuStoreRelease<uint32_t>(work + offsetof(demand::Background, stop),
+                                      1);
+          }
+          const uintptr_t done =
+              reinterpret_cast<uintptr_t>(background_completion->host.pointer);
+          while (!GpuLoadAcquire<uint32_t>(done)) {
+            std::this_thread::yield();
+          }
+          ASSERT_NO_FATAL_FAILURE(background_queue->WaitRetired(api_));
+          ASSERT_TRUE(background_queue->Release(api_));
+        }
+        ASSERT_FALSE(HasFatalFailure());
+        ASSERT_TRUE(queue->Release(api_));
+        const auto* work =
+            static_cast<const demand::Background*>(background->host.pointer);
+        ASSERT_EQ(work->started, profile.background ? 1u : 0u);
+        ASSERT_EQ(work->run, 1u);
+        ASSERT_EQ(work->stop, 1u);
+        uint32_t result = profile.background ? 0x1234567 : 0;
+        if (profile.background) {
+          ASSERT_GT(work->iterations, 0u);
+        }
+        for (uint32_t i = 0; i < work->iterations; ++i) {
+          result = Hash(result + i);
+        }
+        ASSERT_EQ(work->result, result);
+        ASSERT_NO_FATAL_FAILURE(CheckDemand(profile, values, fault, payload,
+                                            state, records, keys, sample,
+                                            offered, &expected_file));
+        ASSERT_EQ(std::memcmp(arguments->host.pointer, &values, sizeof(values)),
+                  0);
+        if (profile.phases == 3) {
+          ASSERT_EQ(fdatasync(data_file_), 0);
+        }
+        if (measurement && epoch != 0) {
+          PrintDemand(profile, values, path, epoch, sample, state, records,
+                      *work);
+        }
+      }
+    }
+    ASSERT_NO_FATAL_FAILURE(VerifyFile(expected_file, GetParam()));
+  }
+};
+
+TEST_P(GpuFileDemandTest, LookupBursts32) {
+  RunDemand({"lookup32", 4096, 32, 32, 256, 1000, 0, 1, false});
+}
+TEST_P(GpuFileDemandTest, LookupBursts64) {
+  RunDemand({"lookup64", 4096, 64, 64, 256, 1000, 0, 1, false});
+}
+TEST_P(GpuFileDemandTest, LookupBursts128) {
+  RunDemand({"lookup128", 4096, 128, 128, 256, 1000, 0, 1, false});
+}
+TEST_P(GpuFileDemandTest, LookupBursts256) {
+  RunDemand({"lookup256", 4096, 256, 256, 256, 1000, 0, 1, false});
+}
+TEST_P(GpuFileDemandTest, LookupBacklog256On32Credits) {
+  RunDemand({"lookup_backlog", 4096, 256, 32, 256, 1000, 200, 1, false});
+}
+TEST_P(GpuFileDemandTest, StaggeredLookupWithGpuWork) {
+  RunDemand({"lookup_staggered", 4096, 32, 64, 256, 40, 0, 1, true});
+}
+TEST_P(GpuFileDemandTest, SharedExpertTiles256KiB) {
+  RunDemand({"expert_tiles", 262144, 256, 32, 16, 1000, 2000, 1, false});
+}
+TEST_P(GpuFileDemandTest, ExpertTileCreditPressureWithGpuWork) {
+  RunDemand({"expert_pressure", 262144, 256, 8, 64, 1000, 200, 1, true});
+}
+TEST_P(GpuFileDemandTest, ScatteredKvBlocks64KiB) {
+  RunDemand({"kv_blocks", 65536, 256, 64, 256, 1000, 200, 3, false});
+}
+TEST_P(GpuFileDemandTest, InvalidFileDrainsConcurrentDemands) {
+  RunDemand({"invalid", 4096, 256, 64, 256, 1000, 0, 1, false},
+            InputFault::kAbsentFile);
+}
+TEST_P(GpuFileDemandTest, PartialInputDrainsHeldDemands) {
+  RunDemand({"partial", 4096, 32, 1, 1, 1000, 200, 1, false},
+            InputFault::kShortFile);
+}
+
+INSTANTIATE_TEST_SUITE_P(FileModes, GpuFileDemandTest,
                          ::testing::Values(FileMode::kBuffered,
                                            FileMode::kDirect),
                          [](const auto& info) {

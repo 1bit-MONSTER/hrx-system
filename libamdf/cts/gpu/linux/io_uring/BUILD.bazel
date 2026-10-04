@@ -46,6 +46,8 @@ amdf_cts_test_suite(
     visibility = ["//visibility:public"],
     deps = [
         ":file_io_fixture",
+        "//libamdf/cts/gpu/kernels:file_demand",
+        "//libamdf/cts/gpu/kernels:file_demand_kernels",
         "//libamdf/cts/gpu/kernels:file_exchange",
         "//libamdf/cts/gpu/kernels:file_exchange_kernels",
         "//libamdf/cts/gpu/kernels:file_gather",
