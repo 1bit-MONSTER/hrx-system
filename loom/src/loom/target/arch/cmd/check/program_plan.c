@@ -258,8 +258,9 @@ static iree_status_t loom_cmd_program_plan_check_emit_provider_execute(
 
   loom_compile_pipeline_options_t pipeline_options = {0};
   loom_compile_pipeline_options_initialize(&pipeline_options);
-  pipeline_options.default_pipeline =
-      LOOM_COMPILE_DEFAULT_PIPELINE_EXPANDED_SOURCE;
+  // Verify authored input without expanding it ahead of the production
+  // planner. Command preparation owns template and callable composition.
+  pipeline_options.pipeline = IREE_SV("none");
   pipeline_options.target_environment =
       request->environment->target_environment;
   pipeline_options.low_descriptor_registry = request->low_registry;
