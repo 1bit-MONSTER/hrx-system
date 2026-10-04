@@ -1,19 +1,23 @@
 # GPU initiated Linux file transfers
 
-The [file I/O cases](file_io_test.cc) demonstrate one GPU invocation constructing
-native io_uring requests, consuming kernel completions, and computing on the
-returned bytes. libamdf supplies registered memory and a native PM4 queue. The
-caller uses Linux syscalls directly; the running test has no HAL, IREE async,
+The [causal round trips](file_io_test.cc) and [concurrent gathers](file_gather_test.cc)
+demonstrate one GPU invocation constructing native io_uring requests, consuming
+kernel completions, and computing on the returned bytes. libamdf supplies
+registered memory and a native PM4 queue. The caller uses Linux syscalls
+directly; the running test has no HAL, IREE async,
 liburing, or shader-compiler dependency. Loom compiles the
-[GPU program](../../kernels/file_exchange.loom) during the build.
+[GPU programs](../../kernels/README.md) during the build.
 
 This is a bounded ownership and visibility witness for model-table gathers and
 block-cache writeback/reload. It establishes the native boundary, not a storage
-API or a throughput result. There is one outstanding I/O, one SQ publisher,
-and one CQ consumer. Concurrent demand, deduplication, cancellation, and
-consumer scheduling require additional protocols and native witnesses.
+API or a throughput result. One-credit cases isolate native visibility and
+causal progress. Three-credit cases add a key-based demand join, independent
+ready work, a retained final reader, scattered writeback/reload, and error
+drain. Both have one SQ publisher and one CQ consumer. The logical readers run
+inside one invocation; independently dispatched matmul workers, cancellation,
+and a production cache scheduler need their own ownership witnesses.
 
-## The causal workload
+## One credit causal workload
 
 The file has a power-of-two bank of immutable input blocks followed by an
 equally sized output bank. Each block occupies one host page. A GPU-owned cause
@@ -48,6 +52,62 @@ The source includes four distinct cases:
   entry. The GPU observes `-EBADF`; all payloads, records beyond the summary,
   and file bytes remain unchanged.
 
+## Concurrent gathers and final reader release
+
+[file_gather.loom](../../kernels/file_gather.loom) begins by publishing three
+independent input reads before consuming any CQE. A fourth requester derives
+its key from its own seed and joins a matching live source slot. The lookup
+increments that source's reader count and supplies the slot identity used by
+the delayed consumer; it does not publish another read. This is a bounded
+three-entry key table, not a scalable cache or hashing implementation.
+
+The joined source has two consumers with different arithmetic results. The
+first transforms, writes, and reloads immediately. The second remains pending
+while both independent streams perform 33 causal round trips. Their first
+trips can advance immediately; subsequent reuse waits until the held source
+has demonstrably retained its final reader. The remaining 64 peer reloads
+record that live reference. Only after both peers finish does the delayed
+consumer read the source and release it. A third consumer of that stream then
+reuses the released source slot for a new response-derived input generation.
+
+Nine payload windows form input, write, and reload banks, with a complete guard
+page between windows. Writes use the reversed slot order; reloads use a rotated
+slot order in a different bank. The 69 consumer results occupy distinct,
+permuted file blocks. A successful case has 68 unique input reads plus 69 writes
+and 69 reloads: 206 logical transfers through an eight-entry SQ and sixteen-entry
+CQ, with additional submissions if an operation completes short.
+Every consumer's full reloaded payload is compared with independent CPU
+arithmetic, alongside the complete file, its exact length, every final pool
+word, guards, state, arguments, and retained native CQEs.
+
+Native `user_data` carries the owner slot and submission ticket. The event loop
+processes whichever completion arrives next; it does not wait for an earlier
+ticket to complete. The request journal records the CQ position at consumption
+and the consumed-CQ frontier at publication. These observations establish that
+each slot's reuse follows its own completion, peers recycle while the shared
+source remains retained, and the delayed reader follows both peers' final
+reloads. The oracle accepts any valid CQ order and records actual reordering.
+Linux's [I/O model][model] explicitly permits out-of-order completion.
+
+All three held-slot identities run in both buffered and direct modes. Five
+additional cases cover absent fixed-file failure during read, write, and reload,
+a positive short read followed by EOF, and exhaustion of the caller's bounded
+request journal. The first observed failure freezes SQ publication. Accepted
+I/Os are all consumed; successful pending operations may still modify their
+destinations, but no subsequent arithmetic or successor work begins. The
+oracle includes those post-failure bytes and any accepted
+writes when checking the final file. Abandoned logical reader references are
+released only after drain. The four-entry journal case stops with exactly two
+accepted requests to retire; exhaustion returns `-EOVERFLOW` without writing
+past the supplied journal extent. Writeback is not transactional: successful
+peer writes remain in the file after another operation fails.
+
+The reference has three I/O credits and conservatively keeps each stream's
+input/write/reload chain on one credit. It proves independent progress and
+final-reader ownership, not optimal queue depth or independently scheduled
+compute. Increasing the pool or adding matmul workers requires a separate
+admission/release protocol and matched performance measurements.
+
 ## Address spaces and native ownership
 
 Cold setup creates ordinary anonymous write-back pages and registers their GPU
@@ -64,8 +124,10 @@ and 16-byte CQE field layout to the build's Linux headers. The
 [typed shader arguments](../../kernels/file_exchange.h) have independent
 [compiled-product checks](../../kernels/resident_kernel_test.cc).
 
-The ring starts disabled. The host registers one private, unlinked regular
-file and the payload mapping, restricts the ring to fixed-file `READ_FIXED`
+The [shared native fixture](file_io_fixture.h) owns cold registration, idle
+wakes, and queue-first teardown. The ring starts disabled. The host registers
+one private, unlinked regular file and the payload mapping, restricts the ring
+to fixed-file `READ_FIXED`
 and `WRITE_FIXED`, and then enables it. These restrictions limit accepted I/O
 operations; they are not a sandbox for untrusted GPU programs. No raw device
 namespace or unrelated application file is accessed.
@@ -74,17 +136,20 @@ namespace or unrelated application file is accessed.
 
 The GPU fills each complete SQE before a system-release store advances the SQ
 tail. This is a contiguous publication boundary, unlike AQL's independent
-packet-header publication. With one outstanding request, observing its CQE
-also establishes that its SQE has been consumed before any slot reuse.
+packet-header publication. The one-credit witness reuses a slot only after
+its completion. In the three-credit witness, published-minus-consumed requests
+never exceed three, below SQ capacity. Every completed request has had its SQE
+consumed; therefore the outstanding count also bounds unconsumed SQ occupancy
+even when CQEs arrive out of order.
 
 The GPU polls the CQ tail atomically, then performs a system-acquire fence
 before reading the CQE result or payload. It returns the CQ entry after reading
 its metadata. CQ space and payload credits are different lifetimes: returning
 a CQ entry does not authorize overwriting data still used by computation.
-Here the single owner completes every payload read before issuing its next
-conflicting operation. A positive short result advances both offsets and
-resubmits the remaining extent. EOF and negative results stop issuance after
-the only outstanding request has completed.
+The single GPU owner completes each arithmetic reader before decrementing its
+source reference. A new input requires an unowned source credit; a positive
+short retry retains the same credit and advances both file and buffer offsets.
+EOF and negative results stop issuance and drain every accepted request.
 
 `SQPOLL` provides a kernel CPU thread that submits I/O and processes its
 completion work. It removes the userspace submit/reap relay, not CPU execution
@@ -143,11 +208,32 @@ iree-bazel-test --config=asan \
   --test_arg=--amdf_require_test=GpuFileIoTest.InvalidFixedFileRetiresWithTheNativeError
 ```
 
+The concurrent matrix uses the same target with these required case names:
+
+```sh
+iree-bazel-test --config=asan \
+  //libamdf/cts/gpu/linux/io_uring:file_io_dynamic \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.BufferedHeldFirst \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.BufferedHeldMiddle \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.BufferedHeldLast \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.DirectHeldFirst \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.DirectHeldMiddle \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.DirectHeldLast \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.InvalidFixedFileStopsIssuanceAndDrainsAcceptedIo \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.FailedWriteDrainsWithoutPublishingAConsumerResult \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.FailedReloadDrainsWithoutPublishingAConsumerResult \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.PartialReadThenEofDrainsWithoutConsumingIncompleteInput \
+  --test_arg=--amdf_require_test=GpuFileGatherTest.FullJournalStopsPublicationAndDrainsTwoAcceptedRequests
+```
+
 A required case cannot pass by being absent or skipped. XML records physical
 GPU identity, kernel release, filesystem type, direct-I/O alignment, setup
 flags/features, compiled image identity, wake calls, request/round counts, and
 terminal status. A generic GPU resource tag does not by itself establish the
 filesystem or io_uring services needed by this corpus.
+Concurrent cases additionally record peak outstanding requests, unique input
+reads, deduplicated demand, peer reloads with a held reference, observed CQ
+reordering, and the number of accepted requests drained after failure.
 
 The generated CMake executable is
 `libamdf_cts_gpu_linux_io_uring_file_io_dynamic_bin`; its CTest names are
@@ -155,15 +241,15 @@ The generated CMake executable is
 The ordinary kernel-product test checks the same authored fixtures without
 activating a GPU.
 
-An overlapping gather/cache design additionally needs bounded concurrent
-payload credits, completion-to-request identity, final-reader release for
-deduplicated demand, and drain of all accepted operations after an error.
-Evidence must include a held consumer while independent work advances, exact
-scatter/reload into different block-pool slots, and a matched host-issued
-baseline before a performance claim. Checkpointing further needs consistent
-tensor versions and a separate durability/publication boundary. None of those
-properties follows merely from a passing one-credit round trip.
+Production integration still needs the caller's actual request identity,
+cache admission/eviction and final-reader lifecycle, plus a matched host-issued
+baseline before a performance claim. The finite fixture does not establish
+fairness under sustained arrivals, per-request cancellation, multi-workgroup
+consumer publication, or application-level cache ownership. Checkpointing
+further needs consistent tensor versions and a separate durability/publication
+boundary. Those gates remain distinct from the native ownership proof.
 
+[model]: https://github.com/axboe/liburing/blob/master/man/io_uring.7
 [setup]: https://github.com/axboe/liburing/blob/master/man/io_uring_setup.2
 [sqpoll]: https://github.com/torvalds/linux/blob/master/io_uring/sqpoll.c
 [memmap]: https://github.com/torvalds/linux/blob/master/io_uring/memmap.c

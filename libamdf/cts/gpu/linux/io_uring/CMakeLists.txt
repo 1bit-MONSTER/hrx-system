@@ -33,6 +33,7 @@ iree_cc_library(
   NAME
     file_io_cases
   SRCS
+    "file_gather_test.cc"
     "file_io_test.cc"
   DEPS
     ::file_io_fixture
@@ -40,6 +41,8 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::gpu::kernels::file_exchange
     libamdf::cts::gpu::kernels::file_exchange_kernels
+    libamdf::cts::gpu::kernels::file_gather
+    libamdf::cts::gpu::kernels::file_gather_kernels
   TESTONLY
   ALWAYSLINK
   PUBLIC

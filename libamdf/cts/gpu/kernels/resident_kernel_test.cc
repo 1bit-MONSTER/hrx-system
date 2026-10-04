@@ -6,6 +6,8 @@
 
 #include "libamdf/cts/gpu/kernels/file_exchange.h"
 #include "libamdf/cts/gpu/kernels/file_exchange_kernels.h"
+#include "libamdf/cts/gpu/kernels/file_gather.h"
+#include "libamdf/cts/gpu/kernels/file_gather_kernels.h"
 #include "libamdf/cts/gpu/kernels/product_test.h"
 #include "libamdf/cts/gpu/kernels/resident_channels.h"
 #include "libamdf/cts/gpu/kernels/resident_channels_kernels.h"
@@ -49,6 +51,15 @@ TEST(KernelTest, FileExchangeProductsPreserveTheCallerContract) {
       protocol::kKernels, protocol::kArgumentByteOffsets,
       protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
       sizeof(protocol::Arguments), sizeof(protocol::Arguments),
+      alignof(protocol::Arguments));
+}
+
+TEST(KernelTest, FileGatherProductsPreserveTheCallerContract) {
+  namespace protocol = kernels::file_gather;
+  CheckResidentProducts(
+      protocol::kKernels, protocol::kArgumentByteOffsets,
+      protocol::kArgumentByteLengths, protocol::kArgumentValueKinds,
+      protocol::kArgumentByteLength, sizeof(protocol::Arguments),
       alignof(protocol::Arguments));
 }
 

@@ -38,6 +38,17 @@ check complete transcripts, payload guards, native error results and final
 file contents. The kernel uses system release/acquire for intermediate ring
 and payload handoffs; its outer PM4 stream owns startup and final completion.
 
+[file_gather.loom](file_gather.loom) extends that native boundary to three I/O
+credits, a key-based duplicate join and a delayed final reader. Two independent
+streams recycle their own slots while the shared source stays live; each
+consumer writes scattered file blocks and reloads into a different pool bank.
+Native CQ tags identify slot and ticket, while per-request completion frontiers
+let the [concurrent oracle](../linux/io_uring/file_gather_test.cc) check reuse
+and error drain without assuming FIFO completion. The
+[typed state and arguments](file_gather.h) define bounded transcript extents;
+full journals stop issuance and drain instead of overrunning oracle storage.
+Logical consumers remain in one invocation, not separate matmul workgroups.
+
 The [GPU/XDNA shader recipe](../../interop/gpu/xdna/recipes/README.md) selects
 the same transform set by physical endpoint identity and uses the selected
 resources unchanged through USER or KERNEL PM4

@@ -1,0 +1,466 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// One GPU invocation owns a native SQ/CQ and three independently reusable I/O
+// credits. Each credit has distinct input, write and permuted reload windows.
+// Native user_data pairs a slot with its submission ticket; CQ order is free.
+//
+// A fourth demand joins an already published input key. Its delayed reader
+// holds that source while both peers finish all causal round trips. The held
+// source is then consumed and reused for a new response-derived generation.
+// Each source reference ends after its last arithmetic read, not at CQ reap.
+//
+// State and oracle layouts are declared in file_gather.h. All are device-owned
+// until return. The host supplies registration and idle SQPOLL wakes only.
+// The bounded request journal stops issuance on exhaustion; every error path
+// drains all accepted I/O before releasing references and returning.
+kernel.def export("file_gather") @file_gather() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%submission_entries: buffer, %submission_tail: buffer, %completion_entries: buffer, %completion_head: buffer, %completion_tail: buffer, %payload: buffer, %state: buffer, %records: buffer, %requests: buffer, %host_payload: i64, %submission_mask: i32, %completion_mask: i32, %peer_round_count: i32, %word_count: i32, %seed: i32, %payload_stride: i32, %held_slot: i32, %fault: i32, %request_capacity: i32) {
+  %sqes = buffer.assume.alignment %submission_entries {minimum_alignment = 64} : buffer
+  %sq_tail = buffer.assume.alignment %submission_tail {minimum_alignment = 4} : buffer
+  %cqes = buffer.assume.alignment %completion_entries {minimum_alignment = 8} : buffer
+  %cq_head = buffer.assume.alignment %completion_head {minimum_alignment = 4} : buffer
+  %cq_tail = buffer.assume.alignment %completion_tail {minimum_alignment = 4} : buffer
+  %windows = buffer.assume.alignment %payload {minimum_alignment = 4} : buffer
+  %table = buffer.assume.alignment %state {minimum_alignment = 4} : buffer
+  %transcript = buffer.assume.alignment %records {minimum_alignment = 4} : buffer
+  %journal = buffer.assume.alignment %requests {minimum_alignment = 4} : buffer
+  %origin = index.constant 0 : offset
+  %first = index.constant 0 : index
+  %step = index.constant 1 : index
+  %slots = index.constant 3 : index
+  %eight_words = index.constant 8 : index
+  %twelve_words = index.constant 12 : index
+  %word_bytes = index.constant 4 : offset
+  %slot_bytes = index.constant 32 : offset
+  %summary_bytes = index.constant 48 : offset
+  %request_bytes = index.constant 52 : offset
+  %sqe_bytes = index.constant 64 : offset
+  %cqe_bytes = index.constant 16 : offset
+  %zero = scalar.constant 0 : i32
+  %one = scalar.constant 1 : i32
+  %two = scalar.constant 2 : i32
+  %three = scalar.constant 3 : i32
+  %four = scalar.constant 4 : i32
+  %five = scalar.constant 5 : i32
+  %six = scalar.constant 6 : i32
+  %seven = scalar.constant 7 : i32
+  %sixteen = scalar.constant 16 : i32
+  %seventeen = scalar.constant 17 : i32
+  %output_mask = scalar.constant 127 : i32
+  %partial_block = scalar.constant 144 : i32
+  %record_scale = scalar.constant 257 : i32
+  %read_flags = scalar.constant 260 : i32
+  %write_flags = scalar.constant 261 : i32
+  %incomplete = scalar.constant -61 : i32
+  %full_journal = scalar.constant -75 : i32
+  %count_input = index.cast %word_count : i32 to index
+  %count = index.assume %count_input [range(%count_input, 1, 16384)] : index
+  %stride = index.cast %payload_stride : i32 to offset
+  %length = scalar.muli %word_count, %four : i32
+  %length_wide = scalar.extui %length : i32 to i64
+  %record_words = index.add %count, %eight_words : index
+  %record_bytes = index.scale %record_words, %word_bytes : index, offset -> offset
+  %peer_total = scalar.muli %peer_round_count, %two : i32
+  %duplicate_bias = scalar.muli %held_slot, %seventeen : i32
+  %duplicate_cause = scalar.addi %seed, %duplicate_bias : i32
+  %duplicate_group = scalar.andi %duplicate_cause, %three : i32
+  %duplicate_base = scalar.muli %duplicate_group, %four : i32
+  %duplicate_key = scalar.addi %duplicate_base, %held_slot : i32
+  %fault_next = scalar.addi %held_slot, %one : i32
+  %fault_slot = scalar.remui %fault_next, %three : i32
+  %summary = buffer.view %table[%origin] : buffer -> view<12xi32>
+  %submission = buffer.view %sq_tail[%origin] : buffer -> view<1xi32>
+  %completion = buffer.view %cq_tail[%origin] : buffer -> view<1xi32>
+  %consumption = buffer.view %cq_head[%origin] : buffer -> view<1xi32>
+  scf.for %field = [%first to %twelve_words step %step] {
+    view.store %zero, %summary[%field] : i32, view<12xi32>
+  }
+  scf.for %slot = [%first to %slots step %step] {
+    %relative = index.scale %slot, %slot_bytes : index, offset -> offset
+    %offset = index.add %summary_bytes, %relative : offset
+    %owner = buffer.view %table[%offset] : buffer -> view<8xi32>
+    scf.for %field = [%first to %eight_words step %step] {
+      view.store %zero, %owner[%field] : i32, view<8xi32>
+    }
+    %ordinal = index.cast %slot : index to i32
+    %bias = scalar.muli %ordinal, %seventeen : i32
+    %cause = scalar.addi %seed, %bias : i32
+    view.store %cause, %owner[2] : i32, view<8xi32>
+  }
+
+  %submitted_end, %completed_end, %terminal, %finished_end = scf.while(%submitted = %zero : i32, %completed = %zero : i32, %status = %zero : i32, %finished = %zero : i32) -> (i32, i32, i32, i32) {
+    %healthy = scalar.cmpi eq, %status, %zero : i32
+    %more = scalar.cmpi ult, %finished, %three : i32
+    %working = scalar.andi %healthy, %more : i1
+    %draining = scalar.cmpi ne, %submitted, %completed : i32
+    %running = scalar.ori %working, %draining : i1
+    scf.condition %running, %submitted, %completed, %status, %finished : i1, i32, i32, i32, i32
+  } do(%submitted: i32, %completed: i32, %status: i32, %finished: i32) {
+    %joined = view.load %summary[5] : view<12xi32> -> i32
+    %found_slot = view.load %summary[11] : view<12xi32> -> i32
+    %has_join = scalar.cmpi ne, %joined, %zero : i32
+    %selected_held = scf.select %has_join, %found_slot, %held_slot : i32
+    %held_index = index.cast %selected_held : i32 to index
+    %held_relative = index.scale %held_index, %slot_bytes : index, offset -> offset
+    %held_offset = index.add %summary_bytes, %held_relative : offset
+    %held = buffer.view %table[%held_offset] : buffer -> view<8xi32>
+    %published, %issue_status = scf.for %slot = [%first to %slots step %step](%tail = %submitted : i32, %issue_error = %status : i32) -> (i32, i32) {
+      %relative = index.scale %slot, %slot_bytes : index, offset -> offset
+      %offset = index.add %summary_bytes, %relative : offset
+      %owner = buffer.view %table[%offset] : buffer -> view<8xi32>
+      %ordinal = index.cast %slot : index to i32
+      %is_held = scalar.cmpi eq, %ordinal, %selected_held : i32
+      %healthy = scalar.cmpi eq, %issue_error, %zero : i32
+      %before_phase = view.load %owner[0] : view<8xi32> -> i32
+      %waiting = scalar.cmpi eq, %before_phase, %six : i32
+      %peer_completed = view.load %summary[7] : view<12xi32> -> i32
+      %peers_done = scalar.cmpi eq, %peer_completed, %peer_total : i32
+      %release_ready = scalar.andi %waiting, %peers_done : i1
+      %release = scalar.andi %release_ready, %healthy : i1
+      scf.if %release {
+        view.store %two, %owner[0] : i32, view<8xi32>
+      }
+      %phase = view.load %owner[0] : view<8xi32> -> i32
+      %consumer = view.load %owner[1] : view<8xi32> -> i32
+      %cause = view.load %owner[2] : view<8xi32> -> i32
+      %progress = view.load %owner[5] : view<8xi32> -> i32
+      %read = scalar.cmpi eq, %phase, %zero : i32
+      %write = scalar.cmpi eq, %phase, %two : i32
+      %reload = scalar.cmpi eq, %phase, %four : i32
+      %read_or_write = scalar.ori %read, %write : i1
+      %ready = scalar.ori %read_or_write, %reload : i1
+      // A new input cannot overwrite backing still owned by any reader.
+      // Positive short reads retain that same credit while filling its tail.
+      %readers = view.load %owner[4] : view<8xi32> -> i32
+      %unowned = scalar.cmpi eq, %readers, %zero : i32
+      %partial = scalar.cmpi ne, %progress, %zero : i32
+      %read_credit = scalar.ori %unowned, %partial : i1
+      %not_reading = scalar.cmpi ne, %phase, %zero : i32
+      %source_available = scalar.ori %not_reading, %read_credit : i1
+      %credit_ready = scalar.andi %ready, %source_available : i1
+      // Peers may complete their first trip immediately. Reuse begins only
+      // after the held source demonstrably has a pending final reader.
+      %held_ready = view.load %summary[10] : view<12xi32> -> i32
+      %held_active = scalar.cmpi ne, %held_ready, %zero : i32
+      %first_consumer = scalar.cmpi eq, %consumer, %zero : i32
+      %initial_or_held = scalar.ori %first_consumer, %is_held : i1
+      %admitted = scalar.ori %initial_or_held, %held_active : i1
+      %can_work = scalar.andi %credit_ready, %admitted : i1
+      %issue = scalar.andi %can_work, %healthy : i1
+      %next_tail, %next_error = scf.if %issue -> (i32, i32) {
+        %space = scalar.cmpi ult, %tail, %request_capacity : i32
+        %after_tail, %after_error = scf.if %space -> (i32, i32) {
+          %begin = scalar.cmpi eq, %progress, %zero : i32
+          %new_read = scalar.andi %read, %begin : i1
+          scf.if %new_read {
+            %group = scalar.andi %cause, %three : i32
+            %base_key = scalar.muli %group, %four : i32
+            %normal_key = scalar.addi %base_key, %ordinal : i32
+            %short_mode = scalar.cmpi eq, %fault, %two : i32
+            %fault_owner = scalar.cmpi eq, %ordinal, %fault_slot : i32
+            %first_fault = scalar.andi %fault_owner, %first_consumer : i1
+            %short_input = scalar.andi %short_mode, %first_fault : i1
+            %key = scf.select %short_input, %partial_block, %normal_key : i32
+            view.store %key, %owner[3] : i32, view<8xi32>
+            view.store %one, %owner[4] : i32, view<8xi32>
+            %read_count = view.load %summary[4] : view<12xi32> -> i32
+            %next_read_count = scalar.addi %read_count, %one : i32
+            view.store %next_read_count, %summary[4] : i32, view<12xi32>
+          }
+          %references = view.load %owner[4] : view<8xi32> -> i32
+          %key = view.load %owner[3] : view<8xi32> -> i32
+          %lower = scalar.cmpi ult, %ordinal, %selected_held : i32
+          %previous = scalar.subi %ordinal, %one : i32
+          %peer_rank = scf.select %lower, %ordinal, %previous : i32
+          %peer_base = scalar.muli %peer_rank, %peer_round_count : i32
+          %peer_record_base = scalar.addi %peer_base, %three : i32
+          %peer_record = scalar.addi %peer_record_base, %consumer : i32
+          %record = scf.select %is_held, %consumer, %peer_record : i32
+          %permuted = scalar.muli %record, %five : i32
+          %shifted = scalar.addi %permuted, %one : i32
+          %output_ordinal = scalar.andi %shifted, %output_mask : i32
+          %output_block = scalar.addi %output_ordinal, %sixteen : i32
+          %write_slot = scalar.subi %five, %ordinal : i32
+          %reload_next = scalar.addi %ordinal, %one : i32
+          %reload_ordinal = scalar.remui %reload_next, %three : i32
+          %reload_slot = scalar.addi %reload_ordinal, %six : i32
+          %write_index = index.cast %write_slot : i32 to index
+          %write_offset = index.scale %write_index, %stride : index, offset -> offset
+          %transform = scalar.andi %write, %begin : i1
+          scf.if %transform {
+            %input_offset = index.scale %slot, %stride : index, offset -> offset
+            %input = buffer.view %windows[%input_offset] : buffer -> view<[%count]xi32>
+            %output = buffer.view %windows[%write_offset] : buffer -> view<[%count]xi32>
+            %record_bias = scalar.muli %record, %record_scale : i32
+            %bias = scalar.addi %cause, %record_bias : i32
+            scf.for %element = [%first to %count step %step] {
+              %value = view.load %input[%element] : view<[%count]xi32> -> i32
+              %product = scalar.muli %value, %three : i32
+              %result = scalar.addi %product, %bias : i32
+              view.store %result, %output[%element] : i32, view<[%count]xi32>
+            }
+            %remaining_readers = scalar.subi %references, %one : i32
+            view.store %remaining_readers, %owner[4] : i32, view<8xi32>
+          }
+          %other_window = scf.select %write, %write_slot, %reload_slot : i32
+          %window = scf.select %read, %ordinal, %other_window : i32
+          %window_bytes = scalar.muli %window, %payload_stride : i32
+          %window_wide = scalar.extui %window_bytes : i32 to i64
+          %base_address = scalar.addi %host_payload, %window_wide : i64
+          %progress_wide = scalar.extui %progress : i32 to i64
+          %address = scalar.addi %base_address, %progress_wide : i64
+          %block = scf.select %read, %key, %output_block : i32
+          %block_wide = scalar.extui %block : i32 to i64
+          %block_offset = scalar.muli %block_wide, %length_wide : i64
+          %file_offset = scalar.addi %block_offset, %progress_wide : i64
+          %remaining = scalar.subi %length, %progress : i32
+          %operation = scf.select %write, %write_flags, %read_flags : i32
+          %bad_read_mode = scalar.cmpi eq, %fault, %one : i32
+          %bad_write_mode = scalar.cmpi eq, %fault, %three : i32
+          %bad_reload_mode = scalar.cmpi eq, %fault, %four : i32
+          %bad_read = scalar.andi %bad_read_mode, %read : i1
+          %bad_write = scalar.andi %bad_write_mode, %write : i1
+          %bad_reload = scalar.andi %bad_reload_mode, %reload : i1
+          %bad_read_write = scalar.ori %bad_read, %bad_write : i1
+          %bad_operation = scalar.ori %bad_read_write, %bad_reload : i1
+          %fault_owner = scalar.cmpi eq, %ordinal, %fault_slot : i32
+          %bad_owner = scalar.andi %bad_operation, %fault_owner : i1
+          %bad_file = scalar.andi %bad_owner, %first_consumer : i1
+          %file_index = scf.select %bad_file, %one, %zero : i32
+          %sq_position = scalar.andi %tail, %submission_mask : i32
+          %sq_index = index.cast %sq_position : i32 to index
+          %sq_offset = index.scale %sq_index, %sqe_bytes : index, offset -> offset
+          %sq_words = buffer.view %sqes[%sq_offset] : buffer -> view<16xi32>
+          %sq_longwords = buffer.view %sqes[%sq_offset] : buffer -> view<8xi64>
+          view.store %operation, %sq_words[0] : i32, view<16xi32>
+          view.store %file_index, %sq_words[1] : i32, view<16xi32>
+          view.store %file_offset, %sq_longwords[1] : i64, view<8xi64>
+          view.store %address, %sq_longwords[2] : i64, view<8xi64>
+          view.store %remaining, %sq_words[6] : i32, view<16xi32>
+          view.store %ordinal, %sq_words[8] : i32, view<16xi32>
+          view.store %tail, %sq_words[9] : i32, view<16xi32>
+          %ticket_index = index.cast %tail : i32 to index
+          %request_offset = index.scale %ticket_index, %request_bytes : index, offset -> offset
+          %request = buffer.view %journal[%request_offset] : buffer -> view<13xi32>
+          view.store %ordinal, %request[0] : i32, view<13xi32>
+          view.store %phase, %request[1] : i32, view<13xi32>
+          view.store %consumer, %request[2] : i32, view<13xi32>
+          view.store %cause, %request[3] : i32, view<13xi32>
+          view.store %block, %request[4] : i32, view<13xi32>
+          view.store %progress, %request[5] : i32, view<13xi32>
+          view.store %remaining, %request[6] : i32, view<13xi32>
+          view.store %references, %request[10] : i32, view<13xi32>
+          view.store %completed, %request[12] : i32, view<13xi32>
+          %inflight = scalar.addi %phase, %one : i32
+          view.store %inflight, %owner[0] : i32, view<8xi32>
+          view.store %tail, %owner[6] : i32, view<8xi32>
+          %next = scalar.addi %tail, %one : i32
+          // At most three requests are outstanding, less than SQ capacity.
+          // Consumed SQEs include all completed requests even with CQ reorder.
+          view.atomic.store %next, %submission[0] {ordering = release, scope = system} : i32, view<1xi32>
+          scf.yield %next, %issue_error : i32, i32
+        } else {
+          view.store %tail, %summary[8] : i32, view<12xi32>
+          view.store %completed, %summary[9] : i32, view<12xi32>
+          scf.yield %tail, %full_journal : i32, i32
+        }
+        scf.yield %after_tail, %after_error : i32, i32
+      } else {
+        scf.yield %tail, %issue_error : i32, i32
+      }
+      scf.yield %next_tail, %next_error : i32, i32
+    }
+    %outstanding = scalar.subi %published, %completed : i32
+    %peak = view.load %summary[3] : view<12xi32> -> i32
+    %larger = scalar.cmpi ugt, %outstanding, %peak : i32
+    %next_peak = scf.select %larger, %outstanding, %peak : i32
+    view.store %next_peak, %summary[3] : i32, view<12xi32>
+
+    // Lookup occurs after initial reads are published and before any reap.
+    // This is a key join against live ownership, not a fourth storage read.
+    %joins = view.load %summary[5] : view<12xi32> -> i32
+    %needs_join = scalar.cmpi eq, %joins, %zero : i32
+    scf.if %needs_join {
+      scf.for %slot = [%first to %slots step %step] {
+        %relative = index.scale %slot, %slot_bytes : index, offset -> offset
+        %offset = index.add %summary_bytes, %relative : offset
+        %owner = buffer.view %table[%offset] : buffer -> view<8xi32>
+        %key = view.load %owner[3] : view<8xi32> -> i32
+        %matches = scalar.cmpi eq, %key, %duplicate_key : i32
+        scf.if %matches {
+          %readers = view.load %owner[4] : view<8xi32> -> i32
+          %joined = scalar.addi %readers, %one : i32
+          view.store %joined, %owner[4] : i32, view<8xi32>
+          view.store %one, %summary[5] : i32, view<12xi32>
+          %ordinal = index.cast %slot : index to i32
+          view.store %ordinal, %summary[11] : i32, view<12xi32>
+        }
+      }
+    }
+    %pending = scalar.cmpi ne, %published, %completed : i32
+    %next_completed, %next_status, %next_finished = scf.if %pending -> (i32, i32, i32) {
+      %observed_tail = scf.while(%tail = %completed : i32) -> (i32) {
+        %empty = scalar.cmpi eq, %tail, %completed : i32
+        scf.condition %empty, %tail : i1, i32
+      } do(%tail: i32) {
+        %observed = view.atomic.load %completion[0] {ordering = relaxed, scope = system} : view<1xi32> -> i32
+        scf.yield %observed : i32
+      }
+      buffer.fence scope(system) ordering(acquire)
+      %cq_position = scalar.andi %completed, %completion_mask : i32
+      %cq_index = index.cast %cq_position : i32 to index
+      %cq_offset = index.scale %cq_index, %cqe_bytes : index, offset -> offset
+      %cq_words = buffer.view %cqes[%cq_offset] : buffer -> view<4xi32>
+      %ordinal = view.load %cq_words[0] : view<4xi32> -> i32
+      %ticket = view.load %cq_words[1] : view<4xi32> -> i32
+      %result = view.load %cq_words[2] : view<4xi32> -> i32
+      %flags = view.load %cq_words[3] : view<4xi32> -> i32
+      %ticket_index = index.cast %ticket : i32 to index
+      %request_offset = index.scale %ticket_index, %request_bytes : index, offset -> offset
+      %request = buffer.view %journal[%request_offset] : buffer -> view<13xi32>
+      view.store %result, %request[7] : i32, view<13xi32>
+      view.store %completed, %request[8] : i32, view<13xi32>
+      view.store %published, %request[9] : i32, view<13xi32>
+      view.store %flags, %request[11] : i32, view<13xi32>
+      %consumed = scalar.addi %completed, %one : i32
+      view.atomic.store %consumed, %consumption[0] {ordering = release, scope = system} : i32, view<1xi32>
+      %positive = scalar.cmpi sgt, %result, %zero : i32
+      %healthy = scalar.cmpi eq, %issue_status, %zero : i32
+      %failed = scalar.cmpi sle, %result, %zero : i32
+      %first_failure = scalar.andi %healthy, %failed : i1
+      %eof = scalar.cmpi eq, %result, %zero : i32
+      %error = scf.select %eof, %incomplete, %result : i32
+      %after_status = scf.select %first_failure, %error, %issue_status : i32
+      scf.if %first_failure {
+        view.store %published, %summary[8] : i32, view<12xi32>
+        view.store %completed, %summary[9] : i32, view<12xi32>
+      }
+      %process = scalar.andi %healthy, %positive : i1
+      %after_finished = scf.if %process -> (i32) {
+        %slot = index.cast %ordinal : i32 to index
+        %relative = index.scale %slot, %slot_bytes : index, offset -> offset
+        %offset = index.add %summary_bytes, %relative : offset
+        %owner = buffer.view %table[%offset] : buffer -> view<8xi32>
+        %inflight_phase = view.load %owner[0] : view<8xi32> -> i32
+        %phase = scalar.subi %inflight_phase, %one : i32
+        %progress = view.load %owner[5] : view<8xi32> -> i32
+        %advanced = scalar.addi %progress, %result : i32
+        %complete = scalar.cmpi eq, %advanced, %length : i32
+        %finished_now = scf.if %complete -> (i32) {
+          view.store %zero, %owner[5] : i32, view<8xi32>
+          %reloading = scalar.cmpi eq, %phase, %four : i32
+          %after_reload = scf.if %reloading -> (i32) {
+            %consumer = view.load %owner[1] : view<8xi32> -> i32
+            %cause = view.load %owner[2] : view<8xi32> -> i32
+            %key = view.load %owner[3] : view<8xi32> -> i32
+            %generation = view.load %owner[7] : view<8xi32> -> i32
+            %is_held = scalar.cmpi eq, %ordinal, %selected_held : i32
+            %lower = scalar.cmpi ult, %ordinal, %selected_held : i32
+            %previous = scalar.subi %ordinal, %one : i32
+            %peer_rank = scf.select %lower, %ordinal, %previous : i32
+            %peer_base = scalar.muli %peer_rank, %peer_round_count : i32
+            %peer_record_base = scalar.addi %peer_base, %three : i32
+            %peer_record = scalar.addi %peer_record_base, %consumer : i32
+            %record_number = scf.select %is_held, %consumer, %peer_record : i32
+            %record_index = index.cast %record_number : i32 to index
+            %record_offset = index.scale %record_index, %record_bytes : index, offset -> offset
+            %record = buffer.view %transcript[%record_offset] : buffer -> view<[%record_words]xi32>
+            %write_slot = scalar.subi %five, %ordinal : i32
+            %reload_next = scalar.addi %ordinal, %one : i32
+            %reload_ordinal = scalar.remui %reload_next, %three : i32
+            %reload_slot = scalar.addi %reload_ordinal, %six : i32
+            %reload_index = index.cast %reload_slot : i32 to index
+            %reload_offset = index.scale %reload_index, %stride : index, offset -> offset
+            %reload = buffer.view %windows[%reload_offset] : buffer -> view<[%count]xi32>
+            %is_peer = scalar.cmpi ne, %ordinal, %selected_held : i32
+            %reusing = scalar.cmpi ne, %consumer, %zero : i32
+            %held_witness = scalar.andi %is_peer, %reusing : i1
+            %held_readers = view.load %held[4] : view<8xi32> -> i32
+            %retained = scf.select %held_witness, %held_readers, %zero : i32
+            view.store %key, %record[0] : i32, view<[%record_words]xi32>
+            view.store %cause, %record[1] : i32, view<[%record_words]xi32>
+            view.store %consumer, %record[2] : i32, view<[%record_words]xi32>
+            view.store %generation, %record[3] : i32, view<[%record_words]xi32>
+            view.store %ordinal, %record[4] : i32, view<[%record_words]xi32>
+            view.store %write_slot, %record[5] : i32, view<[%record_words]xi32>
+            view.store %reload_slot, %record[6] : i32, view<[%record_words]xi32>
+            view.store %retained, %record[7] : i32, view<[%record_words]xi32>
+            scf.for %element = [%first to %count step %step] {
+              %value = view.load %reload[%element] : view<[%count]xi32> -> i32
+              %destination = index.add %eight_words, %element : index
+              view.store %value, %record[%destination] : i32, view<[%record_words]xi32>
+            }
+            scf.if %is_peer {
+              %peer_count = view.load %summary[7] : view<12xi32> -> i32
+              %next_peer_count = scalar.addi %peer_count, %one : i32
+              view.store %next_peer_count, %summary[7] : i32, view<12xi32>
+              scf.if %held_witness {
+                %held_count = view.load %summary[6] : view<12xi32> -> i32
+                %next_held_count = scalar.addi %held_count, %one : i32
+                view.store %next_held_count, %summary[6] : i32, view<12xi32>
+              }
+            }
+            %first_consumer = scalar.cmpi eq, %consumer, %zero : i32
+            %hold = scalar.andi %is_held, %first_consumer : i1
+            %next_consumer = scalar.addi %consumer, %one : i32
+            view.store %next_consumer, %owner[1] : i32, view<8xi32>
+            %limit = scf.select %is_held, %three, %peer_round_count : i32
+            %last = scalar.cmpi eq, %next_consumer, %limit : i32
+            %next_phase = scf.select %last, %seven, %zero : i32
+            %final_phase = scf.select %hold, %six, %next_phase : i32
+            view.store %final_phase, %owner[0] : i32, view<8xi32>
+            scf.if %hold {
+              view.store %one, %summary[10] : i32, view<12xi32>
+            } else {
+              %actual_cause = view.load %reload[0] : view<[%count]xi32> -> i32
+              view.store %actual_cause, %owner[2] : i32, view<8xi32>
+              %next_generation = scalar.addi %generation, %one : i32
+              view.store %next_generation, %owner[7] : i32, view<8xi32>
+            }
+            %finished_increment = scf.select %last, %one, %zero : i32
+            %finished_next = scalar.addi %finished, %finished_increment : i32
+            scf.yield %finished_next : i32
+          } else {
+            %next_phase = scalar.addi %phase, %two : i32
+            view.store %next_phase, %owner[0] : i32, view<8xi32>
+            scf.yield %finished : i32
+          }
+          scf.yield %after_reload : i32
+        } else {
+          view.store %phase, %owner[0] : i32, view<8xi32>
+          view.store %advanced, %owner[5] : i32, view<8xi32>
+          scf.yield %finished : i32
+        }
+        scf.yield %finished_now : i32
+      } else {
+        scf.yield %finished : i32
+      }
+      scf.yield %consumed, %after_status, %after_finished : i32, i32, i32
+    } else {
+      scf.yield %completed, %issue_status, %finished : i32, i32, i32
+    }
+    scf.yield %published, %next_completed, %next_status, %next_finished : i32, i32, i32, i32
+  }
+  // Only after all accepted I/O drains can abandoned logical readers release
+  // their backing. Success preserves its actual final-reference counts.
+  %failed = scalar.cmpi ne, %terminal, %zero : i32
+  scf.if %failed {
+    scf.for %slot = [%first to %slots step %step] {
+      %relative = index.scale %slot, %slot_bytes : index, offset -> offset
+      %offset = index.add %summary_bytes, %relative : offset
+      %owner = buffer.view %table[%offset] : buffer -> view<8xi32>
+      view.store %zero, %owner[4] : i32, view<8xi32>
+      view.store %seven, %owner[0] : i32, view<8xi32>
+    }
+  }
+  view.store %terminal, %summary[0] : i32, view<12xi32>
+  view.store %submitted_end, %summary[1] : i32, view<12xi32>
+  view.store %completed_end, %summary[2] : i32, view<12xi32>
+  kernel.return
+}

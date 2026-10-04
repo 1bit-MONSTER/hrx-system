@@ -271,6 +271,10 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
 
 void GpuFileIoFixture::VerifyFile(const std::vector<uint32_t>& expected_file,
                                   FileMode mode) {
+  struct stat file_info = {};
+  ASSERT_EQ(fstat(data_file_, &file_info), 0) << std::strerror(errno);
+  ASSERT_EQ(file_info.st_size,
+            static_cast<off_t>(expected_file.size() * sizeof(uint32_t)));
   // Verification happens only after the GPU consumed and reloaded the
   // payload. Clearing O_DIRECT here cannot change the qualified device path.
   if (mode == FileMode::kDirect) {
