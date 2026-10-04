@@ -13,6 +13,7 @@ namespace kernels::file_demand {
 
 inline constexpr uint32_t kMaximumCredits = 256;
 inline constexpr uint32_t kMaximumFileBlocks = 1024;
+inline constexpr uint32_t kMaximumDemands = 1024;
 
 // Finite offered demands are independent of I/O completion. One GPU owner
 // performs admission, key deduplication, native publication and retirement.
@@ -49,7 +50,7 @@ struct alignas(16) Arguments {
   // Independent payload credits, at most kMaximumCredits and below ring
   // capacity.
   uint32_t credit_count;
-  // Number of scheduled logical demands, including duplicate readers.
+  // Scheduled logical demands, including duplicates, at most kMaximumDemands.
   uint32_t demand_count;
   // Power-of-two number of words transferred by each physical I/O.
   uint32_t word_count;
@@ -138,7 +139,8 @@ struct Slot {
 // Private ownership storage is workgroup-local, not a CPU/GPU shared mailbox.
 inline constexpr uint32_t kGroupByteLength =
     sizeof(Summary) + kMaximumCredits * sizeof(Slot) +
-    kMaximumFileBlocks * sizeof(uint32_t);
+    kMaximumFileBlocks * sizeof(uint32_t) +
+    kMaximumDemands * 8 * sizeof(uint32_t);
 
 struct Record {
   // Offered time relative to Summary.begin_tick, independent of completion.

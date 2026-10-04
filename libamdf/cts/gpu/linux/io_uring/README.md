@@ -417,16 +417,24 @@ backing still retained by a reader. A ready queue rotates held readers so they
 cannot stop other ready consumers or completion processing. Only the last
 reader returns a credit to the free list. KV chains retain exclusive ownership
 through read, write and reload; they do not deduplicate mutable blocks.
-One coordinator owns these structures in 20,544 bytes of workgroup-local
-storage: a summary, up to 256 credits, and a 1,024-entry key map. None is a
-CPU/GPU mailbox. Keeping private ownership state local separates its accesses
-from the native ring's system-scope visibility operations. The SQ/CQ, payloads,
-and per-request journal remain globally visible. Final private state is
-exported for host verification only after all accepted I/O and readers retire;
-dispatch wall time includes initialization and export. The scheduled clock
-starts after initialization and ends before export. This measures a finite
-storage-channel witness, not independently dispatched model matmuls or a
-selected cache API.
+One coordinator owns these structures in 53,312 bytes of workgroup-local
+storage: a summary, up to 256 credits, a 1,024-entry key map, and eight private
+words for each of at most 1,024 logical readers. The reader state holds links,
+seed, retention interval, admission/readiness/release timestamps and flags.
+None is a CPU/GPU mailbox. Keeping private ownership state local separates its
+accesses from the native ring's system-scope visibility operations. Immutable
+readers obtain physical timestamps from their live credit; exclusive KV
+readers already own their phase journal. Neither path reads the global output
+journal to recover those facts.
+
+The SQ/CQ, payloads, and result journal remain globally visible. Final private
+state is exported for host verification only after all accepted I/O and
+readers retire; dispatch wall time includes initialization and export. The
+scheduled clock starts after table initialization and ends before export;
+reader state is initialized on admission inside timing. This measures a
+finite storage-channel witness, not independently dispatched model matmuls
+or a selected cache API. Its large LDS reservation and finite journal bound
+are explicit costs of this single-workgroup witness.
 
 All five measured configurations use identical GPU programs, offered manifests
 and payloads: native SQPOLL with busy or requested 50 µs host service, busy

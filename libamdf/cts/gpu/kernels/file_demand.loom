@@ -7,8 +7,8 @@
 // ready queue rotates held readers so one retention interval cannot stall
 // other readers. Only the last reader returns backing to the free list.
 // The workgroup owns its bookkeeping in LDS and exports final state only
-// after retirement. Native rings, payload and the timestamp journal stay
-// globally visible; no other actor accesses the private owner state.
+// after retirement. Native rings and payload stay globally visible; the
+// global result journal is not used as a private reader-progress mailbox.
 // Role one is independent arithmetic on a separately submitted GPU queue.
 // Both roles are finite under the caller's completion/stop ownership contract.
 
@@ -109,6 +109,12 @@ kernel.def export("file_demand") @file_demand() {
     %journal = buffer.assume.alignment %records {minimum_alignment = 4} : buffer
     %map_capacity = index.constant 4096 : offset
     %key_buffer = buffer.alloca<workgroup> align(4) %map_capacity : buffer
+    // Reader state contains next, seed, hold, admitted, ready, released,
+    // observed and shared words. It is initialized only when admitted and
+    // exported after retirement; the global journal is not a progress mailbox.
+    %reader_capacity = index.constant 32768 : offset
+    %reader_buffer = buffer.alloca<workgroup> align(4) %reader_capacity : buffer
+    %reader_bytes = index.constant 32 : offset
     %sqe_bytes = index.constant 64 : offset
     %cqe_bytes = index.constant 16 : offset
     %summary_bytes = index.constant 64 : offset
@@ -184,7 +190,8 @@ kernel.def export("file_demand") @file_demand() {
       %can_admit = scalar.andi %idle_issue, %remaining : i1
       %admit = scalar.andi %can_admit, %healthy : i1
       scf.if %admit {
-        %record_index = index.cast %next : i32 to index
+        %record_input = index.cast %next : i32 to index
+        %record_index = index.assume %record_input [range(%record_input, 0, 1023)] : index
         %record_offset = index.scale %record_index, %record_bytes : index, offset -> offset
         %row = buffer.view %journal[%record_offset] : buffer -> view<24xi32>
         %arrival = view.load %row[0] : view<24xi32> -> i32
@@ -205,6 +212,17 @@ kernel.def export("file_demand") @file_demand() {
           %selected = scf.select %join, %shared, %free : i32
           %available = scalar.cmpi ne, %selected, %zero : i32
           scf.if %available {
+            %reader_offset = index.scale %record_index, %reader_bytes : index, offset -> offset
+            %reader_state = buffer.view %reader_buffer[%reader_offset] : buffer -> view<8xi32>
+            %hold = view.load %row[2] : view<24xi32> -> i32
+            %shared_word = scf.select %join, %one, %zero : i32
+            view.store %zero, %reader_state[0] : i32, view<8xi32>
+            view.store %seed, %reader_state[1] : i32, view<8xi32>
+            view.store %hold, %reader_state[2] : i32, view<8xi32>
+            view.store %zero, %reader_state[4] : i32, view<8xi32>
+            view.store %zero, %reader_state[5] : i32, view<8xi32>
+            view.store %zero, %reader_state[6] : i32, view<8xi32>
+            view.store %shared_word, %reader_state[7] : i32, view<8xi32>
             %slot = scalar.subi %selected, %one : i32
             %slot_input = index.cast %slot : i32 to index
             %slot_index = index.assume %slot_input [range(%slot_input, 0, 255)] : index
@@ -215,17 +233,17 @@ kernel.def export("file_demand") @file_demand() {
             scf.if %join {
               %previous = view.load %owner[2] : view<16xi32> -> i32
               %previous_number = scalar.subi %previous, %one : i32
-              %previous_index = index.cast %previous_number : i32 to index
-              %previous_offset = index.scale %previous_index, %record_bytes : index, offset -> offset
-              %previous_row = buffer.view %journal[%previous_offset] : buffer -> view<24xi32>
-              view.store %encoded, %previous_row[3] : i32, view<24xi32>
+              %previous_input = index.cast %previous_number : i32 to index
+              %previous_index = index.assume %previous_input [range(%previous_input, 0, 1023)] : index
+              %previous_offset = index.scale %previous_index, %reader_bytes : index, offset -> offset
+              %previous_row = buffer.view %reader_buffer[%previous_offset] : buffer -> view<8xi32>
+              view.store %encoded, %previous_row[0] : i32, view<8xi32>
               %readers = view.load %owner[9] : view<16xi32> -> i32
               %more_readers = scalar.addi %readers, %one : i32
               view.store %more_readers, %owner[9] : i32, view<16xi32>
               %duplicates = view.load %summary[8] : view<16xi32> -> i32
               %more_duplicates = scalar.addi %duplicates, %one : i32
               view.store %more_duplicates, %summary[8] : i32, view<16xi32>
-              view.store %one, %row[14] : i32, view<24xi32>
             } else {
               %free_next = view.load %owner[3] : view<16xi32> -> i32
               view.store %free_next, %summary[10] : i32, view<16xi32>
@@ -260,7 +278,7 @@ kernel.def export("file_demand") @file_demand() {
             view.store %key, %row[9] : i32, view<24xi32>
             view.store %previous_release, %row[22] : i32, view<24xi32>
             %admitted = template.apply<@completed_tick>() : () -> (i32)
-            view.store %admitted, %row[4] : i32, view<24xi32>
+            view.store %admitted, %reader_state[3] : i32, view<8xi32>
             view.store %encoded, %summary[6] : i32, view<16xi32>
             view.store %encoded, %summary[14] : i32, view<16xi32>
           }
@@ -432,39 +450,43 @@ kernel.def export("file_demand") @file_demand() {
         }
         %reader = view.load %owner[1] : view<16xi32> -> i32
         %record_number = scalar.subi %reader, %one : i32
-        %record_index = index.cast %record_number : i32 to index
+        %record_input = index.cast %record_number : i32 to index
+        %record_index = index.assume %record_input [range(%record_input, 0, 1023)] : index
         %record_offset = index.scale %record_index, %record_bytes : index, offset -> offset
         %record_value = scalar.muli %record_number, %record_length : i32
         %row = buffer.view %journal[%record_offset] : buffer -> view<24xi32>
+        %reader_offset = index.scale %record_index, %reader_bytes : index, offset -> offset
+        %reader_state = buffer.view %reader_buffer[%reader_offset] : buffer -> view<8xi32>
         %key = view.load %owner[0] : view<16xi32> -> i32
-        %seed = view.load %row[1] : view<24xi32> -> i32
+        %seed = view.load %reader_state[1] : view<8xi32> -> i32
         %is_chain = scalar.cmpi eq, %phase_count, %three : i32
         %reload_slot = scalar.addi %slot, %credit_count : i32
         %window = scf.select %is_chain, %reload_slot, %slot : i32
         %window_offset = scalar.muli %window, %payload_stride : i32
-        %observed = view.load %row[23] : view<24xi32> -> i32
+        %observed = view.load %reader_state[6] : view<8xi32> -> i32
         %first_probe = scalar.cmpi eq, %observed, %zero : i32
         scf.if %first_probe {
           %tick = template.apply<@demand_probe>(%payload, %records, %window_offset, %record_value, %key, %seed, %word_count) : (buffer, buffer, i32, i32, i32, i32, i32) -> (i32)
-          view.store %tick, %row[5] : i32, view<24xi32>
-          view.store %one, %row[23] : i32, view<24xi32>
-          %leader = view.load %owner[12] : view<16xi32> -> i32
-          %leader_index = index.cast %leader : i32 to index
-          %leader_offset = index.scale %leader_index, %record_bytes : index, offset -> offset
-          %leader_row = buffer.view %journal[%leader_offset] : buffer -> view<24xi32>
-          %read_begin = view.load %leader_row[15] : view<24xi32> -> i32
-          %read_end = view.load %leader_row[16] : view<24xi32> -> i32
-          view.store %read_begin, %row[15] : i32, view<24xi32>
-          view.store %read_end, %row[16] : i32, view<24xi32>
+          view.store %tick, %reader_state[4] : i32, view<8xi32>
+          view.store %one, %reader_state[6] : i32, view<8xi32>
+          // Immutable joins inherit the live slot's first and only phase.
+          // Exclusive KV chains already wrote all phases into this same row.
+          %read_only = scalar.cmpi eq, %phase_count, %one : i32
+          scf.if %read_only {
+            %read_begin = view.load %owner[6] : view<16xi32> -> i32
+            %read_end = view.load %owner[11] : view<16xi32> -> i32
+            view.store %read_begin, %row[15] : i32, view<24xi32>
+            view.store %read_end, %row[16] : i32, view<24xi32>
+          }
           %ticket = view.load %owner[10] : view<16xi32> -> i32
           view.store %ticket, %row[21] : i32, view<24xi32>
         }
-        %ready_tick = view.load %row[5] : view<24xi32> -> i32
-        %hold = view.load %row[2] : view<24xi32> -> i32
+        %ready_tick = view.load %reader_state[4] : view<8xi32> -> i32
+        %hold = view.load %reader_state[2] : view<8xi32> -> i32
         %now = template.apply<@completed_tick>() : () -> (i32)
         %age = scalar.subi %now, %ready_tick : i32
         %release = scalar.cmpi uge, %age, %hold : i32
-        %next_reader = view.load %row[3] : view<24xi32> -> i32
+        %next_reader = view.load %reader_state[0] : view<8xi32> -> i32
         %readers = view.load %owner[9] : view<16xi32> -> i32
         scf.if %release {
           %tick = template.apply<@demand_probe>(%payload, %records, %window_offset, %record_value, %key, %seed, %word_count) : (buffer, buffer, i32, i32, i32, i32, i32) -> (i32)
@@ -475,7 +497,7 @@ kernel.def export("file_demand") @file_demand() {
           %remaining_readers = scalar.subi %readers, %one : i32
           view.store %remaining_readers, %owner[9] : i32, view<16xi32>
           %released = template.apply<@completed_tick>() : () -> (i32)
-          view.store %released, %row[6] : i32, view<24xi32>
+          view.store %released, %reader_state[5] : i32, view<8xi32>
           %last_reader = scalar.cmpi eq, %remaining_readers, %zero : i32
           %previous_release = view.load %owner[13] : view<16xi32> -> i32
           %final_release = scf.select %last_reader, %released, %previous_release : i32
@@ -485,11 +507,12 @@ kernel.def export("file_demand") @file_demand() {
           scf.if %multiple {
             %last_reader = view.load %owner[2] : view<16xi32> -> i32
             %last_number = scalar.subi %last_reader, %one : i32
-            %last_index = index.cast %last_number : i32 to index
-            %last_offset = index.scale %last_index, %record_bytes : index, offset -> offset
-            %last_row = buffer.view %journal[%last_offset] : buffer -> view<24xi32>
-            view.store %reader, %last_row[3] : i32, view<24xi32>
-            view.store %zero, %row[3] : i32, view<24xi32>
+            %last_input = index.cast %last_number : i32 to index
+            %last_index = index.assume %last_input [range(%last_input, 0, 1023)] : index
+            %last_offset = index.scale %last_index, %reader_bytes : index, offset -> offset
+            %last_row = buffer.view %reader_buffer[%last_offset] : buffer -> view<8xi32>
+            view.store %reader, %last_row[0] : i32, view<8xi32>
+            view.store %zero, %reader_state[0] : i32, view<8xi32>
             view.store %next_reader, %owner[1] : i32, view<16xi32>
             view.store %reader, %owner[2] : i32, view<16xi32>
           }
@@ -552,6 +575,27 @@ kernel.def export("file_demand") @file_demand() {
     %end = template.apply<@completed_tick>() : () -> (i32)
     view.store %end, %summary[4] : i32, view<16xi32>
     view.atomic.store %one, %work[2] {ordering = release, scope = system} : i32, view<5xi32>
+    %admitted = view.load %summary[6] : view<16xi32> -> i32
+    %admitted_input = index.cast %admitted : i32 to index
+    %admitted_count = index.assume %admitted_input [range(%admitted_input, 0, 1024)] : index
+    scf.for %record = [%start to %admitted_count step %step] {
+      %reader_offset = index.scale %record, %reader_bytes : index, offset -> offset
+      %reader_state = buffer.view %reader_buffer[%reader_offset] : buffer -> view<8xi32>
+      %record_offset = index.scale %record, %record_bytes : index, offset -> offset
+      %row = buffer.view %journal[%record_offset] : buffer -> view<24xi32>
+      %next = view.load %reader_state[0] : view<8xi32> -> i32
+      %admitted = view.load %reader_state[3] : view<8xi32> -> i32
+      %ready = view.load %reader_state[4] : view<8xi32> -> i32
+      %released = view.load %reader_state[5] : view<8xi32> -> i32
+      %observed = view.load %reader_state[6] : view<8xi32> -> i32
+      %shared = view.load %reader_state[7] : view<8xi32> -> i32
+      view.store %next, %row[3] : i32, view<24xi32>
+      view.store %admitted, %row[4] : i32, view<24xi32>
+      view.store %ready, %row[5] : i32, view<24xi32>
+      view.store %released, %row[6] : i32, view<24xi32>
+      view.store %shared, %row[14] : i32, view<24xi32>
+      view.store %observed, %row[23] : i32, view<24xi32>
+    }
     %state_output = buffer.assume.alignment %state {minimum_alignment = 4} : buffer
     %state_words = buffer.view %state_output[%origin] : buffer -> view<[%table_count]xi32>
     scf.for %word = [%start to %table_count step %step] {

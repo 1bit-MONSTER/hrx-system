@@ -1056,6 +1056,7 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
       ASSERT_NE(std::getenv("BENCHMARK_LOCK_LEASE_ID"), nullptr);
     }
     const uint32_t count = profile.burst * 4;
+    ASSERT_LE(count, demand::kMaximumDemands);
     const uint32_t word_count = profile.byte_length / 4;
     const uint32_t blocks = fault == InputFault::kShortFile ? 1
                             : profile.byte_length >= 262144 ? 64
