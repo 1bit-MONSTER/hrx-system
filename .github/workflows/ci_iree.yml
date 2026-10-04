@@ -602,41 +602,52 @@ jobs:
       - name: Run IREE Bazel CI
         if: matrix.kind == 'repository'
         id: iree_bazel_ci
-        shell: cmd
+        shell: powershell
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_INSTALL=%%i"
-          if not defined VS_INSTALL exit /b 1
-          call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          if "${{ matrix.host_toolchain }}"=="msvc" (
-            set "CC=cl.exe"
-            set "CXX=cl.exe"
-            set "AR=lib.exe"
-          ) else (
-            if not exist "%BAZEL_LLVM%\bin\clang-cl.exe" exit /b 1
-            if not exist "%BAZEL_LLVM%\bin\lld-link.exe" exit /b 1
-            if not exist "%BAZEL_LLVM%\bin\llvm-lib.exe" exit /b 1
-            set "CC=%BAZEL_LLVM%\bin\clang-cl.exe"
-            set "CXX=%BAZEL_LLVM%\bin\clang-cl.exe"
-            set "AR=%BAZEL_LLVM%\bin\llvm-lib.exe"
-          )
-          python build_tools/devtools/ci.py iree-bazel-repository-integration --amdgpu-target gfx11-generic --bazel-profile-dir "%RUNNER_TEMP%\bazel-profiles" --keep-going
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Visual Studio C++ tools discovery failed.' }
+          Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') { throw 'Visual Studio x64 developer environment was not initialized.' }
+          if ("${{ matrix.host_toolchain }}" -eq 'msvc') {
+            $env:CC = 'cl.exe'
+            $env:CXX = 'cl.exe'
+            $env:AR = 'lib.exe'
+          } else {
+            foreach ($tool in @('clang-cl.exe', 'lld-link.exe', 'llvm-lib.exe')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $env:BAZEL_LLVM "bin\$tool") -PathType Leaf)) {
+                throw "Missing LLVM tool: $tool"
+              }
+            }
+            $env:CC = Join-Path $env:BAZEL_LLVM 'bin\clang-cl.exe'
+            $env:CXX = $env:CC
+            $env:AR = Join-Path $env:BAZEL_LLVM 'bin\llvm-lib.exe'
+          }
+          python build_tools/devtools/ci.py iree-bazel-repository-integration --amdgpu-target gfx11-generic --bazel-profile-dir "$env:RUNNER_TEMP\bazel-profiles" --keep-going
+          exit $LASTEXITCODE
 
       - name: Build and test the AMD client
         if: matrix.kind == 'amd_client'
         id: client_ci
-        shell: cmd
+        shell: powershell
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_INSTALL=%%i"
-          if not defined VS_INSTALL exit /b 1
-          call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          if errorlevel 1 exit /b %errorlevel%
-          if not exist "%BAZEL_LLVM%\bin\clang-cl.exe" exit /b 1
-          if not exist "%BAZEL_LLVM%\bin\lld-link.exe" exit /b 1
-          if not exist "%BAZEL_LLVM%\bin\llvm-lib.exe" exit /b 1
-          set "CC=%BAZEL_LLVM%\bin\clang-cl.exe"
-          set "CXX=%BAZEL_LLVM%\bin\clang-cl.exe"
-          set "AR=%BAZEL_LLVM%\bin\llvm-lib.exe"
-          python build_tools/devtools/ci.py iree-bazel-amd-client --bazel-profile-dir "%RUNNER_TEMP%\bazel-profiles"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Visual Studio C++ tools discovery failed.' }
+          Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') { throw 'Visual Studio x64 developer environment was not initialized.' }
+          foreach ($tool in @('clang-cl.exe', 'lld-link.exe', 'llvm-lib.exe')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:BAZEL_LLVM "bin\$tool") -PathType Leaf)) {
+              throw "Missing LLVM tool: $tool"
+            }
+          }
+          $env:CC = Join-Path $env:BAZEL_LLVM 'bin\clang-cl.exe'
+          $env:CXX = $env:CC
+          $env:AR = Join-Path $env:BAZEL_LLVM 'bin\llvm-lib.exe'
+          python build_tools/devtools/ci.py iree-bazel-amd-client --bazel-profile-dir "$env:RUNNER_TEMP\bazel-profiles"
+          exit $LASTEXITCODE
 
       - name: Upload Windows build failure evidence
         if: ${{ always() && steps.iree_bazel_ci.outcome == 'failure' }}
@@ -910,23 +921,30 @@ jobs:
 
       - name: Run IREE CMake CI
         id: iree_cmake_ci
-        shell: cmd
+        shell: powershell
         run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_INSTALL=%%i"
-          if not defined VS_INSTALL exit /b 1
-          call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-          if "${{ matrix.host_toolchain }}"=="msvc" (
-            set "CC=cl.exe"
-            set "CXX=cl.exe"
-            set "AR=lib.exe"
-          ) else (
-            if not exist "%HRX_ROCM_ROOT%\lib\llvm\bin\clang-cl.exe" exit /b 1
-            if not exist "%HRX_ROCM_ROOT%\lib\llvm\bin\llvm-lib.exe" exit /b 1
-            set "CC=%HRX_ROCM_ROOT%\lib\llvm\bin\clang-cl.exe"
-            set "CXX=%HRX_ROCM_ROOT%\lib\llvm\bin\clang-cl.exe"
-            set "AR=%HRX_ROCM_ROOT%\lib\llvm\bin\llvm-lib.exe"
-          )
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or -not $installation) { throw 'Visual Studio C++ tools discovery failed.' }
+          Import-Module (Join-Path $installation 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          if ($env:VSCMD_ARG_TGT_ARCH -ne 'x64') { throw 'Visual Studio x64 developer environment was not initialized.' }
+          if ("${{ matrix.host_toolchain }}" -eq 'msvc') {
+            $env:CC = 'cl.exe'
+            $env:CXX = 'cl.exe'
+            $env:AR = 'lib.exe'
+          } else {
+            foreach ($tool in @('clang-cl.exe', 'lld-link.exe', 'llvm-lib.exe')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $env:HRX_ROCM_ROOT "lib\llvm\bin\$tool") -PathType Leaf)) {
+                throw "Missing LLVM tool: $tool"
+              }
+            }
+            $env:CC = Join-Path $env:HRX_ROCM_ROOT 'lib\llvm\bin\clang-cl.exe'
+            $env:CXX = $env:CC
+            $env:AR = Join-Path $env:HRX_ROCM_ROOT 'lib\llvm\bin\llvm-lib.exe'
+          }
           python build_tools/devtools/ci.py ${{ matrix.command }} --keep-going
+          exit $LASTEXITCODE
 
       - name: Upload Windows build failure evidence
         if: ${{ always() && steps.iree_cmake_ci.outcome == 'failure' }}
