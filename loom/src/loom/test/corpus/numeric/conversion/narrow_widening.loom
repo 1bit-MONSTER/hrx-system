@@ -5,6 +5,30 @@ func.def @widen_float8_to_f32(%byte_bits: buffer, %e4_output: buffer, %e5_output
   %base = index.constant 0 : offset
   %begin = index.constant 0 : index
   %byte_end = index.constant 256 : index
+  %step = index.constant 8 : index
+  %aligned_input = buffer.assume.alignment %byte_bits {minimum_alignment = 8} : buffer
+  %source, %e4_destination, %e5_destination = buffer.assume.noalias %aligned_input, %e4_output, %e5_output : buffer, buffer, buffer
+  %e4_input = buffer.view %source[%base] : buffer -> view<256xf8E4M3>
+  %e5_input = buffer.view %source[%base] : buffer -> view<256xf8E5M2>
+  %e4_results = buffer.view %e4_destination[%base] : buffer -> view<256xf32>
+  %e5_results = buffer.view %e5_destination[%base] : buffer -> view<256xf32>
+  scf.for %i = [%begin to %byte_end step %step] {
+    %e4 = vector.load %e4_input[%i] : view<256xf8E4M3> -> vector<8xf8E4M3>
+    %e5 = vector.load %e5_input[%i] : view<256xf8E5M2> -> vector<8xf8E5M2>
+    %wide_e4 = vector.extf %e4 : vector<8xf8E4M3> to vector<8xf32>
+    %wide_e5 = vector.extf %e5 : vector<8xf8E5M2> to vector<8xf32>
+    vector.store %wide_e4, %e4_results[%i] : vector<8xf32>, view<256xf32>
+    vector.store %wide_e5, %e5_results[%i] : vector<8xf32>, view<256xf32>
+  }
+  func.return
+}
+
+// Scalar loads and extensions keep the oracle independent of the packed vector
+// paths under test.
+func.def @widen_float8_to_f32_oracle(%byte_bits: buffer, %e4_output: buffer, %e5_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %byte_end = index.constant 256 : index
   %step = index.constant 1 : index
   %e4_input = buffer.view %byte_bits[%base] : buffer -> view<256xf8E4M3>
   %e5_input = buffer.view %byte_bits[%base] : buffer -> view<256xf8E5M2>
@@ -25,6 +49,23 @@ func.def @widen_bfloat_to_f32(%word_bits: buffer, %bf16_output: buffer) {
   %base = index.constant 0 : offset
   %begin = index.constant 0 : index
   %word_end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %aligned_input = buffer.assume.alignment %word_bits {minimum_alignment = 8} : buffer
+  %source, %destination = buffer.assume.noalias %aligned_input, %bf16_output : buffer, buffer
+  %bf16_input = buffer.view %source[%base] : buffer -> view<65536xbf16>
+  %bf16_results = buffer.view %destination[%base] : buffer -> view<65536xf32>
+  scf.for %i = [%begin to %word_end step %step] {
+    %value = vector.load %bf16_input[%i] : view<65536xbf16> -> vector<4xbf16>
+    %wide = vector.extf %value : vector<4xbf16> to vector<4xf32>
+    vector.store %wide, %bf16_results[%i] : vector<4xf32>, view<65536xf32>
+  }
+  func.return
+}
+
+func.def @widen_bfloat_to_f32_oracle(%word_bits: buffer, %bf16_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %word_end = index.constant 65536 : index
   %step = index.constant 1 : index
   %bf16_input = buffer.view %word_bits[%base] : buffer -> view<65536xbf16>
   %bf16_results = buffer.view %bf16_output[%base] : buffer -> view<65536xf32>
@@ -32,6 +73,38 @@ func.def @widen_bfloat_to_f32(%word_bits: buffer, %bf16_output: buffer) {
     %value = view.load %bf16_input[%i] : view<65536xbf16> -> bf16
     %wide = scalar.extf %value : bf16 to f32
     view.store %wide, %bf16_results[%i] : f32, view<65536xf32>
+  }
+  func.return
+}
+
+func.def @widen_float16_to_f32(%word_bits: buffer, %f16_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %word_end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %aligned_input = buffer.assume.alignment %word_bits {minimum_alignment = 8} : buffer
+  %source, %destination = buffer.assume.noalias %aligned_input, %f16_output : buffer, buffer
+  %f16_input = buffer.view %source[%base] : buffer -> view<65536xf16>
+  %f16_results = buffer.view %destination[%base] : buffer -> view<65536xf32>
+  scf.for %i = [%begin to %word_end step %step] {
+    %value = vector.load %f16_input[%i] : view<65536xf16> -> vector<4xf16>
+    %wide = vector.extf %value : vector<4xf16> to vector<4xf32>
+    vector.store %wide, %f16_results[%i] : vector<4xf32>, view<65536xf32>
+  }
+  func.return
+}
+
+func.def @widen_float16_to_f32_oracle(%word_bits: buffer, %f16_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %word_end = index.constant 65536 : index
+  %step = index.constant 1 : index
+  %f16_input = buffer.view %word_bits[%base] : buffer -> view<65536xf16>
+  %f16_results = buffer.view %f16_output[%base] : buffer -> view<65536xf32>
+  scf.for %i = [%begin to %word_end step %step] {
+    %value = view.load %f16_input[%i] : view<65536xf16> -> f16
+    %wide = scalar.extf %value : f16 to f32
+    view.store %wide, %f16_results[%i] : f32, view<65536xf32>
   }
   func.return
 }
@@ -57,7 +130,7 @@ check.scenario @float8_to_f32_all_bits {
     %e5_prefix = check.tensor.view %e5_storage offset(0) : tensor<258xf32> -> tensor<1xf32>
     %e5_suffix = check.tensor.view %e5_storage offset(1028) : tensor<258xf32> -> tensor<1xf32>
 
-    check.compare<@widen_float8_to_f32>(%byte_bits, %e4_output, %e5_output) : (tensor<256xi8>, tensor<256xf32>, tensor<256xf32>) -> () {
+    check.compare<@widen_float8_to_f32, @widen_float8_to_f32_oracle>(%byte_bits, %e4_output, %e5_output) : (tensor<256xi8>, tensor<256xf32>, tensor<256xf32>) -> () {
       check.expect.close actual(%e4_output) expected(%e4_output) atol(0.0) rtol(0.0) nan(same) : tensor<256xf32>
       check.expect.close actual(%e5_output) expected(%e5_output) atol(0.0) rtol(0.0) nan(same) : tensor<256xf32>
       check.expect.bitwise actual(%e4_negative_zero) expected(%e4_negative_zero) : tensor<1xf32>
@@ -85,13 +158,36 @@ check.scenario @bfloat_to_f32_all_bits {
     %guard = check.generate.fill value(-123.5) : tensor<1xf32>
     %bf16_prefix = check.tensor.view %bf16_storage offset(0) : tensor<65538xf32> -> tensor<1xf32>
     %bf16_suffix = check.tensor.view %bf16_storage offset(262148) : tensor<65538xf32> -> tensor<1xf32>
-    check.compare<@widen_bfloat_to_f32>(%word_bits, %bf16_output) : (tensor<65536xi16>, tensor<65536xf32>) -> () {
+    check.compare<@widen_bfloat_to_f32, @widen_bfloat_to_f32_oracle>(%word_bits, %bf16_output) : (tensor<65536xi16>, tensor<65536xf32>) -> () {
       check.expect.close actual(%bf16_output) expected(%bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<65536xf32>
       check.expect.bitwise actual(%bf16_negative_zero) expected(%bf16_negative_zero) : tensor<1xf32>
       check.expect.bitwise actual(%bf16_positive_zero) expected(%bf16_positive_zero) : tensor<1xf32>
       check.expect.bitwise actual(%word_bits) expected(%expected_word_bits) : tensor<65536xi16>
       check.expect.bitwise actual(%bf16_prefix) expected(%guard) : tensor<1xf32>
       check.expect.bitwise actual(%bf16_suffix) expected(%guard) : tensor<1xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @float16_to_f32_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %word_bits = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %expected_word_bits = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %f16_storage = check.generate.fill value(-123.5) : tensor<65538xf32>
+    %f16_output = check.tensor.view %f16_storage offset(4) : tensor<65538xf32> -> tensor<65536xf32>
+    %f16_negative_zero = check.tensor.view %f16_output offset(0) : tensor<65536xf32> -> tensor<1xf32>
+    %f16_positive_zero = check.tensor.view %f16_output offset(131072) : tensor<65536xf32> -> tensor<1xf32>
+    %guard = check.generate.fill value(-123.5) : tensor<1xf32>
+    %f16_prefix = check.tensor.view %f16_storage offset(0) : tensor<65538xf32> -> tensor<1xf32>
+    %f16_suffix = check.tensor.view %f16_storage offset(262148) : tensor<65538xf32> -> tensor<1xf32>
+    check.compare<@widen_float16_to_f32, @widen_float16_to_f32_oracle>(%word_bits, %f16_output) : (tensor<65536xi16>, tensor<65536xf32>) -> () {
+      check.expect.close actual(%f16_output) expected(%f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<65536xf32>
+      check.expect.bitwise actual(%f16_negative_zero) expected(%f16_negative_zero) : tensor<1xf32>
+      check.expect.bitwise actual(%f16_positive_zero) expected(%f16_positive_zero) : tensor<1xf32>
+      check.expect.bitwise actual(%word_bits) expected(%expected_word_bits) : tensor<65536xi16>
+      check.expect.bitwise actual(%f16_prefix) expected(%guard) : tensor<1xf32>
+      check.expect.bitwise actual(%f16_suffix) expected(%guard) : tensor<1xf32>
     }
   }
   check.return
