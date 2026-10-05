@@ -346,6 +346,15 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
   ASSERT_NE(loomc_result_diagnostic_count(result.get()), 0u);
   EXPECT_EQ(ToString(loomc_result_diagnostic_at(result.get(), 0)->code),
             "CONFIG/INVALID");
+  ASSERT_EQ(loomc_result_artifact_count(result.get()), 1u);
+  const loomc_artifact_t* failed_report =
+      loomc_result_artifact_at(result.get(), 0);
+  ASSERT_NE(failed_report, nullptr);
+  EXPECT_EQ(failed_report->kind, LOOMC_ARTIFACT_KIND_REPORT);
+  EXPECT_EQ(ToString(failed_report->format),
+            LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
+  EXPECT_NE(ToString(failed_report->contents).find("\"diagnostic_count\":1"),
+            std::string::npos);
 }
 
 }  // namespace

@@ -17,6 +17,15 @@
 extern "C" {
 #endif
 
+// Installs a borrowed sink that observes native Loom diagnostics while result
+// is mutable. Passing NULL clears the sink before result escapes the operation.
+LOOMC_API_PRIVATE void loomc_result_set_loom_diagnostic_sink(
+    loomc_result_t* result, const loom_diagnostic_sink_t* sink);
+
+// Returns the optional native Loom diagnostic sink installed on result.
+LOOMC_API_PRIVATE const loom_diagnostic_sink_t*
+loomc_result_loom_diagnostic_sink(const loomc_result_t* result);
+
 // Adds a rendered Loom diagnostic and its related locations, retaining their
 // source identities and optional text in result. Reuses |source| only when it
 // owns the identified contents. Native related locations obey the bounded

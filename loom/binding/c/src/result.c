@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "diagnostic.h"
 #include "iree/base/api.h"
 #include "iree/base/byte_sequence.h"
 #include "iree/base/internal/atomics.h"
@@ -35,10 +36,12 @@ typedef struct loomc_owned_artifact_t {
 struct loomc_result_t {
   // Atomic reference count for shared immutable ownership.
   iree_atomic_ref_count_t ref_count;
-  // Allocator used to release this result.
-  loomc_allocator_t allocator;
   // Result state.
   loomc_result_state_t state;
+  // Allocator used to release this result.
+  loomc_allocator_t allocator;
+  // Optional borrowed sink active only while the result is mutable.
+  const loom_diagnostic_sink_t* loom_diagnostic_sink;
   // Growable diagnostic array.
   loomc_owned_diagnostic_t* diagnostics;
   // Number of live diagnostics.
@@ -99,6 +102,8 @@ static void loomc_owned_artifact_deinitialize(
 }
 
 static void loomc_result_destroy(loomc_result_t* result) {
+  IREE_ASSERT(result->loom_diagnostic_sink == NULL,
+              "diagnostic sink must not outlive result construction");
   loomc_allocator_t allocator = result->allocator;
   for (loomc_host_size_t i = 0; i < result->diagnostic_count; ++i) {
     loomc_owned_diagnostic_deinitialize(allocator, &result->diagnostics[i]);
@@ -151,6 +156,18 @@ loomc_status_t loomc_result_set_state(loomc_result_t* result,
   }
   result->state = state;
   return loomc_ok_status();
+}
+
+void loomc_result_set_loom_diagnostic_sink(loomc_result_t* result,
+                                           const loom_diagnostic_sink_t* sink) {
+  IREE_ASSERT_ARGUMENT(result);
+  result->loom_diagnostic_sink = sink;
+}
+
+const loom_diagnostic_sink_t* loomc_result_loom_diagnostic_sink(
+    const loomc_result_t* result) {
+  IREE_ASSERT_ARGUMENT(result);
+  return result->loom_diagnostic_sink;
 }
 
 // Copies a string into the preallocated diagnostic payload.

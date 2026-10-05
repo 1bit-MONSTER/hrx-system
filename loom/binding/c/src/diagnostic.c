@@ -109,6 +109,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "result and diagnostic must not be NULL");
   }
+  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_diagnostic_emit(
+      loomc_result_loom_diagnostic_sink(result), diagnostic)));
   iree_allocator_t allocator =
       iree_allocator_from_loomc(loomc_result_allocator(result));
   iree_string_builder_t code_builder;

@@ -110,6 +110,7 @@ loom_cc_library(
     loom::compile::request
     loom::error::diagnostic
     loom::error::error_defs
+    loom::error::json_sink
     loom::error::renderer
     loom::error::source
     loom::format::bytecode::format

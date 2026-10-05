@@ -7,8 +7,10 @@
 #ifndef LOOMC_EMIT_STORAGE_H_
 #define LOOMC_EMIT_STORAGE_H_
 
+#include "loom/error/diagnostic.h"
 #include "loom/target/provider.h"
 #include "loom/target/reporting/report.h"
+#include "loom/util/json.h"
 #include "loomc/emit.h"
 #include "visibility.h"
 
@@ -62,6 +64,15 @@ typedef struct loomc_emit_transaction_t {
 
   // True when |compile_report| owns storage and must be deinitialized.
   bool compile_report_initialized;
+
+  // Canonical diagnostic JSON retained only for detailed JSON reports.
+  loom_json_value_list_t compile_report_diagnostics;
+
+  // Borrowed result sink writing into |compile_report_diagnostics|.
+  loom_diagnostic_sink_t compile_report_diagnostic_sink;
+
+  // True when diagnostic JSON capture was installed on |result|.
+  bool compile_report_diagnostics_initialized;
 } loomc_emit_transaction_t;
 
 // Resolves public options into an unbound emission transaction.
