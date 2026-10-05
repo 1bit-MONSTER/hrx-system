@@ -105,8 +105,11 @@ iree_status_t loom_low_move_sequence_scratch_initialize(
 
 // Resolves the first |move_count| caller-populated rows in |scratch->moves| to
 // an ordered move list in |out_moves|. Identity moves are elided and each
-// cycle adds one scratch-save move. |out_complete| is false only when the
-// temporary resolver emitted an allocation diagnostic.
+// cycle adds one scratch-save move. Non-identity transfers retain their source
+// and destination register views; aliased views need not have the same width.
+// Scratch saves use the source view whose contents must survive the cycle.
+// |out_complete| is false only when the temporary resolver emitted an
+// allocation diagnostic.
 // All groups sharing |scratch| use the same descriptor set and its resolved
 // storage classes.
 iree_status_t loom_low_move_sequence_resolve(

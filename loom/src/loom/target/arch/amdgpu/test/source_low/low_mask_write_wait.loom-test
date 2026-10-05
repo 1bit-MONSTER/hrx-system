@@ -345,9 +345,9 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @swap(%value:
   s_mov_b32 s4, s0
   s_mov_b32 s5, s1
   v_cndmask_b32 v0, 0, v0, s[4:5]
-  s_mov_b32 s2, s0
-  s_mov_b32 s0, s1
-  s_mov_b32 s1, s2
+  s_mov_b32 s2, s1
+  s_mov_b32 s1, s0
+  s_mov_b32 s0, s2
 .Lbb1:
   s_endpgm
 

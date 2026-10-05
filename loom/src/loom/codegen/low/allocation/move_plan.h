@@ -107,11 +107,13 @@ loom_low_move_t* loom_low_allocation_move_plan_raw_moves(
 
 // Sequences |raw_move_count| rows from the reusable raw storage and appends
 // the final rows to |plan|. Cycle scratch is resolved and indexed only when
-// required.
+// required. |owner_op| supplies the diagnostic location. |read_point| and
+// |write_point| are the accepted liveness positions at which the transfer reads
+// and writes storage; both are zero for invocation entry transport.
 iree_status_t loom_low_allocation_move_plan_append_group(
-    loom_low_allocation_move_plan_t* plan,
-    const loom_liveness_operation_point_t* operation_point,
-    iree_host_size_t raw_move_count, loom_low_move_group_t* out_group);
+    loom_low_allocation_move_plan_t* plan, const loom_op_t* owner_op,
+    uint32_t read_point, uint32_t write_point, iree_host_size_t raw_move_count,
+    loom_low_move_group_t* out_group);
 
 #ifdef __cplusplus
 }  // extern "C"

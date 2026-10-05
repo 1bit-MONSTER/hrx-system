@@ -12,8 +12,12 @@
 typedef struct loom_low_allocation_move_plan_group_context_t {
   // Plan owning shared allocation facts and persistent output rows.
   loom_low_allocation_move_plan_t* plan;
-  // Accepted operation position that owns the current move group.
-  const loom_liveness_operation_point_t* operation_point;
+  // Diagnostic owner: the function for entry transport, otherwise the move op.
+  const loom_op_t* owner_op;
+  // Accepted liveness position where the parallel transfer reads its inputs.
+  uint32_t read_point;
+  // Accepted write position used by retained-read interference constraints.
+  uint32_t write_point;
   // Global move-row index corresponding to local output row zero.
   iree_host_size_t move_start;
 } loom_low_allocation_move_plan_group_context_t;
@@ -42,7 +46,7 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
       (const loom_low_allocation_move_plan_group_context_t*)user_data;
   const loom_low_allocation_move_plan_context_t* context =
       &group_context->plan->context;
-  const loom_op_t* op = group_context->operation_point->op;
+  const loom_op_t* op = group_context->owner_op;
   *out_temporary = (loom_low_move_location_t){0};
   *out_resolved = false;
   if (!loom_low_allocation_location_kind_is_register_like(
@@ -108,7 +112,6 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
         context->assignment_map.assignment_count, context->unit_liveness,
         plan->scratch_arena, &plan->storage_liveness_index));
   }
-  const uint32_t program_point = group_context->operation_point->start_point;
   for (uint32_t candidate_ordinal = 0; candidate_ordinal < candidate_count;
        ++candidate_ordinal) {
     const uint32_t location =
@@ -127,13 +130,13 @@ static iree_status_t loom_low_allocation_move_plan_resolve_temporary(
             context->target_constraints, temporary.descriptor_reg_class_id,
             temporary.location_kind, temporary.location, 1) ||
         loom_low_allocation_storage_liveness_index_is_live_at_point(
-            &plan->storage_liveness_index, &temporary, program_point) ||
+            &plan->storage_liveness_index, &temporary,
+            group_context->read_point) ||
         loom_low_move_sequence_location_set_contains(occupied_locations,
                                                      &temporary) ||
         loom_low_allocation_write_interference_temporary_conflicts(
             context->unit_liveness->write_interference,
-            &context->assignment_map, group_context->operation_point->end_point,
-            &temporary)) {
+            &context->assignment_map, group_context->write_point, &temporary)) {
       continue;
     }
     *out_temporary = temporary;
@@ -225,9 +228,9 @@ loom_low_move_t* loom_low_allocation_move_plan_raw_moves(
 }
 
 iree_status_t loom_low_allocation_move_plan_append_group(
-    loom_low_allocation_move_plan_t* plan,
-    const loom_liveness_operation_point_t* operation_point,
-    iree_host_size_t raw_move_count, loom_low_move_group_t* out_group) {
+    loom_low_allocation_move_plan_t* plan, const loom_op_t* owner_op,
+    uint32_t read_point, uint32_t write_point, iree_host_size_t raw_move_count,
+    loom_low_move_group_t* out_group) {
   *out_group = (loom_low_move_group_t){
       .moves.start = plan->move_count,
       .scratch_move_index_start = plan->scratch_move_index_count,
@@ -237,7 +240,9 @@ iree_status_t loom_low_allocation_move_plan_append_group(
   }
   loom_low_allocation_move_plan_group_context_t group_context = {
       .plan = plan,
-      .operation_point = operation_point,
+      .owner_op = owner_op,
+      .read_point = read_point,
+      .write_point = write_point,
       .move_start = plan->move_count,
   };
   const loom_low_move_sequence_options_t options = {

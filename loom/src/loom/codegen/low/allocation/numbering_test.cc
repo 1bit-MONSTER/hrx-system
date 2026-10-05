@@ -56,8 +56,12 @@ class LowAllocationNumberingTest : public ::testing::Test {
     preferences_.use_count = preferences_.instruction_use_count = 1;
     preferences_.bindings = bindings_;
     preferences_.binding_count = 2;
-    context_ = {&placement_,  &preferences_, &constraints_, &unit_liveness_,
-                &allocation_, &leases_,      nullptr,       0};
+    context_.placement = &placement_;
+    context_.preferences = &preferences_;
+    context_.target_constraints = &constraints_;
+    context_.unit_liveness = &unit_liveness_;
+    context_.interval_assignment = &allocation_;
+    context_.storage_leases = &leases_;
   }
 
   void TearDown() override {
@@ -158,6 +162,35 @@ class LowAllocationNumberingTest : public ::testing::Test {
 TEST_F(LowAllocationNumberingTest, ImprovesCostWithoutGrowingStorage) {
   Number();
   ExpectImproved();
+}
+
+TEST_F(LowAllocationNumberingTest, EntryIdentitiesKeepExternalCoordinates) {
+  const loom_low_allocation_entry_location_t entry[] = {
+      {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 0},
+      {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 4},
+  };
+  context_.entry_locations = entry;
+  context_.entry_location_count = IREE_ARRAYSIZE(entry);
+  Number();
+  ExpectIdentity();
+}
+
+TEST_F(LowAllocationNumberingTest, EntryMoveSourceKeepsExternalCoordinates) {
+  const loom_low_allocation_entry_location_t entry[] = {
+      {}, {}, {LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, 4}};
+  loom_low_move_t move = {};
+  move.source.location_kind = move.destination.location_kind =
+      LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
+  move.source.location = 4;
+  move.destination.location = 8;
+  context_.entry_locations = entry;
+  context_.entry_location_count = IREE_ARRAYSIZE(entry);
+  context_.moves = &move;
+  context_.move_count = 1;
+  Number();
+  EXPECT_EQ(move.source.location, 4u);
+  EXPECT_EQ(move.destination.location, assignments_[2].location_base);
+  ExpectFootprint();
 }
 
 TEST_F(LowAllocationNumberingTest, UpdatesLeasesAndCycleScratchTogether) {

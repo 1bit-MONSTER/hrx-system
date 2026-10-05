@@ -876,7 +876,6 @@ loom_cc_library(
     ::relocation
     iree::base
     iree::base::internal::arena
-    iree::schemas::xdna_executable
     loom::target::emit::native::object
   PUBLIC
 )
@@ -944,6 +943,7 @@ loom_cc_library(
     iree::schemas::xdna_executable
     loom::target::arch::amd::xdna::device_profile
     loom::target::emit::native::elf
+    loom::target::emit::native::elf_sections
   PUBLIC
 )
 endif()

@@ -519,8 +519,10 @@ static iree_host_size_t loom_low_move_sequence_next_active_move(
 static iree_status_t loom_low_move_sequence_emit_cycle(
     loom_low_move_sequence_state_t* state, iree_host_size_t first_move_index) {
   loom_low_move_sequence_scratch_t* scratch = state->scratch;
+  // Save a source using the view that reads its original contents. The view
+  // about to overwrite this storage may be narrower (for example EDX vs RDX).
   const loom_low_move_location_t saved_location =
-      scratch->moves[first_move_index].destination;
+      scratch->moves[first_move_index].source;
   const loom_low_move_location_t* temporary_location = NULL;
   bool first_temporary_use = false;
   IREE_RETURN_IF_ERROR(loom_low_move_sequence_resolve_temporary(
@@ -535,33 +537,28 @@ static iree_status_t loom_low_move_sequence_emit_cycle(
         state->options->record_scratch.user_data, scratch_move_index));
   }
 
-  loom_low_move_location_t destination =
-      scratch->moves[first_move_index].destination;
-  loom_low_move_location_t source = scratch->moves[first_move_index].source;
+  const loom_low_move_sequence_location_entry_t* destination_entry =
+      loom_low_move_sequence_require_location(state, &saved_location);
   for (;;) {
-    loom_low_move_sequence_location_entry_t* destination_entry =
-        loom_low_move_sequence_require_location(state, &destination);
     IREE_ASSERT_NE(destination_entry->destination_move_index,
                    LOOM_LOW_MOVE_SEQUENCE_INDEX_NONE);
     IREE_ASSERT(loom_low_move_sequence_node_is_active(
         state, destination_entry->destination_move_index));
     const iree_host_size_t move_index =
         destination_entry->destination_move_index;
+    const loom_low_move_t move = scratch->moves[move_index];
     if (loom_low_move_locations_share_target_storage(
-            state->options->descriptor_set, &source, &saved_location)) {
-      loom_low_move_sequence_append(state, &destination, temporary_location);
+            state->options->descriptor_set, &move.source, &saved_location)) {
+      loom_low_move_sequence_append(state, &move.destination,
+                                    temporary_location);
       loom_low_move_sequence_deactivate_move(state, move_index);
       return iree_ok_status();
     }
 
-    loom_low_move_sequence_append(state, &destination, &source);
+    loom_low_move_sequence_append(state, &move.destination, &move.source);
     loom_low_move_sequence_deactivate_move(state, move_index);
-    destination = source;
     destination_entry =
-        loom_low_move_sequence_require_location(state, &destination);
-    IREE_ASSERT_NE(destination_entry->destination_move_index,
-                   LOOM_LOW_MOVE_SEQUENCE_INDEX_NONE);
-    source = scratch->moves[destination_entry->destination_move_index].source;
+        loom_low_move_sequence_require_location(state, &move.source);
   }
 }
 

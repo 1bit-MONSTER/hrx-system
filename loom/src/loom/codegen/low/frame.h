@@ -83,6 +83,11 @@ typedef struct loom_low_emission_frame_options_t {
   const loom_low_allocation_fixed_value_t* allocation_fixed_values;
   // Number of entries in |allocation_fixed_values|.
   iree_host_size_t allocation_fixed_value_count;
+  // Borrowed incoming locations indexed by formal argument, passed unchanged
+  // through allocation repair. These constrain entry, not SSA lifetimes.
+  const loom_low_allocation_entry_location_t* allocation_entry_locations;
+  // Number of entries in |allocation_entry_locations|.
+  iree_host_size_t allocation_entry_location_count;
   // Whole-function target-owned location ranges passed to allocation.
   const loom_low_allocation_reserved_range_t* allocation_reserved_ranges;
   // Number of entries in |allocation_reserved_ranges|.

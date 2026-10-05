@@ -61,6 +61,10 @@ typedef struct loom_low_allocation_interval_assignment_context_t {
   const loom_low_placement_preference_index_t* preferences;
   // Mutable target storage budgets, fixed values, and reserved ranges.
   loom_low_allocation_target_constraints_t* target_constraints;
+  // Borrowed incoming locations indexed by formal-argument ordinal.
+  const loom_low_allocation_entry_location_t* entry_locations;
+  // Number of entries in |entry_locations|.
+  iree_host_size_t entry_location_count;
   // Per-allocation-unit liveness facts for |liveness|.
   const loom_low_allocation_unit_liveness_t* unit_liveness;
   // Mutable assignment-backed storage leases and release actions.

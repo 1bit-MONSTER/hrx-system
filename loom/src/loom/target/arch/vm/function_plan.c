@@ -739,25 +739,23 @@ iree_status_t loom_vm_function_plan_write(
     iree_vm_bytecode_v0_function_row_t* out_row) {
   *out_accepted = false;
   uint16_t argument_count = 0;
-  const loom_value_id_t* arguments =
-      loom_func_like_arg_ids(function, &argument_count);
-  loom_low_allocation_fixed_value_t fixed_values[32];
+  loom_func_like_arg_ids(function, &argument_count);
+  loom_low_allocation_entry_location_t* entry_locations = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, argument_count,
+                                                 sizeof(*entry_locations),
+                                                 (void**)&entry_locations));
   uint16_t value_ordinal = 0;
   uint16_t ref_ordinal = 0;
-  uint16_t fixed_count = 0;
   for (uint16_t i = 0; i < argument_count; ++i) {
     const uint16_t ordinal =
         signature->fields[i].kind_u16 == IREE_VM_BYTECODE_SIGNATURE_KIND_REF
             ? ref_ordinal++
             : value_ordinal++;
-    if (ordinal >= 16 || !loom_module_value_has_uses(module, arguments[i])) {
-      continue;
-    }
-    fixed_values[fixed_count++] = (loom_low_allocation_fixed_value_t){
-        .value_id = arguments[i],
-        .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+    entry_locations[i] = (loom_low_allocation_entry_location_t){
+        .location_kind = ordinal < 16
+                             ? LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER
+                             : LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED,
         .location_base = ordinal,
-        .location_count = 1,
     };
   }
   const loom_low_emission_frame_options_t options = {
@@ -768,8 +766,8 @@ iree_status_t loom_vm_function_plan_write(
       .memory_accesses =
           function_version != NULL ? function_version->memory_accesses : NULL,
       .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_SOURCE_PRIORITY,
-      .allocation_fixed_values = fixed_values,
-      .allocation_fixed_value_count = fixed_count,
+      .allocation_entry_locations = entry_locations,
+      .allocation_entry_location_count = argument_count,
       .emitter = diagnostic_emitter,
   };
   const loom_low_emission_frame_spill_free_options_t spill_options = {
@@ -831,7 +829,8 @@ iree_status_t loom_vm_function_plan_write(
 
   const iree_io_stream_pos_t start = iree_io_stream_offset(stream);
   iree_status_t status = iree_ok_status();
-  if (signature->row.argument_value_count_u16 > 16 ||
+  if (frame.allocation.entry_moves.moves.count != 0 ||
+      signature->row.argument_value_count_u16 > 16 ||
       signature->row.argument_ref_count_u16 > 16) {
     // The ABI prologue executes once. Branches to the first body block carry
     // their own arguments and must not reload the original invocation inputs.
@@ -839,6 +838,10 @@ iree_status_t loom_vm_function_plan_write(
         .opcode = IREE_VM_BYTECODE_OPCODE_CONTROL_BLOCK,
     };
     status = iree_io_stream_write(stream, sizeof(instruction), &instruction);
+    if (iree_status_is_ok(status)) {
+      status = loom_vm_function_moves(
+          frame.allocation.moves, frame.allocation.entry_moves.moves, stream);
+    }
     if (iree_status_is_ok(status)) {
       status =
           loom_vm_function_arguments(&frame, signature, argument_count, stream);

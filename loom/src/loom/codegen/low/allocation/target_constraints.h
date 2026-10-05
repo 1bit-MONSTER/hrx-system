@@ -55,12 +55,25 @@ typedef struct loom_low_allocation_fixed_value_t {
   uint32_t location_count;
 } loom_low_allocation_fixed_value_t;
 
+// Location of one formal argument at invocation entry, before the first body
+// block. The ABI producer supplies a valid register-like location in the
+// argument's register class and width. Allocation may choose different storage
+// for its SSA lifetime and retains the required entry transport.
+typedef struct loom_low_allocation_entry_location_t {
+  // Incoming storage kind, or UNASSIGNED when supplied outside register entry
+  // transport (for example, an ABI stack argument loaded by the prologue).
+  loom_low_allocation_location_kind_t location_kind;
+  // Incoming physical register view or first linear target location.
+  uint32_t location_base;
+} loom_low_allocation_entry_location_t;
+
 // Whole-function location range owned by target machinery.
 //
 // Reserved ranges model architectural state that is never allocatable for
 // ordinary values in the current low function, such as special registers or
 // permanently reserved target IDs. Use fixed values instead for ABI live-ins
-// whose registers can be reused after their last use.
+// whose registers can be reused after their last use. Reservations obey target
+// location limits independently of the budget for ordinary allocations.
 typedef struct loom_low_allocation_reserved_range_t {
   // Stable register-class name.
   iree_string_view_t register_class;
