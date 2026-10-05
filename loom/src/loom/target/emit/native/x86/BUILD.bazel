@@ -52,8 +52,11 @@ loom_cc_library(
     hdrs = ["function.h"],
     deps = [
         ":encoding",
+        "//loom/src/loom/analysis:storage_layout",
         "//loom/src/loom/codegen/low:frame",
         "//loom/src/loom/codegen/low:packet",
+        "//loom/src/loom/codegen/low:storage_layout",
+        "//loom/src/loom/codegen/low/allocation:unit_location",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",
         "//loom/src/loom/target/arch/x86:register_classes",

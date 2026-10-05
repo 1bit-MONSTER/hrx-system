@@ -78,7 +78,7 @@ TEST_F(FunctionTest, EmptyLeafNeedsOnlyReturn) {
   EXPECT_EQ(Read(), Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }
 
-TEST_F(FunctionTest, RestoreRegistersInReverseOrderAfterResultTransport) {
+TEST_F(FunctionTest, RestoreStackAndRegistersAfterResultTransport) {
   loom_x86_encoding_operands_t left = {};
   left.result = 3;  // RBX.
   left.immediate = 42;
@@ -103,6 +103,7 @@ TEST_F(FunctionTest, RestoreRegistersInReverseOrderAfterResultTransport) {
       /*.block_starts=*/block_starts,
       /*.block_count=*/1,
       /*.saved_registers=*/(1u << 3) | (1u << 12),
+      /*.stack=*/{24, 16, {}},
   };
   IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
 
@@ -110,11 +111,19 @@ TEST_F(FunctionTest, RestoreRegistersInReverseOrderAfterResultTransport) {
   rbx.inputs[0] = 3;
   loom_x86_encoding_operands_t r12 = {};
   r12.inputs[0] = 12;
+  loom_x86_encoding_operands_t stack = {};
+  stack.result = 4;
+  stack.immediate = 24;
   EXPECT_EQ(Read(),
             Encode(Instruction(LOOM_X86_ENCODING_FORM_PUSH, 0, rbx)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_PUSH, 0, r12)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                                   0x81 | (5u << 9) | LOOM_X86_ENCODING_REX_W,
+                                   stack)) +
                 Encode(instructions[0]) + Encode(instructions[1]) +
                 Encode(instructions[2]) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                                   0x81 | LOOM_X86_ENCODING_REX_W, stack)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_POP, 0, r12)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_POP, 0, rbx)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
@@ -138,8 +147,8 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
       Instruction(LOOM_X86_ENCODING_FORM_JUMP, 0, {}, 1),
   };
   // Empty entry aliases the condition block. Empty exit aliases the epilogue.
-  // The back edge skips PUSH and entry transport; the exit reaches POP, not
-  // RET.
+  // The back edge skips preservation, stack allocation, and entry transport;
+  // the exit reaches stack restoration before POP and RET.
   iree_host_size_t block_starts[] = {1, 1, 2, 4, 4};
   const loom_x86_function_t function = {
       /*.instructions=*/instructions,
@@ -147,6 +156,7 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
       /*.block_starts=*/block_starts,
       /*.block_count=*/4,
       /*.saved_registers=*/1u << 3,
+      /*.stack=*/{16, 16, {}},
   };
 
   // Layout also works when a previous function has already used the stream.
@@ -165,10 +175,68 @@ TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
       -static_cast<int64_t>(branch_length + body_length + jump_length);
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;
+  loom_x86_encoding_operands_t stack = {};
+  stack.result = 4;
+  stack.immediate = 16;
   EXPECT_EQ(Read(),
             prefix + Encode(Instruction(LOOM_X86_ENCODING_FORM_PUSH, 0, rbx)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                                   0x81 | (5u << 9) | LOOM_X86_ENCODING_REX_W,
+                                   stack)) +
                 Encode(instructions[0]) + Encode(forward) +
                 Encode(instructions[2]) + Encode(backward) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                                   0x81 | LOOM_X86_ENCODING_REX_W, stack)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_POP, 0, rbx)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
+}
+
+TEST_F(FunctionTest, RealignmentRestoresTheSavedStackPointerBeforePops) {
+  iree_host_size_t block_starts[] = {0, 0};
+  loom_x86_function_t function = {};
+  function.block_starts = block_starts;
+  function.block_count = 1;
+  function.saved_registers = 1u << 3;
+  function.stack.allocation_size = 64;
+  function.stack.alignment = 64;
+  function.stack.realignment.mask = -64;
+  function.stack.realignment.saved_pointer_offset = 8;
+  function.stack.realignment.scratch_register = 11;
+  IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
+
+  loom_x86_encoding_operands_t rbx = {};
+  rbx.inputs[0] = 3;
+  loom_x86_encoding_operands_t capture = {};
+  capture.result = 11;
+  capture.inputs[0] = 4;
+  loom_x86_encoding_operands_t align = {};
+  align.result = 4;
+  align.immediate = -64;
+  loom_x86_encoding_operands_t allocate = {};
+  allocate.result = 4;
+  allocate.immediate = 64;
+  loom_x86_encoding_operands_t save = {};
+  save.inputs[0] = 11;
+  save.inputs[1] = 4;
+  save.immediate = 8;
+  loom_x86_encoding_operands_t restore = {};
+  restore.result = 4;
+  restore.inputs[0] = 4;
+  restore.immediate = 8;
+  EXPECT_EQ(Read(),
+            Encode(Instruction(LOOM_X86_ENCODING_FORM_PUSH, 0, rbx)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_MOVE,
+                                   0x8b | LOOM_X86_ENCODING_REX_W, capture)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                                   0x81 | (4u << 9) | LOOM_X86_ENCODING_REX_W,
+                                   align)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE,
+                                   0x81 | (5u << 9) | LOOM_X86_ENCODING_REX_W,
+                                   allocate)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_STORE,
+                                   0x89 | LOOM_X86_ENCODING_REX_W, save)) +
+                Encode(Instruction(LOOM_X86_ENCODING_FORM_LOAD,
+                                   0x8b | LOOM_X86_ENCODING_REX_W, restore)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_POP, 0, rbx)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }

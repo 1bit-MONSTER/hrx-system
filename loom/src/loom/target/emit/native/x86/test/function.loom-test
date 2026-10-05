@@ -86,3 +86,55 @@ low.func.def target<x86.scalar.core>(@target) @narrow_write() -> (reg<x86.gpr32>
 
 // ----
 callee-preserved: rbx
+
+// ====
+
+// The return address contributes eight bytes to the incoming stack residue.
+// RUN: emit x86-frame @aligned_caller_saved fixed=%value:physical_register:0:1
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @aligned_caller_saved(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %slot = storage {byte_alignment = 16, byte_length = 8} : low.storage<stack>
+  low.spill %input, %slot : reg<x86.gpr64>, low.storage<stack>
+  %value = low.reload %slot : low.storage<stack> -> reg<x86.gpr64>
+  return %value
+}
+
+// ----
+callee-preserved: none
+stack: 8 bytes, alignment 16
+
+// ====
+
+// A callee-save push changes the padding needed for the same local slot.
+// RUN: emit x86-frame @aligned_callee_saved fixed=%value:physical_register:3:1
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @aligned_callee_saved(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %slot = storage {byte_alignment = 16, byte_length = 8} : low.storage<stack>
+  low.spill %input, %slot : reg<x86.gpr64>, low.storage<stack>
+  %value = low.reload %slot : low.storage<stack> -> reg<x86.gpr64>
+  return %value
+}
+
+// ----
+callee-preserved: rbx
+stack: 16 bytes, alignment 16
+
+// ====
+
+// Stronger alignment records an explicit restoration slot and entry scratch.
+// RUN: emit x86-frame @realigned_callee_saved fixed=%value:physical_register:3:1
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @realigned_callee_saved(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %slot = storage {byte_alignment = 64, byte_length = 8} : low.storage<stack>
+  low.spill %input, %slot : reg<x86.gpr64>, low.storage<stack>
+  %value = low.reload %slot : low.storage<stack> -> reg<x86.gpr64>
+  return %value
+}
+
+// ----
+callee-preserved: rbx
+stack: 64 bytes, alignment 64
+realignment: r11, saved RSP at +8

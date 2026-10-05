@@ -28,6 +28,10 @@ extern "C" uint64_t high_mix(uint64_t unused, uint64_t factor, uint64_t word);
 extern "C" uint64_t recurrence(uint64_t first, uint64_t second,
                                uint64_t iterations);
 
+extern "C" uint64_t pressure64(const uint64_t* values);
+extern "C" uint32_t pressure32(const uint32_t* values);
+extern "C" uint64_t storage_spaces(uint64_t input, uint32_t word);
+
 namespace {
 
 TEST(NativeCallableTest, OrdinaryCLinkage) {
@@ -79,6 +83,27 @@ TEST(NativeCallableTest, NarrowMemoryPreservesNeighbors) {
               previous);
     EXPECT_EQ(bytes, expected_bytes);
     EXPECT_EQ(words, expected_words);
+  }
+}
+
+TEST(NativeCallableTest, StackStorageAndAllocationSpills) {
+  uint64_t state = UINT64_C(0x9e3779b97f4a7c15);
+  for (unsigned repetition = 0; repetition < 100; ++repetition) {
+    std::array<uint64_t, 20> wide;
+    std::array<uint32_t, 20> narrow;
+    uint64_t wide_sum = 0;
+    uint32_t narrow_sum = 0;
+    for (size_t i = 0; i < wide.size(); ++i) {
+      state = state * UINT64_C(6364136223846793005) + 1;
+      wide[i] = state;
+      narrow[i] = static_cast<uint32_t>(state >> 32);
+      wide_sum += wide[i];
+      narrow_sum += narrow[i];
+    }
+    ASSERT_EQ(pressure64(wide.data()), wide_sum);
+    ASSERT_EQ(pressure32(narrow.data()), narrow_sum);
+    ASSERT_EQ(storage_spaces(wide[0], narrow[0]),
+              wide[0] ^ (wide[0] + 258) ^ narrow[0]);
   }
 }
 
