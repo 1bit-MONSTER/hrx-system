@@ -44,7 +44,7 @@ static iree_status_t loom_amdgpu_extract_vector_fp8_lane(
       register_offset, source_lane_type, &source_register));
   loom_type_t result_lane_type = loom_type_none();
   IREE_RETURN_IF_ERROR(loom_amdgpu_make_vgpr_type(context, &result_lane_type));
-  return loom_amdgpu_extract_vgpr_bitfield(
+  return loom_amdgpu_extract_register_bitfield(
       context, source_op, source_register, register_bit_offset,
       extract_plan->lane_bit_count,
       LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED, result_lane_type,

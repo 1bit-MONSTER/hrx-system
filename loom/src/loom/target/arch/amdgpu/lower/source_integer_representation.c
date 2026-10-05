@@ -288,7 +288,7 @@ iree_status_t loom_amdgpu_normalize_narrow_integer(
     case LOOM_AMDGPU_NARROW_INTEGER_REPRESENTATION_LOW_BITS:
       return iree_ok_status();
     case LOOM_AMDGPU_NARROW_INTEGER_REPRESENTATION_SIGN_EXTENDED:
-      return loom_amdgpu_extract_vgpr_bitfield(
+      return loom_amdgpu_extract_register_bitfield(
           context, source_op, low_source, /*bit_offset=*/0, source_bit_count,
           LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND, lane_type,
           out_low_result);
