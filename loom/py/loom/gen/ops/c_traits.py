@@ -120,7 +120,17 @@ def _same_shape_constraint_covers(op: Op, field_names: set[str]) -> bool:
 
 
 def _is_shape_preserving_elementwise_vector_decomposable(op: Op) -> bool:
-    if not _has_trait(op, "Elementwise"):
+    if not _has_trait(op, "Elementwise") or not op.is_pure:
+        return False
+    if any(
+        _has_trait(op, trait_name)
+        for trait_name in (
+            "Convergent",
+            "Contextual",
+            "PoisonBoundary",
+            "Terminator",
+        )
+    ):
         return False
     if len(op.results) != 1 or op.regions or op.successors:
         return False
@@ -151,7 +161,10 @@ def trait_flags(op: Op) -> str:
     is_derived_decomposable = _is_shape_preserving_elementwise_vector_decomposable(op)
     if has_explicit_decomposable and not is_derived_decomposable:
         raise ValueError(
-            f"Op '{op.name}': Decomposable requires a single-result shape-preserving elementwise vector op with no regions, successors, variadic fields, optional operands, or tied results"
+            f"Op '{op.name}': Decomposable requires an effect-free "
+            "rematerializable, single-result shape-preserving elementwise "
+            "vector op with no regions, successors, variadic fields, optional "
+            "operands, or tied results"
         )
     if "LOOM_TRAIT_DECOMPOSABLE" not in bits and is_derived_decomposable:
         bits.append("LOOM_TRAIT_DECOMPOSABLE")
@@ -186,24 +199,7 @@ def trait_flags(op: Op) -> str:
     if has_allocating_result and not has_explicit_unique_identity:
         bits.append("LOOM_TRAIT_UNIQUE_IDENTITY")
 
-    explicit_pure = any(trait.name == "Pure" for trait in op.traits)
-    has_non_deterministic = any(trait.name == "NonDeterministic" for trait in op.traits)
-    has_unknown_effects = any(trait.name == "UnknownEffects" for trait in op.traits)
-    has_memory_fence = any(trait.name == "MemoryFence" for trait in op.traits)
-    has_hint = any(trait.name == "Hint" for trait in op.traits)
-    if (
-        not explicit_pure
-        and not op.effects
-        and not op.ownership_effects
-        and not has_non_deterministic
-        and not has_unknown_effects
-        and not has_memory_fence
-        and not has_hint
-        and not has_allocating_result
-        and not has_explicit_unique_identity
-        and not has_read
-        and not has_write
-    ):
+    if op.is_pure and "LOOM_TRAIT_PURE" not in bits:
         bits.append("LOOM_TRAIT_PURE")
 
     if not bits:

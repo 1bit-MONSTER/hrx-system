@@ -583,6 +583,27 @@ iree_py_test(
 
 iree_py_test(
   NAME
+    c_vector_scalarization_test
+  MAIN
+    "../../tools/pytest_style_runner.py"
+  SRCS
+    "c_vector_scalarization.py"
+    "c_vector_scalarization_test.py"
+    "../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.gen.ops.c_vector_scalarization_test"
+  DEPS
+    loom::py::loom::gen::ops::c_tables
+    loom::py::loom::dialect::scalar::scalar
+    loom::py::loom::dialect::vector::vector
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
     model_test
   MAIN
     "../../tools/pytest_style_runner.py"
