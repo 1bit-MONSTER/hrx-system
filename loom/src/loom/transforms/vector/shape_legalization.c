@@ -165,6 +165,150 @@ static iree_status_t loom_vector_static_shape_broadcast_rewrite(
   return iree_ok_status();
 }
 
+// Returns the row-major source ordinal for one trailing-axis result row.
+// Slice rows are contiguous along the trailing axis; leading result
+// coordinates select which source row supplies that interval.
+static uint64_t loom_vector_static_shape_slice_row_source_ordinal(
+    loom_type_t source_type, loom_type_t result_type,
+    const int64_t* static_offsets, uint64_t result_row) {
+  const uint8_t rank = loom_type_rank(source_type);
+  const uint8_t trailing_axis = rank - 1;
+  uint64_t source_ordinal = (uint64_t)static_offsets[trailing_axis];
+  uint64_t source_suffix_extent =
+      (uint64_t)loom_type_dim_static_size_at(source_type, trailing_axis);
+  uint64_t result_suffix_extent = 1;
+  for (uint8_t reverse_axis = 1; reverse_axis < rank; ++reverse_axis) {
+    const uint8_t axis = rank - reverse_axis - 1;
+    const uint64_t result_extent =
+        (uint64_t)loom_type_dim_static_size_at(result_type, axis);
+    const uint64_t result_coordinate =
+        (result_row / result_suffix_extent) % result_extent;
+    const uint64_t source_coordinate =
+        (uint64_t)static_offsets[axis] + result_coordinate;
+    source_ordinal += source_coordinate * source_suffix_extent;
+    source_suffix_extent *=
+        (uint64_t)loom_type_dim_static_size_at(source_type, axis);
+    result_suffix_extent *= result_extent;
+  }
+  return source_ordinal;
+}
+
+static iree_status_t loom_vector_static_shape_slice_rewrite(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    bool* out_rewritten) {
+  const loom_value_id_t source = loom_vector_slice_source(op);
+  const loom_type_t source_type =
+      loom_module_value_type(context->module, source);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_vector_slice_result(op));
+  const uint8_t rank = loom_type_rank(source_type);
+  const loom_attribute_t static_offsets = loom_vector_slice_static_offsets(op);
+  uint64_t source_count = 0;
+  uint64_t result_count = 0;
+  if (rank <= 1 || loom_type_rank(result_type) != rank ||
+      !loom_type_static_element_count(source_type, &source_count) ||
+      !loom_type_static_element_count(result_type, &result_count) ||
+      source_count == 0 || result_count == 0 || source_count > INT64_MAX ||
+      result_count > INT64_MAX || static_offsets.kind != LOOM_ATTR_I64_ARRAY ||
+      static_offsets.count != rank ||
+      loom_vector_slice_offsets(op).count != 0) {
+    return iree_ok_status();
+  }
+  for (uint8_t axis = 0; axis < rank; ++axis) {
+    if (static_offsets.i64_array[axis] < 0) {
+      return iree_ok_status();
+    }
+  }
+
+  const uint64_t row_length =
+      (uint64_t)loom_type_dim_static_size_at(result_type, rank - 1);
+  const uint64_t row_count = result_count / row_length;
+  uint64_t run_count = 1;
+  uint64_t previous_end =
+      loom_vector_static_shape_slice_row_source_ordinal(
+          source_type, result_type, static_offsets.i64_array, 0) +
+      row_length;
+  for (uint64_t row = 1; row < row_count; ++row) {
+    const uint64_t source_ordinal =
+        loom_vector_static_shape_slice_row_source_ordinal(
+            source_type, result_type, static_offsets.i64_array, row);
+    if (source_ordinal != previous_end) {
+      ++run_count;
+    }
+    previous_end = source_ordinal + row_length;
+  }
+  if (run_count > IREE_HOST_SIZE_MAX) {
+    return iree_ok_status();
+  }
+
+  loom_value_id_t single_run = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t* runs = &single_run;
+  if (run_count > 1) {
+    IREE_RETURN_IF_ERROR(
+        iree_arena_allocate_array(context->arena, (iree_host_size_t)run_count,
+                                  sizeof(*runs), (void**)&runs));
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t flat_source = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
+      &rewriter->builder, source, source_type, source_count, op->location,
+      &flat_source));
+
+  const loom_type_t flat_result_type =
+      loom_vector_static_shape_flat_type(result_type, result_count);
+  const uint64_t first_ordinal =
+      loom_vector_static_shape_slice_row_source_ordinal(
+          source_type, result_type, static_offsets.i64_array, 0);
+  if (run_count == 1 && first_ordinal == 0 && result_count == source_count) {
+    runs[0] = flat_source;
+  } else {
+    uint64_t run_start = first_ordinal;
+    uint64_t run_length = row_length;
+    iree_host_size_t run_index = 0;
+    for (uint64_t row = 1; row <= row_count; ++row) {
+      uint64_t source_ordinal = 0;
+      if (row < row_count) {
+        source_ordinal = loom_vector_static_shape_slice_row_source_ordinal(
+            source_type, result_type, static_offsets.i64_array, row);
+        if (source_ordinal == run_start + run_length) {
+          run_length += row_length;
+          continue;
+        }
+      }
+
+      const int64_t static_offset = (int64_t)run_start;
+      const loom_type_t run_type =
+          loom_vector_static_shape_flat_type(result_type, run_length);
+      loom_op_t* slice_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_slice_build(
+          &rewriter->builder, flat_source, /*offsets=*/NULL,
+          /*offsets_count=*/0, &static_offset,
+          /*static_offsets_count=*/1, run_type, op->location, &slice_op));
+      runs[run_index++] = loom_vector_slice_result(slice_op);
+      run_start = source_ordinal;
+      run_length = row_length;
+    }
+  }
+
+  loom_value_id_t flat_result = runs[0];
+  if (run_count > 1) {
+    loom_op_t* concat_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_concat_build(
+        &rewriter->builder, 0, runs, (iree_host_size_t)run_count,
+        flat_result_type, op->location, &concat_op));
+    flat_result = loom_vector_concat_result(concat_op);
+  }
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_restore_result(
+      context, op, flat_result, flat_result_type, result_type,
+      value_checkpoint));
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_static_shape_insert_rewrite(
     loom_target_legalization_context_t* context, loom_op_t* op,
     bool* out_rewritten) {
@@ -360,6 +504,8 @@ iree_status_t loom_vector_static_shape_rewrite_op(
     case LOOM_OP_VECTOR_INSERT:
       return loom_vector_static_shape_insert_rewrite(context, op,
                                                      out_rewritten);
+    case LOOM_OP_VECTOR_SLICE:
+      return loom_vector_static_shape_slice_rewrite(context, op, out_rewritten);
     case LOOM_OP_VECTOR_TABLE_LOOKUP:
       return loom_vector_static_shape_table_lookup_rewrite(context, op,
                                                            out_rewritten);

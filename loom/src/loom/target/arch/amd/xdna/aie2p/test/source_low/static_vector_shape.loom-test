@@ -1,0 +1,74 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @contiguous_f32_rows(%source: vector<3x4xf32>) -> (vector<2x4xf32>) {
+  %result = vector.slice %source[1, 0] : vector<3x4xf32> -> vector<2x4xf32>
+  func.return %result : vector<2x4xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @contiguous_f32_rows(%source: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %8 = mova.i32 16
+  %result = vshift %source, %source, %8
+  return %result
+}
+
+// ====
+
+func.def @strided_bf16_columns(%source: vector<3x4xbf16>) -> (vector<2x2xbf16>) {
+  %result = vector.slice %source[1, 1] : vector<3x4xbf16> -> vector<2x2xbf16>
+  func.return %result : vector<2x2xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @strided_bf16_columns(%source: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %10 = mova.i32 10
+  %11 = vshift %source, %source, %10
+  %12 = mova.i32 18
+  %13 = vshift %source, %source, %12
+  %14 = mova.i32 4
+  %15 = vshift %11, %11, %14
+  %16 = mova.i32 60
+  %result = vshift %15, %13, %16
+  return %result
+}
+
+// ====
+
+func.def @strided_i8_planes(%source: vector<2x3x4xi8>) -> (vector<2x2x4xi8>) {
+  %result = vector.slice %source[0, 1, 0] : vector<2x3x4xi8> -> vector<2x2x4xi8>
+  func.return %result : vector<2x2x4xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @strided_i8_planes(%source: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %10 = mova.i32 4
+  %11 = vshift %source, %source, %10
+  %12 = mova.i32 16
+  %13 = vshift %source, %source, %12
+  %14 = mova.i32 8
+  %15 = vshift %11, %11, %14
+  %16 = mova.i32 56
+  %result = vshift %15, %13, %16
+  return %result
+}
+
+// ====
+
+func.def @insert_f64_row(%row: vector<2xf64>, %dest: vector<3x2xf64>) -> (vector<3x2xf64>) {
+  %result = vector.insert %row into %dest[1] : vector<2xf64>, vector<3x2xf64>
+  func.return %result : vector<3x2xf64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @insert_f64_row(%row: reg<aie2p.vec256 x2>, %dest: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %14 = mova.i32 32
+  %15 = vshift %dest, %dest, %14
+  %16 = mova.i32 16
+  %17 = vshift %dest, %dest, %16
+  %18 = mova.i32 48
+  %19 = vshift %17, %row, %18
+  %20 = slice %19[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %21 = slice %15[0] : reg<aie2p.vec256 x2> -> reg<aie2p.vec256>
+  %result = concat(%20, %21) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %result
+}

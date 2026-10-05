@@ -204,6 +204,10 @@ static bool loom_amdgpu_static_shape_carrier_type(
       *out_carrier_type =
           loom_module_value_type(module, loom_vector_insert_dest(op));
       return true;
+    case LOOM_OP_VECTOR_SLICE:
+      *out_carrier_type =
+          loom_module_value_type(module, loom_vector_slice_source(op));
+      return true;
     default:
       return false;
   }
@@ -804,6 +808,10 @@ static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_INSERT,
+        .legalize = loom_amdgpu_legalize_static_vector_shape,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_SLICE,
         .legalize = loom_amdgpu_legalize_static_vector_shape,
     },
     {
