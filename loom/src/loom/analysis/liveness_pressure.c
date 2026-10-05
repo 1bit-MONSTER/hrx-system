@@ -81,10 +81,12 @@ static iree_status_t loom_liveness_pressure_classes_initialize(
       ++class_index;
     }
     if (class_index == out_classes->count) {
-      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-          scratch_arena, out_classes->count, out_classes->count + 1,
-          sizeof(*out_classes->entries), &out_classes->capacity,
-          (void**)&out_classes->entries));
+      if (out_classes->count == out_classes->capacity) {
+        IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+            scratch_arena, out_classes->count, out_classes->count + 1,
+            sizeof(*out_classes->entries), &out_classes->capacity,
+            (void**)&out_classes->entries));
+      }
       out_classes->entries[out_classes->count++] =
           (loom_liveness_pressure_class_t){
               .summary = {.value_class = interval->value_class},
