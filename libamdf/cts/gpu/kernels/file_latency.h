@@ -69,6 +69,12 @@ struct Summary {
   uint32_t begin_tick;
   // Reference-clock sample after final response consumption and record stores.
   uint32_t end_tick;
+  // Upper word of the same full-width sample that produced begin_tick.
+  uint32_t begin_tick_high;
+  // Upper word of the same full-width sample that produced end_tick.
+  uint32_t end_tick_high;
+  // Reserved zero word keeps the following slot table sixteen-byte aligned.
+  uint32_t reserved;
 };
 
 struct Slot {
@@ -145,7 +151,7 @@ inline constexpr std::array<std::string_view, 21> kArgumentValueKinds = {
 
 static_assert(sizeof(Arguments) == 128);
 static_assert(offsetof(Arguments, gap_ticks) == 112);
-static_assert(sizeof(Summary) == 20);
+static_assert(sizeof(Summary) == 32);
 static_assert(sizeof(Slot) == 16);
 static_assert(sizeof(Record) == 48);
 

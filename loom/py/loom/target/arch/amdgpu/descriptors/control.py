@@ -304,15 +304,15 @@ def _s_sendmsg_overlay() -> AmdgpuDescriptorOverlay:
     )
 
 
-def _s_sendmsg_rtn_b32_overlay() -> AmdgpuDescriptorOverlay:
+def _s_sendmsg_rtn_overlay(bits: int) -> AmdgpuDescriptorOverlay:
     return AmdgpuDescriptorOverlay(
-        descriptor_key="amdgpu.s_sendmsg_rtn_b32",
-        instruction_name="S_SENDMSG_RTN_B32",
-        mnemonic="s_sendmsg_rtn_b32",
+        descriptor_key=f"amdgpu.s_sendmsg_rtn_b{bits}",
+        instruction_name=f"S_SENDMSG_RTN_B{bits}",
+        mnemonic=f"s_sendmsg_rtn_b{bits}",
         encoding_name="ENC_SOP1",
-        semantic_tag="control.message.send.return.u32",
+        semantic_tag=f"control.message.send.return.u{bits}",
         schedule_class=_SCHEDULE_MESSAGE,
-        operands=(AmdgpuOperandOverlay("SDST", _sgpr_result()),),
+        operands=(AmdgpuOperandOverlay("SDST", _sgpr_result(units=bits // 32)),),
         immediate_fields=("SSRC0",),
         immediates=(_SENDMSG_RTN_MESSAGE_IMMEDIATE,),
         # The message has no memory alias, but writes SDST asynchronously through
@@ -759,7 +759,7 @@ __all__ = (
     "_s_mov_b64_shared_base_overlay",
     "_s_prefetch_overlay",
     "_s_sendmsg_overlay",
-    "_s_sendmsg_rtn_b32_overlay",
+    "_s_sendmsg_rtn_overlay",
     "_s_sethalt_overlay",
     "_s_set_inst_prefetch_distance_overlay",
     "_s_set_vgpr_msb_descriptor",

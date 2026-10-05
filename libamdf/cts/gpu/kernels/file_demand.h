@@ -101,6 +101,12 @@ struct Summary {
   uint32_t next_demand;
   // Scratch next credit to issue, encoded as slot plus one.
   uint32_t issue;
+  // Upper word of the same full-width sample that produced begin_tick.
+  uint32_t begin_tick_high;
+  // Upper word of the same full-width sample that produced end_tick.
+  uint32_t end_tick_high;
+  // Reserved zero words keep the following slot table sixteen-byte aligned.
+  std::array<uint32_t, 2> reserved;
 };
 
 struct Slot {
@@ -241,7 +247,7 @@ inline constexpr std::array<std::string_view, 23> kArgumentValueKinds = {
     "by_value",      "by_value",      "by_value",      "by_value",
     "by_value",      "by_value",      "by_value"};
 static_assert(sizeof(Arguments) == 144);
-static_assert(sizeof(Summary) == 64);
+static_assert(sizeof(Summary) == 80);
 static_assert(sizeof(Slot) == 64);
 static_assert(sizeof(Record) == 96);
 static_assert(sizeof(Background) == 20);

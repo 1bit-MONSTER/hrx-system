@@ -94,6 +94,34 @@ struct Profile {
   uint32_t rounds;
 };
 
+void CheckTickInterval(uint32_t begin_low, uint32_t begin_high,
+                       uint32_t end_low, uint32_t end_high) {
+  const uint64_t begin = (uint64_t{begin_high} << 32) | begin_low;
+  const uint64_t end = (uint64_t{end_high} << 32) | end_low;
+  ASSERT_GE(end, begin) << "shader reference clock moved backwards";
+  ASSERT_LT(end - begin, UINT32_MAX)
+      << "shader interval exceeds compact request timestamp width";
+}
+
+TEST(FileClockTest, SameShaderIntervalAllowsLowWordWrap) {
+  ASSERT_NO_FATAL_FAILURE(CheckTickInterval(0xfffffff0u, 7, 16, 8));
+  ASSERT_NO_FATAL_FAILURE(CheckTickInterval(1, 7, 0xffffffffu, 7));
+}
+
+TEST(FileClockTest, BackwardsIntervalRemainsAFailure) {
+  EXPECT_FATAL_FAILURE(CheckTickInterval(16, 8, 15, 8),
+                       "shader reference clock moved backwards");
+}
+
+TEST(FileClockTest, AmbiguousCompactIntervalRemainsAFailure) {
+  EXPECT_FATAL_FAILURE(
+      CheckTickInterval(1, 7, 0, 8),
+      "shader interval exceeds compact request timestamp width");
+  EXPECT_FATAL_FAILURE(
+      CheckTickInterval(1, 7, 2, 9),
+      "shader interval exceeds compact request timestamp width");
+}
+
 struct PollerAccounting {
   // Accumulated CPU time, absent when the kernel cannot expose the sample.
   std::optional<uint64_t> microseconds;
@@ -206,10 +234,6 @@ struct Sample {
   int host_start_cpu = -1;
   // CPU executing the service owner after measured completion.
   int host_end_cpu = -1;
-  // DRM GPU-clock samples enclosing the complete shader clock interval.
-  uint64_t clock_before = 0;
-  // DRM GPU-clock sample after final completion and queue retirement.
-  uint64_t clock_after = 0;
 };
 
 class GpuFileLatencyTest : public GpuFileIoFixture,
@@ -249,14 +273,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     frequency_khz_ = device_info.gpu_counter_freq;
     ASSERT_GT(frequency_khz_, 0u);
     RecordProperty("io_reference_clock_khz", frequency_khz_);
-  }
-
-  void QueryClock(uint64_t* result) {
-    drm_amdgpu_info query = {};
-    query.return_pointer = reinterpret_cast<uintptr_t>(result);
-    query.return_size = sizeof(*result);
-    query.query = AMDGPU_INFO_TIMESTAMP;
-    ASSERT_EQ(ioctl(clock_file_, DRM_IOCTL_AMDGPU_INFO, &query), 0);
+    RecordProperty("io_clock_source", "shader_get_realtime");
   }
 
   void PollerCpu(std::optional<uint64_t>* microseconds) {
@@ -301,7 +318,6 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     std::optional<uint64_t> poller_before;
     uint64_t host_before = 0;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_before));
-    ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_before));
     sample->host_thread = static_cast<int>(syscall(__NR_gettid));
     sample->host_start_cpu = sched_getcpu();
     uint32_t wake_tail =
@@ -353,7 +369,6 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
       sample->poller_microseconds = *poller_after - *poller_before;
     }
     ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
-    ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_after));
     WaitIdle();
     std::optional<uint64_t> poller_idle;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_idle));
@@ -374,7 +389,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
 
   void CheckEpoch(const Profile& profile, const protocol::Arguments& arguments,
                   GpuMemory* payload, GpuMemory* state, GpuMemory* records,
-                  const Sample& sample, std::vector<uint32_t>* expected_file) {
+                  std::vector<uint32_t>* expected_file) {
     const auto* summary =
         static_cast<const protocol::Summary*>(state->host.pointer);
     const uint32_t count =
@@ -394,17 +409,10 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_EQ(
         GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.overflow)),
         0u);
-    ASSERT_GE(sample.clock_after, sample.clock_before);
-    ASSERT_LT(sample.clock_after - sample.clock_before, UINT32_MAX);
-    const uint32_t enclosing_ticks = sample.clock_after - sample.clock_before;
-    const uint32_t begin_position =
-        summary->begin_tick - uint32_t(sample.clock_before);
-    const uint32_t end_position =
-        summary->end_tick - uint32_t(sample.clock_before);
-    ASSERT_LE(begin_position, end_position)
-        << "shader and DRM clock domains differ";
-    ASSERT_LE(end_position, enclosing_ticks)
-        << "shader clock outside DRM bracket";
+    ASSERT_NO_FATAL_FAILURE(
+        CheckTickInterval(summary->begin_tick, summary->begin_tick_high,
+                          summary->end_tick, summary->end_tick_high));
+    ASSERT_EQ(summary->reserved, 0u);
     const auto* rows = reinterpret_cast<const protocol::Record*>(
         static_cast<const uint32_t*>(records->host.pointer) + kGuardWords);
     const auto* slots = reinterpret_cast<const protocol::Slot*>(summary + 1);
@@ -552,6 +560,10 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
         static_cast<const protocol::Summary*>(state->host.pointer);
     ASSERT_EQ(summary->status,
               fault == InputFault::kShortFile ? -ENODATA : -EBADF);
+    ASSERT_NO_FATAL_FAILURE(
+        CheckTickInterval(summary->begin_tick, summary->begin_tick_high,
+                          summary->end_tick, summary->end_tick_high));
+    ASSERT_EQ(summary->reserved, 0u);
     ASSERT_EQ(summary->submitted, summary->completed);
     ASSERT_GE(summary->submitted, profile.depth);
     ASSERT_LE(summary->submitted, 2 * profile.depth);
@@ -749,7 +761,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
         ASSERT_TRUE(queue->Release(api_));
         if (fault == InputFault::kNone) {
           ASSERT_NO_FATAL_FAILURE(CheckEpoch(profile, values, payload, state,
-                                             records, sample, &expected_file));
+                                             records, &expected_file));
         } else {
           ASSERT_NO_FATAL_FAILURE(
               CheckFailure(profile, values, fault, state, records, payload));
@@ -842,8 +854,7 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
   void CheckDemand(const DemandProfile& profile,
                    const demand::Arguments& arguments, InputFault fault,
                    GpuMemory* payload, GpuMemory* state, GpuMemory* records,
-                   GpuMemory* keys, const Sample& sample,
-                   const std::vector<demand::Record>& offered,
+                   GpuMemory* keys, const std::vector<demand::Record>& offered,
                    std::vector<uint32_t>* expected_file) {
     const auto* summary =
         static_cast<const demand::Summary*>(state->host.pointer);
@@ -873,12 +884,10 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
     ASSERT_EQ(
         GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.overflow)),
         0u);
-    ASSERT_GE(sample.clock_after, sample.clock_before);
-    ASSERT_LT(sample.clock_after - sample.clock_before, UINT32_MAX);
-    ASSERT_LE(uint32_t(summary->begin_tick - uint32_t(sample.clock_before)),
-              uint32_t(summary->end_tick - uint32_t(sample.clock_before)));
-    ASSERT_LE(uint32_t(summary->end_tick - uint32_t(sample.clock_before)),
-              sample.clock_after - sample.clock_before);
+    ASSERT_NO_FATAL_FAILURE(
+        CheckTickInterval(summary->begin_tick, summary->begin_tick_high,
+                          summary->end_tick, summary->end_tick_high));
+    ASSERT_EQ(summary->reserved, (std::array<uint32_t, 2>{0, 0}));
     const auto elapsed = [summary](uint32_t tick) {
       return uint32_t(tick - summary->begin_tick);
     };
@@ -1371,8 +1380,8 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
         }
         ASSERT_EQ(work->result, result);
         ASSERT_NO_FATAL_FAILURE(CheckDemand(profile, values, fault, payload,
-                                            state, records, keys, sample,
-                                            offered, &expected_file));
+                                            state, records, keys, offered,
+                                            &expected_file));
         ASSERT_EQ(std::memcmp(arguments->host.pointer, &values, sizeof(values)),
                   0);
         if (profile.phases == 3) {

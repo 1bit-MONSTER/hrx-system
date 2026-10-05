@@ -424,10 +424,15 @@ intervals. The I/O workload and its correctness oracles still run; unavailable
 accounting cannot support a CPU-cost comparison. Malformed fields and failed
 fdinfo reads remain failures. None of these counters measures joules.
 
-Clock conversion uses `AMDGPU_INFO_DEV_INFO.gpu_counter_freq`, not GPU operating
-MHz or KFD's host-clock frequency. Every sample checks that its shader clock
-interval fits inside enclosing `AMDGPU_INFO_TIMESTAMP` observations on the same
-native device. The interval must fit the shader's 32-bit counter width. The
+Clock conversion uses the nominal `AMDGPU_INFO_DEV_INFO.gpu_counter_freq`, not
+GPU operating MHz or KFD's host-clock frequency. Full-width `GET_REALTIME`
+samples at the shader's start and end bound the interval in the same clock
+domain as its compact request timestamps. The interval must fit the records'
+32-bit width; crossing a low-word wrap is valid, running beyond that width or
+observing a backwards clock is not. Only the two endpoint samples use the
+wide instruction; per-request samples remain 32-bit. No shared epoch with
+`AMDGPU_INFO_TIMESTAMP`, host/device clock calibration, or measured clock rate
+is claimed. The
 [clock reference](../../../../../docs/reference/amd/gpu/observability.md)
 describes those domains. Request timestamp and transcript overhead is shared
 by all paths; results characterize this instrumented native boundary, not a

@@ -54,7 +54,9 @@ measurement workload with up to four completion-driven streams. It probes
 returned bytes to choose subsequent file keys, records reference-clock
 intervals, and supports read-only or scattered read/write/reload chains.
 The [latency oracle](../linux/io_uring/file_latency_test.cc) checks causal
-results, complete final buffers and file contents, and clock-domain brackets.
+results, complete final buffers and file contents, and same-shader-clock
+interval bounds. Full-width endpoint samples disambiguate compact request
+timestamps without assuming an epoch relationship with the driver's clock.
 Its [measurement contract](../linux/io_uring/README.md#completion-driven-latency-comparison)
 separates ordinary correctness runs from optimized, isolated comparisons.
 
@@ -241,8 +243,9 @@ The shared [clock declaration](completed_tick.loom) uses ordinary Loom templates
 with one provider module per physical instruction representation. The
 [build declarations](BUILD.bazel) include only providers whose descriptor sets
 are linked into Loom. The selected template drains the resident
-program's vector loads and stores before sampling the low 32 bits of the
-reference clock, then waits for the message result. These are raw ticks,
+program's vector loads and stores before sampling the reference clock, then
+waits for the message result. Compact request samples use the low 32 bits;
+full-width interval endpoints establish their wrap bound. These are raw ticks,
 independent of the caller's release/acquire visibility operations. The complete
 program is linked from authored source; runtime selection never patches code.
 

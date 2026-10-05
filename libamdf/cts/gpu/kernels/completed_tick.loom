@@ -10,3 +10,7 @@
 // Message 0x83 is RTN_GET_REALTIME. Its returned SGPR is asynchronous and must
 // be waited on through LGKM or KM, according to the selected instruction set.
 template.decl @completed_tick() -> (i32)
+
+// Full-width samples bound the resident interval in this same shader domain.
+// Request records keep the compact low word; no DRM epoch identity is assumed.
+template.decl @completed_tick64() -> (i64)
