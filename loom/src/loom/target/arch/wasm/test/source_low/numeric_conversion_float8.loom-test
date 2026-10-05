@@ -1,0 +1,911 @@
+// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_conversion_float8.loom-test
+// RUN: emit source-low target=wasm:simd128 output=low
+
+func.def @scalar_extf_f8e4m3_to_f32(%input: f8E4M3) -> (f32) {
+  %converted = scalar.extf %input : f8E4M3 to f32
+  func.return %converted : f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_extf_f8e4m3_to_f32(%input: reg<wasm.i32>) -> (reg<wasm.f32>) asm {
+  %64 = i32.const 255
+  %65 = i32.and %input, %64
+  %66 = i32.const 128
+  %67 = i32.and %65, %66
+  %68 = i32.const 24
+  %69 = i32.shl %67, %68
+  %70 = i32.const 120
+  %71 = i32.and %65, %70
+  %72 = i32.const 3
+  %73 = i32.shr_u %71, %72
+  %74 = i32.const 7
+  %75 = i32.and %65, %74
+  %76 = i32.add %73, %70
+  %77 = i32.const 23
+  %78 = i32.shl %76, %77
+  %79 = i32.const 20
+  %80 = i32.shl %75, %79
+  %81 = i32.or %69, %78
+  %82 = i32.or %81, %80
+  %83 = i32.const 0
+  %84 = i32.const 2
+  %85 = i32.and %75, %84
+  %86 = i32.ne %85, %83
+  %87 = i32.const 1
+  %88 = i32.select %87, %83, %86
+  %89 = i32.const 4
+  %90 = i32.and %75, %89
+  %91 = i32.ne %90, %83
+  %92 = i32.select %84, %88, %91
+  %93 = i32.const 118
+  %94 = i32.add %92, %93
+  %95 = i32.shl %94, %77
+  %96 = i32.sub %77, %92
+  %97 = i32.shl %75, %96
+  %98 = i32.const 8388607
+  %99 = i32.and %97, %98
+  %100 = i32.or %69, %95
+  %101 = i32.or %100, %99
+  %102 = i32.eq %75, %83
+  %103 = i32.select %69, %101, %102
+  %104 = i32.eq %73, %83
+  %105 = i32.select %103, %82, %104
+  %106 = i32.const 15
+  %107 = i32.eq %73, %106
+  %108 = i32.const 2143289344
+  %109 = i32.eq %75, %74
+  %111 = i32.select %109, %83, %107
+  %112 = i32.select %108, %105, %111
+  %converted = f32.reinterpret_i32 %112
+  return %converted
+}
+
+// ====
+
+func.def @scalar_extf_f8e5m2_to_f32(%input: f8E5M2) -> (f32) {
+  %converted = scalar.extf %input : f8E5M2 to f32
+  func.return %converted : f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_extf_f8e5m2_to_f32(%input: reg<wasm.i32>) -> (reg<wasm.f32>) asm {
+  %59 = i32.const 255
+  %60 = i32.and %input, %59
+  %61 = i32.const 128
+  %62 = i32.and %60, %61
+  %63 = i32.const 24
+  %64 = i32.shl %62, %63
+  %65 = i32.const 124
+  %66 = i32.and %60, %65
+  %67 = i32.const 2
+  %68 = i32.shr_u %66, %67
+  %69 = i32.const 3
+  %70 = i32.and %60, %69
+  %71 = i32.const 112
+  %72 = i32.add %68, %71
+  %73 = i32.const 23
+  %74 = i32.shl %72, %73
+  %75 = i32.const 21
+  %76 = i32.shl %70, %75
+  %77 = i32.or %64, %74
+  %78 = i32.or %77, %76
+  %79 = i32.const 0
+  %80 = i32.and %70, %67
+  %81 = i32.ne %80, %79
+  %82 = i32.const 1
+  %83 = i32.select %82, %79, %81
+  %84 = i32.const 111
+  %85 = i32.add %83, %84
+  %86 = i32.shl %85, %73
+  %87 = i32.sub %73, %83
+  %88 = i32.shl %70, %87
+  %89 = i32.const 8388607
+  %90 = i32.and %88, %89
+  %91 = i32.or %64, %86
+  %92 = i32.or %91, %90
+  %93 = i32.eq %70, %79
+  %94 = i32.select %64, %92, %93
+  %95 = i32.eq %68, %79
+  %96 = i32.select %94, %78, %95
+  %97 = i32.const 31
+  %98 = i32.eq %68, %97
+  %99 = i32.const 2143289344
+  %100 = i32.const 2139095040
+  %101 = i32.or %64, %100
+  %102 = i32.select %101, %99, %93
+  %103 = i32.select %102, %96, %98
+  %converted = f32.reinterpret_i32 %103
+  return %converted
+}
+
+// ====
+
+func.def @vector_extf_f8e4m3x3_to_bf16x3(%first: f8E4M3, %second: f8E4M3, %third: f8E4M3) -> (bf16, bf16, bf16) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf8E4M3>
+  %converted = vector.extf %input : vector<3xf8E4M3> to vector<3xbf16>
+  %first_result = vector.extract %converted[0] : vector<3xbf16> -> bf16
+  %second_result = vector.extract %converted[1] : vector<3xbf16> -> bf16
+  %third_result = vector.extract %converted[2] : vector<3xbf16> -> bf16
+  func.return %first_result, %second_result, %third_result : bf16, bf16, bf16
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @vector_extf_f8e4m3x3_to_bf16x3(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %third: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %206 = i32.const 255
+  %207 = i32.and %first, %206
+  %208 = i32.const 128
+  %209 = i32.and %207, %208
+  %210 = i32.const 24
+  %211 = i32.shl %209, %210
+  %212 = i32.const 120
+  %213 = i32.and %207, %212
+  %214 = i32.const 3
+  %215 = i32.shr_u %213, %214
+  %216 = i32.const 7
+  %217 = i32.and %207, %216
+  %218 = i32.add %215, %212
+  %219 = i32.const 23
+  %220 = i32.shl %218, %219
+  %221 = i32.const 20
+  %222 = i32.shl %217, %221
+  %223 = i32.or %211, %220
+  %224 = i32.or %223, %222
+  %225 = i32.const 0
+  %226 = i32.const 2
+  %227 = i32.and %217, %226
+  %228 = i32.ne %227, %225
+  %229 = i32.const 1
+  %230 = i32.select %229, %225, %228
+  %231 = i32.const 4
+  %232 = i32.and %217, %231
+  %233 = i32.ne %232, %225
+  %234 = i32.select %226, %230, %233
+  %235 = i32.const 118
+  %236 = i32.add %234, %235
+  %237 = i32.shl %236, %219
+  %238 = i32.sub %219, %234
+  %239 = i32.shl %217, %238
+  %240 = i32.const 8388607
+  %241 = i32.and %239, %240
+  %242 = i32.or %211, %237
+  %243 = i32.or %242, %241
+  %244 = i32.eq %217, %225
+  %245 = i32.select %211, %243, %244
+  %246 = i32.eq %215, %225
+  %247 = i32.select %245, %224, %246
+  %248 = i32.const 15
+  %249 = i32.eq %215, %248
+  %250 = i32.const 2143289344
+  %251 = i32.eq %217, %216
+  %253 = i32.select %251, %225, %249
+  %254 = i32.select %250, %247, %253
+  %255 = f32.reinterpret_i32 %254
+  %256 = i32.reinterpret_f32 %255
+  %257 = i32.const 16
+  %258 = i32.shr_u %256, %257
+  %260 = i32.and %258, %229
+  %261 = i32.const 32767
+  %262 = i32.add %261, %260
+  %263 = i32.add %256, %262
+  %264 = i32.shr_u %263, %257
+  %265 = i32.const 2147483647
+  %266 = i32.and %256, %265
+  %267 = i32.const 2139095040
+  %268 = i32.gt_u %266, %267
+  %269 = i32.const 64
+  %270 = i32.or %258, %269
+  %first_result = i32.select %270, %264, %268
+  %273 = i32.and %second, %206
+  %274 = i32.and %273, %208
+  %275 = i32.shl %274, %210
+  %276 = i32.and %273, %212
+  %277 = i32.shr_u %276, %214
+  %278 = i32.and %273, %216
+  %279 = i32.add %277, %212
+  %280 = i32.shl %279, %219
+  %281 = i32.shl %278, %221
+  %282 = i32.or %275, %280
+  %283 = i32.or %282, %281
+  %284 = i32.and %278, %226
+  %285 = i32.ne %284, %225
+  %286 = i32.select %229, %225, %285
+  %287 = i32.and %278, %231
+  %288 = i32.ne %287, %225
+  %289 = i32.select %226, %286, %288
+  %290 = i32.add %289, %235
+  %291 = i32.shl %290, %219
+  %292 = i32.sub %219, %289
+  %293 = i32.shl %278, %292
+  %294 = i32.and %293, %240
+  %295 = i32.or %275, %291
+  %296 = i32.or %295, %294
+  %297 = i32.eq %278, %225
+  %298 = i32.select %275, %296, %297
+  %299 = i32.eq %277, %225
+  %300 = i32.select %298, %283, %299
+  %301 = i32.eq %277, %248
+  %302 = i32.eq %278, %216
+  %303 = i32.select %302, %225, %301
+  %304 = i32.select %250, %300, %303
+  %305 = f32.reinterpret_i32 %304
+  %306 = i32.reinterpret_f32 %305
+  %308 = i32.shr_u %306, %257
+  %310 = i32.and %308, %229
+  %312 = i32.add %261, %310
+  %313 = i32.add %306, %312
+  %314 = i32.shr_u %313, %257
+  %316 = i32.and %306, %265
+  %318 = i32.gt_u %316, %267
+  %320 = i32.or %308, %269
+  %second_result = i32.select %320, %314, %318
+  %323 = i32.and %third, %206
+  %324 = i32.and %323, %208
+  %325 = i32.shl %324, %210
+  %326 = i32.and %323, %212
+  %327 = i32.shr_u %326, %214
+  %328 = i32.and %323, %216
+  %329 = i32.add %327, %212
+  %330 = i32.shl %329, %219
+  %331 = i32.shl %328, %221
+  %332 = i32.or %325, %330
+  %333 = i32.or %332, %331
+  %334 = i32.and %328, %226
+  %335 = i32.ne %334, %225
+  %336 = i32.select %229, %225, %335
+  %337 = i32.and %328, %231
+  %338 = i32.ne %337, %225
+  %339 = i32.select %226, %336, %338
+  %340 = i32.add %339, %235
+  %341 = i32.shl %340, %219
+  %342 = i32.sub %219, %339
+  %343 = i32.shl %328, %342
+  %344 = i32.and %343, %240
+  %345 = i32.or %325, %341
+  %346 = i32.or %345, %344
+  %347 = i32.eq %328, %225
+  %348 = i32.select %325, %346, %347
+  %349 = i32.eq %327, %225
+  %350 = i32.select %348, %333, %349
+  %351 = i32.eq %327, %248
+  %352 = i32.eq %328, %216
+  %353 = i32.select %352, %225, %351
+  %354 = i32.select %250, %350, %353
+  %355 = f32.reinterpret_i32 %354
+  %356 = i32.reinterpret_f32 %355
+  %358 = i32.shr_u %356, %257
+  %360 = i32.and %358, %229
+  %362 = i32.add %261, %360
+  %363 = i32.add %356, %362
+  %364 = i32.shr_u %363, %257
+  %366 = i32.and %356, %265
+  %368 = i32.gt_u %366, %267
+  %370 = i32.or %358, %269
+  %third_result = i32.select %370, %364, %368
+  return %first_result, %second_result, %third_result
+}
+
+// ====
+
+func.def @vector_extf_f8e5m2x3_to_f16x3(%first: f8E5M2, %second: f8E5M2, %third: f8E5M2) -> (f16, f16, f16) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf8E5M2>
+  %converted = vector.extf %input : vector<3xf8E5M2> to vector<3xf16>
+  %first_result = vector.extract %converted[0] : vector<3xf16> -> f16
+  %second_result = vector.extract %converted[1] : vector<3xf16> -> f16
+  %third_result = vector.extract %converted[2] : vector<3xf16> -> f16
+  func.return %first_result, %second_result, %third_result : f16, f16, f16
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @vector_extf_f8e5m2x3_to_f16x3(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %third: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %191 = i32.const 255
+  %192 = i32.and %first, %191
+  %193 = i32.const 128
+  %194 = i32.and %192, %193
+  %195 = i32.const 24
+  %196 = i32.shl %194, %195
+  %197 = i32.const 124
+  %198 = i32.and %192, %197
+  %199 = i32.const 2
+  %200 = i32.shr_u %198, %199
+  %201 = i32.const 3
+  %202 = i32.and %192, %201
+  %203 = i32.const 112
+  %204 = i32.add %200, %203
+  %205 = i32.const 23
+  %206 = i32.shl %204, %205
+  %207 = i32.const 21
+  %208 = i32.shl %202, %207
+  %209 = i32.or %196, %206
+  %210 = i32.or %209, %208
+  %211 = i32.const 0
+  %212 = i32.and %202, %199
+  %213 = i32.ne %212, %211
+  %214 = i32.const 1
+  %215 = i32.select %214, %211, %213
+  %216 = i32.const 111
+  %217 = i32.add %215, %216
+  %218 = i32.shl %217, %205
+  %219 = i32.sub %205, %215
+  %220 = i32.shl %202, %219
+  %221 = i32.const 8388607
+  %222 = i32.and %220, %221
+  %223 = i32.or %196, %218
+  %224 = i32.or %223, %222
+  %225 = i32.eq %202, %211
+  %226 = i32.select %196, %224, %225
+  %227 = i32.eq %200, %211
+  %228 = i32.select %226, %210, %227
+  %229 = i32.const 31
+  %230 = i32.eq %200, %229
+  %231 = i32.const 2143289344
+  %232 = i32.const 2139095040
+  %233 = i32.or %196, %232
+  %234 = i32.select %233, %231, %225
+  %235 = i32.select %234, %228, %230
+  %236 = f32.reinterpret_i32 %235
+  %237 = i32.reinterpret_f32 %236
+  %238 = i32.const 2147483648
+  %239 = i32.and %237, %238
+  %240 = i32.const 16
+  %241 = i32.shr_u %239, %240
+  %242 = i32.const 2147483647
+  %243 = i32.and %237, %242
+  %244 = f32.const 1056964608
+  %245 = f32.reinterpret_i32 %243
+  %246 = f32.add %245, %244
+  %247 = i32.reinterpret_f32 %246
+  %248 = i32.const 1056964608
+  %249 = i32.sub %247, %248
+  %250 = i32.const 13
+  %251 = i32.shr_u %243, %250
+  %253 = i32.and %251, %214
+  %254 = i32.const 3355447295
+  %255 = i32.add %243, %254
+  %256 = i32.add %255, %253
+  %257 = i32.shr_u %256, %250
+  %258 = i32.const 947912704
+  %259 = i32.lt_u %243, %258
+  %260 = i32.select %249, %257, %259
+  %261 = i32.const 31744
+  %262 = i32.ge_u %260, %261
+  %263 = i32.select %261, %260, %262
+  %265 = i32.and %243, %221
+  %266 = i32.shr_u %265, %250
+  %267 = i32.or %261, %266
+  %268 = i32.const 512
+  %269 = i32.or %267, %268
+  %271 = i32.gt_u %243, %232
+  %272 = i32.select %269, %263, %271
+  %first_result = i32.or %241, %272
+  %275 = i32.and %second, %191
+  %276 = i32.and %275, %193
+  %277 = i32.shl %276, %195
+  %278 = i32.and %275, %197
+  %279 = i32.shr_u %278, %199
+  %280 = i32.and %275, %201
+  %281 = i32.add %279, %203
+  %282 = i32.shl %281, %205
+  %283 = i32.shl %280, %207
+  %284 = i32.or %277, %282
+  %285 = i32.or %284, %283
+  %286 = i32.and %280, %199
+  %287 = i32.ne %286, %211
+  %288 = i32.select %214, %211, %287
+  %289 = i32.add %288, %216
+  %290 = i32.shl %289, %205
+  %291 = i32.sub %205, %288
+  %292 = i32.shl %280, %291
+  %293 = i32.and %292, %221
+  %294 = i32.or %277, %290
+  %295 = i32.or %294, %293
+  %296 = i32.eq %280, %211
+  %297 = i32.select %277, %295, %296
+  %298 = i32.eq %279, %211
+  %299 = i32.select %297, %285, %298
+  %300 = i32.eq %279, %229
+  %301 = i32.or %277, %232
+  %302 = i32.select %301, %231, %296
+  %303 = i32.select %302, %299, %300
+  %304 = f32.reinterpret_i32 %303
+  %305 = i32.reinterpret_f32 %304
+  %307 = i32.and %305, %238
+  %309 = i32.shr_u %307, %240
+  %311 = i32.and %305, %242
+  %313 = f32.reinterpret_i32 %311
+  %314 = f32.add %313, %244
+  %315 = i32.reinterpret_f32 %314
+  %317 = i32.sub %315, %248
+  %319 = i32.shr_u %311, %250
+  %321 = i32.and %319, %214
+  %323 = i32.add %311, %254
+  %324 = i32.add %323, %321
+  %325 = i32.shr_u %324, %250
+  %327 = i32.lt_u %311, %258
+  %328 = i32.select %317, %325, %327
+  %330 = i32.ge_u %328, %261
+  %331 = i32.select %261, %328, %330
+  %333 = i32.and %311, %221
+  %334 = i32.shr_u %333, %250
+  %335 = i32.or %261, %334
+  %337 = i32.or %335, %268
+  %339 = i32.gt_u %311, %232
+  %340 = i32.select %337, %331, %339
+  %second_result = i32.or %309, %340
+  %343 = i32.and %third, %191
+  %344 = i32.and %343, %193
+  %345 = i32.shl %344, %195
+  %346 = i32.and %343, %197
+  %347 = i32.shr_u %346, %199
+  %348 = i32.and %343, %201
+  %349 = i32.add %347, %203
+  %350 = i32.shl %349, %205
+  %351 = i32.shl %348, %207
+  %352 = i32.or %345, %350
+  %353 = i32.or %352, %351
+  %354 = i32.and %348, %199
+  %355 = i32.ne %354, %211
+  %356 = i32.select %214, %211, %355
+  %357 = i32.add %356, %216
+  %358 = i32.shl %357, %205
+  %359 = i32.sub %205, %356
+  %360 = i32.shl %348, %359
+  %361 = i32.and %360, %221
+  %362 = i32.or %345, %358
+  %363 = i32.or %362, %361
+  %364 = i32.eq %348, %211
+  %365 = i32.select %345, %363, %364
+  %366 = i32.eq %347, %211
+  %367 = i32.select %365, %353, %366
+  %368 = i32.eq %347, %229
+  %369 = i32.or %345, %232
+  %370 = i32.select %369, %231, %364
+  %371 = i32.select %370, %367, %368
+  %372 = f32.reinterpret_i32 %371
+  %373 = i32.reinterpret_f32 %372
+  %375 = i32.and %373, %238
+  %377 = i32.shr_u %375, %240
+  %379 = i32.and %373, %242
+  %381 = f32.reinterpret_i32 %379
+  %382 = f32.add %381, %244
+  %383 = i32.reinterpret_f32 %382
+  %385 = i32.sub %383, %248
+  %387 = i32.shr_u %379, %250
+  %389 = i32.and %387, %214
+  %391 = i32.add %379, %254
+  %392 = i32.add %391, %389
+  %393 = i32.shr_u %392, %250
+  %395 = i32.lt_u %379, %258
+  %396 = i32.select %385, %393, %395
+  %398 = i32.ge_u %396, %261
+  %399 = i32.select %261, %396, %398
+  %401 = i32.and %379, %221
+  %402 = i32.shr_u %401, %250
+  %403 = i32.or %261, %402
+  %405 = i32.or %403, %268
+  %407 = i32.gt_u %379, %232
+  %408 = i32.select %405, %399, %407
+  %third_result = i32.or %377, %408
+  return %first_result, %second_result, %third_result
+}
+
+// ====
+
+func.def @scalar_fptrunc_f32_to_f8e4m3(%input: f32) -> (f8E4M3) {
+  %converted = scalar.fptrunc %input : f32 to f8E4M3
+  func.return %converted : f8E4M3
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_fptrunc_f32_to_f8e4m3(%input: reg<wasm.f32>) -> (reg<wasm.i32>) asm {
+  %5 = i32.reinterpret_f32 %input
+  %6 = i32.const 2147483648
+  %7 = i32.and %5, %6
+  %8 = i32.const 24
+  %9 = i32.shr_u %7, %8
+  %10 = i32.const 2147483647
+  %11 = i32.and %5, %10
+  %12 = f32.const 1182793728
+  %13 = f32.reinterpret_i32 %11
+  %14 = f32.add %13, %12
+  %15 = i32.reinterpret_f32 %14
+  %16 = i32.const 1182793728
+  %17 = i32.sub %15, %16
+  %18 = i32.const 20
+  %19 = i32.shr_u %11, %18
+  %20 = i32.const 1
+  %21 = i32.and %19, %20
+  %22 = i32.const 3288858623
+  %23 = i32.add %11, %22
+  %24 = i32.add %23, %21
+  %25 = i32.shr_u %24, %18
+  %26 = i32.const 1015021568
+  %27 = i32.lt_u %11, %26
+  %28 = i32.select %17, %25, %27
+  %30 = i32.const 127
+  %31 = i32.const 126
+  %32 = i32.ge_u %28, %30
+  %33 = i32.select %31, %28, %32
+  %35 = i32.const 2139095040
+  %36 = i32.gt_u %11, %35
+  %37 = i32.select %30, %33, %36
+  %converted = i32.or %9, %37
+  return %converted
+}
+
+// ====
+
+func.def @scalar_fptrunc_f32_to_f8e5m2(%input: f32) -> (f8E5M2) {
+  %converted = scalar.fptrunc %input : f32 to f8E5M2
+  func.return %converted : f8E5M2
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_fptrunc_f32_to_f8e5m2(%input: reg<wasm.f32>) -> (reg<wasm.i32>) asm {
+  %5 = i32.reinterpret_f32 %input
+  %6 = i32.const 2147483648
+  %7 = i32.and %5, %6
+  %8 = i32.const 24
+  %9 = i32.shr_u %7, %8
+  %10 = i32.const 2147483647
+  %11 = i32.and %5, %10
+  %12 = f32.const 1124073472
+  %13 = f32.reinterpret_i32 %11
+  %14 = f32.add %13, %12
+  %15 = i32.reinterpret_f32 %14
+  %16 = i32.const 1124073472
+  %17 = i32.sub %15, %16
+  %18 = i32.const 21
+  %19 = i32.shr_u %11, %18
+  %20 = i32.const 1
+  %21 = i32.and %19, %20
+  %22 = i32.const 3356491775
+  %23 = i32.add %11, %22
+  %24 = i32.add %23, %21
+  %25 = i32.shr_u %24, %18
+  %26 = i32.const 947912704
+  %27 = i32.lt_u %11, %26
+  %28 = i32.select %17, %25, %27
+  %29 = i32.const 124
+  %30 = i32.ge_u %28, %29
+  %31 = i32.select %29, %28, %30
+  %32 = i32.const 127
+  %33 = i32.const 2139095040
+  %34 = i32.gt_u %11, %33
+  %35 = i32.select %32, %31, %34
+  %converted = i32.or %9, %35
+  return %converted
+}
+
+// ====
+
+func.def @scalar_fptrunc_f16_to_f8e4m3(%input: f16) -> (f8E4M3) {
+  %converted = scalar.fptrunc %input : f16 to f8E4M3
+  func.return %converted : f8E4M3
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_fptrunc_f16_to_f8e4m3(%input: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %5 = i32.const 32768
+  %6 = i32.and %input, %5
+  %7 = i32.const 8
+  %8 = i32.shr_u %6, %7
+  %9 = i32.const 32767
+  %10 = i32.and %input, %9
+  %11 = i32.const 1023
+  %12 = i32.and %10, %11
+  %13 = i32.const 1024
+  %14 = i32.or %12, %13
+  %15 = i32.const 10
+  %16 = i32.shr_u %10, %15
+  %18 = i32.gt_u %16, %7
+  %19 = i32.select %7, %16, %18
+  %20 = i32.const 16
+  %21 = i32.sub %20, %19
+  %22 = i32.const 31
+  %23 = i32.gt_u %21, %22
+  %24 = i32.select %22, %21, %23
+  %25 = i32.shr_u %14, %24
+  %26 = i32.const 1
+  %27 = i32.sub %24, %26
+  %28 = i32.shl %26, %27
+  %29 = i32.sub %28, %26
+  %30 = i32.and %25, %26
+  %31 = i32.add %14, %29
+  %32 = i32.add %31, %30
+  %33 = i32.shr_u %32, %24
+  %34 = i32.const 7
+  %35 = i32.shr_u %10, %34
+  %37 = i32.and %35, %26
+  %38 = i32.const 4294959167
+  %39 = i32.add %10, %38
+  %40 = i32.add %39, %37
+  %41 = i32.shr_u %40, %34
+  %42 = i32.const 9216
+  %43 = i32.lt_u %10, %42
+  %44 = i32.select %33, %41, %43
+  %46 = i32.const 127
+  %47 = i32.const 126
+  %48 = i32.ge_u %44, %46
+  %49 = i32.select %47, %44, %48
+  %51 = i32.const 31744
+  %52 = i32.gt_u %10, %51
+  %53 = i32.select %46, %49, %52
+  %converted = i32.or %8, %53
+  return %converted
+}
+
+// ====
+
+func.def @scalar_fptrunc_bf16_to_f8e5m2(%input: bf16) -> (f8E5M2) {
+  %converted = scalar.fptrunc %input : bf16 to f8E5M2
+  func.return %converted : f8E5M2
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @scalar_fptrunc_bf16_to_f8e5m2(%input: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %5 = i32.const 32768
+  %6 = i32.and %input, %5
+  %7 = i32.const 8
+  %8 = i32.shr_u %6, %7
+  %9 = i32.const 32767
+  %10 = i32.and %input, %9
+  %11 = i32.const 127
+  %12 = i32.and %10, %11
+  %13 = i32.const 128
+  %14 = i32.or %12, %13
+  %15 = i32.const 7
+  %16 = i32.shr_u %10, %15
+  %17 = i32.const 112
+  %18 = i32.gt_u %16, %17
+  %19 = i32.select %17, %16, %18
+  %20 = i32.const 118
+  %21 = i32.sub %20, %19
+  %22 = i32.const 31
+  %23 = i32.gt_u %21, %22
+  %24 = i32.select %22, %21, %23
+  %25 = i32.shr_u %14, %24
+  %26 = i32.const 1
+  %27 = i32.sub %24, %26
+  %28 = i32.shl %26, %27
+  %29 = i32.sub %28, %26
+  %30 = i32.and %25, %26
+  %31 = i32.add %14, %29
+  %32 = i32.add %31, %30
+  %33 = i32.shr_u %32, %24
+  %34 = i32.const 5
+  %35 = i32.shr_u %10, %34
+  %37 = i32.and %35, %26
+  %38 = i32.const 4294952975
+  %39 = i32.add %10, %38
+  %40 = i32.add %39, %37
+  %41 = i32.shr_u %40, %34
+  %42 = i32.const 14464
+  %43 = i32.lt_u %10, %42
+  %44 = i32.select %33, %41, %43
+  %45 = i32.const 124
+  %46 = i32.ge_u %44, %45
+  %47 = i32.select %45, %44, %46
+  %49 = i32.const 32640
+  %50 = i32.gt_u %10, %49
+  %51 = i32.select %11, %47, %50
+  %converted = i32.or %8, %51
+  return %converted
+}
+
+// ====
+
+func.def @vector_fptrunc_f32x3_to_f8e4m3x3(%first: f32, %second: f32, %third: f32) -> (f8E4M3, f8E4M3, f8E4M3) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf32>
+  %converted = vector.fptrunc %input : vector<3xf32> to vector<3xf8E4M3>
+  %first_result = vector.extract %converted[0] : vector<3xf8E4M3> -> f8E4M3
+  %second_result = vector.extract %converted[1] : vector<3xf8E4M3> -> f8E4M3
+  %third_result = vector.extract %converted[2] : vector<3xf8E4M3> -> f8E4M3
+  func.return %first_result, %second_result, %third_result : f8E4M3, f8E4M3, f8E4M3
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @vector_fptrunc_f32x3_to_f8e4m3x3(%first: reg<wasm.f32>, %second: reg<wasm.f32>, %third: reg<wasm.f32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %23 = i32.reinterpret_f32 %first
+  %24 = i32.const 2147483648
+  %25 = i32.and %23, %24
+  %26 = i32.const 24
+  %27 = i32.shr_u %25, %26
+  %28 = i32.const 2147483647
+  %29 = i32.and %23, %28
+  %30 = f32.const 1182793728
+  %31 = f32.reinterpret_i32 %29
+  %32 = f32.add %31, %30
+  %33 = i32.reinterpret_f32 %32
+  %34 = i32.const 1182793728
+  %35 = i32.sub %33, %34
+  %36 = i32.const 20
+  %37 = i32.shr_u %29, %36
+  %38 = i32.const 1
+  %39 = i32.and %37, %38
+  %40 = i32.const 3288858623
+  %41 = i32.add %29, %40
+  %42 = i32.add %41, %39
+  %43 = i32.shr_u %42, %36
+  %44 = i32.const 1015021568
+  %45 = i32.lt_u %29, %44
+  %46 = i32.select %35, %43, %45
+  %48 = i32.const 127
+  %49 = i32.const 126
+  %50 = i32.ge_u %46, %48
+  %51 = i32.select %49, %46, %50
+  %53 = i32.const 2139095040
+  %54 = i32.gt_u %29, %53
+  %55 = i32.select %48, %51, %54
+  %first_result = i32.or %27, %55
+  %57 = i32.reinterpret_f32 %second
+  %59 = i32.and %57, %24
+  %61 = i32.shr_u %59, %26
+  %63 = i32.and %57, %28
+  %65 = f32.reinterpret_i32 %63
+  %66 = f32.add %65, %30
+  %67 = i32.reinterpret_f32 %66
+  %69 = i32.sub %67, %34
+  %71 = i32.shr_u %63, %36
+  %73 = i32.and %71, %38
+  %75 = i32.add %63, %40
+  %76 = i32.add %75, %73
+  %77 = i32.shr_u %76, %36
+  %79 = i32.lt_u %63, %44
+  %80 = i32.select %69, %77, %79
+  %84 = i32.ge_u %80, %48
+  %85 = i32.select %49, %80, %84
+  %88 = i32.gt_u %63, %53
+  %89 = i32.select %48, %85, %88
+  %second_result = i32.or %61, %89
+  %91 = i32.reinterpret_f32 %third
+  %93 = i32.and %91, %24
+  %95 = i32.shr_u %93, %26
+  %97 = i32.and %91, %28
+  %99 = f32.reinterpret_i32 %97
+  %100 = f32.add %99, %30
+  %101 = i32.reinterpret_f32 %100
+  %103 = i32.sub %101, %34
+  %105 = i32.shr_u %97, %36
+  %107 = i32.and %105, %38
+  %109 = i32.add %97, %40
+  %110 = i32.add %109, %107
+  %111 = i32.shr_u %110, %36
+  %113 = i32.lt_u %97, %44
+  %114 = i32.select %103, %111, %113
+  %118 = i32.ge_u %114, %48
+  %119 = i32.select %49, %114, %118
+  %122 = i32.gt_u %97, %53
+  %123 = i32.select %48, %119, %122
+  %third_result = i32.or %95, %123
+  return %first_result, %second_result, %third_result
+}
+
+// ====
+
+func.def @vector_fptrunc_f16x3_to_f8e5m2x3(%first: f16, %second: f16, %third: f16) -> (f8E5M2, f8E5M2, f8E5M2) {
+  %input = vector.from_elements %first, %second, %third : vector<3xf16>
+  %converted = vector.fptrunc %input : vector<3xf16> to vector<3xf8E5M2>
+  %first_result = vector.extract %converted[0] : vector<3xf8E5M2> -> f8E5M2
+  %second_result = vector.extract %converted[1] : vector<3xf8E5M2> -> f8E5M2
+  %third_result = vector.extract %converted[2] : vector<3xf8E5M2> -> f8E5M2
+  func.return %first_result, %second_result, %third_result : f8E5M2, f8E5M2, f8E5M2
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @vector_fptrunc_f16x3_to_f8e5m2x3(%first: reg<wasm.i32>, %second: reg<wasm.i32>, %third: reg<wasm.i32>) -> (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) asm {
+  %23 = i32.const 32768
+  %24 = i32.and %first, %23
+  %25 = i32.const 8
+  %26 = i32.shr_u %24, %25
+  %27 = i32.const 32767
+  %28 = i32.and %first, %27
+  %29 = i32.const 1023
+  %30 = i32.and %28, %29
+  %31 = i32.const 1024
+  %32 = i32.or %30, %31
+  %33 = i32.const 10
+  %34 = i32.shr_u %28, %33
+  %35 = i32.const 1
+  %36 = i32.lt_u %34, %35
+  %37 = i32.select %30, %32, %36
+  %38 = i32.select %35, %34, %36
+  %40 = i32.gt_u %38, %35
+  %41 = i32.select %35, %38, %40
+  %42 = i32.const 9
+  %43 = i32.sub %42, %41
+  %44 = i32.const 31
+  %45 = i32.gt_u %43, %44
+  %46 = i32.select %44, %43, %45
+  %47 = i32.shr_u %37, %46
+  %49 = i32.sub %46, %35
+  %50 = i32.shl %35, %49
+  %51 = i32.sub %50, %35
+  %52 = i32.and %47, %35
+  %53 = i32.add %37, %51
+  %54 = i32.add %53, %52
+  %55 = i32.shr_u %54, %46
+  %57 = i32.shr_u %28, %25
+  %59 = i32.and %57, %35
+  %60 = i32.const 127
+  %61 = i32.add %28, %60
+  %62 = i32.add %61, %59
+  %63 = i32.shr_u %62, %25
+  %65 = i32.lt_u %28, %31
+  %66 = i32.select %55, %63, %65
+  %67 = i32.const 124
+  %68 = i32.ge_u %66, %67
+  %69 = i32.select %67, %66, %68
+  %71 = i32.const 31744
+  %72 = i32.gt_u %28, %71
+  %73 = i32.select %60, %69, %72
+  %first_result = i32.or %26, %73
+  %76 = i32.and %second, %23
+  %78 = i32.shr_u %76, %25
+  %80 = i32.and %second, %27
+  %82 = i32.and %80, %29
+  %84 = i32.or %82, %31
+  %86 = i32.shr_u %80, %33
+  %88 = i32.lt_u %86, %35
+  %89 = i32.select %82, %84, %88
+  %90 = i32.select %35, %86, %88
+  %92 = i32.gt_u %90, %35
+  %93 = i32.select %35, %90, %92
+  %95 = i32.sub %42, %93
+  %97 = i32.gt_u %95, %44
+  %98 = i32.select %44, %95, %97
+  %99 = i32.shr_u %89, %98
+  %101 = i32.sub %98, %35
+  %102 = i32.shl %35, %101
+  %103 = i32.sub %102, %35
+  %104 = i32.and %99, %35
+  %105 = i32.add %89, %103
+  %106 = i32.add %105, %104
+  %107 = i32.shr_u %106, %98
+  %109 = i32.shr_u %80, %25
+  %111 = i32.and %109, %35
+  %113 = i32.add %80, %60
+  %114 = i32.add %113, %111
+  %115 = i32.shr_u %114, %25
+  %117 = i32.lt_u %80, %31
+  %118 = i32.select %107, %115, %117
+  %120 = i32.ge_u %118, %67
+  %121 = i32.select %67, %118, %120
+  %124 = i32.gt_u %80, %71
+  %125 = i32.select %60, %121, %124
+  %second_result = i32.or %78, %125
+  %128 = i32.and %third, %23
+  %130 = i32.shr_u %128, %25
+  %132 = i32.and %third, %27
+  %134 = i32.and %132, %29
+  %136 = i32.or %134, %31
+  %138 = i32.shr_u %132, %33
+  %140 = i32.lt_u %138, %35
+  %141 = i32.select %134, %136, %140
+  %142 = i32.select %35, %138, %140
+  %144 = i32.gt_u %142, %35
+  %145 = i32.select %35, %142, %144
+  %147 = i32.sub %42, %145
+  %149 = i32.gt_u %147, %44
+  %150 = i32.select %44, %147, %149
+  %151 = i32.shr_u %141, %150
+  %153 = i32.sub %150, %35
+  %154 = i32.shl %35, %153
+  %155 = i32.sub %154, %35
+  %156 = i32.and %151, %35
+  %157 = i32.add %141, %155
+  %158 = i32.add %157, %156
+  %159 = i32.shr_u %158, %150
+  %161 = i32.shr_u %132, %25
+  %163 = i32.and %161, %35
+  %165 = i32.add %132, %60
+  %166 = i32.add %165, %163
+  %167 = i32.shr_u %166, %25
+  %169 = i32.lt_u %132, %31
+  %170 = i32.select %159, %167, %169
+  %172 = i32.ge_u %170, %67
+  %173 = i32.select %67, %170, %172
+  %176 = i32.gt_u %132, %71
+  %177 = i32.select %60, %173, %176
+  %third_result = i32.or %130, %177
+  return %first_result, %second_result, %third_result
+}

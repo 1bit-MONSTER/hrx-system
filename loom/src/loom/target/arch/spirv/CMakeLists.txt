@@ -361,6 +361,7 @@ loom_cc_library(
     loom::rewrite::rewriter
     loom::target::arch::spirv::descriptors
     loom::target::legalization
+    loom::transforms::scalar::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
 )

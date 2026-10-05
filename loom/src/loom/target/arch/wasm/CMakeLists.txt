@@ -59,11 +59,15 @@ loom_cc_library(
     ::math_policy
     iree::base
     loom::ir
+    loom::ops::scalar
+    loom::target::arch::wasm::descriptors
     loom::target::arch::wasm::descriptors::low_registry
     loom::target::arch::wasm::ops
     loom::target::arch::wasm::records::target_records
     loom::target::emit::wasm::lower
+    loom::target::legalization
     loom::target::provider
+    loom::transforms::scalar::target_legalization
   PUBLIC
 )
 endif()
@@ -110,7 +114,9 @@ loom_check_test_suite(
     "test/source_low/memory_wide_carriers.loom-test"
     "test/source_low/nested_view_selection.loom-test"
     "test/source_low/numeric_address_widening.loom-test"
+    "test/source_low/numeric_conversion_float8.loom-test"
     "test/source_low/numeric_f32_narrowing.loom-test"
+    "test/source_low/numeric_float8_widen.loom-test"
     "test/source_low/numeric_float_comparison_flags.loom-test"
     "test/source_low/numeric_float_narrowing_matrix.loom-test"
     "test/source_low/numeric_index_extrema.loom-test"

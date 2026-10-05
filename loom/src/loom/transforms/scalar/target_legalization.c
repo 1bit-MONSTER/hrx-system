@@ -385,6 +385,51 @@ static iree_status_t loom_scalar_legalize_build_fp8_storage_byte(
   return iree_ok_status();
 }
 
+bool loom_scalar_match_float8_to_bfloat_extension(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  (void)entry;
+  const loom_value_id_t input = loom_scalar_extf_input(op);
+  const loom_type_t input_type = loom_module_value_type(context->module, input);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_scalar_extf_result(op));
+  return loom_type_is_scalar(input_type) &&
+         loom_scalar_type_set_contains(
+             LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
+             loom_type_element_type(input_type)) &&
+         loom_type_is_scalar(result_type) &&
+         loom_type_element_type(result_type) == LOOM_SCALAR_TYPE_BF16;
+}
+
+iree_status_t loom_scalar_rewrite_float8_to_bfloat_extension(
+    loom_target_legalization_context_t* context, loom_op_t* op) {
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t input = loom_scalar_extf_input(op);
+  const loom_type_t input_type = loom_module_value_type(context->module, input);
+  const loom_type_t f32_type = loom_type_scalar(LOOM_SCALAR_TYPE_F32);
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_scalar_extf_result(op));
+  // F32 represents every FP8 value exactly. Staging through it preserves the
+  // extension semantics while reusing the existing FP8 decode and exact BF16
+  // narrowing paths, including their special-value handling.
+  loom_op_t* widened = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_extf_build(
+      builder, input, input_type, f32_type, op->location, &widened));
+  loom_op_t* narrowed = NULL;
+  IREE_RETURN_IF_ERROR(loom_scalar_fptrunc_build(
+      builder, loom_scalar_extf_result(widened), f32_type, result_type,
+      op->location, &narrowed));
+  const loom_value_id_t replacement = loom_scalar_fptrunc_result(narrowed);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  return iree_ok_status();
+}
+
 static iree_status_t loom_scalar_legalize_extf(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
