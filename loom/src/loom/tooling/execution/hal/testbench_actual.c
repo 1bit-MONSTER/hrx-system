@@ -661,13 +661,10 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
           provider->context->host_allocator, &provider->compile_device_target));
       provider->owns_compile_device_target = true;
     } else {
-      loom_artifact_target_t artifact_target = {0};
-      IREE_RETURN_IF_ERROR(loom_artifact_target_select(
-          device_provider->artifact_provider, provider->target_environment,
-          target_specification, &artifact_target));
-      IREE_RETURN_IF_ERROR(loom_device_provider_select_profile_target(
+      IREE_RETURN_IF_ERROR(loom_device_provider_select_explicit_target(
           device_provider, &provider->context->runtime,
-          artifact_target.target_profile, &provider->compile_device_target));
+          provider->target_environment, target_specification,
+          &provider->compile_device_target));
     }
   }
 

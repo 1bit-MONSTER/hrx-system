@@ -32,8 +32,6 @@ loom_cc_library(
     artifact
   HDRS
     "artifact.h"
-  SRCS
-    "artifact.c"
   DEPS
     ::options
     iree::base
@@ -42,7 +40,6 @@ loom_cc_library(
     loom::target::profile
     loom::target::provider
     loom::target::reporting::report
-    loom::target::selection
     loom::target::types
   PUBLIC
 )
@@ -134,19 +131,6 @@ loom_cc_test(
     ::configured
     iree::testing::gtest
     iree::testing::gtest_main
-)
-
-loom_cc_test(
-  NAME
-    artifact_test
-  SRCS
-    "artifact_test.cc"
-  DEPS
-    ::artifact
-    iree::base
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::target::provider
 )
 
 loom_cc_library(

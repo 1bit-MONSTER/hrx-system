@@ -100,19 +100,6 @@ struct loom_artifact_provider_t {
   loom_artifact_provider_deinitialize_artifact_fn_t deinitialize_artifact;
 };
 
-// Selects a borrowed artifact target from |target_environment|.
-//
-// |target_specification| must use `family:selector` syntax and select the
-// target family required by |provider|. The returned profile has process
-// lifetime and |out_target->target_key| borrows the selector portion of
-// |target_specification|. Selection performs no allocation and requires no
-// teardown. On failure |out_target| remains empty.
-iree_status_t loom_artifact_target_select(
-    const loom_artifact_provider_t* provider,
-    const loom_target_environment_t* target_environment,
-    iree_string_view_t target_specification,
-    loom_artifact_target_t* out_target);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif

@@ -6,6 +6,7 @@
 
 #include "loom/tooling/execution/hal/device_provider.h"
 
+#include "loom/target/selection.h"
 #include "loom/tooling/execution/hal/runtime.h"
 
 iree_status_t loom_device_provider_select_compatible_target(
@@ -135,6 +136,27 @@ iree_status_t loom_device_provider_select_profile_target(
     *out_target = (loom_device_target_t){0};
   }
   return status;
+}
+
+iree_status_t loom_device_provider_select_explicit_target(
+    const loom_device_provider_t* provider,
+    const loom_run_hal_runtime_t* runtime,
+    const loom_target_environment_t* target_environment,
+    iree_string_view_t target_specification, loom_device_target_t* out_target) {
+  IREE_ASSERT_ARGUMENT(provider);
+  IREE_ASSERT_ARGUMENT(runtime);
+  IREE_ASSERT_ARGUMENT(target_environment);
+  IREE_ASSERT_ARGUMENT(out_target);
+  *out_target = (loom_device_target_t){0};
+
+  loom_target_specification_t specification = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_target_specification_parse(target_specification, &specification));
+  const loom_target_profile_t* target_profile = NULL;
+  IREE_RETURN_IF_ERROR(loom_target_environment_select_profile(
+      target_environment, &specification, &target_profile));
+  return loom_device_provider_select_profile_target(provider, runtime,
+                                                    target_profile, out_target);
 }
 
 void loom_device_provider_registry_initialize_from_entries(

@@ -176,6 +176,7 @@ loom_cc_library(
     iree::base
     iree::hal
     loom::target::profile
+    loom::target::selection
     loom::tooling::compile::artifact
   PUBLIC
 )
@@ -420,6 +421,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::profile
+    loom::target::provider
     loom::tooling::compile::artifact
 )
 

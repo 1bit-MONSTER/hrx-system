@@ -118,12 +118,9 @@ static iree_status_t loom_run_hal_execution_backend_select_device_target(
         IREE_STATUS_FAILED_PRECONDITION,
         "explicit HAL target selection requires a target environment");
   }
-  loom_artifact_target_t artifact_target = {0};
-  IREE_RETURN_IF_ERROR(loom_artifact_target_select(
-      device_provider->artifact_provider, request->target_environment,
-      target_specification, &artifact_target));
-  return loom_device_provider_select_profile_target(
-      device_provider, runtime, artifact_target.target_profile, out_target);
+  return loom_device_provider_select_explicit_target(
+      device_provider, runtime, request->target_environment,
+      target_specification, out_target);
 }
 
 static iree_status_t loom_run_hal_execution_backend_run_pipeline(
