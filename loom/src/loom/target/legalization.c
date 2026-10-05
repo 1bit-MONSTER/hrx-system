@@ -282,14 +282,15 @@ loom_target_legalizer_registry_storage_registry(
 iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     loom_target_contract_query_result_t* out_result) {
-  return loom_target_legalization_query_contract_with_value_type(
-      context, op, (loom_target_contract_query_value_type_callback_t){0},
+  return loom_target_legalization_query_contract_with_vector_lane_projection(
+      context, op, (loom_target_contract_vector_lane_projection_t){0},
       out_result);
 }
 
-iree_status_t loom_target_legalization_query_contract_with_value_type(
+iree_status_t
+loom_target_legalization_query_contract_with_vector_lane_projection(
     loom_target_legalization_context_t* context, const loom_op_t* op,
-    loom_target_contract_query_value_type_callback_t value_type,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
     loom_target_contract_query_result_t* out_result) {
   *out_result = loom_target_contract_query_result_empty();
   if (loom_target_contract_query_callback_is_empty(context->contract_query)) {
@@ -301,7 +302,7 @@ iree_status_t loom_target_legalization_query_contract_with_value_type(
       .target_facts = context->target_facts,
       .descriptor_set = context->descriptor_set,
       .fact_table = context->fact_table,
-      .value_type = value_type,
+      .vector_lane_projection = vector_lane_projection,
       .value_domain = context->value_domain,
       .view_regions = context->view_regions,
       .arena = context->arena,

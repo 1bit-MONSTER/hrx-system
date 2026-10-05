@@ -339,11 +339,12 @@ iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     loom_target_contract_query_result_t* out_result);
 
-// Queries |op| through a scoped source-value type view. The callback applies
-// only for this query and does not mutate authored IR or context state.
-iree_status_t loom_target_legalization_query_contract_with_value_type(
+// Queries |op| through a scoped vector lane-count projection. The projection
+// applies only for this query and does not mutate authored IR or context state.
+iree_status_t
+loom_target_legalization_query_contract_with_vector_lane_projection(
     loom_target_legalization_context_t* context, const loom_op_t* op,
-    loom_target_contract_query_value_type_callback_t value_type,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
     loom_target_contract_query_result_t* out_result);
 
 #ifdef __cplusplus

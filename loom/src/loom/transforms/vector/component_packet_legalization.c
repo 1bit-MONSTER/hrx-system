@@ -98,13 +98,6 @@ typedef struct loom_vector_component_plan_t {
   uint32_t component_count;
 } loom_vector_component_plan_t;
 
-typedef struct loom_vector_component_type_projection_t {
-  // Authored logical lane count being projected.
-  uint32_t source_lane_count;
-  // Candidate logical lane count visible to the contract query.
-  uint32_t packet_lane_count;
-} loom_vector_component_type_projection_t;
-
 typedef struct loom_vector_component_external_t {
   // Current SSA value captured outside the component.
   loom_value_id_t source;
@@ -211,35 +204,16 @@ static uint32_t loom_vector_component_record_for_value(
                               : one_based_index - 1u;
 }
 
-static loom_type_t loom_vector_component_project_value_type(
-    void* user_data, const loom_module_t* module, loom_value_id_t value_id) {
-  const loom_vector_component_type_projection_t* projection =
-      (const loom_vector_component_type_projection_t*)user_data;
-  const loom_type_t source_type = loom_module_value_type(module, value_id);
-  uint32_t lane_count = 0;
-  if (!loom_vector_component_static_lane_count(source_type, &lane_count) ||
-      lane_count != projection->source_lane_count) {
-    return source_type;
-  }
-  return loom_vector_component_packet_type(source_type,
-                                           projection->packet_lane_count);
-}
-
 static iree_status_t loom_vector_component_query(
     loom_vector_component_plan_t* plan, const loom_op_t* op,
     uint32_t source_lane_count, uint32_t packet_lane_count,
     loom_target_contract_query_result_t* out_result) {
-  loom_vector_component_type_projection_t projection = {
+  const loom_target_contract_vector_lane_projection_t projection = {
       .source_lane_count = source_lane_count,
-      .packet_lane_count = packet_lane_count,
+      .projected_lane_count = packet_lane_count,
   };
-  return loom_target_legalization_query_contract_with_value_type(
-      plan->context, op,
-      (loom_target_contract_query_value_type_callback_t){
-          .fn = loom_vector_component_project_value_type,
-          .user_data = &projection,
-      },
-      out_result);
+  return loom_target_legalization_query_contract_with_vector_lane_projection(
+      plan->context, op, projection, out_result);
 }
 
 static iree_status_t loom_vector_component_candidate_bits(

@@ -66,24 +66,34 @@ typedef struct loom_target_vector_packet_policy_t {
   uint8_t native_lane_count_count;
 } loom_target_vector_packet_policy_t;
 
-typedef loom_type_t (*loom_target_contract_query_value_type_fn_t)(
-    void* user_data, const loom_module_t* module, loom_value_id_t value_id);
+// Scoped vector lane-count projection for one contract query. An all-zero
+// value reads authored types directly. A populated projection presents static
+// vectors with |source_lane_count| total lanes as rank-one vectors with
+// |projected_lane_count| lanes without mutating source IR.
+typedef struct loom_target_contract_vector_lane_projection_t {
+  // Authored static vector lane count selected for projection.
+  uint32_t source_lane_count;
+  // Rank-one vector lane count presented to the contract query.
+  uint32_t projected_lane_count;
+} loom_target_contract_vector_lane_projection_t;
 
-typedef struct loom_target_contract_query_value_type_callback_t {
-  // Optional scoped source-value type view. Contract planning uses this to
-  // evaluate a candidate representation without mutating or cloning source IR.
-  // Missing reads the authored type directly from |module|.
-  loom_target_contract_query_value_type_fn_t fn;
-  // Caller-owned payload passed to |fn|.
-  void* user_data;
-} loom_target_contract_query_value_type_callback_t;
+// Returns the projected type for |value_id|. Callers first test for an empty
+// projection so ordinary authored queries remain on the direct type-table
+// path and only projected queries cross this out-of-line boundary.
+loom_type_t loom_target_contract_query_projected_value_type(
+    loom_target_contract_vector_lane_projection_t projection,
+    const loom_module_t* module,
+    loom_value_id_t value_id) IREE_ATTRIBUTE_NOINLINE;
 
 // Returns the scoped query type for |value_id|.
 static inline loom_type_t loom_target_contract_query_value_type(
-    loom_target_contract_query_value_type_callback_t callback,
+    loom_target_contract_vector_lane_projection_t projection,
     const loom_module_t* module, loom_value_id_t value_id) {
-  return callback.fn ? callback.fn(callback.user_data, module, value_id)
-                     : loom_module_value_type(module, value_id);
+  if (projection.source_lane_count == 0) {
+    return loom_module_value_type(module, value_id);
+  }
+  return loom_target_contract_query_projected_value_type(projection, module,
+                                                         value_id);
 }
 
 typedef enum loom_target_contract_query_outcome_e {
@@ -358,8 +368,8 @@ typedef struct loom_target_contract_query_environment_t {
   const loom_low_descriptor_set_t* descriptor_set;
   // Source value facts visible to the query.
   const loom_value_fact_table_t* fact_table;
-  // Optional scoped source-value type view used for candidate planning.
-  loom_target_contract_query_value_type_callback_t value_type;
+  // Optional scoped vector lane projection used for candidate planning.
+  loom_target_contract_vector_lane_projection_t vector_lane_projection;
   // Optional active value domain extended by ordinal-keyed query analyses.
   loom_local_value_domain_t* value_domain;
   // Optional function-local view-region analysis visible to the query.

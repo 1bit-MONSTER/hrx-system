@@ -235,7 +235,8 @@ static bool loom_low_lower_rule_value_ref_source_value(
     uint16_t value_ref_index, loom_value_id_t* out_source_value_id) {
   const loom_low_lower_rule_set_t* rule_set = selected_plan->rule_set;
   return loom_low_lower_rule_resolve_source_value_from_nodes(
-      context->module, context->lowering.fact_table, rule_set,
+      context->module, context->lowering.fact_table,
+      (loom_target_contract_vector_lane_projection_t){0}, rule_set,
       selected_plan->source_op, selected_plan->data.source_nodes,
       selected_plan->source_node_count, value_ref_index, out_source_value_id);
 }

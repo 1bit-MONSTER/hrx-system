@@ -86,24 +86,6 @@ loom_target_facts_t MakeTargetFacts() {
   return facts;
 }
 
-struct LaneCountProjection {
-  uint32_t source_lane_count;
-  uint32_t projected_lane_count;
-};
-
-loom_type_t ProjectLaneCount(void* user_data, const loom_module_t* module,
-                             loom_value_id_t value_id) {
-  const LaneCountProjection& projection =
-      *static_cast<const LaneCountProjection*>(user_data);
-  loom_type_t type = loom_module_value_type(module, value_id);
-  if (loom_type_is_vector(type) && loom_type_rank(type) == 1 &&
-      !loom_type_dim_is_dynamic_at(type, 0) &&
-      loom_type_dim_static_size_at(type, 0) == projection.source_lane_count) {
-    type.dims[0] = loom_dim_pack_static(projection.projected_lane_count);
-  }
-  return type;
-}
-
 const loom_target_contract_descriptor_rule_t kContractDescriptorRules[] = {{0}};
 const loom_target_contract_fragment_t kContractFragment = {
     LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
@@ -458,13 +440,9 @@ TEST_F(LowContractQuerySourceMemoryTest,
                                                       source_op, &result));
   EXPECT_EQ(result.outcome, LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED);
 
-  LaneCountProjection projection = {
+  environment.vector_lane_projection = {
       /*.source_lane_count=*/64,
       /*.projected_lane_count=*/16,
-  };
-  environment.value_type = {
-      /*.fn=*/ProjectLaneCount,
-      /*.user_data=*/&projection,
   };
   result = loom_target_contract_query_result_empty();
   IREE_ASSERT_OK(loom_low_lower_query_target_contract(&environment, &options,

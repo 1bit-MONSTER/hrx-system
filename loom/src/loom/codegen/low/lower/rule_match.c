@@ -866,9 +866,9 @@ static iree_status_t loom_low_lower_rule_guard_matches(
   switch (guard->kind) {
     case LOOM_LOW_LOWER_GUARD_VALUE_TYPE: {
       loom_value_id_t value_id = LOOM_VALUE_ID_INVALID;
-      if (!loom_low_lower_rule_resolve_source_value_from_nodes_with_value_type(
+      if (!loom_low_lower_rule_resolve_source_value_from_nodes(
               match_context->module, match_context->fact_table,
-              match_context->value_type, rule_set, source_op,
+              match_context->vector_lane_projection, rule_set, source_op,
               /*source_nodes=*/NULL, /*source_node_count=*/1,
               guard->value_ref_index, &value_id)) {
         return iree_ok_status();

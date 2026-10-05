@@ -1431,7 +1431,7 @@ static iree_status_t loom_low_target_legalize_query_contract(
   IREE_RETURN_IF_ERROR(
       loom_low_target_legalize_apply_final_rejection_to_contract_query(
           state, environment, source_op, out_result));
-  if (environment->value_type.fn == NULL) {
+  if (environment->vector_lane_projection.source_lane_count == 0) {
     loom_low_target_legalize_report_decision_t* report_decision =
         loom_low_target_legalize_report_decision(state, source_op);
     if (report_decision != NULL) {

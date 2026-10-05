@@ -153,9 +153,9 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
   }
 }
 
-bool loom_low_lower_rule_resolve_source_value_from_nodes_with_value_type(
+bool loom_low_lower_rule_resolve_source_value_from_nodes(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    loom_target_contract_query_value_type_callback_t value_type,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_op_t* const* source_nodes, uint8_t source_node_count,
     uint16_t value_ref_index, loom_value_id_t* out_source_value_id) {
@@ -186,12 +186,13 @@ bool loom_low_lower_rule_resolve_source_value_from_nodes_with_value_type(
       }
       uint64_t value_lane_count = 0;
       uint64_t source_lane_count = 0;
-      if (!loom_type_static_element_count(loom_target_contract_query_value_type(
-                                              value_type, module, value_id),
-                                          &value_lane_count) ||
+      if (!loom_type_static_element_count(
+              loom_target_contract_query_value_type(vector_lane_projection,
+                                                    module, value_id),
+              &value_lane_count) ||
           !loom_type_static_element_count(
-              loom_target_contract_query_value_type(value_type, module,
-                                                    origin.source_value_id),
+              loom_target_contract_query_value_type(
+                  vector_lane_projection, module, origin.source_value_id),
               &source_lane_count) ||
           value_lane_count != source_lane_count) {
         return false;
@@ -222,17 +223,6 @@ bool loom_low_lower_rule_resolve_source_value_from_nodes_with_value_type(
       IREE_ASSERT_UNREACHABLE("unknown generated value ref kind");
       IREE_BUILTIN_UNREACHABLE();
   }
-}
-
-bool loom_low_lower_rule_resolve_source_value_from_nodes(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
-    const loom_op_t* const* source_nodes, uint8_t source_node_count,
-    uint16_t value_ref_index, loom_value_id_t* out_source_value_id) {
-  return loom_low_lower_rule_resolve_source_value_from_nodes_with_value_type(
-      module, fact_table, (loom_target_contract_query_value_type_callback_t){0},
-      rule_set, source_op, source_nodes, source_node_count, value_ref_index,
-      out_source_value_id);
 }
 
 loom_value_id_t loom_low_lower_rule_source_value(
