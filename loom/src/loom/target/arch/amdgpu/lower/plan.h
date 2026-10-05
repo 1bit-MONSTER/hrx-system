@@ -115,6 +115,19 @@ typedef struct loom_amdgpu_fp8_encode_plan_t {
   loom_amdgpu_i8_pack_permute_plan_t packed_i8_permute;
 } loom_amdgpu_fp8_encode_plan_t;
 
+typedef enum loom_amdgpu_f64_narrow_kind_e {
+  LOOM_AMDGPU_F64_NARROW_KIND_NONE = 0,
+  LOOM_AMDGPU_F64_NARROW_KIND_BF16,
+  LOOM_AMDGPU_F64_NARROW_KIND_F8E4M3,
+  LOOM_AMDGPU_F64_NARROW_KIND_F8E5M2,
+  LOOM_AMDGPU_F64_NARROW_KIND_COUNT_,
+} loom_amdgpu_f64_narrow_kind_t;
+
+typedef struct loom_amdgpu_f64_narrow_plan_t {
+  // Exact destination format selected for split-word integer rounding.
+  loom_amdgpu_f64_narrow_kind_t kind;
+} loom_amdgpu_f64_narrow_plan_t;
+
 // Per-value facts that can simplify FP8 decode emission. These describe the
 // actual value being decoded, not the full source FP8 type.
 typedef enum loom_amdgpu_fp8_decode_value_flag_bits_e {
@@ -493,6 +506,7 @@ typedef enum loom_amdgpu_scalar_conversion_kind_e {
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_UITOFP_NARROW_TO_F32,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_TO_BF16,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FP8_ENCODE,
+  LOOM_AMDGPU_SCALAR_CONVERSION_KIND_F64_NARROW,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_I32,
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_FPTOI_F32_TO_NARROW,
 } loom_amdgpu_scalar_conversion_kind_t;
@@ -512,8 +526,12 @@ typedef struct loom_amdgpu_scalar_conversion_plan_t {
   loom_amdgpu_descriptor_ref_t convert_descriptor_ref;
   // Planned physical representation of a narrow source or result.
   loom_low_representation_id_t narrow_representation;
-  // Native packed FP8 encode strategy for an FP8-result truncation.
-  loom_amdgpu_fp8_encode_plan_t fp8_encode;
+  union {
+    // Native packed FP8 encode strategy for an FP8-result truncation.
+    loom_amdgpu_fp8_encode_plan_t fp8_encode;
+    // Exact split-word strategy for narrowing an F64 source.
+    loom_amdgpu_f64_narrow_plan_t f64_narrow;
+  };
 } loom_amdgpu_scalar_conversion_plan_t;
 
 typedef enum loom_amdgpu_vector_conversion_kind_e {
