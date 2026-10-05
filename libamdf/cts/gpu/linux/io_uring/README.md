@@ -418,7 +418,11 @@ not whole-machine CPU consumption: interrupt, worker and other kernel threads
 are not attributed by these counters. Poller tail cost is reported separately,
 not silently excluded from a resource-cost conclusion. The non-SQPOLL path has
 no poller, so both poller CPU counters are zero; its calling-thread kernel work
-is included in `host_cpu_ns`. None of these counters measures joules.
+is included in `host_cpu_ns`. Kernels without `SqTotalTime`, or fdinfo samples
+without an observable SQPOLL owner, produce JSON `null` for the affected CPU
+intervals. The I/O workload and its correctness oracles still run; unavailable
+accounting cannot support a CPU-cost comparison. Malformed fields and failed
+fdinfo reads remain failures. None of these counters measures joules.
 
 Clock conversion uses `AMDGPU_INFO_DEV_INFO.gpu_counter_freq`, not GPU operating
 MHz or KFD's host-clock frequency. Every sample checks that its shader clock

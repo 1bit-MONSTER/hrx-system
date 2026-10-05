@@ -22,11 +22,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "gtest/gtest-spi.h"
 #include "libamdf/cts/gpu/kernels/file_demand.h"
 #include "libamdf/cts/gpu/kernels/file_demand_kernels.h"
 #include "libamdf/cts/gpu/kernels/file_latency_kernels.h"
@@ -92,6 +94,97 @@ struct Profile {
   uint32_t rounds;
 };
 
+struct PollerAccounting {
+  // Accumulated CPU time, absent when the kernel cannot expose the sample.
+  std::optional<uint64_t> microseconds;
+  // SQPOLL thread identity, or -1 when fdinfo cannot observe its owner.
+  int thread = -1;
+  // Last reported CPU, not an affinity guarantee; -1 means unavailable.
+  int cpu = -1;
+};
+
+void ReadPollerAccounting(std::istream& stream, PollerAccounting* accounting) {
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (line.starts_with("SqTotalTime:")) {
+      std::istringstream value(line.substr(12));
+      uint64_t microseconds = 0;
+      ASSERT_TRUE(value >> microseconds);
+      accounting->microseconds = microseconds;
+    } else if (line.starts_with("SqThread:")) {
+      std::istringstream value(line.substr(9));
+      ASSERT_TRUE(value >> accounting->thread);
+    } else if (line.starts_with("SqThreadCpu:")) {
+      std::istringstream value(line.substr(12));
+      ASSERT_TRUE(value >> accounting->cpu);
+    }
+  }
+  ASSERT_FALSE(stream.bad());
+  // Older kernels omit CPU time. Some fdinfo implementations also return
+  // sentinel ownership and zero counters when their nonblocking lock fails.
+  if (accounting->thread <= 0) {
+    accounting->microseconds.reset();
+  }
+}
+
+std::string CounterJson(std::optional<uint64_t> value) {
+  return value ? std::to_string(*value) : "null";
+}
+
+TEST(PollerAccountingTest, KernelWithoutCpuTimePreservesThreadIdentity) {
+  std::istringstream stream("SqThread:\t37\nSqThreadCpu:\t5\nUserFiles:\t1\n");
+  PollerAccounting accounting;
+  ASSERT_NO_FATAL_FAILURE(ReadPollerAccounting(stream, &accounting));
+  EXPECT_EQ(accounting.thread, 37);
+  EXPECT_EQ(accounting.cpu, 5);
+  EXPECT_FALSE(accounting.microseconds.has_value());
+  EXPECT_EQ(CounterJson(accounting.microseconds), "null");
+}
+
+TEST(PollerAccountingTest, KernelCpuTimeIncludesAValidZero) {
+  for (uint64_t microseconds : {0u, 123456u}) {
+    std::istringstream stream("SqThread:\t37\nSqThreadCpu:\t5\nSqTotalTime:\t" +
+                              std::to_string(microseconds) + "\n");
+    PollerAccounting accounting;
+    ASSERT_NO_FATAL_FAILURE(ReadPollerAccounting(stream, &accounting));
+    ASSERT_TRUE(accounting.microseconds.has_value());
+    EXPECT_EQ(*accounting.microseconds, microseconds);
+    EXPECT_EQ(CounterJson(accounting.microseconds),
+              std::to_string(microseconds));
+  }
+}
+
+TEST(PollerAccountingTest, UnobservedOwnerDoesNotReportZeroCpuTime) {
+  std::istringstream stream(
+      "SqThread:\t-1\nSqThreadCpu:\t-1\nSqTotalTime:\t0\n");
+  PollerAccounting accounting;
+  ASSERT_NO_FATAL_FAILURE(ReadPollerAccounting(stream, &accounting));
+  EXPECT_EQ(accounting.thread, -1);
+  EXPECT_EQ(accounting.cpu, -1);
+  EXPECT_FALSE(accounting.microseconds.has_value());
+}
+
+TEST(PollerAccountingTest, MalformedAccountingRemainsAFailure) {
+  EXPECT_FATAL_FAILURE(
+      {
+        std::istringstream stream("SqThread:\t37\nSqTotalTime:\tinvalid\n");
+        PollerAccounting accounting;
+        ReadPollerAccounting(stream, &accounting);
+      },
+      "value >> microseconds");
+}
+
+TEST(PollerAccountingTest, FailedReadRemainsAFailure) {
+  EXPECT_FATAL_FAILURE(
+      {
+        std::istringstream stream;
+        stream.setstate(std::ios::badbit);
+        PollerAccounting accounting;
+        ReadPollerAccounting(stream, &accounting);
+      },
+      "stream.bad()");
+}
+
 // Process CPU clocks can include other threads. This record deliberately
 // accounts for the service thread and SQPOLL separately, without double count.
 struct Sample {
@@ -99,10 +192,10 @@ struct Sample {
   uint64_t wall_nanoseconds = 0;
   // Userspace service thread CPU time across that same interval.
   uint64_t host_nanoseconds = 0;
-  // SQPOLL CPU time from the prestart sample through final completion.
-  uint64_t poller_microseconds = 0;
-  // Additional SQPOLL CPU time until its idle policy puts it to sleep.
-  uint64_t poller_tail_microseconds = 0;
+  // SQPOLL CPU time through final completion, absent if not observable.
+  std::optional<uint64_t> poller_microseconds;
+  // Additional SQPOLL CPU time until sleep, absent if not observable.
+  std::optional<uint64_t> poller_tail_microseconds;
   // Idle wake syscalls, coalesced by the published native tail.
   uint64_t wake_calls = 0;
   // Ordinary submission/task-work service calls, with or without waiting.
@@ -166,7 +259,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_EQ(ioctl(clock_file_, DRM_IOCTL_AMDGPU_INFO, &query), 0);
   }
 
-  void PollerCpu(uint64_t* microseconds) {
+  void PollerCpu(std::optional<uint64_t>* microseconds) {
     if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
       *microseconds = 0;
       poller_thread_ = -1;
@@ -175,24 +268,14 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     }
     std::ifstream stream("/proc/self/fdinfo/" + std::to_string(ring_->file));
     ASSERT_TRUE(stream.is_open());
-    std::string line;
-    bool found = false;
-    while (std::getline(stream, line)) {
-      if (line.starts_with("SqTotalTime:")) {
-        std::istringstream value(line.substr(12));
-        ASSERT_TRUE(value >> *microseconds);
-        found = true;
-      } else if (line.starts_with("SqThread:")) {
-        std::istringstream value(line.substr(9));
-        ASSERT_TRUE(value >> poller_thread_);
-      } else if (line.starts_with("SqThreadCpu:")) {
-        std::istringstream value(line.substr(12));
-        ASSERT_TRUE(value >> poller_cpu_);
-      }
+    PollerAccounting accounting;
+    ASSERT_NO_FATAL_FAILURE(ReadPollerAccounting(stream, &accounting));
+    *microseconds = accounting.microseconds;
+    poller_thread_ = accounting.thread;
+    poller_cpu_ = accounting.cpu;
+    if (!microseconds->has_value()) {
+      RecordProperty("io_sqpoll_cpu_accounting", "unavailable");
     }
-    ASSERT_FALSE(stream.bad());
-    ASSERT_TRUE(found) << "kernel did not expose SQPOLL CPU accounting";
-    ASSERT_GT(poller_thread_, 0);
   }
 
   void WaitIdle() {
@@ -215,7 +298,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     commands->PadToEightWords();
     ASSERT_LT(commands->word_count(), queue->words().size());
     WaitIdle();
-    uint64_t poller_before = 0;
+    std::optional<uint64_t> poller_before;
     uint64_t host_before = 0;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_before));
     ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_before));
@@ -263,17 +346,21 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     ASSERT_NO_FATAL_FAILURE(ThreadNanoseconds(&host_after));
     sample->host_nanoseconds = host_after - host_before;
     sample->host_end_cpu = sched_getcpu();
-    uint64_t poller_after = 0;
+    std::optional<uint64_t> poller_after;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_after));
-    ASSERT_GE(poller_after, poller_before);
-    sample->poller_microseconds = poller_after - poller_before;
+    if (poller_before && poller_after) {
+      ASSERT_GE(*poller_after, *poller_before);
+      sample->poller_microseconds = *poller_after - *poller_before;
+    }
     ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
     ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_after));
     WaitIdle();
-    uint64_t poller_idle = 0;
+    std::optional<uint64_t> poller_idle;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_idle));
-    ASSERT_GE(poller_idle, poller_after);
-    sample->poller_tail_microseconds = poller_idle - poller_after;
+    if (poller_after && poller_idle) {
+      ASSERT_GE(*poller_idle, *poller_after);
+      sample->poller_tail_microseconds = *poller_idle - *poller_after;
+    }
     if (ring_->parameters.flags & IORING_SETUP_SQPOLL) {
       EXPECT_GT(sample->wake_calls, 0u);
       EXPECT_EQ(sample->enter_calls, 0u);
@@ -441,8 +528,9 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
            << ",\"sqpoll_last_cpu\":" << poller_cpu_
            << ",\"host_waits_for_io\":"
            << (path == FileIoPath::kHostWait ? "true" : "false")
-           << ",\"sqpoll_cpu_us\":" << sample.poller_microseconds
-           << ",\"sqpoll_tail_cpu_us\":" << sample.poller_tail_microseconds
+           << ",\"sqpoll_cpu_us\":" << CounterJson(sample.poller_microseconds)
+           << ",\"sqpoll_tail_cpu_us\":"
+           << CounterJson(sample.poller_tail_microseconds)
            << ",\"wake_calls\":" << sample.wake_calls
            << ",\"submit_calls\":" << sample.enter_calls << ",\"device_ticks\":"
            << uint32_t(summary->end_tick - summary->begin_tick)
@@ -689,7 +777,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   uint32_t frequency_khz_ = 0;
   // Requested delay between host service passes; zero selects busy polling.
   uint32_t service_microseconds_ = 0;
-  // SQPOLL native thread ID from fdinfo, or -1 for ordinary submission.
+  // SQPOLL thread ID, or -1 for ordinary submission or an unobserved owner.
   int poller_thread_ = -1;
   // SQPOLL's last reported CPU, not a promise of fixed affinity.
   int poller_cpu_ = -1;
@@ -1012,8 +1100,9 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
            << ",\"sqpoll_last_cpu\":" << poller_cpu_
            << ",\"host_waits_for_io\":"
            << (path == FileIoPath::kHostWait ? "true" : "false")
-           << ",\"sqpoll_cpu_us\":" << sample.poller_microseconds
-           << ",\"sqpoll_tail_cpu_us\":" << sample.poller_tail_microseconds
+           << ",\"sqpoll_cpu_us\":" << CounterJson(sample.poller_microseconds)
+           << ",\"sqpoll_tail_cpu_us\":"
+           << CounterJson(sample.poller_tail_microseconds)
            << ",\"wake_calls\":" << sample.wake_calls
            << ",\"submit_calls\":" << sample.enter_calls
            << ",\"device_ticks\":" << elapsed(summary->end_tick)
