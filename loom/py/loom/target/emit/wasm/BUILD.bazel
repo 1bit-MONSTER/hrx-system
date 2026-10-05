@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:python.bzl", "iree_py_library")
+load("//build_tools/bazel:python.bzl", "iree_py_library", "iree_py_test")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -16,7 +16,7 @@ iree_py_library(
     srcs = [
         "__init__.py",
         "contracts.py",
-        "f32_narrowing.py",
+        "float_narrowing.py",
     ],
     deps = [
         "//loom/py/loom:core",
@@ -29,4 +29,15 @@ iree_py_library(
         "//loom/py/loom/target/emit:float_narrowing",
         "//loom/py/loom/target/emit:package",
     ],
+)
+
+iree_py_test(
+    name = "contracts_test",
+    srcs = [
+        "contracts_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = ["loom.target.emit.wasm.contracts_test"],
+    main = "pytest_style_runner.py",
+    deps = [":contracts"],
 )

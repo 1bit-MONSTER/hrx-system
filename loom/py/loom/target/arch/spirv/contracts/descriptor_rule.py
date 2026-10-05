@@ -18,7 +18,10 @@ from loom.target.contracts import (
     ValueRef,
     descriptor_by_key,
 )
-from loom.target.emit.float_narrowing import FloatNarrowingDescriptors
+from loom.target.emit.float_narrowing import (
+    FloatNarrowingDescriptors,
+    IntegerNarrowingDescriptors,
+)
 from loom.target.low_descriptors import Descriptor
 
 
@@ -43,9 +46,9 @@ def float_narrowing_descriptors(
     """Returns the same-width SPIR-V descriptors for exact float narrowing."""
     # Every comparison operand is nonnegative, so signed comparisons avoid
     # introducing integer-view bitcasts while preserving numeric ordering.
-    return FloatNarrowingDescriptors(
+    integer_descriptors = IntegerNarrowingDescriptors(
+        integer_bit_width=int(integer_suffix.removeprefix("i")),
         integer_constant=logical_core_descriptor(f"spirv.op_constant.{integer_suffix}"),
-        float_constant=logical_core_descriptor(f"spirv.op_constant.{float_suffix}"),
         integer_add=logical_core_descriptor(f"spirv.op_iadd.{integer_suffix}"),
         integer_subtract=logical_core_descriptor(f"spirv.op_isub.{integer_suffix}"),
         integer_shift_left=logical_core_descriptor(
@@ -69,6 +72,11 @@ def float_narrowing_descriptors(
         integer_greater_than_nonnegative=logical_core_descriptor(
             f"spirv.op_s_greater_than.{integer_suffix}"
         ),
+        integer_select=logical_core_descriptor(f"spirv.op_select.{integer_suffix}"),
+    )
+    return FloatNarrowingDescriptors(
+        integer=integer_descriptors,
+        float_constant=logical_core_descriptor(f"spirv.op_constant.{float_suffix}"),
         float_add=logical_core_descriptor(f"spirv.op_fadd.{float_suffix}"),
         reinterpret_float_as_integer=logical_core_descriptor(
             f"spirv.op_bitcast.{float_suffix}.{integer_suffix}"
@@ -76,7 +84,6 @@ def float_narrowing_descriptors(
         reinterpret_integer_as_float=logical_core_descriptor(
             f"spirv.op_bitcast.{integer_suffix}.{float_suffix}"
         ),
-        integer_select=logical_core_descriptor(f"spirv.op_select.{integer_suffix}"),
     )
 
 
