@@ -1,6 +1,6 @@
 // Independent commutative updates can retire in either order. The ready
 // update fills the producer's latency instead of waiting for the first update.
-// RUN: with-checks emit low-schedule-json @ready_update strategy=resource-stall
+// RUN: emit low-schedule-query @ready_update kind=state strategy=resource-stall order=1,2 consumer=*
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @ready_update(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -11,14 +11,14 @@ low.func.def target<test.low.core>(@target) @ready_update(%lhs: reg<test.i32>, %
 }
 
 // ----
-CHECK: *"scheduled_node_indices":[*2,*1,3],*
-CHECK-NOT: *"kind":"state"*
+block 0 order: 2, 1
+none
 
 // ====
 
 // A certified assignment affects only its own class, even though its generic
 // trait is UNKNOWN_EFFECTS. The independent update class remains commutative.
-// RUN: with-checks emit low-schedule-json @independent_assignment strategy=resource-stall
+// RUN: emit low-schedule-query @independent_assignment kind=state strategy=resource-stall consumer=*
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @independent_assignment(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -29,13 +29,12 @@ low.func.def target<test.low.core>(@target) @independent_assignment(%value: reg<
 }
 
 // ----
-CHECK: *"node_count":4,*
-CHECK-NOT: *"kind":"state"*
+none
 
 // ====
 
 // Ordinary readers do not serialize each other when there are no writers.
-// RUN: with-checks emit low-schedule-json @read_only_state strategy=resource-stall
+// RUN: emit low-schedule-query @read_only_state kind=state strategy=resource-stall consumer=*
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @read_only_state(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -45,14 +44,13 @@ low.func.def target<test.low.core>(@target) @read_only_state(%value: reg<test.i3
 }
 
 // ----
-CHECK: *"node_count":3,*
-CHECK-NOT: *"kind":"state"*
+none
 
 // ====
 
 // The first writer retires the reader list. Its WAW edge must still prevent
 // the second update from moving before the original observation.
-// RUN: with-checks emit low-schedule-json @reader_before_updates strategy=resource-stall
+// RUN: emit low-schedule-query @reader_before_updates kind=state strategy=resource-stall consumer=1,2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @reader_before_updates(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -63,12 +61,12 @@ low.func.def target<test.low.core>(@target) @reader_before_updates(%value: reg<t
 }
 
 // ----
-CHECK: *"from":0,"to":1,"kind":"state",*
-CHECK: *"from":1,"to":2,"kind":"state",*
+node 1 <- 0
+node 2 <- 1
 
 // ====
 
-// RUN: with-checks emit low-schedule-json @reader_between_updates strategy=resource-stall
+// RUN: emit low-schedule-query @reader_between_updates kind=state strategy=resource-stall consumer=1,2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @reader_between_updates(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -79,15 +77,14 @@ low.func.def target<test.low.core>(@target) @reader_between_updates(%value: reg<
 }
 
 // ----
-CHECK: *"from":0,"to":1,"kind":"state",*
-CHECK: *"from":0,"to":2,"kind":"state",*
-CHECK: *"from":1,"to":2,"kind":"state",*
+node 1 <- 0
+node 2 <- 0, 1
 
 // ====
 
 // The final reader depends on the last source writer, so all earlier updates
 // must remain connected to that writer.
-// RUN: with-checks emit low-schedule-json @reader_after_updates strategy=resource-stall
+// RUN: emit low-schedule-query @reader_after_updates kind=state strategy=resource-stall consumer=1,2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @reader_after_updates(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -98,13 +95,13 @@ low.func.def target<test.low.core>(@target) @reader_after_updates(%value: reg<te
 }
 
 // ----
-CHECK: *"from":0,"to":1,"kind":"state",*
-CHECK: *"from":1,"to":2,"kind":"state",*
+node 1 <- 0
+node 2 <- 1
 
 // ====
 
 // Replacement is not a commutative update to the same state.
-// RUN: with-checks emit low-schedule-json @replacement_between_updates strategy=resource-stall
+// RUN: emit low-schedule-query @replacement_between_updates kind=state strategy=resource-stall consumer=1,2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @replacement_between_updates(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -115,14 +112,14 @@ low.func.def target<test.low.core>(@target) @replacement_between_updates(%value:
 }
 
 // ----
-CHECK: *"from":0,"to":1,"kind":"state",*
-CHECK: *"from":1,"to":2,"kind":"state",*
+node 1 <- 0
+node 2 <- 1
 
 // ====
 
 // Structural operands observe architectural state even without descriptor
 // STATE_READ rows. The ordinary-data snapshot survives subsequent updates.
-// RUN: with-checks emit low-schedule-json @explicit_state_operand strategy=resource-stall
+// RUN: emit low-schedule-query @explicit_state_operand kind=state strategy=resource-stall consumer=1,2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @explicit_state_operand(%state: reg<test.special>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -133,14 +130,14 @@ low.func.def target<test.low.core>(@target) @explicit_state_operand(%state: reg<
 }
 
 // ----
-CHECK: *"from":0,"to":1,"kind":"state",*
-CHECK: *"from":1,"to":2,"kind":"state",*
+node 1 <- 0
+node 2 <- 1
 
 // ====
 
 // An explicit state result denotes a particular snapshot rather than only an
 // implicit accumulated effect, so its class keeps source-order writes.
-// RUN: with-checks emit low-schedule-json @explicit_state_result strategy=resource-stall
+// RUN: emit low-schedule-query @explicit_state_result kind=state strategy=resource-stall consumer=2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @explicit_state_result(%state_lhs: reg<test.schedule_state>, %state_rhs: reg<test.schedule_state>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -151,12 +148,51 @@ low.func.def target<test.low.core>(@target) @explicit_state_result(%state_lhs: r
 }
 
 // ----
-CHECK: *"from":1,"to":2,"kind":"state",*
+node 2 <- 1
+
+// ====
+
+// A function-local explicit snapshot must execute before the first clobber,
+// while later clobbers remain chained in source order.
+// RUN: emit low-schedule-query @local_state_snapshot kind=state strategy=source order=1,3 consumer=1,2
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @local_state_snapshot(%state_lhs: reg<test.schedule_state>, %state_rhs: reg<test.schedule_state>) asm {
+  %snapshot = test.add.schedule_state %state_lhs, %state_rhs
+  %first = test.state.add.schedule_state %state_lhs, %state_rhs
+  %second = test.state.add.schedule_state %state_lhs, %state_rhs
+  %read = test.explicit.state.add.schedule_state %state_lhs, %snapshot
+  return
+}
+
+// ----
+block 0 order: 3, 1
+node 1 <- 3
+node 2 <- 1
+
+// ====
+
+// A live-in explicit state value is also an observable snapshot. Its reader
+// must run before the first clobber even though the value has no local producer.
+// RUN: emit low-schedule-query @live_in_state_snapshot kind=state strategy=source order=0,2 consumer=0,1
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @live_in_state_snapshot(%state: reg<test.schedule_state>, %rhs: reg<test.schedule_state>) asm {
+  %first = test.state.add.schedule_state %state, %rhs
+  %second = test.state.add.schedule_state %state, %rhs
+  %read = test.explicit.state.add.schedule_state %rhs, %state
+  return
+}
+
+// ----
+block 0 order: 2, 0
+node 0 <- 2
+node 1 <- 0
 
 // ====
 
 // An opaque descriptor does not promise complete architectural-state effects.
-// RUN: with-checks emit low-schedule-json @opaque_descriptor strategy=resource-stall
+// RUN: emit low-schedule-query @opaque_descriptor kind=state strategy=resource-stall consumer=2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @opaque_descriptor(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -167,12 +203,12 @@ low.func.def target<test.low.core>(@target) @opaque_descriptor(%value: reg<test.
 }
 
 // ----
-CHECK: *"from":0,"to":2,"kind":"state",*
+node 2 <- 0
 
 // ====
 
 // Call purity does not promise preservation of architectural configuration.
-// RUN: with-checks emit low-schedule-json @pure_call_boundary strategy=resource-stall
+// RUN: emit low-schedule-query @pure_call_boundary kind=state strategy=resource-stall consumer=2
 test.target<low_core> @target
 
 low.func.decl pure target<test.low.core>(@target) @helper()
@@ -185,11 +221,11 @@ low.func.def target<test.low.core>(@target) @pure_call_boundary(%value: reg<test
 }
 
 // ----
-CHECK: *"from":0,"to":2,"kind":"state",*
+node 2 <- 0
 
 // ====
 
-// RUN: with-checks emit low-schedule-json @unknown_call_boundary strategy=resource-stall
+// RUN: emit low-schedule-query @unknown_call_boundary kind=state strategy=resource-stall consumer=2
 test.target<low_core> @target
 
 low.func.decl target<test.low.core>(@target) @helper()
@@ -202,11 +238,11 @@ low.func.def target<test.low.core>(@target) @unknown_call_boundary(%value: reg<t
 }
 
 // ----
-CHECK: *"from":0,"to":2,"kind":"state",*
+node 2 <- 0
 
 // ====
 
-// RUN: with-checks emit low-schedule-json @convergent_boundary strategy=resource-stall
+// RUN: emit low-schedule-query @convergent_boundary kind=state strategy=resource-stall consumer=2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @convergent_boundary(%value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -217,12 +253,12 @@ low.func.def target<test.low.core>(@target) @convergent_boundary(%value: reg<tes
 }
 
 // ----
-CHECK: *"from":0,"to":2,"kind":"state",*
+node 2 <- 0
 
 // ====
 
 // A local block index does not inspect the effects of nested regions.
-// RUN: with-checks emit low-schedule-json @nested_region_boundary strategy=resource-stall
+// RUN: emit low-schedule-query @nested_region_boundary kind=state strategy=resource-stall consumer=2
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @nested_region_boundary(%condition: reg<test.i32>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -237,13 +273,13 @@ low.func.def target<test.low.core>(@target) @nested_region_boundary(%condition: 
 }
 
 // ----
-CHECK: *"from":0,"to":2,"kind":"state",*
+node 2 <- 0
 
 // ====
 
 // A scheduling fence still partitions source ranges without inventing state
 // observations or restoring an otherwise unnecessary WAW edge.
-// RUN: with-checks emit low-schedule-json @fenced_updates strategy=resource-stall
+// RUN: emit low-schedule-query @fenced_updates kind=state strategy=resource-stall order=1,2,3 consumer=*
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @fenced_updates(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -255,13 +291,12 @@ low.func.def target<test.low.core>(@target) @fenced_updates(%lhs: reg<test.i32>,
 }
 
 // ----
-CHECK: *"source_order_boundaries":[2,4],*
-CHECK: *"scheduled_node_indices":[0,1,2,3,4],*
-CHECK-NOT: *"kind":"state"*
+block 0 order: 1, 2, 3
+none
 
 // ====
 
-// RUN: with-checks emit low-schedule-json @locked_updates strategy=resource-stall
+// RUN: emit low-schedule-query @locked_updates kind=state strategy=resource-stall order=0,1,2 consumer=*
 test.target<low_core> @target
 
 low.func.def schedule(locked) target<test.low.core>(@target) @locked_updates(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
@@ -272,15 +307,14 @@ low.func.def schedule(locked) target<test.low.core>(@target) @locked_updates(%lh
 }
 
 // ----
-CHECK: *"source_order_boundaries":[0,1,2,3],*
-CHECK: *"scheduled_node_indices":[0,1,2,3],*
-CHECK-NOT: *"kind":"state"*
+block 0 order: 0, 1, 2
+none
 
 // ====
 
 // A reader in the predecessor block does not inhibit later-block commutation.
 // The later block still begins after the existing control boundary.
-// RUN: with-checks emit low-schedule-json @block_local_observations strategy=resource-stall
+// RUN: emit low-schedule-query @block_local_observations kind=state strategy=resource-stall order=5,6 consumer=2,6
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @block_local_observations(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {
@@ -296,15 +330,35 @@ low.func.def target<test.low.core>(@target) @block_local_observations(%lhs: reg<
 }
 
 // ----
-CHECK: *"from":1,"to":2,"kind":"state",*
-CHECK: *"scheduled_node_indices":[0,1,2,3,*6,*5,7],*
-CHECK-NOT: *"from":5,"to":6,"kind":"state",*
+block 1 order: 6, 5
+node 2 <- 1
+node 6 <- none
+
+// ====
+
+// Convergent readers of one explicit state snapshot retain source order. The
+// reader-to-reader dependency is an exact zero-cycle event-pair constraint.
+// RUN: emit low-schedule-query @convergent_state_readers kind=state strategy=resource-stall order=1,2 consumer=1,2 timing=1:2
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @convergent_state_readers(%state_lhs: reg<test.schedule_state>, %state_rhs: reg<test.schedule_state>, %value0: reg<test.i32>, %value1: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %state = test.state.add.schedule_state %state_lhs, %state_rhs
+  %read0 = test.convergent.explicit.state.read.i32 %value0, %state
+  %read1 = test.convergent.explicit.state.read.i32 %value1, %state
+  return %read0, %read1
+}
+
+// ----
+block 0 order: 1, 2
+node 1 <- 0
+node 2 <- 0, 1
+timing 1 -> 2: separation=0 source=event-pair quality=exact
 
 // ====
 
 // Explicit state carried across a block with updates cannot preserve its old
 // value. The existing state-clobber diagnostic still owns this rejection.
-// RUN: emit low-schedule-json @state_live_out_clobber output=none
+// RUN: emit low-schedule @state_live_out_clobber output=none
 test.target<low_core> @target
 
 low.func.def target<test.low.core>(@target) @state_live_out_clobber(%state: reg<test.special>, %value: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>, reg<test.i32>) asm {

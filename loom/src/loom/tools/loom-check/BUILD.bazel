@@ -488,15 +488,23 @@ loom_cc_library(
 loom_cc_library(
     name = "test_provider",
     testonly = True,
-    srcs = ["test_provider.c"],
-    hdrs = ["test_provider.h"],
+    srcs = [
+        "test_provider.c",
+        "test_schedule_provider.c",
+    ],
+    hdrs = [
+        "test_provider.h",
+        "test_schedule_provider.h",
+    ],
     deps = [
         ":execute",
         ":provider",
         "//loom/src/loom/codegen/low:allocation",
+        "//loom/src/loom/codegen/low:descriptors",
         "//loom/src/loom/codegen/low:packet_hazard_plan",
         "//loom/src/loom/codegen/low:packet_hazard_plan_json",
         "//loom/src/loom/codegen/low:packet_progress",
+        "//loom/src/loom/codegen/low/schedule:dependencies",
         "//loom/src/loom/ir",
         "//loom/src/loom/target/test:provider",
         "//runtime/src/iree/base",
