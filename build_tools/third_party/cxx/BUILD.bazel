@@ -46,6 +46,7 @@ exports_files([
     "rooted_subobject_addresses.patch",
     "selected_subobject_paths.patch",
     "semantic_model_generation.patch",
+    "structural_template_values.patch",
     "template_lookahead.patch",
     "unsigned_complement.patch",
     "using_directive_attributes.patch",
