@@ -8,6 +8,8 @@
 
 #include <fcntl.h>
 #include <linux/magic.h>
+#include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
@@ -29,6 +31,8 @@ const char* FileIoPathName(FileIoPath path) {
   switch (path) {
     case FileIoPath::kDevice:
       return "device";
+    case FileIoPath::kDeviceWait:
+      return "device_wait";
     case FileIoPath::kHostRelay:
       return "host_relay";
     case FileIoPath::kHostWait:
@@ -62,6 +66,9 @@ void GpuFileIoFixture::TearDown() {
   for (auto& ring : rings_) {
     if (ring->file >= 0) {
       ASSERT_EQ(close(std::exchange(ring->file, -1)), 0);
+    }
+    if (ring->notification >= 0) {
+      ASSERT_EQ(close(std::exchange(ring->notification, -1)), 0);
     }
   }
   if (data_file_ >= 0) {
@@ -183,6 +190,10 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
   if (path == FileIoPath::kDevice || path == FileIoPath::kHostRelay) {
     ring_->parameters.flags |= IORING_SETUP_SQPOLL;
     ring_->parameters.sq_thread_idle = idle_milliseconds;
+  } else if (path == FileIoPath::kDeviceWait) {
+    ring_->parameters.flags |= IORING_SETUP_SINGLE_ISSUER |
+                               IORING_SETUP_DEFER_TASKRUN |
+                               IORING_SETUP_TASKRUN_FLAG;
   }
   ring_->parameters.sq_off.user_addr =
       reinterpret_cast<uintptr_t>(ring_->memory->host.pointer);
@@ -210,6 +221,15 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
             0)
       << "register file: " << std::strerror(errno);
 
+  if (path == FileIoPath::kDeviceWait) {
+    ring_->notification = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    ASSERT_GE(ring_->notification, 0) << std::strerror(errno);
+    ASSERT_EQ(syscall(__NR_io_uring_register, ring_->file,
+                      IORING_REGISTER_EVENTFD, &ring_->notification, 1),
+              0)
+        << "register notification: " << std::strerror(errno);
+  }
+
   const std::array<io_uring_restriction, 5> restrictions = {{
       {.opcode = IORING_RESTRICTION_SQE_OP, .sqe_op = IORING_OP_READ_FIXED},
       {.opcode = IORING_RESTRICTION_SQE_OP, .sqe_op = IORING_OP_WRITE_FIXED},
@@ -234,7 +254,7 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
   RecordProperty("io_submission_entries", ring_->parameters.sq_entries);
   RecordProperty("io_completion_entries", ring_->parameters.cq_entries);
   device_ring_memory_ = ring_->memory;
-  if (path != FileIoPath::kDevice) {
+  if (path != FileIoPath::kDevice && path != FileIoPath::kDeviceWait) {
     ASSERT_NO_FATAL_FAILURE(
         CreateRegisteredPages(ring_length, 0, &ring_->relay_memory));
     device_ring_memory_ = ring_->relay_memory;
@@ -327,6 +347,65 @@ void GpuFileIoFixture::ServiceHostIo(uint64_t* enter_calls) {
   RelayFileIo();
 }
 
+void GpuFileIoFixture::ServiceDeviceIo(uint64_t* enter_calls,
+                                       uint64_t* wait_calls) {
+  const uint32_t initial_completed =
+      GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.tail));
+  if (GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail)) ==
+      initial_completed) {
+    return;
+  }
+  for (;;) {
+    // Drain notification before servicing work. Deferred task work signals
+    // the eventfd even before a CQE exists; bounded task-work service can also
+    // leave TASKRUN set without producing another notification edge.
+    uint64_t notifications = 0;
+    const ssize_t drained =
+        read(ring_->notification, &notifications, sizeof(notifications));
+    if (drained < 0 && errno == EINTR) {
+      return;
+    }
+    ASSERT_TRUE(drained == sizeof(notifications) ||
+                (drained < 0 && errno == EAGAIN))
+        << "read notification: " << std::strerror(errno);
+    const uint32_t tail =
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
+    const uint32_t head =
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.head));
+    ++*enter_calls;
+    const long result = syscall(__NR_io_uring_enter, ring_->file, tail - head,
+                                0, IORING_ENTER_GETEVENTS, nullptr, 0);
+    if (result < 0 && errno == EINTR) {
+      return;
+    }
+    ASSERT_GE(result, 0) << "device submission: " << std::strerror(errno);
+    const uint32_t completed =
+        GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.tail));
+    if (completed != initial_completed) {
+      return;
+    }
+    if (GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
+        IORING_SQ_TASKRUN) {
+      continue;
+    }
+    // One CQE per accepted request makes this kernel-owned frontier immune
+    // to concurrent GPU CQ consumption. No accepted I/O means no guaranteed
+    // future eventfd wake; new GPU SQ publication is observed by the caller.
+    if (GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.head)) ==
+        completed) {
+      return;
+    }
+    pollfd notification = {ring_->notification, POLLIN, 0};
+    ++*wait_calls;
+    const int ready = poll(&notification, 1, -1);
+    if (ready < 0 && errno == EINTR) {
+      return;
+    }
+    ASSERT_EQ(ready, 1) << "wait notification: " << std::strerror(errno);
+    ASSERT_EQ(notification.revents, POLLIN);
+  }
+}
+
 void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
                                GpuMemory* arguments, GpuMemory* completion,
                                const char* property_prefix) {
@@ -361,11 +440,16 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
       queue->Publish(api_, gpu_api_, commands.word_count()));
   uint64_t wake_count = 0;
   uint64_t enter_count = 0;
+  uint64_t wait_count = 0;
   while (GpuLoadAcquire<uint32_t>(
              reinterpret_cast<uintptr_t>(completion->host.pointer)) != 1) {
     RelayFileIo();
     if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
-      ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&enter_count));
+      if (ring_->path == FileIoPath::kDeviceWait) {
+        ASSERT_NO_FATAL_FAILURE(ServiceDeviceIo(&enter_count, &wait_count));
+      } else {
+        ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&enter_count));
+      }
       std::this_thread::yield();
       continue;
     }
@@ -409,6 +493,7 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
   }
   RecordProperty("io_idle_wake_calls", std::to_string(wake_count));
   RecordProperty("io_submit_calls", std::to_string(enter_count));
+  RecordProperty("io_wait_calls", std::to_string(wait_count));
 }
 
 void GpuFileIoFixture::VerifyFile(const std::vector<uint32_t>& expected_file,

@@ -238,32 +238,31 @@ TEST_F(GpuFileIoTest, InvalidFixedFileRetiresWithTheNativeError) {
   Run(FileMode::kBuffered, Workload::kInvalidFile);
 }
 
-class GpuFileHostIoTest : public GpuFileIoTest,
-                          public ::testing::WithParamInterface<FileIoPath> {};
+class GpuFileProgressIoTest : public GpuFileIoTest,
+                              public ::testing::WithParamInterface<FileIoPath> {
+};
 
-TEST_P(GpuFileHostIoTest, BufferedCausalReadWriteReload) {
+TEST_P(GpuFileProgressIoTest, BufferedCausalReadWriteReload) {
   Run(FileMode::kBuffered, Workload::kRoundTrip, GetParam());
 }
 
-TEST_P(GpuFileHostIoTest, DirectCausalReadWriteReload) {
+TEST_P(GpuFileProgressIoTest, DirectCausalReadWriteReload) {
   Run(FileMode::kDirect, Workload::kRoundTrip, GetParam());
 }
 
-TEST_P(GpuFileHostIoTest, PartialReadThenEof) {
+TEST_P(GpuFileProgressIoTest, PartialReadThenEof) {
   Run(FileMode::kBuffered, Workload::kShortInput, GetParam());
 }
 
-TEST_P(GpuFileHostIoTest, InvalidFixedFile) {
+TEST_P(GpuFileProgressIoTest, InvalidFixedFile) {
   Run(FileMode::kBuffered, Workload::kInvalidFile, GetParam());
 }
 
-INSTANTIATE_TEST_SUITE_P(HostPaths, GpuFileHostIoTest,
-                         ::testing::Values(FileIoPath::kHostRelay,
-                                           FileIoPath::kHostWait,
-                                           FileIoPath::kHostPoll),
-                         [](const auto& info) {
-                           return FileIoPathName(info.param);
-                         });
+INSTANTIATE_TEST_SUITE_P(
+    ProgressPaths, GpuFileProgressIoTest,
+    ::testing::Values(FileIoPath::kDeviceWait, FileIoPath::kHostRelay,
+                      FileIoPath::kHostWait, FileIoPath::kHostPoll),
+    [](const auto& info) { return FileIoPathName(info.param); });
 
 class GpuFileRingGeometryTest
     : public GpuFileIoTest,
@@ -277,6 +276,7 @@ TEST_P(GpuFileRingGeometryTest, DirectRoundTrip) {
 INSTANTIATE_TEST_SUITE_P(
     NativeLayouts, GpuFileRingGeometryTest,
     ::testing::Combine(::testing::Values(FileIoPath::kDevice,
+                                         FileIoPath::kDeviceWait,
                                          FileIoPath::kHostRelay,
                                          FileIoPath::kHostWait,
                                          FileIoPath::kHostPoll),

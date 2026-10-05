@@ -18,14 +18,21 @@
 #include "libamdf/cts/gpu/pm4/dispatch_fixture.h"
 
 enum class FileMode { kBuffered, kDirect };
-enum class FileIoPath { kDevice, kHostRelay, kHostWait, kHostPoll };
+enum class FileIoPath {
+  kDevice,
+  kDeviceWait,
+  kHostRelay,
+  kHostWait,
+  kHostPoll
+};
 
 // Stable transport name used by correctness receipts and measured samples.
 const char* FileIoPathName(FileIoPath path);
 
 // Owns the Linux and GPU lifetimes of caller-supplied rings and I/O payloads.
-// The device path needs only cold setup and idle wakes. The host comparators
-// forward identical SQEs/CQEs without touching payloads or dispatching work.
+// SQPOLL needs cold setup and idle wakes. Device-wait services deferred kernel
+// work without consuming CQEs. Host comparators forward identical SQEs/CQEs
+// without touching payloads or dispatching work.
 class GpuFileIoFixture : public Pm4DispatchTest {
  protected:
   void SetUp() override;
@@ -54,6 +61,11 @@ class GpuFileIoFixture : public Pm4DispatchTest {
   // sleeps for one completion; the poll strategy returns without waiting.
   // Only this host owner consumes the native CQ.
   void ServiceHostIo(uint64_t* enter_calls);
+  // Services deferred kernel work, sleeping on its eventfd when I/O remains.
+  // The GPU exclusively owns CQ consumption. Kernel CQ tail and TASKRUN, not
+  // unread CQ occupancy, close the notification race. With no pending I/O,
+  // returns so the caller can observe GPU-only admission and termination.
+  void ServiceDeviceIo(uint64_t* enter_calls, uint64_t* wait_calls);
   // Runs one finite owner with the selected control service, then retires it.
   void Execute(const kernels::Kernel& kernel, GpuMemory* arguments,
                GpuMemory* completion, const char* property_prefix);
@@ -77,6 +89,8 @@ class GpuFileIoFixture : public Pm4DispatchTest {
     size_t control_offset = 0;
     // Owns native progress and fixed file/buffer references until teardown.
     int file = -1;
+    // Kernel work/completion notification, retained until ring closure.
+    int notification = -1;
   };
   // Active ring borrowed from rings_; changed only between retired dispatches.
   Ring* ring_ = nullptr;

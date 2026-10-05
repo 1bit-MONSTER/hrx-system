@@ -277,10 +277,45 @@ The `host_poll` comparator uses the same ordinary native ring and relay, but
 passes `min_complete=0` to each GETEVENTS service call. One userspace CPU
 owner submits and runs kernel task work without sleeping for I/O; there is no
 SQPOLL thread. This separates the cost of a relay from the cost of a second
-polling CPU or a completion sleep. All three host strategies cover the complete
-fifteen-case correctness family. Additional direct-I/O cases qualify 8, 64,
-256 and 512 native SQ entries across all four paths; backing scales with the
-actual SQE extent and returned CQ layout.
+polling CPU or a completion sleep. All three host strategies and `device_wait`
+cover the complete fifteen-case correctness family. Additional direct-I/O cases
+qualify 8, 64, 256 and 512 native SQ entries across all five paths; backing
+scales with the actual SQE extent and returned CQ layout.
+
+### Sleeping progress with device owned completions
+
+`device_wait` retains the native SQ publisher and CQ consumer on the GPU,
+without SQPOLL or a userspace control-record relay. One CPU thread creates,
+enables and services the ring with `SINGLE_ISSUER`, `DEFER_TASKRUN` and
+`TASKRUN_FLAG`. A registered nonblocking eventfd notifies that thread when
+kernel completion work becomes runnable. Registration precedes the restricted
+ring's enable operation; the descriptor survives until ring closure.
+
+The helper drains the notification counter, submits available SQEs and runs
+deferred work with nonblocking `GETEVENTS`, then checks the kernel-owned CQ
+tail. A changed tail establishes progress even if the GPU has already consumed
+every new CQE. Pending `IORING_SQ_TASKRUN` repeats service instead of sleeping:
+the kernel can retain work after a bounded pass without another empty-to-ready
+notification. Otherwise, accepted requests with no CQE permit an indefinite
+eventfd wait. A completion racing that wait leaves either observable tail
+progress, pending work, or a readable eventfd. The helper never uses unread CQ
+occupancy as a wait condition and never advances CQ head.
+
+This relies on [Linux deferred work][taskwork] notifying eventfd when the local
+work list first becomes nonempty, before that work necessarily produces CQEs.
+The [eventfd path][eventfd] distinguishes work notification from CQ publication.
+Using `io_uring_enter(min_complete=1)` directly would be wrong here: the GPU can
+consume its awaited CQE before the helper sleeps, leaving no future wake.
+
+The finite programs issue exactly one CQE per accepted request and keep
+outstanding work below ring capacity. Those contracts make SQ head versus CQ
+tail an accepted-I/O predicate. They do not generalize to suppressed or multishot
+completions. With no outstanding I/O the helper returns to poll GPU admission
+and final completion. New GPU submissions while it sleeps can wait behind an
+older I/O; eventfd does not itself notify GPU SQ publication. This strategy
+removes continuous polling during I/O waits, not all CPU work or admission
+latency. XML reports syscall service and eventfd wait counts; neither proves an
+efficiency improvement without a matched workload measurement.
 
 ### CPU execution model
 
@@ -290,6 +325,7 @@ possible I/O-worker execution are not eliminated by any of these paths.
 | Transport | Userspace CPU owner | SQPOLL CPU owner | Request dependency |
 | --- | --- | --- | --- |
 | `device` | Busy or paced idle-wake helper | One polling thread | No per-request userspace relay while SQPOLL is awake |
+| `device_wait` | Syscall service and eventfd waits; polls GPU-only gaps | None | No SQE/CQE relay; new demand can wait behind an older I/O |
 | `host_relay` | Busy or paced SQE/CQE relay | One polling thread | Both record handoffs require userspace service |
 | `host_poll` | Busy or paced relay and nonblocking syscall service | None | Both handoffs require userspace service; no I/O sleep |
 | `host_wait` | Relay and syscall service; sleeps for a pending completion | None | Both handoffs require userspace service; new demand can wait behind the sleep |
@@ -468,6 +504,8 @@ ending at EOF exercise stop/drain without consuming incomplete payloads.
 The largest scheduled-demand file is 40 MiB; registered payload is at most
 16.3 MiB, referenced by three retained rings. Writes are not durability claims.
 
+[taskwork]: https://github.com/torvalds/linux/blob/v7.0/io_uring/tw.c
+[eventfd]: https://github.com/torvalds/linux/blob/v7.0/io_uring/eventfd.c
 [model]: https://github.com/axboe/liburing/blob/master/man/io_uring.7
 [setup]: https://github.com/axboe/liburing/blob/master/man/io_uring_setup.2
 [enter]: https://github.com/axboe/liburing/blob/master/man/io_uring_enter.2
