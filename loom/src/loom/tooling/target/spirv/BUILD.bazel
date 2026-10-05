@@ -81,8 +81,6 @@ loom_cc_library(
         "//loom/src/loom/target/arch/spirv:profile",
         "//loom/src/loom/target/arch/spirv/descriptors:low_registry",
         "//loom/src/loom/target/emit/spirv:module_compiler",
-        "//loom/src/loom/target/reporting:artifact_manifest_collect",
-        "//loom/src/loom/target/reporting:report",
         "//loom/src/loom/tooling/compile:artifact",
         "//runtime/src/iree/base",
     ],

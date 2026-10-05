@@ -61,8 +61,6 @@ loom_cc_library(
     loom::target::entry_selection
     loom::target::function_contract
     loom::target::low_descriptor_registry
-    loom::target::reporting::artifact_manifest_collect
-    loom::target::reporting::report
     loom::target::types
     loom::tooling::compile::artifact
   PUBLIC

@@ -8,6 +8,8 @@
 
 #include <string.h>
 
+#include <string>
+
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/codegen/low/text_asm.h"
@@ -105,13 +107,19 @@ class SpirvArtifactProviderTest : public ::testing::Test {
   loom_target_low_descriptor_registry_t low_registry_ = {};
 };
 
-TEST_F(SpirvArtifactProviderTest, EmitsRawBdaArtifactForExplicitTarget) {
+TEST_F(SpirvArtifactProviderTest,
+       EmitsRawBdaArtifactAndManifestForExplicitTarget) {
   ModulePtr module;
   IREE_ASSERT_OK(ParseRawBdaRoundtripModule(&module));
   ASSERT_NE(module.get(), nullptr);
 
   loom_compile_options_t options = {};
   loom_compile_options_initialize(&options);
+  options.artifact_manifest = {
+      /*.mode=*/LOOM_TARGET_ARTIFACT_MANIFEST_MODE_SUMMARY,
+      /*.identifier=*/IREE_SV("module.manifest.json"),
+      /*.artifact_name=*/IREE_SV("module.spv"),
+  };
   const loom_spirv_target_profile_t* target_profile = nullptr;
   IREE_ASSERT_OK(loom_spirv_target_profile_select(IREE_SV("vulkan1.3+bda+hal"),
                                                   &target_profile));
@@ -137,6 +145,12 @@ TEST_F(SpirvArtifactProviderTest, EmitsRawBdaArtifactForExplicitTarget) {
             LOOM_TARGET_ARTIFACT_FORMAT_SPIRV_BINARY);
   EXPECT_EQ(artifact.target_artifact_data, artifact.executable_data);
   ASSERT_NE(artifact.executable_data, nullptr);
+  ASSERT_EQ(artifact.sidecar_count, 1u);
+  ASSERT_NE(artifact.sidecars, nullptr);
+  EXPECT_EQ(artifact.sidecars[0].kind,
+            LOOM_TARGET_EMIT_SIDECAR_ARTIFACT_KIND_ARTIFACT_MANIFEST);
+  EXPECT_TRUE(iree_string_view_equal(artifact.sidecars[0].identifier,
+                                     IREE_SV("module.manifest.json")));
 
   ByteSequenceClone executable_data(iree_allocator_system());
   IREE_ASSERT_OK(executable_data.Clone(artifact.executable_data));
@@ -145,6 +159,18 @@ TEST_F(SpirvArtifactProviderTest, EmitsRawBdaArtifactForExplicitTarget) {
   uint32_t magic = 0;
   memcpy(&magic, executable_contents.data, sizeof(magic));
   EXPECT_EQ(magic, 0x07230203u);
+
+  ByteSequenceClone manifest_data(iree_allocator_system());
+  IREE_ASSERT_OK(manifest_data.Clone(artifact.sidecars[0].contents));
+  const iree_const_byte_span_t manifest_contents = manifest_data.contents();
+  const std::string manifest_text(
+      reinterpret_cast<const char*>(manifest_contents.data),
+      manifest_contents.data_length);
+  EXPECT_NE(manifest_text.find("\"format\":\"spirv-binary\""),
+            std::string::npos)
+      << manifest_text;
+  EXPECT_NE(manifest_text.find("\"name\":\"module.spv\""), std::string::npos)
+      << manifest_text;
 
   loom_artifact_candidate_deinitialize(&candidate);
 }
