@@ -20,4 +20,4 @@ func.def @packetized_splat(%value: i32) -> (vector<32xi32>) {
 
 // ----
 CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=1 scalarized=0 target_rewritten=1 reference_rewritten=0 deferred=0 invalid_ir=0 unsupported=0 unhandled=0 rows=1
-CHECK: COMPILE-REPORT: target_legalization[0] * source_op=vector.splat * action=rewritten * legalizer=aie2p strategy=target * scalarized=false * created_ops=3 erased_ops=1
+CHECK: COMPILE-REPORT: target_legalization[0] * source_op=vector.splat * action=rewritten * legalizer=vector-packet strategy=target * scalarized=false * created_ops=3 erased_ops=1

@@ -40,6 +40,61 @@ typedef struct loom_matrix_fragment_layout_t loom_matrix_fragment_layout_t;
 typedef struct loom_native_contraction_facts_t loom_native_contraction_facts_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 
+// Maximum number of logical lane candidates in a packet policy. Shared
+// component planning represents the candidate intersection as one bit per
+// policy entry.
+#define LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT 64u
+
+// Target vector packet candidates consumed by shared legalization.
+//
+// The target contributes representation widths only. The shared planner still
+// queries every projected operation through the target contract before
+// selecting a packet width; membership here is not itself a legality claim.
+typedef struct loom_target_vector_packet_policy_t {
+  // Native packet widths in bits used by structural memory and carrier
+  // legalization. Widths are byte-aligned powers of two.
+  const uint16_t* native_bit_counts;
+  // Logical lane counts worth evaluating for decomposable components.
+  const uint16_t* native_lane_counts;
+  // Largest payload in bits that remains owned by ordinary structural
+  // lowering instead of packet legalization.
+  uint16_t maximum_unpacketized_bit_count;
+  // Number of entries in |native_bit_counts|.
+  uint8_t native_bit_count_count;
+  // Number of entries in |native_lane_counts|, at most
+  // LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT.
+  uint8_t native_lane_count_count;
+} loom_target_vector_packet_policy_t;
+
+// Scoped vector lane-count projection for one contract query. An all-zero
+// value reads authored types directly. A populated projection presents static
+// vectors with |source_lane_count| total lanes as rank-one vectors with
+// |projected_lane_count| lanes without mutating source IR.
+typedef struct loom_target_contract_vector_lane_projection_t {
+  // Authored static vector lane count selected for projection.
+  uint32_t source_lane_count;
+  // Rank-one vector lane count presented to the contract query.
+  uint32_t projected_lane_count;
+} loom_target_contract_vector_lane_projection_t;
+
+// Returns the projected type for |value_id|. Callers first test for an empty
+// projection so ordinary authored queries remain on the direct type-table
+// path and only projected queries perform shape projection.
+loom_type_t loom_target_contract_query_projected_value_type(
+    loom_target_contract_vector_lane_projection_t projection,
+    const loom_module_t* module, loom_value_id_t value_id);
+
+// Returns the scoped query type for |value_id|.
+static inline loom_type_t loom_target_contract_query_value_type(
+    loom_target_contract_vector_lane_projection_t projection,
+    const loom_module_t* module, loom_value_id_t value_id) {
+  if (projection.source_lane_count == 0) {
+    return loom_module_value_type(module, value_id);
+  }
+  return loom_target_contract_query_projected_value_type(projection, module,
+                                                         value_id);
+}
+
 typedef enum loom_target_contract_query_outcome_e {
   // No linked contract fragment or provider has an opinion about the op.
   LOOM_TARGET_CONTRACT_QUERY_UNHANDLED = 0,
@@ -312,6 +367,8 @@ typedef struct loom_target_contract_query_environment_t {
   const loom_low_descriptor_set_t* descriptor_set;
   // Source value facts visible to the query.
   const loom_value_fact_table_t* fact_table;
+  // Optional scoped vector lane projection used for candidate planning.
+  loom_target_contract_vector_lane_projection_t vector_lane_projection;
   // Optional active value domain extended by ordinal-keyed query analyses.
   loom_local_value_domain_t* value_domain;
   // Optional function-local view-region analysis visible to the query.

@@ -287,7 +287,8 @@ TEST_F(LowLowerRuleValueTest,
   rule_set.value_ref_count = 1;
   loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
   ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
-      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      module_, &fact_table_, (loom_target_contract_vector_lane_projection_t){0},
+      &rule_set, vector_consumer_op_,
       /*source_nodes=*/nullptr, /*source_node_count=*/1,
       /*value_ref_index=*/0, &resolved));
   EXPECT_EQ(resolved, truncated);
@@ -311,7 +312,8 @@ TEST_F(LowLowerRuleValueTest, ResolvesExactUniformElementOrigins) {
   rule_set.value_ref_count = 1;
   loom_value_id_t resolved = LOOM_VALUE_ID_INVALID;
   ASSERT_TRUE(loom_low_lower_rule_resolve_source_value_from_nodes(
-      module_, &fact_table_, &rule_set, vector_consumer_op_,
+      module_, &fact_table_, (loom_target_contract_vector_lane_projection_t){0},
+      &rule_set, vector_consumer_op_,
       /*source_nodes=*/nullptr, /*source_node_count=*/1,
       /*value_ref_index=*/0, &resolved));
   EXPECT_EQ(resolved, scalar);

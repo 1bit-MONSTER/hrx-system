@@ -98,6 +98,8 @@ struct loom_low_lower_rule_match_context_t {
   const loom_low_descriptor_set_t* descriptor_set;
   // Feature bits selected by the target-low contract.
   uint64_t feature_bits;
+  // Optional scoped vector lane projection used for candidate matching.
+  loom_target_contract_vector_lane_projection_t vector_lane_projection;
   // Source-value to target-low register metadata mapper.
   loom_low_lower_rule_match_map_value_callback_t map_value;
   // Optional source value materializer predicate bridge.
@@ -128,6 +130,14 @@ struct loom_low_lower_rule_match_context_t {
   // zero when no policy owner is known.
   uint16_t policy_rule_set_ordinal;
 };
+
+// Returns the source-value type visible to this match.
+static inline loom_type_t loom_low_lower_rule_match_value_type(
+    const loom_low_lower_rule_match_context_t* context,
+    loom_value_id_t value_id) {
+  return loom_target_contract_query_value_type(context->vector_lane_projection,
+                                               context->module, value_id);
+}
 
 typedef struct loom_low_lower_rule_failure_t {
   // Source op carrying the best rejection diagnostic. Defaults to the rule

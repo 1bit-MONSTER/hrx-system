@@ -53,6 +53,7 @@
 #include "loom/target/arch/amdgpu/lower/fragment_memory/emit.h"
 #include "loom/target/arch/amdgpu/lower/fragment_memory/packet.h"
 #include "loom/target/arch/amdgpu/lower/fragment_memory/plan.h"
+#include "loom/target/arch/amdgpu/lower/kinds.h"
 #include "loom/target/arch/amdgpu/lower/legality.h"
 #include "loom/target/arch/amdgpu/lower/mask.h"
 #include "loom/target/arch/amdgpu/lower/matrix.h"
@@ -76,6 +77,7 @@
 #include "loom/target/arch/amdgpu/lower/value/vector_conversion.h"
 #include "loom/target/arch/amdgpu/lower/value/vector_transform.h"
 #include "loom/target/arch/amdgpu/lower/workgroup.h"
+#include "loom/target/contract.h"
 
 typedef struct loom_amdgpu_lower_dispatch_row_t
     loom_amdgpu_lower_dispatch_row_t;
@@ -1801,9 +1803,21 @@ static iree_status_t loom_amdgpu_low_legality_try_verify_op(
 
 #include "loom/target/arch/amdgpu/contracts/tables.inl"
 
+static const uint16_t kAmdgpuVectorPacketBitCounts[] = {
+    LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES * 32u,
+};
+
+static const loom_target_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
+    .native_bit_counts = kAmdgpuVectorPacketBitCounts,
+    .maximum_unpacketized_bit_count =
+        LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES * 32u,
+    .native_bit_count_count = IREE_ARRAYSIZE(kAmdgpuVectorPacketBitCounts),
+};
+
 static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
     .name = IREE_SVL("amdgpu-register-lower"),
     .error_catalog = &loom_amdgpu_error_catalog,
+    .vector_packet_policy = &kAmdgpuVectorPacketPolicy,
     .map_type = {.fn = loom_amdgpu_map_type, .user_data = NULL},
     .source_type_supported = {.fn = loom_amdgpu_source_type_supported,
                               .user_data = NULL},

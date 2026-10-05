@@ -460,6 +460,7 @@ loom_cc_library(
     loom::target::arch::amd::xdna::aie2p::contracts::core
     loom::target::arch::amd::xdna::aie2p::contracts::core_lower_rules
     loom::target::arch::amd::xdna::error_defs
+    loom::target::contract
     loom::util::fact_table
   PUBLIC
 )
@@ -682,6 +683,8 @@ loom_check_test_suite(
     "test/source_low/callable_returns.loom-test"
     "test/source_low/callable_values.loom-test"
     "test/source_low/carried_counter_store.loom-test"
+    "test/source_low/component_packetization.loom-test"
+    "test/source_low/component_packetization_report.loom-test"
     "test/source_low/function_storage.loom-test"
     "test/source_low/fused_packet_memory.loom-test"
     "test/source_low/immutable_gather.loom-test"

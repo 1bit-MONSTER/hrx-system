@@ -62,9 +62,12 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
 // Resolves a source-backed value-ref across a selected source graph. Direct
 // operand and result refs always resolve. Fact-derived refs return false when
 // their producer-owned relation is unavailable or does not describe the whole
-// referenced value.
+// referenced value. |vector_lane_projection| tests whole-value relations using
+// the candidate representation without mutating source IR; an empty projection
+// reads authored types.
 bool loom_low_lower_rule_resolve_source_value_from_nodes(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
+    loom_target_contract_vector_lane_projection_t vector_lane_projection,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_op_t* const* source_nodes, uint8_t source_node_count,
     uint16_t value_ref_index, loom_value_id_t* out_source_value_id);

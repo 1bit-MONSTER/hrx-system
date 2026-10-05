@@ -82,7 +82,8 @@ static loom_value_id_t loom_low_lower_rule_emit_source_value(
     const loom_low_lower_rule_emit_state_t* state, uint16_t value_ref_index) {
   loom_value_id_t source_value_id = LOOM_VALUE_ID_INVALID;
   const bool resolved = loom_low_lower_rule_resolve_source_value_from_nodes(
-      context->module, loom_low_lower_context_fact_table(context), rule_set,
+      context->module, loom_low_lower_context_fact_table(context),
+      (loom_target_contract_vector_lane_projection_t){0}, rule_set,
       state->source_op, state->source_nodes, state->source_node_count,
       value_ref_index, &source_value_id);
   IREE_ASSERT(resolved);

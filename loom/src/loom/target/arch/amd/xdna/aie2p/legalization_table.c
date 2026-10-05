@@ -142,7 +142,8 @@ static uint32_t loom_aie2p_table_lookup_64_bit_select_cost(
 
 iree_status_t loom_aie2p_table_lookup_rewrite(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* packet_policy, bool* out_rewritten) {
+    const loom_target_vector_packet_policy_t* packet_policy,
+    bool* out_rewritten) {
   *out_rewritten = false;
   const loom_value_id_t table = loom_vector_table_lookup_table(op);
   const loom_value_id_t indices = loom_vector_table_lookup_indices(op);

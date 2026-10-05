@@ -370,6 +370,89 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   EXPECT_EQ(result.selected_descriptor, &kDescriptor);
 }
 
+TEST_F(LowContractQuerySourceMemoryTest,
+       ScopedValueTypesSelectNarrowVectorRuleWithoutMutatingIr) {
+  const loom_type_t authored_type = loom_type_shaped_1d(
+      LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32, loom_dim_pack_static(64), 0);
+  loom_value_id_t argument = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT_OK(loom_builder_define_block_arg(
+      &builder_, loom_region_entry_block(loom_func_like_body(function_)),
+      authored_type, &argument));
+  loom_op_t* source_op = nullptr;
+  IREE_ASSERT_OK(loom_vector_negf_build(&builder_, /*instance_flags=*/0,
+                                        argument, authored_type,
+                                        LOOM_LOCATION_UNKNOWN, &source_op));
+
+  const loom_low_lower_value_ref_t value_ref = {
+      /*.kind=*/LOOM_LOW_LOWER_VALUE_REF_RESULT,
+      /*.source_node_index=*/0,
+      /*.index=*/0,
+  };
+  loom_low_lower_type_pattern_t type_pattern = {};
+  type_pattern.flags = LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_KIND |
+                       LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_ELEMENT |
+                       LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_RANK |
+                       LOOM_LOW_LOWER_TYPE_PATTERN_FLAG_STATIC_DIM0;
+  type_pattern.type_kind = LOOM_TYPE_VECTOR;
+  type_pattern.rank = 1;
+  type_pattern.element_type_mask =
+      LOOM_LOW_LOWER_SCALAR_TYPE_BIT(LOOM_SCALAR_TYPE_F32);
+  type_pattern.shape.exact.dim0 = 16;
+  loom_low_lower_guard_t guard = {};
+  guard.kind = LOOM_LOW_LOWER_GUARD_VALUE_TYPE;
+  guard.diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE;
+  guard.value_ref_index = 0;
+  guard.index.type_pattern_index = 0;
+  const loom_low_lower_guard_ref_t guard_ref = 0;
+  loom_low_lower_rule_t rule = {};
+  rule.source_op_kind = LOOM_OP_VECTOR_NEGF;
+  rule.guard_count = 1;
+  loom_low_lower_rule_set_t rule_set = {};
+  rule_set.rules = &rule;
+  rule_set.rule_count = 1;
+  rule_set.guards = &guard;
+  rule_set.guard_count = 1;
+  rule_set.guard_refs = &guard_ref;
+  rule_set.guard_ref_count = 1;
+  rule_set.value_refs = &value_ref;
+  rule_set.value_ref_count = 1;
+  rule_set.type_patterns = &type_pattern;
+  rule_set.type_pattern_count = 1;
+  const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
+  SingleOpContract<LOOM_OP_VECTOR_NEGF> contract;
+  const loom_low_lower_contract_query_options_t options = {
+      /*.contract_index=*/contract.index(),
+      /*.rule_sets=*/
+      {
+          /*.count=*/IREE_ARRAYSIZE(rule_sets),
+          /*.values=*/rule_sets,
+      },
+  };
+  const loom_target_facts_t target_facts = MakeTargetFacts();
+  loom_target_contract_query_environment_t environment = {};
+  environment.module = module_;
+  environment.function = function_;
+  environment.target_facts = &target_facts;
+
+  loom_target_contract_query_result_t result =
+      loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(loom_low_lower_query_target_contract(&environment, &options,
+                                                      source_op, &result));
+  EXPECT_EQ(result.outcome, LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED);
+
+  environment.vector_lane_projection = {
+      /*.source_lane_count=*/64,
+      /*.projected_lane_count=*/16,
+  };
+  result = loom_target_contract_query_result_empty();
+  IREE_ASSERT_OK(loom_low_lower_query_target_contract(&environment, &options,
+                                                      source_op, &result));
+  EXPECT_EQ(result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(module_, loom_vector_negf_result(source_op)),
+      authored_type));
+}
+
 TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
   loom_low_lower_rule_descriptor_ref_t descriptor_ref = {
       /*.key_string_ref=*/kRuleStringDescriptor,

@@ -398,6 +398,7 @@ iree_status_t loom_low_lower_query_target_contract(
       .bundle = bundle,
       .descriptor_set = environment->descriptor_set,
       .feature_bits = bundle->config->contract_feature_bits,
+      .vector_lane_projection = environment->vector_lane_projection,
       .map_value = options->map_value,
       .can_materialize = options->can_materialize,
       .descriptor_ref = options->descriptor_ref,

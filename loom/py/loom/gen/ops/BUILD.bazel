@@ -452,6 +452,22 @@ iree_py_test(
 )
 
 iree_py_test(
+    name = "c_vector_scalarization_test",
+    srcs = [
+        "c_vector_scalarization.py",
+        "c_vector_scalarization_test.py",
+        "//loom/py/loom/tools:pytest_style_runner.py",
+    ],
+    args = ["loom.gen.ops.c_vector_scalarization_test"],
+    main = "pytest_style_runner.py",
+    deps = [
+        ":c_tables",
+        "//loom/py/loom/dialect/scalar",
+        "//loom/py/loom/dialect/vector",
+    ],
+)
+
+iree_py_test(
     name = "model_test",
     srcs = [
         "model_test.py",

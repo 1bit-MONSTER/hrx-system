@@ -69,6 +69,7 @@ loom_cc_library(
         "//loom/src/loom/target:math_policy",
         "//loom/src/loom/target:pass_environment",
         "//loom/src/loom/target/reporting:report",
+        "//loom/src/loom/transforms/vector:component_packet_legalization",
         "//loom/src/loom/util:adaptive_sort",
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",

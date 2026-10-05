@@ -817,6 +817,9 @@ typedef struct loom_low_lower_policy_t {
   // Catalog resolving compact diagnostic refs carried by this policy's
   // generated rules and contract fragments.
   const loom_error_catalog_t* error_catalog;
+  // Optional target representation widths consumed by shared vector
+  // legalization before source-to-Low lowering.
+  const loom_target_vector_packet_policy_t* vector_packet_policy;
   // Maps source semantic types to target-low register types.
   loom_low_lower_map_type_callback_t map_type;
   // Optionally reports source types accepted by target-low legality because

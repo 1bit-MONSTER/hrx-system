@@ -21,7 +21,8 @@ extern "C" {
 // the native packed comparison and selection carriers.
 iree_status_t loom_aie2p_table_lookup_rewrite(
     loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_vector_packet_policy_t* packet_policy, bool* out_rewritten);
+    const loom_target_vector_packet_policy_t* packet_policy,
+    bool* out_rewritten);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -68,6 +68,7 @@ loom_cc_library(
     loom::target::math_policy
     loom::target::pass_environment
     loom::target::reporting::report
+    loom::transforms::vector::component_packet_legalization
     loom::util::adaptive_sort
     loom::util::walk
   PUBLIC
