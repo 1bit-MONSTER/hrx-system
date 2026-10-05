@@ -793,11 +793,16 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_spill(
 
   loom_builder_set_before(&rewriter->builder, op);
   loom_value_id_t saved_exec = LOOM_VALUE_ID_INVALID;
-  // low.spill has no lane-mask operand and snapshots the whole logical register
-  // value. AMDGPU scratch/private packets are lane-private and EXEC-gated, so
-  // emit spill traffic under full EXEC for every supported register class.
-  IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_enter_full_exec(
-      context, rewriter, op->location, &saved_exec));
+  // A VGPR definition only assigns the lanes active at its program point.
+  // Preserve the other lanes already accumulated in their lane-private spill
+  // slots by leaving EXEC unchanged. SGPR values describe one wave-wide value
+  // and still require every lane's scratch slot to receive the same snapshot.
+  const bool requires_full_exec =
+      spill_register.kind == LOOM_AMDGPU_SPILL_REGISTER_KIND_SGPR;
+  if (requires_full_exec) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_enter_full_exec(
+        context, rewriter, op->location, &saved_exec));
+  }
   for (uint32_t chunk_start = 0; chunk_start < unit_count;) {
     uint32_t chunk_units = loom_amdgpu_spill_lowering_register_chunk_units(
         &spill_register, unit_count - chunk_start);
@@ -824,8 +829,10 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_spill(
         scratch_value_type, op->location));
     chunk_start += chunk_units;
   }
-  IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_build_exec_write(
-      context, rewriter, saved_exec, op->location));
+  if (requires_full_exec) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_build_exec_write(
+        context, rewriter, saved_exec, op->location));
+  }
   return loom_rewriter_erase(rewriter, op);
 }
 
@@ -870,10 +877,17 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_reload(
 
   loom_builder_set_before(&rewriter->builder, op);
   loom_value_id_t saved_exec = LOOM_VALUE_ID_INVALID;
-  // low.reload restores the whole logical register value. Load every
-  // lane-private slot under full EXEC before restoring the caller's EXEC mask.
-  IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_enter_full_exec(
-      context, rewriter, op->location, &saved_exec));
+  // A VGPR reload defines only the lanes active at its program point, matching
+  // every other VGPR-producing instruction. This also lets a backedge reload
+  // share its destination with the prior loop state without clobbering retired
+  // lanes. SGPR reloads still gather a wave-wide scalar snapshot through a
+  // temporary VGPR and therefore require full EXEC.
+  const bool requires_full_exec =
+      spill_register.kind == LOOM_AMDGPU_SPILL_REGISTER_KIND_SGPR;
+  if (requires_full_exec) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_enter_full_exec(
+        context, rewriter, op->location, &saved_exec));
+  }
   const loom_value_id_t value_checkpoint =
       loom_rewriter_value_checkpoint(rewriter);
   loom_value_id_t* loaded_chunks = NULL;
@@ -906,8 +920,10 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_reload(
         op->location, &loaded_chunks[loaded_chunk_count++]));
     chunk_start += chunk_units;
   }
-  IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_build_exec_write(
-      context, rewriter, saved_exec, op->location));
+  if (requires_full_exec) {
+    IREE_RETURN_IF_ERROR(loom_amdgpu_spill_lowering_build_exec_write(
+        context, rewriter, saved_exec, op->location));
+  }
 
   loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
   if (loaded_chunk_count == 1) {
