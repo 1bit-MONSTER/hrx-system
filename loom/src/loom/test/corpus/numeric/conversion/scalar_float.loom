@@ -134,6 +134,70 @@ func.def @widen_all_narrow_bits(%bits8: buffer, %bits16: buffer, %e4_output: buf
   func.return
 }
 
+// Exhausts both FP8 payload spaces through every exact 16-bit widening edge.
+func.def @widen_float8_to_16_bits(%bits8: buffer, %e4_f16_output: buffer, %e5_f16_output: buffer, %e4_bf16_output: buffer, %e5_bf16_output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %e4_input = buffer.view %bits8[%base] : buffer -> view<256xf8E4M3>
+  %e5_input = buffer.view %bits8[%base] : buffer -> view<256xf8E5M2>
+  %e4_f16_view = buffer.view %e4_f16_output[%base] : buffer -> view<256xi16>
+  %e5_f16_view = buffer.view %e5_f16_output[%base] : buffer -> view<256xi16>
+  %e4_bf16_view = buffer.view %e4_bf16_output[%base] : buffer -> view<256xi16>
+  %e5_bf16_view = buffer.view %e5_bf16_output[%base] : buffer -> view<256xi16>
+  scf.for %i = [%begin to %end step %step] {
+    %e4 = view.load %e4_input[%i] : view<256xf8E4M3> -> f8E4M3
+    %e5 = view.load %e5_input[%i] : view<256xf8E5M2> -> f8E5M2
+    %e4_f16 = scalar.extf %e4 : f8E4M3 to f16
+    %e5_f16 = scalar.extf %e5 : f8E5M2 to f16
+    %e4_bf16 = scalar.extf %e4 : f8E4M3 to bf16
+    %e5_bf16 = scalar.extf %e5 : f8E5M2 to bf16
+    %e4_f16_bits = scalar.bitcast %e4_f16 : f16 to i16
+    %e5_f16_bits = scalar.bitcast %e5_f16 : f16 to i16
+    %e4_bf16_bits = scalar.bitcast %e4_bf16 : bf16 to i16
+    %e5_bf16_bits = scalar.bitcast %e5_bf16 : bf16 to i16
+    view.store %e4_f16_bits, %e4_f16_view[%i] : i16, view<256xi16>
+    view.store %e5_f16_bits, %e5_f16_view[%i] : i16, view<256xi16>
+    view.store %e4_bf16_bits, %e4_bf16_view[%i] : i16, view<256xi16>
+    view.store %e5_bf16_bits, %e5_bf16_view[%i] : i16, view<256xi16>
+  }
+  func.return
+}
+
+// The conversion consumes the vector snapshot captured before its source is
+// overwritten.
+func.def @vector_float8_narrowing_snapshot(%input: buffer, %replacement: f32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<4xf8E5M2>
+  %captured = vector.load %source[0] : view<4xf32> -> vector<4xf32>
+  %narrow = vector.fptrunc %captured : vector<4xf32> to vector<4xf8E5M2>
+  view.store %replacement, %source[0] : f32, view<4xf32>
+  vector.store %narrow, %destination[0] : vector<4xf8E5M2>, view<4xf8E5M2>
+  func.return
+}
+
+func.def @vector_float8_narrowing_snapshot_oracle(%input: buffer, %replacement: f32, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<4xf8E5M2>
+  %value0 = view.load %source[0] : view<4xf32> -> f32
+  %value1 = view.load %source[1] : view<4xf32> -> f32
+  %value2 = view.load %source[2] : view<4xf32> -> f32
+  %value3 = view.load %source[3] : view<4xf32> -> f32
+  %result0 = scalar.fptrunc %value0 : f32 to f8E5M2
+  %result1 = scalar.fptrunc %value1 : f32 to f8E5M2
+  %result2 = scalar.fptrunc %value2 : f32 to f8E5M2
+  %result3 = scalar.fptrunc %value3 : f32 to f8E5M2
+  view.store %replacement, %source[0] : f32, view<4xf32>
+  view.store %result0, %destination[0] : f8E5M2, view<4xf8E5M2>
+  view.store %result1, %destination[1] : f8E5M2, view<4xf8E5M2>
+  view.store %result2, %destination[2] : f8E5M2, view<4xf8E5M2>
+  view.store %result3, %destination[3] : f8E5M2, view<4xf8E5M2>
+  func.return
+}
+
 // Mixed widths and an unused argument exercise the direct scalar ABI. The
 // output retains raw inputs as well as independent widening paths.
 func.def @narrow_scalar_arguments(%e4: f8E4M3, %unused: f16, %e5: f8E5M2, %marker: f64, %half: f16, %brain: bf16, %output: buffer) {
@@ -278,6 +342,36 @@ check.scenario @narrow_float_all_bits {
       check.expect.bitwise actual(%f16_positive_zero) expected(%f16_positive_zero) : tensor<1xf64>
       check.expect.bitwise actual(%bf16_negative_zero) expected(%bf16_negative_zero) : tensor<1xf64>
       check.expect.bitwise actual(%bf16_positive_zero) expected(%bf16_positive_zero) : tensor<1xf64>
+    }
+  }
+  check.return
+}
+
+check.scenario @float8_to_16_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %bits8 = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %e4_f16_output = check.generate.fill value(0) : tensor<256xi16>
+    %e5_f16_output = check.generate.fill value(0) : tensor<256xi16>
+    %e4_bf16_output = check.generate.fill value(0) : tensor<256xi16>
+    %e5_bf16_output = check.generate.fill value(0) : tensor<256xi16>
+    check.compare<@widen_float8_to_16_bits>(%bits8, %e4_f16_output, %e5_f16_output, %e4_bf16_output, %e5_bf16_output) : (tensor<256xi8>, tensor<256xi16>, tensor<256xi16>, tensor<256xi16>, tensor<256xi16>) -> () {
+      check.expect.bitwise actual(%e4_f16_output) expected(%e4_f16_output) : tensor<256xi16>
+      check.expect.bitwise actual(%e5_f16_output) expected(%e5_f16_output) : tensor<256xi16>
+      check.expect.bitwise actual(%e4_bf16_output) expected(%e4_bf16_output) : tensor<256xi16>
+      check.expect.bitwise actual(%e5_bf16_output) expected(%e5_bf16_output) : tensor<256xi16>
+    }
+  }
+  check.return
+}
+
+check.scenario @vector_float8_narrowing_source_snapshot {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-3.0) step(2.0) : tensor<4xf32>
+    %replacement = check.literal value(99.0) : f32
+    %output = check.generate.fill value(-1) : tensor<4xi8>
+    check.compare<@vector_float8_narrowing_snapshot, @vector_float8_narrowing_snapshot_oracle>(%input, %replacement, %output) : (tensor<4xf32>, f32, tensor<4xi8>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<4xf32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<4xi8>
     }
   }
   check.return

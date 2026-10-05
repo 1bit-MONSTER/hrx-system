@@ -39,8 +39,8 @@ bool loom_scalar_match_float8_to_bfloat_extension(
     const loom_target_legalizer_entry_t* entry,
     const loom_target_legalization_context_t* context, const loom_op_t* op);
 
-// Rewrites a matched FP8-to-BF16 extension through an exact F32 intermediate.
-iree_status_t loom_scalar_rewrite_float8_to_bfloat_extension(
+// Rewrites a matched FP8 extension with an exact integer-carried decode.
+iree_status_t loom_scalar_rewrite_float8_extension(
     loom_target_legalization_context_t* context, loom_op_t* op);
 
 // Returns the generic scalar legalizer provider. Pipelines should compose this

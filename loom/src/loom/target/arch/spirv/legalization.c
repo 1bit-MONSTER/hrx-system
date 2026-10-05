@@ -57,8 +57,7 @@ static iree_status_t loom_spirv_legalize_float8_to_bfloat_extension(
     return iree_ok_status();
   }
   (void)entry;
-  IREE_RETURN_IF_ERROR(
-      loom_scalar_rewrite_float8_to_bfloat_extension(context, op));
+  IREE_RETURN_IF_ERROR(loom_scalar_rewrite_float8_extension(context, op));
   out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   return iree_ok_status();
 }
