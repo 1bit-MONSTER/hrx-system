@@ -129,6 +129,13 @@ TEST(EncodingTest, ImmediateWidthsAndCountRegister) {
   operands.result = 9;
   operands.inputs[0] = 9;
   operands.inputs[1] = 1;
+  // Exact float narrowing uses signed add/sub immediates at GPR32 width.
+  operands.immediate = -1006108673;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81, operands,
+                 {0x41, 0x81, 0xc1, 0xff, 0xff, 0x07, 0xc4}, 1u << 9);
+  operands.immediate = 1;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_BINARY_IMMEDIATE, 0x81 | (5u << 9),
+                 operands, {0x41, 0x81, 0xe9, 0x01, 0x00, 0x00, 0x00}, 1u << 9);
   operands.immediate = UINT32_MAX;
   // A 32-bit write represents this complete 64-bit constant without REX.W.
   ExpectEncoding(LOOM_X86_ENCODING_FORM_CONSTANT,

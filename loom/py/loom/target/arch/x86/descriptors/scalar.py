@@ -591,6 +591,20 @@ X86_SCALAR_SUFFIX_DESCRIPTORS = (
     ),
     *(
         _gpr_destructive_immediate_descriptor(
+            key=f"x86.scalar.{operation}.imm.gpr32",
+            encoding_form=Form.BINARY_IMMEDIATE,
+            encoding_id=encoding(0x81, extension=extension),
+            mnemonic=operation,
+            semantic_tag=f"integer.{operation}.signed_imm32.i32",
+            result=_gpr32_result(),
+            source=_gpr32_operand("lhs"),
+            immediate=_IMM32_IMMEDIATE,
+            asm_suffix="gpr32",
+        )
+        for operation, extension in (("add", 0), ("sub", 5))
+    ),
+    *(
+        _gpr_destructive_immediate_descriptor(
             key=f"x86.scalar.{operation}.imm.gpr{width}",
             encoding_form=Form.BINARY_IMMEDIATE,
             encoding_id=encoding(

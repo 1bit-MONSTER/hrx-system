@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, unique
 
 from loom.target.contracts import (
@@ -148,6 +148,21 @@ BF16_SOURCE_FORMAT = BinaryFloatFormat(
 
 
 @dataclass(frozen=True, slots=True)
+class IntegerNarrowingImmediateForms:
+    """Optional immediate descriptors for literal recipe operands."""
+
+    add: Descriptor | None = None
+    subtract: Descriptor | None = None
+    shift_left: Descriptor | None = None
+    shift_right_logical: Descriptor | None = None
+    bitwise_and: Descriptor | None = None
+    bitwise_or: Descriptor | None = None
+    less_than_nonnegative: Descriptor | None = None
+    greater_than_equal_nonnegative: Descriptor | None = None
+    greater_than_nonnegative: Descriptor | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class IntegerNarrowingDescriptors:
     """Integer-carrier target descriptors required by exact narrowing."""
 
@@ -163,6 +178,7 @@ class IntegerNarrowingDescriptors:
     integer_greater_than_equal_nonnegative: Descriptor
     integer_greater_than_nonnegative: Descriptor
     integer_select: Descriptor
+    immediate_forms: IntegerNarrowingImmediateForms | None = None
 
     def __post_init__(self) -> None:
         if self.integer_bit_width < 2:
@@ -207,13 +223,164 @@ class _ScalarRecipe:
         return result
 
     @staticmethod
-    def _constant_immediate(descriptor: Descriptor, value: int) -> dict[str, int]:
+    def _try_constant_immediate(
+        descriptor: Descriptor, value: int
+    ) -> dict[str, int] | None:
         (immediate,) = descriptor.immediates
         modulus = 1 << immediate.bit_width
         encoded_value = value & (modulus - 1)
         if encoded_value > immediate.unsigned_max:
             encoded_value -= modulus
+        if not immediate.signed_min <= encoded_value <= immediate.unsigned_max:
+            return None
+        if encoded_value % immediate.value_step:
+            return None
         return {immediate.field_name: encoded_value}
+
+    @classmethod
+    def _constant_immediate(cls, descriptor: Descriptor, value: int) -> dict[str, int]:
+        immediates = cls._try_constant_immediate(descriptor, value)
+        if immediates is None:
+            raise ValueError(
+                f"value {value} is not representable by descriptor '{descriptor.key}'"
+            )
+        return immediates
+
+    def finish(self) -> tuple[EmitDescriptorOp, ...]:
+        """Selects declared literal forms and returns the completed recipe."""
+
+        immediate_forms = self.descriptors.immediate_forms
+        if immediate_forms is None:
+            return tuple(self.emits)
+
+        immediate_by_descriptor_key = {
+            descriptor.key: (immediate, commutative)
+            for descriptor, immediate, commutative in (
+                (self.descriptors.integer_add, immediate_forms.add, True),
+                (
+                    self.descriptors.integer_subtract,
+                    immediate_forms.subtract,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_shift_left,
+                    immediate_forms.shift_left,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_shift_right_logical,
+                    immediate_forms.shift_right_logical,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_bitwise_and,
+                    immediate_forms.bitwise_and,
+                    True,
+                ),
+                (
+                    self.descriptors.integer_bitwise_or,
+                    immediate_forms.bitwise_or,
+                    True,
+                ),
+                (
+                    self.descriptors.integer_less_than_nonnegative,
+                    immediate_forms.less_than_nonnegative,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_greater_than_equal_nonnegative,
+                    immediate_forms.greater_than_equal_nonnegative,
+                    False,
+                ),
+                (
+                    self.descriptors.integer_greater_than_nonnegative,
+                    immediate_forms.greater_than_nonnegative,
+                    False,
+                ),
+            )
+            if immediate is not None
+        }
+        if not immediate_by_descriptor_key:
+            return tuple(self.emits)
+
+        constant_values: dict[str, int] = {}
+        for emit in self.emits:
+            if (
+                emit.descriptor.key != self.descriptors.integer_constant.key
+                or emit.form is not DescriptorEmitForm.CONST
+            ):
+                continue
+            (result,) = emit.results.values()
+            (value,) = emit.immediates.values()
+            if result.kind is not SourceValueKind.TEMPORARY or not isinstance(
+                value, int
+            ):
+                raise ValueError(
+                    "integer recipe constants must define literal temporaries"
+                )
+            if result.field in constant_values:
+                raise ValueError(
+                    f"integer recipe temporary '{result.field}' is defined twice"
+                )
+            constant_values[result.field] = value
+
+        rewritten_emits: list[EmitDescriptorOp] = []
+        for emit in self.emits:
+            immediate_form = immediate_by_descriptor_key.get(emit.descriptor.key)
+            lhs = emit.operands.get("lhs")
+            rhs = emit.operands.get("rhs")
+            if immediate_form is None or lhs is None or rhs is None:
+                rewritten_emits.append(emit)
+                continue
+            immediate_descriptor, commutative = immediate_form
+            literal = rhs
+            value = lhs
+            if (
+                rhs.kind is not SourceValueKind.TEMPORARY
+                or rhs.field not in constant_values
+            ):
+                if (
+                    not commutative
+                    or lhs.kind is not SourceValueKind.TEMPORARY
+                    or lhs.field not in constant_values
+                ):
+                    rewritten_emits.append(emit)
+                    continue
+                literal = lhs
+                value = rhs
+            immediates = self._try_constant_immediate(
+                immediate_descriptor, constant_values[literal.field]
+            )
+            if immediates is None:
+                rewritten_emits.append(emit)
+                continue
+            operands = dict(emit.operands)
+            operands["lhs"] = value
+            del operands["rhs"]
+            rewritten_emits.append(
+                replace(
+                    emit,
+                    descriptor=immediate_descriptor,
+                    operands=operands,
+                    immediates=immediates,
+                )
+            )
+
+        used_temporaries = {
+            operand.field
+            for emit in rewritten_emits
+            for operand in emit.operands.values()
+            if operand.kind is SourceValueKind.TEMPORARY
+        }
+        return tuple(
+            emit
+            for emit in rewritten_emits
+            if not (
+                emit.descriptor.key == self.descriptors.integer_constant.key
+                and emit.form is DescriptorEmitForm.CONST
+                and next(iter(emit.results.values())).field not in used_temporaries
+            )
+        )
 
     def integer_constant(self, result_name: str, value: int) -> ValueRef:
         result = ValueRef.temporary(result_name)
@@ -346,6 +513,41 @@ def build_f32_to_bf16_emits(
     input_bits = recipe.reinterpret_float_as_integer(
         "input_bits", descriptors.reinterpret_float_as_integer, input_ref
     )
+    return _build_f32_bits_to_bf16_emits(
+        recipe,
+        input_bits,
+        result_ref,
+        preserve_nan=preserve_nan,
+    )
+
+
+def build_f32_bits_to_bf16_emits(
+    descriptors: IntegerNarrowingDescriptors,
+    input_bits_ref: ValueRef,
+    result_ref: ValueRef,
+    *,
+    preserve_nan: bool = True,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Rounds integer-carried F32 bits to BF16."""
+
+    return _build_f32_bits_to_bf16_emits(
+        _ScalarRecipe(descriptors),
+        input_bits_ref,
+        result_ref,
+        preserve_nan=preserve_nan,
+    )
+
+
+def _build_f32_bits_to_bf16_emits(
+    recipe: _ScalarRecipe,
+    input_bits: ValueRef,
+    result_ref: ValueRef,
+    *,
+    preserve_nan: bool,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Builds exact BF16 rounding after F32 bits have been materialized."""
+
+    integer_descriptors = recipe.descriptors
     shift = recipe.integer_constant("shift", 16)
     upper = recipe.integer_binary(
         "upper", integer_descriptors.integer_shift_right_logical, input_bits, shift
@@ -369,7 +571,7 @@ def build_f32_to_bf16_emits(
     )
 
     if not preserve_nan:
-        return tuple(recipe.emits)
+        return recipe.finish()
 
     nonsign_mask = recipe.integer_constant("nonsign_mask", 0x7FFFFFFF)
     magnitude = recipe.integer_binary(
@@ -390,7 +592,7 @@ def build_f32_to_bf16_emits(
         "nan", integer_descriptors.integer_bitwise_or, upper, quiet_nan_bit
     )
     recipe.integer_select_to(result_ref, nan, finite, is_nan)
-    return tuple(recipe.emits)
+    return recipe.finish()
 
 
 def build_float_to_narrow_float_emits(
@@ -821,4 +1023,4 @@ def _build_float_bits_to_narrow_float_emits(
     recipe.integer_binary_to(
         result_ref, descriptors.integer_bitwise_or, sign, unsigned_result
     )
-    return tuple(recipe.emits)
+    return recipe.finish()

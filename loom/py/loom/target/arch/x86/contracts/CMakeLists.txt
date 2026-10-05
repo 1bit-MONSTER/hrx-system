@@ -16,6 +16,7 @@ iree_py_library(
     "__init__.py"
     "avx2.py"
     "avx512.py"
+    "float_narrowing.py"
     "floating_reduction.py"
     "integer_division.py"
     "memory.py"
@@ -31,6 +32,28 @@ iree_py_library(
     loom::py::loom::dialect::view::view
     loom::py::loom::target::arch::x86::descriptors
     loom::py::loom::target::contracts::contracts
+    loom::py::loom::target::emit::float_narrowing
+)
+
+iree_py_test(
+  NAME
+    float_narrowing_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "float_narrowing_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.float_narrowing_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::dialect::scalar::scalar
+    loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

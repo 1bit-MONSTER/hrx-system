@@ -19,6 +19,9 @@ from loom.dialect.scf import defs as scf
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
+from loom.target.arch.x86.contracts.float_narrowing import (
+    x86_float_narrowing_rules,
+)
 from loom.target.arch.x86.contracts.floating_reduction import (
     f32x4_reassociated_reduce_emit_chain,
     ordered_f32_reduce_emit_chain,
@@ -521,6 +524,7 @@ def _cases() -> Sequence[ContractCase]:
     descriptor_lookup = _descriptor
     return (
         _bf16_to_f32_rule(descriptor_lookup),
+        *x86_float_narrowing_rules(descriptor_lookup),
         *(
             _select_rule(type_pattern, descriptor_lookup)
             for type_pattern in (_F32, _F64)
