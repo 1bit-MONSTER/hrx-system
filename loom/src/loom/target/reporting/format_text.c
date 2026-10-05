@@ -647,12 +647,13 @@ static iree_status_t loom_target_compile_report_format_summary(
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         builder,
         "COMPILE-REPORT: target_legalization legal=%" PRIu64
-        " rewritten=%" PRIu64 " target_rewritten=%" PRIu64
-        " reference_rewritten=%" PRIu64 " deferred=%" PRIu64
-        " invalid_ir=%" PRIu64 " unsupported=%" PRIu64 " unhandled=%" PRIu64
-        " rows=%" PRIhsz "\n",
+        " rewritten=%" PRIu64 " scalarized=%" PRIu64
+        " target_rewritten=%" PRIu64 " reference_rewritten=%" PRIu64
+        " deferred=%" PRIu64 " invalid_ir=%" PRIu64 " unsupported=%" PRIu64
+        " unhandled=%" PRIu64 " rows=%" PRIhsz "\n",
         report->target_legalization_legal_op_count,
         report->target_legalization_rewritten_op_count,
+        report->target_legalization_scalarized_op_count,
         report->target_legalization_target_rewritten_op_count,
         report->target_legalization_reference_rewritten_op_count,
         report->target_legalization_deferred_op_count,

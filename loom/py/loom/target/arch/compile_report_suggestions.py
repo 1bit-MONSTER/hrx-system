@@ -13,6 +13,7 @@ from loom.reporting.compile_report_boundary_projections import (
     suggest_boundary_projections,
 )
 from loom.reporting.compile_report_loop_pipelines import suggest_loop_pipelines
+from loom.reporting.compile_report_scalarization import suggest_scalarization
 from loom.reporting.compile_report_suggestions import (
     CompileReportSuggestionOptions,
     CompileReportSuggestionProvider,
@@ -43,9 +44,11 @@ def suggest_compile_report(
             provider_name=None,
             unavailable_reason="compile_status_not_ok",
         )
-    source_suggestions = suggest_loop_pipelines(
-        document
-    ) + suggest_boundary_projections(document)
+    source_suggestions = (
+        suggest_scalarization(document)
+        + suggest_loop_pipelines(document)
+        + suggest_boundary_projections(document)
+    )
     target_result = _suggest_target(document, options)
     if not source_suggestions:
         return target_result

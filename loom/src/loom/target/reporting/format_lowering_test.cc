@@ -516,6 +516,7 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
       LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_POLICY_REFERENCE_ONLY;
   legalization.action =
       LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN;
+  legalization.scalarized = true;
   legalization.legalization_outcome =
       LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_OUTCOME_REFERENCE_FALLBACK;
   legalization.contract_outcome =
@@ -554,6 +555,8 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
                                     "source_op=vector.reduce.axes"),
                             0),
       IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(iree_string_view_find(text, IREE_SV(" scalarized=true"), 0),
+            IREE_STRING_VIEW_NPOS);
   EXPECT_NE(iree_string_view_find(
                 text, IREE_SV("descriptor_key=test.legalized.descriptor"), 0),
             IREE_STRING_VIEW_NPOS);
@@ -576,10 +579,14 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
   ExpectObjectUint64Equals(math_row, IREE_SV("created_op_count"), 10);
   const iree_string_view_t legalization_json =
       LookupObject(root, IREE_SV("target_legalization"));
+  ExpectObjectUint64Equals(legalization_json, IREE_SV("scalarized_op_count"),
+                           1);
   const iree_string_view_t legalization_row = LookupArrayElement(
       LookupObject(legalization_json, IREE_SV("rows")), /*index=*/0);
   ExpectObjectValueEquals(legalization_row, IREE_SV("legalizer_strategy"),
                           IREE_SV("reference"));
+  ExpectObjectValueEquals(legalization_row, IREE_SV("scalarized"),
+                          IREE_SV("true"));
   ExpectObjectValueEquals(legalization_row, IREE_SV("descriptor_key"),
                           IREE_SV("test.legalized.descriptor"));
   ExpectObjectUint64Equals(legalization_row, IREE_SV("source_rejection_detail"),
