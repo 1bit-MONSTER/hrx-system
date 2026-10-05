@@ -346,16 +346,14 @@ static iree_status_t loom_low_lower_rule_mapped_value_register_class_matches(
 }
 
 static bool loom_low_lower_rule_integer_element_range_facts(
-    const loom_low_lower_rule_match_context_t* match_context,
+    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     loom_value_id_t value_id, loom_value_facts_t* out_facts) {
   *out_facts = loom_value_facts_unknown();
-  const loom_value_fact_table_t* fact_table = match_context->fact_table;
   if (fact_table == NULL) {
     return false;
   }
 
-  const loom_type_t type =
-      loom_low_lower_rule_match_value_type(match_context, value_id);
+  const loom_type_t type = loom_module_value_type(module, value_id);
   const loom_value_facts_t facts =
       loom_value_fact_table_lookup(fact_table, value_id);
   if (loom_type_is_scalar(type)) {
@@ -455,7 +453,8 @@ static bool loom_low_lower_rule_result_index_assume_facts(
   }
 
   return loom_low_lower_rule_integer_element_range_facts(
-      match_context, assumed_results.values[operand_index], out_facts);
+      match_context->module, match_context->fact_table,
+      assumed_results.values[operand_index], out_facts);
 }
 
 static bool loom_low_lower_rule_value_integer_element_range_facts(
@@ -468,8 +467,8 @@ static bool loom_low_lower_rule_value_integer_element_range_facts(
   }
   const loom_value_id_t value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, value_ref_index);
-  return loom_low_lower_rule_integer_element_range_facts(match_context,
-                                                         value_id, out_facts);
+  return loom_low_lower_rule_integer_element_range_facts(
+      match_context->module, match_context->fact_table, value_id, out_facts);
 }
 
 static iree_status_t loom_low_lower_rule_value_symbolically_fits_bit_count(
@@ -617,7 +616,7 @@ static bool loom_low_lower_rule_value_facts_exact_float(
     return false;
   }
   const loom_scalar_type_t scalar_type = loom_type_element_type(
-      loom_low_lower_rule_match_value_type(match_context, value_id));
+      loom_module_value_type(match_context->module, value_id));
   double value = 0.0;
   return loom_value_facts_as_exact_float(scalar_type, facts, &value);
 }
@@ -634,7 +633,7 @@ static bool loom_low_lower_rule_value_facts_float_equals(
     return false;
   }
   const loom_scalar_type_t scalar_type = loom_type_element_type(
-      loom_low_lower_rule_match_value_type(match_context, value_id));
+      loom_module_value_type(match_context->module, value_id));
   double expected_value = 0.0;
   memcpy(&expected_value, &expected_bits, sizeof(expected_value));
   const loom_value_facts_t expected_facts =
@@ -650,8 +649,8 @@ static bool loom_low_lower_rule_value_facts_i64_range(
   const loom_value_id_t value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, value_ref_index);
   loom_value_facts_t facts = loom_value_facts_unknown();
-  if (!loom_low_lower_rule_integer_element_range_facts(match_context, value_id,
-                                                       &facts)) {
+  if (!loom_low_lower_rule_integer_element_range_facts(
+          match_context->module, match_context->fact_table, value_id, &facts)) {
     return false;
   }
   return facts.range_lo >= minimum_i64 && facts.range_hi <= maximum_i64;
@@ -664,15 +663,16 @@ static bool loom_low_lower_rule_value_facts_i64_range_le(
   const loom_value_id_t value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, value_ref_index);
   loom_value_facts_t facts = loom_value_facts_unknown();
-  if (!loom_low_lower_rule_integer_element_range_facts(match_context, value_id,
-                                                       &facts)) {
+  if (!loom_low_lower_rule_integer_element_range_facts(
+          match_context->module, match_context->fact_table, value_id, &facts)) {
     return false;
   }
   const loom_value_id_t other_value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, other_value_ref_index);
   loom_value_facts_t other_facts = loom_value_facts_unknown();
   if (!loom_low_lower_rule_integer_element_range_facts(
-          match_context, other_value_id, &other_facts)) {
+          match_context->module, match_context->fact_table, other_value_id,
+          &other_facts)) {
     return false;
   }
   return facts.range_hi <= other_facts.range_lo;
@@ -685,15 +685,16 @@ static bool loom_low_lower_rule_value_facts_i64_range_ge(
   const loom_value_id_t value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, value_ref_index);
   loom_value_facts_t facts = loom_value_facts_unknown();
-  if (!loom_low_lower_rule_integer_element_range_facts(match_context, value_id,
-                                                       &facts)) {
+  if (!loom_low_lower_rule_integer_element_range_facts(
+          match_context->module, match_context->fact_table, value_id, &facts)) {
     return false;
   }
   const loom_value_id_t other_value_id = loom_low_lower_rule_source_value(
       match_context->module, rule_set, source_op, other_value_ref_index);
   loom_value_facts_t other_facts = loom_value_facts_unknown();
   if (!loom_low_lower_rule_integer_element_range_facts(
-          match_context, other_value_id, &other_facts)) {
+          match_context->module, match_context->fact_table, other_value_id,
+          &other_facts)) {
     return false;
   }
   return facts.range_lo >= other_facts.range_hi;

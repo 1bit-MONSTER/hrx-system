@@ -79,11 +79,10 @@ typedef struct loom_target_contract_vector_lane_projection_t {
 
 // Returns the projected type for |value_id|. Callers first test for an empty
 // projection so ordinary authored queries remain on the direct type-table
-// path and only projected queries cross this out-of-line boundary.
+// path and only projected queries perform shape projection.
 loom_type_t loom_target_contract_query_projected_value_type(
     loom_target_contract_vector_lane_projection_t projection,
-    const loom_module_t* module,
-    loom_value_id_t value_id) IREE_ATTRIBUTE_NOINLINE;
+    const loom_module_t* module, loom_value_id_t value_id);
 
 // Returns the scoped query type for |value_id|.
 static inline loom_type_t loom_target_contract_query_value_type(
