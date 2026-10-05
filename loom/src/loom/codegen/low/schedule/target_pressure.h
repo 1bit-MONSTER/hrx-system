@@ -101,13 +101,6 @@ uint32_t loom_low_schedule_target_pressure_full_unspillable_completion_capacity(
     const loom_low_schedule_pressure_state_t* pressure_state,
     uint16_t completion_domain_id);
 
-// Returns the smallest register-packing capacity whose selected live
-// completion is reached by |candidate_node|, or UINT32_MAX when none is.
-uint32_t loom_low_schedule_target_pressure_active_packing_completion_capacity(
-    const loom_low_schedule_build_state_t* state,
-    const loom_low_schedule_pressure_state_t* pressure_state,
-    uint32_t candidate_node);
-
 // Scores all target-authored pressure cliffs, limits, and derived resources
 // against the candidate deltas already present in |pressure_state|.
 void loom_low_schedule_target_pressure_score_candidate(

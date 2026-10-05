@@ -37,6 +37,7 @@ from loom.target.low_descriptors import (
     RegClass,
     RegClassAltFlag,
     RegisterPackingResource,
+    RegisterPackingResourceFlag,
     RegisterPart,
     Resource,
     ScheduleClass,
@@ -57,8 +58,13 @@ class CompiledPhysicalRegisterView:
 
 @dataclass(frozen=True, slots=True)
 class CompiledRegisterPackingResource:
+    # Authored resource capacity and member contributions.
     source: RegisterPackingResource
+    # Immutable facts derived from all member register classes.
+    flags: tuple[RegisterPackingResourceFlag, ...]
+    # First row in the packed register-class contribution table.
     member_start: int
+    # Number of register-class contribution rows.
     member_count: int
 
 

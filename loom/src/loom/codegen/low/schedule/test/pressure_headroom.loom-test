@@ -1,0 +1,109 @@
+// Five held pointer units leave three units below the allocation budget.
+// The scalar constant has five users but activates only one scalar at a time.
+// Neither scalar load changes pointer occupancy. The second independent load
+// can issue before the first load's four-cycle consumer becomes available.
+// RUN: emit low-schedule-query @unchanged_class_headroom strategy=resource-stall test.ptr=8 issue=1,8,2
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unchanged_class_headroom(%held: reg<test.ptr x3>, %first_address: reg<test.ptr>, %second_address: reg<test.ptr>) -> (reg<test.ptr x3>, reg<test.ptr>, reg<test.ptr>, reg<test.i32>, reg<test.i32>) asm {
+  %increment = test.const.i32 7
+  %first_half = test.write.low16.i32 %first_address
+  %first = test.read.low16.i32 %first_half
+  %sum0 = test.add.i32 %first, %increment
+  %sum1 = test.add.i32 %sum0, %increment
+  %sum2 = test.add.i32 %sum1, %increment
+  %sum3 = test.add.i32 %sum2, %increment
+  %sum4 = test.add.i32 %sum3, %increment
+  %second_half = test.write.low16.i32 %second_address
+  %second = test.read.low16.i32 %second_half
+  return %held, %first_address, %second_address, %sum4, %second
+}
+
+// ----
+node 1 issue-cycle: 0
+node 8 issue-cycle: 2
+node 2 issue-cycle: 4
+
+// ====
+
+// The same fixed occupancy below a direct residency cliff cannot constrain
+// scalar demand. No allocation budget is needed for the virtual pointer class.
+// RUN: emit low-schedule-json @unchanged_residency_headroom strategy=resource-stall cliff=test.ptr:8:15:14 diagnostics=candidates output=none
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unchanged_residency_headroom(%held: reg<test.ptr x3>, %first_address: reg<test.ptr>, %second_address: reg<test.ptr>) -> (reg<test.ptr x3>, reg<test.ptr>, reg<test.ptr>, reg<test.i32>, reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.const.i32", rejected_packet="test.write.low16.i32"}
+  %increment = test.const.i32 7
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.write.low16.i32", rejected_packet="test.const.i32"}
+  %first_half = test.write.low16.i32 %first_address
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.read.low16.i32", rejected_packet="test.read.low16.i32"}
+  %first = test.read.low16.i32 %first_half
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.read.low16.i32"}
+  %sum0 = test.add.i32 %first, %increment
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.read.low16.i32"}
+  %sum1 = test.add.i32 %sum0, %increment
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.read.low16.i32"}
+  %sum2 = test.add.i32 %sum1, %increment
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.read.low16.i32"}
+  %sum3 = test.add.i32 %sum2, %increment
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="test.read.low16.i32"}
+  %sum4 = test.add.i32 %sum3, %increment
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.write.low16.i32", rejected_packet="test.read.low16.i32", chosen_data_ready_stall_cycles="0"}
+  %second_half = test.write.low16.i32 %second_address
+  %second = test.read.low16.i32 %second_half
+  return %held, %first_address, %second_address, %sum4, %second
+}
+
+// ====
+
+// The two register classes jointly occupy five of eight alias-bank units.
+// Both views are held across scalar work, with no new alias-bank allocation.
+// RUN: emit low-schedule-query @unchanged_alias_headroom strategy=resource-stall issue=1,8,2
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unchanged_alias_headroom(%wide0: reg<test.pressure.alias64>, %wide1: reg<test.pressure.alias64>, %narrow: reg<test.pressure.alias32 x3>, %first_address: reg<test.ptr>, %second_address: reg<test.ptr>) -> (reg<test.pressure.alias64>, reg<test.pressure.alias64>, reg<test.pressure.alias32 x3>, reg<test.ptr>, reg<test.ptr>, reg<test.i32>, reg<test.i32>) asm {
+  %increment = test.const.i32 7
+  %first_half = test.write.low16.i32 %first_address
+  %first = test.read.low16.i32 %first_half
+  %sum0 = test.add.i32 %first, %increment
+  %sum1 = test.add.i32 %sum0, %increment
+  %sum2 = test.add.i32 %sum1, %increment
+  %sum3 = test.add.i32 %sum2, %increment
+  %sum4 = test.add.i32 %sum3, %increment
+  %second_half = test.write.low16.i32 %second_address
+  %second = test.read.low16.i32 %second_half
+  return %wide0, %wide1, %narrow, %first_address, %second_address, %sum4, %second
+}
+
+// ----
+node 1 issue-cycle: 0
+node 8 issue-cycle: 2
+node 2 issue-cycle: 4
+
+// ====
+
+// One wide unit occupies one of two shared pair slots while leaving three
+// underlying class units free. Two scalar uses exceed only shared headroom;
+// they do not open or continue a transaction in the held packing resource.
+// RUN: emit low-schedule-query @unchanged_packing_headroom strategy=resource-stall issue=1,5,2
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @unchanged_packing_headroom(%held: reg<test.packed.wide>, %first_address: reg<test.ptr>, %second_address: reg<test.ptr>) -> (reg<test.packed.wide>, reg<test.ptr>, reg<test.ptr>, reg<test.i32>, reg<test.i32>) asm {
+  %increment = test.const.i32 7
+  %first_half = test.write.low16.i32 %first_address
+  %first = test.read.low16.i32 %first_half
+  %sum0 = test.add.i32 %first, %increment
+  %sum1 = test.add.i32 %sum0, %increment
+  %second_half = test.write.low16.i32 %second_address
+  %second = test.read.low16.i32 %second_half
+  return %held, %first_address, %second_address, %sum1, %second
+}
+
+// ----
+node 1 issue-cycle: 0
+node 5 issue-cycle: 2
+node 2 issue-cycle: 4

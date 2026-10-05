@@ -66,6 +66,7 @@ from loom.target.low_descriptors import (
     RegClassAltFlag,
     RegClassFlag,
     RegisterPackingResource,
+    RegisterPackingResourceFlag,
     RegisterPackingResourceMember,
     StorageLease,
     StorageLeaseAttachment,
@@ -708,6 +709,10 @@ def test_compiler_emits_register_packing_resources() -> None:
     assert resource.source.capacity == 2
     assert resource.member_start == 0
     assert resource.member_count == 2
+    assert resource.flags == (
+        RegisterPackingResourceFlag.UNSPILLABLE,
+        RegisterPackingResourceFlag.HAS_AGGREGATE_MEMBER,
+    )
     assert [compiled.reg_classes[member.reg_class_id].name for member in compiled.register_packing_resource_members] == ["test.packed.narrow", "test.packed.wide"]
     assert [(member.register_unit_count, member.resource_unit_count) for member in compiled.register_packing_resource_members] == [(1, 1), (2, 1)]
 
@@ -715,6 +720,30 @@ def test_compiler_emits_register_packing_resources() -> None:
     assert "kTestLowCoreRegisterPackingResources" in generated.source
     assert "kTestLowCoreRegisterPackingResourceMembers" in generated.source
     assert ".register_packing_resource_count = IREE_ARRAYSIZE(" in generated.source
+
+
+@pytest.mark.parametrize("spillable_members", [(), ("test.packed.narrow",), ("test.packed.wide",), ("test.packed.narrow", "test.packed.wide")])
+@pytest.mark.parametrize("member_names", [("test.packed.narrow",), ("test.packed.wide",), ("test.packed.narrow", "test.packed.wide")])
+def test_compiler_derives_register_packing_flags(spillable_members: tuple[str, ...], member_names: tuple[str, ...]) -> None:
+    source = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(TEST_LOW_ADD_I32_DESCRIPTOR,))
+    resource = source.register_packing_resources[0]
+    resource = replace(resource, members=tuple(member for member in resource.members if member.register_class in member_names))
+    source = replace(
+        source,
+        reg_classes=tuple(
+            replace(register_class, flags=tuple(flag for flag in register_class.flags if flag != RegClassFlag.UNSPILLABLE)) if register_class.name in spillable_members else register_class
+            for register_class in source.reg_classes
+        ),
+        register_packing_resources=(resource,),
+    )
+    compiled = compiler.compile_descriptor_set(source)
+    flags = compiled.register_packing_resources[0].flags
+    assert (RegisterPackingResourceFlag.UNSPILLABLE in flags) == set(member_names).isdisjoint(spillable_members)
+    assert (RegisterPackingResourceFlag.HAS_AGGREGATE_MEMBER in flags) == ("test.packed.wide" in member_names)
+    generated = generate_descriptor_set(source)
+    resource_source = generated.source.split(f".name_string_ref = {compiled.string_pool.ref('register_packing_resource_test.pair_slots')},", 1)[1].split("\n  }", 1)[0]
+    expected_flags = " | ".join(flag.value for flag in flags) or "0"
+    assert f".flags = {expected_flags}," in resource_source
 
 
 def test_compiler_rejects_invalid_register_packing_resources() -> None:

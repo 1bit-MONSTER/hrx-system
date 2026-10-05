@@ -133,7 +133,8 @@ static void loom_low_schedule_score_candidate_resource_pressure(
           score, LOOM_LOW_SCHEDULE_PRESSURE_SOURCE_RESOURCE, resource_id,
           cliffs[0].cliff_units);
     }
-    if (iree_any_bit_set(
+    if (record->candidate_added_units != 0 &&
+        iree_any_bit_set(
             evaluation.flags,
             LOOM_TARGET_RESIDENCY_CLIFF_EVALUATION_FLAG_HAS_WORSE_TIER)) {
       loom_low_schedule_record_upcoming_pressure_cliff(
@@ -189,7 +190,8 @@ static void loom_low_schedule_score_candidate_pressure_cliffs_for_class(
         score, LOOM_LOW_SCHEDULE_PRESSURE_SOURCE_REGISTER_CLASS, reg_class_id,
         cliffs[0].cliff_units);
   }
-  if (iree_any_bit_set(
+  if (delta_units > 0 &&
+      iree_any_bit_set(
           evaluation.flags,
           LOOM_TARGET_RESIDENCY_CLIFF_EVALUATION_FLAG_HAS_WORSE_TIER)) {
     loom_low_schedule_record_upcoming_pressure_cliff(
@@ -292,10 +294,15 @@ static void loom_low_schedule_score_candidate_pressure_limit(
         limit_units);
     return;
   }
-  const uint64_t units_until_limit = limit_units - required_live_units;
-  loom_low_schedule_record_upcoming_pressure_cliff(
-      score, LOOM_LOW_SCHEDULE_PRESSURE_SOURCE_REGISTER_CLASS, reg_class_id,
-      (uint32_t)units_until_limit);
+  // An unchanged bank's headroom cannot constrain demand in another bank.
+  // Static alignment reserve does not establish candidate growth; retained
+  // downstream activation that reaches capacity was handled above.
+  if (candidate_live_units > current_live_units) {
+    const uint64_t units_until_limit = limit_units - required_live_units;
+    loom_low_schedule_record_upcoming_pressure_cliff(
+        score, LOOM_LOW_SCHEDULE_PRESSURE_SOURCE_REGISTER_CLASS, reg_class_id,
+        (uint32_t)units_until_limit);
+  }
 }
 
 static void loom_low_schedule_score_candidate_pressure_limit_for_class(
@@ -425,24 +432,6 @@ static bool loom_low_schedule_register_packing_resource_contains_class(
        member_index < member_end; ++member_index) {
     if (descriptor_set->register_packing_resource_members[member_index]
             .reg_class_id == reg_class_id) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Returns true when a resource contains values that occupy an indivisible
-// group of register units. Aggregate capacity alone is handled by ordinary
-// pressure recovery; completion identity matters when opening several live
-// groups could leave enough units free but no legal group placement.
-static bool loom_low_schedule_register_packing_resource_has_aggregate_member(
-    const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_register_packing_resource_t* resource) {
-  const uint16_t member_end = resource->member_start + resource->member_count;
-  for (uint16_t member_index = resource->member_start;
-       member_index < member_end; ++member_index) {
-    if (descriptor_set->register_packing_resource_members[member_index]
-            .register_unit_count > 1) {
       return true;
     }
   }
@@ -644,8 +633,9 @@ bool loom_low_schedule_node_retains_aggregate_packing_from_class(
        ++resource_id) {
     const loom_low_register_packing_resource_t* resource =
         &descriptor_set->register_packing_resources[resource_id];
-    if (!loom_low_schedule_register_packing_resource_has_aggregate_member(
-            descriptor_set, resource) ||
+    if (!iree_any_bit_set(
+            resource->flags,
+            LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_HAS_AGGREGATE_MEMBER) ||
         !loom_low_schedule_register_packing_resource_contains_class(
             descriptor_set, resource, reg_class_id)) {
       continue;
@@ -682,9 +672,6 @@ static bool loom_low_schedule_candidate_advances_register_packing_completion(
     const loom_low_schedule_pressure_state_t* pressure_state,
     uint32_t candidate_node_index,
     const loom_low_register_packing_resource_t* resource) {
-  if (candidate_node_index == LOOM_LOW_SCHEDULE_NODE_NONE) {
-    return false;
-  }
   const uint16_t resource_id =
       (uint16_t)(resource -
                  state->target.descriptor_set->register_packing_resources);
@@ -780,33 +767,6 @@ static bool loom_low_schedule_candidate_reaches_active_packing_completion(
           candidate_node)[resource_id];
   return candidate_node == active_completion_sink ||
          candidate_completion_sink == active_completion_sink;
-}
-
-uint32_t loom_low_schedule_target_pressure_active_packing_completion_capacity(
-    const loom_low_schedule_build_state_t* state,
-    const loom_low_schedule_pressure_state_t* pressure_state,
-    uint32_t candidate_node) {
-  if (pressure_state->active_register_packing_completion_sinks == NULL) {
-    return UINT32_MAX;
-  }
-  const loom_low_descriptor_set_t* descriptor_set =
-      state->target.descriptor_set;
-  uint32_t active_capacity = UINT32_MAX;
-  for (uint16_t resource_id = 0;
-       resource_id < descriptor_set->register_packing_resource_count;
-       ++resource_id) {
-    const loom_low_register_packing_resource_t* resource =
-        &descriptor_set->register_packing_resources[resource_id];
-    if (!loom_low_schedule_register_packing_resource_has_aggregate_member(
-            descriptor_set, resource)) {
-      continue;
-    }
-    if (loom_low_schedule_candidate_reaches_active_packing_completion(
-            state, pressure_state, candidate_node, resource_id)) {
-      active_capacity = iree_min(active_capacity, resource->capacity);
-    }
-  }
-  return active_capacity;
 }
 
 uint32_t loom_low_schedule_target_pressure_full_unspillable_completion_capacity(
@@ -968,13 +928,9 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
        ++resource_id) {
     const loom_low_register_packing_resource_t* resource =
         &descriptor_set->register_packing_resources[resource_id];
-    const bool advances_packing_completion =
-        loom_low_schedule_candidate_advances_register_packing_completion(
-            state, pressure_state, candidate_node_index, resource);
-    if (advances_packing_completion) {
-      score->flags |=
-          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION;
-    }
+    const bool has_aggregate_member = iree_any_bit_set(
+        resource->flags,
+        LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_HAS_AGGREGATE_MEMBER);
     uint64_t current_units = 0;
     uint64_t persistent_units = 0;
     uint64_t early_required_units = 0;
@@ -1031,18 +987,48 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
         iree_math_saturating_add_u64(persistent_units, activation_units);
     // Compare complete phases: summing per-member peaks would count killed
     // inputs together with ordinary results that can reuse their storage.
-    const uint64_t required_units = iree_max(
-        iree_max(early_required_units, write_required_units), activated_units);
-    const bool has_aggregate_member =
-        loom_low_schedule_register_packing_resource_has_aggregate_member(
-            descriptor_set, resource);
-    if (has_aggregate_member && advances_packing_completion &&
-        loom_low_schedule_candidate_reaches_active_packing_completion(
-            state, pressure_state, candidate_node_index, resource_id)) {
-      score->active_register_packing_completion_capacity =
-          iree_min(score->active_register_packing_completion_capacity,
-                   resource->capacity);
-      score->flags |= LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXACT_PACKING_COMPLETION;
+    const uint64_t candidate_units =
+        iree_max(early_required_units, write_required_units);
+    // Only the candidate's own phases can make it immediately infeasible.
+    // Downstream activation remains a pressure warning, not a hard overflow.
+    if (iree_any_bit_set(resource->flags,
+                         LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_UNSPILLABLE) &&
+        candidate_units > resource->capacity &&
+        candidate_units > current_units) {
+      score->flags |=
+          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY;
+    }
+    const uint64_t required_units = iree_max(candidate_units, activated_units);
+    const uint64_t units_until_capacity =
+        required_units < resource->capacity
+            ? resource->capacity - required_units
+            : 0;
+    const bool needs_completion_recovery =
+        has_aggregate_member && activation_units != 0 &&
+        units_until_capacity < activation_units;
+    // A resource with headroom cannot borrow another bank's recovery priority.
+    // Its own phase and activation projection establishes this constraint.
+    if ((required_units >= resource->capacity || needs_completion_recovery) &&
+        candidate_node_index != LOOM_LOW_SCHEDULE_NODE_NONE) {
+      // Retained identity proves progress toward this exact storage exit even
+      // when a source has several remaining uses. Liveness still owns release.
+      if (has_aggregate_member &&
+          loom_low_schedule_candidate_reaches_active_packing_completion(
+              state, pressure_state, candidate_node_index, resource_id)) {
+        score->active_register_packing_completion_capacity =
+            iree_min(score->active_register_packing_completion_capacity,
+                     resource->capacity);
+        score->flags |=
+            LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION |
+            LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXACT_PACKING_COMPLETION;
+      } else if (
+          loom_low_schedule_candidate_advances_register_packing_completion(
+              state, pressure_state, candidate_node_index, resource) ||
+          loom_low_schedule_pressure_candidate_unlocks_packing_continuation(
+              state, pressure_state, candidate_node_index, resource)) {
+        score->flags |=
+            LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION;
+      }
     }
     if (persistent_units > current_units) {
       score->flags |= LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_GROWS_PACKING_RESOURCE;
@@ -1071,17 +1057,17 @@ static void loom_low_schedule_score_candidate_register_packing_resources(
       continue;
     }
 
-    const uint64_t units_until_capacity = resource->capacity - required_units;
-    if (has_aggregate_member && activation_units != 0 &&
-        units_until_capacity < activation_units) {
+    if (needs_completion_recovery) {
       score->flags |=
           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_NEEDS_COMPLETION_RECOVERY;
     }
-    loom_low_schedule_record_upcoming_pressure_cliff(
-        score, LOOM_LOW_SCHEDULE_PRESSURE_SOURCE_REGISTER_PACKING_RESOURCE,
-        resource_id,
-        units_until_capacity > UINT32_MAX ? UINT32_MAX
-                                          : (uint32_t)units_until_capacity);
+    if (required_units > current_units) {
+      loom_low_schedule_record_upcoming_pressure_cliff(
+          score, LOOM_LOW_SCHEDULE_PRESSURE_SOURCE_REGISTER_PACKING_RESOURCE,
+          resource_id,
+          units_until_capacity > UINT32_MAX ? UINT32_MAX
+                                            : (uint32_t)units_until_capacity);
+    }
   }
 }
 
