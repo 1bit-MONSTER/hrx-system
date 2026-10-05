@@ -366,3 +366,74 @@ check.case public @condition_guarded_load_case {
   check.expect.bitwise actual(%input) expected(%input_expected) : tensor<37xi32>
   check.return
 }
+
+// Predicate results retain each retired lane's final value whether the
+// predicate is carried through the header or produced only by the final
+// condition evaluation.
+kernel.def @condition_lane_predicates() {
+  %unit = index.constant 1 : index
+  %size = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %end = index.add %lane, %c1 : index
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<4x64xi32>
+
+  %condition_i, %condition_result = scf.while(%i = %c0 : index) -> (index, i1) {
+    %continue = index.cmp ult, %i, %end : index
+    %at_end = index.cmp eq, %i, %end : index
+    scf.condition %continue, %i, %at_end : i1, index, i1
+  } do(%body_i: index, %body_result: i1) {
+    %next = index.add %body_i, %c1 : index
+    scf.yield %next : index
+  }
+
+  %initial_flag = scalar.constant false : i1
+  %recurrence_i, %recurrence_result = scf.while(%i = %c0 : index, %flag = %initial_flag : i1) -> (index, i1) {
+    %continue = index.cmp ult, %i, %end : index
+    scf.condition %continue, %i, %flag : i1, index, i1
+  } do(%body_i: index, %body_flag: i1) {
+    %next = index.add %body_i, %c1 : index
+    %at_end = index.cmp eq, %next, %end : index
+    scf.yield %next, %at_end : index, i1
+  }
+
+  %initial_flags = vector.from_elements %initial_flag, %recurrence_result : vector<2xi1>
+  %vector_i, %vector_result = scf.while(%i = %c0 : index, %flags = %initial_flags : vector<2xi1>) -> (index, vector<2xi1>) {
+    %continue = index.cmp ult, %i, %end : index
+    scf.condition %continue, %i, %flags : i1, index, vector<2xi1>
+  } do(%body_i: index, %body_flags: vector<2xi1>) {
+    %next = index.add %body_i, %c1 : index
+    %at_end = index.cmp eq, %next, %end : index
+    %before_end = index.cmp ult, %next, %end : index
+    %next_flags = vector.from_elements %at_end, %before_end : vector<2xi1>
+    scf.yield %next, %next_flags : index, vector<2xi1>
+  }
+
+  %condition_word = scalar.extui %condition_result : i1 to i32
+  %recurrence_word = scalar.extui %recurrence_result : i1 to i32
+  %vector_true = vector.extract %vector_result[0] : vector<2xi1> -> i1
+  %vector_false = vector.extract %vector_result[1] : vector<2xi1> -> i1
+  %vector_true_word = scalar.extui %vector_true : i1 to i32
+  %vector_false_word = scalar.extui %vector_false : i1 to i32
+  view.store %condition_word, %output_view[0, %lane] : i32, view<4x64xi32>
+  view.store %recurrence_word, %output_view[1, %lane] : i32, view<4x64xi32>
+  view.store %vector_true_word, %output_view[2, %lane] : i32, view<4x64xi32>
+  view.store %vector_false_word, %output_view[3, %lane] : i32, view<4x64xi32>
+  kernel.return
+}
+
+check.case public @condition_lane_predicates_case {
+  %actual = check.generate.fill value(0) : tensor<4x64xi32>
+  kernel.launch @condition_lane_predicates(%actual) : (tensor<4x64xi32>)
+  %actual_true_rows = check.tensor.view %actual offset(0) : tensor<4x64xi32> -> tensor<3x64xi32>
+  %actual_false_row = check.tensor.view %actual offset(768) : tensor<4x64xi32> -> tensor<1x64xi32>
+  %expected_true_rows = check.generate.fill value(1) : tensor<3x64xi32>
+  %expected_false_row = check.generate.fill value(0) : tensor<1x64xi32>
+  check.expect.equal actual(%actual_true_rows) expected(%expected_true_rows) : tensor<3x64xi32>
+  check.expect.equal actual(%actual_false_row) expected(%expected_false_row) : tensor<1x64xi32>
+  check.return
+}

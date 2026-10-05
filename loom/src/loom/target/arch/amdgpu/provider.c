@@ -13,6 +13,7 @@
 #include "loom/target/arch/amdgpu/legalization.h"
 #include "loom/target/arch/amdgpu/low_asm_diagnostics.h"
 #include "loom/target/arch/amdgpu/low_verify.h"
+#include "loom/target/arch/amdgpu/lower/kinds.h"
 #include "loom/target/arch/amdgpu/lower/lower.h"
 #include "loom/target/arch/amdgpu/math_policy.h"
 #include "loom/target/arch/amdgpu/ops/registry.h"
@@ -152,6 +153,9 @@ const loom_target_provider_t loom_amdgpu_target_provider = {
     .profile_type = &loom_amdgpu_target_profile_type,
     .materialize_definition = loom_amdgpu_target_materialize_definition,
     .select_low_call_policy = loom_target_select_low_call_policy_require_inline,
+    .loop_predicate_carrier = LOOM_TARGET_LOOP_PREDICATE_CARRIER_I32,
+    .loop_predicate_max_vector_element_count =
+        LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES,
     .register_context = loom_amdgpu_ops_register_dialect,
     .initialize_low_descriptor_registry =
         loom_amdgpu_low_descriptor_registry_initialize,
