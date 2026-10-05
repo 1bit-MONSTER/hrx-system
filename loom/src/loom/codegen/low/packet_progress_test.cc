@@ -254,7 +254,7 @@ TEST_F(LowPacketProgressTest, BuildsSyntheticTargetProgressRecords) {
   ASSERT_EQ(table.allocation, &state_.allocation);
   ASSERT_EQ(table.record_count, 3u);
   ASSERT_NE(table.records, nullptr);
-  ASSERT_EQ(table.class_name, SyntheticProgressClassName);
+  ASSERT_EQ(table.class_name, &SyntheticProgressClassName);
 
   EXPECT_EQ(table.records[0].packet_index, 0u);
   EXPECT_EQ(table.records[0].progress_class_id, kSyntheticProgressPipe);
@@ -498,7 +498,7 @@ TEST_F(LowPacketProgressTest, RecordsReusePoolBlocksAcrossEpochs) {
       EXPECT_EQ(audit.query_count, kPacketCount);
     }
     ASSERT_EQ(table.record_count, kPacketCount);
-    ASSERT_EQ(table.class_name, SyntheticProgressClassName);
+    ASSERT_EQ(table.class_name, &SyntheticProgressClassName);
     EXPECT_TRUE(iree_string_view_equal(table.class_name(kSyntheticProgressPipe),
                                        IREE_SV("synthetic.pipe")));
     for (uint32_t i = 0; i < kPacketCount; ++i) {
