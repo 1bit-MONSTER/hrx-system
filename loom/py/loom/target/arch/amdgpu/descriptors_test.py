@@ -3365,28 +3365,67 @@ def test_float_classification_descriptors_follow_target_literal_support() -> Non
     base_keys = {f"amdgpu.v_cmp_class_f{bit_width}" for bit_width in (16, 32, 64)}
     inline_keys = {f"{key}.classes_inline" for key in base_keys}
     literal_keys = {f"{key}.classes_lit" for key in base_keys}
+    high_base_key = "amdgpu.v_cmp_class_f16.input_high"
+    high_inline_key = f"{high_base_key}.classes_inline"
+    high_literal_key = f"{high_base_key}.classes_lit"
 
     for descriptor_set in (_gfx940_core_overlays(), _gfx950_core_overlays()):
         descriptors = {
             descriptor.descriptor_key: descriptor for descriptor in descriptor_set
         }
-        assert base_keys | inline_keys <= descriptors.keys()
-        assert literal_keys.isdisjoint(descriptors.keys())
+        assert (
+            base_keys
+            | inline_keys
+            | {
+                high_base_key,
+                high_inline_key,
+            }
+            <= descriptors.keys()
+        )
+        assert (literal_keys | {high_literal_key}).isdisjoint(descriptors.keys())
         for key in base_keys:
             assert tuple(
                 form.replacement_descriptor for form in descriptors[key].operand_forms
             ) == (f"{key}.classes_inline",)
+        assert tuple(
+            form.replacement_descriptor
+            for form in descriptors[high_base_key].operand_forms
+        ) == (high_inline_key,)
+        assert (
+            descriptors["amdgpu.v_cmp_class_f16"]
+            .operands[1]
+            .descriptor_operand.reg_alts[0]
+            .register_part
+            == _REG_PART_VGPR_LOW16
+        )
+        for key in (high_base_key, high_inline_key):
+            descriptor = descriptors[key]
+            assert (
+                descriptor.operands[1].descriptor_operand.reg_alts[0].register_part
+                == _REG_PART_VGPR_HIGH16
+            )
+            assert descriptor.fixed_encoding_fields == (("OP_SEL", 1),)
 
-    for descriptor_set in (
-        _gfx11_core_overlays(),
-        _gfx115x_core_overlays(),
-        _gfx12_core_overlays(),
-        _gfx125x_core_overlays(),
+    for descriptor_set, op_sel_field in (
+        (_gfx11_core_overlays(), "OP_SEL"),
+        (_gfx115x_core_overlays(), "OP_SEL"),
+        (_gfx12_core_overlays(), "OPSEL"),
+        (_gfx125x_core_overlays(), "OPSEL"),
     ):
         descriptors = {
             descriptor.descriptor_key: descriptor for descriptor in descriptor_set
         }
-        assert base_keys | inline_keys | literal_keys <= descriptors.keys()
+        assert (
+            base_keys
+            | inline_keys
+            | literal_keys
+            | {
+                high_base_key,
+                high_inline_key,
+                high_literal_key,
+            }
+            <= descriptors.keys()
+        )
         for key in base_keys:
             assert tuple(
                 form.replacement_descriptor for form in descriptors[key].operand_forms
@@ -3405,6 +3444,21 @@ def test_float_classification_descriptors_follow_target_literal_support() -> Non
             assert field == "SRC1"
             assert isinstance(value, AmdgpuOperandPredefinedValueRef)
             assert value.value_name == "SRC_LITERAL"
+        assert tuple(
+            form.replacement_descriptor
+            for form in descriptors[high_base_key].operand_forms
+        ) == (high_inline_key, high_literal_key)
+        for key in (high_base_key, high_inline_key, high_literal_key):
+            descriptor = descriptors[key]
+            assert (
+                descriptor.operands[1].descriptor_operand.reg_alts[0].register_part
+                == _REG_PART_VGPR_HIGH16
+            )
+            assert descriptor.fixed_encoding_fields[0] == (op_sel_field, 1)
+        field, value = descriptors[high_literal_key].fixed_encoding_fields[1]
+        assert field == "SRC1"
+        assert isinstance(value, AmdgpuOperandPredefinedValueRef)
+        assert value.value_name == "SRC_LITERAL"
 
 
 def test_sop2_bfe_literal_forms_fix_control_to_literal_source() -> None:
