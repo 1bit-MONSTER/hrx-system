@@ -844,7 +844,28 @@ loom_cc_library(
     loom::target::registers
     loom::util::cfg_graph
     loom::util::index_set
+    loom::util::segmented_storage
   PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    write_interference_test
+  SRCS
+    "write_interference_test.cc"
+  DEPS
+    ::write_interference
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::analysis::liveness
+    loom::codegen::low::builder
+    loom::codegen::low::placement
+    loom::codegen::low::read_retention
+    loom::ir
+    loom::ops::low
+    loom::target::registers
+    loom::util::cfg_graph
 )
 
 loom_cc_library(

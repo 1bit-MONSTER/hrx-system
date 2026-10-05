@@ -143,11 +143,15 @@ void EmitHazardEvent(loom_low_packet_hazard_plan_emit_fn_t emit,
   emit(emit_user_data, &event);
 }
 
+iree_string_view_t SyntheticProgressClassName(uint16_t progress_class_id) {
+  (void)progress_class_id;
+  return IREE_SV("synthetic.pipe");
+}
+
 void EmitProgressEvent(loom_low_packet_progress_emit_fn_t emit,
                        void* emit_user_data, uint32_t units) {
   const loom_low_packet_progress_event_t event = {
       /*.progress_class_id=*/kSyntheticProgressPipe,
-      /*.progress_class_name=*/IREE_SV("synthetic.pipe"),
       /*.action=*/LOOM_LOW_PACKET_PROGRESS_ACTION_ADVANCE,
       /*.units=*/units,
   };
@@ -244,6 +248,7 @@ TEST_F(LowPacketHazardPlanTest, RecordsResidualActionsWithPacketIdentity) {
       /*.user_data=*/{},
       /*.event_count=*/1,
       /*.query=*/SyntheticProgressQuery,
+      /*.class_name=*/SyntheticProgressClassName,
   };
   loom_low_packet_progress_table_t progress = {};
   IREE_ASSERT_OK(
@@ -293,6 +298,7 @@ TEST_F(LowPacketHazardPlanTest,
       /*.user_data=*/{},
       /*.event_count=*/1,
       /*.query=*/SyntheticProgressQuery,
+      /*.class_name=*/SyntheticProgressClassName,
   };
   loom_low_packet_progress_table_t progress = {};
   IREE_ASSERT_OK(
@@ -378,6 +384,7 @@ TEST_F(LowPacketHazardPlanTest, SatisfiedStorageReleaseRetainsNoPlanStorage) {
       /*.user_data=*/{},
       /*.event_count=*/1,
       /*.query=*/SyntheticProgressQuery,
+      /*.class_name=*/SyntheticProgressClassName,
   };
   loom_low_packet_progress_table_t progress = {};
   IREE_ASSERT_OK(
@@ -455,6 +462,7 @@ TEST_F(LowPacketHazardPlanTest,
       /*.user_data=*/{},
       /*.event_count=*/1,
       /*.query=*/SyntheticProgressQuery,
+      /*.class_name=*/SyntheticProgressClassName,
   };
   loom_low_packet_progress_table_t progress = {};
   IREE_ASSERT_OK(
@@ -622,6 +630,7 @@ TEST_F(LowPacketHazardPlanTest,
       /*.user_data=*/{},
       /*.event_count=*/1,
       /*.query=*/SyntheticProgressQuery,
+      /*.class_name=*/SyntheticProgressClassName,
   };
   loom_low_packet_progress_table_t progress = {};
   IREE_ASSERT_OK(

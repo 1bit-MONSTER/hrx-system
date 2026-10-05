@@ -11,14 +11,15 @@
 #include "loom/analysis/liveness_events.h"
 #include "loom/util/adaptive_sort.h"
 
-// Differences use unsigned modular arithmetic. A complete point prefix is the
-// sum of at most UINT32_MAX live values with uint32_t widths, so its exact
-// total fits uint64_t even when individual endpoint differences wrap.
+// Endpoint differences and their prefixes use unsigned modular arithmetic.
+// Canonical segments contribute at most once per local value at each point,
+// so complete prefixes fit uint32_t values and uint64_t register units even
+// when individual endpoint differences wrap.
 typedef struct loom_liveness_pressure_count_t {
-  // Register units contributed by the live values or endpoint differences.
+  // Register units contributed by live values, before checking peak overflow.
   uint64_t units;
-  // Number of live values or their endpoint differences.
-  uint64_t values;
+  // Number of live values, bounded by the local value domain.
+  uint32_t values;
 } loom_liveness_pressure_count_t;
 
 typedef struct loom_liveness_pressure_class_t {
@@ -129,7 +130,7 @@ static iree_status_t loom_liveness_pressure_record_peak(
        (entry->live.units == summary->peak_live_units &&
         entry->live.values > summary->peak_live_values))) {
     summary->peak_live_units = (uint32_t)entry->live.units;
-    summary->peak_live_values = (uint32_t)entry->live.values;
+    summary->peak_live_values = entry->live.values;
     summary->peak_block = block;
     summary->peak_point = point;
   }
@@ -141,10 +142,15 @@ static iree_status_t loom_liveness_pressure_sweep_dense(
     iree_arena_allocator_t* scratch_arena,
     loom_liveness_pressure_classes_t* classes) {
   const iree_host_size_t delta_count = point_count * classes->count;
-  loom_liveness_pressure_count_t* deltas = NULL;
+  uint64_t* unit_deltas = NULL;
+  uint32_t* value_deltas = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      scratch_arena, delta_count, sizeof(*deltas), (void**)&deltas));
-  memset(deltas, 0, delta_count * sizeof(*deltas));
+      scratch_arena, delta_count, sizeof(*unit_deltas), (void**)&unit_deltas));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(scratch_arena, delta_count,
+                                                 sizeof(*value_deltas),
+                                                 (void**)&value_deltas));
+  memset(unit_deltas, 0, delta_count * sizeof(*unit_deltas));
+  memset(value_deltas, 0, delta_count * sizeof(*value_deltas));
   for (loom_value_ordinal_t ordinal = 0; ordinal < analysis->value_count;
        ++ordinal) {
     const loom_liveness_segment_range_t range =
@@ -159,16 +165,14 @@ static iree_status_t loom_liveness_pressure_sweep_dense(
     for (uint32_t i = 0; i < range.count; ++i) {
       const loom_liveness_segment_t* segment =
           &analysis->segments[range.start + i];
-      loom_liveness_pressure_count_t* start =
-          &deltas[(iree_host_size_t)segment->start_point * classes->count +
-                  class_index];
-      loom_liveness_pressure_count_t* end =
-          &deltas[(iree_host_size_t)segment->end_point * classes->count +
-                  class_index];
-      start->units += units;
-      ++start->values;
-      end->units -= units;
-      --end->values;
+      const iree_host_size_t start =
+          (iree_host_size_t)segment->start_point * classes->count + class_index;
+      const iree_host_size_t end =
+          (iree_host_size_t)segment->end_point * classes->count + class_index;
+      unit_deltas[start] += units;
+      ++value_deltas[start];
+      unit_deltas[end] -= units;
+      --value_deltas[end];
     }
   }
   iree_host_size_t block_index = 0;
@@ -177,8 +181,8 @@ static iree_status_t loom_liveness_pressure_sweep_dense(
         analysis, (uint32_t)point, &block_index);
     for (iree_host_size_t i = 0; i < classes->count; ++i) {
       loom_liveness_pressure_class_t* entry = &classes->entries[i];
-      entry->live.units += deltas[point * classes->count + i].units;
-      entry->live.values += deltas[point * classes->count + i].values;
+      entry->live.units += unit_deltas[point * classes->count + i];
+      entry->live.values += value_deltas[point * classes->count + i];
       IREE_RETURN_IF_ERROR(
           loom_liveness_pressure_record_peak(entry, (uint32_t)point, block));
     }
@@ -278,11 +282,11 @@ iree_status_t loom_liveness_compute_segment_pressure(
   const uint32_t maximum_point = classes.maximum_point;
   const uint64_t point_count = (uint64_t)maximum_point + 1;
   const iree_host_size_t event_count = analysis->segment_count * 2;
-  // Both entries are 16 bytes. Admit a dense table only when its storage and
-  // point/class sweep are bounded by the endpoint representation.
+  // Dense columns use 12 bytes per cell versus 16 bytes per endpoint. Bound
+  // both their storage and point/class sweep by the endpoint representation.
   static_assert(
-      sizeof(loom_liveness_pressure_count_t) == sizeof(loom_liveness_event_t),
-      "pressure admission compares equal-sized entries");
+      sizeof(uint64_t) + sizeof(uint32_t) <= sizeof(loom_liveness_event_t),
+      "dense pressure cells must fit within endpoint storage");
   if (point_count * classes.count <= event_count) {
     IREE_RETURN_IF_ERROR(loom_liveness_pressure_sweep_dense(
         analysis, (iree_host_size_t)point_count, scratch_arena, &classes));

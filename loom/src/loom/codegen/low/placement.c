@@ -74,6 +74,19 @@ bool loom_low_placement_relation_compose_tied_concat_source(
                                              out_relation);
 }
 
+// Bounded collection payload fitting even a 4 KiB arena block.
+#define LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK 64u
+
+// Collection preserves operation order until the final endpoint-indexed
+// scatter. Every chunk preceding the tail is full; only the total row count
+// is needed to determine the tail's initialized prefix.
+typedef struct loom_low_placement_relation_chunk_t {
+  // Next chunk in collection order, or NULL at the tail.
+  struct loom_low_placement_relation_chunk_t* next;
+  // Complete relation rows in the initialized prefix.
+  loom_low_placement_relation_t values[LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK];
+} loom_low_placement_relation_chunk_t;
+
 typedef struct loom_low_placement_build_state_t {
   // Module containing the analyzed low region.
   loom_module_t* module;
@@ -113,9 +126,12 @@ typedef struct loom_low_placement_build_state_t {
   // Resettable arena owning transient collected relations.
   iree_arena_allocator_t* scratch_arena;
   // Transient relations collected during the single IR walk.
-  loom_low_placement_relation_t* collected_relations;
-  // Allocated collected_relations capacity.
-  iree_host_size_t collected_relation_capacity;
+  struct {
+    // First chunk, or NULL before collecting any relation.
+    loom_low_placement_relation_chunk_t* head;
+    // Append destination, with its initialized prefix given by relation_count.
+    loom_low_placement_relation_chunk_t* tail;
+  } collected_relations;
   // Mutable relation records being populated.
   loom_low_placement_relation_t* relations;
   // Final whole-value edge relation indices in liveness operation order.
@@ -142,7 +158,7 @@ typedef struct loom_low_placement_build_state_t {
   loom_value_ordinal_t* storage_value_order;
   // Number of populated entries in |storage_value_order|.
   loom_value_ordinal_t storage_value_order_count;
-  // Earliest value in each exact tied-storage component.
+  // Direct tied parents during collection, then flattened component origins.
   loom_value_ordinal_t* tied_storage_origins_by_value_ordinal;
   // Combined operand requirements, dense by liveness interval when needed.
   loom_low_placement_operand_constraints_t* operand_constraints_by_interval;
@@ -250,15 +266,22 @@ static iree_status_t loom_low_placement_collect_relation(
     loom_low_placement_build_state_t* state,
     const loom_low_placement_relation_t* relation) {
   IREE_ASSERT_LT(state->relation_count, UINT32_MAX);
-  if (state->relation_count == state->collected_relation_capacity) {
-    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
-        state->scratch_arena, state->relation_count, state->relation_count + 1,
-        sizeof(*state->collected_relations),
-        &state->collected_relation_capacity,
-        (void**)&state->collected_relations));
+  const uint32_t chunk_index =
+      state->relation_count % LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK;
+  if (chunk_index == 0) {
+    loom_low_placement_relation_chunk_t* chunk = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate(state->scratch_arena,
+                                             sizeof(*chunk), (void**)&chunk));
+    chunk->next = NULL;
+    if (state->collected_relations.tail != NULL) {
+      state->collected_relations.tail->next = chunk;
+    } else {
+      state->collected_relations.head = chunk;
+    }
+    state->collected_relations.tail = chunk;
   }
   loom_low_placement_relation_t* collected_relation =
-      &state->collected_relations[state->relation_count];
+      &state->collected_relations.tail->values[chunk_index];
   *collected_relation = *relation;
   if (relation->kind >= LOOM_LOW_PLACEMENT_RELATION_SAME_STORAGE &&
       relation->kind <= LOOM_LOW_PLACEMENT_RELATION_CONTIGUOUS_PART &&
@@ -280,6 +303,20 @@ static iree_status_t loom_low_placement_collect_relation(
     ++state->edge_relation_count;
   }
   if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
+    if (state->tied_storage_origins_by_value_ordinal == NULL) {
+      const loom_value_ordinal_t value_count = state->value_domain->value_count;
+      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+          state->arena, value_count,
+          sizeof(*state->tied_storage_origins_by_value_ordinal),
+          (void**)&state->tied_storage_origins_by_value_ordinal));
+      for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
+        state->tied_storage_origins_by_value_ordinal[i] = i;
+      }
+    }
+    // Each verified tied result has one source. Retain that parent while it is
+    // known; flatten only after all relations have been collected.
+    state->tied_storage_origins_by_value_ordinal[relation->result_ordinal] =
+        relation->source_ordinal;
     if (iree_any_bit_set(relation->flags,
                          LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE)) {
       ++state->storage.write_relation_count;
@@ -315,38 +352,16 @@ static loom_value_ordinal_t loom_low_placement_tied_storage_origin(
 // Verified ties preserve matching whole values, and each result has one tied
 // source. Retain the resulting forest independently of value ordinal order,
 // before indexing location constraints or assigning any component member.
-static iree_status_t loom_low_placement_build_tied_storage_origins(
+static void loom_low_placement_flatten_tied_storage_origins(
     loom_low_placement_build_state_t* state) {
-  uint32_t first_tie = 0;
-  while (first_tie < state->relation_count &&
-         state->collected_relations[first_tie].cause !=
-             LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-    ++first_tie;
-  }
-  if (first_tie == state->relation_count) {
-    return iree_ok_status();
-  }
-
-  const loom_value_ordinal_t value_count = state->value_domain->value_count;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      state->arena, value_count,
-      sizeof(*state->tied_storage_origins_by_value_ordinal),
-      (void**)&state->tied_storage_origins_by_value_ordinal));
   loom_value_ordinal_t* origins = state->tied_storage_origins_by_value_ordinal;
-  for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
-    origins[i] = i;
+  if (origins == NULL) {
+    return;
   }
-  for (uint32_t i = first_tie; i < state->relation_count; ++i) {
-    const loom_low_placement_relation_t* relation =
-        &state->collected_relations[i];
-    if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-      origins[relation->result_ordinal] = relation->source_ordinal;
-    }
-  }
+  const loom_value_ordinal_t value_count = state->value_domain->value_count;
   for (loom_value_ordinal_t i = 0; i < value_count; ++i) {
     origins[i] = loom_low_placement_tied_storage_origin(origins, i);
   }
-  return iree_ok_status();
 }
 
 static loom_value_ordinal_t loom_low_placement_relation_index_ordinal(
@@ -380,20 +395,27 @@ static void loom_low_placement_prefix_ranges(
   // Hard location obligations belong to the storage component, including
   // obligations introduced by aliases that have not been assigned yet.
   // Storage relations retain their authored SSA keys and endpoints.
-  for (uint32_t i = 0; i < state->relation_count; ++i) {
-    const loom_low_placement_relation_t* relation =
-        &state->collected_relations[i];
-    const loom_value_ordinal_t result_ordinal =
-        loom_low_placement_relation_index_ordinal(state, relation,
-                                                  relation->result_ordinal);
-    const loom_value_ordinal_t source_ordinal =
-        loom_low_placement_relation_index_ordinal(state, relation,
-                                                  relation->source_ordinal);
-    if (loom_low_placement_cause_is_defining_transfer(relation->cause)) {
-      state->ranges_by_result_ordinal[result_ordinal].start = 1;
+  for (const loom_low_placement_relation_chunk_t* chunk =
+           state->collected_relations.head;
+       chunk != NULL; chunk = chunk->next) {
+    const uint32_t count = chunk->next != NULL
+                               ? LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK
+                               : 1 + (state->relation_count - 1) %
+                                         LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK;
+    for (uint32_t i = 0; i < count; ++i) {
+      const loom_low_placement_relation_t* relation = &chunk->values[i];
+      const loom_value_ordinal_t result_ordinal =
+          loom_low_placement_relation_index_ordinal(state, relation,
+                                                    relation->result_ordinal);
+      const loom_value_ordinal_t source_ordinal =
+          loom_low_placement_relation_index_ordinal(state, relation,
+                                                    relation->source_ordinal);
+      if (loom_low_placement_cause_is_defining_transfer(relation->cause)) {
+        state->ranges_by_result_ordinal[result_ordinal].start = 1;
+      }
+      ++state->ranges_by_result_ordinal[result_ordinal].count;
+      ++state->ranges_by_source_ordinal[source_ordinal].count;
     }
-    ++state->ranges_by_result_ordinal[result_ordinal].count;
-    ++state->ranges_by_source_ordinal[source_ordinal].count;
   }
   loom_low_placement_prefix_range_array(state->ranges_by_result_ordinal,
                                         state->value_domain->value_count);
@@ -1360,13 +1382,10 @@ static iree_status_t loom_low_placement_build(
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(state->arena, relation_count,
                                                    sizeof(*state->relations),
                                                    (void**)&state->relations));
-    memset(state->relations, 0, relation_count * sizeof(*state->relations));
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         state->arena, relation_count,
         sizeof(*state->relation_indices_by_source_ordinal),
         (void**)&state->relation_indices_by_source_ordinal));
-    memset(state->relation_indices_by_source_ordinal, 0,
-           relation_count * sizeof(*state->relation_indices_by_source_ordinal));
   }
   if (state->edge_relation_count > 0) {
     IREE_RETURN_IF_ERROR(
@@ -1380,10 +1399,20 @@ static iree_status_t loom_low_placement_build(
         sizeof(*state->storage.write_relation_indices),
         (void**)&state->storage.write_relation_indices));
   }
-  IREE_RETURN_IF_ERROR(loom_low_placement_build_tied_storage_origins(state));
+  loom_low_placement_flatten_tied_storage_origins(state);
   loom_low_placement_prefix_ranges(state);
-  for (iree_host_size_t i = 0; i < relation_count; ++i) {
-    loom_low_placement_append_relation(state, &state->collected_relations[i]);
+  // The prefixed ranges partition both output arrays. Each collected row
+  // initializes its complete record and source index at its reserved slot.
+  for (const loom_low_placement_relation_chunk_t* chunk =
+           state->collected_relations.head;
+       chunk != NULL; chunk = chunk->next) {
+    const uint32_t count = chunk->next != NULL
+                               ? LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK
+                               : 1 + (state->relation_count - 1) %
+                                         LOOM_LOW_PLACEMENT_RELATIONS_PER_CHUNK;
+    for (uint32_t i = 0; i < count; ++i) {
+      loom_low_placement_append_relation(state, &chunk->values[i]);
+    }
   }
   IREE_ASSERT_EQ(state->appended_relation_count, relation_count);
   IREE_ASSERT_EQ(state->appended_source_relation_count, relation_count);

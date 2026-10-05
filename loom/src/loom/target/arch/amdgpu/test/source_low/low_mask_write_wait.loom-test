@@ -900,3 +900,30 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @nonconsecuti
 .Lbb2:
   s_or_b32 s2, s2, s5
   s_endpgm
+
+// ====
+
+// A four-unit copy overlaps the retained mask only in its upper half. Those
+// units must preserve the mask when the source cannot alias the fixed sink.
+// RUN: emit amdgpu-assembly @copy_preserves_retained_upper_units strategy=source fixed=%mask:physical_register:2:2 fixed=%joined:physical_register:0:4
+
+amdgpu.target<gfx1151> @target {subgroup_size = 64}
+
+low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_preserves_retained_upper_units(%value: reg<amdgpu.vgpr>, %mask: reg<amdgpu.sgpr x2>, %source: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x4>, reg<amdgpu.sgpr x4>) asm {
+  %selected = v_cndmask_b32_src0_inline %value, %mask {false_value = 0}
+  %copied = copy %source : reg<amdgpu.sgpr x4> -> reg<amdgpu.sgpr x4>
+  low.br ^join(%copied: reg<amdgpu.sgpr x4>)
+^join(%joined: reg<amdgpu.sgpr x4>):
+  return %selected, %joined, %source
+}
+
+// ----
+  s_mov_b32 s8, s2
+  s_mov_b32 s9, s3
+  v_cndmask_b32 v0, 0, v0, s[8:9]
+  s_mov_b32 s0, s4
+  s_mov_b32 s1, s5
+  s_mov_b32 s2, s6
+  s_mov_b32 s3, s7
+.Lbb1:
+  s_endpgm

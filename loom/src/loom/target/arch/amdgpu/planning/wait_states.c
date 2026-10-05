@@ -362,7 +362,7 @@ static const iree_string_view_t kAmdgpuWaitStateActionNames[] = {
 };
 
 static iree_string_view_t loom_amdgpu_wait_state_progress_class_name(
-    uint32_t progress_class_id) {
+    uint16_t progress_class_id) {
   switch (progress_class_id) {
     case LOOM_AMDGPU_WAIT_STATE_PROGRESS_CLASS_INSTRUCTION_SLOT:
       return IREE_SV("amdgpu.instruction_slot");
@@ -2125,8 +2125,6 @@ static void loom_amdgpu_wait_state_progress_query(
     const loom_low_packet_progress_event_t event = {
         .progress_class_id =
             LOOM_AMDGPU_WAIT_STATE_PROGRESS_CLASS_INSTRUCTION_SLOT,
-        .progress_class_name = loom_amdgpu_wait_state_progress_class_name(
-            LOOM_AMDGPU_WAIT_STATE_PROGRESS_CLASS_INSTRUCTION_SLOT),
         .action = LOOM_LOW_PACKET_PROGRESS_ACTION_ADVANCE,
         .units = instruction_count,
     };
@@ -2140,6 +2138,7 @@ static iree_status_t loom_amdgpu_wait_state_build_progress(
       .user_data = builder,
       .event_count = builder->progress_event_count,
       .query = loom_amdgpu_wait_state_progress_query,
+      .class_name = loom_amdgpu_wait_state_progress_class_name,
   };
   return loom_low_packet_progress_build(builder->schedule, builder->allocation,
                                         &provider, builder->arena,

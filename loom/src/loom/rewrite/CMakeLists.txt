@@ -286,6 +286,7 @@ loom_cc_library(
     loom::target::registers
     loom::util::cfg_graph
     loom::util::fact_table
+    loom::util::segmented_storage
   PUBLIC
 )
 

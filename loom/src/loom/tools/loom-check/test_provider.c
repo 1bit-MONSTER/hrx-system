@@ -255,6 +255,12 @@ static void loom_check_test_synthetic_hazard_query(
   emit(emit_user_data, &event);
 }
 
+static iree_string_view_t loom_check_test_synthetic_hazard_progress_class_name(
+    uint16_t progress_class_id) {
+  (void)progress_class_id;
+  return IREE_SV("synthetic.issue");
+}
+
 static void loom_check_test_synthetic_hazard_progress_query(
     void* user_data, const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
@@ -268,7 +274,6 @@ static void loom_check_test_synthetic_hazard_progress_query(
   }
   const loom_low_packet_progress_event_t event = {
       .progress_class_id = LOOM_CHECK_TEST_SYNTHETIC_PROGRESS_CLASS_ISSUE,
-      .progress_class_name = IREE_SV("synthetic.issue"),
       .action = LOOM_LOW_PACKET_PROGRESS_ACTION_ADVANCE,
       .units = 1,
   };
@@ -332,6 +337,7 @@ static iree_status_t loom_check_test_synthetic_hazard_execute(
   const loom_low_packet_progress_provider_t progress_provider = {
       .event_count = context.progress_event_count,
       .query = loom_check_test_synthetic_hazard_progress_query,
+      .class_name = loom_check_test_synthetic_hazard_progress_class_name,
   };
   loom_low_packet_progress_table_t progress = {0};
   const loom_low_packet_hazard_plan_provider_t hazard_provider = {
