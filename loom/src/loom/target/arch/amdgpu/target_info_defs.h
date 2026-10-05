@@ -288,6 +288,9 @@ typedef enum loom_amdgpu_processor_scheduling_bit_e {
   // Flat requests retire in issue order within each memory counter domain.
   // Without this property, either domain can report early completion.
   LOOM_AMDGPU_PROCESSOR_SCHEDULING_FLAT_COUNTERS_IN_ORDER = 1u << 7,
+  // Wave64 SGPR storage read by VALU as a lane mask needs depctr waits after
+  // ALU overwrites until a VALU reads an ordinary SGPR, VCC or M0.
+  LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR = 1u << 9,
   // Processor scheduling bits known by the AMDGPU target package.
   LOOM_AMDGPU_PROCESSOR_SCHEDULING_KNOWN_BITS =
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_TRANS_USE_DEPCTR |
@@ -297,7 +300,8 @@ typedef enum loom_amdgpu_processor_scheduling_bit_e {
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_SGPR_READ_DEPCTR |
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_DELAY_ALU |
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_VMEM_RESULT_WRITES_IN_ORDER |
-      LOOM_AMDGPU_PROCESSOR_SCHEDULING_FLAT_COUNTERS_IN_ORDER,
+      LOOM_AMDGPU_PROCESSOR_SCHEDULING_FLAT_COUNTERS_IN_ORDER |
+      LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR,
 } loom_amdgpu_processor_scheduling_bit_t;
 
 // Bitset of loom_amdgpu_processor_scheduling_bit_t values.
