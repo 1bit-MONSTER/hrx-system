@@ -219,7 +219,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     uint64_t host_before = 0;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_before));
     ASSERT_NO_FATAL_FAILURE(QueryClock(&sample->clock_before));
-    sample->host_thread = gettid();
+    sample->host_thread = static_cast<int>(syscall(__NR_gettid));
     sample->host_start_cpu = sched_getcpu();
     uint32_t wake_tail =
         GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));

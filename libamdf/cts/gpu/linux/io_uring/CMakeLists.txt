@@ -18,6 +18,7 @@ iree_cc_library(
   SRCS
     "file_io_fixture.cc"
   DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_io_uapi>
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::kernels::kernel

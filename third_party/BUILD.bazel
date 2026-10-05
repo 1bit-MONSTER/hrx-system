@@ -130,6 +130,13 @@ alias(
 )
 
 alias(
+    name = "linux_io_uapi",
+    actual = "//build_tools/third_party/linux_uapi:linux_io_uapi",
+    tags = ["manual"],
+    visibility = [":libamdf_users"],
+)
+
+alias(
     name = "linux_xdna_uapi",
     actual = "//build_tools/third_party/linux_uapi:linux_xdna_uapi",
     tags = ["manual"],

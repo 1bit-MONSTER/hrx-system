@@ -7,6 +7,10 @@
 #ifndef AMDF_CTS_GPU_LINUX_IO_URING_FILE_IO_FIXTURE_H_
 #define AMDF_CTS_GPU_LINUX_IO_URING_FILE_IO_FIXTURE_H_
 
+#include <linux/stddef.h>
+
+// Protocol declarations require the Linux structural macros above, including
+// when the platform's fundamental type headers do not import them.
 #include <linux/io_uring.h>
 
 #include <cstddef>

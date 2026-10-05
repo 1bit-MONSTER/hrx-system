@@ -8,6 +8,7 @@
 
 #include <fcntl.h>
 #include <linux/magic.h>
+#include <linux/stat.h>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
@@ -145,7 +146,8 @@ void GpuFileIoFixture::CreateFile(const std::vector<uint32_t>& words,
       GTEST_SKIP() << "direct-storage witness requires a disk-backed file";
     }
     struct statx alignment = {};
-    ASSERT_EQ(statx(data_file_, "", AT_EMPTY_PATH, STATX_DIOALIGN, &alignment),
+    ASSERT_EQ(syscall(__NR_statx, data_file_, "", AT_EMPTY_PATH, STATX_DIOALIGN,
+                      &alignment),
               0)
         << std::strerror(errno);
     if (!(alignment.stx_mask & STATX_DIOALIGN) ||

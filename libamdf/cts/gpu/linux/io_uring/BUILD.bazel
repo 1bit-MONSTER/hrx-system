@@ -39,6 +39,7 @@ amdf_cc_library(
         "//libamdf/cts/gpu/pm4:dispatch_fixture",
         "//libamdf/cts/gpu/pm4/encoding:commands",
         "//third_party:google_test",
+        "//third_party:linux_io_uapi",
     ],
 )
 

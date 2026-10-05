@@ -63,6 +63,9 @@ class TargetConverter:
                 "//third_party:linux_kfd_uapi": [
                     "$<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>"
                 ],
+                "//third_party:linux_io_uapi": [
+                    "$<BUILD_LOCAL_INTERFACE:iree::third_party::linux_io_uapi>"
+                ],
                 "//third_party:linux_xdna_uapi": [
                     "$<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>"
                 ],

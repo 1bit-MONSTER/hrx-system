@@ -6,8 +6,6 @@
 
 #include "libamdf/cts/gpu/kernels/file_gather.h"
 
-#include <linux/io_uring.h>
-
 #include <algorithm>
 #include <array>
 #include <cerrno>
