@@ -26,8 +26,10 @@ typedef struct loom_run_hal_candidate_t {
   const loom_device_provider_t* provider;
   // Device target selected by the caller for artifact emission.
   loom_device_target_t device_target;
-  // Offline compiler candidate emitted through |provider|.
-  loom_artifact_candidate_t artifact_candidate;
+  // True when artifact bytes were produced.
+  bool compiled;
+  // Artifact bytes produced through |provider|.
+  loom_artifact_t artifact;
 } loom_run_hal_candidate_t;
 
 // Emits |run_module| to a HAL artifact candidate using |target| as the

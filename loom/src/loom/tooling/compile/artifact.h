@@ -113,28 +113,6 @@ iree_status_t loom_artifact_target_select(
     iree_string_view_t target_specification,
     loom_artifact_target_t* out_target);
 
-// Artifact candidate produced for live execution.
-typedef struct loom_artifact_candidate_t {
-  // Host allocator used for owned candidate storage.
-  iree_allocator_t host_allocator;
-  // Artifact provider that produced |artifact|.
-  const loom_artifact_provider_t* provider;
-  // True when artifact bytes were produced.
-  bool compiled;
-  // Artifact bytes produced by |provider|.
-  loom_artifact_t artifact;
-} loom_artifact_candidate_t;
-
-// Emits |module| using a caller-owned explicit target.
-iree_status_t loom_artifact_candidate_emit_target(
-    const loom_artifact_provider_t* provider,
-    const loom_artifact_target_t* target, loom_module_t* module,
-    const loom_compile_options_t* options, iree_allocator_t allocator,
-    loom_artifact_candidate_t* out_candidate);
-
-// Releases all artifact storage owned by |candidate|.
-void loom_artifact_candidate_deinitialize(loom_artifact_candidate_t* candidate);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif

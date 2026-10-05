@@ -86,12 +86,12 @@ static iree_status_t loom_run_hal_write_candidate_artifacts(
     const loom_run_hal_candidate_t* candidate) {
   IREE_RETURN_IF_ERROR(loom_run_hal_write_artifact(
       request->options->hal_target_artifact_output_path,
-      candidate->artifact_candidate.artifact.target_artifact_data,
-      IREE_SV("target-native"), request->host_allocator));
+      candidate->artifact.target_artifact_data, IREE_SV("target-native"),
+      request->host_allocator));
   return loom_run_hal_write_artifact(
       request->options->hal_executable_output_path,
-      candidate->artifact_candidate.artifact.executable_data,
-      IREE_SV("executable"), request->host_allocator);
+      candidate->artifact.executable_data, IREE_SV("executable"),
+      request->host_allocator);
 }
 
 static iree_status_t loom_run_hal_execution_backend_select_device_target(
@@ -321,18 +321,17 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
         request->host_allocator, &candidate);
   }
   if (iree_status_is_ok(status) && entry_selected &&
-      pipeline_result.pass.error_count == 0 &&
-      !candidate.artifact_candidate.compiled) {
+      pipeline_result.pass.error_count == 0 && !candidate.compiled) {
     request->result->exit_code = 1;
   }
-  if (iree_status_is_ok(status) && candidate.artifact_candidate.compiled) {
+  if (iree_status_is_ok(status) && candidate.compiled) {
     status = loom_run_hal_write_candidate_artifacts(request, &candidate);
   }
-  if (iree_status_is_ok(status) && candidate.artifact_candidate.compiled &&
+  if (iree_status_is_ok(status) && candidate.compiled &&
       !request->options->hal_emit_only) {
     const loom_device_artifact_t device_artifact = {
         .executable_target = candidate.device_target.executable_target,
-        .artifact = &candidate.artifact_candidate.artifact,
+        .artifact = &candidate.artifact,
     };
     loom_run_hal_invocation_request_t invocation_request = {0};
     loom_run_hal_invocation_request_initialize(&invocation_request);
@@ -374,7 +373,7 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
           &invocation_request, request->host_allocator, &invocation_result);
     }
   }
-  if (iree_status_is_ok(status) && candidate.artifact_candidate.compiled &&
+  if (iree_status_is_ok(status) && candidate.compiled &&
       !request->options->hal_emit_only) {
     request->result->exit_code = invocation_result.exit_code;
     status = iree_string_builder_append_string(

@@ -1703,14 +1703,13 @@ iree_status_t iree_benchmark_loom_write_compiled_artifacts(
       provider->context->artifact_bundle;
   if (!iree_benchmark_loom_artifact_bundle_wants_debug_artifacts(bundle) ||
       !provider->execution.candidate_initialized ||
-      !provider->execution.candidate.artifact_candidate.compiled) {
+      !provider->execution.candidate.compiled) {
     return iree_ok_status();
   }
 
   iree_string_builder_t leaf;
   iree_string_builder_initialize(allocator, &leaf);
-  const loom_artifact_t* artifact =
-      &provider->execution.candidate.artifact_candidate.artifact;
+  const loom_artifact_t* artifact = &provider->execution.candidate.artifact;
   iree_status_t status = iree_benchmark_loom_append_candidate_artifact_stem(
       run, candidate, provider, &leaf);
   if (iree_status_is_ok(status)) {

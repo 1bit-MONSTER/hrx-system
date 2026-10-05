@@ -127,13 +127,13 @@ TEST_F(SpirvArtifactProviderTest,
       /*.target_profile=*/&target_profile->base,
       /*.target_key=*/IREE_SV("vulkan1.3+bda+hal"),
   };
-  loom_artifact_candidate_t candidate = {};
-  IREE_ASSERT_OK(loom_artifact_candidate_emit_target(
-      &loom_spirv_vulkan_artifact_provider, &target, module.get(), &options,
-      iree_allocator_system(), &candidate));
+  loom_artifact_t artifact = {};
+  bool emitted = false;
+  IREE_ASSERT_OK(loom_spirv_vulkan_artifact_provider.emit_artifact(
+      &loom_spirv_vulkan_artifact_provider, module.get(), &target, &options,
+      iree_allocator_system(), &emitted, &artifact));
 
-  ASSERT_TRUE(candidate.compiled);
-  const loom_artifact_t& artifact = candidate.artifact;
+  ASSERT_TRUE(emitted);
   ASSERT_NE(artifact.target_bundle, nullptr);
   EXPECT_EQ(artifact.target_bundle->snapshot->codegen_format,
             LOOM_TARGET_CODEGEN_FORMAT_SPIRV);
@@ -172,7 +172,8 @@ TEST_F(SpirvArtifactProviderTest,
   EXPECT_NE(manifest_text.find("\"name\":\"module.spv\""), std::string::npos)
       << manifest_text;
 
-  loom_artifact_candidate_deinitialize(&candidate);
+  loom_spirv_vulkan_artifact_provider.deinitialize_artifact(
+      &loom_spirv_vulkan_artifact_provider, &artifact, iree_allocator_system());
 }
 
 }  // namespace

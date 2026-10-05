@@ -768,7 +768,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
   if (!iree_status_is_ok(status)) {
     return status;
   }
-  if (!provider->candidate.artifact_candidate.compiled) {
+  if (!provider->candidate.compiled) {
     if (provider->diagnostic_error_count != emit_error_count) {
       loom_run_hal_testbench_record_compile_rejection(
           provider, IREE_SV("emit"), IREE_SV("emit_diagnostics"),
@@ -784,7 +784,7 @@ iree_status_t loom_run_hal_testbench_actual_provider_compile(
 
   const loom_device_artifact_t device_artifact = {
       .executable_target = provider->candidate.device_target.executable_target,
-      .artifact = &provider->candidate.artifact_candidate.artifact,
+      .artifact = &provider->candidate.artifact,
   };
   status = loom_run_hal_prepared_candidate_prepare(
       &provider->context->runtime, &device_artifact,
