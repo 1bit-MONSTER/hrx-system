@@ -105,6 +105,38 @@ _VECTOR_TYPE_CONSTRAINTS = frozenset(
     }
 )
 
+_SCALAR_TYPE_CONSTRAINTS = frozenset(
+    {
+        TypeConstraint.INTEGER,
+        TypeConstraint.FLOAT,
+        TypeConstraint.PAYLOAD_SCALAR,
+        TypeConstraint.BITWISE_SCALAR,
+        TypeConstraint.BYTE_PATTERN_SCALAR,
+        TypeConstraint.INDEX_OR_NON_I1_INTEGER_SCALAR,
+        TypeConstraint.SCALAR,
+        TypeConstraint.INDEX,
+        TypeConstraint.OFFSET,
+        TypeConstraint.ADDRESS,
+        TypeConstraint.I1,
+        TypeConstraint.I32,
+    }
+)
+
+_DECOMPOSABLE_FORBIDDEN_TRAITS = frozenset(
+    {
+        "Convergent",
+        "Contextual",
+        "Hint",
+        "MemoryFence",
+        "NonDeterministic",
+        "ObservableEffect",
+        "PoisonBoundary",
+        "Terminator",
+        "UniqueIdentity",
+        "UnknownEffects",
+    }
+)
+
 
 def _same_type_constraint_covers(op: Op, field_names: set[str]) -> bool:
     for constraint in op.constraints:
@@ -119,20 +151,12 @@ def _same_shape_constraint_covers(op: Op, field_names: set[str]) -> bool:
     return any(constraint.name == "SameShape" and field_names.issubset(constraint.args) for constraint in op.constraints)
 
 
-def _is_shape_preserving_elementwise_vector_decomposable(op: Op) -> bool:
-    if not _has_trait(op, "Elementwise") or not op.is_pure:
-        return False
-    if any(
-        _has_trait(op, trait_name)
-        for trait_name in (
-            "Convergent",
-            "Contextual",
-            "PoisonBoundary",
-            "Terminator",
-        )
-    ):
+def _has_decomposable_structure(op: Op) -> bool:
+    if not op.is_pure or any(_has_trait(op, trait_name) for trait_name in _DECOMPOSABLE_FORBIDDEN_TRAITS):
         return False
     if len(op.results) != 1 or op.regions or op.successors:
+        return False
+    if op.results[0].type_constraint not in _VECTOR_TYPE_CONSTRAINTS:
         return False
     if any(getattr(result, "tied_to", None) for result in op.results):
         return False
@@ -140,9 +164,27 @@ def _is_shape_preserving_elementwise_vector_decomposable(op: Op) -> bool:
         return False
     if any(result.variadic for result in op.results):
         return False
-    value_fields = [*op.operands, *op.results]
-    if not value_fields:
+    return True
+
+
+def _is_explicit_vector_decomposable(op: Op) -> bool:
+    """Whether an explicit trait has the structure required for lane replay."""
+
+    if not _has_decomposable_structure(op):
         return False
+    vector_field_names = {op.results[0].name}
+    for operand in op.operands:
+        if operand.type_constraint in _VECTOR_TYPE_CONSTRAINTS:
+            vector_field_names.add(operand.name)
+        elif operand.type_constraint not in _SCALAR_TYPE_CONSTRAINTS:
+            return False
+    return len(vector_field_names) == 1 or _same_shape_constraint_covers(op, vector_field_names)
+
+
+def _is_shape_preserving_elementwise_vector_decomposable(op: Op) -> bool:
+    if not _has_trait(op, "Elementwise") or not _has_decomposable_structure(op):
+        return False
+    value_fields = [*op.operands, *op.results]
     if any(field.type_constraint not in _VECTOR_TYPE_CONSTRAINTS for field in value_fields):
         return False
     return _same_shape_constraint_covers(op, {field.name for field in value_fields})
@@ -159,12 +201,12 @@ def trait_flags(op: Op) -> str:
         if c_name:
             bits.append(c_name)
     is_derived_decomposable = _is_shape_preserving_elementwise_vector_decomposable(op)
-    if has_explicit_decomposable and not is_derived_decomposable:
+    if has_explicit_decomposable and not _is_explicit_vector_decomposable(op):
         raise ValueError(
             f"Op '{op.name}': Decomposable requires an effect-free "
-            "rematerializable, single-result shape-preserving elementwise "
-            "vector op with no regions, successors, variadic fields, optional "
-            "operands, or tied results"
+            "rematerializable op with one vector result, fixed scalar captures "
+            "or shape-preserving vector operands, and no regions, successors, "
+            "optional operands, variadic fields, or tied results"
         )
     if "LOOM_TRAIT_DECOMPOSABLE" not in bits and is_derived_decomposable:
         bits.append("LOOM_TRAIT_DECOMPOSABLE")

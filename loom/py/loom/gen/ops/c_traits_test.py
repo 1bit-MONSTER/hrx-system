@@ -16,6 +16,7 @@ from loom.dsl import (
     NON_DETERMINISTIC,
     OBSERVABLE_EFFECT,
     POISON_BOUNDARY,
+    SCALAR,
     TERMINATOR,
     VECTOR,
     Dialect,
@@ -28,6 +29,7 @@ from loom.dsl import (
 )
 from loom.gen.ops.c_metadata_tables import generate_tables_c
 from loom.gen.ops.c_traits import (
+    _is_explicit_vector_decomposable,
     _is_shape_preserving_elementwise_vector_decomposable,
     trait_flags,
 )
@@ -57,6 +59,19 @@ def test_explicit_decomposition_accepts_shape_preserving_ops() -> None:
         constraints=[SameType("input", "result")],
         traits=[ELEMENTWISE, DECOMPOSABLE],
     )
+    generate_tables_c("test", 0, [op])
+
+
+def test_explicit_decomposition_accepts_invariant_scalar_captures() -> None:
+    op = Op(
+        "test.splat",
+        group=Dialect("test"),
+        operands=[Operand("scalar", SCALAR)],
+        results=[Result("result", VECTOR)],
+        traits=[DECOMPOSABLE],
+    )
+
+    assert _is_explicit_vector_decomposable(op)
     generate_tables_c("test", 0, [op])
 
 

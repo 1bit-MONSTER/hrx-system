@@ -1223,6 +1223,10 @@ TERMINATOR = Trait("Terminator")
 CONSTANT_LIKE = Trait("ConstantLike")
 POISON = Trait("Poison")
 ELEMENTWISE = Trait("Elementwise")
+# The operation can be rebuilt over any contiguous lane interval without
+# observing the authored vector shape or absolute lane ordinals. Vector
+# operands contribute the same lane interval and scalar operands are invariant
+# captures. The operation must be pure and have one vector result.
 DECOMPOSABLE = Trait("Decomposable")
 SYMBOL_DEFINE = Trait("SymbolDefine")
 # Op is valid only as a direct child of the module body. Module-owned operations

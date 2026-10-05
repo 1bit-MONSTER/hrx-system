@@ -25,14 +25,6 @@ typedef enum loom_vector_packet_reduce_result_e {
   LOOM_VECTOR_PACKET_REDUCE_RESULT_CAPTURE_INPUT = 2,
 } loom_vector_packet_reduce_result_t;
 
-// Packetizes a static vector splat into target-native rank-one packets,
-// concatenates them into a flat carrier, and restores the logical result
-// shape. Returns false through |out_rewritten| when the result already fits
-// one packet or the packet plan exceeds the static expansion bound.
-iree_status_t loom_vector_packet_legalize_splat(
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
-
 // Packetizes a rank-one table lookup over the common lane interval supported
 // by both its index and result element types. The table remains one captured
 // SSA value. Existing index values supply static slices while decomposable
