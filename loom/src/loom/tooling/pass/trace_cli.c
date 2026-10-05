@@ -104,29 +104,6 @@ static bool loom_tooling_pass_trace_path_is_stream(iree_string_view_t path) {
          iree_string_view_equal(path, IREE_SV("stderr"));
 }
 
-static iree_string_view_t loom_tooling_pass_trace_point_name(
-    loom_pass_trace_point_t point) {
-  switch (point) {
-    case LOOM_PASS_TRACE_POINT_BEFORE:
-      return IREE_SV("before");
-    case LOOM_PASS_TRACE_POINT_AFTER:
-      return IREE_SV("after");
-    default:
-      return IREE_SV("unknown");
-  }
-}
-
-static iree_string_view_t loom_tooling_pass_trace_pass_key(
-    const loom_pass_trace_event_t* event) {
-  const loom_pass_program_instruction_t* instruction = event->instruction;
-  if (!instruction ||
-      instruction->kind != LOOM_PASS_PROGRAM_INSTRUCTION_INVOKE ||
-      !instruction->invoke.descriptor) {
-    return IREE_SV("unknown");
-  }
-  return instruction->invoke.descriptor->key;
-}
-
 static bool loom_tooling_pass_trace_safe_path_char(char c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
          (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
@@ -159,14 +136,13 @@ static iree_status_t loom_tooling_pass_trace_build_artifact_relative_path(
   *out_path = NULL;
   iree_string_builder_t builder;
   iree_string_builder_initialize(allocator, &builder);
-  const iree_string_view_t point =
-      loom_tooling_pass_trace_point_name(event->point);
+  const iree_string_view_t point = loom_pass_trace_point_name(event->point);
   iree_status_t status = iree_string_builder_append_format(
       &builder, "ir/%06" PRIhsz "-%.*s-", event_ordinal, (int)point.size,
       point.data);
   if (iree_status_is_ok(status)) {
     status = loom_tooling_pass_trace_append_sanitized_path_fragment(
-        &builder, loom_tooling_pass_trace_pass_key(event));
+        &builder, loom_pass_trace_event_pass_key(event));
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(&builder, ".loom");
