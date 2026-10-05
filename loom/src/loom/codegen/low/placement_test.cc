@@ -219,10 +219,10 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
     IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
         &domain, loom_liveness_order_empty(), &module->arena, &liveness));
     for (iree_host_size_t i = 0; i < liveness.operation_count; ++i) {
-      if (liveness.operation_points[i].op == use) {
+      if (loom_liveness_operation_at(&liveness, i)->op == use) {
         break;
       }
-      ASSERT_NE(liveness.operation_points[i].op, transfer);
+      ASSERT_NE(loom_liveness_operation_at(&liveness, i)->op, transfer);
     }
     loom_low_placement_table_t placement = {};
     loom_low_placement_preference_index_t preferences = {};
@@ -721,7 +721,7 @@ class LowPlacementStorageTest : public ::testing::Test {
                              LOOM_LOW_PLACEMENT_RELATION_FLAG_WRITES_STORAGE
                        : LOOM_LOW_PLACEMENT_RELATION_FLAG_PREFERRED));
       EXPECT_EQ(relation.write_point,
-                liveness_.operation_points[i - 1].end_point);
+                loom_liveness_operation_at(&liveness_, i - 1)->end_point);
       EXPECT_EQ(relation.priority, 1u);
       EXPECT_EQ(relation.source_operand_index, 0u);
       if (is_tied) {

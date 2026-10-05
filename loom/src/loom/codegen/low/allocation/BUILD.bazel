@@ -842,6 +842,7 @@ loom_cc_test(
     srcs = ["unit_liveness_test.cc"],
     deps = [
         ":unit_liveness",
+        "//loom/src/loom/analysis:liveness",
         "//loom/src/loom/codegen/low:builder",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",

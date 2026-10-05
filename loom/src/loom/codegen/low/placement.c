@@ -1097,9 +1097,14 @@ static iree_status_t loom_low_placement_collect_pair_relations(
 
 static iree_status_t loom_low_placement_visit_ops(
     loom_low_placement_build_state_t* state) {
-  for (iree_host_size_t i = 0; i < state->liveness->operation_count; ++i) {
-    IREE_RETURN_IF_ERROR(loom_low_placement_collect_op_relations(
-        state, &state->liveness->operation_points[i]));
+  for (uint32_t index = 0; index < state->liveness->operation_count;) {
+    const loom_liveness_operation_span_t span = loom_liveness_operation_span(
+        state->liveness, index, (uint32_t)state->liveness->operation_count);
+    for (uint32_t i = 0; i < span.count; ++i) {
+      IREE_RETURN_IF_ERROR(
+          loom_low_placement_collect_op_relations(state, &span.rows[i]));
+    }
+    index += span.count;
   }
   return iree_ok_status();
 }

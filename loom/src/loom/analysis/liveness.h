@@ -126,8 +126,16 @@ typedef struct loom_liveness_operation_point_t {
 static_assert(sizeof(loom_liveness_operation_point_t) <= 32,
               "liveness operation rows must remain compact");
 
-typedef struct loom_liveness_operation_use_table_t
-    loom_liveness_operation_use_table_t;
+// Borrowed consecutive operation rows with the analysis's result lifetime.
+typedef struct loom_liveness_operation_span_t {
+  // First row in accepted program-point order.
+  const loom_liveness_operation_point_t* rows;
+  // Number of initialized rows in this bounded storage segment.
+  uint8_t count;
+} loom_liveness_operation_span_t;
+
+// Stable operation rows and their semantic-use ordinals, owned by the analysis.
+typedef struct loom_liveness_operation_table_t loom_liveness_operation_table_t;
 
 // Liveness for one block in the analyzed region.
 typedef struct loom_liveness_block_info_t {
@@ -280,13 +288,12 @@ typedef struct loom_liveness_analysis_t {
   // Segment ranges indexed by local value ordinal. The table has
   // |value_count| entries.
   const loom_liveness_segment_range_t* value_segment_ranges;
-  // Operations in accepted program-point order.
-  const loom_liveness_operation_point_t* operation_points;
-  // Number of records in |operation_points|.
+  // Operations in accepted program-point order and their semantic-use values.
+  // Rows retain stable addresses for the complete analysis lifetime.
+  const loom_liveness_operation_table_t* operations;
+  // Number of operation records in |operations|.
   iree_host_size_t operation_count;
-  // Segmented local value ordinals read by |operation_points|.
-  const loom_liveness_operation_use_table_t* operation_uses;
-  // Number of local value ordinals in |operation_uses|.
+  // Number of semantic-use local value ordinals in |operations|.
   iree_host_size_t operation_use_count;
 } loom_liveness_analysis_t;
 
@@ -339,6 +346,20 @@ iree_status_t loom_liveness_analyze_region_with_order(
     loom_module_t* module, const loom_region_t* region,
     loom_liveness_order_t order, iree_arena_allocator_t* arena,
     loom_liveness_analysis_t* out_analysis);
+
+// Returns the operation row at its accepted-order index. The index belongs to
+// the analysis's operation domain; the returned row outlives construction
+// scratch and remains valid until the result arena is reset.
+const loom_liveness_operation_point_t* loom_liveness_operation_at(
+    const loom_liveness_analysis_t* analysis, uint32_t operation_index);
+
+// Returns the nonempty contiguous prefix of [operation_index, operation_end).
+// Both bounds belong to the analysis's operation domain, with the exclusive
+// end greater than the start. The span stops at the next storage boundary;
+// callers advance their existing index by its count to traverse the range.
+loom_liveness_operation_span_t loom_liveness_operation_span(
+    const loom_liveness_analysis_t* analysis, uint32_t operation_index,
+    uint32_t operation_end);
 
 // Returns the local value ordinal for one retained semantic operation use.
 loom_value_ordinal_t loom_liveness_operation_use_ordinal(

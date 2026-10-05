@@ -172,13 +172,14 @@ iree_status_t loom_low_allocation_move_plan_initialize(
     const loom_liveness_analysis_t* liveness = context->assignment_map.liveness;
     uint32_t scheduled_index = 0;
     for (uint32_t i = 0; i < liveness->operation_count; ++i) {
-      if (liveness->operation_points[i].parent_operation_index != UINT32_MAX) {
+      const loom_liveness_operation_point_t* point =
+          loom_liveness_operation_at(liveness, i);
+      if (point->parent_operation_index != UINT32_MAX) {
         continue;
       }
       const uint32_t node_index =
           schedule->scheduled_node_indices[scheduled_index++];
-      IREE_ASSERT_EQ(schedule->nodes[node_index].op,
-                     liveness->operation_points[i].op);
+      IREE_ASSERT_EQ(schedule->nodes[node_index].op, point->op);
       out_plan->operation_indices_by_source_node[node_index] = i;
     }
     IREE_ASSERT_EQ(scheduled_index, schedule->scheduled_node_count);
@@ -212,7 +213,7 @@ loom_low_allocation_move_plan_next_operation(
         plan->operation_indices_by_source_node[cursor->source_node_index++];
   }
   const loom_liveness_operation_point_t* point =
-      &liveness->operation_points[cursor->operation_index++];
+      loom_liveness_operation_at(liveness, cursor->operation_index++);
   IREE_ASSERT_EQ(point->op, op,
                  "move traversal must match the accepted liveness subtree");
   return point;
