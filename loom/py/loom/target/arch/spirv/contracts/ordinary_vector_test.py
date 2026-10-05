@@ -20,12 +20,18 @@ from loom.target.arch.spirv.ordinary_vector import (
     ORDINARY_VECTOR_TYPES,
     OrdinaryVectorComponentKind,
 )
+from loom.target.arch.spirv.ordinary_vector_bit_layout import (
+    ORDINARY_VECTOR_BIT_LAYOUT_ALIAS_CASES,
+    ORDINARY_VECTOR_BIT_LAYOUT_CASES,
+    ORDINARY_VECTOR_BIT_LAYOUT_DIRECT_CASES,
+)
 from loom.target.contracts import (
     DescriptorRule,
     GuardKind,
     SourceValueKind,
     TypePattern,
     ValueAliasRule,
+    ValueRef,
 )
 
 
@@ -36,16 +42,17 @@ def test_every_owned_source_operation_has_a_closed_shape_matrix() -> None:
     )
     assert case_counts == {
         vector.vector_constant.name: 44,
+        vector.vector_bitcast.name: 140,
         vector.vector_splat.name: 31,
         vector.vector_from_elements.name: 31,
         vector.vector_extract.name: 31,
         vector.vector_insert.name: 31,
         scf.scf_select.name: 40,
     }
-    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 208
+    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 348
 
 
-def test_singleton_representation_is_an_alias_for_each_structural_family() -> None:
+def test_aliases_cover_singletons_and_identity_bit_layouts() -> None:
     alias_cases = tuple(
         contract_case
         for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
@@ -56,8 +63,66 @@ def test_singleton_representation_is_an_alias_for_each_structural_family() -> No
         vector.vector_from_elements,
         vector.vector_extract,
         vector.vector_insert,
+        vector.vector_bitcast,
     }
-    assert len(alias_cases) == 4
+    assert len(alias_cases) == 36
+
+
+def test_bit_layout_contract_covers_the_exact_generated_matrix() -> None:
+    bitcast_cases = tuple(
+        contract_case
+        for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
+        if contract_case.source_op is vector.vector_bitcast
+    )
+    actual_cases = {}
+    for contract_case in bitcast_cases:
+        patterns = {
+            guard.field: guard.type_pattern
+            for guard in contract_case.guards
+            if guard.kind == GuardKind.VALUE_TYPE
+        }
+        assert patterns.keys() == {"input", "result"}
+        source_pattern = patterns["input"]
+        result_pattern = patterns["result"]
+        key = (
+            source_pattern.element,
+            source_pattern.lanes,
+            result_pattern.element,
+            result_pattern.lanes,
+        )
+        assert key not in actual_cases
+        actual_cases[key] = contract_case
+
+    expected_cases = {
+        (
+            case.source.element_type,
+            case.source.lane_count,
+            case.result.element_type,
+            case.result.lane_count,
+        ): case
+        for case in ORDINARY_VECTOR_BIT_LAYOUT_CASES
+    }
+    assert actual_cases.keys() == expected_cases.keys()
+
+    for key, contract_case in actual_cases.items():
+        layout_case = expected_cases[key]
+        if layout_case in ORDINARY_VECTOR_BIT_LAYOUT_ALIAS_CASES:
+            assert isinstance(contract_case, ValueAliasRule)
+            assert contract_case.source == ValueRef.operand("input")
+            assert contract_case.result == ValueRef.result("result")
+        else:
+            assert layout_case in ORDINARY_VECTOR_BIT_LAYOUT_DIRECT_CASES
+            assert isinstance(contract_case, DescriptorRule)
+            assert contract_case.descriptor is not None
+            assert contract_case.descriptor.key == layout_case.key
+            availability_guards = [
+                guard
+                for guard in contract_case.guards
+                if guard.kind == GuardKind.DESCRIPTOR_AVAILABLE
+            ]
+            assert bool(availability_guards) == bool(
+                contract_case.descriptor.feature_mask_words
+            )
 
 
 def test_each_native_type_drives_all_descriptor_backed_structural_rules() -> None:
@@ -152,7 +217,7 @@ def test_synthesized_results_preserve_exact_source_types() -> None:
     assert actual_types == expected_types
 
 
-def test_vector_contract_contains_no_arithmetic_or_conversion_rows() -> None:
+def test_vector_contract_contains_only_structural_and_bit_layout_rows() -> None:
     descriptor_keys = {
         contract_case.descriptor.key
         for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
@@ -164,6 +229,7 @@ def test_vector_contract_contains_no_arithmetic_or_conversion_rows() -> None:
         "spirv.op_composite_extract",
         "spirv.op_composite_insert",
         "spirv.op_select",
+        "spirv.op_bitcast",
     )
     assert all(key.startswith(structural_stems) for key in descriptor_keys)
     assert len(ORDINARY_VECTOR_COMPONENT_TYPES) == 10

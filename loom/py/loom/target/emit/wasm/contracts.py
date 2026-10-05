@@ -680,6 +680,46 @@ def _splat_rule(
     )
 
 
+def _predicate_mask_emits(value: ValueRef) -> tuple[EmitDescriptorOp, ...]:
+    zero = ValueRef.temporary("predicate_zero")
+    mask = ValueRef.temporary("predicate_mask")
+    return (
+        EmitDescriptorOp(
+            descriptor=_descriptor("wasm.i32.const"),
+            results={"dst": zero},
+            result_types={"dst": _I32},
+            immediates={"i32_value": 0},
+            form=DescriptorEmitForm.CONST,
+        ),
+        EmitDescriptorOp(
+            descriptor=_descriptor("wasm.i32.sub"),
+            operands={"lhs": zero, "rhs": value},
+            results={"dst": mask},
+            result_types={"dst": _I32},
+        ),
+    )
+
+
+def _predicate_splat_rule() -> DescriptorRule:
+    descriptor = _descriptor("wasm.i32x4.splat")
+    return DescriptorRule(
+        source_op=vector.vector_splat,
+        descriptor=descriptor,
+        guards=(
+            _value_type("scalar", _I1),
+            _value_type("result", _V4I1),
+        ),
+        emit=(
+            *_predicate_mask_emits(ValueRef.operand("scalar")),
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={"value": ValueRef.temporary("predicate_mask")},
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
 def _select_rule(value_type: TypePattern) -> DescriptorRule:
     descriptor = _descriptor("wasm.v128.bitselect")
     return DescriptorRule(
@@ -877,6 +917,39 @@ def _insert_rule(
                 operands={
                     "dest": ValueRef.operand("dest"),
                     "value": ValueRef.operand("value"),
+                },
+                results={"dst": ValueRef.result("result")},
+                immediates={
+                    "lane": AttrProject.i64_array_element(
+                        "static_indices",
+                        element=0,
+                    )
+                },
+            ),
+        ),
+    )
+
+
+def _predicate_insert_rule() -> DescriptorRule:
+    descriptor = _descriptor("wasm.i32x4.replace_lane")
+    return DescriptorRule(
+        source_op=vector.vector_insert,
+        descriptor=descriptor,
+        guards=(
+            _value_type("value", _I1),
+            _value_type("dest", _V4I1),
+            _value_type("result", _V4I1),
+            Guard.operand_segment_count("indices", 0),
+            Guard.i64_array_count("static_indices", 1),
+            Guard.i64_array_element_range("static_indices", 0, 0, 3),
+        ),
+        emit=(
+            *_predicate_mask_emits(ValueRef.operand("value")),
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={
+                    "dest": ValueRef.operand("dest"),
+                    "value": ValueRef.temporary("predicate_mask"),
                 },
                 results={"dst": ValueRef.result("result")},
                 immediates={
@@ -1323,6 +1396,17 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I16, _F16),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _BF16, _I16),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I16, _BF16),
+        *(
+            _conversion_alias_rule(vector.vector_bitcast, source_type, result_type)
+            for lhs_type, rhs_type in (
+                (_V4I32, _V4F32),
+                (_V2I64, _V2F64),
+            )
+            for source_type, result_type in (
+                (lhs_type, rhs_type),
+                (rhs_type, lhs_type),
+            )
+        ),
         _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I8),
         _conversion_alias_rule(scalar_conversion.scalar_trunci, _I32, _I16),
         _conversion_alias_rule(scalar_conversion.scalar_extui, _I1, _I32),
@@ -1387,6 +1471,7 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
                 (Buffer(), "i32"),
             )
         ),
+        _predicate_splat_rule(),
         _splat_rule(_I32, _V4I32, "wasm.i32x4.splat"),
         _splat_rule(_I64, _V2I64, "wasm.i64x2.splat"),
         _splat_rule(_F32, _V4F32, "wasm.f32x4.splat"),
@@ -1572,6 +1657,7 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
         _extract_rule(_V4F32, _F32, "wasm.f32x4.extract_lane"),
         _extract_rule(_V2I64, _I64, "wasm.i64x2.extract_lane"),
         _extract_rule(_V2F64, _F64, "wasm.f64x2.extract_lane"),
+        _predicate_insert_rule(),
         _insert_rule(_I32, _V4I32, "wasm.i32x4.replace_lane"),
         _insert_rule(_F32, _V4F32, "wasm.f32x4.replace_lane"),
         _insert_rule(_I64, _V2I64, "wasm.i64x2.replace_lane"),

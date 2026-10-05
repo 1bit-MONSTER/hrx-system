@@ -80,6 +80,11 @@ static const loom_target_legalizer_rule_t kSpirvLegalizerRules[] = {
             LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
         .legalize = loom_spirv_legalize_vector_to_scalar,
     },
+    {
+        .root_kind = LOOM_OP_VECTOR_BITCAST,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
+        .legalize = loom_spirv_legalize_vector_to_scalar,
+    },
 };
 
 const loom_target_legalizer_provider_t

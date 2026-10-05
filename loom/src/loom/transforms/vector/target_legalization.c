@@ -621,19 +621,16 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     {
         .root_kind = LOOM_OP_VECTOR_ISNANF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
-        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .legalize = loom_vector_legalize_float_classification,
     },
     {
         .root_kind = LOOM_OP_VECTOR_ISINFF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
-        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .legalize = loom_vector_legalize_float_classification,
     },
     {
         .root_kind = LOOM_OP_VECTOR_ISFINITEF,
         .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
-        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REQUIRE_CONTRACT_REJECTION,
         .legalize = loom_vector_legalize_float_classification,
     },
     {
