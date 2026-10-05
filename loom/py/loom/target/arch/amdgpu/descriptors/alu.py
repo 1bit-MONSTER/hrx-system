@@ -6497,6 +6497,21 @@ _V_CMP_CLASS_MASK_SOURCE_SIZE_REASON = (
     "classification-mask-reads-low-10-bits-of-b32-source"
 )
 
+_V_CMP_CLASS_F16_HIGH_SDWA_FIXED_FIELDS = (
+    ("SRC0", 249),
+    ("S0", 0),
+    ("S1", 1),
+    ("SD", 1),
+    ("SRC0_ABS", 0),
+    ("SRC0_NEG", 0),
+    ("SRC0_SEL", 5),
+    ("SRC0_SEXT", 0),
+    ("SRC1_ABS", 0),
+    ("SRC1_NEG", 0),
+    ("SRC1_SEL", 6),
+    ("SRC1_SEXT", 0),
+)
+
 
 def _v_cmp_class_descriptor_key(bit_width: int, input_part: str) -> str:
     if input_part == "low":
@@ -6650,8 +6665,72 @@ def _v_cmp_class_literal_overlay(
     )
 
 
+def _v_cmp_class_f16_high_sdwa_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
+    descriptor_key = _v_cmp_class_descriptor_key(16, "high")
+    register_overlay = AmdgpuDescriptorOverlay(
+        descriptor_key=descriptor_key,
+        instruction_name="V_CMP_CLASS_F16",
+        mnemonic="v_cmp_class_f16_input_high_sdwa",
+        encoding_name="VOPC_VOP_SDWA_SDST_ENC",
+        encoding_condition="has_sdwa",
+        semantic_tag="cmp.f16.class",
+        schedule_class=_SCHEDULE_VALU,
+        operands=(
+            AmdgpuOperandOverlay("SDST", _sgpr_result("mask", units=2)),
+            AmdgpuOperandOverlay(
+                "VSRC0",
+                _vgpr_operand("input", register_part=_REG_PART_VGPR_HIGH16),
+            ),
+            AmdgpuOperandOverlay(
+                "VSRC1",
+                _sgpr_operand("classes"),
+                size_exception_reason=_V_CMP_CLASS_MASK_SOURCE_SIZE_REASON,
+            ),
+        ),
+        fixed_encoding_fields=_V_CMP_CLASS_F16_HIGH_SDWA_FIXED_FIELDS,
+        operand_forms=(
+            _literal_operand_form(
+                replacement_descriptor=f"{descriptor_key}.classes_inline",
+                source_operand="classes",
+                immediate_field="classes",
+            ),
+        ),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+    inline_overlay = replace(
+        register_overlay,
+        descriptor_key=f"{descriptor_key}.classes_inline",
+        mnemonic="v_cmp_class_f16_input_high_sdwa_classes_inline",
+        operands=register_overlay.operands[:2],
+        asm_forms=_asm(
+            results=("mask",),
+            operands=("input",),
+            immediates=("classes",),
+            named_immediates=True,
+        ),
+        immediate_fields=("VSRC1",),
+        immediates=(replace(_SOURCE_INLINE_U32_IMMEDIATE, field_name="classes"),),
+        operand_forms=(),
+    )
+    return register_overlay, inline_overlay
+
+
+def _v_cmp_class_cdna_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
+    return (
+        tuple(
+            overlay
+            for bit_width in (16, 32, 64)
+            for overlay in (
+                _v_cmp_class_overlay(bit_width, include_literal_form=False),
+                _v_cmp_class_inline_overlay(bit_width),
+            )
+        )
+        + _v_cmp_class_f16_high_sdwa_overlays()
+    )
+
+
 def _v_cmp_class_overlays(
-    *, include_literal_forms: bool = True, op_sel_field: str = "OP_SEL"
+    *, op_sel_field: str = "OP_SEL"
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     return tuple(
         overlay
@@ -6661,22 +6740,15 @@ def _v_cmp_class_overlays(
             _v_cmp_class_overlay(
                 bit_width,
                 input_part=input_part,
-                include_literal_form=include_literal_forms,
                 op_sel_field=op_sel_field,
             ),
             _v_cmp_class_inline_overlay(
                 bit_width, input_part=input_part, op_sel_field=op_sel_field
             ),
-            *(
-                (
-                    _v_cmp_class_literal_overlay(
-                        bit_width,
-                        input_part=input_part,
-                        op_sel_field=op_sel_field,
-                    ),
-                )
-                if include_literal_forms
-                else ()
+            _v_cmp_class_literal_overlay(
+                bit_width,
+                input_part=input_part,
+                op_sel_field=op_sel_field,
             ),
         )
     )
@@ -7413,6 +7485,7 @@ __all__ = (
     "_v_binary_u32_overlay",
     "_v_binary_vop3_float_overlay",
     "_v_cmp_base_overlays",
+    "_v_cmp_class_cdna_overlays",
     "_v_cmp_class_inline_overlay",
     "_v_cmp_class_literal_overlay",
     "_v_cmp_class_overlay",

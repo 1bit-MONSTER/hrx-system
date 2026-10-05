@@ -462,7 +462,7 @@ def _cdna_core_overlays(
         _v_cvt_i32_f32_overlay(),
         _v_cvt_u32_f32_overlay(),
         *_v_cmp_overlays(),
-        *_v_cmp_class_overlays(include_literal_forms=False),
+        *_v_cmp_class_cdna_overlays(),
         *_v_cmp_i32_equality_vcc_overlays(),
         *_v_cndmask_b32_overlays(include_literal_forms=False),
         _v_cndmask_b32_dpp_legacy_overlay(),

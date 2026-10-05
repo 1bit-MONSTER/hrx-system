@@ -3400,11 +3400,26 @@ def test_float_classification_descriptors_follow_target_literal_support() -> Non
         )
         for key in (high_base_key, high_inline_key):
             descriptor = descriptors[key]
+            assert descriptor.encoding_name == "VOPC_VOP_SDWA_SDST_ENC"
             assert (
                 descriptor.operands[1].descriptor_operand.reg_alts[0].register_part
                 == _REG_PART_VGPR_HIGH16
             )
-            assert descriptor.fixed_encoding_fields == (("OP_SEL", 1),)
+            assert dict(descriptor.fixed_encoding_fields) == {
+                "SRC0": 249,
+                "S0": 0,
+                "S1": 1,
+                "SD": 1,
+                "SRC0_ABS": 0,
+                "SRC0_NEG": 0,
+                "SRC0_SEL": 5,
+                "SRC0_SEXT": 0,
+                "SRC1_ABS": 0,
+                "SRC1_NEG": 0,
+                "SRC1_SEL": 6,
+                "SRC1_SEXT": 0,
+            }
+        assert descriptors[high_inline_key].immediate_fields == ("VSRC1",)
 
     for descriptor_set, op_sel_field in (
         (_gfx11_core_overlays(), "OP_SEL"),
