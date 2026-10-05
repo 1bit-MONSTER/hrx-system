@@ -237,9 +237,9 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @copy_cycle_preserves_dead_mas
 
 // ----
   v_cndmask_b32 v0, v0, v1, s[0:1]
-  s_mov_b32 s4, s3
-  s_mov_b32 s3, s2
-  s_mov_b32 s2, s4
+  s_mov_b32 s4, s2
+  s_mov_b32 s2, s3
+  s_mov_b32 s3, s4
 .Lbb1:
   s_endpgm
 
@@ -268,9 +268,9 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_a
   s_load_dword s0, s[4:5] offset:0
   v_add_f32 v0, v1, v0
   s_waitcnt vmcnt(63) lgkmcnt(0)
-  s_mov_b32 s0, s3
-  s_mov_b32 s3, s2
-  s_mov_b32 s2, s0
+  s_mov_b32 s0, s2
+  s_mov_b32 s2, s3
+  s_mov_b32 s3, s0
 .Lbb1:
   s_endpgm
 
@@ -302,8 +302,8 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copy_cycle_a
   v_cndmask_b32 v1, v1, v2, s[0:1]
   s_delay_alu instid0(VALU_DEP_1)
   v_add_f32 v0, v1, v0
-  s_mov_b32 s4, s3
-  s_mov_b32 s3, s2
-  s_mov_b32 s2, s4
+  s_mov_b32 s4, s2
+  s_mov_b32 s2, s3
+  s_mov_b32 s3, s4
 .Lbb1:
   s_endpgm

@@ -85,7 +85,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @swap(%value:
 0xBE850001
 0xD5010000
 0x00120080
-0xBE820000
-0xBE800001
-0xBE810002
+0xBE820001
+0xBE810000
+0xBE800002
 0xBFB00000

@@ -53,9 +53,9 @@ vm.module core(0.0) {
       stack.store.i64 #v32, %v0.x1
       %v0.x1 = stack.load.i64 #v32
       %v1.x1 = stack.load.i64 #v16
-      %v2 = value.copy %v0
-      %v0 = value.copy %v1
-      %v1 = value.copy %v2
+      %v2 = value.copy %v1
+      %v1 = value.copy %v0
+      %v0 = value.copy %v2
       control.return
     }
   }

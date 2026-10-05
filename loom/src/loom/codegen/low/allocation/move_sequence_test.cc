@@ -33,7 +33,7 @@ const loom_low_descriptor_set_t* AliasDescriptorSet() {
           /*.name_string_ref=*/{},
           /*.target_bank_id=*/{},
           /*.flags=*/{},
-          /*.alloc_unit_bits=*/{},
+          /*.alloc_unit_bits=*/32,
           /*.allocatable_count=*/{},
           /*.fixed_location_base=*/{},
           /*.fixed_location_count=*/{},
@@ -45,7 +45,7 @@ const loom_low_descriptor_set_t* AliasDescriptorSet() {
           /*.name_string_ref=*/{},
           /*.target_bank_id=*/{},
           /*.flags=*/{},
-          /*.alloc_unit_bits=*/{},
+          /*.alloc_unit_bits=*/64,
           /*.allocatable_count=*/{},
           /*.fixed_location_base=*/{},
           /*.fixed_location_count=*/{},
@@ -300,7 +300,47 @@ TEST(LowMoveSequenceTest, UsesTemporaryForCycle) {
   const loom_low_move_location_t temporary = Location(9);
 
   EXPECT_THAT(ResolveMoves(moves, IREE_ARRAYSIZE(moves), &temporary, 1),
-              ::testing::ElementsAre("0:9<-0", "0:0<-1", "0:1<-9"));
+              ::testing::ElementsAre("0:9<-1", "0:1<-0", "0:0<-9"));
+}
+
+TEST(LowMoveSequenceTest, AliasedCyclePreservesTransferWidths) {
+  for (unsigned order = 0; order < 2; ++order) {
+    SCOPED_TRACE(order);
+    TestArena arena;
+    loom_low_move_sequence_scratch_t scratch = {};
+    IREE_ASSERT_OK(
+        loom_low_move_sequence_scratch_initialize(arena.arena(), 2, &scratch));
+    // Class 0 reads/writes the low 32 bits, and class 1 reads/writes 64 bits.
+    // Both views name the same physical registers, as EAX/RAX do on x86.
+    scratch.moves[order] = Move(1, 0, 0);
+    scratch.moves[order ^ 1u] = Move(0, 1, 1);
+    const loom_low_move_location_t temporaries[] = {Location(2, 0),
+                                                    Location(2, 1)};
+    TemporaryResolver resolver = {temporaries, IREE_ARRAYSIZE(temporaries)};
+    const loom_low_move_sequence_options_t options = {
+        AliasDescriptorSet(), {ResolveTemporary, &resolver}};
+    loom_low_move_t output[3] = {};
+    iree_host_size_t count = 0;
+    bool complete = false;
+    IREE_ASSERT_OK(loom_low_move_sequence_resolve(&scratch, 2, &options,
+                                                  IREE_ARRAYSIZE(output),
+                                                  output, &count, &complete));
+    ASSERT_TRUE(complete);
+    ASSERT_EQ(count, IREE_ARRAYSIZE(output));
+    uint64_t registers[] = {UINT64_C(0x0123456789abcdef),
+                            UINT64_C(0xfedcba9876543210), 0};
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      const auto& move = output[i];
+      uint64_t value = registers[move.source.location];
+      if (move.source.descriptor_reg_class_id == 0 ||
+          move.destination.descriptor_reg_class_id == 0) {
+        value = static_cast<uint32_t>(value);
+      }
+      registers[move.destination.location] = value;
+    }
+    EXPECT_EQ(registers[0], UINT64_C(0xfedcba9876543210));
+    EXPECT_EQ(registers[1], UINT64_C(0x89abcdef));
+  }
 }
 
 TEST(LowMoveSequenceTest, TracksExplicitAtomicAliasesInLocationSet) {
@@ -332,9 +372,9 @@ TEST(LowMoveSequenceTest, TracksExplicitAtomicAliasesInLocationSet) {
   ASSERT_TRUE(complete);
   EXPECT_TRUE(resolver.occupancy_probe_result);
   ASSERT_EQ(output_count, IREE_ARRAYSIZE(output));
-  EXPECT_EQ(MoveString(output[0]), "0:3<-0");
-  EXPECT_EQ(MoveString(output[1]), "0:0<-2");
-  EXPECT_EQ(MoveString(output[2]), "0:2<-3");
+  EXPECT_EQ(MoveString(output[0]), "0:3<-2");
+  EXPECT_EQ(MoveString(output[1]), "0:2<-0");
+  EXPECT_EQ(MoveString(output[2]), "0:0<-3");
 
   scratch.moves[0] = Move(2, 3);
   scratch.moves[1] = Move(3, 2);
@@ -362,14 +402,14 @@ TEST(LowMoveSequenceTest, UsesMatchingTemporaryForMixedClassCycles) {
 
   EXPECT_THAT(ResolveMoves(moves, IREE_ARRAYSIZE(moves), temporaries,
                            IREE_ARRAYSIZE(temporaries)),
-              ::testing::ElementsAre("0:9<-0", "0:0<-1", "0:1<-9", "1:11<-4",
-                                     "1:4<-5", "1:5<-11"));
+              ::testing::ElementsAre("0:9<-1", "0:1<-0", "0:0<-9", "1:11<-5",
+                                     "1:5<-4", "1:4<-11"));
   // Aliased classes still require their own encoding-compatible scratch
   // locations; sharing storage alone does not make their move forms equal.
   EXPECT_THAT(ResolveMoves(moves, IREE_ARRAYSIZE(moves), temporaries,
                            IREE_ARRAYSIZE(temporaries), AliasDescriptorSet()),
-              ::testing::ElementsAre("0:9<-0", "0:0<-1", "0:1<-9", "1:11<-4",
-                                     "1:4<-5", "1:5<-11"));
+              ::testing::ElementsAre("0:9<-1", "0:1<-0", "0:0<-9", "1:11<-5",
+                                     "1:5<-4", "1:4<-11"));
 }
 
 TEST(LowMoveSequenceTest, ReusesBoundedSolverStorageAcrossIncreasingGroups) {
