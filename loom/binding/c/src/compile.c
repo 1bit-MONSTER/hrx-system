@@ -24,6 +24,7 @@
 #include "loomc/iree.h"
 #include "module.h"
 #include "module_bytecode.h"
+#include "option_chain.h"
 #include "pass_program.h"
 #include "product.h"
 #include "result.h"
@@ -139,7 +140,9 @@ static loomc_status_t loomc_compile_validate_options(
 
 static loomc_status_t loomc_compile_validate_artifact_options(
     const loomc_compiler_t* compiler,
-    const loomc_compile_artifact_options_t* options) {
+    const loomc_compile_artifact_options_t* options,
+    loomc_option_chain_t* out_option_chain) {
+  *out_option_chain = (loomc_option_chain_t){0};
   if (options == NULL) {
     return loomc_ok_status();
   }
@@ -155,11 +158,8 @@ static loomc_status_t loomc_compile_validate_artifact_options(
         LOOMC_STATUS_INVALID_ARGUMENT,
         "compile artifact options structure_size is too small");
   }
-  if (options->next != NULL) {
-    return loomc_make_status(
-        LOOMC_STATUS_UNIMPLEMENTED,
-        "compile artifact option extensions are not supported");
-  }
+  LOOMC_RETURN_IF_ERROR(loomc_option_chain_resolve(
+      options->next, LOOMC_OPTION_CHAIN_ALLOW_SANITIZER, out_option_chain));
   if (options->root_count != 0 && options->roots == NULL) {
     return loomc_make_status(
         LOOMC_STATUS_INVALID_ARGUMENT,
@@ -903,8 +903,14 @@ loomc_status_t loomc_compile_artifact(
     return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
                              "compiler context has no target environment");
   }
-  LOOMC_RETURN_IF_ERROR(
-      loomc_compile_validate_artifact_options(compiler, options));
+  loomc_option_chain_t option_chain = {0};
+  LOOMC_RETURN_IF_ERROR(loomc_compile_validate_artifact_options(
+      compiler, options, &option_chain));
+  if (pass_program != NULL && option_chain.has_sanitizer) {
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "sanitizer options require the emitter default pass program");
+  }
   loom_module_t* internal_module = loomc_module_loom_module(module);
   if (internal_module == NULL) {
     return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
@@ -1032,9 +1038,14 @@ loomc_status_t loomc_compile_artifact(
   const loomc_pass_program_t* selected_pass_program = pass_program;
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result) &&
       selected_pass_program == NULL) {
+    loom_target_pipeline_options_t default_pipeline_options =
+        request.target_emitter->default_pipeline_options;
+    if (option_chain.has_sanitizer) {
+      default_pipeline_options.sanitizer = option_chain.sanitizer;
+    }
     status = loomc_pass_program_create_from_internal_target_pipeline(
-        compiler->context, &request.target_emitter->default_pipeline_options,
-        allocator, result, &default_pass_program);
+        compiler->context, &default_pipeline_options, allocator, result,
+        &default_pass_program);
     selected_pass_program = default_pass_program;
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {

@@ -24,6 +24,8 @@ using loomc::testing::HandlePtr;
 using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
+using PassProgramPtr =
+    HandlePtr<loomc_pass_program_t, loomc_pass_program_release>;
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
 using TargetEnvironmentPtr =
@@ -250,13 +252,21 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.json_object=*/loomc_string_view_empty(),
       /*.flags=*/LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED,
   };
+  const loomc_sanitizer_options_t sanitizer_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_SANITIZER_OPTIONS,
+      /*.structure_size=*/sizeof(sanitizer_options),
+      /*.next=*/nullptr,
+      /*.checks=*/LOOMC_SANITIZER_CHECKS_ASAN_LIKE,
+      /*.flags=*/LOOMC_SANITIZER_FLAG_NONE,
+      /*.reporting_mode=*/LOOMC_SANITIZER_REPORTING_MODE_TRAP,
+  };
   const loomc_string_view_t excluded_roots[] = {
       loomc_make_cstring_view("dead_config_user"),
   };
   const loomc_compile_artifact_options_t compile_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
       /*.structure_size=*/sizeof(compile_options),
-      /*.next=*/nullptr,
+      /*.next=*/&sanitizer_options,
       /*.roots=*/nullptr,
       /*.root_count=*/0,
       /*.excluded_roots=*/excluded_roots,
@@ -265,6 +275,17 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.config=*/&config_options,
       /*.emit_options=*/&emit_options,
   };
+  loomc_pass_program_t* raw_pass_program = nullptr;
+  LOOMC_ASSERT_OK(loomc_pass_program_create_empty(
+      context.get(), nullptr, loomc_allocator_system(), &raw_pass_program));
+  PassProgramPtr pass_program(raw_pass_program);
+  loomc_result_t* rejected_result = nullptr;
+  loomc_status_t rejected_status = loomc_compile_artifact(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      &compile_options, loomc_allocator_system(), &rejected_result);
+  LOOMC_EXPECT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT, rejected_status);
+  EXPECT_EQ(rejected_result, nullptr);
+
   raw_result = nullptr;
   LOOMC_ASSERT_OK(loomc_compile_artifact(
       compiler.get(), workspace.get(), /*pass_program=*/nullptr, module.get(),
