@@ -82,6 +82,14 @@ loomc_status_t loomc_pass_trace_options_validate(
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "pass trace options require a write callback");
   }
+  const bool artifact_sink_enabled = options->artifact_sink.open != NULL ||
+                                     options->artifact_sink.close != NULL;
+  if (artifact_sink_enabled && (options->artifact_sink.open == NULL ||
+                                options->artifact_sink.close == NULL)) {
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "pass trace artifact sink requires open and close callbacks");
+  }
   return loomc_ok_status();
 }
 
@@ -92,8 +100,104 @@ static iree_status_t loomc_pass_trace_write(void* user_data,
       state->public_options->sink.write(state->public_options->sink.user_data,
                                         loomc_string_view_from_iree(fragment));
   if (!loomc_status_is_ok(status)) {
-    state->sink_failed = true;
+    state->callback_failed = true;
   }
+  return iree_status_from_loomc(status);
+}
+
+static loomc_pass_trace_point_t loomc_pass_trace_point_from_internal(
+    loom_pass_trace_point_t point) {
+  switch (point) {
+    case LOOM_PASS_TRACE_POINT_BEFORE:
+      return LOOMC_PASS_TRACE_POINT_BEFORE;
+    case LOOM_PASS_TRACE_POINT_AFTER:
+      return LOOMC_PASS_TRACE_POINT_AFTER;
+  }
+  IREE_ASSERT_UNREACHABLE("invalid pass trace point");
+  IREE_BUILTIN_UNREACHABLE();
+}
+
+static loomc_status_t loomc_pass_trace_artifact_validate(
+    const loomc_pass_trace_artifact_t* artifact) {
+  LOOMC_RETURN_IF_ERROR(
+      loomc_pass_trace_validate_string_view(artifact->reference));
+  if (loomc_string_view_is_empty(artifact->reference)) {
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "pass trace artifact callback returned an empty reference");
+  }
+  if (artifact->sink.write == NULL) {
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "pass trace artifact callback returned no write callback");
+  }
+  return loomc_ok_status();
+}
+
+static iree_status_t loomc_pass_trace_artifact_write(
+    void* user_data, iree_string_view_t fragment) {
+  loomc_pass_trace_state_t* state = (loomc_pass_trace_state_t*)user_data;
+  loomc_status_t status =
+      state->public_artifact.sink.write(state->public_artifact.sink.user_data,
+                                        loomc_string_view_from_iree(fragment));
+  if (!loomc_status_is_ok(status)) {
+    state->callback_failed = true;
+  }
+  return iree_status_from_loomc(status);
+}
+
+static iree_status_t loomc_pass_trace_artifact_open(
+    void* user_data, const loom_pass_trace_event_t* event,
+    iree_host_size_t event_ordinal, loom_pass_trace_artifact_t* out_artifact) {
+  loomc_pass_trace_state_t* state = (loomc_pass_trace_state_t*)user_data;
+  state->public_artifact = (loomc_pass_trace_artifact_t){0};
+  const loomc_pass_trace_event_t public_event = {
+      .event_ordinal = event_ordinal,
+      .point = loomc_pass_trace_point_from_internal(event->point),
+      .pass_key =
+          loomc_string_view_from_iree(loom_pass_trace_event_pass_key(event)),
+  };
+  loomc_status_t status = state->public_options->artifact_sink.open(
+      state->public_options->artifact_sink.user_data, &public_event,
+      &state->public_artifact);
+  if (!loomc_status_is_ok(status)) {
+    state->callback_failed = true;
+    return iree_status_from_loomc(status);
+  }
+
+  status = loomc_pass_trace_artifact_validate(&state->public_artifact);
+  if (!loomc_status_is_ok(status)) {
+    state->callback_failed = true;
+    status = loomc_status_join(
+        status, state->public_options->artifact_sink.close(
+                    state->public_options->artifact_sink.user_data,
+                    &state->public_artifact));
+    state->public_artifact = (loomc_pass_trace_artifact_t){0};
+    return iree_status_from_loomc(status);
+  }
+
+  state->artifact_stream = (loom_output_stream_t){
+      .write = loomc_pass_trace_artifact_write,
+      .user_data = state,
+  };
+  *out_artifact = (loom_pass_trace_artifact_t){
+      .stream = &state->artifact_stream,
+      .path = iree_string_view_from_loomc(state->public_artifact.reference),
+  };
+  return iree_ok_status();
+}
+
+static iree_status_t loomc_pass_trace_artifact_close(
+    void* user_data, loom_pass_trace_artifact_t* artifact) {
+  (void)artifact;
+  loomc_pass_trace_state_t* state = (loomc_pass_trace_state_t*)user_data;
+  loomc_status_t status = state->public_options->artifact_sink.close(
+      state->public_options->artifact_sink.user_data, &state->public_artifact);
+  if (!loomc_status_is_ok(status)) {
+    state->callback_failed = true;
+  }
+  state->public_artifact = (loomc_pass_trace_artifact_t){0};
+  state->artifact_stream = (loom_output_stream_t){0};
   return iree_status_from_loomc(status);
 }
 
@@ -148,6 +252,13 @@ void loomc_pass_trace_state_initialize(
       iree_any_bit_set(options->flags, LOOMC_PASS_TRACE_FLAG_BEFORE_ALL);
   out_state->options.dump_after_all =
       iree_any_bit_set(options->flags, LOOMC_PASS_TRACE_FLAG_AFTER_ALL);
+  if (options->artifact_sink.open != NULL) {
+    out_state->options.artifact_sink = (loom_pass_trace_artifact_sink_t){
+        .open = loomc_pass_trace_artifact_open,
+        .close = loomc_pass_trace_artifact_close,
+        .user_data = out_state,
+    };
+  }
   loomc_target_pass_environment_initialize_text_asm_environment(
       target_environment,
       &out_state->options.print_options.low_asm_environment);

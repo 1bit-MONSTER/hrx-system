@@ -164,6 +164,46 @@ loomc_status_t AppendTrace(void* user_data, loomc_string_view_t fragment) {
   return loomc_ok_status();
 }
 
+struct TraceArtifacts {
+  std::string open_reference;
+  std::string open_contents;
+  std::vector<std::string> references;
+  std::vector<std::string> contents;
+};
+
+loomc_status_t OpenTraceArtifact(void* user_data,
+                                 const loomc_pass_trace_event_t* event,
+                                 loomc_pass_trace_artifact_t* out_artifact) {
+  auto* artifacts = static_cast<TraceArtifacts*>(user_data);
+  const char* point =
+      event->point == LOOMC_PASS_TRACE_POINT_BEFORE ? "before" : "after";
+  artifacts->open_reference = "ir/" + std::to_string(event->event_ordinal) +
+                              "-" + point + "-" + ToString(event->pass_key) +
+                              ".loom";
+  artifacts->open_contents.clear();
+  *out_artifact = (loomc_pass_trace_artifact_t){
+      /*.reference=*/loomc_make_string_view(artifacts->open_reference.data(),
+                                            artifacts->open_reference.size()),
+      /*.sink=*/
+      {
+          /*.write=*/AppendTrace,
+          /*.user_data=*/&artifacts->open_contents,
+      },
+  };
+  return loomc_ok_status();
+}
+
+loomc_status_t CloseTraceArtifact(void* user_data,
+                                  loomc_pass_trace_artifact_t* artifact) {
+  (void)artifact;
+  auto* artifacts = static_cast<TraceArtifacts*>(user_data);
+  artifacts->references.push_back(artifacts->open_reference);
+  artifacts->contents.push_back(artifacts->open_contents);
+  artifacts->open_reference.clear();
+  artifacts->open_contents.clear();
+  return loomc_ok_status();
+}
+
 ::testing::AssertionResult Succeeded(const loomc_result_t* result) {
   if (result != nullptr && loomc_result_succeeded(result)) {
     return ::testing::AssertionSuccess();
@@ -266,6 +306,7 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.flags=*/LOOMC_SANITIZER_FLAG_NONE,
       /*.reporting_mode=*/LOOMC_SANITIZER_REPORTING_MODE_TRAP,
   };
+  TraceArtifacts trace_artifacts;
   std::string pass_trace;
   const loomc_string_view_t before_filters[] = {
       loomc_make_cstring_view("prepared-low"),
@@ -287,6 +328,12 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
           /*.write=*/AppendTrace,
           /*.user_data=*/&pass_trace,
       },
+      /*.artifact_sink=*/
+      {
+          /*.open=*/OpenTraceArtifact,
+          /*.close=*/CloseTraceArtifact,
+          /*.user_data=*/&trace_artifacts,
+      },
   };
   const loomc_string_view_t excluded_roots[] = {
       loomc_make_cstring_view("dead_config_user"),
@@ -303,6 +350,22 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.config=*/&config_options,
       /*.emit_options=*/&emit_options,
   };
+  loomc_pass_trace_options_t incomplete_artifact_sink = pass_trace_options;
+  incomplete_artifact_sink.artifact_sink.close = nullptr;
+  loomc_compile_artifact_options_t incomplete_artifact_options =
+      compile_options;
+  incomplete_artifact_options.next = &incomplete_artifact_sink;
+  loomc_result_t* incomplete_artifact_result = nullptr;
+  loomc_status_t incomplete_artifact_status = loomc_compile_artifact(
+      compiler.get(), workspace.get(), /*pass_program=*/nullptr, module.get(),
+      &incomplete_artifact_options, loomc_allocator_system(),
+      &incomplete_artifact_result);
+  LOOMC_EXPECT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT,
+                         incomplete_artifact_status);
+  EXPECT_EQ(incomplete_artifact_result, nullptr);
+  EXPECT_TRUE(trace_artifacts.open_reference.empty());
+  EXPECT_TRUE(trace_artifacts.references.empty());
+
   loomc_pass_program_t* raw_pass_program = nullptr;
   LOOMC_ASSERT_OK(loomc_pass_program_create_empty(
       context.get(), nullptr, loomc_allocator_system(), &raw_pass_program));
@@ -326,6 +389,14 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
   EXPECT_NE(pass_trace.find("\"stage\":\"prepared-low\""), std::string::npos);
   EXPECT_NE(pass_trace.find("\"point\":\"before\""), std::string::npos);
   EXPECT_EQ(pass_trace.find("\"point\":\"after\""), std::string::npos);
+  ASSERT_FALSE(trace_artifacts.references.empty());
+  ASSERT_EQ(trace_artifacts.references.size(), trace_artifacts.contents.size());
+  EXPECT_NE(pass_trace.find("\"ir_path\":\"" +
+                            trace_artifacts.references.front() + "\""),
+            std::string::npos);
+  for (const std::string& contents : trace_artifacts.contents) {
+    EXPECT_FALSE(contents.empty());
+  }
 
   const loomc_artifact_t* artifact = loomc_result_artifact_at(result.get(), 0);
   ASSERT_NE(artifact, nullptr);

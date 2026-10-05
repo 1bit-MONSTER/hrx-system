@@ -22,14 +22,20 @@ typedef struct loomc_pass_trace_state_t {
   // Borrowed public options owning callback state and filter strings.
   const loomc_pass_trace_options_t* public_options;
 
-  // True when the public destination returned a non-OK status.
-  bool sink_failed;
+  // True when a public destination callback returned a non-OK status.
+  bool callback_failed;
 
   // Core callback stream adapting public status and string types.
   loom_output_stream_t stream;
 
   // Core trace options borrowing the public descriptor for this invocation.
   loom_pass_trace_options_t options;
+
+  // Public artifact destination live between one open and close callback.
+  loomc_pass_trace_artifact_t public_artifact;
+
+  // Core stream adapting the current public artifact destination.
+  loom_output_stream_t artifact_stream;
 
   // Live function versions whose target facts survive trace projection.
   const loom_function_version_list_t* function_versions;

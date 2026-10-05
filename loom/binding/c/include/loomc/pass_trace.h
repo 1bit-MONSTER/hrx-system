@@ -59,6 +59,69 @@ typedef struct loomc_pass_trace_sink_t {
   void* user_data;
 } loomc_pass_trace_sink_t;
 
+/// Pass trace boundary point.
+typedef enum loomc_pass_trace_point_e {
+  /// Snapshot immediately before the selected pass invocation.
+  LOOMC_PASS_TRACE_POINT_BEFORE = 0,
+
+  /// Snapshot immediately after the selected pass invocation.
+  LOOMC_PASS_TRACE_POINT_AFTER = 1,
+} loomc_pass_trace_point_t;
+
+/// Stable metadata available when opening one per-event artifact.
+typedef struct loomc_pass_trace_event_t {
+  /// Zero-based ordinal among events emitted by this compile invocation.
+  loomc_host_size_t event_ordinal;
+
+  /// Boundary represented by this event.
+  loomc_pass_trace_point_t point;
+
+  /// Stable key of the pass invoked at this boundary.
+  loomc_string_view_t pass_key;
+} loomc_pass_trace_event_t;
+
+/// Caller-owned destination for one per-event trace artifact.
+typedef struct loomc_pass_trace_artifact_t {
+  /// Non-empty reference written into the sequential trace event.
+  ///
+  /// The reference may be a bundle-relative path, URI, object-store key, or
+  /// another caller-defined identity. Loom never opens or interprets it.
+  loomc_string_view_t reference;
+
+  /// Destination receiving this event's textual IR snapshot.
+  loomc_pass_trace_sink_t sink;
+} loomc_pass_trace_artifact_t;
+
+/// Opens one destination for a selected trace event.
+///
+/// `event` is borrowed only for the callback duration. On an OK return,
+/// `out_artifact` must contain a non-empty reference and write callback that
+/// remain live until the matching close callback. A non-OK return retains all
+/// destination ownership with the callback and is not followed by close.
+typedef loomc_status_t(LOOMC_API_PTR* loomc_pass_trace_artifact_open_fn_t)(
+    void* user_data, const loomc_pass_trace_event_t* event,
+    loomc_pass_trace_artifact_t* out_artifact);
+
+/// Closes one destination successfully returned from open.
+///
+/// Close is invoked exactly once after a successful open, including when a
+/// sequential or artifact write fails. The callback releases all resources
+/// associated with `artifact` and transfers any returned status to Loom.
+typedef loomc_status_t(LOOMC_API_PTR* loomc_pass_trace_artifact_close_fn_t)(
+    void* user_data, loomc_pass_trace_artifact_t* artifact);
+
+/// Optional per-event artifact destination callbacks.
+typedef struct loomc_pass_trace_artifact_sink_t {
+  /// Function opening one selected event artifact.
+  loomc_pass_trace_artifact_open_fn_t open;
+
+  /// Function closing one successfully opened event artifact.
+  loomc_pass_trace_artifact_close_fn_t close;
+
+  /// Opaque value passed to `open` and `close`.
+  void* user_data;
+} loomc_pass_trace_artifact_sink_t;
+
 /// Pass trace options for one compile artifact invocation.
 ///
 /// Attach this descriptor to `loomc_compile_artifact_options_t::next`.
@@ -113,6 +176,14 @@ typedef struct loomc_pass_trace_options_t {
 
   /// Destination receiving the complete formatted trace in order.
   loomc_pass_trace_sink_t sink;
+
+  /// Optional destinations for per-event textual IR snapshots.
+  ///
+  /// When open and close are NULL, the sequential trace embeds each selected
+  /// snapshot inline. When both are present, the sequential trace records the
+  /// artifact reference and the artifact sink receives the corresponding
+  /// snapshot without buffering in Loom.
+  loomc_pass_trace_artifact_sink_t artifact_sink;
 } loomc_pass_trace_options_t;
 
 #ifdef __cplusplus

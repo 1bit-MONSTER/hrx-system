@@ -327,7 +327,7 @@ static loomc_status_t loomc_compile_run_pass_program(
           loomc_pass_program_loom_pass_program(pass_program), internal_module,
           &interpreter_options, &run_result));
   if (!loomc_status_is_ok(status)) {
-    if (pass_trace_state.sink_failed) {
+    if (pass_trace_state.callback_failed) {
       return status;
     }
     if (!loomc_status_is_result_diagnostic(status)) {
