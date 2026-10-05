@@ -1,0 +1,338 @@
+// RUN: pass vector-to-scalar,canonicalize
+
+// Payload and scale formats retain their interpretation independently of the
+// scalar type carrying their bits.
+
+func.def @decode_e4m3_ieee(%payload: vector<2xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_e4m3_ieee(%payload: vector<2xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_e4m3_ieee(%source: vector<2xf32>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3<payload_elements=2> : encoding<schema>
+  %encoded = vector.encode %source using %schema : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_scale_e4m3_ieee(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_scale_e4m3_ieee(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_scale_e4m3_ieee(%source: vector<2xf32>, %scale: vector<1xf8E4M3>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ----
+func.def @encode_scale_e4m3_ieee(%source: vector<2xf32>, %scale: vector<1xf8E4M3>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_e4m3fn(%payload: vector<2xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_e4m3fn(%payload: vector<2xf8E4M3>) -> (vector<2xf32>) {
+  %4 = vector.extract %payload[0] : vector<2xf8E4M3> -> f8E4M3
+  %5 = scalar.extf %4 : f8E4M3 to f32
+  %6 = vector.extract %payload[1] : vector<2xf8E4M3> -> f8E4M3
+  %7 = scalar.extf %6 : f8E4M3 to f32
+  %decoded = vector.from_elements %5, %7 : vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_e4m3fn(%source: vector<2xf32>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<payload_elements=2> : encoding<schema>
+  %encoded = vector.encode %source using %schema : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ----
+func.def @encode_e4m3fn(%source: vector<2xf32>) -> (vector<2xf8E4M3>) {
+  %4 = vector.extract %source[0] : vector<2xf32> -> f32
+  %5 = scalar.fptrunc %4 : f32 to f8E4M3
+  %6 = vector.extract %source[1] : vector<2xf32> -> f32
+  %7 = scalar.fptrunc %6 : f32 to f8E4M3
+  %encoded = vector.from_elements %5, %7 : vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_scale_e4m3fn(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3fn, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_scale_e4m3fn(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E4M3>) -> (vector<2xf32>) {
+  %5 = vector.extract %payload[0] : vector<2xf8E4M3> -> f8E4M3
+  %6 = scalar.extf %5 : f8E4M3 to f32
+  %7 = vector.extract %scale[0] : vector<1xf8E4M3> -> f8E4M3
+  %8 = scalar.extf %7 : f8E4M3 to f32
+  %9 = scalar.mulf %6, %8 : f32
+  %10 = vector.extract %payload[1] : vector<2xf8E4M3> -> f8E4M3
+  %11 = scalar.extf %10 : f8E4M3 to f32
+  %12 = vector.extract %scale[0] : vector<1xf8E4M3> -> f8E4M3
+  %13 = scalar.extf %12 : f8E4M3 to f32
+  %14 = scalar.mulf %11, %13 : f32
+  %decoded = vector.from_elements %9, %14 : vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_scale_e4m3fn(%source: vector<2xf32>, %scale: vector<1xf8E4M3>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3fn, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ----
+func.def @encode_scale_e4m3fn(%source: vector<2xf32>, %scale: vector<1xf8E4M3>) -> (vector<2xf8E4M3>) {
+  %5 = vector.extract %source[0] : vector<2xf32> -> f32
+  %6 = vector.extract %scale[0] : vector<1xf8E4M3> -> f8E4M3
+  %7 = scalar.extf %6 : f8E4M3 to f32
+  %8 = scalar.divf %5, %7 : f32
+  %9 = scalar.fptrunc %8 : f32 to f8E4M3
+  %10 = vector.extract %source[1] : vector<2xf32> -> f32
+  %11 = vector.extract %scale[0] : vector<1xf8E4M3> -> f8E4M3
+  %12 = scalar.extf %11 : f8E4M3 to f32
+  %13 = scalar.divf %10, %12 : f32
+  %14 = scalar.fptrunc %13 : f32 to f8E4M3
+  %encoded = vector.from_elements %9, %14 : vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_e4m3fnuz(%payload: vector<2xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fnuz<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_e4m3fnuz(%payload: vector<2xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fnuz<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_e4m3fnuz(%source: vector<2xf32>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fnuz<payload_elements=2> : encoding<schema>
+  %encoded = vector.encode %source using %schema : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_scale_e4m3fnuz(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3fnuz, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_scale_e4m3fnuz(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E4M3>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3fnuz, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_scale_e4m3fnuz(%source: vector<2xf32>, %scale: vector<1xf8E4M3>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3fnuz, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ----
+func.def @encode_scale_e4m3fnuz(%source: vector<2xf32>, %scale: vector<1xf8E4M3>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e4m3fnuz, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E4M3>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_e5m2_ieee(%payload: vector<2xf8E5M2>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e5m2<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E5M2>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_e5m2_ieee(%payload: vector<2xf8E5M2>) -> (vector<2xf32>) {
+  %4 = vector.extract %payload[0] : vector<2xf8E5M2> -> f8E5M2
+  %5 = scalar.extf %4 : f8E5M2 to f32
+  %6 = vector.extract %payload[1] : vector<2xf8E5M2> -> f8E5M2
+  %7 = scalar.extf %6 : f8E5M2 to f32
+  %decoded = vector.from_elements %5, %7 : vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_e5m2_ieee(%source: vector<2xf32>) -> (vector<2xf8E5M2>) {
+  %schema = encoding.define #encoding.f8e5m2<payload_elements=2> : encoding<schema>
+  %encoded = vector.encode %source using %schema : vector<2xf32>, encoding<schema> -> vector<2xf8E5M2>
+  func.return %encoded : vector<2xf8E5M2>
+}
+
+// ----
+func.def @encode_e5m2_ieee(%source: vector<2xf32>) -> (vector<2xf8E5M2>) {
+  %4 = vector.extract %source[0] : vector<2xf32> -> f32
+  %5 = scalar.fptrunc %4 : f32 to f8E5M2
+  %6 = vector.extract %source[1] : vector<2xf32> -> f32
+  %7 = scalar.fptrunc %6 : f32 to f8E5M2
+  %encoded = vector.from_elements %5, %7 : vector<2xf8E5M2>
+  func.return %encoded : vector<2xf8E5M2>
+}
+
+// ====
+
+func.def @decode_scale_e5m2_ieee(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E5M2>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e5m2, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E5M2>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_scale_e5m2_ieee(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E5M2>) -> (vector<2xf32>) {
+  %5 = vector.extract %payload[0] : vector<2xf8E4M3> -> f8E4M3
+  %6 = scalar.extf %5 : f8E4M3 to f32
+  %7 = vector.extract %scale[0] : vector<1xf8E5M2> -> f8E5M2
+  %8 = scalar.extf %7 : f8E5M2 to f32
+  %9 = scalar.mulf %6, %8 : f32
+  %10 = vector.extract %payload[1] : vector<2xf8E4M3> -> f8E4M3
+  %11 = scalar.extf %10 : f8E4M3 to f32
+  %12 = vector.extract %scale[0] : vector<1xf8E5M2> -> f8E5M2
+  %13 = scalar.extf %12 : f8E5M2 to f32
+  %14 = scalar.mulf %11, %13 : f32
+  %decoded = vector.from_elements %9, %14 : vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_scale_e5m2_ieee(%source: vector<2xf32>, %scale: vector<1xf8E5M2>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e5m2, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E5M2>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ----
+func.def @encode_scale_e5m2_ieee(%source: vector<2xf32>, %scale: vector<1xf8E5M2>) -> (vector<2xf8E4M3>) {
+  %5 = vector.extract %source[0] : vector<2xf32> -> f32
+  %6 = vector.extract %scale[0] : vector<1xf8E5M2> -> f8E5M2
+  %7 = scalar.extf %6 : f8E5M2 to f32
+  %8 = scalar.divf %5, %7 : f32
+  %9 = scalar.fptrunc %8 : f32 to f8E4M3
+  %10 = vector.extract %source[1] : vector<2xf32> -> f32
+  %11 = vector.extract %scale[0] : vector<1xf8E5M2> -> f8E5M2
+  %12 = scalar.extf %11 : f8E5M2 to f32
+  %13 = scalar.divf %10, %12 : f32
+  %14 = scalar.fptrunc %13 : f32 to f8E4M3
+  %encoded = vector.from_elements %9, %14 : vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @decode_e5m2fnuz(%payload: vector<2xf8E5M2>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e5m2fnuz<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E5M2>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ----
+func.def @decode_e5m2fnuz(%payload: vector<2xf8E5M2>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e5m2fnuz<payload_elements=2> : encoding<schema>
+  %decoded = vector.decode %payload using %schema : vector<2xf8E5M2>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_e5m2fnuz(%source: vector<2xf32>) -> (vector<2xf8E5M2>) {
+  %schema = encoding.define #encoding.f8e5m2fnuz<payload_elements=2> : encoding<schema>
+  %encoded = vector.encode %source using %schema : vector<2xf32>, encoding<schema> -> vector<2xf8E5M2>
+  func.return %encoded : vector<2xf8E5M2>
+}
+
+// ====
+
+func.def @decode_scale_e5m2fnuz(%payload: vector<2xf8E4M3>, %scale: vector<1xf8E5M2>) -> (vector<2xf32>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e5m2fnuz, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %decoded = vector.decode %payload using %schema {scale = %scale : vector<1xf8E5M2>} : vector<2xf8E4M3>, encoding<schema> -> vector<2xf32>
+  func.return %decoded : vector<2xf32>
+}
+
+// ====
+
+func.def @encode_scale_e5m2fnuz(%source: vector<2xf32>, %scale: vector<1xf8E5M2>) -> (vector<2xf8E4M3>) {
+  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=2, scale_format=f8e5m2fnuz, scale_group_elements=2, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %encoded = vector.encode %source using %schema {scale = %scale : vector<1xf8E5M2>} : vector<2xf32>, encoding<schema> -> vector<2xf8E4M3>
+  func.return %encoded : vector<2xf8E4M3>
+}
+
+// ====
+
+func.def @matrix_e4m3_ieee(%lhs_data: vector<1xf8E4M3>, %rhs_data: vector<1xf8E4M3>, %init_data: vector<1xf32>) -> (vector<1xf32>) {
+  %unit = index.constant 1 : index
+  %schema = encoding.define #encoding.f8e4m3 : encoding<schema>
+  %lhs = vector.fragment<lhs> %lhs_data shape [%unit, %unit] using {schema = %schema : encoding<schema>} : vector<1xf8E4M3>
+  %rhs = vector.fragment<rhs> %rhs_data shape [%unit, %unit] using {schema = %schema : encoding<schema>} : vector<1xf8E4M3>
+  %init = vector.fragment<init> %init_data shape [%unit, %unit] : vector<1xf32>
+  %result = vector.mma %lhs, %rhs, %init : vector<1xf8E4M3>, vector<1xf8E4M3>, vector<1xf32>
+  func.return %result : vector<1xf32>
+}
+
+// ----
+func.def @matrix_e4m3_ieee(%lhs_data: vector<1xf8E4M3>, %rhs_data: vector<1xf8E4M3>, %init_data: vector<1xf32>) -> (vector<1xf32>) {
+  %unit = index.constant 1 : index
+  %schema = encoding.define #encoding.f8e4m3 : encoding<schema>
+  %lhs = vector.fragment<lhs> %lhs_data shape [%unit, %unit] using {schema = %schema : encoding<schema>} : vector<1xf8E4M3>
+  %rhs = vector.fragment<rhs> %rhs_data shape [%unit, %unit] using {schema = %schema : encoding<schema>} : vector<1xf8E4M3>
+  %init = vector.fragment<init> %init_data shape [%unit, %unit] : vector<1xf32>
+  %result = vector.mma %lhs, %rhs, %init : vector<1xf8E4M3>, vector<1xf8E4M3>, vector<1xf32>
+  func.return %result : vector<1xf32>
+}

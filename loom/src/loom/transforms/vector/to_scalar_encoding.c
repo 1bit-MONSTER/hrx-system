@@ -248,19 +248,28 @@ static bool loom_vector_to_scalar_encoded_auxiliary_lane_cast_is_supported(
                                                               result_type);
 }
 
+static bool loom_vector_to_scalar_encoded_lane_matches_format(
+    loom_value_fact_numeric_format_flags_t format, loom_type_t lane_type) {
+  loom_scalar_type_t expected_scalar_type = LOOM_SCALAR_TYPE_NONE;
+  if (!loom_numeric_format_direct_scalar_type(format, &expected_scalar_type) ||
+      loom_type_element_type(lane_type) != expected_scalar_type) {
+    return false;
+  }
+  // Several floating encodings share a scalar storage carrier. A scalar cast
+  // preserves the encoding only when its numerical interpretation also matches.
+  return !loom_scalar_type_is_float(expected_scalar_type) ||
+         loom_numeric_format_from_scalar_type(expected_scalar_type) == format;
+}
+
 static bool loom_vector_to_scalar_encoded_auxiliary_matches_format(
     const loom_vector_to_scalar_state_t* state,
     const loom_vector_to_scalar_encoded_operand_t* operand,
     loom_encoding_auxiliary_key_t key,
     loom_value_fact_numeric_format_flags_t format, loom_type_t result_type) {
-  loom_scalar_type_t expected_scalar_type = LOOM_SCALAR_TYPE_NONE;
-  if (!loom_numeric_format_direct_scalar_type(format, &expected_scalar_type)) {
-    return false;
-  }
   loom_type_t lane_type = {0};
   return loom_vector_to_scalar_encoded_auxiliary_lane_type(state, operand, key,
                                                            &lane_type) &&
-         loom_type_element_type(lane_type) == expected_scalar_type &&
+         loom_vector_to_scalar_encoded_lane_matches_format(format, lane_type) &&
          loom_vector_to_scalar_numeric_lane_cast_is_supported(lane_type,
                                                               result_type);
 }
@@ -370,17 +379,6 @@ static bool loom_vector_to_scalar_encoded_logical_element_count_matches(
          operand->schema.payload_element_count == (uint16_t)element_count;
 }
 
-static bool loom_vector_to_scalar_encoded_physical_lane_type_matches(
-    loom_value_fact_encoded_operand_schema_t schema,
-    loom_type_t raw_lane_type) {
-  loom_scalar_type_t expected_scalar_type = LOOM_SCALAR_TYPE_NONE;
-  if (!loom_numeric_format_direct_scalar_type(schema.element_format,
-                                              &expected_scalar_type)) {
-    return false;
-  }
-  return loom_type_element_type(raw_lane_type) == expected_scalar_type;
-}
-
 static bool loom_vector_to_scalar_encoded_affine_is_supported(
     const loom_vector_to_scalar_state_t* state,
     const loom_vector_to_scalar_encoded_operand_t* operand,
@@ -455,20 +453,6 @@ static bool loom_vector_to_scalar_encode_rounding_is_supported(
          loom_numeric_format_is_finite_only(schema.element_format);
 }
 
-static bool loom_vector_to_scalar_encode_float_format_is_exact(
-    loom_value_fact_encoded_operand_schema_t schema,
-    loom_type_t physical_lane_type) {
-  const loom_numeric_format_info_t* info = NULL;
-  if (!loom_numeric_format_info(schema.element_format, &info)) {
-    return false;
-  }
-  if (info->kind != LOOM_NUMERIC_FORMAT_KIND_FLOAT) {
-    return true;
-  }
-  return loom_numeric_format_from_scalar_type(loom_type_element_type(
-             physical_lane_type)) == schema.element_format;
-}
-
 bool loom_vector_to_scalar_encoded_operand_is_supported(
     const loom_vector_to_scalar_state_t* state,
     const loom_vector_to_scalar_encoded_operand_t* operand) {
@@ -494,8 +478,8 @@ uint32_t loom_vector_to_scalar_encoded_operand_rejection_bits(
   if (!loom_vector_to_scalar_encoded_logical_element_count_matches(operand)) {
     rejection_bits |= LOOM_CONTRACT_REJECTION_SHAPE;
   }
-  if (!loom_vector_to_scalar_encoded_physical_lane_type_matches(
-          operand->schema, operand->physical_lane_type)) {
+  if (!loom_vector_to_scalar_encoded_lane_matches_format(
+          operand->schema.element_format, operand->physical_lane_type)) {
     rejection_bits |= LOOM_CONTRACT_REJECTION_NUMERIC;
   }
   const loom_type_t arithmetic_lane_type =
@@ -526,8 +510,6 @@ uint32_t loom_vector_to_scalar_encoded_operand_rejection_bits(
               arithmetic_lane_type, operand->physical_lane_type) ||
           !loom_vector_to_scalar_encode_rounding_is_supported(
               operand->schema) ||
-          !loom_vector_to_scalar_encode_float_format_is_exact(
-              operand->schema, operand->physical_lane_type) ||
           loom_vector_to_scalar_encoded_schema_uses_codebook(operand->schema)) {
         rejection_bits |= LOOM_CONTRACT_REJECTION_NUMERIC;
       }

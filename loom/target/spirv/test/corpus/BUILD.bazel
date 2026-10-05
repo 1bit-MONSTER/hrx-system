@@ -242,6 +242,7 @@ _EXTENDED_TYPES_XFAILS = {
     "memory/atomic/workgroup/observations.loom:@lds_observations_i64": "TARGET/032",
     "memory/packed/tails.loom:@stage_private_i8_3": "TARGET/003",
     "memory/storage/workgroup.loom:@workgroup_packet_exchange": "TARGET/003",
+    "numeric/conversion/float8_dequantization.loom:@float8_dequantization": "TARGET/002",
 }
 
 _NO_EXTENDED_TYPES_XFAILS = {
@@ -454,8 +455,7 @@ _SPIRV_EXECUTION_XFAILS = {
     "memory/storage/word.loom:@copy_word_tail_guards": "TARGET/050",
     "memory/storage/word.loom:@copy_word_unaligned_guards": "TARGET/050",
     "memory/storage/workgroup.loom:@workgroup_packet_exchange_bits": "TARGET/003",
-    "numeric/conversion/float8_dequantization.loom:@float8_dequantization_values": "TARGET/003",
-    "numeric/conversion/float8_facts.loom:@float8_fact_values": "TARGET/003",
+    "numeric/conversion/float8_dequantization.loom:@float8_dequantization_values": "TARGET/002,TARGET/003",
     "numeric/conversion/quantization.loom:@approximate_quantization_values": "LOWERING/036",
     "numeric/conversion/quantization.loom:@quantization_values": "LOWERING/036",
     "numeric/conversion/scalar_float.loom:@scalar_f32_to_f64_values": "EXPECT/002",
@@ -537,6 +537,7 @@ _SPIRV_EXECUTION_ALLOWED_FAILURES = {
     "memory/storage/word.loom:@copy_word_vector_wide_bits": "TARGET/003",
     "memory/storage/word.loom:@copy_word_volatile_bits": "TARGET/003",
     "numeric/conversion/bfloat_rounding.loom:@bfloat_rounding_all_bins": "TARGET/003",
+    "numeric/conversion/float8_facts.loom:@float8_fact_values": "TARGET/003",
     "numeric/conversion/narrow_arithmetic.loom:@arithmetic_bf16_values": "TARGET/003",
     "numeric/conversion/narrow_integer_float.loom:@bf16_to_integer_1_fractional": "TARGET/003",
     "numeric/conversion/narrow_integer_float.loom:@bf16_to_integer_4_fractional": "TARGET/003",
@@ -588,7 +589,10 @@ loom_corpus_build(
             "numeric/integer/narrow_consumers.loom",
             "numeric/vector/conversion.loom",
         ],
-        "//loom/target/spirv:vulkan1.3+bda+extended-types": ["kernel/subgroup/ballot.loom"],
+        "//loom/target/spirv:vulkan1.3+bda+extended-types": [
+            "kernel/subgroup/ballot.loom",
+            "numeric/conversion/float8_dequantization.loom",
+        ],
         "//loom/target/spirv:vulkan1.3+bda+subgroup32+ballot+hal": [
             "memory/address/table_index.loom",
             "memory/atomic/add_f32_subnormals.loom",
