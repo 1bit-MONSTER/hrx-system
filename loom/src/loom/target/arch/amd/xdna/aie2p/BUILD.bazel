@@ -390,6 +390,7 @@ loom_cc_library(
         "//loom/src/loom/ops/global",
         "//loom/src/loom/ops/low",
         "//loom/src/loom/ops/vector",
+        "//loom/src/loom/target:contract",
         "//loom/src/loom/target/arch/amd/xdna:error_defs",
         "//loom/src/loom/target/arch/amd/xdna/aie2p/contracts:core",
         "//loom/src/loom/target/arch/amd/xdna/aie2p/contracts:core_lower_rules",

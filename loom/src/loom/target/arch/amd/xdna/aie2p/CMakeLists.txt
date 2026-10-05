@@ -460,6 +460,7 @@ loom_cc_library(
     loom::target::arch::amd::xdna::aie2p::contracts::core
     loom::target::arch::amd::xdna::aie2p::contracts::core_lower_rules
     loom::target::arch::amd::xdna::error_defs
+    loom::target::contract
     loom::util::fact_table
   PUBLIC
 )

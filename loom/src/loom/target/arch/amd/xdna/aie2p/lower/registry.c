@@ -17,6 +17,7 @@
 #include "loom/target/arch/amd/xdna/aie2p/lower/rodata.h"
 #include "loom/target/arch/amd/xdna/aie2p/lower/storage.h"
 #include "loom/target/arch/amd/xdna/error_catalog.h"
+#include "loom/target/contract.h"
 
 static bool loom_aie2p_source_type_supported(void* user_data,
                                              const loom_module_t* module,
@@ -284,9 +285,24 @@ static iree_status_t loom_aie2p_finalize_module(
   return loom_aie2p_finalize_gather_module(module, module_state, scratch_arena);
 }
 
+static const uint16_t kAie2pVectorPacketBitCounts[] = {128u, 256u, 512u};
+static const uint16_t kAie2pVectorPacketLaneCounts[] = {64u, 32u, 16u, 8u};
+static_assert(IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts) <=
+                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
+              "packet lane candidates exceed the shared planner capacity");
+
+static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
+    .native_bit_counts = kAie2pVectorPacketBitCounts,
+    .native_lane_counts = kAie2pVectorPacketLaneCounts,
+    .maximum_unpacketized_bit_count = 0,
+    .native_bit_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketBitCounts),
+    .native_lane_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts),
+};
+
 static const loom_low_lower_policy_t kAie2pCoreLowLowerPolicy = {
     .name = IREE_SVL("amd-xdna-aie2p-core-low-lower"),
     .error_catalog = &loom_xdna_error_catalog,
+    .vector_packet_policy = &kAie2pVectorPacketPolicy,
     .source_type_supported =
         {
             .fn = loom_aie2p_source_type_supported,

@@ -50,7 +50,6 @@ static const loom_target_legalizer_provider_t kTargetProvider = {
     /*.strategy=*/LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
     /*.rules=*/kTargetRules,
     /*.rule_count=*/IREE_ARRAYSIZE(kTargetRules),
-    /*.vector_packet_policy=*/nullptr,
 };
 
 static const loom_target_legalizer_provider_t kReferenceProvider = {
@@ -58,7 +57,6 @@ static const loom_target_legalizer_provider_t kReferenceProvider = {
     /*.strategy=*/LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE,
     /*.rules=*/kReferenceRules,
     /*.rule_count=*/IREE_ARRAYSIZE(kReferenceRules),
-    /*.vector_packet_policy=*/nullptr,
 };
 
 TEST(TargetLegalizerRegistryTest, ComposesOrderedProviderListsIntoOneSlab) {
@@ -145,52 +143,6 @@ TEST(TargetLegalizerRegistryTest, EmptyProviderSetNeedsNoAllocation) {
   EXPECT_EQ(registry->entry_count, 0u);
   EXPECT_EQ(storage.allocation.data, nullptr);
   EXPECT_EQ(storage.allocation.data_length, 0u);
-  loom_target_legalizer_registry_storage_deinitialize(&storage);
-}
-
-TEST(TargetLegalizerRegistryTest, SelectsPacketPolicyByDescriptorSet) {
-  const uint16_t lane_counts[] = {64, 32, 16};
-  const loom_target_vector_packet_policy_t policy = {
-      /*.native_bit_counts=*/nullptr,
-      /*.native_lane_counts=*/lane_counts,
-      /*.descriptor_set_stable_id=*/42,
-      /*.maximum_unpacketized_bit_count=*/0,
-      /*.native_bit_count_count=*/0,
-      /*.native_lane_count_count=*/IREE_ARRAYSIZE(lane_counts),
-  };
-  const loom_target_legalizer_provider_t provider = {
-      /*.name=*/IREE_SVL("packets"),
-      /*.strategy=*/LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
-      /*.rules=*/nullptr,
-      /*.rule_count=*/0,
-      /*.vector_packet_policy=*/&policy,
-  };
-  const loom_target_legalizer_provider_t* providers[] = {&provider};
-  const loom_target_legalizer_provider_list_t provider_list =
-      loom_target_legalizer_provider_list_make(providers,
-                                               IREE_ARRAYSIZE(providers));
-
-  loom_target_legalizer_registry_storage_t storage = {};
-  IREE_ASSERT_OK(loom_target_legalizer_registry_storage_initialize(
-      &provider_list, 1, iree_allocator_system(), &storage));
-  const loom_target_legalizer_registry_t* registry =
-      loom_target_legalizer_registry_storage_registry(&storage);
-  ASSERT_EQ(registry->entry_count, 0u);
-  ASSERT_EQ(registry->vector_packet_policy_count, 1u);
-
-  loom_low_descriptor_set_t descriptor_set = {};
-  descriptor_set.stable_id = 42;
-  EXPECT_EQ(loom_target_legalizer_registry_lookup_vector_packet_policy(
-                registry, &descriptor_set),
-            &policy);
-  descriptor_set.stable_id = 43;
-  EXPECT_EQ(loom_target_legalizer_registry_lookup_vector_packet_policy(
-                registry, &descriptor_set),
-            nullptr);
-  EXPECT_EQ(loom_target_legalizer_registry_lookup_vector_packet_policy(registry,
-                                                                       nullptr),
-            nullptr);
-
   loom_target_legalizer_registry_storage_deinitialize(&storage);
 }
 

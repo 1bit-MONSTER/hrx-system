@@ -312,6 +312,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::target::arch::amdgpu::target_info_defs
+    loom::target::contract
     loom::target::low_legality
     loom::target::registers
     loom::util::cfg_dominance

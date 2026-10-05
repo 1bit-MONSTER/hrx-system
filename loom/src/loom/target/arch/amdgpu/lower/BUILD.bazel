@@ -311,6 +311,7 @@ loom_cc_library(
         "//loom/src/loom/ops/view",
         "//loom/src/loom/sanitizer:site_collection",
         "//loom/src/loom/sanitizer:site_table",
+        "//loom/src/loom/target:contract",
         "//loom/src/loom/target:low_legality",
         "//loom/src/loom/target:registers",
         "//loom/src/loom/target/arch/amdgpu:buffer_resource",

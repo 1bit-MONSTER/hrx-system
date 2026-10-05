@@ -40,6 +40,32 @@ typedef struct loom_matrix_fragment_layout_t loom_matrix_fragment_layout_t;
 typedef struct loom_native_contraction_facts_t loom_native_contraction_facts_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 
+// Maximum number of logical lane candidates in a packet policy. Shared
+// component planning represents the candidate intersection as one bit per
+// policy entry.
+#define LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT 64u
+
+// Target vector packet candidates consumed by shared legalization.
+//
+// The target contributes representation widths only. The shared planner still
+// queries every projected operation through the target contract before
+// selecting a packet width; membership here is not itself a legality claim.
+typedef struct loom_target_vector_packet_policy_t {
+  // Native packet widths in bits used by structural memory and carrier
+  // legalization. Widths are byte-aligned powers of two.
+  const uint16_t* native_bit_counts;
+  // Logical lane counts worth evaluating for decomposable components.
+  const uint16_t* native_lane_counts;
+  // Largest payload in bits that remains owned by ordinary structural
+  // lowering instead of packet legalization.
+  uint16_t maximum_unpacketized_bit_count;
+  // Number of entries in |native_bit_counts|.
+  uint8_t native_bit_count_count;
+  // Number of entries in |native_lane_counts|, at most
+  // LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT.
+  uint8_t native_lane_count_count;
+} loom_target_vector_packet_policy_t;
+
 typedef loom_type_t (*loom_target_contract_query_value_type_fn_t)(
     void* user_data, const loom_module_t* module, loom_value_id_t value_id);
 

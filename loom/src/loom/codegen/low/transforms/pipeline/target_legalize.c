@@ -1819,9 +1819,7 @@ static iree_status_t loom_low_target_legalize_function(
       .function = selection->func,
       .target_facts = selection->target_facts,
       .descriptor_set = state.descriptor_set,
-      .vector_packet_policy =
-          loom_target_legalizer_registry_lookup_vector_packet_policy(
-              legalizer_registry, state.descriptor_set),
+      .vector_packet_policy = selection->policy->vector_packet_policy,
       .mode = pass_state->mode,
       .policy = pass_state->policy,
       .fact_table = fact_table,

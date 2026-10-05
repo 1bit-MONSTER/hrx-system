@@ -21,21 +21,6 @@
 #include "loom/transforms/vector/target_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 
-static const uint16_t kAie2pVectorPacketBitCounts[] = {128u, 256u, 512u};
-static const uint16_t kAie2pVectorPacketLaneCounts[] = {64u, 32u, 16u, 8u};
-static_assert(IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts) <=
-                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
-              "packet lane candidates exceed the shared planner capacity");
-
-static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
-    .native_bit_counts = kAie2pVectorPacketBitCounts,
-    .native_lane_counts = kAie2pVectorPacketLaneCounts,
-    .descriptor_set_stable_id = AIE2P_CORE_DESCRIPTOR_SET_ID,
-    .native_bit_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketBitCounts),
-    .native_lane_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts),
-    .maximum_unpacketized_bit_count = 0,
-};
-
 static bool loom_aie2p_legalizer_descriptor_set_is_core(
     const loom_low_descriptor_set_t* descriptor_set) {
   return descriptor_set == loom_aie2p_core_descriptor_set();
@@ -208,7 +193,7 @@ static iree_status_t loom_aie2p_legalize_vector_splat(
 
   bool rewritten = false;
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_splat(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
+      context, op, context->vector_packet_policy, &rewritten));
   if (rewritten) {
     out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   }
@@ -302,7 +287,7 @@ static iree_status_t loom_aie2p_legalize_table_lookup(
 
   bool rewritten = false;
   IREE_RETURN_IF_ERROR(loom_aie2p_table_lookup_rewrite(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
+      context, op, context->vector_packet_policy, &rewritten));
   if (!rewritten) {
     IREE_RETURN_IF_ERROR(
         loom_vector_static_shape_rewrite_op(context, op, &rewritten));
@@ -374,7 +359,7 @@ static iree_status_t loom_aie2p_legalize_vector_load(
 
   bool rewritten = false;
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_load(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
+      context, op, context->vector_packet_policy, &rewritten));
   const loom_type_t result_type =
       loom_module_value_type(context->module, loom_vector_load_result(op));
   if (!rewritten && !loom_aie2p_defer_multidimensional_memory_reference(
@@ -445,7 +430,7 @@ static iree_status_t loom_aie2p_legalize_vector_store(
 
   bool rewritten = false;
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_store(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
+      context, op, context->vector_packet_policy, &rewritten));
   if (!rewritten && !has_native_store &&
       !loom_aie2p_defer_multidimensional_memory_reference(context,
                                                           value_type)) {
@@ -473,7 +458,7 @@ static iree_status_t loom_aie2p_legalize_vector_reduce(
   loom_vector_packet_reduce_result_t packet_result =
       LOOM_VECTOR_PACKET_REDUCE_RESULT_NONE;
   IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_reduce(
-      context, op, &kAie2pVectorPacketPolicy, &packet_result));
+      context, op, context->vector_packet_policy, &packet_result));
   bool rewritten = packet_result == LOOM_VECTOR_PACKET_REDUCE_RESULT_REWRITTEN;
   if (packet_result == LOOM_VECTOR_PACKET_REDUCE_RESULT_CAPTURE_INPUT) {
     IREE_RETURN_IF_ERROR(loom_vector_reduce_captured_to_scalar_rewrite_op(
@@ -651,7 +636,6 @@ const loom_target_legalizer_provider_t
         .strategy = LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
         .rules = kAie2pLegalizerRules,
         .rule_count = IREE_ARRAYSIZE(kAie2pLegalizerRules),
-        .vector_packet_policy = &kAie2pVectorPacketPolicy,
 };
 
 const loom_target_legalizer_provider_t* loom_aie2p_target_legalizer_provider(
