@@ -199,6 +199,17 @@ static bool loomc_emit_compile_report_mode_is_valid(
   }
 }
 
+static bool loomc_emit_compile_report_format_is_valid(
+    loomc_compile_report_format_t format) {
+  switch (format) {
+    case LOOMC_COMPILE_REPORT_FORMAT_JSON:
+    case LOOMC_COMPILE_REPORT_FORMAT_TEXT:
+      return true;
+    default:
+      return false;
+  }
+}
+
 static loomc_status_t loomc_emit_validate_compile_report_options(
     const loomc_compile_report_options_t* options) {
   if (options->type != LOOMC_STRUCTURE_TYPE_COMPILE_REPORT_OPTIONS) {
@@ -215,6 +226,10 @@ static loomc_status_t loomc_emit_validate_compile_report_options(
   if (!loomc_emit_compile_report_mode_is_valid(options->mode)) {
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "compile report mode is invalid");
+  }
+  if (!loomc_emit_compile_report_format_is_valid(options->format)) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "compile report format is invalid");
   }
   LOOMC_RETURN_IF_ERROR(loomc_emit_validate_string_view(options->identifier));
   if (options->mode == LOOMC_COMPILE_REPORT_MODE_NONE &&
@@ -324,6 +339,7 @@ static loomc_status_t loomc_emit_resolve_options(
         LOOMC_RETURN_IF_ERROR(
             loomc_emit_validate_compile_report_options(report_options));
         out_options->compile_report_mode = report_options->mode;
+        out_options->compile_report_format = report_options->format;
         out_options->compile_report_identifier = report_options->identifier;
         next = report_options->next;
         break;
@@ -528,7 +544,9 @@ static loomc_status_t loomc_emit_make_compile_report_identifier(
   const loomc_string_view_t primary_identifier =
       loomc_emit_identifier(options, emitter);
   const loomc_string_view_t suffix =
-      loomc_make_cstring_view(".compile-report.json");
+      options->compile_report_format == LOOMC_COMPILE_REPORT_FORMAT_TEXT
+          ? loomc_make_cstring_view(".compile-report.txt")
+          : loomc_make_cstring_view(".compile-report.json");
   const loomc_host_size_t identifier_length =
       primary_identifier.size + suffix.size;
   char* identifier = NULL;
@@ -548,14 +566,20 @@ static loomc_status_t loomc_emit_add_compile_report_artifact(
   iree_string_builder_t builder;
   iree_string_builder_initialize(iree_allocator_from_loomc(allocator),
                                  &builder);
-  loom_output_stream_t stream;
-  loom_output_stream_for_builder(&builder, &stream);
   const loom_target_compile_report_format_options_t format_options = {
       .mode =
           loomc_emit_target_compile_report_mode(options->compile_report_mode),
   };
-  loomc_status_t status = loomc_status_from_iree(
-      loom_target_compile_report_format_json(report, &format_options, &stream));
+  loomc_status_t status = loomc_ok_status();
+  if (options->compile_report_format == LOOMC_COMPILE_REPORT_FORMAT_TEXT) {
+    status = loomc_status_from_iree(loom_target_compile_report_format_text(
+        report, &format_options, &builder));
+  } else {
+    loom_output_stream_t stream;
+    loom_output_stream_for_builder(&builder, &stream);
+    status = loomc_status_from_iree(loom_target_compile_report_format_json(
+        report, &format_options, &stream));
+  }
 
   char* report_storage = NULL;
   iree_host_size_t report_length = 0;
@@ -564,10 +588,14 @@ static loomc_status_t loomc_emit_add_compile_report_artifact(
     report_storage = iree_string_builder_take_storage(&builder);
   }
   if (loomc_status_is_ok(status)) {
+    const loomc_string_view_t artifact_format =
+        options->compile_report_format == LOOMC_COMPILE_REPORT_FORMAT_TEXT
+            ? loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_TEXT)
+            : loomc_make_cstring_view(
+                  LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
     status = loomc_result_add_artifact_take_contents(
-        result, LOOMC_ARTIFACT_KIND_REPORT,
-        loomc_make_cstring_view(LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON),
-        identifier, loomc_make_byte_span(report_storage, report_length));
+        result, LOOMC_ARTIFACT_KIND_REPORT, artifact_format, identifier,
+        loomc_make_byte_span(report_storage, report_length));
   }
   if (loomc_status_is_ok(status)) {
     report_storage = NULL;

@@ -398,6 +398,7 @@ TEST(TargetSpirvTest, EmitsArtifactManifestAndTargetReport) {
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
       /*.mode=*/LOOMC_COMPILE_REPORT_MODE_DETAILS,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
   };
   loomc_artifact_manifest_options_t manifest_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_ARTIFACT_MANIFEST_OPTIONS,

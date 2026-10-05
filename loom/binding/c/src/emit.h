@@ -36,6 +36,9 @@ typedef struct loomc_emit_resolved_options_t {
   // Compile report mode requested by the caller.
   loomc_compile_report_mode_t compile_report_mode;
 
+  // Compile report serialization format requested by the caller.
+  loomc_compile_report_format_t compile_report_format;
+
   // Compile report identifier requested by the caller.
   loomc_string_view_t compile_report_identifier;
 

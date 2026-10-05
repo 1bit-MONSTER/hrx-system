@@ -240,6 +240,7 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
       /*.mode=*/LOOMC_COMPILE_REPORT_MODE_SUMMARY,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
   };
   const loomc_emit_options_t emit_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,

@@ -625,6 +625,7 @@ TEST(TargetTest, EmitPreservesSemanticRejectionWithoutInventingDiagnostic) {
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/&manifest_options,
       /*.mode=*/LOOMC_COMPILE_REPORT_MODE_SUMMARY,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
       /*.identifier=*/loomc_string_view_empty(),
   };
   loomc_emit_options_t options = {
@@ -723,6 +724,7 @@ TEST(TargetTest, EmitReturnsCompileReportArtifact) {
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
       /*.mode=*/LOOMC_COMPILE_REPORT_MODE_SUMMARY,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
       /*.identifier=*/loomc_string_view_empty(),
   };
   loomc_emit_options_t options = {
@@ -759,6 +761,54 @@ TEST(TargetTest, EmitReturnsCompileReportArtifact) {
   EXPECT_NE(contents.find("\"artifact_format\":\"elf\""), std::string::npos);
   EXPECT_NE(contents.find("\"artifact_size\":4"), std::string::npos);
   EXPECT_NE(contents.find("\"instruction_count\":3"), std::string::npos);
+}
+
+TEST(TargetTest, EmitReturnsTextCompileReportArtifact) {
+  const loom_target_provider_t* providers[] = {
+      &kFakeElfProvider,
+  };
+  loom_target_provider_set_t provider_set =
+      loom_target_provider_set_make(providers, IREE_ARRAYSIZE(providers));
+  TargetEnvironmentPtr target_environment =
+      CreateTargetEnvironmentFromProviderSet(&provider_set);
+  ContextPtr context = CreateContext();
+  WorkspacePtr workspace = CreateWorkspace();
+  ModulePtr module =
+      CreateIdentityModule(context.get(), workspace.get(), "entry");
+
+  loomc_compile_report_options_t report_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_REPORT_OPTIONS,
+      /*.structure_size=*/sizeof(report_options),
+      /*.next=*/nullptr,
+      /*.mode=*/LOOMC_COMPILE_REPORT_MODE_SUMMARY,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_TEXT,
+      /*.identifier=*/loomc_string_view_empty(),
+  };
+  loomc_emit_options_t options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+      /*.structure_size=*/sizeof(options),
+      /*.next=*/&report_options,
+      /*.artifact_format=*/loomc_string_view_empty(),
+      /*.identifier=*/loomc_string_view_empty(),
+      /*.artifact_flags=*/0,
+  };
+  ResultPtr result = EmitModule(target_environment.get(), workspace.get(),
+                                module.get(), &options);
+  ExpectSucceededResult(result.get());
+  ASSERT_EQ(loomc_result_artifact_count(result.get()), 2u);
+
+  const loomc_artifact_t* report = loomc_result_artifact_at(result.get(), 1);
+  ASSERT_NE(report, nullptr);
+  EXPECT_EQ(report->kind, LOOMC_ARTIFACT_KIND_REPORT);
+  EXPECT_EQ(ToString(report->format),
+            LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_TEXT);
+  EXPECT_EQ(ToString(report->identifier), "fake.bin.compile-report.txt");
+  EXPECT_EQ(ToString(report->contents),
+            "COMPILE-REPORT: summary artifact=target-artifact status=OK "
+            "function=- backend=fake-elf bundle=- export=- export_symbol=- "
+            "config=- lowered=- artifact_bytes=4\n"
+            "COMPILE-REPORT: emission instructions=3 code_bytes=4 "
+            "storage_bytes=4\n");
 }
 
 TEST(TargetTest, EmitArtifactManifestLooseOptionsOverrideTypedDefaults) {
@@ -857,6 +907,7 @@ TEST(TargetTest, EmitCompileReportLooseOptionsOverrideTypedDefaults) {
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/&dict,
       /*.mode=*/LOOMC_COMPILE_REPORT_MODE_SUMMARY,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
       /*.identifier=*/loomc_make_cstring_view("default.json"),
   };
   loomc_emit_options_t options = {
@@ -933,6 +984,7 @@ TEST(TargetTest, EmitRejectsCompileReportIdentifierWithoutMode) {
       /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
       /*.mode=*/LOOMC_COMPILE_REPORT_MODE_NONE,
+      /*.format=*/LOOMC_COMPILE_REPORT_FORMAT_JSON,
       /*.identifier=*/loomc_make_cstring_view("report.json"),
   };
   loomc_emit_options_t options = {
