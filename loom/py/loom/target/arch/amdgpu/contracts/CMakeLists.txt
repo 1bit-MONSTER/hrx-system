@@ -53,10 +53,12 @@ iree_py_test(
     "../../../../tools/pytest_style_runner.py"
   SRCS
     "arithmetic_test.py"
+    "compare_test.py"
     "dispatch_ownership_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.amdgpu.contracts.arithmetic_test"
+    "loom.target.arch.amdgpu.contracts.compare_test"
     "loom.target.arch.amdgpu.contracts.dispatch_ownership_test"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/target/arch/amdgpu/lower/registry.c"

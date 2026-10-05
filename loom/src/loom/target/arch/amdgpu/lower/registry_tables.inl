@@ -484,6 +484,27 @@ static const loom_amdgpu_lower_dispatch_row_t
                 LOOM_OP_VECTOR_CMPF, loom_amdgpu_vector_compare_plan_t,
                 loom_amdgpu_select_vector_cmpf_dispatch,
                 loom_amdgpu_emit_vector_cmpf_dispatch, NULL, 2),
+        [LOOM_AMDGPU_OP_INDEX(LOOM_OP_VECTOR_ISNANF)] =
+            LOOM_AMDGPU_RECIPE_DATA_SOURCE_ROW(
+                LOOM_OP_VECTOR_ISNANF,
+                loom_amdgpu_vector_float_classification_plan_t,
+                loom_amdgpu_select_vector_float_classification_dispatch,
+                loom_amdgpu_emit_vector_float_classification_dispatch, NULL,
+                1),
+        [LOOM_AMDGPU_OP_INDEX(LOOM_OP_VECTOR_ISINFF)] =
+            LOOM_AMDGPU_RECIPE_DATA_SOURCE_ROW(
+                LOOM_OP_VECTOR_ISINFF,
+                loom_amdgpu_vector_float_classification_plan_t,
+                loom_amdgpu_select_vector_float_classification_dispatch,
+                loom_amdgpu_emit_vector_float_classification_dispatch, NULL,
+                1),
+        [LOOM_AMDGPU_OP_INDEX(LOOM_OP_VECTOR_ISFINITEF)] =
+            LOOM_AMDGPU_RECIPE_DATA_SOURCE_ROW(
+                LOOM_OP_VECTOR_ISFINITEF,
+                loom_amdgpu_vector_float_classification_plan_t,
+                loom_amdgpu_select_vector_float_classification_dispatch,
+                loom_amdgpu_emit_vector_float_classification_dispatch, NULL,
+                1),
         [LOOM_AMDGPU_OP_INDEX(LOOM_OP_VECTOR_FRAGMENT_LOAD)] =
             LOOM_AMDGPU_MEMORY_DATA_STORAGE_REPORT_KEY_ROW(
                 LOOM_OP_VECTOR_FRAGMENT_LOAD,

@@ -38,6 +38,17 @@ iree_status_t loom_amdgpu_lower_vector_cmpf(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_vector_compare_plan_t* plan);
 
+// Selects a native AMDGPU vector floating-point classification plan.
+iree_status_t loom_amdgpu_select_vector_float_classification_plan(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_amdgpu_vector_float_classification_plan_t* out_plan,
+    bool* out_selected);
+
+// Lowers a vector floating-point classification op from its selected plan.
+iree_status_t loom_amdgpu_lower_vector_float_classification(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    const loom_amdgpu_vector_float_classification_plan_t* plan);
+
 // Selects the AMDGPU clamp plan for a source scalar.clampf op.
 iree_status_t loom_amdgpu_select_scalar_clampf_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,

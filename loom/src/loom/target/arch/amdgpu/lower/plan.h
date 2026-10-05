@@ -897,6 +897,32 @@ typedef struct loom_amdgpu_vector_compare_plan_t {
   uint32_t lane_count;
 } loom_amdgpu_vector_compare_plan_t;
 
+typedef enum loom_amdgpu_float_classification_form_e {
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_NONE = 0,
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_INLINE = 1,
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_LITERAL = 2,
+  LOOM_AMDGPU_FLOAT_CLASSIFICATION_FORM_REGISTER = 3,
+} loom_amdgpu_float_classification_form_t;
+
+typedef struct loom_amdgpu_vector_float_classification_plan_t {
+  // Floating-point payload vector being classified.
+  loom_value_id_t input;
+  // Descriptor selected for low halves or whole-width lanes.
+  loom_low_lower_resolved_descriptor_t low_descriptor;
+  // Descriptor selected for packed F16 high halves.
+  loom_low_lower_resolved_descriptor_t high_descriptor;
+  // Result mask vector receiving one native lane mask per input lane.
+  loom_value_id_t result;
+  // Exact ten-bit hardware class mask for the source operation.
+  uint32_t class_mask;
+  // Static number of logical input and result lanes.
+  uint32_t lane_count;
+  // Floating-point type carried by each logical input lane.
+  loom_scalar_type_t element_type;
+  // Selected class-mask operand representation.
+  loom_amdgpu_float_classification_form_t form;
+} loom_amdgpu_vector_float_classification_plan_t;
+
 typedef uint32_t loom_amdgpu_cndmask_b32_descriptor_flags_t;
 
 enum {

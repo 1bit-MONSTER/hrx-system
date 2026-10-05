@@ -102,12 +102,32 @@ _FLOAT_COMPARE_MASK_DESCRIPTOR_KEYS = tuple(
         f"amdgpu.v_cmp_{predicate}_f32.src1_inline",
     )
 )
+_FLOAT_CLASSIFICATION_CASES = (
+    (scalar.scalar_isnanf, 0x003),
+    (scalar.scalar_isinff, 0x204),
+    (scalar.scalar_isfinitef, 0x1F8),
+)
+_FLOAT_CLASSIFICATION_DESCRIPTOR_KEYS = (
+    *(
+        descriptor_key
+        for bit_width in (16, 32, 64)
+        for descriptor_key in (
+            f"amdgpu.v_cmp_class_f{bit_width}",
+            f"amdgpu.v_cmp_class_f{bit_width}.classes_inline",
+            f"amdgpu.v_cmp_class_f{bit_width}.classes_lit",
+        )
+    ),
+    "amdgpu.v_cmp_class_f16.input_high",
+    "amdgpu.v_cmp_class_f16.input_high.classes_inline",
+    "amdgpu.v_cmp_class_f16.input_high.classes_lit",
+)
 _DESCRIPTOR_KEYS = (
     "amdgpu.s_mov_b32",
     "amdgpu.s_cselect_b32",
     *_COMPARE_DESCRIPTOR_KEYS,
     *_FLOAT_COMPARE_DESCRIPTOR_KEYS,
     *_FLOAT_COMPARE_MASK_DESCRIPTOR_KEYS,
+    *_FLOAT_CLASSIFICATION_DESCRIPTOR_KEYS,
     *(descriptor_key for _, descriptor_key in _CMP_I64_SCALAR_CASES),
 )
 
@@ -501,6 +521,149 @@ def _float_mask_rules() -> tuple[DescriptorRule, ...]:
     return inline_rules + register_rules + other_register_rules
 
 
+def _float_classification_immediate_rule(
+    source_op: Op,
+    type_pattern: TypePattern,
+    bit_width: int,
+    class_mask: int,
+    descriptor_suffix: str,
+    immediate_name: str,
+) -> DescriptorRule:
+    descriptor = _descriptor(f"amdgpu.v_cmp_class_f{bit_width}.{descriptor_suffix}")
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("input", type_pattern),
+            Guard.value_type("result", _I1),
+            Guard.low_value_register_class("result", "amdgpu.sgpr"),
+            Guard.low_value_register_unit_count("result", 2),
+            Guard.value_materializable("input", REGISTERS_VGPR_MATERIALIZER.name),
+            Guard.descriptor_available(descriptor),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={
+                    "input": ValueRef.operand(
+                        "input", materializer=REGISTERS_VGPR_MATERIALIZER.name
+                    ),
+                },
+                results={"mask": ValueRef.result("result")},
+                immediates={immediate_name: class_mask},
+            ),
+        ),
+    )
+
+
+def _float_classification_register_rule(
+    source_op: Op,
+    type_pattern: TypePattern,
+    bit_width: int,
+    class_mask: int,
+) -> DescriptorRule:
+    move_descriptor = _descriptor("amdgpu.s_mov_b32")
+    descriptor = _descriptor(f"amdgpu.v_cmp_class_f{bit_width}")
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("input", type_pattern),
+            Guard.value_type("result", _I1),
+            Guard.low_value_register_class("result", "amdgpu.sgpr"),
+            Guard.low_value_register_unit_count("result", 2),
+            Guard.value_materializable("input", REGISTERS_VGPR_MATERIALIZER.name),
+            Guard.descriptor_available(move_descriptor),
+            Guard.descriptor_available(descriptor),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=move_descriptor,
+                results={"dst": ValueRef.temporary("classes")},
+                result_types={"dst": _I32},
+                immediates={"imm32": class_mask},
+            ),
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={
+                    "input": ValueRef.operand(
+                        "input", materializer=REGISTERS_VGPR_MATERIALIZER.name
+                    ),
+                    "classes": ValueRef.temporary("classes"),
+                },
+                results={"mask": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _float_classification_scalar_rules() -> tuple[DescriptorRule, ...]:
+    rules: list[DescriptorRule] = []
+    for source_op, class_mask in _FLOAT_CLASSIFICATION_CASES:
+        for type_pattern, bit_width in ((_F16, 16), (_F32, 32), (_F64, 64)):
+            if class_mask <= 64:
+                rules.append(
+                    _float_classification_immediate_rule(
+                        source_op,
+                        type_pattern,
+                        bit_width,
+                        class_mask,
+                        "classes_inline",
+                        "classes",
+                    )
+                )
+            else:
+                rules.append(
+                    _float_classification_immediate_rule(
+                        source_op,
+                        type_pattern,
+                        bit_width,
+                        class_mask,
+                        "classes_lit",
+                        "imm32",
+                    )
+                )
+                rules.append(
+                    _float_classification_register_rule(
+                        source_op, type_pattern, bit_width, class_mask
+                    )
+                )
+    return tuple(rules)
+
+
+def _float_classification_vector_rules() -> tuple[RecipeRule, ...]:
+    type_rows = (
+        ("f16", 16, "LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES"),
+        ("f32", 32, "LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES"),
+        ("f64", 64, "LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES / 2u"),
+    )
+    vector_ops = (
+        vector.vector_isnanf,
+        vector.vector_isinff,
+        vector.vector_isfinitef,
+    )
+    return tuple(
+        RecipeRule(
+            source_op=source_op,
+            guards=(
+                Guard.value_type(
+                    "input",
+                    Vector(
+                        element,
+                        minimum_lanes=1,
+                        maximum_lanes=maximum_lanes,
+                    ),
+                ),
+                Guard.descriptor_available(
+                    _descriptor(f"amdgpu.v_cmp_class_f{bit_width}")
+                ),
+            ),
+        )
+        for source_op in vector_ops
+        for element, bit_width, maximum_lanes in type_rows
+    )
+
+
 def _mask_inline_rule(
     source_op: Op,
     type_pattern: TypePattern,
@@ -658,6 +821,8 @@ def _vector_rules() -> tuple[RecipeRule, ...]:
 def _rules() -> tuple[DescriptorRule | RecipeRule, ...]:
     return (
         *_vector_rules(),
+        *_float_classification_vector_rules(),
+        *_float_classification_scalar_rules(),
         *_float_scalar_rules(scalar.scalar_cmpf, _F16, 16),
         *_float_scalar_rules(scalar.scalar_cmpf, _F32, 32),
         *_float_mask_rules(),
