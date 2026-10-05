@@ -106,8 +106,12 @@ static loom_value_slice_t loom_low_slice_concat_sources(
     }
     // A new sub-concat gives each selected input a second use while the
     // original concat is live. Requiring exclusive inputs keeps overlapping
-    // projections from duplicating the same operand lists.
-    if (source_offset > slice_end || !loom_value_has_single_use(source)) {
+    // projections from duplicating the same operand lists. Required aliases
+    // can change through another owner even with only one direct use; moving
+    // their observation to the sink would lose the original capture.
+    if (source_offset > slice_end || !loom_value_has_single_use(source) ||
+        !loom_low_capture_source_is_stable(rewriter->module,
+                                           sources.values[i])) {
       return (loom_value_slice_t){0};
     }
     if (selected.count == 1) {
@@ -131,14 +135,17 @@ static loom_value_slice_t loom_low_slice_concat_sources(
           loom_low_const_isa(loom_low_defining_op(rewriter, sources.values[i]));
     }
     if (source_offset == slice_end) {
-      // Contiguous views of one source already share its register range.
-      // Reuse that source when the selection covers it entirely. Partial
-      // selections retain their existing identity instead of allocating a
-      // new sub-concat that can force copies away from the native producer.
+      // Contiguous read-only slices of a stable source can share its register
+      // range. Reuse it when the selection covers it entirely. Otherwise
+      // preserve the original captures and storage instead of forcing copies
+      // away from the native producer or moving observations across ownership
+      // transfers.
       if (common_slice_op) {
         const loom_type_t common_type = loom_module_value_type(
             rewriter->module, loom_low_slice_source(common_slice_op));
-        if (loom_low_slice_offset(common_slice_op) == 0 &&
+        if (loom_low_capture_source_is_stable(
+                rewriter->module, loom_low_slice_source(common_slice_op)) &&
+            loom_low_slice_offset(common_slice_op) == 0 &&
             loom_type_equal(slice_type, common_type)) {
           return (loom_value_slice_t){
               .values = loom_op_operands(common_slice_op), .count = 1};

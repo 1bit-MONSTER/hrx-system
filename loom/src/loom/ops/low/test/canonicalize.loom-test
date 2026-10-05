@@ -629,3 +629,43 @@ low.func.def target<test.low.core>(@test_target) @mixed_constant_projection(%sou
   %first = concat(%constant, %source) : (reg<test.i32>, reg<test.i32>) -> reg<test.i32 x2>
   return %first
 }
+
+// ====
+
+// A single-use required alias can still change through its parent owner.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @captured_alias_projection(%source: reg<test.i32>, %other: reg<test.i32>, %suffix: reg<test.i32>) -> (reg<test.i32 x2>, reg<test.i32>) asm {
+  %alias = low.assume %source [range(%source, 0, 1024)] : reg<test.i32>
+  %whole = concat(%alias, %other, %suffix) : (reg<test.i32>, reg<test.i32>, reg<test.i32>) -> reg<test.i32 x3>
+  %changed = test.tied.any %source
+  %first = slice %whole[0] : reg<test.i32 x3> -> reg<test.i32 x2>
+  return %first, %changed
+}
+
+// ====
+
+// Reassembling a whole parent must preserve the earlier slice observations.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @common_source_captured_before_move(%prefix: reg<test.i32>, %source: reg<test.i32 x2>, %suffix: reg<test.i32>) -> (reg<test.i32 x2>, reg<test.i32 x2>) asm {
+  %a = slice %source[0] : reg<test.i32 x2> -> reg<test.i32>
+  %b = slice %source[1] : reg<test.i32 x2> -> reg<test.i32>
+  %moved = move %source : reg<test.i32 x2> -> reg<test.i32 x2>
+  %whole = concat(%prefix, %a, %b, %suffix) : (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) -> reg<test.i32 x4>
+  %middle = slice %whole[1] : reg<test.i32 x4> -> reg<test.i32 x2>
+  return %middle, %moved
+}
+
+// ====
+
+// Every selected input must retain its observation, including later aliases.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @captured_later_alias_projection(%source: reg<test.i32>, %other: reg<test.i32>, %suffix: reg<test.i32>) -> (reg<test.i32 x2>, reg<test.i32>) asm {
+  %alias = low.assume %source [range(%source, 0, 1024)] : reg<test.i32>
+  %whole = concat(%other, %alias, %suffix) : (reg<test.i32>, reg<test.i32>, reg<test.i32>) -> reg<test.i32 x3>
+  %changed = test.tied.any %source
+  %first = slice %whole[0] : reg<test.i32 x3> -> reg<test.i32 x2>
+  return %first, %changed
+}
