@@ -29,6 +29,15 @@ class LivenessPressureTest : public ::testing::Test {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                               "injected pressure allocation failure");
     }
+    if (command == IREE_ALLOCATOR_COMMAND_MALLOC ||
+        command == IREE_ALLOCATOR_COMMAND_CALLOC) {
+      const auto* allocation =
+          static_cast<const iree_allocator_alloc_params_t*>(parameters);
+      if (allocation->byte_length > test->maximum_allocation_size_) {
+        return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                "pressure allocation exceeds the test bound");
+      }
+    }
     const auto allocator = iree_allocator_system();
     return allocator.ctl(allocator.self, command, parameters, pointer);
   }
@@ -235,7 +244,54 @@ class LivenessPressureTest : public ::testing::Test {
   iree_host_size_t allocation_count_ = 0;
   // Allocation selected for injected failure, or SIZE_MAX.
   iree_host_size_t failure_index_ = SIZE_MAX;
+  // Request limit for class-scaling checks, independent of host memory size.
+  iree_host_size_t maximum_allocation_size_ = SIZE_MAX;
 };
+
+TEST_F(LivenessPressureTest, ClassStorageGrowsWithCardinality) {
+  maximum_allocation_size_ = 1024 * 1024;
+  for (uint32_t count : {8u, 16u, 64u, 257u, 1025u}) {
+    for (uint32_t extent : {1u, 65536u}) {
+      SCOPED_TRACE(count);
+      SCOPED_TRACE(extent);
+      value_ids_.clear();
+      indices_.clear();
+      intervals_.clear();
+      ranges_.clear();
+      segments_.clear();
+      blocks_[0].block = &block_storage_[0];
+      blocks_[0].start_point = 0;
+      blocks_[0].end_point = extent;
+      blocks_[1].block = &block_storage_[1];
+      blocks_[1].start_point = extent + 1;
+      blocks_[1].end_point = extent + 1;
+      for (uint32_t i = 0; i < count; ++i) {
+        auto value_class = RegisterClass();
+        value_class.register_descriptor_set_stable_id =
+            UINT64_C(0x12345678) | (uint64_t(i) << 32);
+        AddValue(i, value_class, 1, {{0, extent}});
+      }
+      const auto analysis = Analysis();
+      const loom_liveness_pressure_summary_t* summaries = nullptr;
+      iree_host_size_t summary_count = 0;
+      IREE_ASSERT_OK(loom_liveness_compute_segment_pressure(
+          &analysis, &scratch_, &result_, &summaries, &summary_count));
+      ASSERT_EQ(summary_count, count);
+      for (uint32_t i = 0; i < count; ++i) {
+        EXPECT_EQ(summaries[i].value_class.register_descriptor_set_stable_id,
+                  UINT64_C(0x12345678) | (uint64_t(i) << 32));
+        EXPECT_EQ(summaries[i].peak_live_units, 1u);
+        EXPECT_EQ(summaries[i].peak_live_values, 1u);
+        EXPECT_EQ(summaries[i].peak_point, 0u);
+      }
+      // Geometric class-array growth, endpoint storage, and index maps fit
+      // this linear envelope, including arena alignment and small fixed state.
+      EXPECT_LE(scratch_.used_allocation_size, size_t(count) * 512 + 4096);
+      iree_arena_reset(&scratch_);
+      iree_arena_reset(&result_);
+    }
+  }
+}
 
 TEST_F(LivenessPressureTest, EmptyRangesNeedNoStorage) {
   CheckReference();
