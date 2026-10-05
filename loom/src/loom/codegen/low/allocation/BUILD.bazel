@@ -750,8 +750,28 @@ loom_cc_library(
         "//loom/src/loom/target:registers",
         "//loom/src/loom/util:cfg_graph",
         "//loom/src/loom/util:index_set",
+        "//loom/src/loom/util:segmented_storage",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "write_interference_test",
+    srcs = ["write_interference_test.cc"],
+    deps = [
+        ":write_interference",
+        "//loom/src/loom/analysis:liveness",
+        "//loom/src/loom/codegen/low:builder",
+        "//loom/src/loom/codegen/low:placement",
+        "//loom/src/loom/codegen/low:read_retention",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//loom/src/loom/util:cfg_graph",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
