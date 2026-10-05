@@ -52,6 +52,8 @@ typedef struct loom_amdgpu_storage_layout_t {
   const loom_amdgpu_storage_layout_record_t* records;
   // Number of records in |records|.
   iree_host_size_t record_count;
+  // Borrowed flattened references; root ordinals index the projected records.
+  loom_low_storage_layout_index_t index;
 } loom_amdgpu_storage_layout_t;
 
 // Projects a generic function-local layout into AMDGPU fixed segments in one
@@ -64,7 +66,7 @@ iree_status_t loom_amdgpu_storage_layout_build(
 // Resolves a verified low.storage.reserve or low.storage.view handle against a
 // previously built AMDGPU fixed-segment layout.
 void loom_amdgpu_storage_layout_lookup_reference(
-    const loom_amdgpu_storage_layout_t* layout, const loom_module_t* module,
+    const loom_amdgpu_storage_layout_t* layout,
     loom_value_id_t storage_value_id,
     loom_amdgpu_storage_layout_reference_t* out_reference);
 

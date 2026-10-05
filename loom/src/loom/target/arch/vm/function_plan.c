@@ -671,10 +671,11 @@ static iree_status_t loom_vm_function_storage(
                                             : loom_low_reload_storage(node->op);
   const uint64_t relative_offset = is_store ? loom_low_spill_offset(node->op)
                                             : loom_low_reload_offset(node->op);
+  const loom_low_storage_layout_t* layout =
+      &frame->schedule.requirements.storage_layout;
   loom_low_storage_layout_reference_t reference;
-  loom_low_storage_layout_lookup_reference(
-      &frame->schedule.requirements.storage_layout, frame->module,
-      storage_value, &reference);
+  loom_low_storage_layout_lookup_reference(&layout->index, layout->records,
+                                           storage_value, &reference);
   const loom_value_ordinal_t value_ordinal =
       (is_store ? loom_low_schedule_node_const_operand_ordinals(node)
                 : loom_low_schedule_node_const_result_ordinals(node))[0];

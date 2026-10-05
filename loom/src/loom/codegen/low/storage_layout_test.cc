@@ -127,6 +127,8 @@ class LowStorageLayoutTest : public ::testing::Test {
     IREE_CHECK_OK(loom_low_storage_view_build(
         &body_builder_, source, byte_offset, byte_length, result_type,
         LOOM_LOCATION_UNKNOWN, &op));
+    IREE_CHECK_OK(loom_low_storage_layout_builder_append(
+        module_, op, &layout_arena_, &layout_builder_));
     return loom_low_storage_view_result(op);
   }
 
@@ -136,9 +138,10 @@ class LowStorageLayoutTest : public ::testing::Test {
                          uint64_t expected_byte_offset,
                          uint64_t expected_byte_size,
                          uint64_t expected_byte_alignment) {
-    loom_low_storage_layout_reservation_t reservation = {};
-    loom_low_storage_layout_lookup_reservation(&layout, storage_value_id,
-                                               &reservation);
+    loom_low_storage_layout_reference_t reference = {};
+    loom_low_storage_layout_lookup_reference(&layout.index, layout.records,
+                                             storage_value_id, &reference);
+    const auto& reservation = reference.reservation;
     EXPECT_EQ(reservation.space, expected_space);
     EXPECT_EQ(reservation.byte_offset, expected_byte_offset);
     EXPECT_EQ(reservation.byte_size, expected_byte_size);
@@ -163,7 +166,8 @@ TEST_F(LowStorageLayoutTest, PacksReservationsByStorageSpace) {
       Reserve(LOOM_STORAGE_SPACE_WORKGROUP, 3, 2);
 
   loom_low_storage_layout_t layout = {};
-  loom_low_storage_layout_builder_finish(&layout_builder_, &layout);
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &layout_builder_, &layout_arena_, &layout));
   EXPECT_EQ(layout.space_sizes.stack_bytes, 32u);
   EXPECT_EQ(layout.space_sizes.private_bytes, 4u);
   EXPECT_EQ(layout.space_sizes.scratch_bytes, 8u);
@@ -182,15 +186,54 @@ TEST_F(LowStorageLayoutTest, ResolvesNestedStorageViews) {
   const loom_value_id_t nested_view = View(view, 2, 4);
 
   loom_low_storage_layout_t layout = {};
-  loom_low_storage_layout_builder_finish(&layout_builder_, &layout);
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &layout_builder_, &layout_arena_, &layout));
   loom_low_storage_layout_reference_t reference = {};
-  loom_low_storage_layout_lookup_reference(&layout, module_, nested_view,
-                                           &reference);
+  loom_low_storage_layout_lookup_reference(&layout.index, layout.records,
+                                           nested_view, &reference);
   EXPECT_EQ(reference.reservation.space, LOOM_STORAGE_SPACE_STACK);
   EXPECT_EQ(reference.reservation.byte_offset, 0u);
   EXPECT_EQ(reference.reservation.byte_size, 16u);
   EXPECT_EQ(reference.byte_offset, 6u);
   EXPECT_EQ(reference.byte_length, 4u);
+}
+
+TEST_F(LowStorageLayoutTest, ResolvesViewsBeforeTheirSourcesAreAppended) {
+  const loom_value_id_t stack = Reserve(LOOM_STORAGE_SPACE_STACK, 64, 16);
+  const loom_value_id_t outer = View(stack, 8, 48);
+  const loom_value_id_t inner = View(outer, 12, 24);
+  const loom_value_id_t sibling = View(outer, 32, 8);
+  loom_low_storage_layout_builder_t builder;
+  loom_low_storage_layout_builder_initialize(&builder);
+  for (loom_value_id_t value : {inner, sibling, outer, stack}) {
+    IREE_ASSERT_OK(loom_low_storage_layout_builder_append(
+        module_, loom_value_def_op(loom_module_value(module_, value)),
+        &layout_arena_, &builder));
+  }
+  loom_low_storage_layout_t layout = {};
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &builder, &layout_arena_, &layout));
+  const loom_value_id_t values[] = {inner, sibling, outer, stack};
+  const uint64_t offsets[] = {20, 40, 8, 0};
+  const uint64_t lengths[] = {24, 8, 48, 64};
+  for (size_t i = 0; i < IREE_ARRAYSIZE(values); ++i) {
+    loom_low_storage_layout_reference_t reference = {};
+    loom_low_storage_layout_lookup_reference(&layout.index, layout.records,
+                                             values[i], &reference);
+    EXPECT_EQ(reference.reservation.byte_size, 64u);
+    EXPECT_EQ(reference.byte_offset, offsets[i]);
+    EXPECT_EQ(reference.byte_length, lengths[i]);
+  }
+}
+
+TEST_F(LowStorageLayoutTest, EmptyFunctionNeedsNoHandleIndex) {
+  loom_low_storage_layout_t layout = {};
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &layout_builder_, &layout_arena_, &layout));
+  EXPECT_EQ(layout.record_count, 0u);
+  EXPECT_EQ(layout.index.bucket_count, 0u);
+  EXPECT_EQ(layout.index.handles, nullptr);
+  EXPECT_EQ(layout.index.buckets, nullptr);
 }
 
 TEST_F(LowStorageLayoutTest, HoistsReservationsPreservingLayoutAndViews) {
@@ -240,15 +283,21 @@ TEST_F(LowStorageLayoutTest, HoistsReservationsPreservingLayoutAndViews) {
   EXPECT_EQ(tail->last_op, return_op);
 
   loom_low_storage_layout_t layout = {};
-  loom_low_storage_layout_builder_finish(&builder, &layout);
+  for (loom_value_id_t value : {entry_view, outer, nested}) {
+    IREE_ASSERT_OK(loom_low_storage_layout_builder_append(
+        module_, loom_value_def_op(loom_module_value(module_, value)),
+        &layout_arena_, &builder));
+  }
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &builder, &layout_arena_, &layout));
   ExpectReservation(layout, stack, LOOM_STORAGE_SPACE_STACK, 0, 16, 8);
   ExpectReservation(layout, private_storage, LOOM_STORAGE_SPACE_PRIVATE, 0, 8,
                     8);
   ExpectReservation(layout, scratch, LOOM_STORAGE_SPACE_SCRATCH, 0, 32, 16);
   ExpectReservation(layout, aligned_stack, LOOM_STORAGE_SPACE_STACK, 32, 8, 32);
   loom_low_storage_layout_reference_t reference = {};
-  loom_low_storage_layout_lookup_reference(&layout, module_, nested,
-                                           &reference);
+  loom_low_storage_layout_lookup_reference(&layout.index, layout.records,
+                                           nested, &reference);
   EXPECT_EQ(reference.byte_offset, 12u);
   EXPECT_EQ(reference.byte_length, 8u);
 }
@@ -259,7 +308,8 @@ TEST_F(LowStorageLayoutTest, PlacementIncludesPaddingAndStrongestAlignment) {
   Reserve(LOOM_STORAGE_SPACE_STACK, 16, 16);
   Reserve(LOOM_STORAGE_SPACE_STACK, 4, 4);
   loom_low_storage_layout_t layout = {};
-  loom_low_storage_layout_builder_finish(&layout_builder_, &layout);
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &layout_builder_, &layout_arena_, &layout));
   const auto stack =
       loom_low_storage_layout_requirement(&layout, LOOM_STORAGE_SPACE_STACK);
   EXPECT_EQ(stack.byte_length, 36u);
@@ -273,7 +323,8 @@ TEST_F(LowStorageLayoutTest, PlacementIncludesPaddingAndStrongestAlignment) {
 TEST_F(LowStorageLayoutTest, EmptySpaceHasNoPlacementRequirement) {
   Reserve(LOOM_STORAGE_SPACE_PRIVATE, 8, 8);
   loom_low_storage_layout_t layout = {};
-  loom_low_storage_layout_builder_finish(&layout_builder_, &layout);
+  IREE_ASSERT_OK(loom_low_storage_layout_builder_finish(
+      &layout_builder_, &layout_arena_, &layout));
   const auto requirement =
       loom_low_storage_layout_requirement(&layout, LOOM_STORAGE_SPACE_STACK);
   EXPECT_EQ(requirement.byte_length, 0u);
