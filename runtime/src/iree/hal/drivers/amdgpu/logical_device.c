@@ -227,6 +227,35 @@ IREE_API_EXPORT iree_status_t iree_hal_amdgpu_logical_device_options_parse(
   for (iree_host_size_t i = 0; i < params.count && iree_status_is_ok(status);
        ++i) {
     const iree_string_pair_t* param = &params.pairs[i];
+    if (iree_string_view_equal(param->key,
+                               IREE_SV("command_buffer_block_size"))) {
+      uint64_t value = 0;
+      if (!iree_string_view_atoi_uint64(param->value, &value)) {
+        status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                  "invalid command_buffer_block_size '%.*s'",
+                                  (int)param->value.size, param->value.data);
+      } else {
+        // Range and power-of-two checks run in options_verify.
+        options->host_block_pools.command_buffer.usable_block_size =
+            (iree_host_size_t)value;
+      }
+      continue;
+    }
+    if (iree_string_view_equal(param->key, IREE_SV("command_buffer_mode"))) {
+      if (iree_string_view_equal(param->value, IREE_SV("aql"))) {
+        options->command_buffer_mode = IREE_HAL_AMDGPU_COMMAND_BUFFER_MODE_AQL;
+      } else if (iree_string_view_equal(param->value, IREE_SV("pm4"))) {
+        options->command_buffer_mode = IREE_HAL_AMDGPU_COMMAND_BUFFER_MODE_PM4;
+      } else if (iree_string_view_equal(param->value, IREE_SV("auto"))) {
+        options->command_buffer_mode = IREE_HAL_AMDGPU_COMMAND_BUFFER_MODE_AUTO;
+      } else {
+        status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                  "invalid command_buffer_mode '%.*s' (expected "
+                                  "aql, pm4 or auto)",
+                                  (int)param->value.size, param->value.data);
+      }
+      continue;
+    }
     status = iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "AMDGPU logical device options do not support key/value parameter "

@@ -553,6 +553,26 @@ static const char* hrx_get_gpu_driver_name(void) {
   return (value && value[0]) ? value : "amdgpu";
 }
 
+// Logical-device parameters taken from the environment (amdgpu driver only).
+// HRX_AQL_BLOCK_SIZE: usable bytes per AQL command-buffer block (power of two).
+// HRX_COMMAND_BUFFER_MODE: aql, pm4 or auto. Unset keeps the driver defaults.
+static iree_host_size_t hrx_device_params_from_environment(
+    iree_string_pair_t* out_params, iree_host_size_t capacity) {
+  iree_host_size_t count = 0;
+  if (strcmp(hrx_get_gpu_driver_name(), "amdgpu") != 0) return 0;
+  const char* block_size = getenv("HRX_AQL_BLOCK_SIZE");
+  if (block_size && block_size[0] && count < capacity) {
+    out_params[count++] = iree_make_string_pair(
+        IREE_SV("command_buffer_block_size"), iree_make_cstring_view(block_size));
+  }
+  const char* mode = getenv("HRX_COMMAND_BUFFER_MODE");
+  if (mode && mode[0] && count < capacity) {
+    out_params[count++] = iree_make_string_pair(
+        IREE_SV("command_buffer_mode"), iree_make_cstring_view(mode));
+  }
+  return count;
+}
+
 static bool hrx_getenv_enabled(const char* name) {
   const char* value = getenv(name);
   return value && value[0] && strcmp(value, "0") != 0;
@@ -1013,6 +1033,9 @@ hrx_status_t hrx_gpu_initialize_with_device_extensions(
   iree_host_size_t device_info_indices[IREE_HAL_TOPOLOGY_MAX_DEVICE_COUNT] = {
       0};
   int created_device_count = 0;
+  iree_string_pair_t device_params[2];
+  const iree_host_size_t device_param_count =
+      hrx_device_params_from_environment(device_params, 2);
   for (iree_host_size_t info_index = 0;
        info_index < device_info_count && iree_status_is_ok(iree_status);
        ++info_index) {
@@ -1021,7 +1044,7 @@ hrx_status_t hrx_gpu_initialize_with_device_extensions(
     }
 
     iree_status = iree_hal_driver_create_device_by_ordinal(
-        driver, info_index, /*param_count=*/0, /*params=*/NULL, &create_params,
+        driver, info_index, device_param_count, device_params, &create_params,
         alloc, &hal_devices[created_device_count]);
     hrx_debug_print_iree_status("create device by ordinal", iree_status);
     if (iree_status_is_ok(iree_status)) {
