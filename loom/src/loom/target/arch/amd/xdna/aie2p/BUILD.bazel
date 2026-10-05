@@ -375,14 +375,12 @@ loom_cc_library(
         "lower/matrix.c",
         "lower/registry.c",
         "lower/rodata.c",
-        "lower/storage.c",
     ],
     hdrs = [
         "lower/gather.h",
         "lower/lower.h",
         "lower/matrix.h",
         "lower/rodata.h",
-        "lower/storage.h",
     ],
     textual_hdrs = ["//loom/src/loom/target/arch/amd/xdna/aie2p/contracts:core_index.inl"],
     deps = [

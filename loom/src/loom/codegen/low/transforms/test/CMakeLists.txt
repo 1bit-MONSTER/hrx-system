@@ -25,6 +25,7 @@ loom_check_test_suite(
     "source_to_low_block_order.loom-test"
     "source_to_low_cfg_identities.loom-test"
     "source_to_low_copies.loom-test"
+    "source_to_low_function_storage.loom-test"
     "source_to_low_lane_sequence.loom-test"
     "source_to_low_loop_counts.loom-test"
     "source_to_low_options.loom-test"

@@ -244,3 +244,17 @@ low.func.def public target<x86.scalar.core> abi(object_function) @storage_spaces
   %result = xor.gpr64 %mixed, %misalignment
   return %result
 }
+
+// Runtime indexing keeps this source-level local array addressable. Its native
+// frame must honor an alignment stronger than the SysV stack-entry guarantee.
+func.def public @local_pair(%first: i64, %second: i64, %index: index) -> (i64) {
+  %length = index.constant 16 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(64) %length : buffer
+  %values = buffer.view %storage[%base] : buffer -> view<2xi64>
+  view.store %first, %values[0] : i64, view<2xi64>
+  view.store %second, %values[1] : i64, view<2xi64>
+  %position = index.assume %index [range(%index, 0, 1)] : index
+  %result = view.load %values[%position] : view<2xi64> -> i64
+  func.return %result : i64
+}

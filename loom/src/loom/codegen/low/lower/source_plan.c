@@ -754,6 +754,9 @@ static void loom_low_lower_mark_selected_plan_storage_demands(
     case LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK:
       loom_low_lower_mark_callback_plan_storage_demands(context, selected_plan);
       break;
+    case LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE:
+      // The selected plan retains the extent; no source operand is emitted.
+      break;
   }
 }
 
@@ -1404,6 +1407,24 @@ static iree_status_t loom_low_lower_plan_op(
   }
   if (loom_low_lower_try_record_claimed_source_plan(context, source_op)) {
     return iree_ok_status();
+  }
+
+  if (loom_buffer_alloca_isa(source_op)) {
+    bool selected = false;
+    const loom_low_lower_function_storage_plan_t* plan = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_select(
+        context, source_op, &selected, &plan));
+    if (selected) {
+      loom_low_lower_record_selected_plan(
+          context, (loom_low_lower_selected_plan_t){
+                       .source_op = source_op,
+                       .kind = LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE,
+                       .rule_set_index = UINT16_MAX,
+                       .rule_index = UINT16_MAX,
+                       .data.function_storage = plan,
+                   });
+      return iree_ok_status();
+    }
   }
 
   const loom_low_lower_source_memory_record_t* prepared_memory =

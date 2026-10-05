@@ -449,7 +449,6 @@ loom_cc_library(
     "lower/lower.h"
     "lower/matrix.h"
     "lower/rodata.h"
-    "lower/storage.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amd/xdna/aie2p/contracts/core_index.inl"
   SRCS
@@ -457,7 +456,6 @@ loom_cc_library(
     "lower/matrix.c"
     "lower/registry.c"
     "lower/rodata.c"
-    "lower/storage.c"
   DEPS
     ::core_descriptors
     ::gather

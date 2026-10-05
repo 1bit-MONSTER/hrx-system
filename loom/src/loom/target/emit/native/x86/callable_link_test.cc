@@ -31,6 +31,7 @@ extern "C" uint64_t recurrence(uint64_t first, uint64_t second,
 extern "C" uint64_t pressure64(const uint64_t* values);
 extern "C" uint32_t pressure32(const uint32_t* values);
 extern "C" uint64_t storage_spaces(uint64_t input, uint32_t word);
+extern "C" uint64_t local_pair(uint64_t first, uint64_t second, uint64_t index);
 
 namespace {
 
@@ -104,6 +105,8 @@ TEST(NativeCallableTest, StackStorageAndAllocationSpills) {
     ASSERT_EQ(pressure32(narrow.data()), narrow_sum);
     ASSERT_EQ(storage_spaces(wide[0], narrow[0]),
               wide[0] ^ (wide[0] + 258) ^ narrow[0]);
+    ASSERT_EQ(local_pair(wide[0], wide[1], 0), wide[0]);
+    ASSERT_EQ(local_pair(wide[0], wide[1], 1), wide[1]);
   }
 }
 

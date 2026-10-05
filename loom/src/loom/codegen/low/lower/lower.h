@@ -22,6 +22,7 @@
 #include "loom/analysis/native_layout.h"
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/codegen/low/descriptors.h"
+#include "loom/codegen/low/lower/function_storage.h"
 #include "loom/codegen/low/lower/module_state.h"
 #include "loom/codegen/low/lower/report.h"
 #include "loom/codegen/low/lower/visibility.h"
@@ -425,8 +426,8 @@ iree_status_t loom_low_lower_descriptor_matrix_reject(
 typedef struct loom_low_lower_selected_plan_view_t {
   // Source op this selected plan lowers.
   const loom_op_t* source_op;
-  // Target-owned plan selected during planning. Table-driven rule rows return
-  // an empty plan because their rule data is owned by core lowering.
+  // Target-owned plan selected during planning. Shared rules and function
+  // storage return an empty plan because their data is owned by core lowering.
   loom_low_lower_plan_t plan;
   // True when demand analysis proved the source op has no required low storage.
   bool elided;
@@ -820,6 +821,9 @@ typedef struct loom_low_lower_policy_t {
   // Optional target representation widths consumed by shared vector
   // legalization before source-to-Low lowering.
   const loom_target_vector_packet_policy_t* vector_packet_policy;
+  // Source allocation spaces backed by bounded structural function storage.
+  // Empty leaves allocation selection to ordinary rules or target callbacks.
+  loom_low_lower_function_storage_config_t function_storage;
   // Maps source semantic types to target-low register types.
   loom_low_lower_map_type_callback_t map_type;
   // Optionally reports source types accepted by target-low legality because
@@ -1252,9 +1256,9 @@ iree_status_t loom_low_lower_allocate_emission_array(
     loom_low_lower_context_t* context, iree_host_size_t count,
     iree_host_size_t element_size, void** out_ptr);
 
-// Allocates one target-owned selected-plan payload from the current lowering
+// Allocates one selected-plan payload from the current lowering
 // arena. The returned storage remains valid until the current
-// loom_low_lower_function call returns. Targets should populate the payload in
+// loom_low_lower_function call returns. Producers populate the payload in
 // place during planning and treat it as immutable during emission.
 iree_status_t loom_low_lower_allocate_plan_data(
     loom_low_lower_context_t* context, iree_host_size_t data_length,
@@ -1466,7 +1470,7 @@ iree_status_t loom_low_lower_emit_source_type_unsupported(
     iree_string_view_t field_name,
     loom_type_t actual_type) IREE_ATTRIBUTE_COLD IREE_ATTRIBUTE_NOINLINE;
 
-// Emits ERR_TARGET_073 when function storage has no finite positive maximum.
+// Emits ERR_TARGET_080 when function storage has no finite positive maximum.
 iree_status_t loom_low_lower_emit_function_storage_extent_unsupported(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_storage_space_t storage_space, loom_value_id_t byte_length_value);

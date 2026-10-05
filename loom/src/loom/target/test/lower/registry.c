@@ -283,9 +283,19 @@ static iree_status_t loom_test_low_matrix_query(
 
 #include "loom/target/test/contracts/tables.inl"
 
+static const loom_low_lower_function_storage_mapping_t kTestFunctionStorage[] =
+    {
+        {LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE, LOOM_STORAGE_SPACE_PRIVATE,
+         TEST_LOW_CORE_REG_CLASS_ID_TEST_PTR},
+        {LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, LOOM_STORAGE_SPACE_WORKGROUP,
+         TEST_LOW_CORE_REG_CLASS_ID_TEST_PTR},
+};
+
 static const loom_low_lower_policy_t kTestLowLowerPolicy = {
     .name = IREE_SVL("test-low-lower-policy"),
     .error_catalog = &loom_error_catalog_core,
+    .function_storage = {kTestFunctionStorage,
+                         IREE_ARRAYSIZE(kTestFunctionStorage)},
     .map_type = {.fn = loom_test_low_lower_map_type, .user_data = NULL},
     .map_contract_value = {.fn = loom_test_low_lower_map_contract_value,
                            .user_data = NULL},

@@ -59,16 +59,3 @@ low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @bounded_
   st %value, %output_view, 0
   return
 }
-
-// ====
-
-aie2p.target<core> @target
-
-func.def target(@target) @unbounded_function_storage(%value: vector<16xi32>, %byte_length: offset) {
-  %base = index.constant 0 : offset
-  // ERROR@+1: TARGET/080 {storage_space="workgroup", byte_length_value="byte_length"}
-  %scratch = buffer.alloca<workgroup> align(64) %byte_length : buffer
-  %view = buffer.view %scratch[%base] : buffer -> view<16xi32>
-  vector.store %value, %view[0] : vector<16xi32>, view<16xi32>
-  func.return
-}

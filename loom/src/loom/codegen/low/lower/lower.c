@@ -1063,6 +1063,10 @@ static iree_status_t loom_low_lower_emit_selected_plan(
         context, source_op,
         (const loom_low_lower_descriptor_matrix_plan_t*)
             selected_plan.data.target_plan.target_data));
+  } else if (selected_plan.kind ==
+             LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_emit(
+        context, source_op, selected_plan.data.function_storage));
   } else {
     IREE_ASSERT_FALSE(
         loom_low_lower_plan_is_empty(selected_plan.data.target_plan));
