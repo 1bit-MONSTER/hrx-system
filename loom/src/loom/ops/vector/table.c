@@ -224,3 +224,59 @@ iree_status_t loom_vector_table_lookup_simplify_indices(
   *out_changed = true;
   return iree_ok_status();
 }
+
+iree_status_t loom_vector_table_lookup_to_shuffle(loom_op_t* op,
+                                                  loom_rewriter_t* rewriter,
+                                                  bool* out_changed) {
+  *out_changed = false;
+  if (rewriter->fact_table == NULL) {
+    return iree_ok_status();
+  }
+  const loom_value_id_t table = loom_vector_table_lookup_table(op);
+  const loom_value_id_t indices = loom_vector_table_lookup_indices(op);
+  const loom_value_id_t result = loom_vector_table_lookup_result(op);
+  const loom_type_t table_type =
+      loom_module_value_type(rewriter->module, table);
+  const loom_type_t result_type =
+      loom_module_value_type(rewriter->module, result);
+  if (!loom_type_equal(table_type, result_type)) {
+    return iree_ok_status();
+  }
+
+  uint64_t table_count = 0;
+  if (!loom_type_static_element_count(table_type, &table_count)) {
+    return iree_ok_status();
+  }
+  const loom_value_facts_t index_facts =
+      loom_rewriter_value_facts(rewriter, indices);
+  loom_value_fact_small_static_lanes_t static_indices = {0};
+  if (!loom_value_facts_query_small_static_lanes(
+          &rewriter->fact_table->context, index_facts, &static_indices) ||
+      static_indices.count != table_count) {
+    return iree_ok_status();
+  }
+
+  int64_t source_lanes[LOOM_VALUE_FACT_SMALL_STATIC_LANE_LIMIT];
+  for (iree_host_size_t lane = 0; lane < static_indices.count; ++lane) {
+    if (!loom_value_facts_as_exact_i64(static_indices.lanes[lane],
+                                       &source_lanes[lane]) ||
+        source_lanes[lane] < 0 || (uint64_t)source_lanes[lane] >= table_count) {
+      return iree_ok_status();
+    }
+  }
+
+  loom_builder_set_before(&rewriter->builder, op);
+  const loom_value_id_t value_checkpoint =
+      loom_rewriter_value_checkpoint(rewriter);
+  loom_op_t* shuffle = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_shuffle_build(
+      &rewriter->builder, source_lanes, static_indices.count, table,
+      result_type, op->location, &shuffle));
+  const loom_value_id_t replacement = loom_vector_shuffle_result(shuffle);
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, value_checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_changed = true;
+  return iree_ok_status();
+}

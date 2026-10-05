@@ -301,6 +301,14 @@ static iree_status_t loom_vector_table_lookup_simplify_indices_pattern(
   return loom_vector_table_lookup_simplify_indices(op, rewriter, out_changed);
 }
 
+static iree_status_t loom_vector_table_lookup_to_shuffle_pattern(
+    const loom_rewrite_pattern_t* pattern, void* context, loom_op_t* op,
+    loom_rewriter_t* rewriter, bool* out_changed) {
+  (void)pattern;
+  (void)context;
+  return loom_vector_table_lookup_to_shuffle(op, rewriter, out_changed);
+}
+
 static const loom_rewrite_pattern_t kVectorSourceCombinePatterns[] = {
     {
         .root_kind = LOOM_OP_VECTOR_EXTF,
@@ -329,6 +337,10 @@ static const loom_rewrite_pattern_t kVectorSourceCombinePatterns[] = {
     {
         .root_kind = LOOM_OP_VECTOR_FROM_ELEMENTS,
         .match_and_rewrite = loom_vector_from_elements_to_table_lookup_pattern,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_TABLE_LOOKUP,
+        .match_and_rewrite = loom_vector_table_lookup_to_shuffle_pattern,
     },
     {
         .root_kind = LOOM_OP_VECTOR_TABLE_LOOKUP,

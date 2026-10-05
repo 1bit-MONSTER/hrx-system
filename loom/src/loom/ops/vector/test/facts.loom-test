@@ -470,8 +470,7 @@ func.def @transpose_small_static_lanes() -> (i32, i32) {
 
 // ====
 
-// Bitcast facts reinterpret exact same-width lanes without handling wider
-// byte-pack reshapes.
+// Bitcast facts reinterpret exact same-width lanes.
 func.def @bitcast_same_lane_raw_bits() -> (f32, i32) {
   %lhs_bits = scalar.constant 1065353216 : i32
   %rhs_bits = scalar.constant 1073741824 : i32
@@ -490,6 +489,109 @@ func.def @bitcast_same_lane_raw_bits() -> (f32, i32) {
   %r0 = scalar.constant 1.0 : f32
   %r1 = scalar.constant 1073741824 : i32
   func.return %r0, %r1 : f32, i32
+}
+
+// ====
+
+// Integer bitcasts preserve every exact lane while splitting wider elements.
+// The signed results also prove that the retained raw bits are interpreted in
+// the destination element domain.
+func.def @bitcast_split_integer_lanes() -> (i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8) {
+  %a = scalar.constant 50462976 : i32
+  %b = scalar.constant 117835012 : i32
+  %c = scalar.constant 185207048 : i32
+  %d = scalar.constant -2130739456 : i32
+  %packed = vector.from_elements %a, %b, %c, %d : vector<4xi32>
+  %bytes = vector.bitcast %packed : vector<4xi32> to vector<16xi8>
+  %r0 = vector.extract %bytes[0] : vector<16xi8> -> i8
+  %r1 = vector.extract %bytes[1] : vector<16xi8> -> i8
+  %r2 = vector.extract %bytes[2] : vector<16xi8> -> i8
+  %r3 = vector.extract %bytes[3] : vector<16xi8> -> i8
+  %r4 = vector.extract %bytes[4] : vector<16xi8> -> i8
+  %r5 = vector.extract %bytes[5] : vector<16xi8> -> i8
+  %r6 = vector.extract %bytes[6] : vector<16xi8> -> i8
+  %r7 = vector.extract %bytes[7] : vector<16xi8> -> i8
+  %r8 = vector.extract %bytes[8] : vector<16xi8> -> i8
+  %r9 = vector.extract %bytes[9] : vector<16xi8> -> i8
+  %r10 = vector.extract %bytes[10] : vector<16xi8> -> i8
+  %r11 = vector.extract %bytes[11] : vector<16xi8> -> i8
+  %r12 = vector.extract %bytes[12] : vector<16xi8> -> i8
+  %r13 = vector.extract %bytes[13] : vector<16xi8> -> i8
+  %r14 = vector.extract %bytes[14] : vector<16xi8> -> i8
+  %r15 = vector.extract %bytes[15] : vector<16xi8> -> i8
+  func.return %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7, %r8, %r9, %r10, %r11, %r12, %r13, %r14, %r15 : i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8
+}
+
+// ----
+func.def @bitcast_split_integer_lanes() -> (i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8) {
+  %r0 = scalar.constant 0 : i8
+  %r1 = scalar.constant 1 : i8
+  %r2 = scalar.constant 2 : i8
+  %r3 = scalar.constant 3 : i8
+  %r4 = scalar.constant 4 : i8
+  %r5 = scalar.constant 5 : i8
+  %r6 = scalar.constant 6 : i8
+  %r7 = scalar.constant 7 : i8
+  %r8 = scalar.constant 8 : i8
+  %r9 = scalar.constant 9 : i8
+  %r10 = scalar.constant 10 : i8
+  %r11 = scalar.constant 11 : i8
+  %r12 = scalar.constant 0 : i8
+  %r13 = scalar.constant 127 : i8
+  %r14 = scalar.constant -1 : i8
+  %r15 = scalar.constant -128 : i8
+  func.return %r0, %r1, %r2, %r3, %r4, %r5, %r6, %r7, %r8, %r9, %r10, %r11, %r12, %r13, %r14, %r15 : i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8
+}
+
+// ====
+
+// Joining narrow exact lanes uses the same low-lane-first bit order.
+func.def @bitcast_join_integer_lanes() -> (i32, i32, i32, i32) {
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %c2 = scalar.constant 2 : i8
+  %c3 = scalar.constant 3 : i8
+  %c4 = scalar.constant 4 : i8
+  %c5 = scalar.constant 5 : i8
+  %c6 = scalar.constant 6 : i8
+  %c7 = scalar.constant 7 : i8
+  %c8 = scalar.constant 8 : i8
+  %c9 = scalar.constant 9 : i8
+  %c10 = scalar.constant 10 : i8
+  %c11 = scalar.constant 11 : i8
+  %c12 = scalar.constant 12 : i8
+  %c13 = scalar.constant 13 : i8
+  %c14 = scalar.constant 14 : i8
+  %c15 = scalar.constant 15 : i8
+  %bytes = vector.from_elements %c0, %c1, %c2, %c3, %c4, %c5, %c6, %c7, %c8, %c9, %c10, %c11, %c12, %c13, %c14, %c15 : vector<16xi8>
+  %packed = vector.bitcast %bytes : vector<16xi8> to vector<4xi32>
+  %r0 = vector.extract %packed[0] : vector<4xi32> -> i32
+  %r1 = vector.extract %packed[1] : vector<4xi32> -> i32
+  %r2 = vector.extract %packed[2] : vector<4xi32> -> i32
+  %r3 = vector.extract %packed[3] : vector<4xi32> -> i32
+  func.return %r0, %r1, %r2, %r3 : i32, i32, i32, i32
+}
+
+// ----
+func.def @bitcast_join_integer_lanes() -> (i32, i32, i32, i32) {
+  %r0 = scalar.constant 50462976 : i32
+  %r1 = scalar.constant 117835012 : i32
+  %r2 = scalar.constant 185207048 : i32
+  %r3 = scalar.constant 252579084 : i32
+  func.return %r0, %r1, %r2, %r3 : i32, i32, i32, i32
+}
+
+// ====
+
+// One unknown source lane prevents facts from inventing any packed result.
+func.def @bitcast_join_requires_exact_lanes(%dynamic: i8) -> (i32) {
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %c2 = scalar.constant 2 : i8
+  %bytes = vector.from_elements %c0, %c1, %c2, %dynamic : vector<4xi8>
+  %packed = vector.bitcast %bytes : vector<4xi8> to vector<1xi32>
+  %result = vector.extract %packed[0] : vector<1xi32> -> i32
+  func.return %result : i32
 }
 
 // ====
