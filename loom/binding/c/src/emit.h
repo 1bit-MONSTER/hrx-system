@@ -60,7 +60,7 @@ typedef struct loomc_emit_transaction_t {
   // Target emitter selected exactly once for the transaction.
   const loom_target_emitter_t* emitter;
 
-  // Optional report populated by compilation passes and final emission.
+  // Optional report spanning request resolution, compilation, and emission.
   loom_target_compile_report_t compile_report;
 
   // True when |compile_report| owns storage and must be deinitialized.

@@ -59,8 +59,9 @@ typedef enum loomc_compile_report_mode_e {
 /// Compile report emission options.
 ///
 /// Attach this descriptor through `loomc_emit_options_t::next`. The descriptor
-/// controls report production for the emitted target artifact. It does not run
-/// compilation passes, force target analyses, or write filesystem paths.
+/// controls report production for the target-artifact transaction, including
+/// transactions rejected before emission. It does not run compilation passes,
+/// force target analyses, or write filesystem paths.
 typedef struct loomc_compile_report_options_t {
   /// Structure type. Must be `LOOMC_STRUCTURE_TYPE_COMPILE_REPORT_OPTIONS`
   /// when nonzero.
@@ -80,7 +81,9 @@ typedef struct loomc_compile_report_options_t {
 
   /// Result artifact identifier for the compile report. Empty derives from the
   /// emitted artifact identifier by appending `.compile-report.json` or
-  /// `.compile-report.txt` according to `format`.
+  /// `.compile-report.txt` according to `format`. It remains empty when
+  /// compilation fails before selecting an emitter and no artifact identifier
+  /// was provided.
   loomc_string_view_t identifier;
 } loomc_compile_report_options_t;
 

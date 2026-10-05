@@ -374,6 +374,43 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
             "artifact manifests are only valid for loadable kernel formats");
   EXPECT_EQ(loomc_result_artifact_count(manifest_result_owner.get()), 0u);
 
+  const loomc_string_view_t missing_roots[] = {
+      loomc_make_cstring_view("missing"),
+  };
+  loomc_emit_options_t missing_emit_options = emit_options;
+  missing_emit_options.identifier = loomc_make_cstring_view("missing.wasm");
+  loomc_compile_artifact_options_t missing_compile_options = compile_options;
+  missing_compile_options.roots = missing_roots;
+  missing_compile_options.root_count = IREE_ARRAYSIZE(missing_roots);
+  missing_compile_options.excluded_roots = nullptr;
+  missing_compile_options.excluded_root_count = 0;
+  missing_compile_options.emit_options = &missing_emit_options;
+  loomc_result_t* missing_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_artifact(
+      compiler.get(), workspace.get(), /*pass_program=*/nullptr, module.get(),
+      &missing_compile_options, loomc_allocator_system(), &missing_result));
+  ResultPtr missing_result_owner(missing_result);
+  ASSERT_FALSE(loomc_result_succeeded(missing_result_owner.get()));
+  ASSERT_EQ(loomc_result_diagnostic_count(missing_result_owner.get()), 1u);
+  EXPECT_EQ(
+      ToString(loomc_result_diagnostic_at(missing_result_owner.get(), 0)->code),
+      "COMPILE/REQUEST");
+  ASSERT_EQ(loomc_result_artifact_count(missing_result_owner.get()), 1u);
+  const loomc_artifact_t* missing_report =
+      loomc_result_artifact_at(missing_result_owner.get(), 0);
+  ASSERT_NE(missing_report, nullptr);
+  EXPECT_EQ(missing_report->kind, LOOMC_ARTIFACT_KIND_REPORT);
+  EXPECT_EQ(ToString(missing_report->format),
+            LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
+  EXPECT_EQ(ToString(missing_report->identifier),
+            "missing.wasm.compile-report.json");
+  const std::string missing_report_contents =
+      ToString(missing_report->contents);
+  EXPECT_NE(missing_report_contents.find("\"name\":\"FAILED_PRECONDITION\""),
+            std::string::npos);
+  EXPECT_NE(missing_report_contents.find("\"diagnostic_count\":1"),
+            std::string::npos);
+
   loomc_pass_trace_options_t incomplete_artifact_sink = pass_trace_options;
   incomplete_artifact_sink.artifact_sink.close = nullptr;
   loomc_compile_artifact_options_t incomplete_artifact_options =
