@@ -910,6 +910,10 @@ loomc_status_t loomc_compile_artifact(
     return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
                              "module does not contain internal IR");
   }
+  const loomc_config_options_t* config = options ? options->config : NULL;
+  const bool require_resolved_config =
+      config && iree_any_bit_set(config->flags,
+                                 LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED);
 
   loomc_result_t* result = NULL;
   loomc_status_t status =
@@ -925,8 +929,13 @@ loomc_status_t loomc_compile_artifact(
 
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     loomc_module_invalidate_compilation(module);
+    loomc_config_options_t materialization_config =
+        config ? *config : (loomc_config_options_t){0};
+    // Root materialization may prune unresolved config declarations that are
+    // unreachable from the selected program. Validate the survivors below.
+    materialization_config.flags &= ~LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
     const loomc_config_apply_text_to_module_options_t config_apply_options = {
-        .config = options ? options->config : NULL,
+        .config = config ? &materialization_config : NULL,
         .module = internal_module,
         .binding_sink = loomc_module_config_binding_sink(module),
         .result = result,
@@ -1007,6 +1016,15 @@ loomc_status_t loomc_compile_artifact(
     }
     if (loomc_status_is_ok(status) && error_count != 0) {
       status = loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
+    }
+  }
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(result) &&
+      require_resolved_config) {
+    status = loomc_status_from_iree(loom_tooling_config_require_resolved_module(
+        loomc_module_loom_module(module), NULL));
+    if (!loomc_status_is_ok(status)) {
+      status = loomc_compile_fail_result_from_status(
+          result, loomc_make_cstring_view("CONFIG/INVALID"), status);
     }
   }
 

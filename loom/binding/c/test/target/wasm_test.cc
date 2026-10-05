@@ -33,6 +33,8 @@ using TargetProfilePtr =
 using WorkspacePtr = HandlePtr<loomc_workspace_t, loomc_workspace_release>;
 
 constexpr char kSource[] = R"(
+config.decl @dead_config : index
+
 func.def public @sum_to(%value: i32) -> (i32) {
   func.return %value : i32
 }
@@ -44,6 +46,11 @@ func.def public export("artifact_alias") @renamed(%value: i32) -> (i32) {
 
 func.def export("private_alias") @helper(%value: i32) -> (i32) {
   func.return %value : i32
+}
+
+func.def public @dead_config_user() -> (index) {
+  %value = config.get @dead_config : index
+  func.return %value : index
 }
 )";
 
@@ -237,16 +244,25 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.structure_size=*/sizeof(emit_options),
       /*.next=*/&report_options,
   };
+  const loomc_config_options_t config_options = {
+      /*.bindings=*/nullptr,
+      /*.binding_count=*/0,
+      /*.json_object=*/loomc_string_view_empty(),
+      /*.flags=*/LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED,
+  };
+  const loomc_string_view_t excluded_roots[] = {
+      loomc_make_cstring_view("dead_config_user"),
+  };
   const loomc_compile_artifact_options_t compile_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
       /*.structure_size=*/sizeof(compile_options),
       /*.next=*/nullptr,
       /*.roots=*/nullptr,
       /*.root_count=*/0,
-      /*.excluded_roots=*/nullptr,
-      /*.excluded_root_count=*/0,
+      /*.excluded_roots=*/excluded_roots,
+      /*.excluded_root_count=*/IREE_ARRAYSIZE(excluded_roots),
       /*.target_profile=*/target_profile.get(),
-      /*.config=*/nullptr,
+      /*.config=*/&config_options,
       /*.emit_options=*/&emit_options,
   };
   raw_result = nullptr;
@@ -286,6 +302,28 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
             std::string::npos);
   EXPECT_NE(report_contents.find("\"artifact_format\":\"wasm_binary\""),
             std::string::npos);
+
+  // The same unresolved declaration must fail when its root survives.
+  raw_module = nullptr;
+  raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_deserialize_from_source(
+      context.get(), workspace.get(), source.get(), nullptr,
+      loomc_allocator_system(), &raw_module, &raw_result));
+  module.reset(raw_module);
+  result.reset(raw_result);
+  ASSERT_TRUE(Succeeded(result.get()));
+  loomc_compile_artifact_options_t unresolved_compile_options = compile_options;
+  unresolved_compile_options.excluded_roots = nullptr;
+  unresolved_compile_options.excluded_root_count = 0;
+  raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_artifact(
+      compiler.get(), workspace.get(), /*pass_program=*/nullptr, module.get(),
+      &unresolved_compile_options, loomc_allocator_system(), &raw_result));
+  result.reset(raw_result);
+  ASSERT_FALSE(loomc_result_succeeded(result.get()));
+  ASSERT_NE(loomc_result_diagnostic_count(result.get()), 0u);
+  EXPECT_EQ(ToString(loomc_result_diagnostic_at(result.get(), 0)->code),
+            "CONFIG/INVALID");
 }
 
 }  // namespace
