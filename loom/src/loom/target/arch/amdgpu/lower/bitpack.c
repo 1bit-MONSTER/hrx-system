@@ -229,12 +229,15 @@ static iree_status_t loom_amdgpu_extract_vgpr_bitfield_fallback(
   return iree_ok_status();
 }
 
-iree_status_t loom_amdgpu_extract_vgpr_bitfield(
+static iree_status_t loom_amdgpu_extract_vgpr_bitfield(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_source, uint32_t bit_offset, uint32_t bit_count,
     loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,
     loom_value_id_t* out_value) {
   *out_value = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT(loom_amdgpu_low_type_is_register_class(
+      context, lane_type, LOOM_AMDGPU_REG_CLASS_ID_VGPR));
+  IREE_ASSERT_EQ(loom_low_register_type_unit_count(lane_type), 1u);
   IREE_ASSERT(bit_count >= 1 && bit_count <= 32);
   IREE_ASSERT(bit_offset < 32);
   IREE_ASSERT(bit_offset + bit_count <= 32);
@@ -283,6 +286,82 @@ iree_status_t loom_amdgpu_extract_vgpr_bitfield(
   return loom_amdgpu_extract_vgpr_bitfield_fallback(
       context, source_op, low_source, bit_offset, bit_count, mode, lane_type,
       out_value);
+}
+
+static iree_status_t loom_amdgpu_extract_sgpr_bitfield(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_source, uint32_t bit_offset, uint32_t bit_count,
+    loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,
+    loom_value_id_t* out_value) {
+  *out_value = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT(loom_amdgpu_low_type_is_register_class(
+      context, lane_type, LOOM_AMDGPU_REG_CLASS_ID_SGPR));
+  IREE_ASSERT_EQ(loom_low_register_type_unit_count(lane_type), 1u);
+  const loom_type_t source_type = loom_module_value_type(
+      loom_low_lower_context_module(context), low_source);
+  IREE_ASSERT(loom_amdgpu_low_type_is_register_class(
+      context, source_type, LOOM_AMDGPU_REG_CLASS_ID_SGPR));
+  IREE_ASSERT_EQ(loom_low_register_type_unit_count(source_type), 1u);
+
+  if (bit_offset == 0 &&
+      (bit_count == 32 ||
+       mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED)) {
+    *out_value = low_source;
+    return iree_ok_status();
+  }
+
+  if (mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_RAW_SHIFTED ||
+      (mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_ZERO_EXTEND &&
+       loom_amdgpu_bitfield_is_top_aligned(bit_offset, bit_count))) {
+    return loom_amdgpu_emit_sgpr_binary_immediate(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_LSHR_B32, low_source,
+        bit_offset, lane_type, out_value);
+  }
+  if (mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND &&
+      loom_amdgpu_bitfield_is_top_aligned(bit_offset, bit_count)) {
+    return loom_amdgpu_emit_sgpr_binary_immediate(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_ASHR_I32, low_source,
+        bit_offset, lane_type, out_value);
+  }
+
+  const loom_amdgpu_descriptor_ref_t descriptor_ref =
+      mode == LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND
+          ? LOOM_AMDGPU_DESCRIPTOR_REF_S_BFE_I32_LIT
+          : LOOM_AMDGPU_DESCRIPTOR_REF_S_BFE_U32_LIT;
+  const uint32_t control = bit_offset | (bit_count << 8u);
+  loom_named_attr_t attrs[1] = {0};
+  iree_host_size_t attr_count = 0;
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_append_i64_attr(context, IREE_SV("imm32"), control, attrs,
+                                  IREE_ARRAYSIZE(attrs), &attr_count));
+  const loom_value_id_t operands[] = {low_source};
+  loom_op_t* low_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_op(
+      context, source_op, descriptor_ref, operands, IREE_ARRAYSIZE(operands),
+      loom_make_named_attr_slice(attrs, attr_count), &lane_type, 1, &low_op));
+  *out_value = loom_value_slice_get(loom_low_op_results(low_op), 0);
+  return iree_ok_status();
+}
+
+iree_status_t loom_amdgpu_extract_register_bitfield(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_source, uint32_t bit_offset, uint32_t bit_count,
+    loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,
+    loom_value_id_t* out_value) {
+  IREE_ASSERT(bit_count >= 1 && bit_count <= 32);
+  IREE_ASSERT(bit_offset < 32);
+  IREE_ASSERT(bit_offset + bit_count <= 32);
+  if (loom_amdgpu_low_type_is_register_class(context, lane_type,
+                                             LOOM_AMDGPU_REG_CLASS_ID_SGPR)) {
+    return loom_amdgpu_extract_sgpr_bitfield(context, source_op, low_source,
+                                             bit_offset, bit_count, mode,
+                                             lane_type, out_value);
+  }
+  IREE_ASSERT(loom_amdgpu_low_type_is_register_class(
+      context, lane_type, LOOM_AMDGPU_REG_CLASS_ID_VGPR));
+  return loom_amdgpu_extract_vgpr_bitfield(context, source_op, low_source,
+                                           bit_offset, bit_count, mode,
+                                           lane_type, out_value);
 }
 
 iree_status_t loom_amdgpu_pack_bits_into_register(
@@ -484,7 +563,7 @@ static iree_status_t loom_amdgpu_emit_bitunpacku_lane(
     const loom_amdgpu_bitunpack_plan_t* plan, loom_value_id_t low_source,
     uint32_t source_bit_offset, loom_type_t lane_type,
     loom_value_id_t* out_lane) {
-  return loom_amdgpu_extract_vgpr_bitfield(
+  return loom_amdgpu_extract_register_bitfield(
       context, source_op, low_source, source_bit_offset, plan->width,
       LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_ZERO_EXTEND, lane_type, out_lane);
 }
@@ -494,7 +573,7 @@ static iree_status_t loom_amdgpu_emit_bitunpacks_lane(
     const loom_amdgpu_bitunpack_plan_t* plan, loom_value_id_t low_source,
     uint32_t source_bit_offset, loom_type_t lane_type,
     loom_value_id_t* out_lane) {
-  return loom_amdgpu_extract_vgpr_bitfield(
+  return loom_amdgpu_extract_register_bitfield(
       context, source_op, low_source, source_bit_offset, plan->width,
       LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND, lane_type, out_lane);
 }

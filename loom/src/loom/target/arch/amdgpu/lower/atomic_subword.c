@@ -224,7 +224,7 @@ iree_status_t loom_amdgpu_emit_subword_cmpxchg(
                                     loom_type_element_type(source_type))
           ? LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND
           : LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_ZERO_EXTEND;
-  return loom_amdgpu_extract_vgpr_bitfield(context, source_op, shifted_old,
-                                           /*bit_offset=*/0, bit_count,
-                                           extract_mode, vgpr_type, out_old);
+  return loom_amdgpu_extract_register_bitfield(
+      context, source_op, shifted_old, /*bit_offset=*/0, bit_count,
+      extract_mode, vgpr_type, out_old);
 }

@@ -202,7 +202,7 @@ iree_status_t loom_amdgpu_lower_index_cast(
       IREE_RETURN_IF_ERROR(loom_amdgpu_low_result_type(
           context, source_op, plan->result, &result_type));
       loom_value_id_t low_result = LOOM_VALUE_ID_INVALID;
-      IREE_RETURN_IF_ERROR(loom_amdgpu_extract_vgpr_bitfield(
+      IREE_RETURN_IF_ERROR(loom_amdgpu_extract_register_bitfield(
           context, source_op, low_source, 0, plan->payload_bit_count,
           LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND, result_type,
           &low_result));

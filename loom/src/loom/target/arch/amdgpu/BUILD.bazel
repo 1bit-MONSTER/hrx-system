@@ -591,6 +591,10 @@ loom_check_test_suite(
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",
         ],
+        "test/source_low/source_low_uniform_vector_extract.loom-test": [
+            "//loom/target/amdgpu:" + target
+            for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+        ],
         "test/source_low/uniform_packed_memory.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS

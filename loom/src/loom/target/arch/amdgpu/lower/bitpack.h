@@ -60,10 +60,11 @@ typedef enum loom_amdgpu_bitfield_extract_mode_e {
   LOOM_AMDGPU_BITFIELD_EXTRACT_MODE_SIGN_EXTEND,
 } loom_amdgpu_bitfield_extract_mode_t;
 
-// Extracts a bitfield from an SGPR or VGPR word into a VGPR of |lane_type|.
-// Packet forms accepting scalar sources use them directly; vector-only forms
-// materialize the source in a VGPR before extraction.
-iree_status_t loom_amdgpu_extract_vgpr_bitfield(
+// Extracts a bitfield from an SGPR or VGPR word into |lane_type|. SGPR results
+// retain uniform values in SALU instructions. VGPR results use packet forms
+// accepting scalar sources directly when available and otherwise materialize
+// the source in a VGPR before extraction.
+iree_status_t loom_amdgpu_extract_register_bitfield(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t low_source, uint32_t bit_offset, uint32_t bit_count,
     loom_amdgpu_bitfield_extract_mode_t mode, loom_type_t lane_type,
