@@ -6493,6 +6493,134 @@ def _v_cmp_float_overlays(bit_width: int) -> tuple[AmdgpuDescriptorOverlay, ...]
     )
 
 
+_V_CMP_CLASS_MASK_SOURCE_SIZE_REASON = (
+    "classification-mask-reads-low-10-bits-of-b32-source"
+)
+
+
+def _v_cmp_class_overlay(
+    bit_width: int, *, include_literal_form: bool = True
+) -> AmdgpuDescriptorOverlay:
+    descriptor_key = f"amdgpu.v_cmp_class_f{bit_width}"
+    operand_forms = (
+        _literal_operand_form(
+            replacement_descriptor=f"{descriptor_key}.classes_inline",
+            source_operand="classes",
+            immediate_field="classes",
+        ),
+    )
+    if include_literal_form:
+        operand_forms += (
+            _literal_operand_form(
+                replacement_descriptor=f"{descriptor_key}.classes_lit",
+                source_operand="classes",
+            ),
+        )
+    return AmdgpuDescriptorOverlay(
+        descriptor_key=descriptor_key,
+        instruction_name=f"V_CMP_CLASS_F{bit_width}",
+        mnemonic=f"v_cmp_class_f{bit_width}",
+        encoding_name="ENC_VOP3",
+        semantic_tag=f"cmp.f{bit_width}.class",
+        schedule_class=_SCHEDULE_VALU,
+        operands=(
+            AmdgpuOperandOverlay("VDST", _sgpr_result("mask", units=2)),
+            AmdgpuOperandOverlay(
+                "SRC0",
+                _f16_vgpr_operand("input")
+                if bit_width == 16
+                else _vgpr_operand("input", units=bit_width // 32),
+            ),
+            AmdgpuOperandOverlay(
+                "SRC1",
+                _sgpr_operand("classes"),
+                size_exception_reason=(
+                    _V_CMP_CLASS_MASK_SOURCE_SIZE_REASON if bit_width == 16 else None
+                ),
+            ),
+        ),
+        operand_forms=operand_forms,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _v_cmp_class_inline_overlay(bit_width: int) -> AmdgpuDescriptorOverlay:
+    return AmdgpuDescriptorOverlay(
+        descriptor_key=f"amdgpu.v_cmp_class_f{bit_width}.classes_inline",
+        instruction_name=f"V_CMP_CLASS_F{bit_width}",
+        mnemonic=f"v_cmp_class_f{bit_width}",
+        encoding_name="ENC_VOP3",
+        semantic_tag=f"cmp.f{bit_width}.class",
+        schedule_class=_SCHEDULE_VALU,
+        operands=(
+            AmdgpuOperandOverlay("VDST", _sgpr_result("mask", units=2)),
+            AmdgpuOperandOverlay(
+                "SRC0",
+                _f16_vgpr_operand("input")
+                if bit_width == 16
+                else _vgpr_operand("input", units=bit_width // 32),
+            ),
+        ),
+        asm_forms=_asm(
+            mnemonic=f"v_cmp_class_f{bit_width}_classes_inline",
+            results=("mask",),
+            operands=("input",),
+            immediates=("classes",),
+            named_immediates=True,
+        ),
+        immediate_fields=("SRC1",),
+        immediates=(replace(_SOURCE_INLINE_U32_IMMEDIATE, field_name="classes"),),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _v_cmp_class_literal_overlay(bit_width: int) -> AmdgpuDescriptorOverlay:
+    return AmdgpuDescriptorOverlay(
+        descriptor_key=f"amdgpu.v_cmp_class_f{bit_width}.classes_lit",
+        instruction_name=f"V_CMP_CLASS_F{bit_width}",
+        mnemonic=f"v_cmp_class_f{bit_width}_classes_lit",
+        encoding_name="ENC_VOP3",
+        encoding_format_id=AMDGPU_ENCODING_FORMAT_VOP3_LITERAL,
+        semantic_tag=f"cmp.f{bit_width}.class",
+        schedule_class=_SCHEDULE_VALU,
+        operands=(
+            AmdgpuOperandOverlay("VDST", _sgpr_result("mask", units=2)),
+            AmdgpuOperandOverlay(
+                "SRC0",
+                _f16_vgpr_operand("input")
+                if bit_width == 16
+                else _vgpr_operand("input", units=bit_width // 32),
+            ),
+        ),
+        asm_forms=_asm(
+            results=("mask",),
+            operands=("input",),
+            immediates=("imm32",),
+        ),
+        immediates=(_LITERAL_U32_IMMEDIATE,),
+        fixed_encoding_fields=(("SRC1", _predefined("SRC_LITERAL", "OPR_SRC")),),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _v_cmp_class_overlays(
+    *, include_literal_forms: bool = True
+) -> tuple[AmdgpuDescriptorOverlay, ...]:
+    return tuple(
+        overlay
+        for bit_width in (16, 32, 64)
+        for overlay in (
+            _v_cmp_class_overlay(bit_width, include_literal_form=include_literal_forms),
+            _v_cmp_class_inline_overlay(bit_width),
+            *(
+                (_v_cmp_class_literal_overlay(bit_width),)
+                if include_literal_forms
+                else ()
+            ),
+        )
+    )
+
+
 def _v_cmp_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
     return (
         tuple(
@@ -7224,6 +7352,10 @@ __all__ = (
     "_v_binary_u32_overlay",
     "_v_binary_vop3_float_overlay",
     "_v_cmp_base_overlays",
+    "_v_cmp_class_inline_overlay",
+    "_v_cmp_class_literal_overlay",
+    "_v_cmp_class_overlay",
+    "_v_cmp_class_overlays",
     "_v_cmp_float_overlay",
     "_v_cmp_f32_source_overlays",
     "_v_cmp_i32_overlay",

@@ -13,6 +13,7 @@ import pytest
 from loom.target.arch.amdgpu.descriptors.alu import (
     _s_and_b64_overlay,
     _s_or_b64_overlay,
+    _v_cmp_class_overlays,
     _v_cmp_overlays,
     _v_mov_b32_copy_overlay,
     _v_readfirstlane_b32_overlay,
@@ -104,6 +105,7 @@ def test_non_lds_packets_keep_their_schedule_classes() -> None:
 def test_compare_and_lane_results_have_scalar_read_separation() -> None:
     producer_overlays = (
         *_v_cmp_overlays(),
+        *_v_cmp_class_overlays(),
         _v_readfirstlane_b32_overlay(),
         _v_readlane_b32_src1_inline_overlay(),
     )
