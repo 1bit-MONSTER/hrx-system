@@ -40,11 +40,6 @@ static inline const loom_target_bundle_t* loom_device_target_bundle(
   return target ? loom_artifact_target_bundle(&target->artifact_target) : NULL;
 }
 
-typedef iree_status_t (*loom_device_provider_select_target_fn_t)(
-    const loom_device_provider_t* provider,
-    const struct loom_run_hal_runtime_t* runtime, iree_allocator_t allocator,
-    loom_device_target_t* out_target);
-
 typedef iree_status_t (*loom_device_provider_select_compatible_target_fn_t)(
     const loom_device_provider_t* provider,
     const struct loom_run_hal_runtime_t* runtime,
@@ -67,8 +62,6 @@ struct loom_device_provider_t {
   const loom_artifact_provider_t* artifact_provider;
   // IREE HAL driver name used to create the runtime device.
   iree_string_view_t driver_name;
-  // Selects a concrete target supported by the active device.
-  loom_device_provider_select_target_fn_t select_target;
   // Selects the most specific concrete device target satisfying an immutable
   // target requirement. NULL represents target-independent code. Facts are
   // borrowed only for the duration of the call and must not be retained.

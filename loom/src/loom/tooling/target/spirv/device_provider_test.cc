@@ -235,9 +235,9 @@ class SpirvDeviceProviderTest : public ::testing::Test {
 
   iree_status_t SelectBaselineTarget() {
     IREE_RETURN_IF_ERROR(InitializeRuntime());
-    IREE_RETURN_IF_ERROR(loom_spirv_vulkan_device_provider.select_target(
-        &loom_spirv_vulkan_device_provider, &runtime_, iree_allocator_system(),
-        &target_));
+    IREE_RETURN_IF_ERROR(loom_device_provider_select_compatible_target(
+        &loom_spirv_vulkan_device_provider, &runtime_,
+        /*target_requirement=*/nullptr, iree_allocator_system(), &target_));
     target_owned_ = true;
     return iree_ok_status();
   }

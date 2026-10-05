@@ -168,13 +168,6 @@ iree_status_t loom_run_hal_execution_backend_probe(
     const loom_run_one_shot_probe_request_t* request) {
   const loom_device_provider_t* device_provider =
       loom_run_hal_execution_backend_device_provider(backend);
-  if (device_provider->select_target == NULL) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "device provider '%.*s' is missing required target "
-                            "selection hook",
-                            (int)device_provider->artifact_provider->name.size,
-                            device_provider->artifact_provider->name.data);
-  }
 
   loom_run_hal_runtime_t runtime = {0};
   loom_device_target_t target = {0};
@@ -185,8 +178,9 @@ iree_status_t loom_run_hal_execution_backend_probe(
   iree_status_t status = loom_run_hal_runtime_initialize(
       &runtime_options, request->host_allocator, &runtime);
   if (iree_status_is_ok(status)) {
-    status = device_provider->select_target(device_provider, &runtime,
-                                            request->host_allocator, &target);
+    status = loom_device_provider_select_compatible_target(
+        device_provider, &runtime, /*target_requirement=*/NULL,
+        request->host_allocator, &target);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_format(

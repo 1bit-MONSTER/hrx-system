@@ -222,14 +222,6 @@ static iree_status_t loom_amdgpu_device_provider_select_compatible_target(
   return status;
 }
 
-static iree_status_t loom_amdgpu_device_provider_select_target(
-    const loom_device_provider_t* provider,
-    const loom_run_hal_runtime_t* runtime, iree_allocator_t allocator,
-    loom_device_target_t* out_target) {
-  return loom_amdgpu_device_provider_select_compatible_target(
-      provider, runtime, /*authored_requirement=*/NULL, allocator, out_target);
-}
-
 static iree_status_t
 loom_amdgpu_device_provider_select_compatible_target_from_facts(
     const loom_device_provider_t* provider,
@@ -296,7 +288,6 @@ static iree_status_t loom_amdgpu_device_provider_select_profile_target(
 const loom_device_provider_t loom_amdgpu_device_provider = {
     .artifact_provider = &loom_amdgpu_artifact_provider,
     .driver_name = IREE_SVL("amdgpu"),
-    .select_target = loom_amdgpu_device_provider_select_target,
     .select_compatible_target =
         loom_amdgpu_device_provider_select_compatible_target_from_facts,
     .select_profile_target = loom_amdgpu_device_provider_select_profile_target,

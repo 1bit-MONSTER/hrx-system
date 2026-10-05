@@ -288,7 +288,6 @@ static const loom_artifact_provider_t kFakeArtifactProvider = {
 static const loom_device_provider_t kFakeDeviceProvider = {
     /*.artifact_provider=*/&kFakeArtifactProvider,
     /*.driver_name=*/IREE_SVL("fake"),
-    /*.select_target=*/FakeHalSelectDeviceTarget,
     /*.select_compatible_target=*/FakeHalSelectCompatibleDeviceTarget,
     /*.select_profile_target=*/FakeHalSelectProfileDeviceTarget,
 };
