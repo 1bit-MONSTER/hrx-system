@@ -669,7 +669,7 @@ static iree_status_t
 loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
     loom_low_allocation_unit_use_index_t* unit_use_index,
     const loom_local_value_domain_t* value_domain,
-    const loom_liveness_analysis_t* liveness,
+    const loom_liveness_analysis_t* liveness, uint32_t operation_index,
     const loom_liveness_operation_point_t* operation_point,
     loom_low_allocation_edge_use_index_t* edge_use_index,
     bool retain_direct_use_flags, iree_arena_allocator_t* arena) {
@@ -751,8 +751,7 @@ loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
       IREE_RETURN_IF_ERROR(
           loom_low_allocation_unit_liveness_note_contiguous_part_uses_at_point(
               unit_use_index, liveness, placement, value_ordinal,
-              (uint32_t)(operation_point - liveness->operation_points),
-              operation_point->start_point, arena));
+              operation_index, operation_point->start_point, arena));
     }
     if (iree_any_bit_set(
             value_state->direct_use_flags,
@@ -1055,11 +1054,10 @@ static iree_status_t loom_low_allocation_unit_liveness_note_operation_unit_uses(
     const loom_low_resolved_target_t* target,
     const loom_local_value_domain_t* value_domain,
     const loom_liveness_analysis_t* liveness, uint32_t operation_index,
+    const loom_liveness_operation_point_t* operation_point,
     bool retain_direct_use_flags,
     loom_low_allocation_edge_use_index_t* edge_use_index,
     iree_arena_allocator_t* arena) {
-  const loom_liveness_operation_point_t* operation_point =
-      &liveness->operation_points[operation_index];
   const loom_op_t* op = operation_point->op;
   if (loom_low_slice_isa(op)) {
     return loom_low_allocation_unit_liveness_note_slice_unit_uses(
@@ -1068,15 +1066,15 @@ static iree_status_t loom_low_allocation_unit_liveness_note_operation_unit_uses(
   }
   IREE_RETURN_IF_ERROR(
       loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
-          unit_use_index, value_domain, liveness, operation_point,
-          edge_use_index, retain_direct_use_flags, arena));
+          unit_use_index, value_domain, liveness, operation_index,
+          operation_point, edge_use_index, retain_direct_use_flags, arena));
   if (loom_low_scf_yield_isa(op) &&
       operation_point->parent_operation_index != UINT32_MAX) {
     const uint32_t parent_operation_index =
         operation_point->parent_operation_index;
     IREE_ASSERT_LT(parent_operation_index, operation_index);
     const loom_liveness_operation_point_t* parent_point =
-        &liveness->operation_points[parent_operation_index];
+        loom_liveness_operation_at(liveness, parent_operation_index);
     if (loom_low_scf_for_isa(parent_point->op) ||
         loom_low_scf_while_isa(parent_point->op)) {
       const loom_region_t* loop_body =
@@ -1215,16 +1213,19 @@ static iree_status_t loom_low_allocation_unit_liveness_note_block_uses(
     const uint32_t operation_end =
         block_info->operation_start + block_info->operation_count;
     for (uint32_t operation_index = block_info->operation_start;
-         operation_index < operation_end; ++operation_index) {
-      const loom_liveness_operation_point_t* operation_point =
-          &liveness->operation_points[operation_index];
-      const bool is_terminator = operation_point->op == terminator;
-      IREE_RETURN_IF_ERROR(
-          loom_low_allocation_unit_liveness_note_operation_unit_uses(
-              unit_use_index, target, value_domain, liveness, operation_index,
-              is_terminator, edge_use_index, arena));
-      if (is_terminator) {
-        terminator_point = operation_point;
+         operation_index < operation_end;) {
+      const loom_liveness_operation_span_t span = loom_liveness_operation_span(
+          liveness, operation_index, operation_end);
+      for (uint32_t i = 0; i < span.count; ++i, ++operation_index) {
+        const loom_liveness_operation_point_t* operation_point = &span.rows[i];
+        const bool is_terminator = operation_point->op == terminator;
+        IREE_RETURN_IF_ERROR(
+            loom_low_allocation_unit_liveness_note_operation_unit_uses(
+                unit_use_index, target, value_domain, liveness, operation_index,
+                operation_point, is_terminator, edge_use_index, arena));
+        if (is_terminator) {
+          terminator_point = operation_point;
+        }
       }
     }
 

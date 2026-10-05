@@ -70,8 +70,8 @@ class LowAllocationMovePlanTest : public ::testing::Test {
         // Independent identity lookup is deliberately confined to the test.
         const loom_liveness_operation_point_t* expected = nullptr;
         for (iree_host_size_t i = 0; i < liveness.operation_count; ++i) {
-          if (liveness.operation_points[i].op == op) {
-            expected = &liveness.operation_points[i];
+          if (loom_liveness_operation_at(&liveness, i)->op == op) {
+            expected = loom_liveness_operation_at(&liveness, i);
             break;
           }
         }

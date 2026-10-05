@@ -950,6 +950,7 @@ loom_cc_test(
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::analysis::liveness
     loom::codegen::low::builder
     loom::ir
     loom::ops::low

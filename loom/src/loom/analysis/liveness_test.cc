@@ -6,6 +6,7 @@
 
 #include "loom/analysis/liveness.h"
 
+#include <algorithm>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -217,14 +218,16 @@ func.def @linear(%a: i32, %b: i32) -> (i32) {
   EXPECT_EQ(dead_interval->end_point, 2u);
 
   ASSERT_EQ(analysis.operation_count, 3u);
-  EXPECT_EQ(analysis.operation_points[0].op, add);
-  EXPECT_EQ(analysis.operation_points[0].parent_operation_index, UINT32_MAX);
-  EXPECT_EQ(analysis.operation_points[0].start_point, 0u);
-  EXPECT_EQ(analysis.operation_points[0].end_point, 1u);
-  EXPECT_EQ(analysis.operation_points[0].direct_use_count, 2u);
-  EXPECT_EQ(analysis.operation_points[0].use_count, 2u);
-  EXPECT_EQ(analysis.operation_points[1].op, dead_add);
-  EXPECT_EQ(analysis.operation_points[2].op, loom_block_const_op(entry, 2));
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->op, add);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->parent_operation_index,
+            UINT32_MAX);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->start_point, 0u);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->end_point, 1u);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->direct_use_count, 2u);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->use_count, 2u);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 1)->op, dead_add);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 2)->op,
+            loom_block_const_op(entry, 2));
   EXPECT_EQ(analysis.operation_use_count, 5u);
   EXPECT_EQ(loom_liveness_operation_use_ordinal(&analysis, 0),
             FindValueOrdinal(analysis, args[0]));
@@ -275,9 +278,9 @@ func.def @ordered(%a: i32, %b: i32) -> (i32) {
   ASSERT_EQ(analysis.blocks[0].operation_start, 0u);
   ASSERT_EQ(analysis.blocks[0].operation_count, IREE_ARRAYSIZE(ordered_ops));
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(ordered_ops); ++i) {
-    EXPECT_EQ(analysis.operation_points[i].op, ordered_ops[i]);
-    EXPECT_EQ(analysis.operation_points[i].start_point, i);
-    EXPECT_EQ(analysis.operation_points[i].end_point, i + 1u);
+    EXPECT_EQ(loom_liveness_operation_at(&analysis, i)->op, ordered_ops[i]);
+    EXPECT_EQ(loom_liveness_operation_at(&analysis, i)->start_point, i);
+    EXPECT_EQ(loom_liveness_operation_at(&analysis, i)->end_point, i + 1u);
     for (uint16_t result_index = 0; result_index < ordered_ops[i]->result_count;
          ++result_index) {
       const auto* interval = loom_liveness_interval_for_value(
@@ -299,8 +302,8 @@ func.def @distinct_uses(%a: i32) -> (i32) {
   loom_liveness_analysis_t analysis = AnalyzeBody(module.get(), func);
 
   ASSERT_EQ(analysis.operation_count, 2u);
-  EXPECT_EQ(analysis.operation_points[0].direct_use_count, 1u);
-  EXPECT_EQ(analysis.operation_points[0].use_count, 1u);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->direct_use_count, 1u);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 0)->use_count, 1u);
   EXPECT_EQ(analysis.operation_use_count, 2u);
 }
 
@@ -594,7 +597,7 @@ TEST_P(LivenessStorageFailureTest, BackingFailureLeavesNoPublishedAnalysis) {
     EXPECT_EQ(analysis.segments, nullptr);
     EXPECT_EQ(analysis.segment_count, 0u);
     EXPECT_EQ(analysis.intervals, nullptr);
-    EXPECT_EQ(analysis.operation_points, nullptr);
+    EXPECT_EQ(analysis.operations, nullptr);
     failure_index_ = SIZE_MAX;
     iree_arena_reset(&result_arena_);
     IREE_ASSERT_OK(loom_liveness_analyze_region(module_.get(), body_,
@@ -606,6 +609,178 @@ TEST_P(LivenessStorageFailureTest, BackingFailureLeavesNoPublishedAnalysis) {
 INSTANTIATE_TEST_SUITE_P(Construction, LivenessStorageFailureTest,
                          ::testing::Values(std::make_tuple(1025, 8, 128 * 1024),
                                            std::make_tuple(1, 800, 32 * 1024)));
+
+class LivenessOperationStorageTest
+    : public LivenessStorageTest,
+      public ::testing::WithParamInterface<uint32_t> {
+ protected:
+  void BuildOperationUses(uint32_t operation_count) {
+    ASSERT_NO_FATAL_FAILURE(BuildChain(1, 1, 1));
+    auto* entry = loom_region_entry_block(body_);
+    loom_builder_t builder;
+    loom_builder_initialize(module_.get(), &module_->arena, entry, &builder);
+    loom_builder_set_before(&builder, entry->last_op);
+    for (uint32_t i = 1; i < operation_count; ++i) {
+      loom_op_t* use = nullptr;
+      IREE_ASSERT_OK(loom_test_use_build(&builder, entry->arg_ids, 1,
+                                         LOOM_LOCATION_UNKNOWN, &use));
+    }
+  }
+};
+
+TEST_P(LivenessOperationStorageTest, StableAcceptedOrderAndPoolReuse) {
+  ASSERT_NO_FATAL_FAILURE(BuildOperationUses(GetParam()));
+  const auto* entry = loom_region_const_entry_block(body_);
+  std::vector<const loom_op_t*> operations;
+  const loom_op_t* op = nullptr;
+  loom_block_for_each_op(entry, op) { operations.push_back(op); }
+  // Independent sinks can appear in any accepted order. Keep the terminator
+  // last while forcing row identities to differ from source order.
+  std::reverse(operations.begin(), operations.end() - 1);
+  const loom_liveness_block_order_t block_order = {entry, operations.data(),
+                                                   operations.size()};
+  const loom_liveness_order_t order = {&block_order, 1};
+  iree_host_size_t allocation_count = 0;
+  for (uint32_t pass = 0; pass < 2; ++pass) {
+    loom_liveness_analysis_t analysis = {};
+    IREE_ASSERT_OK(loom_liveness_analyze_region_with_order(
+        module_.get(), body_, order, &result_arena_, &analysis));
+    ASSERT_EQ(analysis.operation_count, operations.size());
+    ASSERT_EQ(analysis.operation_use_count, operations.size());
+    std::vector<const loom_liveness_operation_point_t*> rows;
+    for (uint32_t i = 0; i < analysis.operation_count; ++i) {
+      const auto* row = loom_liveness_operation_at(&analysis, i);
+      rows.push_back(row);
+      EXPECT_EQ(row->op, operations[i]);
+      EXPECT_EQ(row->parent_operation_index, UINT32_MAX);
+      EXPECT_EQ(row->start_point, i);
+      EXPECT_EQ(row->end_point, i + 1u);
+      EXPECT_EQ(row->direct_use_count, 1u);
+      EXPECT_EQ(row->use_count, 1u);
+      EXPECT_EQ(analysis.value_ids[loom_liveness_operation_use_ordinal(
+                    &analysis, row->use_start)],
+                entry->arg_ids[0]);
+    }
+    for (uint32_t start : {0u, GetParam() / 2, GetParam() - 1}) {
+      for (uint32_t end : {start + 1, GetParam()}) {
+        for (uint32_t index = start; index < end;) {
+          const auto span = loom_liveness_operation_span(&analysis, index, end);
+          ASSERT_GT(span.count, 0u);
+          ASSERT_LE(span.count, end - index);
+          for (uint32_t i = 0; i < span.count; ++i) {
+            EXPECT_EQ(&span.rows[i], rows[index + i]);
+            EXPECT_EQ(span.rows[i].op, operations[index + i]);
+          }
+          index += span.count;
+        }
+      }
+    }
+    // Borrow returned construction blocks while all published row pointers
+    // remain live. No address depends on the scratch arena's former contents.
+    iree_arena_allocator_t scratch;
+    iree_arena_initialize(&result_pool_, &scratch);
+    void* payload = nullptr;
+    IREE_ASSERT_OK(iree_arena_allocate(&scratch, 4096, &payload));
+    memset(payload, 0xA5, 4096);
+    for (uint32_t i = 0; i < rows.size(); ++i) {
+      EXPECT_EQ(rows[i], loom_liveness_operation_at(&analysis, i));
+      EXPECT_EQ(rows[i]->op, operations[i]);
+    }
+    iree_arena_deinitialize(&scratch);
+    iree_arena_block_pool_statistics_t statistics = {};
+    iree_arena_block_pool_query_statistics(&result_pool_, &statistics);
+    EXPECT_EQ(statistics.oversized_allocation_count, 0u);
+    if (pass == 0) {
+      allocation_count = allocation_count_;
+    } else {
+      EXPECT_EQ(allocation_count_, allocation_count);
+    }
+    iree_arena_reset(&result_arena_);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(OperationSegments, LivenessOperationStorageTest,
+                         ::testing::Values(1, 127, 128, 129, 2048, 2049, 4097,
+                                           65537));
+
+TEST_F(LivenessOperationStorageTest,
+       EveryBackingFailureKeepsResultUnpublished) {
+  ASSERT_NO_FATAL_FAILURE(BuildOperationUses(2049));
+  DeinitializeStorage();
+  InitializeStorage(8 * 1024);
+  loom_liveness_analysis_t analysis = {};
+  IREE_ASSERT_OK(loom_liveness_analyze_region(module_.get(), body_,
+                                              &result_arena_, &analysis));
+  const auto allocation_count = allocation_count_;
+  for (iree_host_size_t i = 0; i < allocation_count; ++i) {
+    SCOPED_TRACE(i);
+    DeinitializeStorage();
+    InitializeStorage(8 * 1024);
+    failure_index_ = i;
+    IREE_ASSERT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
+                          loom_liveness_analyze_region(
+                              module_.get(), body_, &result_arena_, &analysis));
+    EXPECT_EQ(allocation_count_, i + 1);
+    EXPECT_EQ(analysis.operations, nullptr);
+    EXPECT_EQ(analysis.operation_count, 0u);
+    EXPECT_EQ(analysis.operation_use_count, 0u);
+    failure_index_ = SIZE_MAX;
+    iree_arena_reset(&result_arena_);
+    IREE_ASSERT_OK(loom_liveness_analyze_region(module_.get(), body_,
+                                                &result_arena_, &analysis));
+    EXPECT_EQ(loom_liveness_operation_at(&analysis, 2048)->op,
+              loom_region_const_entry_block(body_)->last_op);
+  }
+}
+
+TEST_F(LivenessOperationStorageTest, ParentCompletionCrossesRowSegments) {
+  ASSERT_NO_FATAL_FAILURE(BuildChain(1, 1, 1));
+  auto* entry = loom_region_entry_block(body_);
+  loom_builder_t builder;
+  loom_builder_initialize(module_.get(), &module_->arena, entry, &builder);
+  loom_builder_set_before(&builder, entry->last_op);
+  loom_op_t* parent = nullptr;
+  IREE_ASSERT_OK(loom_test_block_args_build(&builder, entry->arg_ids, 1,
+                                            LOOM_LOCATION_UNKNOWN, &parent));
+  auto* nested_region = loom_test_block_args_body(parent);
+  auto saved = loom_builder_enter_region(&builder, parent, nested_region);
+  const auto nested_value = loom_block_arg_id(builder.ip.block, 0);
+  const loom_value_id_t inputs[] = {nested_value, entry->arg_ids[0]};
+  for (uint32_t i = 0; i < 2048; ++i) {
+    loom_op_t* use = nullptr;
+    IREE_ASSERT_OK(loom_test_use_build(&builder, inputs, IREE_ARRAYSIZE(inputs),
+                                       LOOM_LOCATION_UNKNOWN, &use));
+  }
+  loom_op_t* yield = nullptr;
+  IREE_ASSERT_OK(loom_test_yield_build(&builder, nullptr, 0,
+                                       LOOM_LOCATION_UNKNOWN, &yield));
+  loom_builder_restore(&builder, saved);
+  loom_local_value_domain_t domain = {};
+  IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region_tree(
+      module_.get(), body_, &result_arena_, &domain));
+  loom_liveness_analysis_t analysis = {};
+  IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
+      &domain, loom_liveness_order_empty(), &result_arena_, &analysis));
+  loom_local_value_domain_release(&domain);
+  ASSERT_EQ(analysis.operation_count, 2051u);
+  const auto* parent_row = loom_liveness_operation_at(&analysis, 0);
+  EXPECT_EQ(parent_row->op, parent);
+  EXPECT_EQ(parent_row->start_point, 0u);
+  EXPECT_EQ(parent_row->end_point, 2051u);
+  EXPECT_EQ(parent_row->direct_use_count, 1u);
+  EXPECT_EQ(parent_row->use_count, 2u);
+  for (uint32_t i = 1; i < 2050; ++i) {
+    const auto* row = loom_liveness_operation_at(&analysis, i);
+    EXPECT_EQ(row->parent_operation_index, 0u);
+    EXPECT_EQ(row->start_point, i);
+    EXPECT_EQ(row->end_point, i + 1u);
+  }
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 2049)->op, yield);
+  const auto* return_row = loom_liveness_operation_at(&analysis, 2050);
+  EXPECT_EQ(return_row->op, entry->last_op);
+  EXPECT_EQ(return_row->parent_operation_index, UINT32_MAX);
+  EXPECT_EQ(return_row->start_point, parent_row->end_point);
+}
 
 class LivenessIntervalStorageTest
     : public LivenessStorageTest,
@@ -776,7 +951,7 @@ func.def @type_ref(%N: index, %v: vector<[%N]xi32>) -> (vector<[%N]xi32>) {
 
   ASSERT_EQ(analysis.operation_count, 1u);
   const loom_liveness_operation_point_t& return_point =
-      analysis.operation_points[0];
+      *loom_liveness_operation_at(&analysis, 0);
   ASSERT_EQ(return_point.direct_use_count, 2u);
   ASSERT_EQ(return_point.use_count, 2u);
   EXPECT_EQ(
@@ -866,7 +1041,7 @@ func.def @region_tree_pressure(%input: tile<4xf32>, %bias: f32) -> (tile<4xf32>)
 
   ASSERT_EQ(analysis.operation_count, 7u);
   const loom_liveness_operation_point_t& map_point =
-      analysis.operation_points[0];
+      *loom_liveness_operation_at(&analysis, 0);
   EXPECT_EQ(map_point.parent_operation_index, UINT32_MAX);
   ASSERT_GT(map_point.use_count, map_point.direct_use_count);
   uint16_t arg_count = 0;
@@ -881,9 +1056,11 @@ func.def @region_tree_pressure(%input: tile<4xf32>, %bias: f32) -> (tile<4xf32>)
   }
   EXPECT_EQ(bias_capture_count, 1u);
   for (uint32_t i = 1; i < 6; ++i) {
-    EXPECT_EQ(analysis.operation_points[i].parent_operation_index, 0u);
+    EXPECT_EQ(loom_liveness_operation_at(&analysis, i)->parent_operation_index,
+              0u);
   }
-  EXPECT_EQ(analysis.operation_points[6].parent_operation_index, UINT32_MAX);
+  EXPECT_EQ(loom_liveness_operation_at(&analysis, 6)->parent_operation_index,
+            UINT32_MAX);
 
   const loom_region_t* nested_region = loom_op_regions(map_point.op)[0];
   const loom_block_t* nested_block =
@@ -899,7 +1076,7 @@ func.def @region_tree_pressure(%input: tile<4xf32>, %bias: f32) -> (tile<4xf32>)
   ASSERT_NE(mapped_interval, nullptr);
   ASSERT_NE(bias_interval, nullptr);
   EXPECT_EQ(element_interval->definition_point,
-            analysis.operation_points[1].start_point);
+            loom_liveness_operation_at(&analysis, 1)->start_point);
   EXPECT_EQ(mapped_interval->definition_point, map_point.end_point);
   EXPECT_EQ(bias_interval->definition_point, 0u);
 

@@ -9,6 +9,7 @@
 #include "iree/base/internal/arena.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/analysis/liveness.h"
 #include "loom/codegen/low/builder.h"
 #include "loom/ir/context.h"
 #include "loom/ir/local_value_domain.h"
@@ -176,29 +177,12 @@ TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
   IREE_ASSERT_OK(loom_low_build_resolved_descriptor_op(
       &builder, &descriptors, &descriptor, 0, nullptr, 0, {}, &type, 1, nullptr,
       0, LOOM_LOCATION_UNKNOWN, &op));
-  const auto value = loom_op_results(op)[0];
   loom_local_value_domain_t domain = {};
-  AcquireValueDomain(module, &value, 1, &domain);
-  const auto interval = RegisterInterval(value, 1, 1, 1);
-  const uint32_t interval_index = 0;
-  loom_liveness_operation_point_t point = {};
-  point.op = op;
-  point.parent_operation_index = UINT32_MAX;
-  point.end_point = 1;
-  loom_liveness_block_info_t block = {};
-  block.block = loom_module_block(module);
-  block.end_point = 1;
-  block.operation_count = 1;
+  IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region(
+      module, module->body, &arena_, &domain));
   loom_liveness_analysis_t liveness = {};
-  liveness.value_count = 1;
-  liveness.value_ids = &value;
-  liveness.value_interval_indices = &interval_index;
-  liveness.intervals = &interval;
-  liveness.interval_count = 1;
-  liveness.operation_points = &point;
-  liveness.operation_count = 1;
-  liveness.blocks = &block;
-  liveness.block_count = 1;
+  IREE_ASSERT_OK(loom_liveness_analyze_local_value_domain(
+      &domain, loom_liveness_order_empty(), &arena_, &liveness));
   loom_low_allocation_unit_liveness_t result = {};
   loom_cfg_graph_t cfg_graph = {};
   IREE_ASSERT_OK(

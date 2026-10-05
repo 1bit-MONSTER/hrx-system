@@ -218,13 +218,15 @@ class WriteInterferenceTest : public ::testing::Test {
         &target_, &placement_, &liveness_, &decision_, &table_));
     IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_note_operand(
         table_, &domain_, &descriptor_set_, &descriptors_[0], reader_, 0,
-        liveness_.operation_points[0].start_point + 1, &decision_));
+        loom_liveness_operation_at(&liveness_, 0)->start_point + 1,
+        &decision_));
     if (kind_ != WriteKind::None) {
       const auto* descriptor = &descriptors_[kind_ == WriteKind::Copy ? 2 : 1];
       IREE_RETURN_IF_ERROR(loom_low_allocation_write_interference_note_operand(
           table_, &domain_, &descriptor_set_, descriptor,
-          liveness_.operation_points[1].op, 0,
-          liveness_.operation_points[1].start_point + 1, &decision_));
+          loom_liveness_operation_at(&liveness_, 1)->op, 0,
+          loom_liveness_operation_at(&liveness_, 1)->start_point + 1,
+          &decision_));
     }
     if (binding != BindingKind::Free) {
       assignments_[2].location_base = assignments_[0].location_base;
@@ -370,8 +372,9 @@ TEST_F(WriteInterferenceTest, UnconditionalWriteKeepsItsFullExtent) {
   EXPECT_EQ(Query(1, 10), LOOM_VALUE_ORDINAL_INVALID);
 }
 
-TEST_F(WriteInterferenceTest, ForcedAliasRetainsBidirectionalCopyEquation) {
-  Initialize(129, WriteKind::Copy);
+TEST_P(WriteInterferenceBoundaryTest,
+       ForcedAliasRetainsBidirectionalCopyEquation) {
+  Initialize(GetParam(), WriteKind::Copy);
   ResetArenas();
   IREE_ASSERT_OK(BuildTable(BindingKind::AliasedDestination));
   ExpectScratchPreserved();
@@ -383,8 +386,8 @@ TEST_F(WriteInterferenceTest, ForcedAliasRetainsBidirectionalCopyEquation) {
             LOOM_VALUE_ORDINAL_INVALID);
 }
 
-TEST_F(WriteInterferenceTest, CompletedCopiesDoNotEnterTheFinalIndex) {
-  Initialize(129, WriteKind::Copy);
+TEST_P(WriteInterferenceBoundaryTest, CompletedCopiesDoNotEnterTheFinalIndex) {
+  Initialize(GetParam(), WriteKind::Copy);
   ResetArenas();
   IREE_ASSERT_OK(BuildTable(BindingKind::ForcedWrite));
   ExpectScratchPreserved();
