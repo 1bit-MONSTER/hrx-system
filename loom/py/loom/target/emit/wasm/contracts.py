@@ -67,7 +67,7 @@ from loom.target.contracts.templates import (
     ReductionDescriptorCase,
     reduction_descriptor_rules,
 )
-from loom.target.emit.wasm.f32_narrowing import f32_narrowing_rules
+from loom.target.emit.wasm.float_narrowing import float_narrowing_rules
 from loom.target.low_descriptors import Descriptor
 
 _I1 = Scalar("i1")
@@ -1301,8 +1301,20 @@ WASM_CORE_SIMD128_CONTRACT_FRAGMENT = ContractFragment(
             for result_type, result_type_name in ((_F32, "f32"), (_F64, "f64"))
             for signedness in ("s", "u")
         ),
+        _conversion_rule(
+            scalar_conversion.scalar_extf,
+            _F32,
+            _F64,
+            "wasm.f64.promote_f32",
+        ),
+        _conversion_rule(
+            scalar_conversion.scalar_fptrunc,
+            _F64,
+            _F32,
+            "wasm.f32.demote_f64",
+        ),
         _bf16_to_f32_rule(),
-        *f32_narrowing_rules(_descriptor, _value_type),
+        *float_narrowing_rules(_descriptor, _value_type),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E4M3, _I8),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _I8, _F8E4M3),
         _conversion_alias_rule(scalar_conversion.scalar_bitcast, _F8E5M2, _I8),

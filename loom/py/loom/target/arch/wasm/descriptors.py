@@ -295,10 +295,12 @@ _OP_F32_CONVERT_I32_S = 0xB2
 _OP_F32_CONVERT_I32_U = 0xB3
 _OP_F32_CONVERT_I64_S = 0xB4
 _OP_F32_CONVERT_I64_U = 0xB5
+_OP_F32_DEMOTE_F64 = 0xB6
 _OP_F64_CONVERT_I32_S = 0xB7
 _OP_F64_CONVERT_I32_U = 0xB8
 _OP_F64_CONVERT_I64_S = 0xB9
 _OP_F64_CONVERT_I64_U = 0xBA
+_OP_F64_PROMOTE_F32 = 0xBB
 _OP_I32_REINTERPRET_F32 = 0xBC
 _OP_I64_REINTERPRET_F64 = 0xBD
 _OP_F32_REINTERPRET_I32 = 0xBE
@@ -514,6 +516,31 @@ def _integer_to_float_descriptor(
         ),
         encoding_id=encoding_id,
         operands=(result, integer_operand),
+        asm_forms=_asm(results=("dst",), operands=("input",)),
+        schedule_class=schedule_class,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _float_width_descriptor(
+    source_type: str,
+    result_type: str,
+    operation: str,
+    encoding_id: int,
+) -> Descriptor:
+    source = _f32_operand("input") if source_type == "f32" else _f64_operand("input")
+    if result_type == "f32":
+        result = _f32_result()
+        schedule_class = _SCHEDULE_SCALAR_F32
+    else:
+        result = _f64_result()
+        schedule_class = _SCHEDULE_SCALAR_F64
+    return Descriptor(
+        key=f"wasm.{result_type}.{operation}_{source_type}",
+        mnemonic=f"{result_type}.{operation}_{source_type}",
+        semantic_tag=f"convert.float.{source_type}.{result_type}",
+        encoding_id=encoding_id,
+        operands=(result, source),
         asm_forms=_asm(results=("dst",), operands=("input",)),
         schedule_class=schedule_class,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
@@ -994,6 +1021,8 @@ WASM_CORE_SIMD128_DESCRIPTOR_SET = DescriptorSet(
                 ("i64", "f64", "u", _OP_F64_CONVERT_I64_U),
             )
         ),
+        _float_width_descriptor("f64", "f32", "demote", _OP_F32_DEMOTE_F64),
+        _float_width_descriptor("f32", "f64", "promote", _OP_F64_PROMOTE_F32),
         Descriptor(
             key="wasm.i64.reinterpret_f64",
             mnemonic="i64.reinterpret_f64",

@@ -1,0 +1,138 @@
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+// All strict destinations share one split-word classification and RNE
+// mechanism while retaining their distinct overflow and NaN policies.
+kernel.def @narrow_float64() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %brain_output: buffer, %e4m3_output: buffer, %e5m2_output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<1xf64>
+  %source = view.load %input_view[0] : view<1xf64> -> f64
+  %brain = scalar.fptrunc %source : f64 to bf16
+  %e4m3 = scalar.fptrunc %source : f64 to f8E4M3
+  %e5m2 = scalar.fptrunc %source : f64 to f8E5M2
+  %brain_view = buffer.view %brain_output[%base] : buffer -> view<1xbf16>
+  view.store %brain, %brain_view[0] : bf16, view<1xbf16>
+  %e4m3_view = buffer.view %e4m3_output[%base] : buffer -> view<1xf8E4M3>
+  view.store %e4m3, %e4m3_view[0] : f8E4M3, view<1xf8E4M3>
+  %e5m2_view = buffer.view %e5m2_output[%base] : buffer -> view<1xf8E5M2>
+  view.store %e5m2, %e5m2_view[0] : f8E5M2, view<1xf8E5M2>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3_5.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 4, resource_count = 4, resource_offsets = [0, 8, 16, 24], resource_parameter_indices = [0, 1, 2, 3], uses_kernarg_segment_ptr = true}) workgroup_size(1, 1, 1) workgroup_count(1, 1, 1) @narrow_float64() asm {
+  %input_view = resource<hal_binding> {extent = 8, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %brain_view = resource<hal_binding> {extent = 2, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %e4m3_view = resource<hal_binding> {extent = 1, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %e5m2_view = resource<hal_binding> {extent = 1, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %18 = v_mov_b32 0
+  %source = global_load_b64_saddr %18, %input_view
+  %20 = slice %source[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %21 = slice %source[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %22 = v_and_b32_lit %21, 2147483647
+  %23 = v_and_b32_lit %22, 1048575
+  %24 = v_lshrrev_b32_src0_inline %22, 20
+  %25 = v_or_b32_lit %23, 1048576
+  %26 = v_mov_b32 897
+  %27 = v_cmp_lt_u32 %24, %26
+  %28 = v_mov_b32 909
+  %29 = v_sub_nc_u32 %28, %24
+  %30 = v_mov_b32 30
+  %31 = v_min_u32 %29, %30
+  %32 = v_mov_b32 12
+  %33 = v_cndmask_b32 %32, %31, %27
+  %34 = v_lshrrev_b32 %33, %25
+  %35 = v_lshrrev_b32_src0_inline %34, 1
+  %36 = v_and_b32_src0_inline %34, 1
+  %37 = v_mov_b32 32
+  %38 = v_sub_nc_u32 %37, %33
+  %39 = v_lshlrev_b32 %38, %25
+  %40 = v_or_b32 %39, %20
+  %41 = v_and_b32_src0_inline %35, 1
+  %42 = v_or_b32 %40, %41
+  %43 = v_cmp_ne_i32_src1_inline %42 {rhs = 0}
+  %45 = v_cndmask_b32 %18, %36, %43
+  %46 = v_add_u32 %35, %45
+  %47 = v_add_u32_lit %24, 4294966399
+  %48 = v_lshlrev_b32_src0_inline %47, 7
+  %49 = v_cndmask_b32 %48, %18, %27
+  %50 = v_add_u32 %46, %49
+  %51 = v_mov_b32 32640
+  %52 = v_cmp_ge_u32 %50, %51
+  %53 = v_cndmask_b32 %50, %51, %52
+  %54 = v_or_b32 %23, %20
+  %55 = v_cmp_ne_i32_src1_inline %54 {rhs = 0}
+  %56 = v_mov_b32 2047
+  %57 = v_cmp_eq_i32 %24, %56
+  %58 = s_and_b64 %55, %57
+  %59 = v_lshrrev_b32_src0_inline %23, 13
+  %60 = v_or_b32_lit %59, 32704
+  %61 = v_cndmask_b32 %53, %60, %58
+  %62 = v_lshrrev_b32_src0_inline %21, 31
+  %63 = v_lshlrev_b32_src0_inline %62, 15
+  %brain = v_or_b32 %63, %61
+  %71 = v_mov_b32 1017
+  %72 = v_cmp_lt_u32 %24, %71
+  %73 = v_mov_b32 1033
+  %74 = v_sub_nc_u32 %73, %24
+  %76 = v_min_u32 %74, %30
+  %77 = v_mov_b32 16
+  %78 = v_cndmask_b32 %77, %76, %72
+  %79 = v_lshrrev_b32 %78, %25
+  %80 = v_lshrrev_b32_src0_inline %79, 1
+  %81 = v_and_b32_src0_inline %79, 1
+  %83 = v_sub_nc_u32 %37, %78
+  %84 = v_lshlrev_b32 %83, %25
+  %85 = v_or_b32 %84, %20
+  %86 = v_and_b32_src0_inline %80, 1
+  %87 = v_or_b32 %85, %86
+  %88 = v_cmp_ne_i32_src1_inline %87 {rhs = 0}
+  %90 = v_cndmask_b32 %18, %81, %88
+  %91 = v_add_u32 %80, %90
+  %92 = v_add_u32_lit %24, 4294966279
+  %93 = v_lshlrev_b32_src0_inline %92, 3
+  %94 = v_cndmask_b32 %93, %18, %72
+  %95 = v_add_u32 %91, %94
+  %96 = v_mov_b32 127
+  %97 = v_cmp_ge_u32 %95, %96
+  %98 = v_mov_b32 126
+  %99 = v_cndmask_b32 %95, %98, %97
+  %104 = s_and_b64 %55, %57
+  %106 = v_cndmask_b32 %99, %96, %104
+  %108 = v_lshlrev_b32_src0_inline %62, 7
+  %e4m3 = v_or_b32 %108, %106
+  %116 = v_mov_b32 1009
+  %117 = v_cmp_lt_u32 %24, %116
+  %118 = v_mov_b32 1026
+  %119 = v_sub_nc_u32 %118, %24
+  %121 = v_min_u32 %119, %30
+  %122 = v_mov_b32 17
+  %123 = v_cndmask_b32 %122, %121, %117
+  %124 = v_lshrrev_b32 %123, %25
+  %125 = v_lshrrev_b32_src0_inline %124, 1
+  %126 = v_and_b32_src0_inline %124, 1
+  %128 = v_sub_nc_u32 %37, %123
+  %129 = v_lshlrev_b32 %128, %25
+  %130 = v_or_b32 %129, %20
+  %131 = v_and_b32_src0_inline %125, 1
+  %132 = v_or_b32 %130, %131
+  %133 = v_cmp_ne_i32_src1_inline %132 {rhs = 0}
+  %135 = v_cndmask_b32 %18, %126, %133
+  %136 = v_add_u32 %125, %135
+  %137 = v_add_u32_lit %24, 4294966287
+  %138 = v_lshlrev_b32_src0_inline %137, 2
+  %139 = v_cndmask_b32 %138, %18, %117
+  %140 = v_add_u32 %136, %139
+  %141 = v_mov_b32 124
+  %142 = v_cmp_ge_u32 %140, %141
+  %143 = v_cndmask_b32 %140, %141, %142
+  %148 = s_and_b64 %55, %57
+  %150 = v_cndmask_b32 %143, %96, %148
+  %e5m2 = v_or_b32 %108, %150
+  global_store_short_saddr %18, %brain, %brain_view
+  global_store_b8_saddr %18, %e4m3, %e4m3_view
+  global_store_b8_saddr %18, %e5m2, %e5m2_view
+  return
+}

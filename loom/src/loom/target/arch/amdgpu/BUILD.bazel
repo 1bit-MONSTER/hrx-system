@@ -559,6 +559,10 @@ loom_check_test_suite(
         ],
     ),
     compile_targets = {
+        "test/source_low/float64_narrow.loom-test": [
+            "//loom/target/amdgpu:" + target
+            for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+        ],
         "test/source_low/narrow_float_arguments.loom-test": [
             "//loom/target/amdgpu:gfx942",
             "//loom/target/amdgpu:gfx950",
