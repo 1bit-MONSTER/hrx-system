@@ -1,0 +1,73 @@
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=final},canonicalize
+
+func.def @bf16x64_unary(%input: vector<64xbf16>) -> (vector<64xbf16>) {
+  %result = vector.negf %input : vector<64xbf16>
+  func.return %result : vector<64xbf16>
+}
+
+// ----
+func.def @bf16x64_unary(%input: vector<64xbf16>) -> (vector<64xbf16>) {
+  %3 = vector.slice %input[0] : vector<64xbf16> -> vector<32xbf16>
+  %4 = vector.negf %3 : vector<32xbf16>
+  %5 = vector.slice %input[32] : vector<64xbf16> -> vector<32xbf16>
+  %6 = vector.negf %5 : vector<32xbf16>
+  %result = vector.concat<0> %4, %6 : vector<32xbf16>, vector<32xbf16> -> vector<64xbf16>
+  func.return %result : vector<64xbf16>
+}
+
+// ====
+
+func.def @i8x128_fanout(%lhs: vector<128xi8>, %rhs: vector<128xi8>, %mask: vector<128xi8>) -> (vector<128xi8>, vector<128xi8>) {
+  %sum = vector.addi %lhs, %rhs : vector<128xi8>
+  %xor = vector.xori %sum, %mask : vector<128xi8>
+  %or = vector.ori %sum, %mask : vector<128xi8>
+  func.return %xor, %or : vector<128xi8>, vector<128xi8>
+}
+
+// ----
+func.def @i8x128_fanout(%lhs: vector<128xi8>, %rhs: vector<128xi8>, %mask: vector<128xi8>) -> (vector<128xi8>, vector<128xi8>) {
+  %8 = vector.slice %lhs[0] : vector<128xi8> -> vector<64xi8>
+  %9 = vector.slice %rhs[0] : vector<128xi8> -> vector<64xi8>
+  %10 = vector.addi %8, %9 : vector<64xi8>
+  %11 = vector.slice %mask[0] : vector<128xi8> -> vector<64xi8>
+  %12 = vector.xori %10, %11 : vector<64xi8>
+  %13 = vector.ori %10, %11 : vector<64xi8>
+  %14 = vector.slice %lhs[64] : vector<128xi8> -> vector<64xi8>
+  %15 = vector.slice %rhs[64] : vector<128xi8> -> vector<64xi8>
+  %16 = vector.addi %14, %15 : vector<64xi8>
+  %17 = vector.slice %mask[64] : vector<128xi8> -> vector<64xi8>
+  %18 = vector.xori %16, %17 : vector<64xi8>
+  %19 = vector.ori %16, %17 : vector<64xi8>
+  %xor = vector.concat<0> %12, %18 : vector<64xi8>, vector<64xi8> -> vector<128xi8>
+  %or = vector.concat<0> %13, %19 : vector<64xi8>, vector<64xi8> -> vector<128xi8>
+  func.return %xor, %or : vector<128xi8>, vector<128xi8>
+}
+
+// ====
+
+func.def @i8x128_legal_boundary(%lhs: vector<128xi8>, %rhs: vector<128xi8>, %mask: vector<128xi8>) -> (vector<128xi8>, vector<128xi8>) {
+  %sum = vector.addi %lhs, %rhs : vector<128xi8>
+  %minimum = vector.minsi %sum, %rhs : vector<128xi8>
+  %xor = vector.xori %sum, %mask : vector<128xi8>
+  func.return %minimum, %xor : vector<128xi8>, vector<128xi8>
+}
+
+// ----
+func.def @i8x128_legal_boundary(%lhs: vector<128xi8>, %rhs: vector<128xi8>, %mask: vector<128xi8>) -> (vector<128xi8>, vector<128xi8>) {
+  %8 = vector.slice %lhs[0] : vector<128xi8> -> vector<64xi8>
+  %9 = vector.slice %rhs[0] : vector<128xi8> -> vector<64xi8>
+  %10 = vector.addi %8, %9 : vector<64xi8>
+  %11 = vector.slice %lhs[64] : vector<128xi8> -> vector<64xi8>
+  %12 = vector.slice %rhs[64] : vector<128xi8> -> vector<64xi8>
+  %13 = vector.addi %11, %12 : vector<64xi8>
+  %sum = vector.concat<0> %10, %13 : vector<64xi8>, vector<64xi8> -> vector<128xi8>
+  %minimum = vector.minsi %sum, %rhs : vector<128xi8>
+  %15 = vector.slice %sum[0] : vector<128xi8> -> vector<64xi8>
+  %16 = vector.slice %mask[0] : vector<128xi8> -> vector<64xi8>
+  %17 = vector.xori %15, %16 : vector<64xi8>
+  %18 = vector.slice %sum[64] : vector<128xi8> -> vector<64xi8>
+  %19 = vector.slice %mask[64] : vector<128xi8> -> vector<64xi8>
+  %20 = vector.xori %18, %19 : vector<64xi8>
+  %xor = vector.concat<0> %17, %20 : vector<64xi8>, vector<64xi8> -> vector<128xi8>
+  func.return %minimum, %xor : vector<128xi8>, vector<128xi8>
+}

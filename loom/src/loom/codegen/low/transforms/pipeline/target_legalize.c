@@ -29,6 +29,7 @@
 #include "loom/target/math_policy.h"
 #include "loom/target/pass_environment.h"
 #include "loom/target/reporting/report.h"
+#include "loom/transforms/vector/component_packet_legalization.h"
 #include "loom/util/adaptive_sort.h"
 #include "loom/util/walk.h"
 
@@ -297,6 +298,10 @@ typedef struct loom_low_target_legalize_report_decision_t {
   loom_target_compile_report_legalizer_strategy_t strategy;
   // Whether the latest rewrite expanded vector semantics into scalar lanes.
   bool scalarized;
+  // Authored target-contract result captured before projected packet queries.
+  loom_target_contract_query_result_t authored_query_result;
+  // True after an authored target-contract query has populated the result.
+  bool has_authored_query_result;
   // Optional detailed row in the function arena, absent for summary collection.
   loom_target_compile_report_legalization_row_t* row;
   // Next decision in first-observation order, independent of pointer ordering.
@@ -941,11 +946,20 @@ static iree_status_t loom_low_target_legalize_capture_report_source_op(
   loom_target_legalizer_op_entry_t op_entry =
       loom_target_legalizer_registry_lookup_kind(state->legalizer_registry,
                                                  op->kind);
+  const bool is_packet_candidate =
+      state->legalization_context.vector_packet_policy != NULL &&
+      state->legalization_context.policy !=
+          LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY &&
+      iree_all_bits_set(loom_op_effective_traits(state->module, op),
+                        LOOM_TRAIT_DECOMPOSABLE);
   if (loom_target_legalizer_op_entry_is_empty(op_entry)) {
-    return iree_ok_status();
+    return is_packet_candidate
+               ? loom_low_target_legalize_record_report_source_op(state, op)
+               : iree_ok_status();
   }
   op_entry = loom_low_target_legalize_filter_entries(state, op, op_entry);
-  if (loom_target_legalizer_op_entry_is_empty(op_entry)) {
+  if (loom_target_legalizer_op_entry_is_empty(op_entry) &&
+      !is_packet_candidate) {
     return iree_ok_status();
   }
   return loom_low_target_legalize_record_report_source_op(state, op);
@@ -1414,8 +1428,42 @@ static iree_status_t loom_low_target_legalize_query_contract(
       loom_low_lower_source_query_scope_callback(state->query_scope);
   IREE_RETURN_IF_ERROR(
       callback.fn(callback.user_data, environment, source_op, out_result));
-  return loom_low_target_legalize_apply_final_rejection_to_contract_query(
-      state, environment, source_op, out_result);
+  IREE_RETURN_IF_ERROR(
+      loom_low_target_legalize_apply_final_rejection_to_contract_query(
+          state, environment, source_op, out_result));
+  if (environment->value_type.fn == NULL) {
+    loom_low_target_legalize_report_decision_t* report_decision =
+        loom_low_target_legalize_report_decision(state, source_op);
+    if (report_decision != NULL) {
+      report_decision->authored_query_result = *out_result;
+      report_decision->has_authored_query_result = true;
+    }
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_low_target_legalize_report_packet_rewrite(
+    void* user_data, const loom_op_t* source_op, uint64_t created_op_count,
+    uint64_t erased_op_count) {
+  loom_low_target_legalize_function_state_t* state =
+      (loom_low_target_legalize_function_state_t*)user_data;
+  loom_low_target_legalize_report_decision_t* report_decision =
+      loom_low_target_legalize_report_decision(state, source_op);
+  IREE_ASSERT(report_decision != NULL);
+  IREE_ASSERT(report_decision->has_authored_query_result);
+  static const loom_target_legalizer_entry_t packet_legalizer_entry = {
+      .provider_name = IREE_SVL("vector-packet"),
+      .provider_strategy = LOOM_TARGET_LEGALIZER_STRATEGY_TARGET,
+  };
+  const bool report_wants_rows =
+      loom_low_target_legalize_report_wants_rows(state);
+  return loom_low_target_legalize_retain_report_decision(
+      state, report_decision,
+      report_wants_rows ? loom_op_name(state->module, source_op)
+                        : iree_string_view_empty(),
+      source_op->kind, LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN,
+      &report_decision->authored_query_result, &packet_legalizer_entry,
+      created_op_count, erased_op_count);
 }
 
 static iree_status_t loom_low_target_legalize_rewrite_op(
@@ -1636,6 +1684,46 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
   return iree_ok_status();
 }
 
+static iree_status_t loom_low_target_legalize_packet_components(
+    void* user_data, loom_greedy_rewrite_driver_t* driver,
+    loom_region_t* region, loom_greedy_rewrite_result_t* result,
+    bool* out_changed) {
+  *out_changed = false;
+  loom_low_target_legalize_function_state_t* state =
+      (loom_low_target_legalize_function_state_t*)user_data;
+  if (state->preflight_error_count != 0 ||
+      state->legalization_context.vector_packet_policy == NULL ||
+      state->legalization_context.policy ==
+          LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY) {
+    return iree_ok_status();
+  }
+
+  state->legalization_context.fact_table = driver->fact_table;
+  state->legalization_context.rewriter = &driver->rewriter;
+  state->legalization_context.arena = driver->scratch_arena;
+  IREE_RETURN_IF_ERROR(
+      loom_low_target_legalize_ensure_query_scope(state, driver->fact_table));
+  uint32_t rewritten_op_count = 0;
+  IREE_RETURN_IF_ERROR(loom_vector_component_packet_legalize(
+      &state->legalization_context, region,
+      state->compile_report != NULL
+          ? (loom_vector_component_packet_rewrite_callback_t){
+                .fn = loom_low_target_legalize_report_packet_rewrite,
+                .user_data = state,
+            }
+          : (loom_vector_component_packet_rewrite_callback_t){0},
+      &rewritten_op_count));
+  if (rewritten_op_count == 0) {
+    return iree_ok_status();
+  }
+  loom_greedy_rewrite_result_record_change(
+      result, &driver->rewriter,
+      LOOM_GREEDY_REWRITE_CHANGE_FLAG_COUNT_MODIFIED_OP);
+  state->statistics->ops_rewritten += rewritten_op_count;
+  *out_changed = true;
+  return iree_ok_status();
+}
+
 static void loom_low_target_legalize_changed(
     void* user_data, loom_greedy_rewrite_driver_t* driver) {
   (void)driver;
@@ -1760,6 +1848,7 @@ static iree_status_t loom_low_target_legalize_function(
   };
   const loom_greedy_rewrite_callbacks_t rewrite_callbacks = {
       .user_data = &state,
+      .before_worklist = loom_low_target_legalize_packet_components,
       .rewrite_op = loom_low_target_legalize_rewrite_op,
       .changed = loom_low_target_legalize_changed,
   };

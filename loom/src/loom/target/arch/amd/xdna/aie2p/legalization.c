@@ -22,8 +22,10 @@
 #include "loom/transforms/vector/to_scalar.h"
 
 static const uint16_t kAie2pVectorPacketBitCounts[] = {128u, 256u, 512u};
-static const uint16_t kAie2pVectorPacketLaneCounts[] = {64u, 32u, 16u, 8u,
-                                                        4u,  2u,  1u};
+static const uint16_t kAie2pVectorPacketLaneCounts[] = {64u, 32u, 16u, 8u};
+static_assert(IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts) <=
+                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
+              "packet lane candidates exceed the shared planner capacity");
 
 static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
     .native_bit_counts = kAie2pVectorPacketBitCounts,
@@ -192,39 +194,6 @@ static iree_status_t loom_aie2p_legalize_vector_shuffle(
   return iree_ok_status();
 }
 
-static iree_status_t loom_aie2p_legalize_decomposable_vector(
-    const loom_target_legalizer_entry_t* entry,
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result) {
-  (void)entry;
-  *out_result = (loom_target_legalizer_result_t){
-      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
-  };
-  if (!loom_aie2p_legalizer_descriptor_set_is_core(context->descriptor_set)) {
-    return iree_ok_status();
-  }
-
-  bool rewritten = false;
-  IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_decomposable_graph(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
-  if (rewritten) {
-    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
-  }
-  return iree_ok_status();
-}
-
-static iree_status_t loom_aie2p_legalize_decomposable_vector_or_scalarize(
-    const loom_target_legalizer_entry_t* entry,
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result) {
-  IREE_RETURN_IF_ERROR(
-      loom_aie2p_legalize_decomposable_vector(entry, context, op, out_result));
-  if (out_result->action != LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT) {
-    return iree_ok_status();
-  }
-  return loom_aie2p_legalize_vector_to_scalar(entry, context, op, out_result);
-}
-
 static iree_status_t loom_aie2p_legalize_vector_splat(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -258,10 +227,10 @@ static iree_status_t loom_aie2p_legalize_vector_select(
     return iree_ok_status();
   }
 
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_vector_select_result(op));
   bool rewritten = false;
-  IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_elementwise(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
-  if (!rewritten) {
+  if (loom_type_rank(result_type) > 1) {
     IREE_RETURN_IF_ERROR(
         loom_vector_static_shape_rewrite_op(context, op, &rewritten));
   }
@@ -269,27 +238,6 @@ static iree_status_t loom_aie2p_legalize_vector_select(
     IREE_RETURN_IF_ERROR(loom_vector_to_scalar_rewrite_op(
         context->pass, context->rewriter, op, &rewritten));
   }
-  if (rewritten) {
-    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
-  }
-  return iree_ok_status();
-}
-
-static iree_status_t loom_aie2p_legalize_vector_elementwise_packet(
-    const loom_target_legalizer_entry_t* entry,
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    loom_target_legalizer_result_t* out_result) {
-  (void)entry;
-  *out_result = (loom_target_legalizer_result_t){
-      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
-  };
-  if (!loom_aie2p_legalizer_descriptor_set_is_core(context->descriptor_set)) {
-    return iree_ok_status();
-  }
-
-  bool rewritten = false;
-  IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_elementwise(
-      context, op, &kAie2pVectorPacketPolicy, &rewritten));
   if (rewritten) {
     out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   }
@@ -599,11 +547,11 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_EXTF,
-        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
+        .legalize = loom_aie2p_legalize_vector_to_scalar,
     },
     {
         .root_kind = LOOM_OP_VECTOR_FPTRUNC,
-        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
+        .legalize = loom_aie2p_legalize_vector_to_scalar,
     },
     {
         .root_kind = LOOM_OP_VECTOR_SITOFP,
@@ -626,28 +574,24 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
         .legalize = loom_aie2p_legalize_vector_select,
     },
     {
-        .root_kind = LOOM_OP_VECTOR_CMPI,
-        .legalize = loom_aie2p_legalize_vector_elementwise_packet,
-    },
-    {
         .root_kind = LOOM_OP_VECTOR_CONCAT,
         .legalize = loom_aie2p_legalize_vector_concat,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINNUMF,
-        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
+        .legalize = loom_aie2p_legalize_vector_to_scalar,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXNUMF,
-        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
+        .legalize = loom_aie2p_legalize_vector_to_scalar,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINIMUMF,
-        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
+        .legalize = loom_aie2p_legalize_vector_to_scalar,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
-        .legalize = loom_aie2p_legalize_decomposable_vector_or_scalarize,
+        .legalize = loom_aie2p_legalize_vector_to_scalar,
     },
     {
         .root_kind = LOOM_OP_VECTOR_CLAMPF,
@@ -676,22 +620,6 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
     {
         .root_kind = LOOM_OP_VECTOR_DEINTERLEAVE,
         .legalize = loom_aie2p_legalize_vector_to_scalar,
-    },
-    {
-        .root_kind = LOOM_OP_VECTOR_ADDF,
-        .legalize = loom_aie2p_legalize_decomposable_vector,
-    },
-    {
-        .root_kind = LOOM_OP_VECTOR_SUBF,
-        .legalize = loom_aie2p_legalize_decomposable_vector,
-    },
-    {
-        .root_kind = LOOM_OP_VECTOR_MULF,
-        .legalize = loom_aie2p_legalize_decomposable_vector,
-    },
-    {
-        .root_kind = LOOM_OP_VECTOR_EXP2F,
-        .legalize = loom_aie2p_legalize_decomposable_vector,
     },
     {
         .root_kind = LOOM_OP_VECTOR_LOAD,

@@ -2380,6 +2380,7 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
   const loom_value_id_t result = loom_vector_slice_result(op);
   if (rank == 1 && static_offsets.i64_array[0] >= 0 &&
       static_offsets.i64_array[0] <= UINT32_MAX) {
+    const uint32_t slice_offset = (uint32_t)static_offsets.i64_array[0];
     loom_value_fact_static_lane_origin_t source_origin = {
         .source_value_id = source,
         .source_lane_offset = 0,
@@ -2392,8 +2393,7 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
     }
     const uint64_t source_lane_offset =
         (uint64_t)source_origin.source_lane_offset +
-        (uint64_t)(uint32_t)static_offsets.i64_array[0] *
-            (uint64_t)source_origin.source_lane_stride;
+        (uint64_t)slice_offset * (uint64_t)source_origin.source_lane_stride;
     if (source_lane_offset <= UINT32_MAX) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_define_static_lane_origin(
           context->table, result,
@@ -2403,6 +2403,51 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
               .source_lane_stride = source_origin.source_lane_stride,
           }));
     }
+
+    loom_value_fact_exact_lane_origin_t exact_source_origin = {
+        .source_value_id = source,
+        .source_lane_offset = 0,
+        .source_lane_stride = 1,
+    };
+    loom_value_fact_exact_lane_origin_t existing_exact_origin = {0};
+    if (loom_value_fact_table_query_exact_lane_origin(
+            context->table, module, source, &existing_exact_origin)) {
+      exact_source_origin = existing_exact_origin;
+    }
+    const uint64_t exact_source_lane_offset =
+        (uint64_t)exact_source_origin.source_lane_offset +
+        (uint64_t)slice_offset *
+            (uint64_t)exact_source_origin.source_lane_stride;
+    if (exact_source_lane_offset <= UINT32_MAX) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_define_exact_lane_origin(
+          context->table, result,
+          (loom_value_fact_exact_lane_origin_t){
+              .source_value_id = exact_source_origin.source_value_id,
+              .source_lane_offset = (uint32_t)exact_source_lane_offset,
+              .source_lane_stride = exact_source_origin.source_lane_stride,
+          }));
+    }
+
+    loom_value_id_t scalar_origin = LOOM_VALUE_ID_INVALID;
+    loom_value_id_t exact_scalar_origin = LOOM_VALUE_ID_INVALID;
+    if (loom_value_fact_table_query_uniform_element_origin(
+            context->table, module, source, &scalar_origin) &&
+        loom_value_fact_table_query_exact_uniform_element_origin(
+            context->table, module, source, &exact_scalar_origin)) {
+      IREE_RETURN_IF_ERROR(loom_value_fact_table_define_uniform_element_origin(
+          context->table, result, scalar_origin, exact_scalar_origin));
+    }
+  }
+
+  // Slicing a uniform vector preserves its element value regardless of the
+  // result lane count. Keep this path independent of the bounded per-lane
+  // representation below so large vectors do not discard an exact fact that
+  // needs no lane enumeration.
+  loom_value_facts_t uniform_element = {0};
+  if (loom_vector_facts_query_uniform_element(context, operand_facts[0],
+                                              &uniform_element)) {
+    return loom_value_facts_make_uniform_element(context, uniform_element,
+                                                 &result_facts[0]);
   }
 
   iree_host_size_t result_lane_count = 0;
@@ -3205,8 +3250,17 @@ static iree_status_t loom_vector_try_define_exact_same_lane_origin(
   };
   loom_value_fact_exact_lane_origin_t existing_origin = {0};
   if (loom_value_fact_table_query_exact_lane_origin(context->table, module,
-                                                    source, &existing_origin)) {
-    source_origin = existing_origin;
+                                                    source, &existing_origin) &&
+      existing_origin.source_lane_offset == 0 &&
+      existing_origin.source_lane_stride == 1) {
+    iree_host_size_t existing_source_lane_count = 0;
+    const loom_type_t existing_source_type =
+        loom_module_value_type(module, existing_origin.source_value_id);
+    if (loom_vector_type_static_lane_count(existing_source_type,
+                                           &existing_source_lane_count) &&
+        existing_source_lane_count == source_lane_count) {
+      source_origin = existing_origin;
+    }
   }
   return loom_value_fact_table_define_exact_lane_origin(context->table, result,
                                                         source_origin);

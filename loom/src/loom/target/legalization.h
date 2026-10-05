@@ -81,6 +81,11 @@ typedef enum loom_target_legalizer_strategy_e {
   LOOM_TARGET_LEGALIZER_STRATEGY_REFERENCE = 2,
 } loom_target_legalizer_strategy_t;
 
+// Maximum number of logical lane candidates in a packet policy. Shared
+// component planning represents the candidate intersection as one bit per
+// policy entry.
+#define LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT 64u
+
 // Target vector packet candidates consumed by shared legalization.
 //
 // The target contributes representation widths only. The shared planner still
@@ -99,7 +104,8 @@ typedef struct loom_target_vector_packet_policy_t {
   uint16_t maximum_unpacketized_bit_count;
   // Number of entries in |native_bit_counts|.
   uint8_t native_bit_count_count;
-  // Number of entries in |native_lane_counts|.
+  // Number of entries in |native_lane_counts|, at most
+  // LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT.
   uint8_t native_lane_count_count;
 } loom_target_vector_packet_policy_t;
 
