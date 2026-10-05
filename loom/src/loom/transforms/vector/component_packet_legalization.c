@@ -50,8 +50,8 @@ typedef struct loom_vector_component_record_t {
   uint64_t candidate_bits;
   // Operations created while materializing packets and an escaping aggregate.
   uint64_t created_op_count;
-  // Authored target-contract outcome.
-  uint8_t authored_outcome;
+  // Authored target-contract result retained for downstream legalization.
+  loom_target_contract_query_result_t authored_query_result;
   // True when non-operand references prevent ordinary SSA replacement.
   bool blocked;
   // True when this root contains an operation requiring packet legalization.
@@ -79,7 +79,7 @@ typedef struct loom_vector_component_t {
   bool blocked;
 } loom_vector_component_t;
 
-typedef struct loom_vector_component_plan_t {
+struct loom_vector_component_plan_t {
   // Active target legalization context.
   loom_target_legalization_context_t* context;
   // Optional observer for completed authored-operation rewrites.
@@ -96,7 +96,9 @@ typedef struct loom_vector_component_plan_t {
   loom_vector_component_t* components;
   // Number of initialized components.
   uint32_t component_count;
-} loom_vector_component_plan_t;
+  // Number of records in the backward closure of a target rejection.
+  uint32_t demanded_record_count;
+};
 
 typedef struct loom_vector_component_external_t {
   // Current SSA value captured outside the component.
@@ -266,10 +268,6 @@ static iree_status_t loom_vector_component_classify_op(
   const loom_value_id_t result = loom_op_const_results(op)[0];
   const loom_value_t* result_value =
       loom_module_value(plan->context->module, result);
-  loom_target_contract_query_result_t authored_result =
-      loom_target_contract_query_result_empty();
-  IREE_RETURN_IF_ERROR(loom_target_legalization_query_contract(
-      plan->context, op, &authored_result));
   *record = (loom_vector_component_record_t){
       .op = op,
       .parent_index = record_index,
@@ -281,15 +279,21 @@ static iree_status_t loom_vector_component_classify_op(
       .previous_member_index = LOOM_VECTOR_COMPONENT_INDEX_INVALID,
       .packet = LOOM_VALUE_ID_INVALID,
       .lane_count = lane_count,
-      .authored_outcome = (uint8_t)authored_result.outcome,
-      .blocked =
-          loom_value_has_attribute_uses(result_value) ||
-          loom_module_value_has_type_uses(plan->context->module, result) ||
-          authored_result.outcome == LOOM_TARGET_CONTRACT_QUERY_INVALID_IR,
-      .demanded =
-          authored_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
-          authored_result.outcome != LOOM_TARGET_CONTRACT_QUERY_INVALID_IR,
   };
+  IREE_RETURN_IF_ERROR(loom_target_legalization_query_contract(
+      plan->context, op, &record->authored_query_result));
+  record->blocked =
+      loom_value_has_attribute_uses(result_value) ||
+      loom_module_value_has_type_uses(plan->context->module, result) ||
+      record->authored_query_result.outcome ==
+          LOOM_TARGET_CONTRACT_QUERY_INVALID_IR;
+  record->demanded = record->authored_query_result.outcome !=
+                         LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
+                     record->authored_query_result.outcome !=
+                         LOOM_TARGET_CONTRACT_QUERY_INVALID_IR;
+  if (record->demanded) {
+    ++plan->demanded_record_count;
+  }
 
   const loom_value_ordinal_t result_ordinal =
       loom_local_value_domain_ordinal(plan->context->value_domain, result);
@@ -409,8 +413,10 @@ static void loom_vector_component_propagate_demand(
     for (uint16_t i = 0; i < record->op->operand_count; ++i) {
       const uint32_t producer_index =
           loom_vector_component_operand_root(plan, record, i);
-      if (producer_index != LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
+      if (producer_index != LOOM_VECTOR_COMPONENT_INDEX_INVALID &&
+          !plan->records[producer_index].demanded) {
         plan->records[producer_index].demanded = true;
+        ++plan->demanded_record_count;
       }
     }
   }
@@ -528,28 +534,24 @@ static void loom_vector_component_form(loom_vector_component_plan_t* plan) {
 
 static iree_status_t loom_vector_component_compact(
     loom_vector_component_plan_t* plan) {
-  if (plan->record_count == 0) {
+  if (plan->demanded_record_count == 0) {
     return iree_ok_status();
   }
-  uint32_t* root_component_indices = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      plan->context->arena, plan->record_count, sizeof(*root_component_indices),
-      (void**)&root_component_indices));
-  for (uint32_t i = 0; i < plan->record_count; ++i) {
-    root_component_indices[i] = LOOM_VECTOR_COMPONENT_INDEX_INVALID;
-  }
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      plan->context->arena, plan->record_count, sizeof(*plan->components),
-      (void**)&plan->components));
+      plan->context->arena, plan->demanded_record_count,
+      sizeof(*plan->components), (void**)&plan->components));
 
   for (uint32_t record_index = 0; record_index < plan->record_count;
        ++record_index) {
+    if (!plan->records[record_index].demanded) {
+      continue;
+    }
     const uint32_t root_index =
         loom_vector_component_find_root(plan, record_index);
-    uint32_t component_index = root_component_indices[root_index];
+    uint32_t component_index = plan->records[root_index].component_index;
     if (component_index == LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
       component_index = plan->component_count++;
-      root_component_indices[root_index] = component_index;
+      plan->records[root_index].component_index = component_index;
       plan->components[component_index] = (loom_vector_component_t){
           .first_member_index = record_index,
           .last_member_index = record_index,
@@ -583,8 +585,8 @@ static iree_status_t loom_vector_component_select(
   uint32_t member_index = component->first_member_index;
   while (member_index != LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
     const loom_vector_component_record_t* record = &plan->records[member_index];
-    needs_legalization |=
-        record->authored_outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    needs_legalization |= record->authored_query_result.outcome !=
+                          LOOM_TARGET_CONTRACT_QUERY_LEGAL;
     member_index = record->next_member_index;
   }
   if (!needs_legalization) {
@@ -895,10 +897,30 @@ static iree_status_t loom_vector_component_materialize(
   return iree_ok_status();
 }
 
+const loom_target_contract_query_result_t*
+loom_vector_component_packet_query_cache_lookup(
+    const loom_vector_component_packet_query_cache_t* cache,
+    const loom_op_t* op) {
+  const loom_vector_component_plan_t* plan = cache->plan;
+  if (plan == NULL || op->result_count != 1) {
+    return NULL;
+  }
+  const uint32_t record_index = loom_vector_component_record_for_value(
+      plan, loom_op_const_results(op)[0]);
+  if (record_index == LOOM_VECTOR_COMPONENT_INDEX_INVALID) {
+    return NULL;
+  }
+  const loom_vector_component_record_t* record = &plan->records[record_index];
+  IREE_ASSERT_EQ(record->op, op);
+  return &record->authored_query_result;
+}
+
 iree_status_t loom_vector_component_packet_legalize(
     loom_target_legalization_context_t* context, loom_region_t* region,
     loom_vector_component_packet_rewrite_callback_t rewrite_callback,
+    loom_vector_component_packet_query_cache_t* out_query_cache,
     uint32_t* out_rewritten_op_count) {
+  *out_query_cache = loom_vector_component_packet_query_cache_empty();
   *out_rewritten_op_count = 0;
   const loom_target_vector_packet_policy_t* policy =
       context->vector_packet_policy;
@@ -912,43 +934,50 @@ iree_status_t loom_vector_component_packet_legalize(
   if (definition_count == 0) {
     return iree_ok_status();
   }
-  loom_vector_component_plan_t plan = {
+  loom_vector_component_plan_t* plan = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(context->arena, sizeof(*plan), (void**)&plan));
+  *plan = (loom_vector_component_plan_t){
       .context = context,
       .rewrite_callback = rewrite_callback,
       .record_capacity = definition_count,
   };
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      context->arena, value_count, sizeof(*plan.value_record_indices),
-      (void**)&plan.value_record_indices));
-  memset(plan.value_record_indices, 0,
-         value_count * sizeof(*plan.value_record_indices));
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate_array(context->arena, definition_count,
-                                sizeof(*plan.records), (void**)&plan.records));
+      context->arena, value_count, sizeof(*plan->value_record_indices),
+      (void**)&plan->value_record_indices));
+  memset(plan->value_record_indices, 0,
+         value_count * sizeof(*plan->value_record_indices));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->arena, definition_count, sizeof(*plan->records),
+      (void**)&plan->records));
 
   loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
   IREE_RETURN_IF_ERROR(
       loom_walk_region(context->module, region, LOOM_WALK_PRE_ORDER,
                        (loom_walk_callback_t){
                            .fn = loom_vector_component_classify_op,
-                           .user_data = &plan,
+                           .user_data = plan,
                        },
                        context->arena, &walk_result));
-  loom_vector_component_propagate_demand(&plan);
-  IREE_RETURN_IF_ERROR(loom_vector_component_classify_candidates(&plan));
-  loom_vector_component_form(&plan);
-  IREE_RETURN_IF_ERROR(loom_vector_component_compact(&plan));
+  out_query_cache->plan = plan;
+  if (plan->demanded_record_count == 0) {
+    return iree_ok_status();
+  }
+  loom_vector_component_propagate_demand(plan);
+  IREE_RETURN_IF_ERROR(loom_vector_component_classify_candidates(plan));
+  loom_vector_component_form(plan);
+  IREE_RETURN_IF_ERROR(loom_vector_component_compact(plan));
 
-  for (uint32_t component_index = 0; component_index < plan.component_count;
+  for (uint32_t component_index = 0; component_index < plan->component_count;
        ++component_index) {
     IREE_RETURN_IF_ERROR(
-        loom_vector_component_select(&plan, &plan.components[component_index]));
+        loom_vector_component_select(plan, &plan->components[component_index]));
   }
-  for (uint32_t component_index = 0; component_index < plan.component_count;
+  for (uint32_t component_index = 0; component_index < plan->component_count;
        ++component_index) {
     uint32_t rewritten_op_count = 0;
     IREE_RETURN_IF_ERROR(loom_vector_component_materialize(
-        &plan, &plan.components[component_index], &rewritten_op_count));
+        plan, &plan->components[component_index], &rewritten_op_count));
     *out_rewritten_op_count += rewritten_op_count;
   }
   return iree_ok_status();
