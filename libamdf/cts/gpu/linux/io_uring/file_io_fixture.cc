@@ -28,6 +28,14 @@
 #include <thread>
 #include <utility>
 
+namespace {
+
+// Every transport uses caller-owned storage without a submission-index array.
+constexpr uint32_t kCallerRingSetupFlags =
+    IORING_SETUP_NO_MMAP | IORING_SETUP_NO_SQARRAY | IORING_SETUP_R_DISABLED;
+
+}  // namespace
+
 const char* FileIoPathName(FileIoPath path) {
   switch (path) {
     case FileIoPath::kDevice:
@@ -58,6 +66,34 @@ void GpuFileIoFixture::SetUp() {
   struct utsname identity = {};
   ASSERT_EQ(uname(&identity), 0);
   RecordProperty("io_kernel_release", identity.release);
+
+  // Probe a fixed, valid caller-owned ring before creating workload resources.
+  // An unsupported flag yields EINVAL here; workload setup errors still fail.
+  // The disabled probe submits no work and creates no SQPOLL thread.
+  const size_t probe_byte_length = 3 * page_byte_length_;
+  void* probe_pages = mmap(nullptr, probe_byte_length, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(probe_pages, MAP_FAILED) << std::strerror(errno);
+  caller_pages_.push_back({probe_pages, probe_byte_length});
+  io_uring_params probe = {};
+  probe.flags = kCallerRingSetupFlags;
+  probe.sq_off.user_addr = reinterpret_cast<uintptr_t>(probe_pages);
+  probe.cq_off.user_addr = probe.sq_off.user_addr + page_byte_length_;
+  const int probe_file =
+      static_cast<int>(syscall(__NR_io_uring_setup, 8, &probe));
+  if (probe_file < 0) {
+    const int setup_error = errno;
+    if (setup_error == ENOSYS || setup_error == EINVAL) {
+      GTEST_SKIP() << "kernel does not support caller-owned io_uring rings: "
+                   << std::strerror(setup_error);
+    }
+    if (setup_error == EPERM || setup_error == EACCES) {
+      GTEST_SKIP() << "execution policy denies io_uring setup: "
+                   << std::strerror(setup_error);
+    }
+    FAIL() << "io_uring admission: " << std::strerror(setup_error);
+  }
+  ASSERT_EQ(close(probe_file), 0) << std::strerror(errno);
 }
 
 void GpuFileIoFixture::TearDown() {
@@ -146,10 +182,13 @@ void GpuFileIoFixture::CreateFile(const std::vector<uint32_t>& words,
       GTEST_SKIP() << "direct-storage witness requires a disk-backed file";
     }
     struct statx alignment = {};
-    ASSERT_EQ(syscall(__NR_statx, data_file_, "", AT_EMPTY_PATH, STATX_DIOALIGN,
-                      &alignment),
-              0)
-        << std::strerror(errno);
+    const int alignment_result = static_cast<int>(syscall(
+        __NR_statx, data_file_, "", AT_EMPTY_PATH, STATX_DIOALIGN, &alignment));
+    if (alignment_result < 0 && (errno == ENOSYS || errno == EOPNOTSUPP)) {
+      GTEST_SKIP() << "statx direct-I/O alignment query is unavailable: "
+                   << std::strerror(errno);
+    }
+    ASSERT_EQ(alignment_result, 0) << std::strerror(errno);
     if (!(alignment.stx_mask & STATX_DIOALIGN) ||
         alignment.stx_dio_mem_align == 0 ||
         alignment.stx_dio_offset_align == 0) {
@@ -187,8 +226,7 @@ void GpuFileIoFixture::CreateRing(GpuMemory* payload, FileIoPath path,
   const size_t ring_length = ring_->control_offset + control_length;
   ASSERT_NO_FATAL_FAILURE(
       CreateRegisteredPages(ring_length, 0, &ring_->memory));
-  ring_->parameters.flags =
-      IORING_SETUP_NO_MMAP | IORING_SETUP_NO_SQARRAY | IORING_SETUP_R_DISABLED;
+  ring_->parameters.flags = kCallerRingSetupFlags;
   if (path == FileIoPath::kDevice || path == FileIoPath::kHostRelay) {
     ring_->parameters.flags |= IORING_SETUP_SQPOLL;
     ring_->parameters.sq_thread_idle = idle_milliseconds;

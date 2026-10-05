@@ -124,6 +124,17 @@ and 16-byte CQE field layout to the build's Linux headers. The
 [typed shader arguments](../../kernels/file_exchange.h) have independent
 [compiled-product checks](../../kernels/resident_kernel_test.cc).
 
+The build uses pinned Linux protocol headers, not the build host's header
+version. Runtime admission independently probes a fixed, disabled caller-owned
+ring. An absent syscall, unsupported base ring flags, or a policy denial skips
+the case before workload I/O; allocation and other resource failures remain
+failures. The probe submits no work and creates no polling thread. Once admitted,
+each workload's actual ring setup, registration, and enablement must succeed.
+Direct-storage cases additionally query the filesystem's `STATX_DIOALIGN`
+contract; an unavailable query or absent alignment contract skips those cases
+without substituting buffered I/O. No runtime decision compares kernel release
+strings, so backported support is exercised as well.
+
 The [shared native fixture](file_io_fixture.h) owns cold registration, idle
 wakes, and queue-first teardown. The ring starts disabled. The host registers
 one private, unlinked regular file and the payload mapping, restricts the ring
