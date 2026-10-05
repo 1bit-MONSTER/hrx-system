@@ -7,6 +7,7 @@
 #include "option_chain.h"
 
 #include "loomc/iree.h"
+#include "pass_trace.h"
 #include "target.h"
 
 static loomc_status_t loomc_sanitizer_reporting_mode_to_internal(
@@ -124,6 +125,26 @@ loomc_status_t loomc_option_chain_resolve(
             sanitizer_options, &out_options->sanitizer));
         out_options->has_sanitizer = true;
         next = sanitizer_options->next;
+        break;
+      }
+      case LOOMC_STRUCTURE_TYPE_PASS_TRACE_OPTIONS: {
+        if (!iree_all_bits_set(allowed_options,
+                               LOOMC_OPTION_CHAIN_ALLOW_PASS_TRACE)) {
+          return loomc_make_status(
+              LOOMC_STATUS_UNIMPLEMENTED,
+              "pass trace option extension is not supported here");
+        }
+        if (out_options->pass_trace != NULL) {
+          return loomc_make_status(
+              LOOMC_STATUS_INVALID_ARGUMENT,
+              "option chain contains duplicate pass trace options");
+        }
+        const loomc_pass_trace_options_t* pass_trace_options =
+            (const loomc_pass_trace_options_t*)next;
+        LOOMC_RETURN_IF_ERROR(
+            loomc_pass_trace_options_validate(pass_trace_options));
+        out_options->pass_trace = pass_trace_options;
+        next = pass_trace_options->next;
         break;
       }
       case LOOMC_STRUCTURE_TYPE_NONE:

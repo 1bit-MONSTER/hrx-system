@@ -159,6 +159,11 @@ std::string ToString(const loomc_byte_sequence_t* value) {
   return result;
 }
 
+loomc_status_t AppendTrace(void* user_data, loomc_string_view_t fragment) {
+  static_cast<std::string*>(user_data)->append(fragment.data, fragment.size);
+  return loomc_ok_status();
+}
+
 ::testing::AssertionResult Succeeded(const loomc_result_t* result) {
   if (result != nullptr && loomc_result_succeeded(result)) {
     return ::testing::AssertionSuccess();
@@ -261,13 +266,35 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.flags=*/LOOMC_SANITIZER_FLAG_NONE,
       /*.reporting_mode=*/LOOMC_SANITIZER_REPORTING_MODE_TRAP,
   };
+  std::string pass_trace;
+  const loomc_string_view_t before_filters[] = {
+      loomc_make_cstring_view("prepared-low"),
+  };
+  const loomc_pass_trace_options_t pass_trace_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_PASS_TRACE_OPTIONS,
+      /*.structure_size=*/sizeof(pass_trace_options),
+      /*.next=*/&sanitizer_options,
+      /*.format=*/LOOMC_PASS_TRACE_FORMAT_JSONL,
+      /*.flags=*/0,
+      /*.tool_name=*/loomc_make_cstring_view("loomc-wasm-test"),
+      /*.input_identifier=*/loomc_make_cstring_view("exports.loom"),
+      /*.before_filters=*/before_filters,
+      /*.before_filter_count=*/IREE_ARRAYSIZE(before_filters),
+      /*.after_filters=*/nullptr,
+      /*.after_filter_count=*/0,
+      /*.sink=*/
+      {
+          /*.write=*/AppendTrace,
+          /*.user_data=*/&pass_trace,
+      },
+  };
   const loomc_string_view_t excluded_roots[] = {
       loomc_make_cstring_view("dead_config_user"),
   };
   const loomc_compile_artifact_options_t compile_options = {
       /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
       /*.structure_size=*/sizeof(compile_options),
-      /*.next=*/&sanitizer_options,
+      /*.next=*/&pass_trace_options,
       /*.roots=*/nullptr,
       /*.root_count=*/0,
       /*.excluded_roots=*/excluded_roots,
@@ -294,6 +321,11 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
   result.reset(raw_result);
   ASSERT_TRUE(Succeeded(result.get()));
   ASSERT_EQ(loomc_result_artifact_count(result.get()), 2u);
+  EXPECT_NE(pass_trace.find("\"tool\":\"loomc-wasm-test\""), std::string::npos);
+  EXPECT_NE(pass_trace.find("\"input\":\"exports.loom\""), std::string::npos);
+  EXPECT_NE(pass_trace.find("\"stage\":\"prepared-low\""), std::string::npos);
+  EXPECT_NE(pass_trace.find("\"point\":\"before\""), std::string::npos);
+  EXPECT_EQ(pass_trace.find("\"point\":\"after\""), std::string::npos);
 
   const loomc_artifact_t* artifact = loomc_result_artifact_at(result.get(), 0);
   ASSERT_NE(artifact, nullptr);

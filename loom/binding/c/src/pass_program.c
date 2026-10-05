@@ -29,6 +29,13 @@ enum {
   LOOMC_PASS_PROGRAM_DEFAULT_BLOCK_SIZE = 32 * 1024,
 };
 
+typedef enum loomc_pass_program_trace_stage_e {
+  LOOMC_PASS_PROGRAM_TRACE_STAGE_PIPELINE_TEXT = 0,
+  LOOMC_PASS_PROGRAM_TRACE_STAGE_PIPELINE_SYMBOL = 1,
+  LOOMC_PASS_PROGRAM_TRACE_STAGE_SOURCE_LOW = 2,
+  LOOMC_PASS_PROGRAM_TRACE_STAGE_PREPARED_LOW = 3,
+} loomc_pass_program_trace_stage_t;
+
 struct loomc_pass_program_t {
   // Atomic reference count for shared immutable ownership.
   iree_atomic_ref_count_t ref_count;
@@ -53,6 +60,9 @@ struct loomc_pass_program_t {
 
   // Immutable registry view over registry_storage.
   const loom_pass_registry_t* registry;
+
+  // Compiler-defined stage reported by pass-boundary traces.
+  loomc_pass_program_trace_stage_t trace_stage;
 
   // True when program has been initialized and must be deinitialized.
   bool program_initialized;
@@ -370,6 +380,12 @@ static loomc_status_t loomc_pass_program_create_target_pipeline_into_result(
   loomc_status_t status =
       loomc_pass_program_allocate_storage(context, allocator, &pass_program);
   if (loomc_status_is_ok(status)) {
+    pass_program->trace_stage =
+        kind == LOOMC_TARGET_PIPELINE_KIND_SOURCE_LOW
+            ? LOOMC_PASS_PROGRAM_TRACE_STAGE_SOURCE_LOW
+            : LOOMC_PASS_PROGRAM_TRACE_STAGE_PREPARED_LOW;
+  }
+  if (loomc_status_is_ok(status)) {
     status = loomc_pass_program_allocate_pipeline_module(pass_program,
                                                          &pass_options);
   }
@@ -534,6 +550,9 @@ loomc_status_t loomc_pass_program_create_from_module_symbol(
   loomc_status_t status =
       loomc_pass_program_allocate_storage(context, allocator, &pass_program);
   if (loomc_status_is_ok(status)) {
+    pass_program->trace_stage = LOOMC_PASS_PROGRAM_TRACE_STAGE_PIPELINE_SYMBOL;
+  }
+  if (loomc_status_is_ok(status)) {
     status = loomc_status_from_iree(loom_pass_pipeline_snapshot_initialize(
         source_module, iree_string_view_from_loomc(pipeline_symbol),
         loomc_pass_program_identifier(options), &pass_program->block_pool,
@@ -648,4 +667,23 @@ loomc_context_t* loomc_pass_program_context(
 const loom_pass_program_t* loomc_pass_program_loom_pass_program(
     const loomc_pass_program_t* pass_program) {
   return pass_program ? &pass_program->program : NULL;
+}
+
+iree_string_view_t loomc_pass_program_trace_stage(
+    const loomc_pass_program_t* pass_program) {
+  if (pass_program == NULL) {
+    return iree_string_view_empty();
+  }
+  switch (pass_program->trace_stage) {
+    case LOOMC_PASS_PROGRAM_TRACE_STAGE_PIPELINE_TEXT:
+      return IREE_SV("pipeline-text");
+    case LOOMC_PASS_PROGRAM_TRACE_STAGE_PIPELINE_SYMBOL:
+      return IREE_SV("pipeline-symbol");
+    case LOOMC_PASS_PROGRAM_TRACE_STAGE_SOURCE_LOW:
+      return IREE_SV("source-low");
+    case LOOMC_PASS_PROGRAM_TRACE_STAGE_PREPARED_LOW:
+      return IREE_SV("prepared-low");
+    default:
+      return IREE_SV("unknown");
+  }
 }

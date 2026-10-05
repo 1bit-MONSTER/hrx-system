@@ -298,6 +298,9 @@ typedef enum loomc_structure_type_e {
 
   /// `loomc_compile_artifact_options_t`.
   LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS = 42,
+
+  /// `loomc_pass_trace_options_t`.
+  LOOMC_STRUCTURE_TYPE_PASS_TRACE_OPTIONS = 43,
 } loomc_structure_type_t;
 
 /// One loose string option entry.

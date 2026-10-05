@@ -11,6 +11,7 @@
 #include "loomc/emit.h"
 #include "loomc/module.h"
 #include "loomc/pass.h"
+#include "loomc/pass_trace.h"
 #include "loomc/product.h"
 #include "loomc/result.h"
 #include "loomc/workspace.h"
@@ -188,6 +189,8 @@ typedef struct loomc_compile_options_t {
 /// categories fail. Explicit roots and exclusions are mutually exclusive.
 /// `loomc_sanitizer_options_t` may be attached to `next` when `pass_program`
 /// is NULL to override the emitter default pipeline's sanitizer settings.
+/// `loomc_pass_trace_options_t` may be attached to stream selected
+/// pass-boundary IR while either a supplied or default program executes.
 typedef struct loomc_compile_artifact_options_t {
   /// Structure type. Must be
   /// `LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS` when nonzero.
@@ -197,7 +200,7 @@ typedef struct loomc_compile_artifact_options_t {
   loomc_host_size_t structure_size;
 
   /// Extension chain for compile-artifact options such as
-  /// `loomc_sanitizer_options_t`.
+  /// `loomc_sanitizer_options_t` and `loomc_pass_trace_options_t`.
   const void* next;
 
   /// Explicit root symbol names, or NULL to derive default roots.

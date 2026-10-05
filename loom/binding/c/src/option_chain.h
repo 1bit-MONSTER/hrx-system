@@ -8,6 +8,7 @@
 #define LOOMC_OPTION_CHAIN_H_
 
 #include "loom/sanitizer/options.h"
+#include "loomc/pass_trace.h"
 #include "loomc/sanitizer.h"
 #include "loomc/target.h"
 #include "visibility.h"
@@ -19,6 +20,7 @@ extern "C" {
 enum loomc_option_chain_allowed_bit_e {
   LOOMC_OPTION_CHAIN_ALLOW_TARGET_SPECIALIZATION = 1u << 0,
   LOOMC_OPTION_CHAIN_ALLOW_SANITIZER = 1u << 1,
+  LOOMC_OPTION_CHAIN_ALLOW_PASS_TRACE = 1u << 2,
 };
 typedef uint32_t loomc_option_chain_allowed_t;
 
@@ -29,6 +31,8 @@ typedef struct loomc_option_chain_t {
   bool has_sanitizer;
   // Sanitizer options found in the option chain.
   loom_sanitizer_options_t sanitizer;
+  // Pass trace descriptor found in the option chain, or NULL.
+  const loomc_pass_trace_options_t* pass_trace;
 } loomc_option_chain_t;
 
 // Resolves a public option-extension chain into the descriptors allowed by

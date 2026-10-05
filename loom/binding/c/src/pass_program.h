@@ -24,6 +24,10 @@ LOOMC_API_PRIVATE loomc_context_t* loomc_pass_program_context(
 LOOMC_API_PRIVATE const loom_pass_program_t*
 loomc_pass_program_loom_pass_program(const loomc_pass_program_t* pass_program);
 
+// Returns the compiler-defined trace stage for this prepared program.
+LOOMC_API_PRIVATE iree_string_view_t
+loomc_pass_program_trace_stage(const loomc_pass_program_t* pass_program);
+
 // Creates a prepared-low pass program from emitter-owned default options and
 // appends any domain failure to an existing compiler result.
 LOOMC_API_PRIVATE loomc_status_t

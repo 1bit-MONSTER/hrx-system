@@ -34,6 +34,7 @@ loom_cc_library(
     "include/loomc/loomc.h"
     "include/loomc/module.h"
     "include/loomc/pass.h"
+    "include/loomc/pass_trace.h"
     "include/loomc/product.h"
     "include/loomc/result.h"
     "include/loomc/sanitizer.h"
@@ -52,6 +53,7 @@ loom_cc_library(
     "src/module_bytecode.h"
     "src/option_chain.h"
     "src/pass_program.h"
+    "src/pass_trace.h"
     "src/product.h"
     "src/request_index_overlay.h"
     "src/result.h"
@@ -85,6 +87,7 @@ loom_cc_library(
     "src/module_text.c"
     "src/option_chain.c"
     "src/pass_program.c"
+    "src/pass_trace.c"
     "src/product.c"
     "src/request_index_overlay.c"
     "src/result.c"
@@ -141,6 +144,7 @@ loom_cc_library(
     loom::pass::program
     loom::pass::registry
     loom::pass::tooling
+    loom::pass::trace
     loom::pass::value_facts
     loom::sanitizer::options
     loom::target::function_version
@@ -195,6 +199,7 @@ loom_cc_library(
     "include/loomc/loomc.h"
     "include/loomc/module.h"
     "include/loomc/pass.h"
+    "include/loomc/pass_trace.h"
     "include/loomc/product.h"
     "include/loomc/result.h"
     "include/loomc/sanitizer.h"
