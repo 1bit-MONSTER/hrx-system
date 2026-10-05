@@ -1463,7 +1463,7 @@ static iree_status_t loom_low_target_legalize_report_packet_rewrite(
                         : iree_string_view_empty(),
       source_op->kind, LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN,
       &report_decision->authored_query_result, &packet_legalizer_entry,
-      created_op_count, erased_op_count);
+      /*scalarized=*/false, created_op_count, erased_op_count);
 }
 
 static iree_status_t loom_low_target_legalize_rewrite_op(
