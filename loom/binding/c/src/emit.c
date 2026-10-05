@@ -31,13 +31,6 @@ typedef struct loomc_descriptor_prefix_t {
   const void* next;
 } loomc_descriptor_prefix_t;
 
-typedef struct loomc_emit_diagnostic_capture_t {
-  // Result receiving converted diagnostics.
-  loomc_result_t* result;
-  // Borrowed module owning operation locations during emission.
-  const loom_module_t* module;
-} loomc_emit_diagnostic_capture_t;
-
 static loomc_status_t loomc_emit_validate_string_view(
     loomc_string_view_t value) {
   if (value.data == NULL && value.size != 0) {
@@ -476,23 +469,17 @@ static loomc_status_t loomc_emit_select_emitter(
   return loomc_ok_status();
 }
 
-static iree_status_t loomc_emit_capture_diagnostic(
-    void* user_data, const loom_diagnostic_emission_t* emission) {
-  loomc_emit_diagnostic_capture_t* capture =
-      (loomc_emit_diagnostic_capture_t*)user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      capture->result, capture->module, LOOM_EMITTER_VERIFIER, emission));
-}
-
 static iree_status_t loomc_emit_capture_compile_report_diagnostic(
     void* user_data, const loom_diagnostic_t* diagnostic) {
   loomc_emit_transaction_t* transaction = (loomc_emit_transaction_t*)user_data;
   loom_output_stream_t stream;
   IREE_RETURN_IF_ERROR(loom_json_value_list_begin_value(
       &transaction->compile_report_diagnostics, &stream));
-  const loom_type_formatter_t type_formatter = {
-      .fn = loom_type_format_minimal,
-  };
+  const loom_type_formatter_t type_formatter =
+      loomc_diagnostic_type_printer_formatter(
+          transaction->diagnostic_type_printer.module
+              ? &transaction->diagnostic_type_printer
+              : NULL);
   return loom_diagnostic_json_write_object(&stream, diagnostic, type_formatter);
 }
 
@@ -727,6 +714,21 @@ loomc_string_view_t loomc_emit_transaction_artifact_format(
   return transaction->options.artifact_format;
 }
 
+void loomc_emit_transaction_set_diagnostic_context(
+    loomc_emit_transaction_t* transaction, const loom_module_t* module,
+    const loomc_target_environment_t* target_environment) {
+  IREE_ASSERT_ARGUMENT(transaction);
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(target_environment);
+  const loomc_target_pass_environment_t* pass_environment =
+      loomc_target_environment_pass_environment(target_environment);
+  loomc_diagnostic_type_printer_initialize(
+      module,
+      pass_environment ? &pass_environment->diagnostic_type_print_options
+                       : NULL,
+      &transaction->diagnostic_type_printer);
+}
+
 void loomc_emit_transaction_bind_emitter(loomc_emit_transaction_t* transaction,
                                          const loom_target_emitter_t* emitter) {
   IREE_ASSERT_ARGUMENT(transaction);
@@ -799,6 +801,8 @@ loomc_status_t loomc_emit_transaction_emit(
   const loomc_emit_resolved_options_t* options = &transaction->options;
   loom_module_t* internal_module = loomc_module_loom_module(module);
   IREE_ASSERT_ARGUMENT(internal_module);
+  loomc_emit_transaction_set_diagnostic_context(transaction, internal_module,
+                                                target_environment);
 
   loomc_status_t status =
       loomc_module_verify(module, target_environment, result);
@@ -814,10 +818,12 @@ loomc_status_t loomc_emit_transaction_emit(
   iree_arena_initialize(loomc_workspace_block_pool(workspace), &scratch_arena);
   const loomc_target_pass_environment_t* pass_environment =
       loomc_target_environment_pass_environment(target_environment);
-  loomc_emit_diagnostic_capture_t capture = {
-      .result = result,
-      .module = internal_module,
-  };
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(
+      result, /*source=*/NULL, internal_module, LOOM_EMITTER_VERIFIER,
+      pass_environment ? &pass_environment->diagnostic_type_print_options
+                       : NULL,
+      &capture);
   if (options->artifact_manifest_mode != LOOMC_ARTIFACT_MANIFEST_MODE_NONE) {
     status = loomc_emit_make_manifest_identifier(
         options, emitter, loomc_result_allocator(result), &manifest_identifier);
@@ -861,7 +867,7 @@ loomc_status_t loomc_emit_transaction_emit(
       .compile_report = loomc_emit_transaction_compile_report(transaction),
       .diagnostic_emitter =
           {
-              .fn = loomc_emit_capture_diagnostic,
+              .fn = loomc_diagnostic_capture_emission,
               .user_data = &capture,
           },
       .scratch_arena = &scratch_arena,

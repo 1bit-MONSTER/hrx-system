@@ -10,6 +10,7 @@
 #include "loom/error/error_defs.h"
 #include "loom/error/renderer.h"
 #include "loom/error/source.h"
+#include "loom/format/text/printer.h"
 #include "loom/util/stream.h"
 #include "loom/verify/verify.h"
 #include "loomc/iree.h"
@@ -37,14 +38,46 @@ static loomc_status_t loomc_format_loom_diagnostic_code(
       builder, "%s/%03u", domain, loom_error_def_code(diagnostic->error)));
 }
 
+static iree_status_t loomc_diagnostic_format_type(
+    loom_type_t type, void* user_data, loom_output_stream_t* stream) {
+  const loomc_diagnostic_type_printer_t* printer =
+      (const loomc_diagnostic_type_printer_t*)user_data;
+  if (printer->text_print_options) {
+    return loom_text_print_type_with_options(type, printer->module, stream,
+                                             printer->text_print_options);
+  }
+  return loom_text_print_type(type, printer->module, stream);
+}
+
 static loomc_status_t loomc_render_loom_diagnostic_message(
-    const loom_diagnostic_t* diagnostic, iree_string_builder_t* builder) {
+    const loom_diagnostic_t* diagnostic,
+    const loomc_diagnostic_type_printer_t* type_printer,
+    iree_string_builder_t* builder) {
   loom_output_stream_t stream;
   loom_output_stream_for_builder(builder, &stream);
-  loom_type_formatter_t formatter = {loom_type_format_minimal, NULL};
+  const loom_type_formatter_t formatter =
+      loomc_diagnostic_type_printer_formatter(type_printer);
   return loomc_status_from_iree(loom_diagnostic_render_message(
       diagnostic->error, diagnostic->params, diagnostic->param_count, formatter,
       &stream));
+}
+
+void loomc_diagnostic_type_printer_initialize(
+    const loom_module_t* module,
+    const loom_text_print_options_t* text_print_options,
+    loomc_diagnostic_type_printer_t* out_printer) {
+  *out_printer = (loomc_diagnostic_type_printer_t){
+      .module = module,
+      .text_print_options = text_print_options,
+  };
+}
+
+loom_type_formatter_t loomc_diagnostic_type_printer_formatter(
+    const loomc_diagnostic_type_printer_t* printer) {
+  return (loom_type_formatter_t){
+      .fn = printer ? loomc_diagnostic_format_type : loom_type_format_minimal,
+      .user_data = (void*)printer,
+  };
 }
 
 // Retains the matching input owner or copies a diagnostic's borrowed identity
@@ -104,7 +137,8 @@ static loomc_source_range_t loomc_source_range_from_loom(
 
 loomc_status_t loomc_result_add_loom_diagnostic(
     loomc_result_t* result, const loomc_source_t* source,
-    const loom_diagnostic_t* diagnostic) {
+    const loom_diagnostic_t* diagnostic,
+    const loomc_diagnostic_type_printer_t* type_printer) {
   if (result == NULL || diagnostic == NULL || diagnostic->error == NULL) {
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "result and diagnostic must not be NULL");
@@ -135,7 +169,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
   loomc_status_t status =
       loomc_format_loom_diagnostic_code(diagnostic, &code_builder);
   if (loomc_status_is_ok(status)) {
-    status = loomc_render_loom_diagnostic_message(diagnostic, &message_builder);
+    status = loomc_render_loom_diagnostic_message(diagnostic, type_printer,
+                                                  &message_builder);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_source_from_loom_range(
@@ -203,7 +238,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
 
 loomc_status_t loomc_result_add_loom_diagnostic_emission(
     loomc_result_t* result, const loom_module_t* module, loom_emitter_t emitter,
-    const loom_diagnostic_emission_t* emission) {
+    const loom_diagnostic_emission_t* emission,
+    const loomc_diagnostic_type_printer_t* type_printer) {
   if (emission == NULL || emission->error == NULL) {
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "diagnostic emission must not be NULL");
@@ -246,13 +282,39 @@ loomc_status_t loomc_result_add_loom_diagnostic_emission(
         };
   }
   diagnostic.related_locations = related_locations;
-  return loomc_result_add_loom_diagnostic(result, NULL, &diagnostic);
+  return loomc_result_add_loom_diagnostic(result, NULL, &diagnostic,
+                                          type_printer);
 }
 
-static iree_status_t loomc_result_verify_capture_diagnostic(
-    void* user_data, const loom_diagnostic_t* diagnostic) {
+void loomc_diagnostic_capture_initialize(
+    loomc_result_t* result, const loomc_source_t* source,
+    const loom_module_t* module, loom_emitter_t emitter,
+    const loom_text_print_options_t* text_print_options,
+    loomc_diagnostic_capture_t* out_capture) {
+  *out_capture = (loomc_diagnostic_capture_t){
+      .result = result,
+      .source = source,
+      .module = module,
+      .emitter = emitter,
+  };
+  loomc_diagnostic_type_printer_initialize(module, text_print_options,
+                                           &out_capture->type_printer);
+}
+
+iree_status_t loomc_diagnostic_capture(void* user_data,
+                                       const loom_diagnostic_t* diagnostic) {
+  const loomc_diagnostic_capture_t* capture = user_data;
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic(
-      (loomc_result_t*)user_data, NULL, diagnostic));
+      capture->result, capture->source, diagnostic,
+      capture->module ? &capture->type_printer : NULL));
+}
+
+iree_status_t loomc_diagnostic_capture_emission(
+    void* user_data, const loom_diagnostic_emission_t* emission) {
+  const loomc_diagnostic_capture_t* capture = user_data;
+  return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
+      capture->result, capture->module, capture->emitter, emission,
+      &capture->type_printer));
 }
 
 loomc_status_t loomc_result_verify_loom_module(const loom_module_t* module,
@@ -261,11 +323,15 @@ loomc_status_t loomc_result_verify_loom_module(const loom_module_t* module,
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "module and result must not be NULL");
   }
-  loom_verify_options_t verify_options = {
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(result, /*source=*/NULL, module,
+                                      LOOM_EMITTER_VERIFIER,
+                                      /*text_print_options=*/NULL, &capture);
+  const loom_verify_options_t verify_options = {
       .sink =
           {
-              .fn = loomc_result_verify_capture_diagnostic,
-              .user_data = result,
+              .fn = loomc_diagnostic_capture,
+              .user_data = &capture,
           },
       .max_errors = 20,
   };

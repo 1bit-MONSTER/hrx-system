@@ -31,8 +31,8 @@ ResultPtr Capture(const loom_source_range_t& range,
   diagnostic.params = &param;
   diagnostic.param_count = 1;
   diagnostic.source_location = range;
-  LOOMC_EXPECT_OK(
-      loomc_result_add_loom_diagnostic(result, source, &diagnostic));
+  LOOMC_EXPECT_OK(loomc_result_add_loom_diagnostic(result, source, &diagnostic,
+                                                   /*type_printer=*/nullptr));
   return ResultPtr(result);
 }
 
@@ -186,8 +186,8 @@ TEST(DiagnosticTest, RelatedLocationsOwnLabelsAndShareOnlyMatchingSnapshots) {
     LOOMC_ASSERT_OK(loomc_result_create(LOOMC_RESULT_STATE_FAILED,
                                         loomc_allocator_system(), &raw_result));
     ResultPtr result(raw_result);
-    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(result.get(), input.get(),
-                                                     &diagnostic));
+    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+        result.get(), input.get(), &diagnostic, /*type_printer=*/nullptr));
     input.reset();
     filename.assign("released");
     text.assign("released");
@@ -301,8 +301,8 @@ TEST(DiagnosticTest,
       &baseline_result));
   ResultPtr baseline_owner(baseline_result);
   baseline.allocation_count = 0;
-  LOOMC_ASSERT_OK(
-      loomc_result_add_loom_diagnostic(baseline_result, nullptr, &diagnostic));
+  LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+      baseline_result, nullptr, &diagnostic, /*type_printer=*/nullptr));
   const size_t allocation_count = baseline.allocation_count;
   baseline_owner.reset();
   EXPECT_EQ(baseline.live_count, 0u);
@@ -318,11 +318,12 @@ TEST(DiagnosticTest,
     failing.failure_at = i;
     LOOMC_EXPECT_STATUS_IS(
         LOOMC_STATUS_RESOURCE_EXHAUSTED,
-        loomc_result_add_loom_diagnostic(result, nullptr, &diagnostic));
+        loomc_result_add_loom_diagnostic(result, nullptr, &diagnostic,
+                                         /*type_printer=*/nullptr));
     EXPECT_EQ(loomc_result_diagnostic_count(result), 0u);
     failing.failure_at = LOOMC_HOST_SIZE_MAX;
-    LOOMC_ASSERT_OK(
-        loomc_result_add_loom_diagnostic(result, nullptr, &diagnostic));
+    LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic(
+        result, nullptr, &diagnostic, /*type_printer=*/nullptr));
     ASSERT_EQ(loomc_result_diagnostic_count(result), 1u);
     EXPECT_EQ(loomc_result_diagnostic_at(result, 0)->related_location_count,
               2u);

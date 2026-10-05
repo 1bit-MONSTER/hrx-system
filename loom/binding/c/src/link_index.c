@@ -326,21 +326,6 @@ static loomc_status_t loomc_link_index_add_missing_source_diagnostic(
   return loomc_ok_status();
 }
 
-typedef struct loomc_link_index_diagnostic_capture_t {
-  // Result receiving converted diagnostics.
-  loomc_result_t* result;
-  // Source associated with emitted diagnostics.
-  const loomc_source_t* source;
-} loomc_link_index_diagnostic_capture_t;
-
-static iree_status_t loomc_link_index_capture_diagnostic(
-    void* user_data, const loom_diagnostic_t* diagnostic) {
-  loomc_link_index_diagnostic_capture_t* capture =
-      (loomc_link_index_diagnostic_capture_t*)user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic(
-      capture->result, capture->source, diagnostic));
-}
-
 static loomc_status_t loomc_link_index_mark_failed(loomc_result_t* result) {
   return loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
 }
@@ -352,10 +337,10 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
     loomc_result_t* result, iree_host_size_t* out_provider_ordinal) {
   const iree_host_size_t before_diagnostics =
       loomc_result_diagnostic_count(result);
-  loomc_link_index_diagnostic_capture_t capture = {
-      .result = result,
-      .source = source,
-  };
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(result, source, /*module=*/NULL,
+                                      LOOM_EMITTER_PARSER,
+                                      /*text_print_options=*/NULL, &capture);
   loom_link_module_index_add_options_t options = {
       .provider_name =
           iree_string_view_from_loomc(source_options->provider_name),
@@ -373,7 +358,7 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
     loom_bytecode_index_options_t index_options = {
         .diagnostic_sink =
             {
-                .fn = loomc_link_index_capture_diagnostic,
+                .fn = loomc_diagnostic_capture,
                 .user_data = &capture,
             },
     };
@@ -386,7 +371,7 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
     loom_text_parse_options_t parse_options = {
         .diagnostic_sink =
             {
-                .fn = loomc_link_index_capture_diagnostic,
+                .fn = loomc_diagnostic_capture,
                 .user_data = &capture,
             },
     };

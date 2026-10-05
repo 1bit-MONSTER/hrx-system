@@ -175,7 +175,7 @@ TEST_F(XdnaTest, RejectsMissingEnvironment) {
   EXPECT_EQ(profile, nullptr);
 }
 
-TEST_F(XdnaTest, RejectsInvalidLowImmediateBeforePassesAndDirectEmission) {
+TEST_F(XdnaTest, PreservesTargetTypesInLowVerificationDiagnostics) {
   loomc_context_target_options_t target_options = {};
   target_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
   target_options.target_environment = environment_.get();
@@ -205,10 +205,11 @@ TEST_F(XdnaTest, RejectsInvalidLowImmediateBeforePassesAndDirectEmission) {
   ResultPtr result(raw_result);
   ASSERT_TRUE(Succeeded(result.get()));
 
-  // This unused load would disappear if DCE ran before descriptor verification.
+  // This unused resource would disappear if DCE ran before descriptor
+  // verification.
   constexpr char source_text[] = R"(
-low.func.def retain target<amd.xdna.aie2p.core> @invalid(%pointer: reg<aie2p.ep>) asm {
-  %unused = vlda.acc %pointer, 512
+low.func.def retain target<amd.xdna.aie2p.core> @invalid() asm {
+  %unused = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.er>
   return
 }
 )";
@@ -238,7 +239,12 @@ low.func.def retain target<amd.xdna.aie2p.core> @invalid(%pointer: reg<aie2p.ep>
   ASSERT_EQ(loomc_result_diagnostic_count(result.get()), 1u);
   EXPECT_TRUE(
       loomc_string_view_equal(loomc_result_diagnostic_at(result.get(), 0)->code,
-                              loomc_make_cstring_view("STRUCTURE/014")));
+                              loomc_make_cstring_view("TYPE/004")));
+  EXPECT_EQ(
+      std::string(loomc_result_diagnostic_at(result.get(), 0)->message.data,
+                  loomc_result_diagnostic_at(result.get(), 0)->message.size),
+      "result 'result' has type reg<aie2p.er>, expected register class "
+      "in [aie2p.ep] with 1 unit(s)");
 
   // Reuse the rejected module: failure must not erase the offending operand or
   // mark it verified for a later direct emission request.
@@ -255,7 +261,12 @@ low.func.def retain target<amd.xdna.aie2p.core> @invalid(%pointer: reg<aie2p.ep>
   ASSERT_EQ(loomc_result_diagnostic_count(result.get()), 1u);
   EXPECT_TRUE(
       loomc_string_view_equal(loomc_result_diagnostic_at(result.get(), 0)->code,
-                              loomc_make_cstring_view("STRUCTURE/014")));
+                              loomc_make_cstring_view("TYPE/004")));
+  EXPECT_EQ(
+      std::string(loomc_result_diagnostic_at(result.get(), 0)->message.data,
+                  loomc_result_diagnostic_at(result.get(), 0)->message.size),
+      "result 'result' has type reg<aie2p.er>, expected register class "
+      "in [aie2p.ep] with 1 unit(s)");
 }
 
 TEST_F(XdnaTest, AcceptsNonTerminatedDeviceKeyAndRetainsEnvironment) {

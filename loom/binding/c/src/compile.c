@@ -69,13 +69,6 @@ static const loomc_product_descriptor_t
         .destroy = loomc_compiled_module_product_destroy,
 };
 
-typedef struct loomc_compile_diagnostic_capture_t {
-  // Result receiving converted diagnostics.
-  loomc_result_t* result;
-  // Borrowed module owning operation locations during this synchronous call.
-  const loom_module_t* module;
-} loomc_compile_diagnostic_capture_t;
-
 static loomc_status_t loomc_compile_validate_string_view(
     loomc_string_view_t value) {
   if (value.data == NULL && value.size != 0) {
@@ -239,20 +232,6 @@ static loomc_status_t loomc_compile_validate_config_module(
   return loomc_ok_status();
 }
 
-static iree_status_t loomc_compile_capture_diagnostic_emission(
-    void* user_data, const loom_diagnostic_emission_t* emission) {
-  loomc_compile_diagnostic_capture_t* capture =
-      (loomc_compile_diagnostic_capture_t*)user_data;
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      capture->result, capture->module, LOOM_EMITTER_PASS, emission));
-}
-
-static iree_status_t loomc_compile_capture_diagnostic(
-    void* user_data, const loom_diagnostic_t* diagnostic) {
-  return iree_status_from_loomc(loomc_result_add_loom_diagnostic(
-      (loomc_result_t*)user_data, /*source=*/NULL, diagnostic));
-}
-
 static loomc_status_t loomc_compile_fail_result_from_status(
     loomc_result_t* result, loomc_string_view_t code, loomc_status_t status) {
   if (!loomc_status_is_result_diagnostic(status)) {
@@ -270,14 +249,19 @@ static loomc_status_t loomc_compile_run_pass_program(
     loom_target_compile_report_t* compile_report,
     const loomc_pass_trace_options_t* pass_trace_options,
     loomc_result_t* result) {
-  loomc_compile_diagnostic_capture_t capture = {
-      .result = result,
-      .module = internal_module,
-  };
+  const loomc_target_pass_environment_t* target_pass_environment =
+      loomc_context_target_pass_environment(compiler->context);
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(
+      result, /*source=*/NULL, internal_module, LOOM_EMITTER_PASS,
+      target_pass_environment
+          ? &target_pass_environment->diagnostic_type_print_options
+          : NULL,
+      &capture);
   loom_codegen_pass_environment_storage_t codegen_environment_storage = {0};
   loom_pass_environment_t pass_environment =
       loomc_codegen_pass_environment_storage_initialize(
-          loomc_context_target_pass_environment(compiler->context),
+          target_pass_environment,
           loomc_context_cleanup_pattern_registry(compiler->context),
           function_version_owner, compile_report, &codegen_environment_storage);
   loom_target_pass_predicate_provider_storage_t predicate_storage = {0};
@@ -314,7 +298,7 @@ static loomc_status_t loomc_compile_run_pass_program(
       .predicate_provider = predicate_provider,
       .diagnostic_emitter =
           {
-              .fn = loomc_compile_capture_diagnostic_emission,
+              .fn = loomc_diagnostic_capture_emission,
               .user_data = &capture,
           },
       .environment = pass_environment,
@@ -354,16 +338,20 @@ static loomc_status_t loomc_compile_specialize_functions(
     return loomc_ok_status();
   }
 
-  loomc_compile_diagnostic_capture_t capture = {
-      .result = result,
-      .module = module,
-  };
+  const loomc_target_pass_environment_t* pass_environment =
+      loomc_target_environment_pass_environment(target_environment);
+  loomc_diagnostic_capture_t capture;
+  loomc_diagnostic_capture_initialize(
+      result, /*source=*/NULL, module, LOOM_EMITTER_PASS,
+      pass_environment ? &pass_environment->diagnostic_type_print_options
+                       : NULL,
+      &capture);
   uint32_t error_count = 0;
   LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_target_specialize_functions(
       loomc_target_environment_loom_target_environment(target_environment),
       module, requests, bindings,
       (iree_diagnostic_emitter_t){
-          .fn = loomc_compile_capture_diagnostic_emission,
+          .fn = loomc_diagnostic_capture_emission,
           .user_data = &capture,
       },
       function_versions, &error_count)));
@@ -951,6 +939,10 @@ loomc_status_t loomc_compile_artifact(
     status = loomc_emit_transaction_initialize(
         options ? options->emit_options : NULL, result, &emit_transaction);
   }
+  if (loomc_status_is_ok(status)) {
+    loomc_emit_transaction_set_diagnostic_context(
+        &emit_transaction, internal_module, target_environment);
+  }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     status = loomc_module_verify(module, target_environment, result);
   }
@@ -1022,11 +1014,19 @@ loomc_status_t loomc_compile_artifact(
         .table = {.module = internal_module},
         .arena = function_versions->arena,
     };
+    const loomc_target_pass_environment_t* pass_environment =
+        loomc_target_environment_pass_environment(target_environment);
+    loomc_diagnostic_capture_t capture;
+    loomc_diagnostic_capture_initialize(
+        result, /*source=*/NULL, internal_module, LOOM_EMITTER_PASS,
+        pass_environment ? &pass_environment->diagnostic_type_print_options
+                         : NULL,
+        &capture);
     const loom_target_entry_options_t entry_options = {
         .diagnostic_sink =
             {
-                .fn = loomc_compile_capture_diagnostic,
-                .user_data = result,
+                .fn = loomc_diagnostic_capture,
+                .user_data = &capture,
             },
     };
     uint32_t error_count = 0;
@@ -1038,6 +1038,8 @@ loomc_status_t loomc_compile_artifact(
         &target_specializations, &error_count));
     loomc_module_adopt_loom_module_replacement(module, internal_module,
                                                LOOMC_MODULE_INPUT_UNVERIFIED);
+    loomc_emit_transaction_set_diagnostic_context(
+        &emit_transaction, internal_module, target_environment);
     if (!loomc_status_is_ok(status)) {
       status = loomc_compile_fail_result_from_status(
           result, loomc_make_cstring_view("COMPILE/MATERIALIZE"), status);
