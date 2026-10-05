@@ -370,8 +370,9 @@ TEST_F(WriteInterferenceTest, UnconditionalWriteKeepsItsFullExtent) {
   EXPECT_EQ(Query(1, 10), LOOM_VALUE_ORDINAL_INVALID);
 }
 
-TEST_F(WriteInterferenceTest, ForcedAliasRetainsBidirectionalCopyEquation) {
-  Initialize(129, WriteKind::Copy);
+TEST_P(WriteInterferenceBoundaryTest,
+       ForcedAliasRetainsBidirectionalCopyEquation) {
+  Initialize(GetParam(), WriteKind::Copy);
   ResetArenas();
   IREE_ASSERT_OK(BuildTable(BindingKind::AliasedDestination));
   ExpectScratchPreserved();
@@ -383,8 +384,8 @@ TEST_F(WriteInterferenceTest, ForcedAliasRetainsBidirectionalCopyEquation) {
             LOOM_VALUE_ORDINAL_INVALID);
 }
 
-TEST_F(WriteInterferenceTest, CompletedCopiesDoNotEnterTheFinalIndex) {
-  Initialize(129, WriteKind::Copy);
+TEST_P(WriteInterferenceBoundaryTest, CompletedCopiesDoNotEnterTheFinalIndex) {
+  Initialize(GetParam(), WriteKind::Copy);
   ResetArenas();
   IREE_ASSERT_OK(BuildTable(BindingKind::ForcedWrite));
   ExpectScratchPreserved();
