@@ -350,6 +350,30 @@ TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
       /*.config=*/&config_options,
       /*.emit_options=*/&emit_options,
   };
+  const loomc_artifact_manifest_options_t manifest_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_ARTIFACT_MANIFEST_OPTIONS,
+      /*.structure_size=*/sizeof(manifest_options),
+      /*.next=*/nullptr,
+      /*.mode=*/LOOMC_ARTIFACT_MANIFEST_MODE_SUMMARY,
+  };
+  loomc_emit_options_t manifest_emit_options = emit_options;
+  manifest_emit_options.next = &manifest_options;
+  loomc_compile_artifact_options_t manifest_compile_options = compile_options;
+  manifest_compile_options.emit_options = &manifest_emit_options;
+  loomc_result_t* manifest_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_artifact(
+      compiler.get(), workspace.get(), /*pass_program=*/nullptr, module.get(),
+      &manifest_compile_options, loomc_allocator_system(), &manifest_result));
+  ResultPtr manifest_result_owner(manifest_result);
+  ASSERT_FALSE(loomc_result_succeeded(manifest_result_owner.get()));
+  ASSERT_EQ(loomc_result_diagnostic_count(manifest_result_owner.get()), 1u);
+  const loomc_diagnostic_t* manifest_diagnostic =
+      loomc_result_diagnostic_at(manifest_result_owner.get(), 0);
+  EXPECT_EQ(ToString(manifest_diagnostic->code), "COMPILE/REQUEST");
+  EXPECT_EQ(ToString(manifest_diagnostic->message),
+            "artifact manifests are only valid for loadable kernel formats");
+  EXPECT_EQ(loomc_result_artifact_count(manifest_result_owner.get()), 0u);
+
   loomc_pass_trace_options_t incomplete_artifact_sink = pass_trace_options;
   incomplete_artifact_sink.artifact_sink.close = nullptr;
   loomc_compile_artifact_options_t incomplete_artifact_options =

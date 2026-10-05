@@ -1004,6 +1004,18 @@ loomc_status_t loomc_compile_artifact(
     }
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
+    if (emit_transaction.options.artifact_manifest_mode !=
+            LOOMC_ARTIFACT_MANIFEST_MODE_NONE &&
+        request.selection.kind != LOOM_COMPILE_ENTRY_KIND_KERNEL) {
+      status = loomc_compile_fail_result_from_status(
+          result, loomc_make_cstring_view("COMPILE/REQUEST"),
+          loomc_make_status(
+              LOOMC_STATUS_INVALID_ARGUMENT,
+              "artifact manifests are only valid for loadable kernel "
+              "formats"));
+    }
+  }
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     loomc_emit_transaction_bind_emitter(&emit_transaction,
                                         request.target_emitter);
   }

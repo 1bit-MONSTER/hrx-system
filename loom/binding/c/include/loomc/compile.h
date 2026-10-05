@@ -191,6 +191,8 @@ typedef struct loomc_compile_options_t {
 /// is NULL to override the emitter default pipeline's sanitizer settings.
 /// `loomc_pass_trace_options_t` may be attached to stream selected
 /// pass-boundary IR while either a supplied or default program executes.
+/// Artifact manifests apply only to loadable kernel requests; requesting one
+/// for module roots fails at compile-request resolution before passes run.
 typedef struct loomc_compile_artifact_options_t {
   /// Structure type. Must be
   /// `LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS` when nonzero.
