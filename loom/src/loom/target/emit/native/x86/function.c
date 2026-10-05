@@ -212,7 +212,10 @@ iree_status_t loom_x86_function_prepare(const loom_low_emission_frame_t* frame,
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, schedule->block_count + 1, sizeof(*function.block_starts),
       (void**)&function.block_starts));
-  iree_status_t status = iree_ok_status();
+  // Invocation transport precedes block labels so a body backedge cannot
+  // reload original ABI inputs. Its writes participate in frame preservation.
+  iree_status_t status = loom_x86_function_moves(
+      &frame->allocation, frame->allocation.entry_moves.moves, &function);
   for (uint32_t b = 0; b < schedule->block_count && iree_status_is_ok(status);
        ++b) {
     function.block_starts[b] = function.instruction_count;

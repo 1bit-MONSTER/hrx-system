@@ -151,21 +151,14 @@ iree_status_t loom_x86_function_abi_prepare(loom_module_t* module,
                 "result"),
         emitter);
   }
-  iree_host_size_t fixed_value_count = 0;
   bool arguments_supported = true;
   for (uint16_t i = 0; i < argument_count && arguments_supported; ++i) {
     arguments_supported = loom_x86_callable_type_supported(
         loom_module_value_type(module, arguments[i]));
-    if (arguments_supported &&
-        !loom_value_has_no_uses(loom_module_value(module, arguments[i]))) {
-      out_abi->fixed_values[fixed_value_count++] =
-          (loom_low_allocation_fixed_value_t){
-              .value_id = arguments[i],
-              .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
-              .location_base = kSysvArgumentRegisters[i],
-              .location_count = 1,
-          };
-    }
+    out_abi->entry_locations[i] = (loom_low_allocation_entry_location_t){
+        .location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+        .location_base = kSysvArgumentRegisters[i],
+    };
   }
   if (!arguments_supported) {
     return loom_x86_callable_reject(
@@ -181,7 +174,7 @@ iree_status_t loom_x86_function_abi_prepare(loom_module_t* module,
         IREE_SV("native x86 results require scalar i32, i64, or pointers"),
         emitter);
   }
-  out_abi->fixed_value_count = fixed_value_count;
+  out_abi->entry_location_count = argument_count;
   *out_accepted = true;
   return iree_ok_status();
 }

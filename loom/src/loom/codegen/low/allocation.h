@@ -51,6 +51,12 @@ typedef struct loom_low_allocation_options_t {
   const loom_low_allocation_fixed_value_t* fixed_values;
   // Number of entries in |fixed_values|.
   iree_host_size_t fixed_value_count;
+  // Borrowed invocation locations indexed by formal-argument ordinal, including
+  // unused arguments. The entry arguments prefix the local value domain. A
+  // missing suffix has no entry transport; these are not lifetime constraints.
+  const loom_low_allocation_entry_location_t* entry_locations;
+  // Number of entries in |entry_locations|, at most the formal argument count.
+  iree_host_size_t entry_location_count;
   // Whole-function target-owned location ranges.
   const loom_low_allocation_reserved_range_t* reserved_ranges;
   // Number of entries in |reserved_ranges|.

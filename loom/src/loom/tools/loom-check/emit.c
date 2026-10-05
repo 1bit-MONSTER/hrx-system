@@ -65,6 +65,20 @@ enum {
   LOOM_CHECK_EMIT_MAX_SCHEDULE_PRESSURE_CLIFFS = 16,
 };
 
+typedef struct loom_check_emit_entry_location_spec_t {
+  // Original formal-argument ordinal from the RUN line.
+  uint32_t argument_ordinal;
+  // Incoming location supplied by the invocation boundary.
+  loom_low_allocation_entry_location_t location;
+} loom_check_emit_entry_location_spec_t;
+
+typedef struct loom_check_emit_entry_locations_t {
+  // Case-arena storage sized for every entry option in the RUN line.
+  loom_check_emit_entry_location_spec_t* specs;
+  // Number of parsed entry options.
+  iree_host_size_t count;
+} loom_check_emit_entry_locations_t;
+
 typedef struct loom_check_emit_pressure_cliff_spec_t {
   // Stable register-class name.
   iree_string_view_t register_class;
@@ -117,6 +131,8 @@ typedef struct loom_check_emit_request_t {
   iree_host_size_t low_allocation_budget_count;
   // Fixed low allocation requests parsed from the RUN line.
   loom_check_low_emit_fixed_value_spec_list_t low_allocation_fixed_values;
+  // Invocation boundary supplied independently of lifetime-fixed values.
+  loom_check_emit_entry_locations_t low_allocation_entry;
   // Low allocation diagnostic feedback requested by the RUN line.
   loom_low_allocation_diagnostic_flags_t low_allocation_diagnostic_flags;
   // True once a low allocation diagnostics option has been parsed.
@@ -169,6 +185,60 @@ static iree_status_t loom_check_emit_parse_json_output_option(
   return iree_ok_status();
 }
 
+static iree_status_t loom_check_emit_initialize_entry_locations(
+    iree_string_view_t options, iree_arena_allocator_t* arena,
+    loom_check_emit_entry_locations_t* entry) {
+  iree_host_size_t count = 0;
+  while (!iree_string_view_is_empty(options)) {
+    iree_string_view_t token;
+    iree_string_view_split(options, ' ', &token, &options);
+    iree_string_view_t name;
+    iree_string_view_split(token, '=', &name, NULL);
+    count +=
+        iree_string_view_equal(iree_string_view_trim(name), IREE_SV("entry"));
+  }
+  if (count == 0) {
+    return iree_ok_status();
+  }
+  return iree_arena_allocate_array(arena, count, sizeof(*entry->specs),
+                                   (void**)&entry->specs);
+}
+
+static iree_status_t loom_check_emit_parse_entry_location(
+    iree_string_view_t text, loom_check_emit_entry_locations_t* entry) {
+  iree_string_view_t ordinal_text, kind_text, base_text, remainder;
+  iree_string_view_split(text, ':', &ordinal_text, &remainder);
+  iree_string_view_split(remainder, ':', &kind_text, &base_text);
+  uint32_t ordinal = 0;
+  uint32_t base = 0;
+  if (!iree_string_view_atoi_uint32(ordinal_text, &ordinal) ||
+      !iree_string_view_atoi_uint32(base_text, &base)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "entry requires "
+        "<argument-ordinal>:<physical_register|target_id>:<base>");
+  }
+  loom_low_allocation_location_kind_t kind;
+  if (iree_string_view_equal(kind_text, IREE_SV("physical_register"))) {
+    kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
+  } else if (iree_string_view_equal(kind_text, IREE_SV("target_id"))) {
+    kind = LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID;
+  } else {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "entry location kind must be physical_register or "
+                            "target_id");
+  }
+  entry->specs[entry->count++] = (loom_check_emit_entry_location_spec_t){
+      .argument_ordinal = ordinal,
+      .location =
+          {
+              .location_kind = kind,
+              .location_base = base,
+          },
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_check_emit_parse_low_allocation_option(
     iree_string_view_t target_name, iree_string_view_t token,
     loom_check_emit_request_t* request) {
@@ -177,6 +247,10 @@ static iree_status_t loom_check_emit_parse_low_allocation_option(
   iree_string_view_split(token, '=', &name, &value);
   name = iree_string_view_trim(name);
   value = iree_string_view_trim(value);
+  if (iree_string_view_equal(name, IREE_SV("entry"))) {
+    return loom_check_emit_parse_entry_location(value,
+                                                &request->low_allocation_entry);
+  }
   if (iree_string_view_equal(name, IREE_SV("output"))) {
     if (!iree_string_view_equal(target_name, IREE_SV("low-allocation-json"))) {
       return iree_make_status(
@@ -486,6 +560,8 @@ static iree_status_t loom_check_emit_parse_request(
   loom_check_emit_split_target(emit_target, &target_name, &target_options);
   IREE_RETURN_IF_ERROR(loom_check_low_emit_fixed_value_spec_list_initialize(
       target_options, arena, &out_request->low_allocation_fixed_values));
+  IREE_RETURN_IF_ERROR(loom_check_emit_initialize_entry_locations(
+      target_options, arena, &out_request->low_allocation_entry));
   if (!iree_string_view_is_empty(target_name)) {
     out_request->emit_target_name = target_name;
   }
@@ -1037,6 +1113,64 @@ static void loom_check_emit_low_allocation_summary_record_assignment(
   }
 }
 
+// The RUN line is an external boundary; shipping ABI producers supply these
+// typed locations directly. Validate here before entering trusted allocation.
+static iree_status_t loom_check_emit_resolve_entry_locations(
+    const loom_low_function_model_t* model,
+    const loom_check_emit_entry_locations_t* entry,
+    iree_arena_allocator_t* arena, loom_low_allocation_options_t* options) {
+  const loom_block_t* block = loom_region_const_block(model->body, 0);
+  if (block->arg_count == 0) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "entry argument exceeds the function arity");
+  }
+  loom_low_allocation_entry_location_t* locations = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, block->arg_count, sizeof(*locations), (void**)&locations));
+  memset(locations, 0, block->arg_count * sizeof(*locations));
+  const loom_low_descriptor_set_t* descriptors = model->target.descriptor_set;
+  for (iree_host_size_t i = 0; i < entry->count; ++i) {
+    const uint32_t ordinal = entry->specs[i].argument_ordinal;
+    const loom_low_allocation_entry_location_t* location =
+        &entry->specs[i].location;
+    if (ordinal >= block->arg_count) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "entry argument exceeds the function arity");
+    }
+    if (locations[ordinal].location_kind !=
+        LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "duplicate entry argument %u", ordinal);
+    }
+    const loom_type_t type = loom_block_arg_type(model->module, block, ordinal);
+    if (!loom_low_type_is_register(type)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "entry argument %u must have a register type",
+                              ordinal);
+    }
+    const uint16_t class_id = loom_low_register_type_class_id(type);
+    const uint32_t units = loom_low_register_type_unit_count(type);
+    const loom_low_reg_class_t* reg_class = &descriptors->reg_classes[class_id];
+    uint32_t first_ordinal = 0;
+    uint32_t extent = 0;
+    if (location->location_kind !=
+            loom_low_allocation_storage_reg_class_location_kind(reg_class) ||
+        (loom_low_reg_class_uses_explicit_physical_registers(reg_class)
+             ? !loom_low_allocation_storage_explicit_physical_register_view(
+                   descriptors, class_id, location->location_base, units,
+                   &first_ordinal, &extent)
+             : (uint64_t)location->location_base + units > UINT32_MAX)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "invalid entry location for argument %u",
+                              ordinal);
+    }
+    locations[ordinal] = *location;
+  }
+  options->entry_locations = locations;
+  options->entry_location_count = block->arg_count;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_check_emit_build_low_allocation_table(
     loom_module_t* module, iree_string_view_t symbol_name,
     const loom_low_descriptor_registry_t* descriptor_registry,
@@ -1045,6 +1179,7 @@ static iree_status_t loom_check_emit_build_low_allocation_table(
     const loom_low_allocation_budget_t* budgets, iree_host_size_t budget_count,
     const loom_check_low_emit_fixed_value_spec_t* fixed_specs,
     iree_host_size_t fixed_spec_count,
+    const loom_check_emit_entry_locations_t* entry,
     loom_low_allocation_diagnostic_flags_t diagnostic_flags,
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* analysis_arena,
     bool* out_built, loom_low_allocation_table_t* out_table) {
@@ -1078,6 +1213,11 @@ static iree_status_t loom_check_emit_build_low_allocation_table(
       module, low_function,
       /*function_target_facts=*/NULL, descriptor_registry, emitter,
       LOOM_LOW_FUNCTION_MODEL_FLAG_REGION_TREE, analysis_arena, &model);
+  if (iree_status_is_ok(status) && model.error_count == 0 &&
+      entry->count != 0) {
+    status = loom_check_emit_resolve_entry_locations(&model, entry,
+                                                     analysis_arena, &options);
+  }
   if (iree_status_is_ok(status)) {
     status =
         loom_low_allocate_function(&model, &options, analysis_arena, out_table);
@@ -1101,6 +1241,7 @@ static iree_status_t loom_check_emit_write_low_allocation_json(
     const loom_low_allocation_budget_t* budgets, iree_host_size_t budget_count,
     const loom_check_low_emit_fixed_value_spec_t* fixed_specs,
     iree_host_size_t fixed_spec_count,
+    const loom_check_emit_entry_locations_t* entry,
     loom_low_allocation_diagnostic_flags_t diagnostic_flags,
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* analysis_arena,
     loom_check_result_t* result) {
@@ -1109,8 +1250,8 @@ static iree_status_t loom_check_emit_write_low_allocation_json(
   IREE_RETURN_IF_ERROR(loom_check_emit_build_low_allocation_table(
       module, symbol_name, descriptor_registry, test_case, filename,
       diagnostic_collector, budgets, budget_count, fixed_specs,
-      fixed_spec_count, diagnostic_flags, emitter, analysis_arena, &built,
-      &table));
+      fixed_spec_count, entry, diagnostic_flags, emitter, analysis_arena,
+      &built, &table));
   if (!built) {
     return iree_ok_status();
   }
@@ -1125,6 +1266,7 @@ static iree_status_t loom_check_emit_write_low_allocation_summary(
     const loom_low_allocation_budget_t* budgets, iree_host_size_t budget_count,
     const loom_check_low_emit_fixed_value_spec_t* fixed_specs,
     iree_host_size_t fixed_spec_count,
+    const loom_check_emit_entry_locations_t* entry,
     loom_low_allocation_diagnostic_flags_t diagnostic_flags,
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* analysis_arena,
     loom_check_result_t* result) {
@@ -1133,8 +1275,8 @@ static iree_status_t loom_check_emit_write_low_allocation_summary(
   IREE_RETURN_IF_ERROR(loom_check_emit_build_low_allocation_table(
       module, symbol_name, descriptor_registry, test_case, filename,
       diagnostic_collector, budgets, budget_count, fixed_specs,
-      fixed_spec_count, diagnostic_flags, emitter, analysis_arena, &built,
-      &table));
+      fixed_spec_count, entry, diagnostic_flags, emitter, analysis_arena,
+      &built, &table));
   if (!built || table.error_count != 0) {
     return iree_ok_status();
   }
@@ -1173,6 +1315,31 @@ static iree_status_t loom_check_emit_write_low_allocation_summary(
           loom_check_emit_low_allocation_mode_name(table.allocation_mode),
           table.assignment_count, table.remark_count, table.spill_count,
           table.coalesced_copy_count, table.materialized_copy_count));
+
+  if (entry->count != 0) {
+    const loom_low_move_range_t moves = table.entry_moves.moves;
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        &result->actual_output, "entry moves: %" PRIhsz "\n", moves.count));
+    for (iree_host_size_t i = 0; i < moves.count; ++i) {
+      const loom_low_move_t* move = &table.moves[moves.start + i];
+      const loom_low_move_location_t endpoints[] = {move->destination,
+                                                    move->source};
+      for (iree_host_size_t j = 0; j < IREE_ARRAYSIZE(endpoints); ++j) {
+        const loom_low_move_location_t* location = &endpoints[j];
+        const loom_low_reg_class_t* reg_class =
+            &table.target.descriptor_set
+                 ->reg_classes[location->descriptor_reg_class_id];
+        const iree_string_view_t class_name = loom_low_descriptor_set_string(
+            table.target.descriptor_set, reg_class->name_string_ref);
+        const iree_string_view_t kind =
+            loom_low_allocation_location_kind_name(location->location_kind);
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            &result->actual_output, "%s%.*s:%.*s:%u%s", j == 0 ? "  " : " <- ",
+            (int)class_name.size, class_name.data, (int)kind.size, kind.data,
+            location->location, j == 1 ? "\n" : ""));
+      }
+    }
+  }
 
   iree_host_size_t used_register_class_count = 0;
   for (iree_host_size_t i = 0; i < register_class_count; ++i) {
@@ -1656,6 +1823,7 @@ iree_status_t loom_check_execute_emit(
             request.low_allocation_budgets, request.low_allocation_budget_count,
             request.low_allocation_fixed_values.specs,
             request.low_allocation_fixed_values.count,
+            &request.low_allocation_entry,
             request.low_allocation_diagnostic_flags,
             (iree_diagnostic_emitter_t){
                 .fn = loom_check_diagnostic_emitter_capture_emit,
@@ -1669,6 +1837,7 @@ iree_status_t loom_check_execute_emit(
             request.low_allocation_budgets, request.low_allocation_budget_count,
             request.low_allocation_fixed_values.specs,
             request.low_allocation_fixed_values.count,
+            &request.low_allocation_entry,
             request.low_allocation_diagnostic_flags,
             (iree_diagnostic_emitter_t){
                 .fn = loom_check_diagnostic_emitter_capture_emit,

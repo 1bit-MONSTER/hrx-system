@@ -58,6 +58,8 @@ typedef struct loom_low_allocation_build_state_t {
   loom_low_allocation_copy_decision_plan_t copy_decision_plan;
   // Allocation-owned final structural moves and reusable sequencing scratch.
   loom_low_allocation_move_plan_t move_plan;
+  // Invocation-only transport from incoming ABI locations to assignments.
+  loom_low_move_group_t entry_moves;
   // Mutable branch edge-copy plan being built.
   loom_low_allocation_edge_copy_plan_t edge_copy_plan;
   // Mutable packet-local final move plan being built.
@@ -116,6 +118,8 @@ loom_low_allocation_make_interval_assignment_context(
       .placement = &state->placement,
       .preferences = &state->preferences,
       .target_constraints = target_constraints,
+      .entry_locations = state->options->entry_locations,
+      .entry_location_count = state->options->entry_location_count,
       .required_register_values = state->options->required_register_values,
       .unit_liveness = &state->unit_liveness,
       .residency = state->options->residency,
@@ -206,14 +210,76 @@ static iree_status_t loom_low_allocation_repair_fragmentation(
   return status;
 }
 
+// Formal arguments occupy the local value domain's prefix. Unused arguments
+// have no assignment, and incoming identities need no move-plan workspace.
+static const loom_low_allocation_assignment_t*
+loom_low_allocation_entry_destination(
+    const loom_low_allocation_build_state_t* state, iree_host_size_t ordinal) {
+  const loom_low_allocation_entry_location_t* entry =
+      &state->options->entry_locations[ordinal];
+  const uint32_t assignment_index =
+      state->interval_assignment.assignment_indices_by_value_ordinal[ordinal];
+  if (entry->location_kind == LOOM_LOW_ALLOCATION_LOCATION_UNASSIGNED ||
+      assignment_index == UINT32_MAX) {
+    return NULL;
+  }
+  const loom_low_allocation_assignment_t* assignment =
+      &state->interval_assignment.assignments[assignment_index];
+  return assignment->location_kind == entry->location_kind &&
+                 assignment->location_base == entry->location_base
+             ? NULL
+             : assignment;
+}
+
+static iree_status_t loom_low_allocation_build_entry_moves(
+    loom_low_allocation_build_state_t* state) {
+  loom_low_move_t* raw_moves =
+      loom_low_allocation_move_plan_raw_moves(&state->move_plan);
+  iree_host_size_t raw_move_count = 0;
+  for (iree_host_size_t i = 0; i < state->options->entry_location_count; ++i) {
+    const loom_low_allocation_assignment_t* destination =
+        loom_low_allocation_entry_destination(state, i);
+    if (destination == NULL) {
+      continue;
+    }
+    const loom_low_allocation_entry_location_t* entry =
+        &state->options->entry_locations[i];
+    loom_low_allocation_assignment_t source = *destination;
+    source.location_kind = entry->location_kind;
+    source.location_base = entry->location_base;
+    for (uint32_t unit = 0; unit < destination->location_count; ++unit) {
+      raw_moves[raw_move_count++] = (loom_low_move_t){
+          .source = loom_low_allocation_assignment_unit_location(
+              state->target.descriptor_set, &source, unit),
+          .destination = loom_low_allocation_assignment_unit_location(
+              state->target.descriptor_set, destination, unit),
+      };
+    }
+    loom_low_allocation_target_constraints_record_location_extent(
+        &state->target_constraints, source.descriptor_reg_class_id,
+        source.location_kind, source.location_base, source.location_count);
+  }
+  return loom_low_allocation_move_plan_append_group(
+      &state->move_plan, state->function_op, /*read_point=*/0,
+      /*write_point=*/0, raw_move_count, &state->entry_moves);
+}
+
 // Structural moves consume final assignments. Their permutation index and
 // sequencing workspace are private to this construction; only completed move
 // rows and scratch-write indices survive in the allocation result.
 static iree_status_t loom_low_allocation_build_moves(
     loom_low_allocation_build_state_t* state,
     iree_arena_allocator_t* decision_arena) {
+  iree_host_size_t entry_unit_count = 0;
+  for (iree_host_size_t i = 0; i < state->options->entry_location_count; ++i) {
+    const loom_low_allocation_assignment_t* destination =
+        loom_low_allocation_entry_destination(state, i);
+    if (destination != NULL) {
+      entry_unit_count += destination->location_count;
+    }
+  }
   if (state->placement.packet_move_group_count == 0 &&
-      state->placement.edge_copy_group_count == 0) {
+      state->placement.edge_copy_group_count == 0 && entry_unit_count == 0) {
     return iree_ok_status();
   }
   const iree_arena_checkpoint_t scratch_checkpoint =
@@ -227,13 +293,16 @@ static iree_status_t loom_low_allocation_build_moves(
   };
   const iree_host_size_t move_input_capacity =
       state->placement.branch_unit_count +
-      state->placement.packet_move_unit_count;
+      state->placement.packet_move_unit_count + entry_unit_count;
   const iree_host_size_t raw_group_capacity =
-      state->placement.max_move_group_unit_count;
+      iree_max(state->placement.max_move_group_unit_count, entry_unit_count);
   iree_status_t status = loom_low_allocation_move_plan_initialize(
       &move_plan_context, move_input_capacity, raw_group_capacity, state->arena,
       decision_arena, &state->move_plan);
-  if (iree_status_is_ok(status)) {
+  if (iree_status_is_ok(status) && entry_unit_count != 0) {
+    status = loom_low_allocation_build_entry_moves(state);
+  }
+  if (iree_status_is_ok(status) && state->target_constraints.error_count == 0) {
     const loom_low_allocation_edge_copy_context_t edge_copy_context = {
         .placement = &state->placement,
         .move_plan = &state->move_plan,
@@ -436,6 +505,8 @@ iree_status_t loom_low_allocate_function(
         .placement = &state.placement,
         .preferences = &state.preferences,
         .target_constraints = &state.target_constraints,
+        .entry_locations = options->entry_locations,
+        .entry_location_count = options->entry_location_count,
         .unit_liveness = &state.unit_liveness,
         .interval_assignment = &state.interval_assignment,
         .storage_leases = &state.storage_leases,
@@ -483,6 +554,7 @@ iree_status_t loom_low_allocate_function(
         .failure = state.target_constraints.failure,
         .copy_decisions = state.copy_decision_plan.decisions,
         .copy_decision_count = state.copy_decision_plan.decision_count,
+        .entry_moves = state.entry_moves,
         .edge_copies = state.edge_copy_plan.copies,
         .edge_copy_count = state.edge_copy_plan.copy_count,
         .edge_copy_groups = state.edge_copy_plan.groups,

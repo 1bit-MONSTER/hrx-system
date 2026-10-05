@@ -128,6 +128,63 @@ static uint32_t loom_low_allocation_interval_assignment_peak_live_units(
   return fallback_units;
 }
 
+// Incoming locations are preferences for the complete interval, not fixed
+// storage. In particular, implicit instruction writes can force entry transport
+// even when no other SSA value occupies the incoming register.
+static bool loom_low_allocation_interval_assignment_find_entry_location(
+    loom_low_allocation_interval_assignment_state_t* state,
+    loom_low_allocation_search_context_t* search_context,
+    const loom_liveness_interval_t* interval,
+    loom_value_ordinal_t value_ordinal,
+    const loom_low_allocation_class_capacity_t* capacity, uint32_t* out_base) {
+  const loom_low_allocation_interval_assignment_context_t* context =
+      state->context;
+  if (value_ordinal >= context->entry_location_count) {
+    return false;
+  }
+  const loom_low_allocation_entry_location_t* entry =
+      &context->entry_locations[value_ordinal];
+  if (entry->location_kind != capacity->location_kind) {
+    return false;
+  }
+  const loom_low_descriptor_set_t* descriptors =
+      context->target->descriptor_set;
+  const loom_low_reg_class_t* reg_class =
+      &descriptors->reg_classes[capacity->descriptor_reg_class_id];
+  if (loom_low_reg_class_uses_explicit_physical_registers(reg_class)) {
+    uint32_t first_candidate_ordinal = 0;
+    uint32_t pressure_extent = 0;
+    if (!loom_low_allocation_storage_explicit_physical_register_view(
+            descriptors, capacity->descriptor_reg_class_id,
+            entry->location_base, interval->unit_count,
+            &first_candidate_ordinal, &pressure_extent) ||
+        (capacity->is_bounded && pressure_extent > capacity->max_units)) {
+      return false;
+    }
+  } else {
+    const uint32_t alignment =
+        loom_low_allocation_live_range_interval_alignment(
+            descriptors, context->liveness, context->placement, interval);
+    if (entry->location_base % alignment != 0 ||
+        (capacity->is_bounded &&
+         (uint64_t)entry->location_base + interval->unit_count >
+             capacity->max_units)) {
+      return false;
+    }
+  }
+  if (loom_low_allocation_search_location_conflicts(
+          search_context, interval, capacity->descriptor_reg_class_id,
+          entry->location_kind, entry->location_base, interval->unit_count,
+          /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
+          /*ignored_storage_lease_value_ids=*/NULL,
+          /*ignored_storage_lease_value_count=*/0,
+          LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN)) {
+    return false;
+  }
+  *out_base = entry->location_base;
+  return true;
+}
+
 static bool loom_low_allocation_interval_assignment_align_up_u32(
     uint32_t value, uint32_t alignment, uint32_t* out_value) {
   if (alignment <= 1) {
@@ -856,8 +913,11 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
     }
 
     uint32_t location_base = 0;
-    bool assigned = loom_low_allocation_search_find_free_location(
-        &search_context, interval, capacity, &location_base);
+    bool assigned = loom_low_allocation_interval_assignment_find_entry_location(
+                        state, &search_context, interval, value_ordinal,
+                        &capacity, &location_base) ||
+                    loom_low_allocation_search_find_free_location(
+                        &search_context, interval, capacity, &location_base);
     const uint32_t retained_fixed_value_index_plus_one =
         search_context.retained_fixed_value_index_plus_one;
     const bool requires_register =

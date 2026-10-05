@@ -15,13 +15,16 @@ extern "C" uint64_t mix(uint64_t input, uint64_t delta);
 extern "C" uint64_t choose_mix(uint64_t input, uint64_t delta, uint64_t limit);
 extern "C" uint64_t preserve(uint64_t a, uint64_t b, uint64_t c, uint64_t d,
                              uint64_t e, uint64_t f);
-extern "C" uint64_t shift_mix(uint64_t input, uint64_t count);
+extern "C" uint64_t shift_mix(uint64_t unused_first, uint64_t count,
+                              uint64_t unused_third, uint64_t input);
 extern "C" uint64_t load_word(uint64_t unused, const uint64_t* input,
                               uint64_t index);
 extern "C" uint64_t add_word(uint32_t word, uint64_t bias);
-extern "C" uint32_t divide_mix(uint32_t word);
+extern "C" uint32_t divide_mix(uint64_t unused_first, uint64_t unused_second,
+                               uint32_t word);
 extern "C" uint32_t replace_narrow(uint8_t* bytes, uint16_t* words,
                                    uint64_t index, uint32_t replacement);
+extern "C" uint64_t high_mix(uint64_t unused, uint64_t factor, uint64_t word);
 extern "C" uint64_t recurrence(uint64_t first, uint64_t second,
                                uint64_t iterations);
 
@@ -41,12 +44,14 @@ TEST(NativeCallableTest, OrdinaryCLinkage) {
     ASSERT_EQ(choose_mix(a, b, c), a < c ? ((a + b) ^ a) : ((a * b) ^ c));
     ASSERT_EQ(preserve(a, b, c, d, e, f),
               ((a + b) * (c + d) + (e + f) * a) ^ (b ^ c));
-    ASSERT_EQ(shift_mix(a, b), (a >> (b & 63)) ^ a);
+    ASSERT_EQ(shift_mix(a, b, c, d), (d >> (b & 63)) ^ d);
     ASSERT_EQ(load_word(a, words, i % 6), words[i % 6]);
     ASSERT_EQ(add_word(static_cast<uint32_t>(a), b),
               static_cast<uint64_t>(static_cast<uint32_t>(a)) + b);
     const uint32_t word = static_cast<uint32_t>(a);
-    ASSERT_EQ(divide_mix(word), ((word / 7) + (word % 7)) ^ word);
+    ASSERT_EQ(divide_mix(b, c, word), ((word / 7) + (word % 7)) ^ word);
+    const auto product = static_cast<unsigned __int128>(b) * c;
+    ASSERT_EQ(high_mix(a, b, c), static_cast<uint64_t>(product >> 64) ^ c);
     uint64_t first = a, second = b;
     for (unsigned step = 0; step < i % 23; ++step) {
       const uint64_t sum = first + second;

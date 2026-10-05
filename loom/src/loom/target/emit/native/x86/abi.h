@@ -21,15 +21,14 @@ extern "C" {
 // before scheduling/allocation; neither the encoder nor the ELF adapter
 // selects a calling convention.
 typedef struct loom_x86_function_abi_t {
-  // ABI registers for live input values, in original parameter order.
-  loom_low_allocation_fixed_value_t fixed_values[6];
-  // Number of live input assignments; unused parameters still consume ABI
-  // slots.
-  iree_host_size_t fixed_value_count;
+  // ABI registers in original parameter order, including unused arguments.
+  loom_low_allocation_entry_location_t entry_locations[6];
+  // Number of original parameters represented in |entry_locations|.
+  iree_host_size_t entry_location_count;
 } loom_x86_function_abi_t;
 
 // Admits the logical and physical callable signature and materializes the
-// platform's fixed input constraints. Unsupported user boundaries produce a
+// platform's incoming locations. Unsupported user boundaries produce a
 // diagnostic and leave out_accepted false. Compiler storage is borrowed.
 iree_status_t loom_x86_function_abi_prepare(loom_module_t* module,
                                             const loom_target_entry_t* entry,

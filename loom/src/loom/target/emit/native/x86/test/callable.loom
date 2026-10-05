@@ -40,9 +40,9 @@ func.def public @preserve(%a: i64, %b: i64, %c: i64, %d: i64, %e: i64, %f: i64) 
   func.return %result : i64
 }
 
-// The count enters through the ordinary ABI before allocation transports it
-// to the shift instruction's fixed count register. The input remains live.
-func.def public @shift_mix(%input: i64, %count: i64) -> (i64) {
+// The input enters in RCX and stays live while another argument supplies CL.
+// Entry transport must preserve it before the shift count overwrites RCX.
+func.def public @shift_mix(%unused_first: i64, %count: i64, %unused_third: i64, %input: i64) -> (i64) {
   %mask = scalar.constant 63 : i64
   %bounded_count = scalar.andi %count, %mask : i64
   %shifted = scalar.shrui %input, %bounded_count : i64
@@ -70,14 +70,24 @@ func.def public @add_word(%word: i32, %bias: i64) -> (i64) {
 }
 
 // Quotient and remainder use the implicit RAX/RDX register pair. The original
-// word and the first product must both survive the second high multiply.
-func.def public @divide_mix(%word: i32) -> (i32) {
+// word arrives in EDX and must survive both high multiplies.
+func.def public @divide_mix(%unused_first: i64, %unused_second: i64, %word: i32) -> (i32) {
   %divisor = scalar.constant 7 : i32
   %quotient = scalar.divui %word, %divisor : i32
   %remainder = scalar.remui %word, %divisor : i32
   %sum = scalar.addi %quotient, %remainder : i32
   %result = scalar.xori %sum, %word : i32
   func.return %result : i32
+}
+
+// Authored Low uses the same entry boundary. The third input must survive the
+// implicit RDX write without an author-provided copy shortening its lifetime.
+low.func.def public target<x86.scalar.core> abi(object_function) @high_mix(%unused: reg<x86.gpr64>, %factor: reg<x86.gpr64>, %word: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %accumulator = copy %word : reg<x86.gpr64> -> reg<x86.rax>
+  %high = mul.high.gpr64 %accumulator, %factor
+  %high_word = copy %high : reg<x86.rdx> -> reg<x86.gpr64>
+  %result = xor.gpr64 %word, %high_word
+  return %result
 }
 
 // Indexed byte and halfword stores truncate independently and leave neighboring

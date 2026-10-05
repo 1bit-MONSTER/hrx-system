@@ -32,11 +32,12 @@ typedef struct loom_x86_instruction_t {
 // remain valid until their arena is reset. The producer consumes each shared
 // packet and its final transport once; byte encoding never revisits the IR.
 typedef struct loom_x86_function_t {
-  // Arena-owned instructions in final block order.
+  // Arena-owned entry transport followed by instructions in final block order.
   loom_x86_instruction_t* instructions;
   // Number of instructions, excluding the preservation envelope.
   iree_host_size_t instruction_count;
-  // First instruction of each shared CFG block and the common epilogue.
+  // First instruction of each shared CFG block and the common epilogue. Entry
+  // transport precedes every block and runs only when the function is invoked.
   iree_host_size_t* block_starts;
   // Number of CFG blocks, excluding the epilogue.
   uint32_t block_count;

@@ -253,6 +253,8 @@ static iree_status_t loom_low_emission_frame_build_impl(
       .budget_count = options->allocation_budget_count,
       .fixed_values = options->allocation_fixed_values,
       .fixed_value_count = options->allocation_fixed_value_count,
+      .entry_locations = options->allocation_entry_locations,
+      .entry_location_count = options->allocation_entry_location_count,
       .reserved_ranges = options->allocation_reserved_ranges,
       .reserved_range_count = options->allocation_reserved_range_count,
       .required_register_values = required_register_values,

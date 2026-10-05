@@ -120,21 +120,27 @@ TEST_F(FunctionTest, RestoreRegistersInReverseOrderAfterResultTransport) {
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }
 
-TEST_F(FunctionTest, BranchesResolveToBlocksInsidePreservationEnvelope) {
+TEST_F(FunctionTest, BranchesSkipEntryTransportAndPreservation) {
+  loom_x86_encoding_operands_t entry = {};
+  entry.result = 3;     // RBX.
+  entry.inputs[0] = 2;  // RDX.
   loom_x86_encoding_operands_t condition = {};
   condition.inputs[0] = 7;  // EDI.
   loom_x86_encoding_operands_t value = {};
   value.result = 3;  // RBX.
   value.immediate = 42;
   loom_x86_instruction_t instructions[] = {
+      Instruction(LOOM_X86_ENCODING_FORM_MOVE, 0x8b | LOOM_X86_ENCODING_REX_W,
+                  entry),
       Instruction(LOOM_X86_ENCODING_FORM_BRANCH_ZERO, 0, condition, 3),
       Instruction(LOOM_X86_ENCODING_FORM_CONSTANT,
                   0xb8 | LOOM_X86_ENCODING_REX_W, value),
       Instruction(LOOM_X86_ENCODING_FORM_JUMP, 0, {}, 1),
   };
   // Empty entry aliases the condition block. Empty exit aliases the epilogue.
-  // The back edge must skip PUSH; the forward edge must reach POP, not RET.
-  iree_host_size_t block_starts[] = {0, 0, 1, 3, 3};
+  // The back edge skips PUSH and entry transport; the exit reaches POP, not
+  // RET.
+  iree_host_size_t block_starts[] = {1, 1, 2, 4, 4};
   const loom_x86_function_t function = {
       /*.instructions=*/instructions,
       /*.instruction_count=*/IREE_ARRAYSIZE(instructions),
@@ -149,19 +155,20 @@ TEST_F(FunctionTest, BranchesResolveToBlocksInsidePreservationEnvelope) {
   IREE_ASSERT_OK(loom_x86_function_write(&function, stream_, &arena_));
   EXPECT_EQ(iree_io_stream_offset(stream_), iree_io_stream_length(stream_));
 
-  const size_t branch_length = Encode(instructions[0]).size();
-  const size_t body_length = Encode(instructions[1]).size();
-  const size_t jump_length = Encode(instructions[2]).size();
-  loom_x86_instruction_t forward = instructions[0];
+  const size_t branch_length = Encode(instructions[1]).size();
+  const size_t body_length = Encode(instructions[2]).size();
+  const size_t jump_length = Encode(instructions[3]).size();
+  loom_x86_instruction_t forward = instructions[1];
   forward.operands.immediate = static_cast<int64_t>(body_length + jump_length);
-  loom_x86_instruction_t backward = instructions[2];
+  loom_x86_instruction_t backward = instructions[3];
   backward.operands.immediate =
       -static_cast<int64_t>(branch_length + body_length + jump_length);
   loom_x86_encoding_operands_t rbx = {};
   rbx.inputs[0] = 3;
   EXPECT_EQ(Read(),
             prefix + Encode(Instruction(LOOM_X86_ENCODING_FORM_PUSH, 0, rbx)) +
-                Encode(forward) + Encode(instructions[1]) + Encode(backward) +
+                Encode(instructions[0]) + Encode(forward) +
+                Encode(instructions[2]) + Encode(backward) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_POP, 0, rbx)) +
                 Encode(Instruction(LOOM_X86_ENCODING_FORM_RETURN)));
 }
