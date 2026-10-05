@@ -552,11 +552,6 @@ static iree_status_t loom_target_low_legality_verify_type(
   if (registered_type_handled) {
     return iree_ok_status();
   }
-  if (context->options->type_supported.fn != NULL &&
-      context->options->type_supported.fn(
-          context->options->type_supported.user_data, context->module, type)) {
-    return iree_ok_status();
-  }
   if (loom_type_is_vector(type)) {
     if (!loom_type_is_all_static(type)) {
       return loom_target_low_legality_emit_type_constraint(
@@ -568,8 +563,20 @@ static iree_status_t loom_target_low_legality_verify_type(
       return loom_target_low_legality_emit_type_constraint(
           context, op, type, IREE_SV("vector.lane_count_u32"));
     }
+    if (context->options->source_vector_carrier_supported.fn != NULL &&
+        !context->options->source_vector_carrier_supported.fn(
+            context->options->source_vector_carrier_supported.user_data,
+            context->module, type)) {
+      return loom_target_low_legality_emit_type_constraint(
+          context, op, type, IREE_SV("vector.target_carrier"));
+    }
     return loom_target_low_legality_verify_scalar_type(
         context, op, loom_type_scalar(loom_type_element_type(type)));
+  }
+  if (context->options->type_supported.fn != NULL &&
+      context->options->type_supported.fn(
+          context->options->type_supported.user_data, context->module, type)) {
+    return iree_ok_status();
   }
   return loom_target_low_legality_emit_type_constraint(
       context, op, type, IREE_SV("type.target_low_mapping"));

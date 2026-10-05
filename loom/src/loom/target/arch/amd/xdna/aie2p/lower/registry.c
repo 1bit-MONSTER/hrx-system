@@ -16,6 +16,7 @@
 #include "loom/target/arch/amd/xdna/aie2p/lower/matrix.h"
 #include "loom/target/arch/amd/xdna/aie2p/lower/rodata.h"
 #include "loom/target/arch/amd/xdna/aie2p/lower/storage.h"
+#include "loom/target/arch/amd/xdna/aie2p/vector_carrier.h"
 #include "loom/target/arch/amd/xdna/error_catalog.h"
 #include "loom/target/contract.h"
 
@@ -24,12 +25,20 @@ static bool loom_aie2p_source_type_supported(void* user_data,
                                              loom_type_t source_type) {
   (void)user_data;
   (void)module;
-  if (!loom_type_is_scalar(source_type) && !loom_type_is_vector(source_type)) {
+  if (!loom_type_is_scalar(source_type)) {
     return false;
   }
   const loom_scalar_type_t element_type = loom_type_element_type(source_type);
   return element_type == LOOM_SCALAR_TYPE_F8E4M3 ||
          element_type == LOOM_SCALAR_TYPE_F8E5M2;
+}
+
+static bool loom_aie2p_source_vector_carrier_supported(
+    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+  (void)user_data;
+  (void)module;
+  return loom_aie2p_vector_carrier_for_type(source_type).kind !=
+         LOOM_AIE2P_VECTOR_CARRIER_NONE;
 }
 
 static iree_status_t loom_aie2p_map_type(void* user_data,
@@ -65,56 +74,25 @@ static iree_status_t loom_aie2p_map_type(void* user_data,
         break;
     }
   }
-  if (loom_type_is_vector(source_type) &&
-      loom_type_is_all_static(source_type)) {
-    uint64_t element_count = 0;
-    if (!loom_type_static_element_count(source_type, &element_count) ||
-        element_count == 0) {
-      return loom_low_lower_emit_source_type_unsupported(
-          context, source_op, IREE_SV("source"), source_type);
-    }
-    const loom_scalar_type_t element_type = loom_type_element_type(source_type);
-    const bool is_rank_one = loom_type_rank(source_type) == 1;
-    const int32_t element_bits = loom_scalar_type_bitwidth(element_type);
-    if (is_rank_one && element_count == 32 &&
-        element_type == LOOM_SCALAR_TYPE_F32) {
-      return loom_low_lower_make_register_type(
-          context, AIE2P_CORE_REG_CLASS_ID_AIE2P_MBMS, 2, out_low_type);
-    }
-    // Rank-one accumulator values above 1024 bits retain the containing
-    // four-unit physical view. AIE2P has no allocatable three-unit MBMS view;
-    // units beyond the source vector's logical extent remain unobservable.
-    const bool has_accumulator_element_type =
-        element_type == LOOM_SCALAR_TYPE_I32 ||
-        element_type == LOOM_SCALAR_TYPE_I64 ||
-        element_type == LOOM_SCALAR_TYPE_F32;
-    if (is_rank_one && has_accumulator_element_type && element_bits > 0 &&
-        element_count > 1024 / (uint32_t)element_bits &&
-        element_count <= 2048 / (uint32_t)element_bits) {
-      return loom_low_lower_make_register_type(
-          context, AIE2P_CORE_REG_CLASS_ID_AIE2P_MBMS, 4, out_low_type);
-    }
-    if (element_count <= 128 && element_type == LOOM_SCALAR_TYPE_I1) {
-      const uint32_t predicate_register_count =
-          (uint32_t)((element_count + 63u) / 64u);
-      return loom_low_lower_make_register_type(
-          context, AIE2P_CORE_REG_CLASS_ID_AIE2P_ELPREDICATE,
-          predicate_register_count, out_low_type);
-    }
-    if (element_bits > 0 && element_count > 512 / (uint32_t)element_bits &&
-        element_count <= 1024 / (uint32_t)element_bits) {
-      // Ordinary wide vectors retain the same ordered W-register payload
-      // across logical shape changes, just like single-X values below.
-      return loom_low_lower_make_register_type(
-          context, AIE2P_CORE_REG_CLASS_ID_AIE2P_VEC256, 4, out_low_type);
-    }
-    if (element_bits > 0 && element_count <= 512 / (uint32_t)element_bits) {
-      // Ordinary vectors retain a full X-register carrier. Narrow vector
-      // memory forms address W subregisters of that carrier; choosing a W
-      // carrier from the logical type alone makes the same SSA value unusable
-      // by the 512-bit vector ALU.
-      return loom_low_lower_make_register_type(
-          context, AIE2P_CORE_REG_CLASS_ID_AIE2P_VEC256, 2, out_low_type);
+  if (loom_type_is_vector(source_type)) {
+    const loom_aie2p_vector_carrier_t carrier =
+        loom_aie2p_vector_carrier_for_type(source_type);
+    switch (carrier.kind) {
+      case LOOM_AIE2P_VECTOR_CARRIER_ORDINARY:
+        return loom_low_lower_make_register_type(
+            context, AIE2P_CORE_REG_CLASS_ID_AIE2P_VEC256, carrier.unit_count,
+            out_low_type);
+      case LOOM_AIE2P_VECTOR_CARRIER_PREDICATE:
+        return loom_low_lower_make_register_type(
+            context, AIE2P_CORE_REG_CLASS_ID_AIE2P_ELPREDICATE,
+            carrier.unit_count, out_low_type);
+      case LOOM_AIE2P_VECTOR_CARRIER_ACCUMULATOR:
+        return loom_low_lower_make_register_type(
+            context, AIE2P_CORE_REG_CLASS_ID_AIE2P_MBMS, carrier.unit_count,
+            out_low_type);
+      case LOOM_AIE2P_VECTOR_CARRIER_NONE:
+      default:
+        break;
     }
   }
   return loom_low_lower_emit_source_type_unsupported(
@@ -287,6 +265,13 @@ static iree_status_t loom_aie2p_finalize_module(
 
 static const uint16_t kAie2pVectorPacketBitCounts[] = {128u, 256u, 512u};
 static const uint16_t kAie2pVectorPacketLaneCounts[] = {64u, 32u, 16u, 8u};
+static const loom_target_vector_packet_lane_limit_t
+    kAie2pVectorPacketStructuralLaneLimits[] = {
+        {
+            .element_type = LOOM_SCALAR_TYPE_I1,
+            .maximum_lane_count = 64u,
+        },
+};
 static_assert(IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts) <=
                   LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
               "packet lane candidates exceed the shared planner capacity");
@@ -294,9 +279,12 @@ static_assert(IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts) <=
 static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
     .native_bit_counts = kAie2pVectorPacketBitCounts,
     .native_lane_counts = kAie2pVectorPacketLaneCounts,
+    .structural_lane_limits = kAie2pVectorPacketStructuralLaneLimits,
     .maximum_unpacketized_bit_count = 0,
     .native_bit_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketBitCounts),
     .native_lane_count_count = IREE_ARRAYSIZE(kAie2pVectorPacketLaneCounts),
+    .structural_lane_limit_count =
+        IREE_ARRAYSIZE(kAie2pVectorPacketStructuralLaneLimits),
 };
 
 static const loom_low_lower_policy_t kAie2pCoreLowLowerPolicy = {
@@ -306,6 +294,11 @@ static const loom_low_lower_policy_t kAie2pCoreLowLowerPolicy = {
     .source_type_supported =
         {
             .fn = loom_aie2p_source_type_supported,
+            .user_data = NULL,
+        },
+    .source_vector_carrier_supported =
+        {
+            .fn = loom_aie2p_source_vector_carrier_supported,
             .user_data = NULL,
         },
     .map_type = {.fn = loom_aie2p_map_type, .user_data = NULL},

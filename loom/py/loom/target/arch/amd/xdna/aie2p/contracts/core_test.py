@@ -381,6 +381,9 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         ("f64", "f64", "amd.xdna.aie2p.insert.i64.zero"),
         ("f64", "f64", "amd.xdna.aie2p.insert.i64.register"),
         ("f64", "f64", "amd.xdna.aie2p.insert.i64.register"),
+        ("i1", "i1", "amd.xdna.aie2p.insert.i8.zero"),
+        ("i1", "i1", "amd.xdna.aie2p.insert.i8.register"),
+        ("i1", "i1", "amd.xdna.aie2p.insert.i8.register"),
     ]
     for element_type, storage in (
         ("i8", "i8"),
@@ -415,11 +418,55 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
         )
         for rule in vector_insert_rules
     ] == expected_insert_rows
-    for rule in vector_insert_rules:
+    numeric_insert_rules = [
+        rule
+        for rule in vector_insert_rules
+        if rule.guards[0].type_pattern.element != "i1"
+    ]
+    for rule in numeric_insert_rules:
         expected_copy_operands = (
             ("idx",) if rule.descriptor.key.endswith(".register") else ()
         )
         assert rule.emit[-1].copy_operands == expected_copy_operands
+    predicate_insert_rules = [
+        rule
+        for rule in vector_insert_rules
+        if rule.guards[0].type_pattern.element == "i1"
+    ]
+    assert [
+        [emit.descriptor.key for emit in rule.emit] for rule in predicate_insert_rules
+    ] == [
+        [
+            "amd.xdna.aie2p.constant.i32.short",
+            "amd.xdna.aie2p.splat.i8x64",
+            "amd.xdna.aie2p.sub.i8x64",
+            "amd.xdna.aie2p.select.i8x64",
+            "amd.xdna.aie2p.insert.i8.zero",
+            "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
+        ],
+        [
+            "amd.xdna.aie2p.constant.i32.short",
+            "amd.xdna.aie2p.splat.i8x64",
+            "amd.xdna.aie2p.sub.i8x64",
+            "amd.xdna.aie2p.select.i8x64",
+            "amd.xdna.aie2p.constant.i32.short",
+            "amd.xdna.aie2p.insert.i8.register",
+            "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
+        ],
+        [
+            "amd.xdna.aie2p.constant.i32.short",
+            "amd.xdna.aie2p.splat.i8x64",
+            "amd.xdna.aie2p.sub.i8x64",
+            "amd.xdna.aie2p.select.i8x64",
+            "amd.xdna.aie2p.insert.i8.register",
+            "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
+        ],
+    ]
+    assert [rule.emit[-2].copy_operands for rule in predicate_insert_rules] == [
+        (),
+        ("idx",),
+        ("idx",),
+    ]
 
     compare_rules = [
         rule for rule in rules if rule.source_op is scalar_comparison.scalar_cmpi
@@ -1347,6 +1394,39 @@ def test_core_contract_closes_scalar_and_vector_families() -> None:
             "amd.xdna.aie2p.select.i32x16",
         ]
         assert rule.emit[-1].copy_operands == ()
+    predicate_select_rules = [
+        rule
+        for rule in whole_select_rules
+        if rule.guards[1].type_pattern
+        == Vector("i1", minimum_static_elements=1, maximum_static_elements=64)
+    ]
+    assert len(predicate_select_rules) == 2
+    assert [
+        [emit.descriptor.key for emit in rule.emit] for rule in predicate_select_rules
+    ] == [
+        [
+            "amd.xdna.aie2p.splat.i8x64",
+            "amd.xdna.aie2p.sub.i8x64",
+            "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
+            "amd.xdna.aie2p.predicate.xor.low32.rhs_tied",
+            "amd.xdna.aie2p.predicate.xor.high32.rhs_tied",
+            "amd.xdna.aie2p.predicate.and.low32.rhs_tied",
+            "amd.xdna.aie2p.predicate.and.high32.rhs_tied",
+            "amd.xdna.aie2p.predicate.xor.low32.rhs_tied",
+            "amd.xdna.aie2p.predicate.xor.high32.rhs_tied",
+        ],
+        [
+            "amd.xdna.aie2p.splat.i8x64",
+            "amd.xdna.aie2p.sub.i8x64",
+            "amd.xdna.aie2p.cmp.lt.unsigned.i8x64",
+            "amd.xdna.aie2p.predicate.xor.low32",
+            "amd.xdna.aie2p.predicate.xor.high32",
+            "amd.xdna.aie2p.predicate.and.low32.rhs_tied",
+            "amd.xdna.aie2p.predicate.and.high32.rhs_tied",
+            "amd.xdna.aie2p.predicate.xor.low32.rhs_tied",
+            "amd.xdna.aie2p.predicate.xor.high32.rhs_tied",
+        ],
+    ]
 
     alias_rules = [
         case

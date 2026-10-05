@@ -9,7 +9,14 @@
 #include <stdint.h>
 
 #include "loom/ir/module.h"
+#include "loom/ops/index/ops.h"
 #include "loom/ops/vector/ops.h"
+
+// Bounds structural expansion for dynamic tail-vector insertion. The row
+// strategy emits about five operations per destination row; the lane strategy
+// emits about three operations per inserted lane. The cheaper bounded form is
+// selected for each shape.
+#define LOOM_VECTOR_STATIC_SHAPE_OP_LIMIT 64u
 
 static loom_type_t loom_vector_static_shape_flat_type(loom_type_t type,
                                                       uint64_t element_count) {
@@ -47,6 +54,95 @@ static iree_status_t loom_vector_static_shape_restore_result(
       context->rewriter, op, &replacement, 1, value_checkpoint));
   return loom_rewriter_replace_all_uses_and_erase(context->rewriter, op,
                                                   &replacement, 1);
+}
+
+// Linearizes mixed static and dynamic leading coordinates into one row-major
+// ordinal. Static terms remain folded into |out_static_index| when every
+// coordinate is static; otherwise |out_dynamic_index| carries the complete
+// ordinal and |out_static_index| is zero.
+static iree_status_t loom_vector_static_shape_linearize_indices(
+    loom_builder_t* builder, loom_type_t shaped_type,
+    loom_attribute_t static_indices, loom_value_slice_t dynamic_indices,
+    loom_location_id_t location, loom_value_id_t* out_dynamic_index,
+    int64_t* out_static_index) {
+  *out_dynamic_index = LOOM_VALUE_ID_INVALID;
+  *out_static_index = 0;
+
+  loom_value_id_t dynamic_axis_indices[LOOM_TYPE_MAX_RANK];
+  uint16_t dynamic_index_position = 0;
+  for (uint16_t axis = 0; axis < static_indices.count; ++axis) {
+    dynamic_axis_indices[axis] = LOOM_VALUE_ID_INVALID;
+    if (static_indices.i64_array[axis] == INT64_MIN) {
+      dynamic_axis_indices[axis] =
+          dynamic_indices.values[dynamic_index_position++];
+    }
+  }
+
+  int64_t stride = 1;
+  int64_t static_offset = 0;
+  loom_value_id_t accumulator = LOOM_VALUE_ID_INVALID;
+  for (uint16_t reverse_axis = 0; reverse_axis < static_indices.count;
+       ++reverse_axis) {
+    const uint16_t axis = static_indices.count - reverse_axis - 1u;
+    if (reverse_axis != 0) {
+      stride *= loom_type_dim_static_size_at(shaped_type, axis + 1u);
+    }
+
+    const loom_value_id_t dynamic_index = dynamic_axis_indices[axis];
+    if (dynamic_index == LOOM_VALUE_ID_INVALID) {
+      static_offset += static_indices.i64_array[axis] * stride;
+      continue;
+    }
+
+    if (stride == 1) {
+      if (accumulator == LOOM_VALUE_ID_INVALID) {
+        accumulator = dynamic_index;
+      } else {
+        loom_op_t* add_op = NULL;
+        IREE_RETURN_IF_ERROR(loom_index_add_build(
+            builder, accumulator, dynamic_index,
+            loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), location, &add_op));
+        accumulator = loom_index_add_result(add_op);
+      }
+      continue;
+    }
+
+    loom_op_t* stride_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_constant_build(
+        builder, loom_attr_i64(stride),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), location, &stride_op));
+    const loom_value_id_t stride_value = loom_index_constant_result(stride_op);
+    if (accumulator == LOOM_VALUE_ID_INVALID) {
+      loom_op_t* multiply_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_index_mul_build(
+          builder, dynamic_index, stride_value, location, &multiply_op));
+      accumulator = loom_index_mul_result(multiply_op);
+    } else {
+      loom_op_t* multiply_add_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_index_madd_build(builder, dynamic_index,
+                                                 stride_value, accumulator,
+                                                 location, &multiply_add_op));
+      accumulator = loom_index_madd_result(multiply_add_op);
+    }
+  }
+
+  if (accumulator == LOOM_VALUE_ID_INVALID) {
+    *out_static_index = static_offset;
+    return iree_ok_status();
+  }
+  if (static_offset != 0) {
+    loom_op_t* offset_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_constant_build(
+        builder, loom_attr_i64(static_offset),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), location, &offset_op));
+    loom_op_t* add_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_add_build(
+        builder, accumulator, loom_index_constant_result(offset_op),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), location, &add_op));
+    accumulator = loom_index_add_result(add_op);
+  }
+  *out_dynamic_index = accumulator;
+  return iree_ok_status();
 }
 
 // Maps a row-major result lane through trailing-axis broadcast semantics.
@@ -309,6 +405,120 @@ static iree_status_t loom_vector_static_shape_slice_rewrite(
   return iree_ok_status();
 }
 
+static iree_status_t loom_vector_static_shape_build_dynamic_tail_lane_insert(
+    loom_builder_t* builder, loom_value_id_t flat_value,
+    loom_type_t flat_value_type, loom_value_id_t flat_dest,
+    loom_type_t flat_dest_type, loom_value_id_t row_ordinal,
+    uint64_t value_count, loom_location_id_t location,
+    loom_value_id_t* out_flat_result) {
+  loom_value_id_t insertion_index = row_ordinal;
+  loom_value_id_t one = LOOM_VALUE_ID_INVALID;
+  if (value_count > 1) {
+    loom_op_t* value_count_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_constant_build(
+        builder, loom_attr_i64((int64_t)value_count),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), location, &value_count_op));
+    loom_op_t* base_index_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_mul_build(
+        builder, row_ordinal, loom_index_constant_result(value_count_op),
+        location, &base_index_op));
+    insertion_index = loom_index_mul_result(base_index_op);
+
+    loom_op_t* one_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_index_constant_build(
+        builder, loom_attr_i64(1), loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+        location, &one_op));
+    one = loom_index_constant_result(one_op);
+  }
+
+  const loom_type_t scalar_type =
+      loom_type_scalar(loom_type_element_type(flat_value_type));
+  loom_value_id_t current_dest = flat_dest;
+  const int64_t dynamic_sentinel = INT64_MIN;
+  for (uint64_t lane = 0; lane < value_count; ++lane) {
+    if (lane > 0) {
+      loom_op_t* next_index_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_index_add_build(
+          builder, insertion_index, one,
+          loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), location, &next_index_op));
+      insertion_index = loom_index_add_result(next_index_op);
+    }
+
+    const int64_t static_lane = (int64_t)lane;
+    loom_op_t* extract_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_extract_build(builder, flat_value, NULL, 0,
+                                                   &static_lane, 1, scalar_type,
+                                                   location, &extract_op));
+    loom_op_t* insert_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_insert_build(
+        builder, loom_vector_extract_result(extract_op), current_dest,
+        &insertion_index, 1, &dynamic_sentinel, 1, flat_dest_type, location,
+        &insert_op));
+    current_dest = loom_vector_insert_result(insert_op);
+  }
+
+  *out_flat_result = current_dest;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_static_shape_build_dynamic_tail_row_select(
+    loom_target_legalization_context_t* context, loom_value_id_t flat_value,
+    loom_type_t flat_value_type, loom_value_id_t flat_dest,
+    loom_type_t flat_dest_type, loom_value_id_t row_ordinal,
+    uint64_t value_count, uint64_t row_count, loom_location_id_t location,
+    loom_value_id_t* out_flat_result) {
+  if (row_count == 1) {
+    *out_flat_result = flat_value;
+    return iree_ok_status();
+  }
+
+  loom_type_t predicate_type = flat_value_type;
+  predicate_type.header =
+      loom_type_make_header(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I1, /*rank=*/1,
+                            loom_type_flags(flat_value_type));
+
+  loom_value_id_t* rows = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(context->arena,
+                                                 (iree_host_size_t)row_count,
+                                                 sizeof(*rows), (void**)&rows));
+  loom_builder_t* builder = &context->rewriter->builder;
+  for (uint64_t row = 0; row < row_count; ++row) {
+    const int64_t row_offset = (int64_t)(row * value_count);
+    loom_op_t* row_slice_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_vector_slice_build(builder, flat_dest, NULL, 0, &row_offset, 1,
+                                flat_value_type, location, &row_slice_op));
+
+    loom_op_t* expected_ordinal_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_index_constant_build(builder, loom_attr_i64((int64_t)row),
+                                  loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
+                                  location, &expected_ordinal_op));
+    loom_op_t* row_condition_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_index_cmp_build(builder, LOOM_INDEX_CMP_PREDICATE_EQ, row_ordinal,
+                             loom_index_constant_result(expected_ordinal_op),
+                             location, &row_condition_op));
+    loom_op_t* row_mask_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_splat_build(
+        builder, loom_index_cmp_result(row_condition_op), predicate_type,
+        location, &row_mask_op));
+    loom_op_t* row_select_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_select_build(
+        builder, loom_vector_splat_result(row_mask_op), flat_value,
+        loom_vector_slice_result(row_slice_op), flat_value_type, location,
+        &row_select_op));
+    rows[row] = loom_vector_select_result(row_select_op);
+  }
+
+  loom_op_t* concat_op = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_vector_concat_build(builder, 0, rows, (iree_host_size_t)row_count,
+                               flat_dest_type, location, &concat_op));
+  *out_flat_result = loom_vector_concat_result(concat_op);
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_static_shape_insert_rewrite(
     loom_target_legalization_context_t* context, loom_op_t* op,
     bool* out_rewritten) {
@@ -317,42 +527,47 @@ static iree_status_t loom_vector_static_shape_insert_rewrite(
   const loom_type_t value_type = loom_module_value_type(context->module, value);
   const loom_type_t dest_type = loom_module_value_type(context->module, dest);
   const loom_attribute_t static_indices = loom_vector_insert_static_indices(op);
+  const loom_value_slice_t dynamic_indices = loom_vector_insert_indices(op);
   uint64_t dest_count = 0;
   if (loom_type_rank(dest_type) <= 1 ||
       !loom_type_static_element_count(dest_type, &dest_count) ||
       dest_count == 0 || dest_count > INT64_MAX ||
-      static_indices.kind != LOOM_ATTR_I64_ARRAY ||
-      loom_vector_insert_indices(op).count != 0) {
+      static_indices.kind != LOOM_ATTR_I64_ARRAY) {
     return iree_ok_status();
   }
 
-  // A tail insertion covers one contiguous row-major range. Linearize its
-  // leading coordinates and retain the untouched prefix and suffix as slices.
-  uint64_t prefix_ordinal = 0;
-  for (uint16_t axis = 0; axis < static_indices.count; ++axis) {
-    const int64_t index = static_indices.i64_array[axis];
-    if (index < 0) {
-      return iree_ok_status();
-    }
-    const uint64_t extent =
-        (uint64_t)loom_type_dim_static_size_at(dest_type, (uint8_t)axis);
-    prefix_ordinal = prefix_ordinal * extent + (uint64_t)index;
-  }
   uint64_t value_count = 1;
   if (loom_type_is_vector(value_type) &&
       !loom_type_static_element_count(value_type, &value_count)) {
     return iree_ok_status();
   }
-  const uint64_t insertion_ordinal = prefix_ordinal * value_count;
-  if (value_count == 0 || insertion_ordinal > dest_count ||
-      value_count > dest_count - insertion_ordinal) {
+  if (value_count == 0 || value_count > dest_count) {
     return iree_ok_status();
+  }
+  const uint64_t row_count = dest_count / value_count;
+  bool use_dynamic_row_select = false;
+  if (dynamic_indices.count != 0 && loom_type_is_vector(value_type)) {
+    const bool can_select_rows =
+        row_count <= (LOOM_VECTOR_STATIC_SHAPE_OP_LIMIT - 4u) / 5u;
+    const bool can_insert_lanes =
+        value_count <= (LOOM_VECTOR_STATIC_SHAPE_OP_LIMIT - 4u) / 3u;
+    if (!can_select_rows && !can_insert_lanes) {
+      return iree_ok_status();
+    }
+    use_dynamic_row_select =
+        can_select_rows &&
+        (!can_insert_lanes || 5u * row_count <= 3u * value_count);
   }
 
   loom_rewriter_t* rewriter = context->rewriter;
   loom_builder_set_before(&rewriter->builder, op);
   const loom_value_id_t value_checkpoint =
       loom_rewriter_value_checkpoint(rewriter);
+  loom_value_id_t dynamic_prefix_ordinal = LOOM_VALUE_ID_INVALID;
+  int64_t static_prefix_ordinal = 0;
+  IREE_RETURN_IF_ERROR(loom_vector_static_shape_linearize_indices(
+      &rewriter->builder, dest_type, static_indices, dynamic_indices,
+      op->location, &dynamic_prefix_ordinal, &static_prefix_ordinal));
   loom_value_id_t flat_dest = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
       &rewriter->builder, dest, dest_type, dest_count, op->location,
@@ -362,13 +577,23 @@ static iree_status_t loom_vector_static_shape_insert_rewrite(
 
   loom_value_id_t flat_result = LOOM_VALUE_ID_INVALID;
   if (!loom_type_is_vector(value_type)) {
-    const int64_t static_index = (int64_t)insertion_ordinal;
     loom_op_t* insert_op = NULL;
-    IREE_RETURN_IF_ERROR(loom_vector_insert_build(
-        &rewriter->builder, value, flat_dest, NULL, 0, &static_index, 1,
-        flat_dest_type, op->location, &insert_op));
+    if (dynamic_prefix_ordinal == LOOM_VALUE_ID_INVALID) {
+      IREE_RETURN_IF_ERROR(loom_vector_insert_build(
+          &rewriter->builder, value, flat_dest, NULL, 0, &static_prefix_ordinal,
+          1, flat_dest_type, op->location, &insert_op));
+    } else {
+      const int64_t dynamic_sentinel = INT64_MIN;
+      IREE_RETURN_IF_ERROR(loom_vector_insert_build(
+          &rewriter->builder, value, flat_dest, &dynamic_prefix_ordinal, 1,
+          &dynamic_sentinel, 1, flat_dest_type, op->location, &insert_op));
+    }
     flat_result = loom_vector_insert_result(insert_op);
-  } else {
+  } else if (dynamic_prefix_ordinal == LOOM_VALUE_ID_INVALID) {
+    // A static tail insertion covers one contiguous row-major range. Retain
+    // the untouched prefix and suffix as slices around the flattened value.
+    const uint64_t insertion_ordinal =
+        (uint64_t)static_prefix_ordinal * value_count;
     loom_value_id_t inputs[3] = {LOOM_VALUE_ID_INVALID, LOOM_VALUE_ID_INVALID,
                                  LOOM_VALUE_ID_INVALID};
     iree_host_size_t input_count = 0;
@@ -403,6 +628,29 @@ static iree_status_t loom_vector_static_shape_insert_rewrite(
           loom_vector_concat_build(&rewriter->builder, 0, inputs, input_count,
                                    flat_dest_type, op->location, &concat_op));
       flat_result = loom_vector_concat_result(concat_op);
+    }
+  } else {
+    // A dynamic tail insertion uses the cheaper of whole-row vector selection
+    // and inserting the flattened value's scalar lanes. Both forms are
+    // element-type independent and have statically bounded expansion.
+    loom_value_id_t flat_value = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_vector_static_shape_flatten_value(
+        &rewriter->builder, value, value_type, value_count, op->location,
+        &flat_value));
+    const loom_type_t flat_value_type =
+        loom_vector_static_shape_flat_type(value_type, value_count);
+    if (use_dynamic_row_select) {
+      IREE_RETURN_IF_ERROR(
+          loom_vector_static_shape_build_dynamic_tail_row_select(
+              context, flat_value, flat_value_type, flat_dest, flat_dest_type,
+              dynamic_prefix_ordinal, value_count, row_count, op->location,
+              &flat_result));
+    } else {
+      IREE_RETURN_IF_ERROR(
+          loom_vector_static_shape_build_dynamic_tail_lane_insert(
+              &rewriter->builder, flat_value, flat_value_type, flat_dest,
+              flat_dest_type, dynamic_prefix_ordinal, value_count, op->location,
+              &flat_result));
     }
   }
 

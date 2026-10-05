@@ -26,6 +26,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/error/error_defs.h"
 #include "loom/ir/ir.h"
+#include "loom/ir/scalar_type.h"
 #include "loom/ops/func/ops.h"
 #include "loom/target/facts.h"
 #include "loom/target/types.h"
@@ -40,6 +41,18 @@ typedef struct loom_matrix_fragment_layout_t loom_matrix_fragment_layout_t;
 typedef struct loom_native_contraction_facts_t loom_native_contraction_facts_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 
+// Returns true when |type| has a complete source-vector carrier mapping under
+// the selected target policy.
+typedef bool (*loom_target_source_vector_carrier_supported_fn_t)(
+    void* user_data, const loom_module_t* module, loom_type_t type);
+
+typedef struct loom_target_source_vector_carrier_supported_callback_t {
+  // Optional target query for complete source-vector carrier admission.
+  loom_target_source_vector_carrier_supported_fn_t fn;
+  // Caller-owned payload passed to |fn|.
+  void* user_data;
+} loom_target_source_vector_carrier_supported_callback_t;
+
 // Maximum number of logical lane candidates in a packet policy. Shared
 // component planning represents the candidate intersection as one bit per
 // policy entry.
@@ -50,12 +63,21 @@ typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 // The target contributes representation widths only. The shared planner still
 // queries every projected operation through the target contract before
 // selecting a packet width; membership here is not itself a legality claim.
+typedef struct loom_target_vector_packet_lane_limit_t {
+  // Scalar element type whose structural carrier has a logical lane ceiling.
+  loom_scalar_type_t element_type;
+  // Maximum logical lanes carried by one structural packet.
+  uint16_t maximum_lane_count;
+} loom_target_vector_packet_lane_limit_t;
+
 typedef struct loom_target_vector_packet_policy_t {
   // Native packet widths in bits used by structural memory and carrier
   // legalization. Widths are byte-aligned powers of two.
   const uint16_t* native_bit_counts;
   // Logical lane counts worth evaluating for decomposable components.
   const uint16_t* native_lane_counts;
+  // Sparse per-element lane ceilings for structural packet widths.
+  const loom_target_vector_packet_lane_limit_t* structural_lane_limits;
   // Largest payload in bits that remains owned by ordinary structural
   // lowering instead of packet legalization.
   uint16_t maximum_unpacketized_bit_count;
@@ -64,6 +86,8 @@ typedef struct loom_target_vector_packet_policy_t {
   // Number of entries in |native_lane_counts|, at most
   // LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT.
   uint8_t native_lane_count_count;
+  // Number of entries in |structural_lane_limits|.
+  uint8_t structural_lane_limit_count;
 } loom_target_vector_packet_policy_t;
 
 // Scoped vector lane-count projection for one contract query. An all-zero

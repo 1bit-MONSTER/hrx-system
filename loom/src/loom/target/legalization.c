@@ -310,3 +310,31 @@ loom_target_legalization_query_contract_with_vector_lane_projection(
   return context->contract_query.fn(context->contract_query.user_data,
                                     &environment, op, out_result);
 }
+
+bool loom_target_legalization_op_has_source_vector_carriers(
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  const loom_target_source_vector_carrier_supported_callback_t callback =
+      context->source_vector_carrier_supported;
+  if (callback.fn == NULL) {
+    return true;
+  }
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    const loom_type_t type =
+        loom_module_value_type(context->module, operands[i]);
+    if (loom_type_is_vector(type) &&
+        !callback.fn(callback.user_data, context->module, type)) {
+      return false;
+    }
+  }
+  const loom_value_id_t* results = loom_op_const_results(op);
+  for (uint16_t i = 0; i < op->result_count; ++i) {
+    const loom_type_t type =
+        loom_module_value_type(context->module, results[i]);
+    if (loom_type_is_vector(type) &&
+        !callback.fn(callback.user_data, context->module, type)) {
+      return false;
+    }
+  }
+  return true;
+}

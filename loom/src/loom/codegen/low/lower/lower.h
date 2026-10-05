@@ -825,6 +825,12 @@ typedef struct loom_low_lower_policy_t {
   // Optionally reports source types accepted by target-low legality because
   // |map_type| can map them to target-low values.
   loom_target_low_legality_type_supported_callback_t source_type_supported;
+  // Optionally reports the complete source-vector carrier domain accepted by
+  // |map_type|. Target legalizers use it to prevent scalar fallback from
+  // expanding unmappable aggregates, and final target-low legality uses it to
+  // report carrier failures.
+  loom_target_source_vector_carrier_supported_callback_t
+      source_vector_carrier_supported;
   // Optionally maps concrete source SSA values to target-low register types
   // when type alone does not determine the target register class.
   loom_low_lower_map_value_callback_t map_value;

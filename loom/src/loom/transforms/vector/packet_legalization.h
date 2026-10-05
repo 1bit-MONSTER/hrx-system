@@ -25,6 +25,17 @@ typedef enum loom_vector_packet_reduce_result_e {
   LOOM_VECTOR_PACKET_REDUCE_RESULT_CAPTURE_INPUT = 2,
 } loom_vector_packet_reduce_result_t;
 
+// Packetizes a static rank-one scalar insertion whose result spans more than
+// one target-native packet. Static insertion updates only the owning packet.
+// Dynamic insertion builds one native candidate per packet and selects the
+// candidate over that packet's lane interval before concatenating the result.
+// Returns false through |out_rewritten| when the result already fits one
+// packet, the operation is not a scalar insertion, or the expansion exceeds
+// the static bound.
+iree_status_t loom_vector_packet_legalize_insert(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
+
 // Packetizes a rank-one table lookup over the common lane interval supported
 // by both its index and result element types. The table remains one captured
 // SSA value. Existing index values supply static slices while decomposable

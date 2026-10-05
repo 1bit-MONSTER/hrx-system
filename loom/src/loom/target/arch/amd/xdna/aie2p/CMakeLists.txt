@@ -170,6 +170,20 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    vector_carrier
+  HDRS
+    "vector_carrier.h"
+  SRCS
+    "vector_carrier.c"
+  DEPS
+    loom::ir
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     gather
   HDRS
     "gather.h"
@@ -447,6 +461,7 @@ loom_cc_library(
   DEPS
     ::core_descriptors
     ::gather
+    ::vector_carrier
     iree::base
     loom::analysis::contract_vector
     loom::codegen::low::lower
@@ -794,6 +809,7 @@ loom_check_test_suite(
     "test/source_low/vector_splat.loom-test"
     "test/source_low/vector_structural.loom-test"
     "test/target_legalize_report.loom-test"
+    "test/vector_insert_packetization.loom-test"
   RUNNER
     ::loom-check
   TEST_NAME_PREFIX_TO_STRIP
