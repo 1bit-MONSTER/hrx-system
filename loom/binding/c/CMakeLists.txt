@@ -107,6 +107,7 @@ loom_cc_library(
     loom::codegen::low::text_asm
     loom::codegen::low::verify
     loom::codegen::pass_environment
+    loom::compile::request
     loom::error::diagnostic
     loom::error::error_defs
     loom::error::renderer

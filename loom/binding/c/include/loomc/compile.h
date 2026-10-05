@@ -8,6 +8,7 @@
 #define LOOMC_COMPILE_H_
 
 #include "loomc/config.h"
+#include "loomc/emit.h"
 #include "loomc/module.h"
 #include "loomc/pass.h"
 #include "loomc/product.h"
@@ -178,6 +179,47 @@ typedef struct loomc_compile_options_t {
   const loomc_module_t* config_module;
 } loomc_compile_options_t;
 
+/// Complete target-artifact compilation options.
+///
+/// This descriptor selects one homogeneous set of kernel or module roots,
+/// optional target specialization, typed configuration, and target emission.
+/// Root names preserve caller order. When both root lists are empty the
+/// compiler derives the module's single default entry category; mixed default
+/// categories fail. Explicit roots and exclusions are mutually exclusive.
+typedef struct loomc_compile_artifact_options_t {
+  /// Structure type. Must be
+  /// `LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS` when nonzero.
+  loomc_structure_type_t type;
+
+  /// Size of this structure in bytes.
+  loomc_host_size_t structure_size;
+
+  /// Extension chain reserved for compile-artifact options.
+  const void* next;
+
+  /// Explicit root symbol names, or NULL to derive default roots.
+  const loomc_string_view_t* roots;
+
+  /// Number of entries in `roots`.
+  loomc_host_size_t root_count;
+
+  /// Default root symbol names to exclude, or NULL for no exclusions.
+  const loomc_string_view_t* excluded_roots;
+
+  /// Number of entries in `excluded_roots`.
+  loomc_host_size_t excluded_root_count;
+
+  /// Optional complete target profile applied at the compile boundary.
+  loomc_target_profile_t* target_profile;
+
+  /// Optional typed configuration applied before root resolution.
+  const loomc_config_options_t* config;
+
+  /// Optional target emission options. Its artifact format participates in
+  /// compile request resolution so compilation and emission select one emitter.
+  const loomc_emit_options_t* emit_options;
+} loomc_compile_artifact_options_t;
+
 /// Creates a prepared immutable compiler.
 ///
 /// @param context Context shared with modules compiled by this compiler.
@@ -260,6 +302,46 @@ LOOMC_API_EXPORT loomc_status_t loomc_compile_module(
     const loomc_pass_program_t* pass_program, loomc_module_t* module,
     const loomc_compile_options_t* options, loomc_allocator_t allocator,
     loomc_result_t** out_result);
+
+/// Compiles one mutable module through final target artifact emission.
+///
+/// The operation verifies and configures the input, resolves and materializes
+/// one core compile request, executes one pass program, and emits through the
+/// request's selected target emitter. Diagnostics and all primary or sidecar
+/// artifacts share one result and preserve operation order.
+///
+/// @param compiler Prepared compiler whose context owns `module`.
+/// @param workspace Invocation-local scratch workspace.
+/// @param pass_program Optional prepared pass program. NULL selects the target
+/// emitter's default prepared-low pipeline. Pass an explicitly empty prepared
+/// program to perform no compiler transformations.
+/// @param module Mutable input module. Root materialization and compilation may
+/// replace or rewrite its internal IR while preserving the public handle.
+/// @param options Complete artifact options, or NULL for inferred roots,
+/// authored targets, empty configuration, and canonical emission.
+/// @param allocator Host allocator used for result and default-pipeline state.
+/// @param out_result Receives one retained result for the complete operation.
+/// @return OK when the operation ran far enough to return a result. Non-OK
+/// statuses represent API misuse or infrastructure failure.
+///
+/// @ownership
+/// The caller retains `module` and owns `out_result` on an OK return. The
+/// result owns its diagnostics and artifacts and is released with
+/// `loomc_result_release`.
+///
+/// @lifetime
+/// The operation borrows every option view, profile, and prepared pass program
+/// only for the duration of the call. Returned data does not borrow them or the
+/// workspace.
+///
+/// @thread_safety
+/// Compiler, profile, and pass-program handles may be shared. Each concurrent
+/// invocation requires a distinct workspace and mutable module.
+LOOMC_API_EXPORT loomc_status_t loomc_compile_artifact(
+    loomc_compiler_t* compiler, loomc_workspace_t* workspace,
+    const loomc_pass_program_t* pass_program, loomc_module_t* module,
+    const loomc_compile_artifact_options_t* options,
+    loomc_allocator_t allocator, loomc_result_t** out_result);
 
 /// Compiles one immutable leaf request into a compiler product.
 ///

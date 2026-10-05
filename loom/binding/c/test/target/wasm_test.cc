@@ -24,8 +24,6 @@ using loomc::testing::HandlePtr;
 using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
 using ContextPtr = HandlePtr<loomc_context_t, loomc_context_release>;
 using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
-using PassProgramPtr =
-    HandlePtr<loomc_pass_program_t, loomc_pass_program_release>;
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
 using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
 using TargetEnvironmentPtr =
@@ -137,6 +135,21 @@ std::string ToString(loomc_string_view_t value) {
   return value.data ? std::string(value.data, value.size) : std::string();
 }
 
+std::string ToString(loomc_byte_span_t value) {
+  return value.data ? std::string(reinterpret_cast<const char*>(value.data),
+                                  value.data_length)
+                    : std::string();
+}
+
+std::string ToString(const loomc_byte_sequence_t* value) {
+  loomc_byte_span_t contents = loomc_byte_span_empty();
+  LOOMC_EXPECT_OK(
+      loomc_byte_sequence_clone(value, loomc_allocator_system(), &contents));
+  std::string result = ToString(contents);
+  loomc_allocator_free(loomc_allocator_system(), (void*)contents.data);
+  return result;
+}
+
 ::testing::AssertionResult Succeeded(const loomc_result_t* result) {
   if (result != nullptr && loomc_result_succeeded(result)) {
     return ::testing::AssertionSuccess();
@@ -154,7 +167,7 @@ std::string ToString(loomc_string_view_t value) {
   return failure;
 }
 
-TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
+TEST(TargetWasmTest, CompilesArtifactWithEmitterDefaultPipeline) {
   loomc_target_environment_t* raw_target_environment = nullptr;
   LOOMC_ASSERT_OK(loomc_target_environment_create_wasm(
       loomc_allocator_system(), &raw_target_environment));
@@ -209,55 +222,40 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
   ResultPtr result(raw_result);
   ASSERT_TRUE(Succeeded(result.get()));
 
-  loomc_pass_program_t* raw_pass_program = nullptr;
-  raw_result = nullptr;
-  LOOMC_ASSERT_OK(loomc_pass_program_create_from_target_pipeline(
-      context.get(), nullptr, loomc_allocator_system(), &raw_pass_program,
-      &raw_result));
-  PassProgramPtr pass_program(raw_pass_program);
-  result.reset(raw_result);
-  ASSERT_TRUE(Succeeded(result.get()));
-
   loomc_compiler_t* raw_compiler = nullptr;
   LOOMC_ASSERT_OK(loomc_compiler_create(
       context.get(), nullptr, loomc_allocator_system(), &raw_compiler));
   CompilerPtr compiler(raw_compiler);
-  const loomc_target_specialization_t specializations[] = {
-      {
-          /*.function_symbol=*/loomc_make_cstring_view("sum_to"),
-          /*.target_profile=*/target_profile.get(),
-      },
-      {
-          /*.function_symbol=*/loomc_make_cstring_view("renamed"),
-          /*.target_profile=*/target_profile.get(),
-      },
-  };
-  const loomc_target_specialization_options_t target_compile_options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_TARGET_SPECIALIZATION_OPTIONS,
-      /*.structure_size=*/sizeof(target_compile_options),
+  const loomc_compile_report_options_t report_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_REPORT_OPTIONS,
+      /*.structure_size=*/sizeof(report_options),
       /*.next=*/nullptr,
-      /*.specializations=*/specializations,
-      /*.specialization_count=*/IREE_ARRAYSIZE(specializations),
+      /*.mode=*/LOOMC_COMPILE_REPORT_MODE_SUMMARY,
   };
-  const loomc_compile_options_t compile_options = {
-      /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS,
+  const loomc_emit_options_t emit_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+      /*.structure_size=*/sizeof(emit_options),
+      /*.next=*/&report_options,
+  };
+  const loomc_compile_artifact_options_t compile_options = {
+      /*.type=*/LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
       /*.structure_size=*/sizeof(compile_options),
-      /*.next=*/&target_compile_options,
+      /*.next=*/nullptr,
+      /*.roots=*/nullptr,
+      /*.root_count=*/0,
+      /*.excluded_roots=*/nullptr,
+      /*.excluded_root_count=*/0,
+      /*.target_profile=*/target_profile.get(),
+      /*.config=*/nullptr,
+      /*.emit_options=*/&emit_options,
   };
   raw_result = nullptr;
-  LOOMC_ASSERT_OK(loomc_compile_module(
-      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+  LOOMC_ASSERT_OK(loomc_compile_artifact(
+      compiler.get(), workspace.get(), /*pass_program=*/nullptr, module.get(),
       &compile_options, loomc_allocator_system(), &raw_result));
   result.reset(raw_result);
   ASSERT_TRUE(Succeeded(result.get()));
-
-  raw_result = nullptr;
-  LOOMC_ASSERT_OK(loomc_emit_module(target_environment.get(), workspace.get(),
-                                    module.get(), nullptr,
-                                    loomc_allocator_system(), &raw_result));
-  result.reset(raw_result);
-  ASSERT_TRUE(Succeeded(result.get()));
-  ASSERT_EQ(loomc_result_artifact_count(result.get()), 1u);
+  ASSERT_EQ(loomc_result_artifact_count(result.get()), 2u);
 
   const loomc_artifact_t* artifact = loomc_result_artifact_at(result.get(), 0);
   ASSERT_NE(artifact, nullptr);
@@ -274,6 +272,20 @@ TEST(TargetWasmTest, CompilesAndEmitsBinaryModule) {
                                                           "sum_to"};
   EXPECT_EQ(export_names, expected_export_names);
   loomc_allocator_free(loomc_allocator_system(), (void*)contents.data);
+
+  const loomc_artifact_t* report = loomc_result_artifact_at(result.get(), 1);
+  ASSERT_NE(report, nullptr);
+  EXPECT_EQ(report->kind, LOOMC_ARTIFACT_KIND_REPORT);
+  EXPECT_EQ(ToString(report->format),
+            LOOMC_ARTIFACT_FORMAT_COMPILE_REPORT_JSON);
+  EXPECT_EQ(ToString(report->identifier), "module.wasm.compile-report.json");
+  const std::string report_contents = ToString(report->contents);
+  EXPECT_NE(report_contents.find("\"status\":{\"code\":0,\"name\":\"OK\"}"),
+            std::string::npos);
+  EXPECT_NE(report_contents.find("\"backend\":\"wasm-binary\""),
+            std::string::npos);
+  EXPECT_NE(report_contents.find("\"artifact_format\":\"wasm_binary\""),
+            std::string::npos);
 }
 
 }  // namespace

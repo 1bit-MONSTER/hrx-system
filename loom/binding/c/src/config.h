@@ -82,6 +82,9 @@ typedef struct loomc_config_apply_text_to_module_options_t {
   // Module receiving config materialization.
   loom_module_t* module;
 
+  // Receives applied bindings for compiler-owned reporting state.
+  loom_tooling_config_binding_sink_t binding_sink;
+
   // Result receiving config diagnostics.
   loomc_result_t* result;
 

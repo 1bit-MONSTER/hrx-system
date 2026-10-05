@@ -8,6 +8,7 @@
 #define LOOMC_PASS_PROGRAM_STORAGE_H_
 
 #include "loom/pass/program.h"
+#include "loom/target/pipeline.h"
 #include "loomc/pass.h"
 #include "visibility.h"
 
@@ -22,6 +23,15 @@ LOOMC_API_PRIVATE loomc_context_t* loomc_pass_program_context(
 // Returns the immutable Loom pass program owned by the public handle.
 LOOMC_API_PRIVATE const loom_pass_program_t*
 loomc_pass_program_loom_pass_program(const loomc_pass_program_t* pass_program);
+
+// Creates a prepared-low pass program from emitter-owned default options and
+// appends any domain failure to an existing compiler result.
+LOOMC_API_PRIVATE loomc_status_t
+loomc_pass_program_create_from_internal_target_pipeline(
+    loomc_context_t* context,
+    const loom_target_pipeline_options_t* pipeline_options,
+    loomc_allocator_t allocator, loomc_result_t* result,
+    loomc_pass_program_t** out_pass_program);
 
 #ifdef __cplusplus
 }  // extern "C"

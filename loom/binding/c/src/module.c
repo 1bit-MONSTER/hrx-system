@@ -513,9 +513,19 @@ void loomc_module_set_loom_module(loomc_module_t* module,
                                   loom_module_t* internal_module,
                                   loomc_module_input_state_t input_state) {
   IREE_ASSERT(!module->module, "module storage can only be transferred once");
+  loomc_module_adopt_loom_module_replacement(module, internal_module,
+                                             input_state);
+}
+
+void loomc_module_adopt_loom_module_replacement(
+    loomc_module_t* module, loom_module_t* internal_module,
+    loomc_module_input_state_t input_state) {
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(internal_module);
   module->module = internal_module;
   module->verification.structural =
       input_state == LOOMC_MODULE_INPUT_STRUCTURALLY_VERIFIED;
+  module->verification.context_target = false;
 }
 
 loom_module_t* loomc_module_loom_module(loomc_module_t* module) {
