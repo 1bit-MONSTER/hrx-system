@@ -45,6 +45,7 @@ loom_cc_library(
     "src/config.h"
     "src/context.h"
     "src/diagnostic.h"
+    "src/emit.h"
     "src/link_index.h"
     "src/link_materialization.h"
     "src/module.h"
