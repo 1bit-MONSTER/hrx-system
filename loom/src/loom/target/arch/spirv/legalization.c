@@ -20,7 +20,7 @@ static bool loom_spirv_legalizer_descriptor_set_is_spirv(
              loom_spirv_logical_core_descriptor_set()->target_stable_id;
 }
 
-static iree_status_t loom_spirv_legalize_vector_load(
+static iree_status_t loom_spirv_legalize_vector_to_scalar(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -33,8 +33,10 @@ static iree_status_t loom_spirv_legalize_vector_load(
   }
 
   bool rewritten = false;
-  // Capture every lane where the vector read occurs. Delaying reads until
-  // arithmetic consumers would change the snapshot across aliasing writes.
+  // Capture every lane at the source operation. For reads, delaying this
+  // rewrite until an arithmetic consumer would change the snapshot across an
+  // aliasing write. FP8 vector extension must also become scalar before SPIR-V
+  // value mapping because the target has no ordinary FP8 vector representation.
   IREE_RETURN_IF_ERROR(loom_vector_descriptor_to_scalar_rewrite_op(
       context->pass, context->rewriter, op, &rewritten));
   if (rewritten) {
@@ -103,7 +105,13 @@ static const loom_target_legalizer_rule_t kSpirvLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_LOAD,
-        .legalize = loom_spirv_legalize_vector_load,
+        .legalize = loom_spirv_legalize_vector_to_scalar,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_EXTF,
+        .first_operand_element_types =
+            LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
+        .legalize = loom_spirv_legalize_vector_to_scalar,
     },
 };
 
