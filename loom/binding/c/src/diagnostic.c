@@ -62,6 +62,19 @@ static loomc_status_t loomc_render_loom_diagnostic_message(
       &stream));
 }
 
+static loomc_status_t loomc_format_loom_diagnostic(
+    const loom_diagnostic_t* diagnostic,
+    const loomc_diagnostic_type_printer_t* type_printer,
+    iree_string_builder_t* builder) {
+  loom_output_stream_t stream;
+  loom_output_stream_for_builder(builder, &stream);
+  const loom_diagnostic_format_options_t options = {
+      .type_formatter = loomc_diagnostic_type_printer_formatter(type_printer),
+  };
+  return loomc_status_from_iree(
+      loom_diagnostic_format_with_options(diagnostic, &options, &stream));
+}
+
 void loomc_diagnostic_type_printer_initialize(
     const loom_module_t* module,
     const loom_text_print_options_t* text_print_options,
@@ -151,6 +164,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
   iree_string_builder_initialize(allocator, &code_builder);
   iree_string_builder_t message_builder;
   iree_string_builder_initialize(allocator, &message_builder);
+  iree_string_builder_t formatted_builder;
+  iree_string_builder_initialize(allocator, &formatted_builder);
 
   loom_source_range_t primary_range = diagnostic->source_location;
   loomc_source_format_t primary_format = LOOMC_SOURCE_FORMAT_UNKNOWN;
@@ -171,6 +186,10 @@ loomc_status_t loomc_result_add_loom_diagnostic(
   if (loomc_status_is_ok(status)) {
     status = loomc_render_loom_diagnostic_message(diagnostic, type_printer,
                                                   &message_builder);
+  }
+  if (loomc_status_is_ok(status)) {
+    status = loomc_format_loom_diagnostic(diagnostic, type_printer,
+                                          &formatted_builder);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_source_from_loom_range(
@@ -217,6 +236,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
             iree_string_builder_view(&code_builder)),
         .message = loomc_string_view_from_iree(
             iree_string_builder_view(&message_builder)),
+        .formatted_text = loomc_string_view_from_iree(
+            iree_string_builder_view(&formatted_builder)),
         .range =
             loomc_source_range_from_loom(&primary_range, diagnostic_source),
         .related_locations = related_locations,
@@ -231,6 +252,7 @@ loomc_status_t loomc_result_add_loom_diagnostic(
     loomc_source_release((loomc_source_t*)related_locations[i].range.source);
   }
   loomc_source_release(diagnostic_source);
+  iree_string_builder_deinitialize(&formatted_builder);
   iree_string_builder_deinitialize(&message_builder);
   iree_string_builder_deinitialize(&code_builder);
   return status;

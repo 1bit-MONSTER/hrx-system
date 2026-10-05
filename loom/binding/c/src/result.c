@@ -194,8 +194,9 @@ loomc_status_t loomc_result_add_diagnostic(
       &result->diagnostic_capacity, (void**)&result->diagnostics));
   loomc_host_size_t related_size = diagnostic->related_location_count *
                                    sizeof(loomc_diagnostic_related_location_t);
-  loomc_host_size_t storage_size =
-      related_size + diagnostic->code.size + diagnostic->message.size;
+  loomc_host_size_t storage_size = related_size + diagnostic->code.size +
+                                   diagnostic->message.size +
+                                   diagnostic->formatted_text.size;
   for (loomc_host_size_t i = 0; i < diagnostic->related_location_count; ++i) {
     storage_size += diagnostic->related_locations[i].label.size;
   }
@@ -220,6 +221,8 @@ loomc_status_t loomc_result_add_diagnostic(
   target->value.code = loomc_diagnostic_copy_string(diagnostic->code, &cursor);
   target->value.message =
       loomc_diagnostic_copy_string(diagnostic->message, &cursor);
+  target->value.formatted_text =
+      loomc_diagnostic_copy_string(diagnostic->formatted_text, &cursor);
   target->value.related_locations = related_locations;
   loomc_source_retain((loomc_source_t*)target->value.range.source);
   for (loomc_host_size_t i = 0; i < diagnostic->related_location_count; ++i) {
