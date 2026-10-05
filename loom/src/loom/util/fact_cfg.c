@@ -207,6 +207,11 @@ iree_status_t loom_value_fact_cfg_region_initialize(
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         arena, out_region->loops.loop_count, sizeof(*out_region->inductions),
         (void**)&out_region->inductions));
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        arena, out_region->loops.loop_count, sizeof(*out_region->recurrences),
+        (void**)&out_region->recurrences));
+    memset(out_region->recurrences, 0,
+           out_region->loops.loop_count * sizeof(*out_region->recurrences));
     for (iree_host_size_t i = 0; i < out_region->loops.loop_count; ++i) {
       out_region->inductions[i] = (loom_value_fact_induction_t){
           .value = LOOM_VALUE_ID_INVALID,

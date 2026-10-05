@@ -153,13 +153,13 @@ static bool loom_low_lower_realization_loop_domain(
   if (!recurrence.trip_count_known ||
       !loom_value_facts_as_exact_i64(recurrence.exit_value, &exit_value) ||
       !loom_value_facts_as_exact_i64(
-          loom_value_fact_table_lookup(context->lowering.fact_table,
-                                       induction->initial_value),
+          loom_value_fact_recurrence_operand_facts(context->lowering.fact_table,
+                                                   induction->initial_value),
           &initial_value) ||
-      induction->step == LOOM_VALUE_ID_INVALID ||
+      induction->step.value == LOOM_VALUE_ID_INVALID ||
       !loom_value_facts_as_exact_i64(
-          loom_value_fact_table_lookup(context->lowering.fact_table,
-                                       induction->step),
+          loom_value_fact_recurrence_operand_facts(context->lowering.fact_table,
+                                                   induction->step),
           &step) ||
       step <= 0) {
     return false;

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 
 #include "iree/testing/gtest.h"
 #include "loom/ir/facts.h"
@@ -147,6 +148,194 @@ TEST(LoopDomainTripCountTest, TruncatesAllInputsToSelectedCarrier) {
   ExpectCount(kSignedExclusive, 32, UINT32_MAX, 4, 1, 5);
 }
 
+void ExpectNumericRange(loom_value_facts_t facts, int64_t lower, int64_t upper,
+                        int64_t divisor) {
+  EXPECT_EQ(facts.range_lo, lower);
+  EXPECT_EQ(facts.range_hi, upper);
+  EXPECT_EQ(facts.known_divisor, divisor);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, PositiveAndNegativeRangeSeeds) {
+  loom_loop_recurrence_facts_t facts;
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_make(0, 256, 256), 64, 4, &facts));
+  EXPECT_TRUE(facts.trip_count_known);
+  EXPECT_EQ(facts.trip_count, 4u);
+  ExpectNumericRange(facts.values, 0, 512, 64);
+  ExpectNumericRange(facts.body_values, 0, 448, 64);
+  ExpectNumericRange(facts.exit_value, 256, 512, 256);
+
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_make(256, 512, 256), -64, 4, &facts));
+  ExpectNumericRange(facts.values, 0, 512, 64);
+  ExpectNumericRange(facts.body_values, 64, 512, 64);
+  ExpectNumericRange(facts.exit_value, 0, 256, 256);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, ZeroOriginRetainsStrideDivisibility) {
+  loom_loop_recurrence_facts_t facts;
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_exact_i64(0), 128, 8, &facts));
+  ExpectNumericRange(facts.values, 0, 1024, 128);
+  ExpectNumericRange(facts.body_values, 0, 896, 128);
+  ExpectNumericRange(facts.exit_value, 1024, 1024, 1024);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, OneTripRetainsInitialBodyDivisor) {
+  loom_loop_recurrence_facts_t facts;
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_make(0, 512, 256), 64, 1, &facts));
+  ExpectNumericRange(facts.values, 0, 576, 64);
+  ExpectNumericRange(facts.body_values, 0, 512, 256);
+  ExpectNumericRange(facts.exit_value, 64, 576, 64);
+
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_exact_i64(0), -128, 1, &facts));
+  ExpectNumericRange(facts.values, -128, 0, 128);
+  ExpectNumericRange(facts.body_values, 0, 0, 1);
+  ExpectNumericRange(facts.exit_value, -128, -128, 128);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, ZeroTripsAndStationaryRanges) {
+  const auto initial = loom_value_facts_make(128, 256, 128);
+  loom_loop_recurrence_facts_t facts;
+  for (int64_t step :
+       {INT64_MIN, INT64_C(-1), INT64_C(0), INT64_C(1), INT64_MAX}) {
+    ASSERT_TRUE(
+        loom_loop_domain_additive_recurrence_facts(initial, step, 0, &facts));
+    EXPECT_TRUE(facts.trip_count_known);
+    EXPECT_EQ(facts.trip_count, 0u);
+    ExpectNumericRange(facts.values, 128, 256, 128);
+    ExpectNumericRange(facts.exit_value, 128, 256, 128);
+    EXPECT_TRUE(loom_value_facts_is_unknown(facts.body_values));
+  }
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(initial, 0, UINT64_MAX,
+                                                         &facts));
+  EXPECT_EQ(facts.trip_count, UINT64_MAX);
+  ExpectNumericRange(facts.values, 128, 256, 128);
+  ExpectNumericRange(facts.body_values, 128, 256, 128);
+  ExpectNumericRange(facts.exit_value, 128, 256, 128);
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_unknown(), 0, UINT64_MAX, &facts));
+  ExpectNumericRange(facts.values, INT64_MIN, INT64_MAX, 1);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, FullSignedSpan) {
+  for (int64_t step : {INT64_C(-1), INT64_C(1)}) {
+    const int64_t initial = step > 0 ? INT64_MIN : INT64_MAX;
+    const int64_t terminal = step > 0 ? INT64_MAX : INT64_MIN;
+    loom_loop_recurrence_facts_t facts;
+    ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+        loom_value_facts_exact_i64(initial), step, UINT64_MAX, &facts));
+    EXPECT_EQ(facts.trip_count, UINT64_MAX);
+    ExpectNumericRange(facts.values, INT64_MIN, INT64_MAX, 1);
+    ExpectNumericRange(facts.body_values, step > 0 ? INT64_MIN : INT64_MIN + 1,
+                       step > 0 ? INT64_MAX - 1 : INT64_MAX, 1);
+    ExpectNumericRange(facts.exit_value, terminal, terminal,
+                       step > 0 ? INT64_MAX : 1);
+  }
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, UnsignedDistanceAndMinimumSignedStep) {
+  loom_loop_recurrence_facts_t facts;
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_exact_i64(INT64_MIN), INT64_MAX, 2, &facts));
+  ExpectNumericRange(facts.values, INT64_MIN, INT64_MAX - 1, 1);
+  ExpectNumericRange(facts.body_values, INT64_MIN, -1, 1);
+  ExpectNumericRange(facts.exit_value, INT64_MAX - 1, INT64_MAX - 1,
+                     INT64_MAX - 1);
+
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_make(0, INT64_MAX, 1), INT64_MIN, 1, &facts));
+  ExpectNumericRange(facts.values, INT64_MIN, INT64_MAX, 1);
+  ExpectNumericRange(facts.body_values, 0, INT64_MAX, 1);
+  ExpectNumericRange(facts.exit_value, INT64_MIN, -1, 1);
+
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_exact_i64(0), INT64_MIN, 1, &facts));
+  ExpectNumericRange(facts.values, INT64_MIN, 0, 1);
+  ExpectNumericRange(facts.body_values, 0, 0, 1);
+  ExpectNumericRange(facts.exit_value, INT64_MIN, INT64_MIN, 1);
+
+  ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+      loom_value_facts_exact_i64(INT64_MIN), 128, 2, &facts));
+  ExpectNumericRange(facts.values, INT64_MIN, INT64_MIN + 256, 128);
+  ExpectNumericRange(facts.body_values, INT64_MIN, INT64_MIN + 128, 128);
+  ExpectNumericRange(facts.exit_value, INT64_MIN + 256, INT64_MIN + 256,
+                     INT64_MAX - 255);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, OverflowPublishesNoPartialProof) {
+  auto expect_unproven = [](loom_value_facts_t initial, int64_t step,
+                            uint64_t count) {
+    loom_loop_recurrence_facts_t facts;
+    EXPECT_FALSE(loom_loop_domain_additive_recurrence_facts(initial, step,
+                                                            count, &facts));
+    EXPECT_TRUE(facts.trip_count_known);
+    EXPECT_EQ(facts.trip_count, count);
+    EXPECT_TRUE(loom_value_facts_is_unknown(facts.values));
+    EXPECT_TRUE(loom_value_facts_is_unknown(facts.body_values));
+    EXPECT_TRUE(loom_value_facts_is_unknown(facts.exit_value));
+  };
+  expect_unproven(loom_value_facts_exact_i64(INT64_MAX), 1, 1);
+  expect_unproven(loom_value_facts_exact_i64(INT64_MIN), -1, 1);
+  expect_unproven(loom_value_facts_exact_i64(INT64_MAX), INT64_MIN, 2);
+  expect_unproven(loom_value_facts_make(INT64_MIN, INT64_MIN + 1, 1), 1,
+                  UINT64_MAX);
+  expect_unproven(loom_value_facts_make(INT64_MAX - 1, INT64_MAX, 1), -1,
+                  UINT64_MAX);
+}
+
+TEST(LoopDomainAdditiveRecurrenceTest, SmallRangesMatchExplicitIteration) {
+  for (int64_t lower = -4; lower <= 4; ++lower) {
+    for (int64_t upper = lower; upper <= 4; ++upper) {
+      for (int64_t step = -4; step <= 4; ++step) {
+        for (uint64_t count = 0; count <= 8; ++count) {
+          SCOPED_TRACE(::testing::Message()
+                       << "initial=[" << lower << "," << upper
+                       << "] step=" << step << " count=" << count);
+          int64_t header_lower = INT64_MAX, header_upper = INT64_MIN;
+          int64_t body_lower = INT64_MAX, body_upper = INT64_MIN;
+          int64_t exit_lower = INT64_MAX, exit_upper = INT64_MIN;
+          int64_t header_divisor = 0, body_divisor = 0, exit_divisor = 0;
+          for (int64_t initial = lower; initial <= upper; ++initial) {
+            int64_t value = initial;
+            for (uint64_t iteration = 0; iteration <= count; ++iteration) {
+              header_lower = std::min(header_lower, value);
+              header_upper = std::max(header_upper, value);
+              header_divisor = std::gcd(header_divisor, value);
+              if (iteration != count) {
+                body_lower = std::min(body_lower, value);
+                body_upper = std::max(body_upper, value);
+                body_divisor = std::gcd(body_divisor, value);
+                value += step;
+              }
+            }
+            exit_lower = std::min(exit_lower, value);
+            exit_upper = std::max(exit_upper, value);
+            exit_divisor = std::gcd(exit_divisor, value);
+          }
+          loom_loop_recurrence_facts_t facts;
+          ASSERT_TRUE(loom_loop_domain_additive_recurrence_facts(
+              loom_value_facts_make(lower, upper, 1), step, count, &facts));
+          EXPECT_TRUE(facts.trip_count_known);
+          EXPECT_EQ(facts.trip_count, count);
+          ExpectNumericRange(facts.values, header_lower, header_upper,
+                             std::max(INT64_C(1), header_divisor));
+          ExpectNumericRange(facts.exit_value, exit_lower, exit_upper,
+                             std::max(INT64_C(1), exit_divisor));
+          if (count != 0) {
+            ExpectNumericRange(facts.body_values, body_lower, body_upper,
+                               std::max(INT64_C(1), body_divisor));
+          } else {
+            EXPECT_TRUE(loom_value_facts_is_unknown(facts.body_values));
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST(LoopDomainRecurrenceTest, FullSignedCarrierAndTerminalBoundaries) {
   for (const uint8_t bitwidth : {32, 64}) {
     const int64_t maximum = INT64_MAX >> (64 - bitwidth);
@@ -178,6 +367,16 @@ TEST(LoopDomainRecurrenceTest, SourceValueMustFitCarrier) {
   EXPECT_TRUE(facts.trip_count_known);
   EXPECT_EQ(facts.trip_count, 4u);
   EXPECT_TRUE(loom_value_facts_is_unknown(facts.values));
+}
+
+TEST(LoopDomainRecurrenceTest, ExactExitRetainsUniformity) {
+  const auto empty =
+      loom_loop_domain_recurrence_facts(kSignedExclusive, 32, 5, 4, 1);
+  EXPECT_TRUE(loom_value_facts_is_cluster_uniform(empty.values));
+  EXPECT_TRUE(loom_value_facts_is_cluster_uniform(empty.exit_value));
+  const auto nonempty =
+      loom_loop_domain_recurrence_facts(kSignedExclusive, 32, 0, 4, 1);
+  EXPECT_TRUE(loom_value_facts_is_cluster_uniform(nonempty.exit_value));
 }
 
 struct ObservedLoop {

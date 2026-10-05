@@ -202,3 +202,87 @@ CHECK: %terminal_lo = scalar.constant 5 : i64
 CHECK: %terminal_hi = scalar.constant 5 : i64
 CHECK-NOT: *test.fact_*
 CHECK-NOT: *scf.*
+
+// ====
+
+// RUN: pass unroll-scf-for,scf-to-cfg,canonicalize,dce
+
+// Pair unrolling makes each backedge a two-add chain. Lowering preserves the
+// original byte-stream bounds without carrying structured-loop analysis state
+// in the IR; CFG header envelopes include the final yielded offsets.
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @paired_byte_stream_facts_survive_lowering() {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %pair_factor = index.constant 2 : index
+  %origin = index.constant 0 : offset
+  %a_tile_bytes = index.constant 128 : offset
+  %b_tile_bytes = index.constant 256 : offset
+  %a_end, %b_end = scf.for %tile = [%begin to %end step %step](%a = %origin : offset, %b = %origin : offset) -> (offset, offset) unroll(%pair_factor) {
+    %a_lo = test.fact_range_lo %a : offset -> i64
+    %a_hi = test.fact_range_hi %a : offset -> i64
+    %a_divisor = test.fact_divisor %a : offset -> i64
+    %b_lo = test.fact_range_lo %b : offset -> i64
+    %b_hi = test.fact_range_hi %b : offset -> i64
+    %b_divisor = test.fact_divisor %b : offset -> i64
+    test.use %a_lo, %a_hi, %a_divisor, %b_lo, %b_hi, %b_divisor : i64, i64, i64, i64, i64, i64
+    %a_next = index.add %a, %a_tile_bytes : offset
+    %b_next = index.add %b, %b_tile_bytes : offset
+    scf.yield %a_next, %b_next : offset, offset
+  }
+  %a_end_lo = test.fact_range_lo %a_end : offset -> i64
+  %a_end_hi = test.fact_range_hi %a_end : offset -> i64
+  %b_end_lo = test.fact_range_lo %b_end : offset -> i64
+  %b_end_hi = test.fact_range_hi %b_end : offset -> i64
+  test.use %a_end_lo, %a_end_hi, %b_end_lo, %b_end_hi : i64, i64, i64, i64
+  func.return
+}
+
+// ----
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @paired_byte_stream_facts_survive_lowering() {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %origin = index.constant 0 : offset
+  %a_tile_bytes = index.constant 128 : offset
+  %b_tile_bytes = index.constant 256 : offset
+  %24 = index.constant 2 : index
+  cfg.br ^_bb1(%begin: index, %origin: offset, %origin: offset)
+^_bb1(%48: index, %a: offset, %b: offset):
+  %52 = index.cmp slt, %48, %end : index
+  cfg.cond_br %52, ^_bb2, ^_bb3
+^_bb2:
+  %tile = index.assume %48 [range(%48, 0, 6), mul(%48, 2)] : index
+  %a_lo = scalar.constant 0 : i64
+  %a_hi = scalar.constant 1024 : i64
+  %a_divisor = scalar.constant 256 : i64
+  %b_lo = scalar.constant 0 : i64
+  %b_hi = scalar.constant 2048 : i64
+  %b_divisor = scalar.constant 512 : i64
+  test.use %a_lo, %a_hi, %a_divisor, %b_lo, %b_hi, %b_divisor : i64, i64, i64, i64, i64, i64
+  %a_next = index.add %a, %a_tile_bytes : offset
+  %b_next = index.add %b, %b_tile_bytes : offset
+  %a_lo_1 = scalar.constant 128 : i64
+  %a_hi_1 = scalar.constant 1152 : i64
+  %a_divisor_1 = scalar.constant 128 : i64
+  %b_lo_1 = scalar.constant 256 : i64
+  %b_hi_1 = scalar.constant 2304 : i64
+  %b_divisor_1 = scalar.constant 256 : i64
+  test.use %a_lo_1, %a_hi_1, %a_divisor_1, %b_lo_1, %b_hi_1, %b_divisor_1 : i64, i64, i64, i64, i64, i64
+  %a_next_1 = index.add %a_next, %a_tile_bytes : offset
+  %b_next_1 = index.add %b_next, %b_tile_bytes : offset
+  %53 = index.add %tile, %24 : index
+  cfg.br ^_bb1(%53: index, %a_next_1: offset, %b_next_1: offset)
+^_bb3:
+  cfg.br ^_bb4(%a: offset, %b: offset)
+^_bb4(%a_end: offset, %b_end: offset):
+  %a_end_lo = scalar.constant 0 : i64
+  %a_end_hi = scalar.constant 1024 : i64
+  %b_end_lo = scalar.constant 0 : i64
+  %b_end_hi = scalar.constant 2048 : i64
+  test.use %a_end_lo, %a_end_hi, %b_end_lo, %b_end_hi : i64, i64, i64, i64
+  func.return
+}

@@ -206,6 +206,133 @@ CHECK-NOT: *test.fact_range_*
 
 // ====
 
+// RUN: pass canonicalize,dce
+
+// Header facts include the terminal state. A representable net step is not
+// enough when an intermediate add/sub prefix exceeds the selected carrier.
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+test.target<low_core> @offset64 {index_bitwidth = 64, offset_bitwidth = 64}
+
+func.def target(@offset32) @carried_offset32_wrap() -> (i64, i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %terminal_seed = index.constant 4294967294 : offset
+  %terminal_step = index.constant 1 : offset
+  %prefix_seed = index.constant 4294967280 : offset
+  %prefix_rise = index.constant 32 : offset
+  %prefix_fall = index.constant 31 : offset
+  cfg.br ^header(%begin: index, %terminal_seed: offset, %prefix_seed: offset)
+^header(%iteration: index, %terminal: offset, %prefix: offset):
+  %terminal_lo = test.fact_range_lo %terminal : offset -> i64
+  %terminal_hi = test.fact_range_hi %terminal : offset -> i64
+  %prefix_lo = test.fact_range_lo %prefix : offset -> i64
+  %prefix_hi = test.fact_range_hi %prefix : offset -> i64
+  %more = index.cmp slt, %iteration, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  test.use %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+  %iteration_next = index.add %iteration, %step : index
+  %terminal_next = index.add %terminal, %terminal_step : offset
+  %prefix_high = index.add %prefix, %prefix_rise : offset
+  %prefix_next = index.sub %prefix_high, %prefix_fall : offset
+  cfg.br ^header(%iteration_next: index, %terminal_next: offset, %prefix_next: offset)
+^exit:
+  func.return %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+}
+
+func.def target(@offset64) @carried_offset64_fits() -> (i64, i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %terminal_seed = index.constant 4294967294 : offset
+  %terminal_step = index.constant 1 : offset
+  %prefix_seed = index.constant 4294967280 : offset
+  %prefix_rise = index.constant 32 : offset
+  %prefix_fall = index.constant 31 : offset
+  cfg.br ^header(%begin: index, %terminal_seed: offset, %prefix_seed: offset)
+^header(%iteration: index, %terminal: offset, %prefix: offset):
+  %terminal_lo = test.fact_range_lo %terminal : offset -> i64
+  %terminal_hi = test.fact_range_hi %terminal : offset -> i64
+  %prefix_lo = test.fact_range_lo %prefix : offset -> i64
+  %prefix_hi = test.fact_range_hi %prefix : offset -> i64
+  %more = index.cmp slt, %iteration, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  test.use %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+  %iteration_next = index.add %iteration, %step : index
+  %terminal_next = index.add %terminal, %terminal_step : offset
+  %prefix_high = index.add %prefix, %prefix_rise : offset
+  %prefix_next = index.sub %prefix_high, %prefix_fall : offset
+  cfg.br ^header(%iteration_next: index, %terminal_next: offset, %prefix_next: offset)
+^exit:
+  func.return %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+}
+
+// ----
+test.target<low_core> @offset32 {index_bitwidth = 32, offset_bitwidth = 32}
+
+test.target<low_core> @offset64 {index_bitwidth = 64, offset_bitwidth = 64}
+
+func.def target(@offset32) @carried_offset32_wrap() -> (i64, i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %terminal_seed = index.constant 4294967294 : offset
+  %terminal_step = index.constant 1 : offset
+  %prefix_seed = index.constant 4294967280 : offset
+  %prefix_rise = index.constant 32 : offset
+  %prefix_fall = index.constant 31 : offset
+  cfg.br ^header(%begin: index, %terminal_seed: offset, %prefix_seed: offset)
+^header(%iteration: index, %terminal: offset, %prefix: offset):
+  %terminal_lo = scalar.constant 0 : i64
+  %terminal_hi = scalar.constant 9223372036854775807 : i64
+  %prefix_lo = scalar.constant 0 : i64
+  %prefix_hi = scalar.constant 9223372036854775807 : i64
+  %more = index.cmp slt, %iteration, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  test.use %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+  %iteration_next = index.add %iteration, %step : index
+  %terminal_next = index.add %terminal, %terminal_step : offset
+  %prefix_high = index.add %prefix, %prefix_rise : offset
+  %prefix_next = index.sub %prefix_high, %prefix_fall : offset
+  cfg.br ^header(%iteration_next: index, %terminal_next: offset, %prefix_next: offset)
+^exit:
+  func.return %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+}
+
+func.def target(@offset64) @carried_offset64_fits() -> (i64, i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %end = index.constant 2 : index
+  %step = index.constant 1 : index
+  %terminal_seed = index.constant 4294967294 : offset
+  %terminal_step = index.constant 1 : offset
+  %prefix_seed = index.constant 4294967280 : offset
+  %prefix_rise = index.constant 32 : offset
+  %prefix_fall = index.constant 31 : offset
+  cfg.br ^header(%begin: index, %terminal_seed: offset, %prefix_seed: offset)
+^header(%iteration: index, %terminal: offset, %prefix: offset):
+  %terminal_lo = scalar.constant 4294967294 : i64
+  %terminal_hi = scalar.constant 4294967296 : i64
+  %prefix_lo = scalar.constant 4294967280 : i64
+  %prefix_hi = scalar.constant 4294967282 : i64
+  %more = index.cmp slt, %iteration, %end : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  test.use %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+  %iteration_next = index.add %iteration, %step : index
+  %terminal_next = index.add %terminal, %terminal_step : offset
+  %prefix_high = index.add %prefix, %prefix_rise : offset
+  %prefix_next = index.sub %prefix_high, %prefix_fall : offset
+  cfg.br ^header(%iteration_next: index, %terminal_next: offset, %prefix_next: offset)
+^exit:
+  func.return %terminal_lo, %terminal_hi, %prefix_lo, %prefix_hi : i64, i64, i64, i64
+}
+
+// ====
+
 // RUN: with-checks pass canonicalize,dce
 
 func.def @unsupported_not_equal() -> (i64, i64) {
@@ -574,3 +701,64 @@ func.def @multiple_entries(%choice: i1) -> (i64, i64) {
 CHECK: %lo = scalar.constant -9223372036854775808 : i64
 CHECK: %hi = scalar.constant 9223372036854775807 : i64
 CHECK-NOT: *test.fact_range_*
+
+// ====
+
+// RUN: pass canonicalize
+
+// The shifting state outlasts the CFG solve budget. Header reseeding precedes
+// the body, so both increments retain their literal values through the reset.
+func.def @additive_companion_after_fallback() -> (i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %limit = index.constant 64 : index
+  %origin = index.constant 0 : offset
+  %decay_seed = scalar.constant 1099511627776 : i64
+  cfg.br ^header(%begin: index, %origin: offset, %decay_seed: i64)
+^header(%counter: index, %cursor: offset, %decaying: i64):
+  %counter_hi = test.fact_range_hi %counter : index -> i64
+  %cursor_lo = test.fact_range_lo %cursor : offset -> i64
+  %cursor_hi = test.fact_range_hi %cursor : offset -> i64
+  %decay_lo = test.fact_range_lo %decaying : i64 -> i64
+  %decay_divisor = test.fact_divisor %decaying : i64 -> i64
+  test.use %counter_hi, %cursor_lo, %cursor_hi, %decay_lo, %decay_divisor : i64, i64, i64, i64, i64
+  %more = index.cmp slt, %counter, %limit : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %counter_step = index.constant 1 : index
+  %cursor_stride = index.constant 128 : offset
+  %shift_amount = scalar.constant 1 : i64
+  %counter_next = index.add %counter, %counter_step : index
+  %cursor_next = index.add %cursor, %cursor_stride : offset
+  %decay_next = scalar.shrui %decaying, %shift_amount : i64
+  cfg.br ^header(%counter_next: index, %cursor_next: offset, %decay_next: i64)
+^exit:
+  func.return %cursor_lo, %cursor_hi, %decaying : i64, i64, i64
+}
+
+// ----
+func.def @additive_companion_after_fallback() -> (i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %limit = index.constant 64 : index
+  %origin = index.constant 0 : offset
+  %decay_seed = scalar.constant 1099511627776 : i64
+  cfg.br ^header(%begin: index, %origin: offset, %decay_seed: i64)
+^header(%counter: index, %cursor: offset, %decaying: i64):
+  %counter_hi = scalar.constant 64 : i64
+  %cursor_lo = scalar.constant 0 : i64
+  %cursor_hi = scalar.constant 8192 : i64
+  %decay_lo = scalar.constant -9223372036854775808 : i64
+  %decay_divisor = scalar.constant 1 : i64
+  test.use %counter_hi, %cursor_lo, %cursor_hi, %decay_lo, %decay_divisor : i64, i64, i64, i64, i64
+  %more = index.cmp slt, %counter, %limit : index
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %counter_step = index.constant 1 : index
+  %cursor_stride = index.constant 128 : offset
+  %shift_amount = scalar.constant 1 : i64
+  %counter_next = index.add %counter, %counter_step : index
+  %cursor_next = index.add %cursor, %cursor_stride : offset
+  %decay_next = scalar.shrui %decaying, %shift_amount : i64
+  cfg.br ^header(%counter_next: index, %cursor_next: offset, %decay_next: i64)
+^exit:
+  func.return %cursor_lo, %cursor_hi, %decaying : i64, i64, i64
+}
