@@ -6,6 +6,7 @@
 
 #include "loomc/target/amd/xdna.h"
 
+#include "loom/binding/c/target/provider_set.h"
 #include "loom/target/arch/amd/xdna/aie2p/emit/artifact.h"
 #include "loom/target/arch/amd/xdna/aie2p/profile.h"
 #include "loom/target/arch/amd/xdna/aie2p/provider.h"
@@ -22,11 +23,15 @@ static const loom_target_provider_set_t kXdnaProviderSet = {
     .provider_count = IREE_ARRAYSIZE(kXdnaProviders),
 };
 
+const loom_target_provider_set_t* loomc_xdna_provider_set(void) {
+  return &kXdnaProviderSet;
+}
+
 loomc_status_t loomc_target_environment_create_xdna(
     loomc_allocator_t allocator,
     loomc_target_environment_t** out_target_environment) {
   return loomc_target_environment_create_from_provider_set(
-      &kXdnaProviderSet, allocator, out_target_environment);
+      loomc_xdna_provider_set(), allocator, out_target_environment);
 }
 
 loomc_status_t loomc_target_profile_create_xdna(

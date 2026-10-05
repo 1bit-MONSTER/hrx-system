@@ -85,6 +85,10 @@ LOOMC_TARGET_WASM_PUBLIC_HDRS = [
     "include/loomc/target/wasm.h",
 ]
 
+LOOMC_TARGET_CONFIGURED_PUBLIC_HDRS = [
+    "include/loomc/target/configured.h",
+]
+
 LOOMC_TARGET_CMD_PUBLIC_HDRS = [
     "include/loomc/target/cmd.h",
     "include/loomc/target/cmd/program.h",
@@ -123,6 +127,7 @@ exports_files(
     LOOMC_TARGET_AMDGPU_IREE_HAL_PUBLIC_HDRS +
     LOOMC_TARGET_AMDGPU_PUBLIC_HDRS +
     LOOMC_TARGET_CMD_PUBLIC_HDRS +
+    LOOMC_TARGET_CONFIGURED_PUBLIC_HDRS +
     LOOMC_TARGET_IREE_HAL_PUBLIC_HDRS +
     LOOMC_TARGET_SPIRV_PUBLIC_HDRS +
     LOOMC_TARGET_SPIRV_IREE_HAL_PUBLIC_HDRS +

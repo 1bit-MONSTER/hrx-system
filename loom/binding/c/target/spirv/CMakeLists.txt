@@ -26,6 +26,7 @@ loom_cc_library(
   DEPS
     iree::base
     loom::binding::c::loomc
+    loom::binding::c::target::provider_set
     loom::error::error_defs
     loom::target::arch::spirv::compiler_provider
     loom::target::arch::spirv::cooperative_properties

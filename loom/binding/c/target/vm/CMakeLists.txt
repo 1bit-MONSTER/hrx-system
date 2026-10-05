@@ -19,6 +19,7 @@ loom_cc_library(
     "vm.c"
   DEPS
     loom::binding::c::loomc
+    loom::binding::c::target::provider_set
     loom::target::emit::vm::module_compiler
   ALWAYSLINK
   PUBLIC
