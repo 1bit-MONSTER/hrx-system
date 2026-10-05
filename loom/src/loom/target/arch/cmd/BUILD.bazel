@@ -55,7 +55,6 @@ loom_cc_library(
     visibility = [
         "//loom/binding/c/target/cmd:__pkg__",
         "//loom/src/loom/target/arch/cmd:__subpackages__",
-        "//loom/src/loom/tools/loom-compile:__pkg__",
     ],
     deps = [
         "//loom/src/loom/ir",
@@ -73,7 +72,6 @@ loom_cc_library(
     hdrs = ["artifact_builder.h"],
     visibility = [
         "//loom/binding/c/target/cmd:__pkg__",
-        "//loom/src/loom/tools/loom-compile:__pkg__",
     ],
     deps = [
         ":artifact_set",

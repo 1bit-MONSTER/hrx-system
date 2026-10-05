@@ -313,7 +313,12 @@
         "args": ["{srcdir}/invalid_operand.loom", "--format=vm", "--output={tmp}/invalid.vm"]
       },
       "exit": 1,
-      "stderr": {"contains": ["input module failed Low verification"]},
+      "stderr": {
+        "contains": [
+          "TYPE/003",
+          "operand 'left_v8' has type reg<vm.ref : buffer>, expected register class in [vm.value] with 1 unit(s)"
+        ]
+      },
       "files": [{"path": "{tmp}/invalid.vm", "exists": false}]
     },
     {

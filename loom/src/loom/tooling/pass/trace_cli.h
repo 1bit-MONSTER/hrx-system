@@ -10,8 +10,8 @@
 #define LOOM_TOOLING_PASS_TRACE_CLI_H_
 
 #include "iree/base/api.h"
-#include "loom/pass/trace.h"
 #include "loom/tooling/io/file.h"
+#include "loom/util/stream.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +24,13 @@ extern "C" {
   "--dump-ir-format=jsonl for one event per line; "                        \
   "--dump-ir-output=dir/ writes trace.jsonl plus ir/*.loom.\n"
 
+typedef enum loom_tooling_pass_trace_format_e {
+  // Human-readable event metadata followed by textual Loom IR.
+  LOOM_TOOLING_PASS_TRACE_FORMAT_TEXT = 0,
+  // One JSON object per event with JSON-escaped textual Loom IR.
+  LOOM_TOOLING_PASS_TRACE_FORMAT_JSONL = 1,
+} loom_tooling_pass_trace_format_t;
+
 typedef struct loom_tooling_pass_trace_open_options_t {
   // Tool name included in trace metadata.
   iree_string_view_t tool_name;
@@ -32,7 +39,7 @@ typedef struct loom_tooling_pass_trace_open_options_t {
 } loom_tooling_pass_trace_open_options_t;
 
 typedef struct loom_tooling_pass_trace_t {
-  // Open output destination backing pass_options.stream when enabled.
+  // Open output destination receiving sequential trace events when enabled.
   loom_tooling_output_stream_t output;
   // Allocator used for owned bundle paths.
   iree_allocator_t host_allocator;
@@ -48,8 +55,20 @@ typedef struct loom_tooling_pass_trace_t {
   char* bundle_artifact_relative_path;
   // Open artifact output while a bundle event is being emitted.
   loom_tooling_output_stream_t bundle_artifact_output;
-  // Pass trace options configured from the shared CLI flags.
-  loom_pass_trace_options_t pass_options;
+  // Trace representation selected by --dump-ir-format.
+  loom_tooling_pass_trace_format_t format;
+  // Tool identity written into sequential trace metadata.
+  iree_string_view_t tool_name;
+  // Input identity written into sequential trace metadata.
+  iree_string_view_t input_path;
+  // Pass, pipeline, or stage filters selected by --dump-ir-before.
+  iree_string_view_list_t dump_before;
+  // Pass, pipeline, or stage filters selected by --dump-ir-after.
+  iree_string_view_list_t dump_after;
+  // True when --dump-ir-before-all was selected.
+  bool dump_before_all;
+  // True when --dump-ir-after-all was selected.
+  bool dump_after_all;
   // True when at least one dump flag was requested and output is open.
   bool enabled;
 } loom_tooling_pass_trace_t;
@@ -68,9 +87,20 @@ iree_status_t loom_tooling_pass_trace_open_from_flags(
 // Flushes or closes the trace output when tracing was enabled.
 iree_status_t loom_tooling_pass_trace_close(loom_tooling_pass_trace_t* trace);
 
-// Returns pass trace options when tracing is enabled, otherwise NULL.
-const loom_pass_trace_options_t* loom_tooling_pass_trace_options(
+// Returns true when the selected destination is a directory bundle requiring
+// one artifact stream per trace event.
+bool loom_tooling_pass_trace_has_artifact_sink(
     const loom_tooling_pass_trace_t* trace);
+
+// Opens one per-event artifact in the selected directory bundle.
+iree_status_t loom_tooling_pass_trace_open_artifact(
+    loom_tooling_pass_trace_t* trace, iree_host_size_t event_ordinal,
+    iree_string_view_t point, iree_string_view_t pass_key,
+    loom_output_stream_t** out_stream, iree_string_view_t* out_reference);
+
+// Closes the artifact successfully returned from open_artifact.
+iree_status_t loom_tooling_pass_trace_close_artifact(
+    loom_tooling_pass_trace_t* trace);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -31,6 +31,7 @@ loom_cc_binary(
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:report",
         "//loom/src/loom/pass:tooling",
+        "//loom/src/loom/pass:trace",
         "//loom/src/loom/target:math_policy",
         "//loom/src/loom/target:pipeline",
         "//loom/src/loom/target:predicate",

@@ -32,6 +32,7 @@ loom_cc_binary(
     loom::pass::registry
     loom::pass::report
     loom::pass::tooling
+    loom::pass::trace
     loom::target::configured::provider
     loom::target::math_policy
     loom::target::pipeline

@@ -17,30 +17,15 @@ loom_cc_binary(
   DEPS
     iree::base
     iree::base::tooling::flags
-    iree::io::file_handle
-    loom::codegen::low::text_asm
-    loom::compile::request
-    loom::error::diagnostic
-    loom::format::text::printer
-    loom::ir
-    loom::pass::pipeline_snapshot
+    loom::binding::c::loomc
+    loom::binding::c::target::configured
     loom::sanitizer::options
-    loom::target::entry_selection
-    loom::target::low_descriptor_registry
-    loom::target::reporting::artifact_manifest
-    loom::target::selection
     loom::tooling::cli::help
-    loom::tooling::compile::configured
-    loom::tooling::compile::options
-    loom::tooling::compile::pipeline
-    loom::tooling::compile::report_capture
     loom::tooling::config
-    loom::tooling::context
-    loom::tooling::execution::session
     loom::tooling::io::file
     loom::tooling::io::source_path
     loom::tooling::pass::trace_cli
-    loom::verify
+    loom::util::stream
 )
 
 iree_execution_test_suite(
