@@ -667,7 +667,7 @@ iree_status_t loom_low_emission_frame_build(
   return status;
 }
 
-static iree_status_t loom_low_emission_frame_emit_rematerialization_decision(
+static iree_status_t loom_low_emission_frame_emit_rematerialization_summary(
     const loom_low_emission_frame_options_t* frame_options,
     const loom_low_allocation_table_t* allocation,
     loom_low_allocation_rematerialization_trigger_t trigger,
@@ -676,8 +676,15 @@ static iree_status_t loom_low_emission_frame_emit_rematerialization_decision(
                         LOOM_LOW_ALLOCATION_DIAGNOSTIC_PREDICTED_SPILLS)) {
     return iree_ok_status();
   }
-  return loom_low_allocation_rematerialization_emit_decision(
-      allocation, trigger, result, frame_options->emitter);
+  const loom_low_rematerialization_batch_result_t batch = {
+      .repaired_value_count = 1,
+      .cloned_packet_count = result->value.cloned_packet_count,
+      .rewritten_operand_count = result->value.rewritten_operand_count,
+      .retained_placement_count = result->value.retained_placement_count,
+  };
+  return loom_low_allocation_rematerialization_emit_summary(
+      allocation, trigger, result->descriptor_reg_class_id, &batch,
+      frame_options->emitter);
 }
 
 static iree_string_view_t loom_low_emission_frame_failure_code(
@@ -910,7 +917,7 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
                 rematerialization_result.value.rewritten_operand_count;
           }
           IREE_RETURN_IF_ERROR(
-              loom_low_emission_frame_emit_rematerialization_decision(
+              loom_low_emission_frame_emit_rematerialization_summary(
                   frame_options, &frame.allocation,
                   LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_SPILL_PLAN,
                   &rematerialization_result));

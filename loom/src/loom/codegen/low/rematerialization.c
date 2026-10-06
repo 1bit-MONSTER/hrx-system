@@ -688,6 +688,10 @@ static iree_status_t loom_low_allocation_try_rematerialize_live_frontier(
     }
     IREE_RETURN_IF_ERROR(loom_low_rematerialization_apply_value(
         module, assignment->value_id, &plan, state, arena, &out_result->value));
+    if (out_result->value.rewritten_operand_count != 0 ||
+        out_result->value.retained_placement_count != 0) {
+      ++out_batch->repaired_value_count;
+    }
     out_batch->cloned_packet_count += out_result->value.cloned_packet_count;
     out_batch->rewritten_operand_count +=
         out_result->value.rewritten_operand_count;
@@ -736,6 +740,10 @@ static iree_status_t loom_low_allocation_rematerialize_failure_value(
   IREE_RETURN_IF_ERROR(loom_low_rematerialize_value_uses(
       module, &table->target, failure->value_id, schedule, state, arena,
       &out_result->value));
+  if (out_result->value.rewritten_operand_count != 0 ||
+      out_result->value.retained_placement_count != 0) {
+    ++out_batch->repaired_value_count;
+  }
   out_batch->cloned_packet_count += out_result->value.cloned_packet_count;
   out_batch->rewritten_operand_count +=
       out_result->value.rewritten_operand_count;
@@ -894,25 +902,26 @@ iree_status_t loom_low_allocation_rematerialize_failure(
         module, &table->target, candidate->interval->value_id,
         /*schedule=*/NULL, state, arena, &result.value);
     if (iree_status_is_ok(status)) {
+      if (result.value.rewritten_operand_count != 0 ||
+          result.value.retained_placement_count != 0) {
+        ++out_result->repaired_value_count;
+      }
       out_result->cloned_packet_count += result.value.cloned_packet_count;
       out_result->rewritten_operand_count +=
           result.value.rewritten_operand_count;
-      status = loom_low_allocation_rematerialization_emit_decision(
-          table,
-          LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_ALLOCATION_FAILURE,
-          &result, emitter);
+      out_result->retained_placement_count +=
+          result.value.retained_placement_count;
     }
   }
   if (iree_status_is_ok(status) && out_result->rewritten_operand_count == 0) {
     loom_low_allocation_rematerialization_result_t result = {0};
     status = loom_low_allocation_rematerialize_failure_value(
         module, table, schedule, state, arena, out_result, &result);
-    if (iree_status_is_ok(status)) {
-      status = loom_low_allocation_rematerialization_emit_decision(
-          table,
-          LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_ALLOCATION_FAILURE,
-          &result, emitter);
-    }
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_low_allocation_rematerialization_emit_summary(
+        table, LOOM_LOW_ALLOCATION_REMATERIALIZATION_TRIGGER_ALLOCATION_FAILURE,
+        table->failure.descriptor_reg_class_id, out_result, emitter);
   }
   return status;
 }
@@ -949,14 +958,15 @@ static iree_string_view_t loom_low_allocation_rematerialization_trigger_name(
   }
 }
 
-iree_status_t loom_low_allocation_rematerialization_emit_decision(
+iree_status_t loom_low_allocation_rematerialization_emit_summary(
     const loom_low_allocation_table_t* table,
     loom_low_allocation_rematerialization_trigger_t trigger,
-    const loom_low_allocation_rematerialization_result_t* result,
+    uint16_t trigger_reg_class_id,
+    const loom_low_rematerialization_batch_result_t* result,
     iree_diagnostic_emitter_t emitter) {
   IREE_ASSERT_ARGUMENT(table);
   IREE_ASSERT_ARGUMENT(result);
-  if (emitter.fn == NULL || result->value.rewritten_operand_count == 0) {
+  if (emitter.fn == NULL || result->repaired_value_count == 0) {
     return iree_ok_status();
   }
   loom_diagnostic_param_t params[] = {
@@ -965,14 +975,14 @@ iree_status_t loom_low_allocation_rematerialization_emit_decision(
       loom_param_string(loom_low_diagnostic_config_key(&table->target)),
       loom_param_string(
           loom_low_diagnostic_function_name(table->module, table->function_op)),
-      loom_param_string(loom_low_diagnostic_value_name(table->module,
-                                                       result->value.value_id)),
       loom_param_string(loom_low_diagnostic_reg_class_name(
-          table->target.descriptor_set, result->descriptor_reg_class_id)),
+          table->target.descriptor_set, trigger_reg_class_id)),
       loom_param_string(
           loom_low_allocation_rematerialization_trigger_name(trigger)),
-      loom_param_u32(result->value.cloned_packet_count),
-      loom_param_u32(result->value.rewritten_operand_count),
+      loom_param_u32(result->repaired_value_count),
+      loom_param_u32(result->cloned_packet_count),
+      loom_param_u32(result->rewritten_operand_count),
+      loom_param_u32(result->retained_placement_count),
       loom_param_string(IREE_SV("descriptor-rematerializable")),
   };
   const loom_diagnostic_emission_t emission = {

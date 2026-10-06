@@ -217,30 +217,7 @@ CHECK: copies: coalesced=0 materialized=1
 // wait for other prerequisites, instead of inheriting the entire setup chain.
 // RUN: emit aie2p-leaf @static_offset_loop diagnostics=predicted-spills
 
-// REMARK@+24: BACKEND/045 {function_name="static_offset_loop", value_name="offset21", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+23: BACKEND/045 {function_name="static_offset_loop", value_name="offset20", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+22: BACKEND/045 {function_name="static_offset_loop", value_name="offset19", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+21: BACKEND/045 {function_name="static_offset_loop", value_name="offset18", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+20: BACKEND/045 {function_name="static_offset_loop", value_name="offset17", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+19: BACKEND/045 {function_name="static_offset_loop", value_name="offset16", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+18: BACKEND/045 {function_name="static_offset_loop", value_name="offset15", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+17: BACKEND/045 {function_name="static_offset_loop", value_name="offset14", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+16: BACKEND/045 {function_name="static_offset_loop", value_name="offset13", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+15: BACKEND/045 {function_name="static_offset_loop", value_name="offset12", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+14: BACKEND/045 {function_name="static_offset_loop", value_name="offset11", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+13: BACKEND/045 {function_name="static_offset_loop", value_name="offset10", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+12: BACKEND/045 {function_name="static_offset_loop", value_name="offset9", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+11: BACKEND/045 {function_name="static_offset_loop", value_name="offset8", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+10: BACKEND/045 {function_name="static_offset_loop", value_name="offset7", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+9: BACKEND/045 {function_name="static_offset_loop", value_name="offset6", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+8: BACKEND/045 {function_name="static_offset_loop", value_name="offset5", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+7: BACKEND/045 {function_name="static_offset_loop", value_name="offset4", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+6: BACKEND/045 {function_name="static_offset_loop", value_name="offset3", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+5: BACKEND/045 {function_name="static_offset_loop", value_name="offset2", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+4: BACKEND/045 {function_name="static_offset_loop", value_name="offset1", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+3: BACKEND/045 {function_name="static_offset_loop", value_name="offset0", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+2: BACKEND/045 {function_name="static_offset_loop", value_name="one", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+1: BACKEND/045 {function_name="static_offset_loop", value_name="zero", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="static_offset_loop", trigger_kind="allocation-failure", repaired_value_count="24", cloned_packet_count="24", rewritten_operand_count="24", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @static_offset_loop(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %count: reg<aie2p.er>) asm {
   %zero = mov.short 0
   %one = mov.short 1
@@ -419,8 +396,10 @@ scheduled pressure aie2p.vec256: peak-live-units<=24
 // final singleton insert index, even when that address work crosses capacity.
 // RUN: emit aie2p-leaf @index_repair_ordering diagnostics=predicted-spills
 
-// REMARK@+2: BACKEND/045 {function_name="index_repair_ordering", value_name="address7", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="2", rewritten_operand_count="2", reason_key="descriptor-rematerializable"}
-// REMARK@+1: BACKEND/045 {function_name="index_repair_ordering", value_name="address8", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="2", rewritten_operand_count="2", reason_key="descriptor-rematerializable"}
+// The two address results reach distinct failure frontiers and therefore
+// require one productive allocation retry each.
+// REMARK@+2: BACKEND/045 {function_name="index_repair_ordering", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0"}
+// REMARK@+1: BACKEND/045 {function_name="index_repair_ordering", trigger_kind="allocation-failure", repaired_value_count="1", cloned_packet_count="2", rewritten_operand_count="2", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @index_repair_ordering(%source: reg<aie2p.ep>, %destination: reg<aie2p.ep>, %address0: reg<aie2p.edj>, %address1: reg<aie2p.edj>, %address2: reg<aie2p.edj>, %address3: reg<aie2p.edj>, %address4: reg<aie2p.edj>, %address5: reg<aie2p.edj>, %address6: reg<aie2p.edj>, %position1: reg<aie2p.er>, %position2: reg<aie2p.er>, %position3: reg<aie2p.er>, %position4: reg<aie2p.er>, %position5: reg<aie2p.er>, %position6: reg<aie2p.er>, %position7: reg<aie2p.er>, %position8: reg<aie2p.er>, %position9: reg<aie2p.er>) -> (reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>, reg<aie2p.er>) asm {
   %offset7 = mov.static-byte-offset 119
   %address7 = mov.address-index %offset7
@@ -483,15 +462,7 @@ low.func.def target<amd.xdna.aie2p.core> @index_repair_ordering(%source: reg<aie
 // an arbitrary attempt count below the amount of useful progress available.
 // RUN: emit aie2p-leaf @index_repair_population diagnostics=predicted-spills
 
-// REMARK@+9: BACKEND/045 {function_name="index_repair_population", value_name="index8", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+8: BACKEND/045 {function_name="index_repair_population", value_name="index7", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+7: BACKEND/045 {function_name="index_repair_population", value_name="index6", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+6: BACKEND/045 {function_name="index_repair_population", value_name="index5", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+5: BACKEND/045 {function_name="index_repair_population", value_name="index4", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+4: BACKEND/045 {function_name="index_repair_population", value_name="index3", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+3: BACKEND/045 {function_name="index_repair_population", value_name="index2", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+2: BACKEND/045 {function_name="index_repair_population", value_name="index1", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+1: BACKEND/045 {function_name="index_repair_population", value_name="index0", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="index_repair_population", trigger_kind="allocation-failure", repaired_value_count="9", cloned_packet_count="9", rewritten_operand_count="9", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @index_repair_population(%output: reg<aie2p.ep>, %count: reg<aie2p.er>, %block0: reg<aie2p.edj>, %block1: reg<aie2p.edj>, %block2: reg<aie2p.edj>, %block3: reg<aie2p.edj>, %block4: reg<aie2p.edj>, %block5: reg<aie2p.edj>, %block6: reg<aie2p.edj>) -> (reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>, reg<aie2p.edj>) asm {
   %value = mov.short 1
   %offset = mov.static-byte-offset 0
@@ -573,26 +544,7 @@ CHECK: spills: 0
 // one original value per repair requires more than eight successful repairs.
 // RUN: emit aie2p-leaf @many_indexed_fields diagnostics=predicted-spills
 
-// REMARK@+20: BACKEND/045 {function_name="many_indexed_fields", value_name="index19", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+19: BACKEND/045 {function_name="many_indexed_fields", value_name="index18", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+18: BACKEND/045 {function_name="many_indexed_fields", value_name="index17", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+17: BACKEND/045 {function_name="many_indexed_fields", value_name="index16", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+16: BACKEND/045 {function_name="many_indexed_fields", value_name="index15", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+15: BACKEND/045 {function_name="many_indexed_fields", value_name="index14", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+14: BACKEND/045 {function_name="many_indexed_fields", value_name="index13", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+13: BACKEND/045 {function_name="many_indexed_fields", value_name="index12", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+12: BACKEND/045 {function_name="many_indexed_fields", value_name="index11", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+11: BACKEND/045 {function_name="many_indexed_fields", value_name="index10", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+10: BACKEND/045 {function_name="many_indexed_fields", value_name="index9", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+9: BACKEND/045 {function_name="many_indexed_fields", value_name="index8", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+8: BACKEND/045 {function_name="many_indexed_fields", value_name="index7", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+7: BACKEND/045 {function_name="many_indexed_fields", value_name="index6", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+6: BACKEND/045 {function_name="many_indexed_fields", value_name="index5", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+5: BACKEND/045 {function_name="many_indexed_fields", value_name="index4", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+4: BACKEND/045 {function_name="many_indexed_fields", value_name="index3", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+3: BACKEND/045 {function_name="many_indexed_fields", value_name="index2", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+2: BACKEND/045 {function_name="many_indexed_fields", value_name="index1", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
-// REMARK@+1: BACKEND/045 {function_name="many_indexed_fields", value_name="index0", value_class="aie2p.edj", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="many_indexed_fields", trigger_kind="allocation-failure", repaired_value_count="20", cloned_packet_count="20", rewritten_operand_count="20", retained_placement_count="0"}
 low.func.def target<amd.xdna.aie2p.core> @many_indexed_fields(%input: reg<aie2p.ep>, %output: reg<aie2p.ep>, %count: reg<aie2p.er>) asm {
   %zero = mov.short 0
   %one = mov.short 1
