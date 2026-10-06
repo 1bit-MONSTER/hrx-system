@@ -46,7 +46,7 @@ func.def noinline @selection_with_side_effects(%first: buffer, %second: buffer, 
   func.return %initial : i32
 }
 
-func.def public @read_nested_selections(%position: index, %select_first: i1, %select_pair: i1, %enter: i1, %side: i1) -> (i32, i32) {
+func.def @read_nested_selections(%position: index, %select_first: i1, %select_pair: i1, %enter: i1, %side: i1) -> (i32, i32) {
   %bytes = index.constant 32 : offset
   %base = index.constant 0 : offset
   %first = buffer.alloca<private> align(4) %bytes : buffer
@@ -76,170 +76,44 @@ func.def public @read_nested_selections(%position: index, %select_first: i1, %se
   func.return %derived, %ordered : i32, i32
 }
 
-check.case @first_low {
-  %position = check.literal value(1) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(102) : i32
-  %expected_ordered = check.literal value(100) : i32
+func.def @nested_selection_observations(%ordinal: index, %output: buffer) {
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %in_first_group = index.cmp ult, %ordinal, %c16 : index
+  %in_second_group = index.cmp ult, %ordinal, %c32 : index
+  %before_base = index.constant -1 : index
+  %low = index.constant 1 : index
+  %high = index.constant 2 : index
+  %nonnegative = scf.select %in_second_group, %low, %high : index
+  %position = scf.select %in_first_group, %before_base, %nonnegative : index
+  %ordinal_value = index.cast %ordinal : index to i32
+  %inactive = scalar.constant 0 : i32
+  %first_mask = scalar.constant 1 : i32
+  %pair_mask = scalar.constant 2 : i32
+  %enter_mask = scalar.constant 4 : i32
+  %side_mask = scalar.constant 8 : i32
+  %first_bits = scalar.andi %ordinal_value, %first_mask : i32
+  %pair_bits = scalar.andi %ordinal_value, %pair_mask : i32
+  %enter_bits = scalar.andi %ordinal_value, %enter_mask : i32
+  %side_bits = scalar.andi %ordinal_value, %side_mask : i32
+  %select_first = scalar.cmpi ne, %first_bits, %inactive : i32
+  %select_pair = scalar.cmpi ne, %pair_bits, %inactive : i32
+  %enter = scalar.cmpi ne, %enter_bits, %inactive : i32
+  %side = scalar.cmpi ne, %side_bits, %inactive : i32
   %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
+  %values = vector.from_elements %derived, %ordered : vector<2xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<2xi32>
+  vector.store %values, %results[0] : vector<2xi32>, view<2xi32>
+  func.return
 }
 
-check.case @first_high {
-  %position = check.literal value(2) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(103) : i32
-  %expected_ordered = check.literal value(100) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @second_low {
-  %position = check.literal value(1) : index
-  %select_first = check.literal value(false) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(203) : i32
-  %expected_ordered = check.literal value(200) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @second_high {
-  %position = check.literal value(2) : index
-  %select_first = check.literal value(false) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(true) : i1
-  %expected_derived = check.literal value(204) : i32
-  %expected_ordered = check.literal value(200) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @third_first_low {
-  %position = check.literal value(1) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(false) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(303) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @third_first_high {
-  %position = check.literal value(2) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(false) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(true) : i1
-  %expected_derived = check.literal value(303) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @third_second_low {
-  %position = check.literal value(1) : index
-  %select_first = check.literal value(false) : i1
-  %select_pair = check.literal value(false) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(303) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @third_second_high {
-  %position = check.literal value(2) : index
-  %select_first = check.literal value(false) : i1
-  %select_pair = check.literal value(false) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(true) : i1
-  %expected_derived = check.literal value(303) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @side_write {
-  %position = check.literal value(2) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(true) : i1
-  %side = check.literal value(true) : i1
-  %expected_derived = check.literal value(103) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @early_exit {
-  %position = check.literal value(1) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(false) : i1
-  %side = check.literal value(true) : i1
-  %expected_derived = check.literal value(102) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @first_before_base {
-  %position = check.literal value(-1) : index
-  %select_first = check.literal value(true) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(false) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(100) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
-  check.return
-}
-
-check.case @second_before_base {
-  %position = check.literal value(-1) : index
-  %select_first = check.literal value(false) : i1
-  %select_pair = check.literal value(true) : i1
-  %enter = check.literal value(false) : i1
-  %side = check.literal value(false) : i1
-  %expected_derived = check.literal value(201) : i32
-  %expected_ordered = check.literal value(99) : i32
-  %derived, %ordered = func.call @read_nested_selections(%position, %select_first, %select_pair, %enter, %side) : (index, i1, i1, i1, i1) -> (i32, i32)
-  check.expect.equal actual(%derived) expected(%expected_derived) : i32
-  check.expect.equal actual(%ordered) expected(%expected_ordered) : i32
+check.scenario @nested_selection_values {
+  check.trial[48](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(0) : tensor<2xi32>
+    check.compare<@nested_selection_observations>(%trial, %output) : (index, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+    }
+  }
   check.return
 }

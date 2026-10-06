@@ -20,15 +20,7 @@ load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 
 package(default_visibility = ["//visibility:public"])
 
-_NO_DEVICE_SUBJECTS = [
-    "memory/view/access.loom",
-    "memory/view/boundary_transport.loom",
-    "memory/view/nested_selection.loom",
-    "memory/view/offset_recurrence.loom",
-    "memory/view/rotation.loom",
-    "memory/view/selected_crops.loom",
-    "memory/view/selection.loom",
-]
+_NO_DEVICE_SUBJECTS = []
 
 _ADAPTER_ONLY_SCENARIOS = [
     "control/branch/structured.loom",
@@ -59,7 +51,14 @@ _ADAPTER_ONLY_SCENARIOS = [
     "memory/buffer/selection.loom",
     "memory/packed/transport.loom",
     "memory/storage/word.loom",
+    "memory/view/access.loom",
+    "memory/view/boundary_transport.loom",
+    "memory/view/nested_selection.loom",
+    "memory/view/offset_recurrence.loom",
+    "memory/view/rotation.loom",
     "memory/view/scalar_exchange.loom",
+    "memory/view/selected_crops.loom",
+    "memory/view/selection.loom",
     "numeric/conversion/bfloat_rounding.loom",
     "numeric/conversion/conversion.loom",
     "numeric/conversion/f32_narrowing.loom",
@@ -156,6 +155,10 @@ loom_scenario_test(
             "memory/buffer/allocation_freshness.loom:@allocation_freshness_values": "LOWERING/044",
             "memory/buffer/boundaries.loom:@vector_boundary_values": "LOWERING/044",
             "memory/buffer/buffers.loom:@buffer_values": "AMDGPU/023",
+            "memory/view/boundary_transport.loom:@boundary_transport_values": "LOWERING/044",
+            "memory/view/nested_selection.loom:@nested_selection_values": "LOWERING/044",
+            "memory/view/offset_recurrence.loom:@window_recurrence_values": "LOWERING/044",
+            "memory/view/selected_crops.loom:@selected_crop_values": "LOWERING/044",
             "numeric/conversion/conversion.loom:@float_to_integer_values": "TARGET/093",
             "numeric/conversion/conversion.loom:@float_width_values": "TARGET/093",
             "numeric/conversion/conversion.loom:@integer_to_float_values": "TARGET/093",

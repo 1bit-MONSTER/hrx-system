@@ -23,15 +23,7 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-_NO_DEVICE_SUBJECTS = [
-    "memory/view/access.loom",
-    "memory/view/boundary_transport.loom",
-    "memory/view/nested_selection.loom",
-    "memory/view/offset_recurrence.loom",
-    "memory/view/rotation.loom",
-    "memory/view/selected_crops.loom",
-    "memory/view/selection.loom",
-]
+_NO_DEVICE_SUBJECTS = []
 
 _ADAPTER_ONLY_SCENARIOS = [
     "control/branch/structured.loom",
@@ -62,7 +54,14 @@ _ADAPTER_ONLY_SCENARIOS = [
     "memory/buffer/selection.loom",
     "memory/packed/transport.loom",
     "memory/storage/word.loom",
+    "memory/view/access.loom",
+    "memory/view/boundary_transport.loom",
+    "memory/view/nested_selection.loom",
+    "memory/view/offset_recurrence.loom",
+    "memory/view/rotation.loom",
     "memory/view/scalar_exchange.loom",
+    "memory/view/selected_crops.loom",
+    "memory/view/selection.loom",
     "numeric/conversion/bfloat_rounding.loom",
     "numeric/conversion/conversion.loom",
     "numeric/conversion/f32_narrowing.loom",
@@ -480,6 +479,14 @@ _SPIRV_EXECUTION_XFAILS = {
     "memory/storage/word.loom:@copy_word_tail_guards": "TARGET/050",
     "memory/storage/word.loom:@copy_word_unaligned_guards": "TARGET/050",
     "memory/storage/workgroup.loom:@workgroup_packet_exchange_bits": "TARGET/003",
+    "memory/view/access.loom:@view_address_values": "SUBRANGE/024",
+    "memory/view/access.loom:@view_payload_values": "TARGET/002,TARGET/003",
+    "memory/view/boundary_transport.loom:@boundary_transport_values": "LOWERING/044",
+    "memory/view/nested_selection.loom:@nested_selection_values": "LOWERING/044",
+    "memory/view/offset_recurrence.loom:@window_recurrence_values": "LOWERING/044",
+    "memory/view/rotation.loom:@rotation_values": "TARGET/003",
+    "memory/view/selected_crops.loom:@selected_crop_values": "LOWERING/044",
+    "memory/view/selection.loom:@selected_coordinate_values": "SPIRV/026,TARGET/003",
     "numeric/conversion/conversion.loom:@float_to_integer_values": "TARGET/093",
     "numeric/conversion/conversion.loom:@float_width_values": "TARGET/093",
     "numeric/conversion/conversion.loom:@integer_to_float_values": "TARGET/093",

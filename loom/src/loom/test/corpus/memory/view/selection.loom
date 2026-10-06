@@ -1,7 +1,7 @@
 // Projection materialization preserves truncation, signed narrow values,
 // and boolean values before converting the complete byte address to offset.
 
-func.def public @selected_truncated_coordinate(%input_value: i64, %condition: i1) -> (i32) {
+func.def @selected_truncated_coordinate(%input_value: i64, %condition: i1) -> (i32) {
   %input_index = index.cast %input_value : i64 to index
   %high = index.assume %input_index [range(%input_index, 4294967297, 4294967299)] : index
   %narrow = index.cast %high : index to i8
@@ -26,7 +26,7 @@ func.def public @selected_truncated_coordinate(%input_value: i64, %condition: i1
   func.return %value : i32
 }
 
-func.def public @selected_signed_coordinate(%input_value: i8, %condition: i1) -> (i32) {
+func.def @selected_signed_coordinate(%input_value: i8, %condition: i1) -> (i32) {
   %signed = scalar.assume %input_value [range(%input_value, -3, -1)] : i8
   %signed_index = index.cast %signed : i8 to index
   %bias = index.constant 3 : index
@@ -50,7 +50,7 @@ func.def public @selected_signed_coordinate(%input_value: i8, %condition: i1) ->
   func.return %value : i32
 }
 
-func.def public @selected_boolean_coordinate(%input_value: i1, %condition: i1) -> (i32) {
+func.def @selected_boolean_coordinate(%input_value: i1, %condition: i1) -> (i32) {
   %position = index.cast %input_value : i1 to index
   %length = index.constant 16 : offset
   %base = index.constant 0 : offset
@@ -71,146 +71,37 @@ func.def public @selected_boolean_coordinate(%input_value: i1, %condition: i1) -
   func.return %value : i32
 }
 
-check.case @selected_truncated_coordinate_0_false {
-  %input = check.literal value(4294967297) : i64
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_truncated_coordinate(%input, %condition) : (i64, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
+func.def @selected_coordinate_observations(%ordinal: index, %output: buffer) {
+  %ordinal_value = index.cast %ordinal : index to i32
+  %selector_shift = scalar.constant 1 : i32
+  %selector = scalar.shrui %ordinal_value, %selector_shift : i32
+  %condition_mask = scalar.constant 1 : i32
+  %condition_bits = scalar.andi %ordinal_value, %condition_mask : i32
+  %inactive = scalar.constant 0 : i32
+  %condition = scalar.cmpi ne, %condition_bits, %inactive : i32
+  %truncated_base = scalar.constant 4294967297 : i64
+  %selector_wide = scalar.extui %selector : i32 to i64
+  %truncated_input = scalar.addi %truncated_base, %selector_wide : i64
+  %signed_base = scalar.constant -3 : i32
+  %signed_value = scalar.addi %signed_base, %selector : i32
+  %signed_input = scalar.trunci %signed_value : i32 to i8
+  %boolean_input = scalar.cmpi ne, %selector, %inactive : i32
+  %truncated = func.call @selected_truncated_coordinate(%truncated_input, %condition) : (i64, i1) -> (i32)
+  %signed = func.call @selected_signed_coordinate(%signed_input, %condition) : (i8, i1) -> (i32)
+  %boolean = func.call @selected_boolean_coordinate(%boolean_input, %condition) : (i1, i1) -> (i32)
+  %values = vector.from_elements %truncated, %signed, %boolean : vector<3xi32>
+  %origin = index.constant 0 : offset
+  %results = buffer.view %output[%origin] : buffer -> view<3xi32>
+  vector.store %values, %results[0] : vector<3xi32>, view<3xi32>
+  func.return
 }
 
-check.case @selected_truncated_coordinate_0_true {
-  %input = check.literal value(4294967297) : i64
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(20) : i32
-  %actual = func.call @selected_truncated_coordinate(%input, %condition) : (i64, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_truncated_coordinate_1_false {
-  %input = check.literal value(4294967298) : i64
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_truncated_coordinate(%input, %condition) : (i64, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_truncated_coordinate_1_true {
-  %input = check.literal value(4294967298) : i64
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(30) : i32
-  %actual = func.call @selected_truncated_coordinate(%input, %condition) : (i64, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_truncated_coordinate_2_false {
-  %input = check.literal value(4294967299) : i64
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_truncated_coordinate(%input, %condition) : (i64, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_truncated_coordinate_2_true {
-  %input = check.literal value(4294967299) : i64
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(40) : i32
-  %actual = func.call @selected_truncated_coordinate(%input, %condition) : (i64, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_signed_coordinate_0_false {
-  %input = check.literal value(-3) : i8
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_signed_coordinate(%input, %condition) : (i8, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_signed_coordinate_0_true {
-  %input = check.literal value(-3) : i8
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_signed_coordinate(%input, %condition) : (i8, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_signed_coordinate_1_false {
-  %input = check.literal value(-2) : i8
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_signed_coordinate(%input, %condition) : (i8, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_signed_coordinate_1_true {
-  %input = check.literal value(-2) : i8
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(20) : i32
-  %actual = func.call @selected_signed_coordinate(%input, %condition) : (i8, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_signed_coordinate_2_false {
-  %input = check.literal value(-1) : i8
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_signed_coordinate(%input, %condition) : (i8, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_signed_coordinate_2_true {
-  %input = check.literal value(-1) : i8
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(30) : i32
-  %actual = func.call @selected_signed_coordinate(%input, %condition) : (i8, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_boolean_coordinate_0_false {
-  %input = check.literal value(false) : i1
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_boolean_coordinate(%input, %condition) : (i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_boolean_coordinate_0_true {
-  %input = check.literal value(false) : i1
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_boolean_coordinate(%input, %condition) : (i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_boolean_coordinate_1_false {
-  %input = check.literal value(true) : i1
-  %condition = check.literal value(false) : i1
-  %expected = check.literal value(10) : i32
-  %actual = func.call @selected_boolean_coordinate(%input, %condition) : (i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
-  check.return
-}
-
-check.case @selected_boolean_coordinate_1_true {
-  %input = check.literal value(true) : i1
-  %condition = check.literal value(true) : i1
-  %expected = check.literal value(20) : i32
-  %actual = func.call @selected_boolean_coordinate(%input, %condition) : (i1, i1) -> (i32)
-  check.expect.equal actual(%actual) expected(%expected) : i32
+check.scenario @selected_coordinate_values {
+  check.trial[6](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(0) : tensor<3xi32>
+    check.compare<@selected_coordinate_observations>(%trial, %output) : (index, tensor<3xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<3xi32>
+    }
+  }
   check.return
 }
