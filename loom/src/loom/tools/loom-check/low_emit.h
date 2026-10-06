@@ -47,6 +47,23 @@ typedef struct loom_check_low_emit_fixed_value_spec_list_t {
   iree_host_size_t count;
 } loom_check_low_emit_fixed_value_spec_list_t;
 
+// Outcome of resolving one authored value selector in a low function body.
+typedef enum loom_check_low_emit_value_resolution_kind_e {
+  LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_NOT_FOUND = 0,
+  LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_RESOLVED,
+  LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS,
+} loom_check_low_emit_value_resolution_kind_t;
+
+// Resolution of one authored value selector in a low function body.
+typedef struct loom_check_low_emit_value_resolution_t {
+  // Whether the selector was absent, unique, or ambiguous.
+  loom_check_low_emit_value_resolution_kind_t kind;
+  // Unique value or first value with the selected name.
+  loom_value_id_t value_id;
+  // Second value with the selected name when |kind| is ambiguous.
+  loom_value_id_t ambiguous_value_id;
+} loom_check_low_emit_value_resolution_t;
+
 // Reserves the fixed-location requests in |options| before its parser runs.
 iree_status_t loom_check_low_emit_fixed_value_spec_list_initialize(
     iree_string_view_t options, iree_arena_allocator_t* arena,
@@ -93,6 +110,13 @@ iree_status_t loom_check_low_emit_find_low_function_def(
     const loom_test_case_t* test_case, iree_string_view_t filename,
     loom_check_diagnostic_collector_t* diagnostic_collector,
     iree_diagnostic_emitter_t emitter, loom_op_t** out_low_function);
+
+// Resolves an SSA name or numeric value ID within |low_function|. The function
+// must be a target-low definition with a body.
+void loom_check_low_emit_resolve_function_value(
+    const loom_module_t* module, const loom_op_t* low_function,
+    iree_string_view_t value_name,
+    loom_check_low_emit_value_resolution_t* out_resolution);
 
 // Resolves parsed fixed-location specs against the selected low function body.
 // The returned fixed value array is allocated from |arena|.

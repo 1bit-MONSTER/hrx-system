@@ -328,8 +328,16 @@ coissued components: 25
 // initial scalar pressure requires rematerializing stream offsets and shifts.
 // Their input-free clones must remain use-local while indexed memory consumers
 // are blocked, or rescheduling exceeds the same 32-register bank again.
-// RUN: emit aie2p-leaf @retained_scalar_stream report=emission
+// RUN: emit aie2p-leaf @retained_scalar_stream diagnostics=predicted-spills uses=retained0,retained1,retained2,retained3,retained4,retained5,retained6,retained7,retained8,retained9,retained10,retained11,retained12,retained13,retained14,retained15,retained16,retained17,retained18,retained19,retained20,retained21,retained22,retained23,retained24,retained25,value0,value1,value2,value3,value4,value5,value6,scaled0,scaled1,scaled2,scaled3,scaled4,scaled5,scaled6,index0,index1,index2,index3,index4,index5,index6
 
+// REMARK@+8: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset6", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+7: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset5", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+6: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset4", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+5: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset3", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+4: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset2", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+3: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset1", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+2: BACKEND/045 {function_name="retained_scalar_stream", value_name="offset0", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="1", rewritten_operand_count="1", reason_key="descriptor-rematerializable"}
+// REMARK@+1: BACKEND/045 {function_name="retained_scalar_stream", value_name="scale_shift", value_class="aie2p.er", trigger_kind="allocation-failure", cloned_packet_count="7", rewritten_operand_count="7", reason_key="descriptor-rematerializable"}
 low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: reg<aie2p.ep>, %stream_input: reg<aie2p.ep>, %stream_output: reg<aie2p.ep>, %record_output: reg<aie2p.ep>) asm {
   %retained0, %read1 = lda.i32.post %record_input, 4
   %retained1, %read2 = lda.i32.post %read1, 4
@@ -427,10 +435,60 @@ low.func.def target<amd.xdna.aie2p.core> @retained_scalar_stream(%record_input: 
 }
 
 // ----
-issue cycles: 129
-code bytes: 474
-coissued bundles: 13
-coissued components: 27
+%retained0 -> st.i32.post operand=0 (%retained0, %record_output)
+%retained1 -> st.i32.post operand=0 (%retained1, %write1)
+%retained2 -> st.i32.post operand=0 (%retained2, %write2)
+%retained3 -> st.i32.post operand=0 (%retained3, %write3)
+%retained4 -> st.i32.post operand=0 (%retained4, %write4)
+%retained5 -> st.i32.post operand=0 (%retained5, %write5)
+%retained6 -> st.i32.post operand=0 (%retained6, %write6)
+%retained7 -> st.i32.post operand=0 (%retained7, %write7)
+%retained8 -> st.i32.post operand=0 (%retained8, %write8)
+%retained9 -> st.i32.post operand=0 (%retained9, %write9)
+%retained10 -> st.i32.post operand=0 (%retained10, %write10)
+%retained11 -> st.i32.post operand=0 (%retained11, %write11)
+%retained12 -> st.i32.post operand=0 (%retained12, %write12)
+%retained13 -> st.i32.post operand=0 (%retained13, %write13)
+%retained14 -> st.i32.post operand=0 (%retained14, %write14)
+%retained15 -> st.i32.post operand=0 (%retained15, %write15)
+%retained16 -> st.i32.post operand=0 (%retained16, %write16)
+%retained17 -> st.i32.post operand=0 (%retained17, %write17)
+%retained18 -> st.i32.post operand=0 (%retained18, %write18)
+%retained19 -> st.i32.post operand=0 (%retained19, %write19)
+%retained20 -> st.i32.post operand=0 (%retained20, %write20)
+%retained21 -> st.i32.post operand=0 (%retained21, %write21)
+%retained22 -> st.i32.post operand=0 (%retained22, %write22)
+%retained23 -> st.i32.post operand=0 (%retained23, %write23)
+%retained24 -> st.i32.post operand=0 (%retained24, %write24)
+%retained25 -> st.i32.post operand=0 (%retained25, %write25)
+%value0 -> lshl operand=0 (%value0, %scale_shift_remat)
+%value1 -> lshl operand=0 (%value1, %scale_shift_remat)
+%value2 -> lshl operand=0 (%value2, %scale_shift_remat)
+%value3 -> lshl operand=0 (%value3, %scale_shift_remat)
+%value4 -> lshl operand=0 (%value4, %scale_shift_remat)
+%value5 -> lshl operand=0 (%value5, %scale_shift_remat)
+%value6 -> lshl operand=0 (%value6, %scale_shift_remat)
+%scaled0 -> st.i32.index operand=0 (%scaled0, %stream_output, %index0)
+%scaled1 -> st.i32.index operand=0 (%scaled1, %stream_output, %index1)
+%scaled2 -> st.i32.index operand=0 (%scaled2, %stream_output, %index2)
+%scaled3 -> st.i32.index operand=0 (%scaled3, %stream_output, %index3)
+%scaled4 -> st.i32.index operand=0 (%scaled4, %stream_output, %index4)
+%scaled5 -> st.i32.index operand=0 (%scaled5, %stream_output, %index5)
+%scaled6 -> st.i32.index operand=0 (%scaled6, %stream_output, %index6)
+%index0 -> lda.i32.index operand=1 (%stream_input, %index0)
+%index0 -> st.i32.index operand=2 (%scaled0, %stream_output, %index0)
+%index1 -> lda.i32.index operand=1 (%stream_input, %index1)
+%index1 -> st.i32.index operand=2 (%scaled1, %stream_output, %index1)
+%index2 -> lda.i32.index operand=1 (%stream_input, %index2)
+%index2 -> st.i32.index operand=2 (%scaled2, %stream_output, %index2)
+%index3 -> lda.i32.index operand=1 (%stream_input, %index3)
+%index3 -> st.i32.index operand=2 (%scaled3, %stream_output, %index3)
+%index4 -> lda.i32.index operand=1 (%stream_input, %index4)
+%index4 -> st.i32.index operand=2 (%scaled4, %stream_output, %index4)
+%index5 -> lda.i32.index operand=1 (%stream_input, %index5)
+%index5 -> st.i32.index operand=2 (%scaled5, %stream_output, %index5)
+%index6 -> lda.i32.index operand=1 (%stream_input, %index6)
+%index6 -> st.i32.index operand=2 (%scaled6, %stream_output, %index6)
 
 // ====
 

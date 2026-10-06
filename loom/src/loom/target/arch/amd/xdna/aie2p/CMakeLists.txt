@@ -579,6 +579,7 @@ loom_cc_library(
     ::array_plan
     ::array_program
     ::array_resident
+    ::core_descriptors
     ::leaf_compile
     ::machine
     ::provider
