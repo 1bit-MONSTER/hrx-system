@@ -398,16 +398,20 @@ loom_cc_library(
     test_provider
   HDRS
     "test_provider.h"
+    "test_schedule_provider.h"
   SRCS
     "test_provider.c"
+    "test_schedule_provider.c"
   DEPS
     ::execute
     ::provider
     iree::base
     loom::codegen::low::allocation
+    loom::codegen::low::descriptors
     loom::codegen::low::packet_hazard_plan
     loom::codegen::low::packet_hazard_plan_json
     loom::codegen::low::packet_progress
+    loom::codegen::low::schedule::dependencies
     loom::ir
     loom::target::test::provider
   TESTONLY
