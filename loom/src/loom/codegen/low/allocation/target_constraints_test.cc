@@ -385,10 +385,10 @@ TEST_F(LowAllocationTargetConstraintsTest,
 TEST_F(LowAllocationTargetConstraintsTest,
        ReservedRangesConflictAcrossAliasedClasses) {
   loom_low_allocation_reserved_range_t reserved_range = {};
-  reserved_range.register_class = IREE_SV("test.alias32");
+  reserved_range.register_class = IREE_SV("test.pressure.alias32");
   reserved_range.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
-  reserved_range.location_base = 0;
-  reserved_range.location_count = 1;
+  reserved_range.location_base = 2;
+  reserved_range.location_count = 2;
 
   loom_low_allocation_target_constraints_t constraints = {};
   IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
@@ -397,14 +397,134 @@ TEST_F(LowAllocationTargetConstraintsTest,
       /*emitter=*/iree_diagnostic_emitter_t{}, &arena_, &constraints));
 
   EXPECT_TRUE(loom_low_allocation_target_constraints_reserved_range_conflicts(
-      &constraints, RegisterClassId(IREE_SV("test.alias64")),
-      LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, /*location_base=*/0,
+      &constraints, RegisterClassId(IREE_SV("test.pressure.alias64")),
+      LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER, /*location_base=*/3,
       /*location_count=*/1));
   EXPECT_EQ(
       loom_low_allocation_target_constraints_assigned_location_search_limit(
-          &constraints, RegisterClassId(IREE_SV("test.alias64")),
+          &constraints, RegisterClassId(IREE_SV("test.pressure.alias64")),
           LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER),
-      1u);
+      4u);
+
+  loom_low_allocation_assignment_t candidate = {};
+  candidate.value_id = LOOM_VALUE_ID_INVALID;
+  candidate.descriptor_reg_class_id =
+      RegisterClassId(IREE_SV("test.pressure.alias64"));
+  candidate.unit_count = 1;
+  candidate.location_kind = LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER;
+  candidate.location_count = 1;
+  ASSERT_TRUE(
+      loom_low_allocation_target_constraints_can_order_reserved_candidate(
+          &constraints, &candidate));
+  uint32_t location = UINT32_MAX;
+  EXPECT_TRUE(
+      loom_low_allocation_target_constraints_find_next_unreserved_location(
+          &constraints, &candidate, /*minimum_base=*/2, /*maximum_base=*/7,
+          &location));
+  EXPECT_EQ(location, 4u);
+  EXPECT_TRUE(
+      loom_low_allocation_target_constraints_find_previous_unreserved_location(
+          &constraints, &candidate, /*minimum_base=*/0, /*maximum_base=*/3,
+          &location));
+  EXPECT_EQ(location, 1u);
+}
+
+TEST_F(LowAllocationTargetConstraintsTest,
+       OrderedReservationQueriesMatchAuthoritativeConflicts) {
+  const loom_low_allocation_reserved_range_t reserved_ranges[] = {
+      {IREE_SV("test.i32"), LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 12, 3},
+      {IREE_SV("test.i32"), LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 2, 2},
+      {IREE_SV("test.i32"), LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 20, 1},
+      {IREE_SV("test.i32"), LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 8, 4},
+      {IREE_SV("test.i32"), LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID, 0, 2},
+  };
+  loom_low_allocation_target_constraints_t constraints = {};
+  IREE_ASSERT_OK(loom_low_allocation_target_constraints_initialize(
+      &module_, &function_op_, &target_, /*budgets=*/nullptr,
+      /*budget_count=*/0, reserved_ranges, IREE_ARRAYSIZE(reserved_ranges),
+      /*emitter=*/iree_diagnostic_emitter_t{}, &arena_, &constraints));
+  ASSERT_EQ(constraints.error_count, 0u);
+  ASSERT_EQ(constraints.reserved_range_count, IREE_ARRAYSIZE(reserved_ranges));
+
+  loom_low_allocation_assignment_t candidate = {};
+  candidate.value_id = LOOM_VALUE_ID_INVALID;
+  candidate.descriptor_reg_class_id = RegisterClassId(IREE_SV("test.i32"));
+  candidate.unit_count = 1;
+  candidate.location_kind = LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID;
+  candidate.location_count = 1;
+  ASSERT_TRUE(
+      loom_low_allocation_target_constraints_can_order_reserved_candidate(
+          &constraints, &candidate));
+
+  constexpr uint32_t kLocationCount = 24;
+  bool occupied[kLocationCount] = {};
+  for (const auto& reserved_range : reserved_ranges) {
+    for (uint32_t location = reserved_range.location_base;
+         location <
+         reserved_range.location_base + reserved_range.location_count;
+         ++location) {
+      occupied[location] = true;
+    }
+  }
+  for (uint32_t location = 0; location < kLocationCount; ++location) {
+    EXPECT_EQ(loom_low_allocation_target_constraints_reserved_range_conflicts(
+                  &constraints, candidate.descriptor_reg_class_id,
+                  candidate.location_kind, location, /*location_count=*/1),
+              occupied[location]);
+  }
+  for (uint32_t location = 0; location < kLocationCount; ++location) {
+    for (uint32_t location_count = 1;
+         location_count <= kLocationCount - location; ++location_count) {
+      bool expected_conflict = false;
+      for (uint32_t offset = 0; offset < location_count; ++offset) {
+        expected_conflict |= occupied[location + offset];
+      }
+      EXPECT_EQ(loom_low_allocation_target_constraints_reserved_range_conflicts(
+                    &constraints, candidate.descriptor_reg_class_id,
+                    candidate.location_kind, location, location_count),
+                expected_conflict)
+          << "candidate [" << location << ", " << location + location_count
+          << ")";
+    }
+  }
+  for (uint32_t minimum = 0; minimum < kLocationCount; ++minimum) {
+    for (uint32_t maximum = minimum; maximum < kLocationCount; ++maximum) {
+      uint32_t expected_next = minimum;
+      while (expected_next <= maximum && occupied[expected_next]) {
+        ++expected_next;
+      }
+      uint32_t actual = UINT32_MAX;
+      const bool found_next =
+          loom_low_allocation_target_constraints_find_next_unreserved_location(
+              &constraints, &candidate, minimum, maximum, &actual);
+      EXPECT_EQ(found_next, expected_next <= maximum)
+          << "range [" << minimum << ", " << maximum << "]";
+      if (found_next) {
+        EXPECT_EQ(actual, expected_next)
+            << "range [" << minimum << ", " << maximum << "]";
+      }
+
+      uint32_t expected_previous = maximum;
+      while (expected_previous >= minimum && occupied[expected_previous]) {
+        if (expected_previous == 0) {
+          break;
+        }
+        --expected_previous;
+      }
+      const bool expected_previous_found =
+          expected_previous >= minimum && !occupied[expected_previous];
+      actual = UINT32_MAX;
+      const bool found_previous =
+          loom_low_allocation_target_constraints_find_previous_unreserved_location(
+              &constraints, &candidate, minimum, maximum, &actual);
+      EXPECT_EQ(found_previous, expected_previous_found)
+          << "range [" << minimum << ", " << maximum << "]";
+      if (found_previous) {
+        EXPECT_EQ(actual, expected_previous)
+            << "range [" << minimum << ", " << maximum << "]";
+      }
+    }
+  }
 }
 
 TEST_F(LowAllocationTargetConstraintsTest,

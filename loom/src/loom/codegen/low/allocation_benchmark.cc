@@ -112,6 +112,7 @@ enum class Shape {
   kTied,
   kFanout,
   kFutureFixed,
+  kReservedPrefix,
 };
 enum class Phase {
   kModel,
@@ -146,7 +147,7 @@ std::string MakeSource(uint32_t chain_length, uint32_t component_count,
     return source + "  return %cycle_pair, %sum" +
            std::to_string(component_count - 1) + "\n}\n";
   }
-  if (shape == Shape::kFanout) {
+  if (shape == Shape::kFanout || shape == Shape::kReservedPrefix) {
     const uint32_t count = chain_length * component_count;
     std::string source =
         "test.target<low_core> @target\n"
@@ -595,6 +596,14 @@ class AllocationBenchmark {
                           [](uint8_t value) { return value != 0; }),
               "Future-fixed source values missing");
     }
+    if (shape == Shape::kReservedPrefix) {
+      reserved_ranges_.push_back({
+          IREE_SV("test.i32"),
+          LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
+          /*location_base=*/0,
+          /*location_count=*/chain_length * component_count,
+      });
+    }
     if (phase_ != Phase::kModel) {
       InitializeModel(&base_arena_, &model_);
     }
@@ -667,6 +676,8 @@ class AllocationBenchmark {
       loom_low_allocation_options_t options = {};
       options.fixed_values = fixed_values_.data();
       options.fixed_value_count = fixed_values_.size();
+      options.reserved_ranges = reserved_ranges_.data();
+      options.reserved_range_count = reserved_ranges_.size();
       loom_low_allocation_table_t allocation = {};
       IREE_CHECK_OK(
           loom_low_allocate_function(&model_, &options, &arena, &allocation));
@@ -785,6 +796,8 @@ class AllocationBenchmark {
   loom_low_placement_table_t placement_ = {};
   // Dense relocation source colors fixed outside the header destination set.
   std::vector<loom_low_allocation_fixed_value_t> fixed_values_;
+  // Whole-function reservation used by the prefix-scaling witness.
+  std::vector<loom_low_allocation_reserved_range_t> reserved_ranges_;
   // Generated loop backedge used to validate final edge-copy materialization.
   const loom_op_t* backedge_terminator_ = nullptr;
   // Whether the generated packet-local cycle must use scratch storage.
@@ -876,7 +889,8 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       Require(result.backedge_move_count == 0,
               "Loop-edge relocation left branch copies");
     }
-    if (shape == Shape::kFanout || shape == Shape::kFutureFixed) {
+    if (shape == Shape::kFanout || shape == Shape::kFutureFixed ||
+        shape == Shape::kReservedPrefix) {
       Require(result.materialized_copy_count >=
                   expected_copy_count - component_count,
               "Independently live copies were incorrectly coalesced");
@@ -903,9 +917,10 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
 }
 
 [[maybe_unused]] const bool kBenchmarksRegistered = [] {
-  for (auto shape : {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
-                     Shape::kMoveScratch, Shape::kBranch, Shape::kTied,
-                     Shape::kFanout, Shape::kFutureFixed}) {
+  for (auto shape :
+       {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
+        Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout,
+        Shape::kFutureFixed, Shape::kReservedPrefix}) {
     for (auto phase : {Phase::kModel, Phase::kLiveness, Phase::kPlacement,
                        Phase::kUnitLiveness, Phase::kAllocation}) {
       if (shape == Shape::kLoopRelocation && phase != Phase::kAllocation) {
@@ -917,6 +932,9 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       if (shape == Shape::kFutureFixed && phase != Phase::kAllocation) {
         continue;
       }
+      if (shape == Shape::kReservedPrefix && phase != Phase::kAllocation) {
+        continue;
+      }
       const std::string name =
           "LowAllocation/" +
           std::string(shape == Shape::kLinear           ? "linear/"
@@ -926,7 +944,8 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
                       : shape == Shape::kBranch         ? "branch/"
                       : shape == Shape::kTied           ? "tied/"
                       : shape == Shape::kFanout         ? "fanout/"
-                                                        : "future_fixed/") +
+                      : shape == Shape::kFutureFixed    ? "future_fixed/"
+                                                        : "reserved_prefix/") +
           (phase == Phase::kModel          ? "model"
            : phase == Phase::kLiveness     ? "liveness"
            : phase == Phase::kPlacement    ? "placement"
@@ -952,6 +971,12 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
         continue;
       }
       if (shape == Shape::kFutureFixed) {
+        for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({count, 1, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kReservedPrefix) {
         for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
           registration->Args({count, 1, 1});
         }

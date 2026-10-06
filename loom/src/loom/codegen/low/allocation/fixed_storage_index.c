@@ -864,19 +864,8 @@ loom_low_allocation_fixed_availability_prepare_query(
     const loom_low_allocation_assignment_t* candidate) {
   IREE_ASSERT_ARGUMENT(availability);
   IREE_ASSERT_ARGUMENT(candidate);
-  IREE_ASSERT_EQ(candidate->unit_count, 1u);
-  IREE_ASSERT_EQ(candidate->location_count, 1u);
-  IREE_ASSERT_EQ(candidate->liveness_segments.count, 0u);
-  IREE_ASSERT(!iree_any_bit_set(
-      candidate->flags,
-      LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_REFINED_UNIT_STARTS));
-  IREE_ASSERT(
-      loom_low_allocation_location_kind_is_register_like(
-          candidate->location_kind) &&
-      !loom_low_allocation_storage_assignment_uses_explicit_physical_register(
-          availability->constraints->target->descriptor_set, candidate));
-  IREE_ASSERT(loom_low_allocation_target_constraints_fixed_value_for_value(
-                  availability->constraints, candidate->value_id) == NULL);
+  IREE_ASSERT_TRUE(loom_low_allocation_fixed_availability_can_order_candidate(
+      availability, candidate));
   loom_low_allocation_fixed_availability_advance(availability,
                                                  candidate->start_point);
   uint32_t storage_key = 0;
@@ -892,6 +881,30 @@ loom_low_allocation_fixed_availability_prepare_query(
       availability,
       loom_low_allocation_fixed_storage_kind_ordinal(candidate->location_kind),
       storage_key);
+}
+
+bool loom_low_allocation_fixed_availability_can_order_candidate(
+    const loom_low_allocation_fixed_availability_t* availability,
+    const loom_low_allocation_assignment_t* candidate) {
+  IREE_ASSERT_ARGUMENT(availability);
+  IREE_ASSERT_ARGUMENT(candidate);
+  const loom_low_allocation_target_constraints_t* constraints =
+      availability->constraints;
+  if (availability->group_count == 0 || constraints == NULL ||
+      candidate->descriptor_reg_class_id >=
+          constraints->target->descriptor_set->reg_class_count ||
+      !loom_low_allocation_assignment_is_register_like(candidate) ||
+      candidate->unit_count != 1 || candidate->location_count != 1 ||
+      candidate->liveness_segments.count != 0 ||
+      iree_any_bit_set(
+          candidate->flags,
+          LOOM_LOW_ALLOCATION_ASSIGNMENT_FLAG_REFINED_UNIT_STARTS) ||
+      loom_low_allocation_storage_assignment_uses_explicit_physical_register(
+          constraints->target->descriptor_set, candidate)) {
+    return false;
+  }
+  return loom_low_allocation_target_constraints_fixed_value_for_value(
+             constraints, candidate->value_id) == NULL;
 }
 
 bool loom_low_allocation_fixed_availability_find_next_location(

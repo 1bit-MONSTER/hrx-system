@@ -92,6 +92,9 @@ typedef struct loom_low_allocation_resolved_reserved_range_t {
   uint32_t location_count;
 } loom_low_allocation_resolved_reserved_range_t;
 
+typedef struct loom_low_allocation_reserved_range_index_entry_t
+    loom_low_allocation_reserved_range_index_entry_t;
+
 // Target-validated fixed value prepared for allocation.
 //
 // |assignment| contains the propagated sparse and per-unit storage lifetime
@@ -234,6 +237,8 @@ typedef struct loom_low_allocation_target_constraints_t {
   loom_low_allocation_resolved_reserved_range_t* reserved_ranges;
   // Number of entries in |reserved_ranges|.
   iree_host_size_t reserved_range_count;
+  // Spatially ordered immutable reservation ranges for linear storage queries.
+  loom_low_allocation_reserved_range_index_entry_t* reserved_range_index;
   // Maximum allocated value or move-scratch location end indexed by
   // descriptor register class ID.
   uint32_t* max_assigned_location_end_by_reg_class;
@@ -361,6 +366,29 @@ bool loom_low_allocation_target_constraints_reserved_range_conflicts(
     const loom_low_allocation_target_constraints_t* constraints,
     uint16_t reg_class_id, loom_low_allocation_location_kind_t location_kind,
     uint32_t location_base, uint32_t location_count);
+
+// Returns true when static reservations can provide ordered availability for
+// |candidate|. Eligible candidates use one continuous unit in a linear
+// register class; every other constraint still requires its normal query.
+bool loom_low_allocation_target_constraints_can_order_reserved_candidate(
+    const loom_low_allocation_target_constraints_t* constraints,
+    const loom_low_allocation_assignment_t* candidate);
+
+// Finds the first location at or after |minimum_base| outside every static
+// reservation, bounded by |maximum_base|. |candidate| must satisfy the ordered
+// reservation predicate above.
+bool loom_low_allocation_target_constraints_find_next_unreserved_location(
+    const loom_low_allocation_target_constraints_t* constraints,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base);
+
+// Finds the last location at or before |maximum_base| outside every static
+// reservation, bounded by |minimum_base|. Preconditions match the forward
+// query above.
+bool loom_low_allocation_target_constraints_find_previous_unreserved_location(
+    const loom_low_allocation_target_constraints_t* constraints,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base);
 
 #ifdef __cplusplus
 }  // extern "C"

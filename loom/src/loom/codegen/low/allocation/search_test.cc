@@ -412,7 +412,7 @@ uint32_t FindFreeLocationWithStorageLease(
   };
 
   const loom_low_reg_class_t reg_class =
-      RegClass(/*allocatable_count=*/8, LOOM_LOW_REG_CLASS_FLAG_PHYSICAL);
+      RegClass(/*allocatable_count=*/0, LOOM_LOW_REG_CLASS_FLAG_PHYSICAL);
   const loom_low_descriptor_set_t descriptor_set =
       DescriptorSet(&reg_class, descriptor_set_id);
   const loom_low_resolved_target_t target = ResolvedTarget(&descriptor_set);
@@ -446,7 +446,7 @@ uint32_t FindFreeLocationWithStorageLease(
   loom_low_allocation_active_set_t active_set = {};
   IREE_CHECK_OK(loom_low_allocation_active_set_initialize(
       &descriptor_set, /*assignment_capacity=*/1,
-      /*program_point_count=*/5, /*unit_capacity=*/8, arena, &active_set));
+      /*program_point_count=*/5, /*unit_capacity=*/32, arena, &active_set));
 
   loom_low_schedule_block_t schedule_blocks[] = {{}};
   schedule_blocks[0].scheduled_node_start = 0;

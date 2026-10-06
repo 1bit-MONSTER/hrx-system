@@ -102,6 +102,13 @@ iree_status_t loom_low_allocation_fixed_availability_initialize(
     iree_arena_allocator_t* arena,
     loom_low_allocation_fixed_availability_t* out_availability);
 
+// Returns true when |availability| can provide ordered availability for
+// |candidate|. Eligible candidates have one continuously live linear unit and
+// are not themselves fixed to a location.
+bool loom_low_allocation_fixed_availability_can_order_candidate(
+    const loom_low_allocation_fixed_availability_t* availability,
+    const struct loom_low_allocation_assignment_t* candidate);
+
 // Finds the first location at or after |minimum_base| whose fixed claims do not
 // overlap |candidate|, bounded by |maximum_base|. The candidate must be a
 // continuous scalar in a linear register class and must not itself be fixed.
