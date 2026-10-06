@@ -32,6 +32,7 @@ from loom.target.arch.amdgpu.isa_xml import (
 
 from .alu import *
 from .atomic import *
+from .bitwise import *
 from .cdna import *
 from .common import *
 from .control import *

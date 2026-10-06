@@ -16,6 +16,7 @@ from loom.dialect.scalar import bitwise as scalar_bitwise
 from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
 from loom.dsl import Op
+from loom.target.arch.amdgpu.contracts.index_bitwise import index_bitwise_rules
 from loom.target.arch.amdgpu.contracts.integer_division import integer_division_rules
 from loom.target.arch.amdgpu.contracts.materializers import (
     ADDRESS_SGPR_MATERIALIZER,
@@ -79,6 +80,8 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.s_ashr_i32",
     "amdgpu.s_bcnt1_i32_b32",
     "amdgpu.s_bcnt1_i32_b64",
+    "amdgpu.s_clz_i32_u32",
+    "amdgpu.s_ctz_i32_b32",
     "amdgpu.s_bfe_i32.lit",
     "amdgpu.s_bfe_u32.lit",
     "amdgpu.v_mov_b32",
@@ -114,6 +117,9 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_lshrrev_b32.src0_inline",
     "amdgpu.v_bcnt_u32_b32",
     "amdgpu.v_bcnt_u32_b32.src1_zero",
+    "amdgpu.v_clz_i32_u32",
+    "amdgpu.v_ctz_i32_b32",
+    "amdgpu.v_alignbit_b32",
     "amdgpu.v_ashrrev_i32",
     "amdgpu.v_ashrrev_i32.src0_inline",
     "amdgpu.v_bfe_i32.offset_width_inline",
@@ -1886,6 +1892,7 @@ def _rules() -> tuple[DescriptorRule, ...]:
     )
     rules.append(_index_madd_sgpr_rule())
     rules.extend(_scalar_ctpopi_i32_rules())
+    rules.extend(index_bitwise_rules(_DESCRIPTOR_SET))
     rules.extend(
         _vector_predicate_bitwise_rule(source_op, descriptor_key)
         for source_op, descriptor_key in (

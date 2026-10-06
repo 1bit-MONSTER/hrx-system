@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from .alu import *
+from .bitwise import *
 from .categories import *
 from .common import *
 from .integer_multiply import *
@@ -198,6 +199,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
         rhs_type="bf8",
     ),
     **_contract_overlay_builders_from_overlays(_integer_bit_count_overlays()),
+    "amdgpu.v_alignbit_b32": _v_alignbit_b32_overlay,
     **_contract_overlay_builders_from_overlays(_integer_bitwise_shift_overlays()),
     **_contract_overlay_builders_from_overlays(
         _v_cvt_f32_packed8_selection_overlays("ocp", op_sel_field="OPSEL")

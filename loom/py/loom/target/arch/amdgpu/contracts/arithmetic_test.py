@@ -27,6 +27,7 @@ from loom.target.contracts import (
     GuardKind,
     LowerAttrCopyKind,
     LowerRule,
+    Scalar,
     SourceValueKind,
     TypePattern,
     compile_lower_rule_set,
@@ -113,6 +114,40 @@ def test_index_madd_rules_accept_wrapping_carrier_results() -> None:
                     value_ref.kind == SourceValueKind.RESULT
                     and value_ref.name == "result"
                 )
+
+
+def test_index_bit_operations_cover_scalar_and_vector_registers() -> None:
+    compiled = _compiled_integer_rules()
+    for source_op, scalar_sequence, vector_sequence in (
+        (
+            index.index_ctlzi,
+            ("s_clz_i32_u32", "s_mov_b32", "s_min_u32"),
+            ("v_clz_i32_u32", "v_mov_b32", "v_min_u32"),
+        ),
+        (
+            index.index_cttzi,
+            ("s_ctz_i32_b32", "s_mov_b32", "s_min_u32"),
+            ("v_ctz_i32_b32", "v_mov_b32", "v_min_u32"),
+        ),
+        (index.index_ctpopi, ("s_bcnt1_i32_b32",), ("v_bcnt_u32_b32.src1_zero",)),
+        (
+            index.index_rotli,
+            ("s_mov_b32", "s_sub_u32", "s_lshl_b32", "s_lshr_b32", "s_or_b32"),
+            ("v_mov_b32", "v_sub_u32", "v_alignbit_b32"),
+        ),
+        (
+            index.index_rotri,
+            ("s_mov_b32", "s_sub_u32", "s_lshr_b32", "s_lshl_b32", "s_or_b32"),
+            ("v_alignbit_b32",),
+        ),
+    ):
+        rules = _rules_for_source_op(compiled, source_op)
+        assert tuple(_rule_descriptor_keys(compiled, rule) for rule in rules) == (
+            tuple(f"amdgpu.{key}" for key in scalar_sequence),
+            tuple(f"amdgpu.{key}" for key in vector_sequence),
+        )
+        for rule in rules:
+            assert set(_rule_type_patterns(compiled, rule)) == {Scalar("index")}
 
 
 def test_unsigned_bitfield_extract_rules_try_native_bfe_before_shift_mask() -> None:
