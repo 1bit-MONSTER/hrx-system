@@ -21,7 +21,7 @@
 
 namespace loom::cxx_import {
 
-// Owns constexpr target definitions and kernel-to-target bindings for one
+// Owns constexpr target definitions and function-like target bindings for one
 // source translation unit. Facade types select a registered TargetLike op; its
 // generated field descriptors remain the only target schema consumed by this
 // target-neutral importer.
@@ -36,9 +36,9 @@ class TargetDefinitions {
         symbol_names_(symbol_names),
         module_(module) {}
 
-  // Admits a marked namespace-scope constexpr object or a kernel target
-  // binding during the shared declaration walk. Returns whether |symbol| is a
-  // target definition whose global storage is replaced by module metadata.
+  // Admits a marked namespace-scope constexpr object or a target binding during
+  // the shared declaration walk. Returns whether |symbol| is a target
+  // definition whose global storage is replaced by module metadata.
   bool declaration(cxx::Symbol* symbol,
                    cxx::List<cxx::AttributeSpecifierAST*>* attributes,
                    cxx::AST* owner);
@@ -47,8 +47,9 @@ class TargetDefinitions {
   // bindings. Called once after declaration collection and before functions.
   void build(loom_builder_t* builder);
 
-  // Returns the retained target symbol for a kernel, or null when the source
-  // has no target binding. All bindings have been validated by build().
+  // Returns the retained target symbol for a kernel or template provider, or
+  // null when the source has no target binding. All bindings have been
+  // validated by build().
   loom_symbol_ref_t reference(cxx::FunctionSymbol* function) const;
 
  private:
@@ -94,7 +95,7 @@ class TargetDefinitions {
   std::vector<Definition> definitions_;
   // Canonical source target identity to |definitions_| index.
   std::unordered_map<cxx::VariableSymbol*, size_t> variables_;
-  // Kernel declarations with an explicit target contract.
+  // Function-like declarations with an explicit target contract.
   std::unordered_map<cxx::FunctionSymbol*, FunctionBinding> functions_;
 };
 

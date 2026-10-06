@@ -1,9 +1,9 @@
 // RUN: roundtrip
 #include <loomcxx/kernel.h>
 
-LOOM_TEMPLATE("test.tick") unsigned tick();
-LOOM_TEMPLATE("test.consume") void consume(unsigned value);
-LOOM_TEMPLATE("test.transform") unsigned transform(unsigned value);
+LOOM_TEMPLATE_DECL("test.tick") unsigned tick();
+LOOM_TEMPLATE_DECL("test.consume") void consume(unsigned value);
+LOOM_TEMPLATE_DECL("test.transform") unsigned transform(unsigned value);
 
 struct Pair {
   // Integer component transported independently through High IR.
@@ -12,7 +12,7 @@ struct Pair {
   float scale;
 };
 
-LOOM_TEMPLATE("test.pair") Pair transform_pair(Pair value);
+LOOM_TEMPLATE_DECL("test.pair") Pair transform_pair(Pair value);
 
 unsigned linked_pipeline(unsigned value) {
   unsigned before = tick();

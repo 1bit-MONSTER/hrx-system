@@ -50,8 +50,10 @@ TEST_F(FunctionsTest, RootsQueueEachConcreteHelperOnceWithPrivateVisibility) {
                   locations, names);
   TargetDefinitions target_definitions(source.unit(), source.diagnostics(),
                                        locations, names, module_);
+  TemplateDefinitions template_definitions(source.unit(), source.diagnostics());
   Functions functions(source.unit(), source.diagnostics(), module_, intrinsics,
-                      launches, configs, target_definitions, names);
+                      launches, configs, target_definitions,
+                      template_definitions, names);
   const iree_string_view_t roots[] = {IREE_SV("entry")};
   functions.select(roots);
   ASSERT_EQ(functions.pending().size(), 1u);
@@ -100,8 +102,10 @@ TEST_F(FunctionsTest,
                   locations, names);
   TargetDefinitions target_definitions(source.unit(), source.diagnostics(),
                                        locations, names, module_);
+  TemplateDefinitions template_definitions(source.unit(), source.diagnostics());
   Functions functions(source.unit(), source.diagnostics(), module_, intrinsics,
-                      launches, configs, target_definitions, names);
+                      launches, configs, target_definitions,
+                      template_definitions, names);
   functions.select({});
   ASSERT_EQ(functions.pending().size(), 2u);
   auto defined =

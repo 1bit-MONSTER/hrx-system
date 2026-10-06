@@ -33,8 +33,15 @@ void reject_misplaced_binding_attributes(
         if (name == "target" && scope != BindingAttributeScope::Declaration) {
           diagnostics.reject(
               unit, attribute,
-              "target bindings require namespace-scope kernel functions "
-              "with a leading attribute");
+              "target bindings require namespace-scope kernels or template "
+              "definitions with a leading attribute");
+        }
+        if ((name == "template_def" || name == "priority") &&
+            scope != BindingAttributeScope::Declaration) {
+          diagnostics.reject(
+              unit, attribute,
+              "template definitions require namespace-scope functions with a "
+              "leading attribute");
         }
         if ((name == "assume_aligned" || name == "noalias") &&
             scope != BindingAttributeScope::Parameter) {

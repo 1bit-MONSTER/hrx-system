@@ -25,6 +25,7 @@
 #include "loom/ops/check/ops.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/kernel/ops.h"
+#include "loom/ops/template/ops.h"
 
 namespace loom::cxx_import {
 
@@ -56,6 +57,9 @@ void Functions::select(std::span<const iree_string_view_t> roots) {
     std::unordered_map<std::string, std::vector<cxx::FunctionSymbol*>>
         candidates;
     for (auto* symbol : definitions) {
+      if (template_definitions_.lookup(symbol)) {
+        continue;
+      }
       candidates[qualified_name(symbol)].push_back(symbol);
     }
     for (size_t i = 0; i < roots.size(); ++i) {
@@ -75,7 +79,8 @@ void Functions::select(std::span<const iree_string_view_t> roots) {
     }
   } else {
     for (auto* symbol : definitions) {
-      if (launches_.is_configuration(symbol)) {
+      if (launches_.is_configuration(symbol) ||
+          template_definitions_.lookup(symbol)) {
         continue;
       }
       bool visible = !symbol->isStatic();
@@ -96,6 +101,29 @@ void Functions::select(std::span<const iree_string_view_t> roots) {
         declare(symbol);
       }
     }
+  }
+  for (const auto& provider : template_definitions_.providers()) {
+    auto* source =
+        provider.family_source ? provider.family_source : provider.source;
+    if (!provider.family) {
+      diagnostics_.reject(unit_, source,
+                          "template priority requires a template definition");
+    }
+    if (annotated(provider.function, "kernel") ||
+        annotated(provider.function, "op") ||
+        annotated(provider.function, "check_case") ||
+        annotated(provider.function, "check_benchmark") ||
+        launches_.is_configuration(provider.function)) {
+      diagnostics_.reject(
+          unit_, source,
+          "template definitions require ordinary source functions");
+    }
+    auto* body = definition(provider.function);
+    if (!body || !body->declaration()) {
+      diagnostics_.reject(unit_, source,
+                          "template definitions require a function body");
+    }
+    retain(body, source);
   }
   // A case can only be selected as a root, never reached through a call.
   // Reserve its public benchmark names before discovering private helpers.
@@ -249,6 +277,7 @@ bool Functions::admit_declaration(
   }
   reject_misplaced_binding_attributes(unit_, diagnostics_, attributes,
                                       BindingAttributeScope::Declaration);
+  template_definitions_.declaration(function, attributes);
   bool is_module_metadata = configs_.declaration(symbol, attributes, owner);
   is_module_metadata |=
       target_definitions_.declaration(symbol, attributes, owner);
@@ -427,6 +456,17 @@ const std::string& Functions::qualified_name(cxx::FunctionSymbol* symbol) {
 
 loom_symbol_ref_t Functions::declare(cxx::FunctionSymbol* function,
                                      cxx::AST* owner) {
+  if (auto* provider = template_definitions_.lookup(function)) {
+    diagnostics_.reject(
+        unit_, owner ? owner : provider->source,
+        "template definition implementations cannot be selected or called "
+        "directly");
+  }
+  return retain(function, owner);
+}
+
+loom_symbol_ref_t Functions::retain(cxx::FunctionSymbol* function,
+                                    cxx::AST* owner) {
   if (auto found = callees_.find(function->canonical());
       found != callees_.end()) {
     return found->second;
@@ -523,6 +563,7 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
   auto parameters = symbol->parameters();
   bool kernel = annotated(symbol, "kernel");
   bool check_case = is_check_case(symbol);
+  auto* template_definition = template_definitions_.lookup(symbol);
   auto parameter_contracts = parameter_contracts_.get(symbol);
   if (!kernel && !parameter_contracts.empty()) {
     for (const auto& contract : parameter_contracts) {
@@ -615,6 +656,35 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
     launches_.build(symbol, {spelling.data, spelling.size}, names_, builder,
                     locations.get(definition));
     loom_builder_restore(builder, saved);
+  } else if (template_definition) {
+    launches_.reject_ordinary_function(symbol);
+    auto family = intrinsics_.bind_template_family(
+        template_definition->family, template_definition->family_source,
+        builder);
+    template_definitions_.validate(*template_definition, family.function,
+                                   types);
+    auto target = target_definitions_.reference(symbol);
+    bool is_device = annotated(family.function, "device");
+    loom_template_def_build_flags_t flags = 0;
+    if (is_device) {
+      flags |= LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_CC;
+    }
+    if (loom_symbol_ref_is_valid(target)) {
+      flags |= LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_TARGET;
+    }
+    if (template_definition->priority) {
+      flags |= LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_PRIORITY;
+    }
+    check(loom_template_def_build(
+        builder, flags, family.reference, /*visibility=*/0, /*retain=*/0,
+        is_device ? LOOM_TEMPLATE_CC_DEVICE : 0,
+        /*purity=*/0, /*temperature=*/0, target,
+        loom_parameterized_attr_array_empty(),
+        template_definition->priority.value_or(0),
+        callees_.at(symbol->canonical()), arguments.data(), arguments.size(),
+        results.data(), results.size(), /*tied_results=*/nullptr,
+        /*tied_result_count=*/0, /*predicates=*/nullptr,
+        /*predicates_count=*/0, locations.get(definition), &op));
   } else {
     launches_.reject_ordinary_function(symbol);
     check(loom_func_def_build(
@@ -633,18 +703,20 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
         arguments.size(), results.data(), results.size(), nullptr, 0, nullptr,
         0, locations.get(definition), &op));
   }
-  auto* region = check_case ? loom_check_case_body(op)
-                 : kernel   ? loom_kernel_def_body(op)
-                            : loom_func_def_body(op);
+  auto* region = check_case            ? loom_check_case_body(op)
+                 : kernel              ? loom_kernel_def_body(op)
+                 : template_definition ? loom_template_def_body(op)
+                                       : loom_func_def_body(op);
   FunctionBody function_body = {
       definition,
       body->statement,
       op,
       region,
       signature->returnType(),
-      check_case ? FunctionKind::CheckCase
-      : kernel   ? FunctionKind::Kernel
-                 : FunctionKind::Ordinary,
+      check_case            ? FunctionKind::CheckCase
+      : kernel              ? FunctionKind::Kernel
+      : template_definition ? FunctionKind::TemplateDefinition
+                            : FunctionKind::Ordinary,
       parameter_contracts,
   };
   std::optional<FunctionBody> configuration;

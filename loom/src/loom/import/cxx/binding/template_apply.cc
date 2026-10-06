@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "loom/import/cxx/source/attributes.h"
 #include "loom/import/cxx/source/error.h"
 #include "loom/import/cxx/symbol/names.h"
 #include "loom/import/cxx/value/signature.h"
@@ -68,10 +69,8 @@ TemplateApplyIntrinsic TemplateApplyIntrinsic::resolve(
                                 declaration_location);
 }
 
-std::optional<Value> TemplateApplyIntrinsic::call(
-    std::span<const Value> arguments, Types& types, ValueArena& arena,
-    cxx::AST* owner, loom_builder_t* builder,
-    loom_location_id_t location) const {
+loom_symbol_ref_t TemplateApplyIntrinsic::materialize(
+    Types& types, cxx::AST* owner, loom_builder_t* builder) const {
   if (!family_->declaration) {
     loom_builder_t declaration_builder;
     loom_builder_initialize(builder->module, &builder->module->arena,
@@ -93,15 +92,28 @@ std::optional<Value> TemplateApplyIntrinsic::call(
     const size_t result_count = signature.types.size() - argument_count;
     const loom_type_t* result_types =
         result_count ? signature.types.data() + argument_count : nullptr;
+    auto build_flags = annotated(family_->function, "device")
+                           ? LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_CC
+                           : 0;
     check(loom_template_decl_build(
-        &declaration_builder, /*build_flags=*/0, /*visibility=*/0,
-        /*retain=*/0, /*cc=*/0, /*purity=*/0, /*temperature=*/0,
-        loom_symbol_ref_null(), loom_parameterized_attr_array_empty(),
-        family_->reference, argument_types, argument_count, result_types,
-        result_count, /*tied_results=*/nullptr,
+        &declaration_builder, build_flags, /*visibility=*/0,
+        /*retain=*/0,
+        annotated(family_->function, "device") ? LOOM_TEMPLATE_CC_DEVICE : 0,
+        /*purity=*/0, /*temperature=*/0, loom_symbol_ref_null(),
+        loom_parameterized_attr_array_empty(), family_->reference,
+        argument_types, argument_count, result_types, result_count,
+        /*tied_results=*/nullptr,
         /*tied_result_count=*/0, /*predicates=*/nullptr,
         /*predicates_count=*/0, declaration_location_, &family_->declaration));
   }
+  return family_->reference;
+}
+
+std::optional<Value> TemplateApplyIntrinsic::call(
+    std::span<const Value> arguments, Types& types, ValueArena& arena,
+    cxx::AST* owner, loom_builder_t* builder,
+    loom_location_id_t location) const {
+  auto family = materialize(types, owner, builder);
 
   std::vector<loom_value_id_t> operands;
   operands.reserve(parameter_types_.size());
@@ -116,8 +128,8 @@ std::optional<Value> TemplateApplyIntrinsic::call(
   }
   loom_op_t* op;
   check(loom_template_apply_build(
-      builder, /*build_flags=*/0, family_->reference, operands.data(),
-      operands.size(), /*purity=*/0, /*temperature=*/0, results.types.data(),
+      builder, /*build_flags=*/0, family, operands.data(), operands.size(),
+      /*purity=*/0, /*temperature=*/0, results.types.data(),
       results.types.size(), /*tied_results=*/nullptr, /*tied_result_count=*/0,
       location, &op));
   if (!result_type_) {

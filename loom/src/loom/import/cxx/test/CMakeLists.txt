@@ -123,6 +123,8 @@ loom_check_test_suite(
     "template_calls.cxx-test"
     "template_conversions.cxx-test"
     "template_conversions_invalid.cxx-test"
+    "template_definitions.cxx-test"
+    "template_definitions_invalid.cxx-test"
     "template_values.cxx-test"
     "template_values_roundtrip.cxx-test"
     "value_initialization.cxx-test"

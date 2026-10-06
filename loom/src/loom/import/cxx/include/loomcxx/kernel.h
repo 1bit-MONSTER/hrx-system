@@ -38,7 +38,12 @@
 // Declares an ordinary C++ function whose calls apply the named link-selected
 // Loom template family. The declaration has no C++ definition; its parameters
 // and result define the semantic family signature at each call site.
-#define LOOM_TEMPLATE(FAMILY) [[loom::op("template.apply", FAMILY)]]
+#define LOOM_TEMPLATE_DECL(FAMILY) [[loom::op("template.apply", FAMILY)]]
+// Defines one bodyful implementation of a LOOM_TEMPLATE_DECL family. Linking
+// selects among providers using optional loom::target(object) and
+// loom::priority(constant) attributes. Providers inherit the family's calling
+// convention and are retained without becoming ordinary callable C++ symbols.
+#define LOOM_TEMPLATE_DEF(FAMILY) [[loom::template_def(FAMILY)]]
 
 namespace loom {
 

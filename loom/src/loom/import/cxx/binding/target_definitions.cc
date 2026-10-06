@@ -237,8 +237,8 @@ bool TargetDefinitions::declaration(
         if (name == "target") {
           diagnostics_.reject(
               unit_, attribute,
-              "target bindings require concrete namespace-scope kernel "
-              "functions");
+              "target bindings require concrete namespace-scope kernels or "
+              "template definitions");
         }
       });
   auto* variable = cxx::symbol_cast<cxx::VariableSymbol>(symbol);
@@ -266,10 +266,12 @@ void TargetDefinitions::admit_function(
   }
   if (function->isTemplatePattern() ||
       !cxx::symbol_cast<cxx::NamespaceSymbol>(function->parent()) ||
-      !annotated(function, "kernel")) {
+      (!annotated(function, "kernel") &&
+       !annotated(function, "template_def"))) {
     diagnostics_.reject(
         unit_, selected,
-        "target bindings require concrete namespace-scope kernel functions");
+        "target bindings require concrete namespace-scope kernels or template "
+        "definitions");
   }
   auto* clause = selected->attributeArgumentClause;
   auto* arguments = clause ? clause->expressionList : nullptr;

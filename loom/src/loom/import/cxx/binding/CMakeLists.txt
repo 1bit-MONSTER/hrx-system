@@ -266,6 +266,7 @@ loom_cc_library(
     "template_apply.cc"
   DEPS
     iree::third_party::cxx_parser
+    loom::import::cxx::source::attributes
     loom::import::cxx::source::error
     loom::import::cxx::symbol::names
     loom::import::cxx::value::representation
@@ -274,6 +275,28 @@ loom_cc_library(
     loom::ir
     loom::ops::op_defs
     loom::ops::template
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
+    template_definitions
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "template_definitions.h"
+  SRCS
+    "template_definitions.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source::attributes
+    loom::import::cxx::source::error
+    loom::import::cxx::value::types
   PUBLIC
 )
 endif()

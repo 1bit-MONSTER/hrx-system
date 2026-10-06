@@ -58,6 +58,7 @@ loom_cc_library(
     loom::import::cxx::binding::loop_schedule
     loom::import::cxx::binding::parameter_contracts
     loom::import::cxx::binding::target_definitions
+    loom::import::cxx::binding::template_definitions
     loom::import::cxx::control::analysis
     loom::import::cxx::source
     loom::import::cxx::source::attributes
@@ -83,6 +84,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::ops::scalar
     loom::ops::scf
+    loom::ops::template
     loom::ops::vector
     loom::verify
   PUBLIC
