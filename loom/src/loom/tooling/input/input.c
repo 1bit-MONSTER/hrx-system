@@ -140,6 +140,8 @@ typedef struct loom_input_source_path_t {
   iree_string_view_t path;
   // Logical identity used by diagnostics and the output module.
   iree_string_view_t filename;
+  // True when a frontend admitted source bytes under this physical identity.
+  bool is_admitted;
 } loom_input_source_path_t;
 
 typedef struct loom_input_capture_t {
@@ -206,17 +208,6 @@ static iree_status_t loom_input_remap_path(loom_input_capture_t* capture,
       path, &capture->request->source_path_options,
       iree_arena_allocator(capture->scratch_arena), &filename,
       &filename_storage));
-  for (loom_input_source_path_t* source_path = capture->paths;
-       source_path != NULL; source_path = source_path->next) {
-    if (iree_string_view_equal(source_path->filename, filename)) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "source path remapping gives distinct sources '%.*s' and '%.*s' "
-          "the same filename '%.*s'",
-          (int)source_path->path.size, source_path->path.data, (int)path.size,
-          path.data, (int)filename.size, filename.data);
-    }
-  }
   iree_arena_allocator_t* arena = capture->scratch_arena;
   loom_input_source_path_t* source_path = NULL;
   IREE_RETURN_IF_ERROR(
@@ -229,9 +220,37 @@ static iree_status_t loom_input_remap_path(loom_input_capture_t* capture,
     IREE_RETURN_IF_ERROR(
         loom_input_copy_arena_string(arena, filename, &source_path->filename));
   }
+  source_path->is_admitted = false;
   source_path->next = capture->paths;
   capture->paths = source_path;
   *out_filename = source_path->filename;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_input_admit_source_path(
+    loom_input_capture_t* capture, iree_string_view_t path,
+    iree_string_view_t* out_filename) {
+  IREE_RETURN_IF_ERROR(loom_input_remap_path(capture, path, out_filename));
+  if (iree_string_view_is_empty(path)) {
+    return iree_ok_status();
+  }
+  loom_input_source_path_t* admitted_path = NULL;
+  for (loom_input_source_path_t* source_path = capture->paths;
+       source_path != NULL; source_path = source_path->next) {
+    if (iree_string_view_equal(source_path->path, path)) {
+      admitted_path = source_path;
+    } else if (source_path->is_admitted &&
+               iree_string_view_equal(source_path->filename, *out_filename)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "source path remapping gives distinct sources '%.*s' and '%.*s' "
+          "the same filename '%.*s'",
+          (int)source_path->path.size, source_path->path.data, (int)path.size,
+          path.data, (int)out_filename->size, out_filename->data);
+    }
+  }
+  IREE_ASSERT(admitted_path);
+  admitted_path->is_admitted = true;
   return iree_ok_status();
 }
 
@@ -241,7 +260,7 @@ static iree_status_t loom_input_capture_source(void* user_data,
                                                iree_string_view_t source) {
   loom_input_capture_t* capture = (loom_input_capture_t*)user_data;
   iree_string_view_t filename = iree_string_view_empty();
-  IREE_RETURN_IF_ERROR(loom_input_remap_path(capture, path, &filename));
+  IREE_RETURN_IF_ERROR(loom_input_admit_source_path(capture, path, &filename));
   return loom_source_storage_insert(&capture->input->sources, source_id,
                                     filename, source);
 }
@@ -309,7 +328,7 @@ iree_status_t loom_input_module_load(const loom_input_provider_t* provider,
   };
   iree_string_view_t filename = iree_string_view_empty();
   iree_status_t status =
-      loom_input_remap_path(&capture, request->path, &filename);
+      loom_input_admit_source_path(&capture, request->path, &filename);
   if (iree_status_is_ok(status)) {
     status =
         loom_input_clone_string(host_allocator, filename, &out_input->filename);

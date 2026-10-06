@@ -55,6 +55,8 @@ loom_cc_test(
     srcs = ["input_test.cc"],
     deps = [
         ":input",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_registry",
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
