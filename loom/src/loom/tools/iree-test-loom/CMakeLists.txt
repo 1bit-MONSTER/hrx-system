@@ -22,7 +22,6 @@ loom_cc_library(
     loom::link::linker
     loom::tooling::execution::session
     loom::tooling::io::file
-    loom::tooling::io::source
   PUBLIC
 )
 

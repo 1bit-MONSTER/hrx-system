@@ -77,6 +77,44 @@ typedef struct loom_source_table_projection_t {
   iree_arena_allocator_t* arena;
 } loom_source_table_projection_t;
 
+// Immutable source snapshots owned independently of frontend and input-module
+// lifetimes. Keep this object at a stable address while using its resolver.
+typedef struct loom_source_storage_t {
+  // Source-ID-indexed entries. Missing snapshots have an invalid source ID.
+  loom_source_table_resolver_t table;
+  // Owns the table, filenames, and source bytes.
+  iree_arena_allocator_t arena;
+  // Allocated entries in the table.
+  iree_host_size_t capacity;
+} loom_source_storage_t;
+
+// Initializes empty owned source storage backed by |block_pool|.
+void loom_source_storage_initialize(iree_arena_block_pool_t* block_pool,
+                                    loom_source_storage_t* out_storage);
+
+// Releases all source snapshots and table storage.
+void loom_source_storage_deinitialize(loom_source_storage_t* storage);
+
+// Copies a source snapshot into |storage| at a module-owned source ID.
+// Repeated admission of the same identity requires identical name and bytes.
+iree_status_t loom_source_storage_insert(loom_source_storage_t* storage,
+                                         loom_source_id_t source_id,
+                                         iree_string_view_t filename,
+                                         iree_string_view_t source);
+
+// Copies captured snapshots through a producer-owned source correspondence.
+// |target_sources| is indexed by input source ID. Inputs with no snapshot need
+// no entry in |source_table|; invalid target IDs represent omitted sources.
+// All projections into |storage| belong to the same |target_module|.
+iree_status_t loom_source_storage_project(
+    loom_source_storage_t* storage, const loom_module_t* target_module,
+    const loom_source_table_resolver_t* source_table,
+    const loom_source_id_t* target_sources);
+
+// Returns a resolver borrowing |storage| and its source snapshots.
+loom_source_resolver_t loom_source_storage_resolver(
+    const loom_source_storage_t* storage);
+
 // Linker source callback for a loom_source_table_projection_t. Projects entries
 // through the producer's source-ID map without copying their filenames or text.
 // Inputs without snapshots allocate nothing. The output table is indexed by

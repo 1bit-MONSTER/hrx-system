@@ -19,7 +19,6 @@ loom_cc_library(
         "//loom/src/loom/format/bytecode:reader",
         "//loom/src/loom/format/text:parser",
         "//loom/src/loom/ir",
-        "//loom/src/loom/tooling/io:source",
         "//loom/src/loom/tooling/io:source_path",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",

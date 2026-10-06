@@ -27,20 +27,6 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
-    source
-  HDRS
-    "source.h"
-  SRCS
-    "source.c"
-  DEPS
-    iree::base
-    iree::base::internal::arena
-    loom::error::source
-  PUBLIC
-)
-
-loom_cc_library(
-  NAME
     source_path
   HDRS
     "source_path.h"
@@ -49,22 +35,6 @@ loom_cc_library(
   DEPS
     iree::base
   PUBLIC
-)
-
-loom_cc_test(
-  NAME
-    source_test
-  SRCS
-    "source_test.cc"
-  DEPS
-    ::source
-    iree::base
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::error::source
-    loom::ir
-    loom::link::linker
 )
 
 loom_cc_test(

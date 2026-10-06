@@ -43,7 +43,6 @@ loom_cc_binary(
         "//loom/src/loom/tooling/input:configured",
         "//loom/src/loom/tooling/input:flags",
         "//loom/src/loom/tooling/io:file",
-        "//loom/src/loom/tooling/io:source",
         "//loom/src/loom/tools/loom-format:convert",
         "//loom/src/loom/util:stream",
         "//loom/src/loom/verify",

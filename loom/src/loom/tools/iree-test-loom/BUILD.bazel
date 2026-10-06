@@ -102,7 +102,6 @@ loom_cc_library(
         "//loom/src/loom/link:linker",
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/io:file",
-        "//loom/src/loom/tooling/io:source",
         "//runtime/src/iree/base",
     ],
 )

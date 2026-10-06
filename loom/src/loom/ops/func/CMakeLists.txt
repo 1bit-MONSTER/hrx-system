@@ -97,7 +97,6 @@ loom_cc_test(
     loom::ops::op_defs
     loom::ops::op_registry
     loom::tooling::input
-    loom::tooling::io::source
 )
 
 iree_c_embed_data(

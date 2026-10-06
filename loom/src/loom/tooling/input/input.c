@@ -292,7 +292,7 @@ iree_status_t loom_input_module_load(const loom_input_provider_t* provider,
                                      iree_allocator_t host_allocator,
                                      loom_input_module_t* out_input) {
   *out_input = (loom_input_module_t){0};
-  loom_tooling_source_storage_initialize(block_pool, &out_input->sources);
+  loom_source_storage_initialize(block_pool, &out_input->sources);
   loom_input_capture_t capture = {.input = out_input, .request = request};
   IREE_RETURN_IF_ERROR(
       loom_input_capture_source(&capture, request->path, request->source));
@@ -315,11 +315,11 @@ iree_status_t loom_input_module_load(const loom_input_provider_t* provider,
 
 loom_source_resolver_t loom_input_module_source_resolver(
     loom_input_module_t* input) {
-  return loom_tooling_source_storage_resolver(&input->sources);
+  return loom_source_storage_resolver(&input->sources);
 }
 
 void loom_input_module_deinitialize(loom_input_module_t* input) {
   loom_module_free(input->module);
-  loom_tooling_source_storage_deinitialize(&input->sources);
+  loom_source_storage_deinitialize(&input->sources);
   memset(input, 0, sizeof(*input));
 }

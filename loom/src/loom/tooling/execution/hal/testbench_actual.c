@@ -29,7 +29,6 @@
 #include "loom/tooling/execution/execution_backend.h"
 #include "loom/tooling/execution/hal/artifact.h"
 #include "loom/tooling/execution/hal/testbench_staging.h"
-#include "loom/tooling/io/source.h"
 #include "loom/util/fact_table.h"
 
 typedef struct loom_run_hal_testbench_actual_sequence_span_t

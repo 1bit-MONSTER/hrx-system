@@ -124,7 +124,6 @@ loom_cc_test(
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/tooling/input",
-        "//loom/src/loom/tooling/io:source",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",

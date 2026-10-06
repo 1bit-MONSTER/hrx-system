@@ -9,13 +9,12 @@
 #include "loom/error/source.h"
 #include "loom/link/linker.h"
 #include "loom/tooling/io/file.h"
-#include "loom/tooling/io/source.h"
 
 typedef struct iree_test_loom_link_sources_t {
   // Snapshots for the module currently being added.
   const loom_source_table_resolver_t* input;
   // Owned snapshots in linked-module source-ID order.
-  loom_tooling_source_storage_t output;
+  loom_source_storage_t output;
 } iree_test_loom_link_sources_t;
 
 static iree_status_t iree_test_loom_capture_sources(
@@ -23,8 +22,8 @@ static iree_status_t iree_test_loom_capture_sources(
     const loom_module_t* target_module,
     const loom_source_id_t* target_sources) {
   iree_test_loom_link_sources_t* sources = user_data;
-  return loom_tooling_source_storage_project(&sources->output, target_module,
-                                             sources->input, target_sources);
+  return loom_source_storage_project(&sources->output, target_module,
+                                     sources->input, target_sources);
 }
 
 static iree_status_t iree_test_loom_add_library(
@@ -78,8 +77,8 @@ iree_status_t iree_test_loom_link_libraries(
   iree_test_loom_link_sources_t sources = {
       .input = &run_module->sources.table,
   };
-  loom_tooling_source_storage_initialize(loom_run_session_block_pool(session),
-                                         &sources.output);
+  loom_source_storage_initialize(loom_run_session_block_pool(session),
+                                 &sources.output);
   const loom_linker_options_t linker_options = {
       .module_name = IREE_SV("linked"),
       .source_callback = {.fn = iree_test_loom_capture_sources,
@@ -103,13 +102,13 @@ iree_status_t iree_test_loom_link_libraries(
   if (iree_status_is_ok(status)) {
     loom_module_free(run_module->module);
     run_module->module = linked_module;
-    loom_tooling_source_storage_deinitialize(&run_module->sources);
+    loom_source_storage_deinitialize(&run_module->sources);
     run_module->sources = sources.output;
-    sources.output = (loom_tooling_source_storage_t){0};
+    sources.output = (loom_source_storage_t){0};
     linked_module = NULL;
   }
   loom_module_free(linked_module);
   loom_linker_free(linker);
-  loom_tooling_source_storage_deinitialize(&sources.output);
+  loom_source_storage_deinitialize(&sources.output);
   return status;
 }

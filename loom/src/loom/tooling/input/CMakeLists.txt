@@ -26,7 +26,6 @@ loom_cc_library(
     loom::format::low_repr
     loom::format::text::parser
     loom::ir
-    loom::tooling::io::source
     loom::tooling::io::source_path
   PUBLIC
 )

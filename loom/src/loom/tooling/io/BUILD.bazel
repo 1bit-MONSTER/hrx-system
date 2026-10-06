@@ -30,37 +30,11 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "source",
-    srcs = ["source.c"],
-    hdrs = ["source.h"],
-    deps = [
-        "//loom/src/loom/error:source",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-    ],
-)
-
-loom_cc_library(
     name = "source_path",
     srcs = ["source_path.c"],
     hdrs = ["source_path.h"],
     deps = [
         "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_test(
-    name = "source_test",
-    srcs = ["source_test.cc"],
-    deps = [
-        ":source",
-        "//loom/src/loom/error:source",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/link:linker",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 

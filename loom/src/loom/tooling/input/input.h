@@ -10,7 +10,6 @@
 #include "loom/error/source.h"
 #include "loom/format/low_repr.h"
 #include "loom/format/text/parser.h"
-#include "loom/tooling/io/source.h"
 #include "loom/tooling/io/source_path.h"
 
 #ifdef __cplusplus
@@ -109,7 +108,7 @@ typedef struct loom_input_module_t {
   // Logical main-source filename, valid even after source rejection.
   iree_string_view_t filename;
   // Owned snapshots indexed by the module's source IDs, released last.
-  loom_tooling_source_storage_t sources;
+  loom_source_storage_t sources;
 } loom_input_module_t;
 
 // Loads an input and retains source snapshots through module teardown. Always
