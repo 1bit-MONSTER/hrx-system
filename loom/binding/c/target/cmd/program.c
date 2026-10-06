@@ -404,8 +404,8 @@ static iree_status_t loomc_cmd_program_product_capture_diagnostic(
                        : NULL,
       &type_printer);
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      invocation->result, /*module=*/NULL, LOOM_EMITTER_PASS, emission,
-      emission->module ? &type_printer : NULL));
+      invocation->result, /*module=*/NULL, (loom_source_resolver_t){0},
+      LOOM_EMITTER_PASS, emission, emission->module ? &type_printer : NULL));
 }
 
 static loomc_status_t loomc_cmd_program_product_translate_plan_status(

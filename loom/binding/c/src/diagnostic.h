@@ -8,6 +8,7 @@
 #define LOOMC_DIAGNOSTIC_STORAGE_H_
 
 #include "loom/error/diagnostic.h"
+#include "loom/error/source.h"
 #include "loom/format/text/printer.h"
 #include "loom/ir/module.h"
 #include "loomc/diagnostic.h"
@@ -46,6 +47,8 @@ typedef struct loomc_diagnostic_capture_t {
   const loomc_source_t* source;
   // Optional module resolving emission locations and type identities.
   const loom_module_t* module;
+  // Optional exact source resolver for module-backed locations.
+  loom_source_resolver_t source_resolver;
   // Native emitter identity assigned to diagnostic emissions.
   loom_emitter_t emitter;
   // Module- and target-aware type printer.
@@ -55,8 +58,8 @@ typedef struct loomc_diagnostic_capture_t {
 // Initializes one synchronous native-to-public diagnostic adapter.
 LOOMC_API_PRIVATE void loomc_diagnostic_capture_initialize(
     loomc_result_t* result, const loomc_source_t* source,
-    const loom_module_t* module, loom_emitter_t emitter,
-    const loom_text_print_options_t* text_print_options,
+    const loom_module_t* module, loom_source_resolver_t source_resolver,
+    loom_emitter_t emitter, const loom_text_print_options_t* text_print_options,
     loomc_diagnostic_capture_t* out_capture);
 
 // Captures one native diagnostic through a loom_diagnostic_sink_t.
@@ -89,13 +92,15 @@ LOOMC_API_PRIVATE loomc_status_t loomc_result_add_loom_diagnostic(
 // adds the diagnostic to result, which owns all resolved source identities.
 // Related operations without a module override use the active |module|.
 LOOMC_API_PRIVATE loomc_status_t loomc_result_add_loom_diagnostic_emission(
-    loomc_result_t* result, const loom_module_t* module, loom_emitter_t emitter,
+    loomc_result_t* result, const loom_module_t* module,
+    loom_source_resolver_t source_resolver, loom_emitter_t emitter,
     const loom_diagnostic_emission_t* emission,
     const loomc_diagnostic_type_printer_t* type_printer);
 
 // Verifies a Loom module and adds verifier diagnostics to result.
 LOOMC_API_PRIVATE loomc_status_t loomc_result_verify_loom_module(
-    const loom_module_t* module, loomc_result_t* result);
+    const loom_module_t* module, loom_source_resolver_t source_resolver,
+    loomc_result_t* result);
 
 // Adds a rendered status as a result diagnostic without consuming status.
 LOOMC_API_PRIVATE loomc_status_t loomc_result_add_status_diagnostic(

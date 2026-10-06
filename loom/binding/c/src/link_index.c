@@ -339,6 +339,7 @@ loomc_status_t loomc_link_index_add_source_to_module_index(
       loomc_result_diagnostic_count(result);
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(result, source, /*module=*/NULL,
+                                      (loom_source_resolver_t){0},
                                       LOOM_EMITTER_PARSER,
                                       /*text_print_options=*/NULL, &capture);
   loom_link_module_index_add_options_t options = {

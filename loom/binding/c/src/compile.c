@@ -244,6 +244,7 @@ static loomc_status_t loomc_compile_fail_result_from_status(
 static loomc_status_t loomc_compile_run_pass_program(
     loomc_compiler_t* compiler, loomc_workspace_t* workspace,
     const loomc_pass_program_t* pass_program, loom_module_t* internal_module,
+    loom_source_resolver_t source_resolver,
     loom_function_version_owner_t* function_version_owner,
     loom_kernel_launch_config_program_t* launch_config_program,
     loom_target_compile_report_t* compile_report,
@@ -253,7 +254,8 @@ static loomc_status_t loomc_compile_run_pass_program(
       loomc_context_target_pass_environment(compiler->context);
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(
-      result, /*source=*/NULL, internal_module, LOOM_EMITTER_PASS,
+      result, /*source=*/NULL, internal_module, source_resolver,
+      LOOM_EMITTER_PASS,
       target_pass_environment
           ? &target_pass_environment->diagnostic_type_print_options
           : NULL,
@@ -333,7 +335,8 @@ static loomc_status_t loomc_compile_specialize_functions(
     const loomc_target_environment_t* target_environment,
     loom_target_specialization_request_list_t requests,
     loom_target_declaration_binding_list_t bindings, loom_module_t* module,
-    loomc_result_t* result, loom_function_version_owner_t* function_versions) {
+    loom_source_resolver_t source_resolver, loomc_result_t* result,
+    loom_function_version_owner_t* function_versions) {
   if (requests.count == 0 && bindings.count == 0) {
     return loomc_ok_status();
   }
@@ -342,7 +345,7 @@ static loomc_status_t loomc_compile_specialize_functions(
       loomc_target_environment_pass_environment(target_environment);
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(
-      result, /*source=*/NULL, module, LOOM_EMITTER_PASS,
+      result, /*source=*/NULL, module, source_resolver, LOOM_EMITTER_PASS,
       pass_environment ? &pass_environment->diagnostic_type_print_options
                        : NULL,
       &capture);
@@ -698,7 +701,8 @@ static loomc_status_t loomc_compile_prepared_module_into_result(
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     status = loomc_compile_specialize_functions(
         context_target_environment, target_specializations, target_bindings,
-        internal_module, result, function_versions);
+        internal_module, loomc_module_source_resolver(module), result,
+        function_versions);
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result) &&
       launch_config_requested) {
@@ -711,7 +715,8 @@ static loomc_status_t loomc_compile_prepared_module_into_result(
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     status = loomc_compile_run_pass_program(
-        compiler, workspace, pass_program, internal_module, function_versions,
+        compiler, workspace, pass_program, internal_module,
+        loomc_module_source_resolver(module), function_versions,
         launch_config_requested ? &launch_config_program : NULL, compile_report,
         pass_trace_options, result);
   }
@@ -723,7 +728,8 @@ static loomc_status_t loomc_compile_prepared_module_into_result(
   }
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result) &&
       launch_config_module != NULL) {
-    status = loomc_result_verify_loom_module(launch_config_module, result);
+    status = loomc_result_verify_loom_module(
+        launch_config_module, (loom_source_resolver_t){0}, result);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_compile_emit_requested_artifacts(
@@ -775,7 +781,9 @@ static loomc_status_t loomc_compile_module_into_result(
         options ? options->config_module : NULL;
     const loomc_config_apply_module_options_t config_apply_options = {
         .config_module = loomc_module_const_loom_module(config_module),
+        .config_source_resolver = loomc_module_source_resolver(config_module),
         .target_module = internal_module,
+        .target_source_resolver = loomc_module_source_resolver(module),
         .binding_sink = loomc_module_config_binding_sink(module),
         .policy_flags = options ? options->config_flags : 0,
         .result = result,
@@ -957,6 +965,7 @@ loomc_status_t loomc_compile_artifact(
     const loomc_config_apply_text_to_module_options_t config_apply_options = {
         .config = config ? &materialization_config : NULL,
         .module = internal_module,
+        .source_resolver = loomc_module_source_resolver(module),
         .binding_sink = loomc_module_config_binding_sink(module),
         .result = result,
         .diagnostic_code = loomc_make_cstring_view("CONFIG/INVALID"),
@@ -1023,14 +1032,19 @@ loomc_status_t loomc_compile_artifact(
   loom_target_specialization_request_list_t target_specializations = {0};
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     loom_source_table_projection_t sources = {
-        .table = {.module = internal_module},
+        .table = *loomc_module_source_table(module),
         .arena = function_versions->arena,
+    };
+    const loom_source_resolver_t source_resolver = {
+        .fn = loom_source_table_resolve,
+        .user_data = &sources.table,
     };
     const loomc_target_pass_environment_t* pass_environment =
         loomc_target_environment_pass_environment(target_environment);
     loomc_diagnostic_capture_t capture;
     loomc_diagnostic_capture_initialize(
-        result, /*source=*/NULL, internal_module, LOOM_EMITTER_PASS,
+        result, /*source=*/NULL, internal_module, source_resolver,
+        LOOM_EMITTER_PASS,
         pass_environment ? &pass_environment->diagnostic_type_print_options
                          : NULL,
         &capture);
@@ -1040,6 +1054,7 @@ loomc_status_t loomc_compile_artifact(
                 .fn = loomc_diagnostic_capture,
                 .user_data = &capture,
             },
+        .source_resolver = source_resolver,
     };
     uint32_t error_count = 0;
     status = loomc_status_from_iree(loom_compile_request_materialize(
@@ -1048,6 +1063,12 @@ loomc_status_t loomc_compile_artifact(
         &entry_options, &sources, function_versions->arena,
         loomc_module_block_pool(module), &internal_module,
         &target_specializations, &error_count));
+    loomc_status_t source_status = loomc_module_replace_source_table(
+        module, internal_module, &sources.table);
+    if (!loomc_status_is_ok(source_status)) {
+      loomc_module_clear_sources(module, internal_module);
+    }
+    status = loomc_status_join(status, source_status);
     loomc_module_adopt_loom_module_replacement(module, internal_module,
                                                LOOMC_MODULE_INPUT_UNVERIFIED);
     loomc_emit_transaction_set_diagnostic_context(

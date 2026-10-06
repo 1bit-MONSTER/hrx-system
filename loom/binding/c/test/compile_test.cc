@@ -998,15 +998,21 @@ ModulePtr CreateRelatedLocationsModule(loomc_context_t* context,
   return DeserializeModule(context, workspace, source.get());
 }
 
-TEST(CompileTest, RelatedDiagnosticLocationsSurviveAllCompilerOwners) {
+TEST(CompileTest, RelatedDiagnosticLocationsSurviveCloneAndCompilerOwners) {
   ResultPtr result;
   {
     auto context = CreateContext();
     auto workspace = CreateWorkspace();
     auto compiler = CreateCompiler(context.get());
     auto program = CreateEmptyPassProgram(context.get());
-    auto module = CreateRelatedLocationsModule(context.get(), workspace.get(),
-                                               "calls.loom");
+    auto parsed_module = CreateRelatedLocationsModule(
+        context.get(), workspace.get(), "calls.loom");
+    loomc_module_t* cloned_module = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_clone(parsed_module.get(), workspace.get(),
+                                       loomc_allocator_system(),
+                                       &cloned_module));
+    ModulePtr module(cloned_module);
+    parsed_module.reset();
     loomc_result_t* compiled = nullptr;
     LOOMC_ASSERT_OK(loomc_compile_module(compiler.get(), workspace.get(),
                                          program.get(), module.get(), nullptr,
@@ -1029,7 +1035,12 @@ TEST(CompileTest, RelatedDiagnosticLocationsSurviveAllCompilerOwners) {
   EXPECT_EQ(related.range.start_column, 1u);
   EXPECT_EQ(related.range.end_line, 2u);
   EXPECT_GT(related.range.end_column, related.range.start_column);
-  EXPECT_EQ(loomc_source_contents(related.range.source).data_length, 0u);
+  const auto* file = loomc_diagnostic_testdata_create();
+  EXPECT_EQ(ToString(loomc_source_contents(related.range.source)),
+            std::string(file->data, file->size));
+  EXPECT_THAT(
+      ToString(diagnostic->formatted_text),
+      ::testing::HasSubstr("2 | func.decl @callee(%arg: i32) -> (i32)"));
   EXPECT_EQ(related.range.source, diagnostic->range.source);
 }
 
@@ -1074,11 +1085,13 @@ TEST(CompileTest, EmissionNotesUseTheirOwnModuleAndCountOnlyResolvedOmissions) {
                                         loomc_allocator_system(), &captured));
     result.reset(captured);
     LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic_emission(
-        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission,
+        result.get(), active_module, (loom_source_resolver_t){0},
+        LOOM_EMITTER_VERIFIER, &emission,
         /*type_printer=*/nullptr));
     emission.op = nullptr;
     LOOMC_ASSERT_OK(loomc_result_add_loom_diagnostic_emission(
-        result.get(), active_module, LOOM_EMITTER_VERIFIER, &emission,
+        result.get(), active_module, (loom_source_resolver_t){0},
+        LOOM_EMITTER_VERIFIER, &emission,
         /*type_printer=*/nullptr));
   }
   const auto* diagnostic = loomc_result_diagnostic_at(result.get(), 0);

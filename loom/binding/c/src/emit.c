@@ -811,7 +811,8 @@ loomc_status_t loomc_emit_transaction_emit(
       loomc_target_environment_pass_environment(target_environment);
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(
-      result, /*source=*/NULL, internal_module, LOOM_EMITTER_VERIFIER,
+      result, /*source=*/NULL, internal_module,
+      loomc_module_source_resolver(module), LOOM_EMITTER_VERIFIER,
       pass_environment ? &pass_environment->diagnostic_type_print_options
                        : NULL,
       &capture);

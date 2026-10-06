@@ -259,7 +259,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
 }
 
 loomc_status_t loomc_result_add_loom_diagnostic_emission(
-    loomc_result_t* result, const loom_module_t* module, loom_emitter_t emitter,
+    loomc_result_t* result, const loom_module_t* module,
+    loom_source_resolver_t source_resolver, loom_emitter_t emitter,
     const loom_diagnostic_emission_t* emission,
     const loomc_diagnostic_type_printer_t* type_printer) {
   if (emission == NULL || emission->error == NULL) {
@@ -276,8 +277,8 @@ loomc_status_t loomc_result_add_loom_diagnostic_emission(
   if (emission->op) {
     const loom_module_t* primary_module =
         emission->module ? emission->module : module;
-    loom_source_resolve((loom_source_resolver_t){0}, primary_module,
-                        emission->op->location, &diagnostic.source_location);
+    loom_source_resolve(source_resolver, primary_module, emission->op->location,
+                        &diagnostic.source_location);
     diagnostic.origin = diagnostic.source_location;
   }
   loom_diagnostic_related_location_t
@@ -287,9 +288,8 @@ loomc_status_t loomc_result_add_loom_diagnostic_emission(
     const loom_module_t* related_module =
         related->module ? related->module : module;
     loom_source_range_t range;
-    if (!related->op ||
-        !loom_source_resolve((loom_source_resolver_t){0}, related_module,
-                             related->op->location, &range)) {
+    if (!related->op || !loom_source_resolve(source_resolver, related_module,
+                                             related->op->location, &range)) {
       continue;
     }
     if (diagnostic.related_location_count ==
@@ -310,13 +310,14 @@ loomc_status_t loomc_result_add_loom_diagnostic_emission(
 
 void loomc_diagnostic_capture_initialize(
     loomc_result_t* result, const loomc_source_t* source,
-    const loom_module_t* module, loom_emitter_t emitter,
-    const loom_text_print_options_t* text_print_options,
+    const loom_module_t* module, loom_source_resolver_t source_resolver,
+    loom_emitter_t emitter, const loom_text_print_options_t* text_print_options,
     loomc_diagnostic_capture_t* out_capture) {
   *out_capture = (loomc_diagnostic_capture_t){
       .result = result,
       .source = source,
       .module = module,
+      .source_resolver = source_resolver,
       .emitter = emitter,
   };
   loomc_diagnostic_type_printer_initialize(module, text_print_options,
@@ -335,19 +336,20 @@ iree_status_t loomc_diagnostic_capture_emission(
     void* user_data, const loom_diagnostic_emission_t* emission) {
   const loomc_diagnostic_capture_t* capture = user_data;
   return iree_status_from_loomc(loomc_result_add_loom_diagnostic_emission(
-      capture->result, capture->module, capture->emitter, emission,
-      &capture->type_printer));
+      capture->result, capture->module, capture->source_resolver,
+      capture->emitter, emission, &capture->type_printer));
 }
 
-loomc_status_t loomc_result_verify_loom_module(const loom_module_t* module,
-                                               loomc_result_t* result) {
+loomc_status_t loomc_result_verify_loom_module(
+    const loom_module_t* module, loom_source_resolver_t source_resolver,
+    loomc_result_t* result) {
   if (module == NULL || result == NULL) {
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "module and result must not be NULL");
   }
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(result, /*source=*/NULL, module,
-                                      LOOM_EMITTER_VERIFIER,
+                                      source_resolver, LOOM_EMITTER_VERIFIER,
                                       /*text_print_options=*/NULL, &capture);
   const loom_verify_options_t verify_options = {
       .sink =
@@ -356,6 +358,7 @@ loomc_status_t loomc_result_verify_loom_module(const loom_module_t* module,
               .user_data = &capture,
           },
       .max_errors = 20,
+      .source_resolver = source_resolver,
   };
   loom_verify_result_t verify_result = {0};
   LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(

@@ -7,7 +7,6 @@
 // loom-compile: compiles a Loom module to a runtime artifact.
 
 #include <stdio.h>
-#include <string.h>
 
 #include "iree/base/api.h"
 #include "iree/base/tooling/flags.h"
@@ -134,84 +133,11 @@ static void loom_compile_print_source_range(FILE* file,
   fputs(": ", file);
 }
 
-// Prints the original input line when a later compiler diagnostic retained
-// only its source identity and coordinates. The CLI owns the exact source
-// snapshot for this invocation; modules intentionally do not retain it.
-static void loom_compile_print_input_source_block(
-    FILE* file, const loomc_source_range_t* range,
-    const loomc_source_t* input_source) {
-  if (!range->source || !input_source || range->start_line == 0 ||
-      loomc_source_contents(range->source).data_length != 0 ||
-      !loomc_string_view_equal(loomc_source_identifier(range->source),
-                               loomc_source_identifier(input_source))) {
-    return;
-  }
-  const loomc_byte_span_t contents = loomc_source_contents(input_source);
-  iree_host_size_t line_start = 0;
-  uint32_t line = 1;
-  while (line < range->start_line && line_start < contents.data_length) {
-    if (contents.data[line_start++] == '\n') {
-      ++line;
-    }
-  }
-  if (line != range->start_line) {
-    return;
-  }
-  iree_host_size_t line_end = line_start;
-  while (line_end < contents.data_length && contents.data[line_end] != '\n') {
-    ++line_end;
-  }
-  if (line_end > line_start && contents.data[line_end - 1] == '\r') {
-    --line_end;
-  }
-  fprintf(file, " %u | ", range->start_line);
-  fwrite(contents.data + line_start, 1, line_end - line_start, file);
-  fputc('\n', file);
-
-  const int line_number_width = iree_snprintf(NULL, 0, "%u", range->start_line);
-  fputc(' ', file);
-  for (int i = 0; i < line_number_width; ++i) {
-    fputc(' ', file);
-  }
-  fputs(" | ", file);
-  const uint32_t start_column =
-      range->start_column == 0 ? 1 : range->start_column;
-  uint32_t column = 1;
-  for (iree_host_size_t i = line_start; i < line_end && column < start_column;
-       ++i) {
-    const uint8_t byte = contents.data[i];
-    if ((byte & 0xC0) == 0x80) {
-      continue;
-    }
-    fputc(byte == '\t' ? '\t' : ' ', file);
-    ++column;
-  }
-  uint32_t underline_length = 1;
-  if (range->end_line == range->start_line &&
-      range->end_column > start_column) {
-    underline_length = range->end_column - start_column;
-  }
-  for (uint32_t i = 0; i < underline_length; ++i) {
-    fputc('^', file);
-  }
-  fputc('\n', file);
-}
-
-static void loom_compile_print_diagnostic(FILE* file,
-                                          const loomc_diagnostic_t* diagnostic,
-                                          const loomc_source_t* input_source) {
+static void loom_compile_print_diagnostic(
+    FILE* file, const loomc_diagnostic_t* diagnostic) {
   if (!loomc_string_view_is_empty(diagnostic->formatted_text)) {
-    const char* first_newline = memchr(diagnostic->formatted_text.data, '\n',
-                                       diagnostic->formatted_text.size);
-    const iree_host_size_t heading_size =
-        first_newline ? (iree_host_size_t)(first_newline + 1 -
-                                           diagnostic->formatted_text.data)
-                      : diagnostic->formatted_text.size;
-    fwrite(diagnostic->formatted_text.data, 1, heading_size, file);
-    loom_compile_print_input_source_block(file, &diagnostic->range,
-                                          input_source);
-    fwrite(diagnostic->formatted_text.data + heading_size, 1,
-           diagnostic->formatted_text.size - heading_size, file);
+    fwrite(diagnostic->formatted_text.data, 1, diagnostic->formatted_text.size,
+           file);
     return;
   }
   loom_compile_print_source_range(file, &diagnostic->range);
@@ -237,15 +163,14 @@ static void loom_compile_print_diagnostic(FILE* file,
   }
 }
 
-static iree_status_t loom_compile_print_result(
-    const loomc_result_t* result, const loomc_source_t* input_source,
-    bool* out_succeeded) {
+static iree_status_t loom_compile_print_result(const loomc_result_t* result,
+                                               bool* out_succeeded) {
   for (loomc_host_size_t i = 0; i < loomc_result_diagnostic_count(result);
        ++i) {
     const loomc_diagnostic_t* diagnostic =
         loomc_result_diagnostic_at(result, i);
     if (diagnostic) {
-      loom_compile_print_diagnostic(stderr, diagnostic, input_source);
+      loom_compile_print_diagnostic(stderr, diagnostic);
     }
   }
   if (ferror(stderr)) {
@@ -902,7 +827,7 @@ int main(int argc, char** argv) {
   }
   if (iree_status_is_ok(status)) {
     bool parse_succeeded = false;
-    status = loom_compile_print_result(result, source, &parse_succeeded);
+    status = loom_compile_print_result(result, &parse_succeeded);
     if (iree_status_is_ok(status) && !parse_succeeded) {
       exit_code = 1;
     }
@@ -923,7 +848,7 @@ int main(int argc, char** argv) {
   }
   if (iree_status_is_ok(status) && result) {
     bool preparation_succeeded = false;
-    status = loom_compile_print_result(result, source, &preparation_succeeded);
+    status = loom_compile_print_result(result, &preparation_succeeded);
     if (iree_status_is_ok(status) && !preparation_succeeded) {
       exit_code = 1;
     }
@@ -999,7 +924,7 @@ int main(int argc, char** argv) {
 
   if (iree_status_is_ok(status) && exit_code == 0) {
     bool compile_succeeded = false;
-    status = loom_compile_print_result(result, source, &compile_succeeded);
+    status = loom_compile_print_result(result, &compile_succeeded);
     loom_compile_artifacts_t artifacts = {0};
     if (iree_status_is_ok(status)) {
       status = loom_compile_select_artifacts(result, &artifacts);

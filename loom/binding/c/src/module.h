@@ -10,6 +10,7 @@
 #include "config.h"
 #include "iree/base/internal/arena.h"
 #include "loom/error/diagnostic.h"
+#include "loom/error/source.h"
 #include "loom/ir/function_version.h"
 #include "loom/ir/module.h"
 #include "loomc/context.h"
@@ -100,6 +101,23 @@ LOOMC_API_PRIVATE loom_module_t* loomc_module_loom_module(
 // Returns the internal module owned by a public module handle.
 LOOMC_API_PRIVATE const loom_module_t* loomc_module_const_loom_module(
     const loomc_module_t* module);
+
+// Returns the exact-source resolver owned by |module|.
+LOOMC_API_PRIVATE loom_source_resolver_t
+loomc_module_source_resolver(const loomc_module_t* module);
+
+// Returns source snapshots indexed by the current internal module's source IDs.
+LOOMC_API_PRIVATE const loom_source_table_resolver_t* loomc_module_source_table(
+    const loomc_module_t* module);
+
+// Replaces owned snapshots with a copied source table for |internal_module|.
+LOOMC_API_PRIVATE loomc_status_t loomc_module_replace_source_table(
+    loomc_module_t* module, const loom_module_t* internal_module,
+    const loom_source_table_resolver_t* source_table);
+
+// Clears exact source snapshots after an unsuccessful replacing mutation.
+LOOMC_API_PRIVATE void loomc_module_clear_sources(
+    loomc_module_t* module, const loom_module_t* internal_module);
 
 // Establishes structural and target-Low input invariants before compilation or
 // direct emission. Successful verification against the module context is
