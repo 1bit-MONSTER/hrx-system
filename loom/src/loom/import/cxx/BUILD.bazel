@@ -27,6 +27,7 @@ exports_files([
     "include/loomcxx/numeric.h",
     "include/loomcxx/scalar.h",
     "include/loomcxx/target.h",
+    "include/loomcxx/target/amdgpu.h",
     "include/loomcxx/vector.h",
     "include/loomcxx/view.h",
     "include/initializer_list",

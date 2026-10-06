@@ -45,13 +45,15 @@ iree_c_embed_data(
         "//loom/src/loom/import/cxx:include/loomcxx/numeric.h",
         "//loom/src/loom/import/cxx:include/loomcxx/scalar.h",
         "//loom/src/loom/import/cxx:include/loomcxx/target.h",
+        "//loom/src/loom/import/cxx:include/loomcxx/target/amdgpu.h",
         "//loom/src/loom/import/cxx:include/loomcxx/vector.h",
         "//loom/src/loom/import/cxx:include/loomcxx/view.h",
     ],
     c_file_output = "embedded_loomcxx_headers.c",
-    flatten = True,
+    flatten = False,
     h_file_output = "embedded_loomcxx_headers.h",
     identifier = "loom_cxx_embedded_loomcxx_headers",
+    strip_prefix = "loom/src/loom/import/cxx/include/loomcxx/",
     target_compatible_with = _EMBED_COMPATIBLE_WITH,
 )
 

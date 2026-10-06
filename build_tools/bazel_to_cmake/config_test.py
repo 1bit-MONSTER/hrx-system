@@ -628,6 +628,29 @@ cc_library(
         self.assertIn('"generated_kernel.bin"', converter.body)
         self.assertNotIn("$<TARGET_FILE:", converter.body)
 
+    def test_c_embed_data_preserves_strip_prefix(self):
+        converter = SimpleNamespace(body="")
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="runtime/src/example",
+            repo_root="/repo",
+        )
+
+        functions.iree_c_embed_data(
+            name="headers",
+            srcs=["include/nested/header.h"],
+            c_file_output="headers.c",
+            h_file_output="headers.h",
+            strip_prefix="runtime/src/example/include/",
+        )
+
+        self.assertIn(
+            "  STRIP_PREFIX\n"
+            '    "${PROJECT_SOURCE_DIR}/runtime/src/example/include/"\n',
+            converter.body,
+        )
+
     def test_c_embed_data_srcs_preserve_source_file_labels(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             repo_root = Path(temporary_directory)
