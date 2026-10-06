@@ -112,21 +112,6 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "artifact",
-    hdrs = ["artifact.h"],
-    deps = [
-        ":options",
-        "//loom/src/loom/ir",
-        "//loom/src/loom/target:pipeline_options",
-        "//loom/src/loom/target:profile",
-        "//loom/src/loom/target:provider",
-        "//loom/src/loom/target:types",
-        "//loom/src/loom/target/reporting:report",
-        "//runtime/src/iree/base",
-    ],
-)
-
-loom_cc_library(
     name = "configured",
     srcs = ["configured.c"],
     hdrs = ["configured.h"],
@@ -172,12 +157,6 @@ loom_cc_library(
         "//loom/src/loom/util:json",
         "//runtime/src/iree/base",
     ],
-)
-
-iree_assert_dependency_boundary(
-    name = "artifact_boundary",
-    forbidden_subtrees = ["//loom/src/loom/tooling/execution/..."],
-    target = ":artifact",
 )
 
 iree_assert_dependency_boundary(

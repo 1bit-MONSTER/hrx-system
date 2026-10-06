@@ -236,6 +236,7 @@ loom_cc_library(
     ],
     deps = [
         ":facts",
+        ":provider",
         "//loom/src/loom/target:provider",
         "//loom/src/loom/target/emit/spirv:module_compiler",
     ],

@@ -159,8 +159,13 @@ loom_cc_library(
   HDRS
     "artifact.h"
   DEPS
+    iree::base
     iree::hal
-    loom::tooling::compile::artifact
+    loom::ir
+    loom::target::profile
+    loom::target::provider
+    loom::target::types
+    loom::tooling::compile::options
   PUBLIC
 )
 
@@ -172,12 +177,12 @@ loom_cc_library(
   SRCS
     "device_provider.c"
   DEPS
+    ::artifact
     ::runtime
     iree::base
     iree::hal
     loom::target::profile
     loom::target::selection
-    loom::tooling::compile::artifact
   PUBLIC
 )
 
@@ -209,9 +214,9 @@ loom_cc_library(
   SRCS
     "candidate.c"
   DEPS
+    ::artifact
     ::device_provider
     iree::base
-    loom::tooling::compile::artifact
     loom::tooling::compile::options
     loom::tooling::execution::session
   PUBLIC
@@ -414,6 +419,7 @@ loom_cc_test(
   SRCS
     "device_provider_test.cc"
   DEPS
+    ::artifact
     ::device_provider
     ::runtime
     iree::base
@@ -422,7 +428,6 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::target::profile
     loom::target::provider
-    loom::tooling::compile::artifact
 )
 
 loom_cc_test(

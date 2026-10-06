@@ -22,7 +22,7 @@ static void loom_run_hal_candidate_initialize(
   const loom_artifact_provider_t* artifact_provider =
       provider->artifact_provider;
   loom_target_compile_report_initialize_if_empty(report, report->allocator);
-  report->artifact_kind = artifact_provider->artifact_kind;
+  report->artifact_kind = LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;
   report->backend_name = artifact_provider->name;
   report->target_family_name = artifact_provider->target_profile_type->name;
 }
@@ -36,7 +36,7 @@ static void loom_run_hal_candidate_record_report_status(
   }
   const loom_artifact_provider_t* artifact_provider =
       candidate->provider->artifact_provider;
-  report->artifact_kind = artifact_provider->artifact_kind;
+  report->artifact_kind = LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE;
   report->backend_name = artifact_provider->name;
   report->target_family_name = artifact_provider->target_profile_type->name;
   if (candidate->compiled) {

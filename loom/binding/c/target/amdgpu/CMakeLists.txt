@@ -31,7 +31,6 @@ loom_cc_library(
     loom::target::arch::amdgpu::artifact_key
     loom::target::arch::amdgpu::ops
     loom::target::arch::amdgpu::profile
-    loom::target::arch::amdgpu::provider
     loom::target::arch::amdgpu::records::target_records
     loom::target::arch::amdgpu::target_info
     loom::target::emit::native::amdgpu::hal_kernel_library

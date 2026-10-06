@@ -1261,7 +1261,7 @@ static iree_status_t loom_amdgpu_hal_kernel_library_emit(
   return status;
 }
 
-static const loom_target_emitter_t loom_amdgpu_hal_kernel_library_emitter = {
+const loom_target_emitter_t loom_amdgpu_hal_kernel_library_emitter = {
     .name = IREE_SVL("amdgpu-hal"),
     .public_artifact_format = IREE_SVL("amdgpu-hsaco"),
     .default_identifier = IREE_SVL("module.hsaco"),
@@ -1279,4 +1279,14 @@ const loom_target_provider_t loom_amdgpu_hal_kernel_library_provider = {
         },
     .canonical_kernel_emitter = &loom_amdgpu_hal_kernel_library_emitter,
     .canonical_kernel_fact_type = &loom_amdgpu_target_fact_type,
+};
+
+static const loom_target_provider_t* const kLoomAmdgpuCompilerProviders[] = {
+    &loom_amdgpu_target_provider,
+    &loom_amdgpu_hal_kernel_library_provider,
+};
+
+const loom_target_provider_set_t loom_amdgpu_compiler_provider_set = {
+    .providers = kLoomAmdgpuCompilerProviders,
+    .provider_count = IREE_ARRAYSIZE(kLoomAmdgpuCompilerProviders),
 };

@@ -9,13 +9,13 @@
 #ifndef LOOM_TOOLING_TARGET_SPIRV_ARTIFACT_PROVIDER_H_
 #define LOOM_TOOLING_TARGET_SPIRV_ARTIFACT_PROVIDER_H_
 
-#include "loom/tooling/compile/artifact.h"
+#include "loom/tooling/execution/hal/artifact.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// SPIR-V module compiler used by offline tools and live Vulkan execution.
+// Live Vulkan HAL adapter for target-owned SPIR-V emission.
 extern const loom_artifact_provider_t loom_spirv_vulkan_artifact_provider;
 
 #ifdef __cplusplus

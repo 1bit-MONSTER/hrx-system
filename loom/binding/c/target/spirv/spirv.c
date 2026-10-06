@@ -6,22 +6,11 @@
 
 #include "loom/binding/c/target/provider_set.h"
 #include "loom/target/arch/spirv/compiler_provider.h"
-#include "loom/target/arch/spirv/provider.h"
 #include "loomc/target/spirv/base.h"
 #include "target.h"
 
-static const loom_target_provider_t* const kLoomcSpirvTargetProviders[] = {
-    &loom_spirv_target_provider,
-    &loom_spirv_compiler_provider,
-};
-
-static const loom_target_provider_set_t kLoomcSpirvProviderSet = {
-    .providers = kLoomcSpirvTargetProviders,
-    .provider_count = IREE_ARRAYSIZE(kLoomcSpirvTargetProviders),
-};
-
 const loom_target_provider_set_t* loomc_spirv_provider_set(void) {
-  return &kLoomcSpirvProviderSet;
+  return &loom_spirv_compiler_provider_set;
 }
 
 loomc_status_t loomc_target_environment_create_spirv(

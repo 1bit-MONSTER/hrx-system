@@ -981,6 +981,7 @@ loom_cc_library(
     ::array_program
     ::array_resident
     ::leaf_compile
+    ::provider
     ::target_facts
     ::target_profile
     ::tile_link

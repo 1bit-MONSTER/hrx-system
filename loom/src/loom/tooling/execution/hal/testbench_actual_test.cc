@@ -278,11 +278,28 @@ static iree_status_t FakeHalSelectProfileDeviceTarget(
                                    out_target);
 }
 
+static iree_status_t EmitFakeTargetArtifact(
+    const loom_target_emit_request_t* request, bool* out_emitted,
+    loom_target_emit_artifact_t* out_artifact) {
+  (void)request;
+  *out_emitted = false;
+  *out_artifact = {};
+  return iree_ok_status();
+}
+
+static const loom_target_emitter_t kFakeTargetEmitter = {
+    /*.name=*/IREE_SVL("fake-hal"),
+    /*.public_artifact_format=*/IREE_SVL("fake-hal"),
+    /*.default_identifier=*/IREE_SVL("fake.bin"),
+    /*.target_artifact_format=*/LOOM_TARGET_ARTIFACT_FORMAT_ELF,
+    /*.default_pipeline_options=*/{},
+    /*.emit=*/EmitFakeTargetArtifact,
+};
+
 static const loom_artifact_provider_t kFakeArtifactProvider = {
     /*.name=*/IREE_SVL("fake-hal"),
     /*.target_profile_type=*/&kFakeTargetProfileType,
-    /*.artifact_kind=*/LOOM_TARGET_COMPILE_ARTIFACT_KIND_HAL_EXECUTABLE,
-    /*.default_pipeline_options=*/{},
+    /*.target_emitter=*/&kFakeTargetEmitter,
 };
 
 static const loom_device_provider_t kFakeDeviceProvider = {

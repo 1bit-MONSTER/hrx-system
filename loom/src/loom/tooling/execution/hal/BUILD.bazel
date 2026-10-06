@@ -86,7 +86,12 @@ loom_cc_library(
     name = "artifact",
     hdrs = ["artifact.h"],
     deps = [
-        "//loom/src/loom/tooling/compile:artifact",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/target:profile",
+        "//loom/src/loom/target:provider",
+        "//loom/src/loom/target:types",
+        "//loom/src/loom/tooling/compile:options",
+        "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
     ],
 )
@@ -96,10 +101,10 @@ loom_cc_library(
     srcs = ["device_provider.c"],
     hdrs = ["device_provider.h"],
     deps = [
+        ":artifact",
         ":runtime",
         "//loom/src/loom/target:profile",
         "//loom/src/loom/target:selection",
-        "//loom/src/loom/tooling/compile:artifact",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
     ],
@@ -127,8 +132,8 @@ loom_cc_library(
     srcs = ["candidate.c"],
     hdrs = ["candidate.h"],
     deps = [
+        ":artifact",
         ":device_provider",
-        "//loom/src/loom/tooling/compile:artifact",
         "//loom/src/loom/tooling/compile:options",
         "//loom/src/loom/tooling/execution:session",
         "//runtime/src/iree/base",
@@ -308,11 +313,11 @@ loom_cc_test(
     name = "device_provider_test",
     srcs = ["device_provider_test.cc"],
     deps = [
+        ":artifact",
         ":device_provider",
         ":runtime",
         "//loom/src/loom/target:profile",
         "//loom/src/loom/target:provider",
-        "//loom/src/loom/tooling/compile:artifact",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/testing:gtest",

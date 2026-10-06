@@ -222,7 +222,8 @@ iree_status_t loom_run_hal_execution_backend_run_one_shot(
   const loom_sanitizer_options_t sanitizer =
       compile_options.target_pipeline_options.sanitizer;
   compile_options.target_pipeline_options =
-      device_provider->artifact_provider->default_pipeline_options;
+      device_provider->artifact_provider->target_emitter
+          ->default_pipeline_options;
   compile_options.target_pipeline_options.sanitizer = sanitizer;
 
   loom_run_hal_runtime_t runtime = {0};

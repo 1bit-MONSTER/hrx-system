@@ -9,13 +9,13 @@
 #ifndef LOOM_TOOLING_TARGET_AMDGPU_ARTIFACT_PROVIDER_H_
 #define LOOM_TOOLING_TARGET_AMDGPU_ARTIFACT_PROVIDER_H_
 
-#include "loom/tooling/compile/artifact.h"
+#include "loom/tooling/execution/hal/artifact.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// AMDGPU HSACO compiler used by offline tools and live HAL execution.
+// Live HAL adapter for target-owned AMDGPU HSACO emission.
 extern const loom_artifact_provider_t loom_amdgpu_artifact_provider;
 
 #ifdef __cplusplus
