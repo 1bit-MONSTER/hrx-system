@@ -692,6 +692,37 @@ TEST(Arena, GrowArrayFromEmpty) {
   iree_arena_block_pool_deinitialize(&pool);
 }
 
+TEST(Arena, GrowArrayBeforeEveryAppend) {
+  iree_arena_block_pool_t pool;
+  iree_arena_block_pool_initialize(kBlockSize, iree_allocator_system(), &pool);
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(&pool, &arena);
+
+  iree_host_size_t capacity = 0;
+  uint32_t* values = NULL;
+  for (iree_host_size_t count = 0; count < 6; ++count) {
+    const iree_host_size_t previous_capacity = capacity;
+    uint32_t* previous_values = values;
+    IREE_ASSERT_OK(iree_arena_grow_array(
+        &arena, count, count + 1, sizeof(*values), &capacity, (void**)&values));
+    EXPECT_GE(capacity, count + 1);
+    if (count < previous_capacity) {
+      EXPECT_EQ(capacity, previous_capacity);
+      EXPECT_EQ(values, previous_values);
+    } else {
+      EXPECT_GT(capacity, previous_capacity);
+    }
+    for (iree_host_size_t i = 0; i < count; ++i) {
+      EXPECT_EQ(values[i], (uint32_t)i);
+    }
+    values[count] = (uint32_t)count;
+  }
+  EXPECT_EQ(capacity, 8u);
+
+  iree_arena_deinitialize(&arena);
+  iree_arena_block_pool_deinitialize(&pool);
+}
+
 TEST(Arena, GrowArrayCopiesExisting) {
   iree_arena_block_pool_t pool;
   iree_arena_block_pool_initialize(kBlockSize, iree_allocator_system(), &pool);

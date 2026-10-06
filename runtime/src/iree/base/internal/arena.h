@@ -282,11 +282,17 @@ iree_status_t iree_arena_allocate_array_aligned(iree_arena_allocator_t* arena,
                                                 iree_host_size_t min_alignment,
                                                 void** out_ptr);
 
-// Grows an array allocation using a 2x doubling strategy.
-// The new capacity is max(|minimum_capacity|, |*inout_capacity| * 2).
-// On success |*inout_capacity| is updated and |*inout_ptr| points to
-// the new allocation with existing elements copied. The old allocation
-// is abandoned in the arena (arenas cannot free individual allocations).
+// Grows a full array allocation or ensures at least |minimum_capacity| using a
+// 2x doubling strategy. It is safe to call before every append: when the
+// existing elements and requested minimum already fit with spare capacity the
+// function returns without allocating or copying and leaves the pointer and
+// capacity unchanged.
+//
+// When growth is required the new capacity is
+// max(|minimum_capacity|, |*inout_capacity| * 2).
+// On successful growth |*inout_capacity| is updated and |*inout_ptr| points to
+// the new allocation with existing elements copied. The old allocation is
+// abandoned in the arena (arenas cannot free individual allocations).
 // Copies |existing_count| * |element_size| bytes from the old array.
 // Returns IREE_STATUS_OUT_OF_RANGE if the capacity calculation overflows.
 iree_status_t iree_arena_grow_array(iree_arena_allocator_t* arena,

@@ -514,6 +514,10 @@ iree_status_t iree_arena_grow_array(iree_arena_allocator_t* arena,
                                     iree_host_size_t element_size,
                                     iree_host_size_t* inout_capacity,
                                     void** inout_ptr) {
+  if (*inout_ptr != NULL && existing_count < *inout_capacity &&
+      minimum_capacity <= *inout_capacity) {
+    return iree_ok_status();
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   iree_host_size_t doubled_capacity = 0;
   if (!iree_host_size_checked_mul(*inout_capacity, 2, &doubled_capacity)) {
