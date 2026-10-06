@@ -319,6 +319,24 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    storage_transport
+  HDRS
+    "storage_transport.h"
+  SRCS
+    "storage_transport.c"
+  DEPS
+    ::function_model
+    ::storage_layout
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::low
+    loom::target::registers
+  PUBLIC
+)
+
 loom_cc_test(
   NAME
     function_requirements_test
@@ -570,6 +588,7 @@ loom_cc_library(
     ::placement
     ::storage_layout
     ::storage_lease
+    ::storage_transport
     ::target_binding
     iree::base
     iree::base::internal::arena
@@ -970,6 +989,7 @@ loom_cc_library(
     ::rematerialization
     ::storage_layout
     ::storage_lease
+    ::storage_transport
     iree::base
     iree::base::internal::arena
     loom::codegen::low::schedule

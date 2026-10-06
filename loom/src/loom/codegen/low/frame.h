@@ -92,7 +92,7 @@ typedef struct loom_low_emission_frame_options_t {
   loom_low_call_contract_query_t call_contracts;
   // Storage spaces supported by synchronous final transport in this emitter.
   // This does not authorize hiding asynchronous target instructions in moves.
-  loom_low_storage_space_set_t move_storage_spaces;
+  loom_low_storage_space_set_t synchronous_storage_spaces;
   // Whole-function target-owned location ranges passed to allocation.
   const loom_low_allocation_reserved_range_t* allocation_reserved_ranges;
   // Number of entries in |allocation_reserved_ranges|.

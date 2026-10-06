@@ -12,6 +12,7 @@
 #include "loom/codegen/low/function_model.h"
 #include "loom/codegen/low/schedule/dependencies.h"
 #include "loom/codegen/low/schedule/run.h"
+#include "loom/codegen/low/storage_transport.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/low_emit.h"
 
@@ -66,6 +67,8 @@ typedef struct loom_check_test_schedule_options_t {
   loom_low_schedule_strategy_t schedule_strategy;
   // Structured scheduler diagnostics requested by the RUN line.
   loom_low_schedule_diagnostic_flags_t schedule_diagnostic_flags;
+  // Invocation spaces whose synchronous boundary transport is being tested.
+  loom_low_storage_space_set_t storage_transport_spaces;
   // Low allocation budget overrides parsed from the RUN line.
   loom_low_allocation_budget_t
       allocation_budgets[LOOM_CHECK_LOW_EMIT_MAX_ALLOCATION_BUDGETS];
@@ -235,6 +238,21 @@ static iree_status_t loom_check_test_schedule_parse_option(
   iree_string_view_split(token, '=', &name, &value);
   name = iree_string_view_trim(name);
   value = iree_string_view_trim(value);
+  if (iree_string_view_equal(name, IREE_SV("storage-transport"))) {
+    for (loom_storage_space_t space = 0; space < LOOM_STORAGE_SPACE_COUNT_;
+         ++space) {
+      const loom_low_storage_space_set_t bit =
+          loom_low_storage_space_set_for(space);
+      iree_string_view_t spelling;
+      if (loom_low_storage_space_set_names(bit, 1, &spelling) &&
+          iree_string_view_equal(value, spelling)) {
+        options->storage_transport_spaces |= bit;
+        return iree_ok_status();
+      }
+    }
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "storage-transport requires a storage space");
+  }
   if (iree_string_view_equal(name, IREE_SV("kind"))) {
     if (iree_any_bit_set(options->flags,
                          LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_KIND)) {
@@ -411,12 +429,13 @@ static iree_status_t loom_check_test_schedule_parse_options(
       iree_string_view_is_empty(out_options->issue_nodes) &&
       iree_string_view_is_empty(out_options->descriptor_nodes) &&
       iree_string_view_is_empty(out_options->dependency_edges) &&
-      iree_string_view_is_empty(out_options->pressure_register_class)) {
+      iree_string_view_is_empty(out_options->pressure_register_class) &&
+      !out_options->storage_transport_spaces) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "low-schedule-query requires option 'consumer', 'order', 'issue', "
-        "'descriptor', 'edge', 'timing', 'scheduled-pressure', or "
-        "'scheduled-pressure-limit'");
+        "'descriptor', 'edge', 'timing', 'scheduled-pressure', "
+        "'scheduled-pressure-limit', or 'storage-transport'");
   }
   return iree_ok_status();
 }
@@ -864,6 +883,47 @@ static iree_status_t loom_check_test_schedule_append_pressure(
       match->peak_live_units, match->peak_live_values);
 }
 
+static iree_status_t loom_check_test_schedule_append_transport(
+    const loom_low_function_model_t* model,
+    const loom_low_storage_transport_t* transport,
+    iree_string_builder_t* output) {
+  if (!transport) {
+    return iree_string_builder_append_cstring(output, "stored values: none\n");
+  }
+  iree_status_t status = iree_ok_status();
+  for (uint32_t ordinal = 0;
+       ordinal < model->value_domain.value_count && iree_status_is_ok(status);
+       ++ordinal) {
+    const uint32_t index = transport->bindings_by_value_ordinal[ordinal];
+    if (index == UINT32_MAX) {
+      continue;
+    }
+    const loom_low_storage_transport_binding_t* binding =
+        &transport->bindings[index];
+    const loom_value_t* value = loom_module_value(
+        model->module, model->value_domain.value_ids[ordinal]);
+    const iree_string_view_t name =
+        value->name_id == LOOM_STRING_ID_INVALID
+            ? iree_string_view_empty()
+            : loom_string_table_get(&model->module->strings, value->name_id);
+    iree_string_view_t space;
+    loom_low_storage_space_set_names(
+        loom_low_storage_space_set_for(binding->space), 1, &space);
+    status =
+        iree_string_view_is_empty(name)
+            ? iree_string_builder_append_format(
+                  output, "stored %%%u", model->value_domain.value_ids[ordinal])
+            : iree_string_builder_append_format(output, "stored %%%.*s",
+                                                (int)name.size, name.data);
+    if (iree_status_is_ok(status)) {
+      status = iree_string_builder_append_format(output, ": %.*s+%" PRIu64 "\n",
+                                                 (int)space.size, space.data,
+                                                 binding->byte_offset);
+    }
+  }
+  return status;
+}
+
 static iree_status_t loom_check_test_schedule_build(
     const loom_check_emit_provider_request_t* request,
     const loom_check_test_schedule_options_t* options,
@@ -893,7 +953,7 @@ static iree_status_t loom_check_test_schedule_build(
     return iree_ok_status();
   }
 
-  const loom_low_schedule_options_t schedule_options = {
+  loom_low_schedule_options_t schedule_options = {
       .allocation_budgets = options->allocation_budgets,
       .allocation_budget_count = options->allocation_budget_count,
       .emitter = emitter,
@@ -908,6 +968,11 @@ static iree_status_t loom_check_test_schedule_build(
       /*function_target_facts=*/NULL, &request->low_registry->registry, emitter,
       /*flags=*/0, request->case_arena, &model);
   if (iree_status_is_ok(status)) {
+    status = loom_low_storage_transport_build(
+        &model, options->storage_transport_spaces, request->case_arena,
+        &schedule_options.storage_transport);
+  }
+  if (iree_status_is_ok(status)) {
     status = loom_low_schedule_function(&model, &schedule_options,
                                         request->case_arena, out_schedule);
   }
@@ -920,6 +985,12 @@ static iree_status_t loom_check_test_schedule_build(
   }
   if (iree_status_is_ok(status)) {
     *out_accepted = out_schedule->error_count == 0;
+  }
+  if (iree_status_is_ok(status) && *out_accepted &&
+      options->storage_transport_spaces) {
+    status = loom_check_test_schedule_append_transport(
+        &model, schedule_options.storage_transport,
+        &request->result->actual_output);
   }
   loom_low_function_model_deinitialize(&model);
   return status;

@@ -331,6 +331,21 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "storage_transport",
+    srcs = ["storage_transport.c"],
+    hdrs = ["storage_transport.h"],
+    deps = [
+        ":function_model",
+        ":storage_layout",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target:registers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
 loom_cc_test(
     name = "function_requirements_test",
     srcs = ["function_requirements_test.cc"],
@@ -552,6 +567,7 @@ loom_cc_library(
         ":placement",
         ":storage_layout",
         ":storage_lease",
+        ":storage_transport",
         ":target_binding",
         "//loom/src/loom/analysis:consumption",
         "//loom/src/loom/analysis:liveness",
@@ -905,6 +921,7 @@ loom_cc_library(
         ":rematerialization",
         ":storage_layout",
         ":storage_lease",
+        ":storage_transport",
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",

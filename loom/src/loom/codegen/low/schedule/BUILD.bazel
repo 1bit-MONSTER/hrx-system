@@ -164,6 +164,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low:representation_binding",
         "//loom/src/loom/codegen/low:storage_layout",
         "//loom/src/loom/codegen/low:storage_relation",
+        "//loom/src/loom/codegen/low:storage_transport",
         "//loom/src/loom/codegen/low:target_binding",
         "//loom/src/loom/codegen/low:text_asm",
         "//loom/src/loom/codegen/low/allocation:storage",

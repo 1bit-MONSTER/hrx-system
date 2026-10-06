@@ -815,6 +815,30 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
       continue;
     }
 
+    const uint32_t storage_index =
+        context->storage_transport
+            ? context->storage_transport
+                  ->bindings_by_value_ordinal[value_ordinal]
+            : UINT32_MAX;
+    if (storage_index != UINT32_MAX) {
+      const loom_low_allocation_assignment_t stored = {
+          .value_id = interval->value_id,
+          .descriptor_reg_class_id = interval->value_class.register_class_id,
+          .start_point = entry->acquisition_start_point,
+          .end_point = interval->end_point,
+          .unit_count = interval->unit_count,
+          .location_kind = LOOM_LOW_ALLOCATION_LOCATION_STORAGE,
+          .location_base = storage_index,
+          .location_count = interval->unit_count,
+      };
+      const loom_low_allocation_assignment_t assignment =
+          loom_low_allocation_interval_assignment_prepare_assignment(
+              state, &stored, value_ordinal);
+      loom_low_allocation_interval_assignment_publish_assignment(
+          state, &assignment, value_ordinal);
+      continue;
+    }
+
     const loom_low_allocation_assignment_t* tied_source =
         loom_low_allocation_interval_assignment_tied_source_assignment(
             state, value_ordinal);

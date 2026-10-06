@@ -254,3 +254,67 @@ TEST(NativeCallableTest, CallsPreserveLoopState) {
 }
 
 }  // namespace
+
+static uint64_t Weighted(const std::array<uint64_t, 32>& values) {
+  uint64_t result = 0;
+  for (size_t i = 0; i < values.size(); ++i) {
+    result += values[i] * (i + 1);
+  }
+  return result;
+}
+
+extern "C" uint64_t incoming_many(
+    uint32_t value0, uint64_t value1, uint32_t value2, uint64_t value3,
+    uint32_t value4, uint64_t value5, uint32_t value6, uint64_t value7,
+    uint32_t value8, uint64_t value9, uint32_t value10, uint64_t value11,
+    uint32_t value12, uint64_t value13, uint32_t value14, uint64_t value15,
+    uint32_t value16, uint64_t value17, uint32_t value18, uint64_t value19,
+    uint32_t value20, uint64_t value21, uint32_t value22, uint64_t value23,
+    uint32_t value24, uint64_t value25, uint32_t value26, uint64_t value27,
+    uint32_t value28, uint64_t value29, uint32_t value30, uint64_t value31);
+extern "C" uint64_t outgoing_many(const uint64_t* input);
+extern "C" uint64_t host_weighted(
+    uint32_t value0, uint64_t value1, uint32_t value2, uint64_t value3,
+    uint32_t value4, uint64_t value5, uint32_t value6, uint64_t value7,
+    uint32_t value8, uint64_t value9, uint32_t value10, uint64_t value11,
+    uint32_t value12, uint64_t value13, uint32_t value14, uint64_t value15,
+    uint32_t value16, uint64_t value17, uint32_t value18, uint64_t value19,
+    uint32_t value20, uint64_t value21, uint32_t value22, uint64_t value23,
+    uint32_t value24, uint64_t value25, uint32_t value26, uint64_t value27,
+    uint32_t value28, uint64_t value29, uint32_t value30, uint64_t value31) {
+  return Weighted(
+      {value0,  value1,  value2,  value3,  value4,  value5,  value6,  value7,
+       value8,  value9,  value10, value11, value12, value13, value14, value15,
+       value16, value17, value18, value19, value20, value21, value22, value23,
+       value24, value25, value26, value27, value28, value29, value30, value31});
+}
+
+TEST(NativeCallableTest, StoredIncomingAndOutgoingArguments) {
+  for (uint64_t seed : {0ull, 1ull, 0x123456789abcdef0ull}) {
+    std::array<uint64_t, 32> values;
+    for (size_t i = 0; i < values.size(); ++i) {
+      values[i] = (seed + i * 0x9e3779b97f4a7c15ull) ^ (seed >> (i % 17));
+    }
+    for (size_t i = 0; i < values.size(); i += 2) {
+      values[i] = static_cast<uint32_t>(values[i]);
+    }
+    EXPECT_EQ(incoming_many(values[0], values[1], values[2], values[3],
+                            values[4], values[5], values[6], values[7],
+                            values[8], values[9], values[10], values[11],
+                            values[12], values[13], values[14], values[15],
+                            values[16], values[17], values[18], values[19],
+                            values[20], values[21], values[22], values[23],
+                            values[24], values[25], values[26], values[27],
+                            values[28], values[29], values[30], values[31]),
+              Weighted(values));
+    auto forward = values;
+    auto reverse = values;
+    forward[31] = 5;
+    for (size_t i = 0; i < 31; ++i) {
+      reverse[i] = values[30 - i];
+    }
+    reverse[31] = 9;
+    EXPECT_EQ(outgoing_many(values.data()),
+              Weighted(forward) ^ Weighted(reverse));
+  }
+}

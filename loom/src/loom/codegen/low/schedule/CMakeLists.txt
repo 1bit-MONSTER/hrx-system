@@ -183,6 +183,7 @@ loom_cc_library(
     loom::codegen::low::representation_binding
     loom::codegen::low::storage_layout
     loom::codegen::low::storage_relation
+    loom::codegen::low::storage_transport
     loom::codegen::low::target_binding
     loom::codegen::low::text_asm
     loom::error::emitter

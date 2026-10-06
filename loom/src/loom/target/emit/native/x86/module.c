@@ -144,9 +144,9 @@ static iree_status_t loom_x86_module_encode_function(
       .allocation_entry_locations = abi.entry_locations,
       .allocation_entry_location_count = abi.entry_location_count,
       .call_contracts = {.fn = loom_x86_function_call_contract},
-      .move_storage_spaces = LOOM_LOW_STORAGE_SPACE_SET_STACK |
-                             LOOM_LOW_STORAGE_SPACE_SET_PRIVATE |
-                             LOOM_LOW_STORAGE_SPACE_SET_SCRATCH,
+      .synchronous_storage_spaces = LOOM_LOW_STORAGE_SPACE_SET_STACK |
+                                    LOOM_LOW_STORAGE_SPACE_SET_PRIVATE |
+                                    LOOM_LOW_STORAGE_SPACE_SET_SCRATCH,
       .allocation_reserved_ranges = &stack_pointer,
       .allocation_reserved_range_count = 1,
       .emitter = request->diagnostic_emitter,

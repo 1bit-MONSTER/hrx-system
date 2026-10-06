@@ -1,0 +1,543 @@
+// Each scalar ABI format crosses the same 64-bit physical cell. The argument
+// and result sets exceed the 256-cell register bank and permute whole cells.
+func.def noinline @rotate_values(%value0: i1, %value1: i8, %value2: i16, %value3: i32, %value4: i64, %value5: f8E4M3, %value6: f8E5M2, %value7: f16, %value8: bf16, %value9: f32, %value10: f64, %value11: i1, %value12: i8, %value13: i16, %value14: i32, %value15: i64, %value16: f8E4M3, %value17: f8E5M2, %value18: f16, %value19: bf16, %value20: f32, %value21: f64, %value22: i1, %value23: i8, %value24: i16, %value25: i32, %value26: i64, %value27: f8E4M3, %value28: f8E5M2, %value29: f16, %value30: bf16, %value31: f32, %value32: f64, %value33: i1, %value34: i8, %value35: i16, %value36: i32, %value37: i64, %value38: f8E4M3, %value39: f8E5M2, %value40: f16, %value41: bf16, %value42: f32, %value43: f64, %value44: i1, %value45: i8, %value46: i16, %value47: i32, %value48: i64, %value49: f8E4M3, %value50: f8E5M2, %value51: f16, %value52: bf16, %value53: f32, %value54: f64, %value55: i1, %value56: i8, %value57: i16, %value58: i32, %value59: i64, %value60: f8E4M3, %value61: f8E5M2, %value62: f16, %value63: bf16, %value64: f32, %value65: f64, %value66: i1, %value67: i8, %value68: i16, %value69: i32, %value70: i64, %value71: f8E4M3, %value72: f8E5M2, %value73: f16, %value74: bf16, %value75: f32, %value76: f64, %value77: i1, %value78: i8, %value79: i16, %value80: i32, %value81: i64, %value82: f8E4M3, %value83: f8E5M2, %value84: f16, %value85: bf16, %value86: f32, %value87: f64, %value88: i1, %value89: i8, %value90: i16, %value91: i32, %value92: i64, %value93: f8E4M3, %value94: f8E5M2, %value95: f16, %value96: bf16, %value97: f32, %value98: f64, %value99: i1, %value100: i8, %value101: i16, %value102: i32, %value103: i64, %value104: f8E4M3, %value105: f8E5M2, %value106: f16, %value107: bf16, %value108: f32, %value109: f64, %value110: i1, %value111: i8, %value112: i16, %value113: i32, %value114: i64, %value115: f8E4M3, %value116: f8E5M2, %value117: f16, %value118: bf16, %value119: f32, %value120: f64, %value121: i1, %value122: i8, %value123: i16, %value124: i32, %value125: i64, %value126: f8E4M3, %value127: f8E5M2, %value128: f16, %value129: bf16, %value130: f32, %value131: f64, %value132: i1, %value133: i8, %value134: i16, %value135: i32, %value136: i64, %value137: f8E4M3, %value138: f8E5M2, %value139: f16, %value140: bf16, %value141: f32, %value142: f64, %value143: i1, %value144: i8, %value145: i16, %value146: i32, %value147: i64, %value148: f8E4M3, %value149: f8E5M2, %value150: f16, %value151: bf16, %value152: f32, %value153: f64, %value154: i1, %value155: i8, %value156: i16, %value157: i32, %value158: i64, %value159: f8E4M3, %value160: f8E5M2, %value161: f16, %value162: bf16, %value163: f32, %value164: f64, %value165: i1, %value166: i8, %value167: i16, %value168: i32, %value169: i64, %value170: f8E4M3, %value171: f8E5M2, %value172: f16, %value173: bf16, %value174: f32, %value175: f64, %value176: i1, %value177: i8, %value178: i16, %value179: i32, %value180: i64, %value181: f8E4M3, %value182: f8E5M2, %value183: f16, %value184: bf16, %value185: f32, %value186: f64, %value187: i1, %value188: i8, %value189: i16, %value190: i32, %value191: i64, %value192: f8E4M3, %value193: f8E5M2, %value194: f16, %value195: bf16, %value196: f32, %value197: f64, %value198: i1, %value199: i8, %value200: i16, %value201: i32, %value202: i64, %value203: f8E4M3, %value204: f8E5M2, %value205: f16, %value206: bf16, %value207: f32, %value208: f64, %value209: i1, %value210: i8, %value211: i16, %value212: i32, %value213: i64, %value214: f8E4M3, %value215: f8E5M2, %value216: f16, %value217: bf16, %value218: f32, %value219: f64, %value220: i1, %value221: i8, %value222: i16, %value223: i32, %value224: i64, %value225: f8E4M3, %value226: f8E5M2, %value227: f16, %value228: bf16, %value229: f32, %value230: f64, %value231: i1, %value232: i8, %value233: i16, %value234: i32, %value235: i64, %value236: f8E4M3, %value237: f8E5M2, %value238: f16, %value239: bf16, %value240: f32, %value241: f64, %value242: i1, %value243: i8, %value244: i16, %value245: i32, %value246: i64, %value247: f8E4M3, %value248: f8E5M2, %value249: f16, %value250: bf16, %value251: f32, %value252: f64, %value253: i1, %value254: i8, %value255: i16, %value256: i32, %value257: i64, %value258: f8E4M3, %value259: f8E5M2, %value260: f16, %value261: bf16, %value262: f32, %value263: f64) -> (i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64) {
+  func.return %value11, %value12, %value13, %value14, %value15, %value16, %value17, %value18, %value19, %value20, %value21, %value22, %value23, %value24, %value25, %value26, %value27, %value28, %value29, %value30, %value31, %value32, %value33, %value34, %value35, %value36, %value37, %value38, %value39, %value40, %value41, %value42, %value43, %value44, %value45, %value46, %value47, %value48, %value49, %value50, %value51, %value52, %value53, %value54, %value55, %value56, %value57, %value58, %value59, %value60, %value61, %value62, %value63, %value64, %value65, %value66, %value67, %value68, %value69, %value70, %value71, %value72, %value73, %value74, %value75, %value76, %value77, %value78, %value79, %value80, %value81, %value82, %value83, %value84, %value85, %value86, %value87, %value88, %value89, %value90, %value91, %value92, %value93, %value94, %value95, %value96, %value97, %value98, %value99, %value100, %value101, %value102, %value103, %value104, %value105, %value106, %value107, %value108, %value109, %value110, %value111, %value112, %value113, %value114, %value115, %value116, %value117, %value118, %value119, %value120, %value121, %value122, %value123, %value124, %value125, %value126, %value127, %value128, %value129, %value130, %value131, %value132, %value133, %value134, %value135, %value136, %value137, %value138, %value139, %value140, %value141, %value142, %value143, %value144, %value145, %value146, %value147, %value148, %value149, %value150, %value151, %value152, %value153, %value154, %value155, %value156, %value157, %value158, %value159, %value160, %value161, %value162, %value163, %value164, %value165, %value166, %value167, %value168, %value169, %value170, %value171, %value172, %value173, %value174, %value175, %value176, %value177, %value178, %value179, %value180, %value181, %value182, %value183, %value184, %value185, %value186, %value187, %value188, %value189, %value190, %value191, %value192, %value193, %value194, %value195, %value196, %value197, %value198, %value199, %value200, %value201, %value202, %value203, %value204, %value205, %value206, %value207, %value208, %value209, %value210, %value211, %value212, %value213, %value214, %value215, %value216, %value217, %value218, %value219, %value220, %value221, %value222, %value223, %value224, %value225, %value226, %value227, %value228, %value229, %value230, %value231, %value232, %value233, %value234, %value235, %value236, %value237, %value238, %value239, %value240, %value241, %value242, %value243, %value244, %value245, %value246, %value247, %value248, %value249, %value250, %value251, %value252, %value253, %value254, %value255, %value256, %value257, %value258, %value259, %value260, %value261, %value262, %value263, %value0, %value1, %value2, %value3, %value4, %value5, %value6, %value7, %value8, %value9, %value10 : i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64
+}
+
+func.def @roundtrip_values(%value0: i1, %value1: i8, %value2: i16, %value3: i32, %value4: i64, %value5: f8E4M3, %value6: f8E5M2, %value7: f16, %value8: bf16, %value9: f32, %value10: f64, %value11: i1, %value12: i8, %value13: i16, %value14: i32, %value15: i64, %value16: f8E4M3, %value17: f8E5M2, %value18: f16, %value19: bf16, %value20: f32, %value21: f64, %value22: i1, %value23: i8, %value24: i16, %value25: i32, %value26: i64, %value27: f8E4M3, %value28: f8E5M2, %value29: f16, %value30: bf16, %value31: f32, %value32: f64, %value33: i1, %value34: i8, %value35: i16, %value36: i32, %value37: i64, %value38: f8E4M3, %value39: f8E5M2, %value40: f16, %value41: bf16, %value42: f32, %value43: f64, %value44: i1, %value45: i8, %value46: i16, %value47: i32, %value48: i64, %value49: f8E4M3, %value50: f8E5M2, %value51: f16, %value52: bf16, %value53: f32, %value54: f64, %value55: i1, %value56: i8, %value57: i16, %value58: i32, %value59: i64, %value60: f8E4M3, %value61: f8E5M2, %value62: f16, %value63: bf16, %value64: f32, %value65: f64, %value66: i1, %value67: i8, %value68: i16, %value69: i32, %value70: i64, %value71: f8E4M3, %value72: f8E5M2, %value73: f16, %value74: bf16, %value75: f32, %value76: f64, %value77: i1, %value78: i8, %value79: i16, %value80: i32, %value81: i64, %value82: f8E4M3, %value83: f8E5M2, %value84: f16, %value85: bf16, %value86: f32, %value87: f64, %value88: i1, %value89: i8, %value90: i16, %value91: i32, %value92: i64, %value93: f8E4M3, %value94: f8E5M2, %value95: f16, %value96: bf16, %value97: f32, %value98: f64, %value99: i1, %value100: i8, %value101: i16, %value102: i32, %value103: i64, %value104: f8E4M3, %value105: f8E5M2, %value106: f16, %value107: bf16, %value108: f32, %value109: f64, %value110: i1, %value111: i8, %value112: i16, %value113: i32, %value114: i64, %value115: f8E4M3, %value116: f8E5M2, %value117: f16, %value118: bf16, %value119: f32, %value120: f64, %value121: i1, %value122: i8, %value123: i16, %value124: i32, %value125: i64, %value126: f8E4M3, %value127: f8E5M2, %value128: f16, %value129: bf16, %value130: f32, %value131: f64, %value132: i1, %value133: i8, %value134: i16, %value135: i32, %value136: i64, %value137: f8E4M3, %value138: f8E5M2, %value139: f16, %value140: bf16, %value141: f32, %value142: f64, %value143: i1, %value144: i8, %value145: i16, %value146: i32, %value147: i64, %value148: f8E4M3, %value149: f8E5M2, %value150: f16, %value151: bf16, %value152: f32, %value153: f64, %value154: i1, %value155: i8, %value156: i16, %value157: i32, %value158: i64, %value159: f8E4M3, %value160: f8E5M2, %value161: f16, %value162: bf16, %value163: f32, %value164: f64, %value165: i1, %value166: i8, %value167: i16, %value168: i32, %value169: i64, %value170: f8E4M3, %value171: f8E5M2, %value172: f16, %value173: bf16, %value174: f32, %value175: f64, %value176: i1, %value177: i8, %value178: i16, %value179: i32, %value180: i64, %value181: f8E4M3, %value182: f8E5M2, %value183: f16, %value184: bf16, %value185: f32, %value186: f64, %value187: i1, %value188: i8, %value189: i16, %value190: i32, %value191: i64, %value192: f8E4M3, %value193: f8E5M2, %value194: f16, %value195: bf16, %value196: f32, %value197: f64, %value198: i1, %value199: i8, %value200: i16, %value201: i32, %value202: i64, %value203: f8E4M3, %value204: f8E5M2, %value205: f16, %value206: bf16, %value207: f32, %value208: f64, %value209: i1, %value210: i8, %value211: i16, %value212: i32, %value213: i64, %value214: f8E4M3, %value215: f8E5M2, %value216: f16, %value217: bf16, %value218: f32, %value219: f64, %value220: i1, %value221: i8, %value222: i16, %value223: i32, %value224: i64, %value225: f8E4M3, %value226: f8E5M2, %value227: f16, %value228: bf16, %value229: f32, %value230: f64, %value231: i1, %value232: i8, %value233: i16, %value234: i32, %value235: i64, %value236: f8E4M3, %value237: f8E5M2, %value238: f16, %value239: bf16, %value240: f32, %value241: f64, %value242: i1, %value243: i8, %value244: i16, %value245: i32, %value246: i64, %value247: f8E4M3, %value248: f8E5M2, %value249: f16, %value250: bf16, %value251: f32, %value252: f64, %value253: i1, %value254: i8, %value255: i16, %value256: i32, %value257: i64, %value258: f8E4M3, %value259: f8E5M2, %value260: f16, %value261: bf16, %value262: f32, %value263: f64) -> (f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1) {
+  %result0, %result1, %result2, %result3, %result4, %result5, %result6, %result7, %result8, %result9, %result10, %result11, %result12, %result13, %result14, %result15, %result16, %result17, %result18, %result19, %result20, %result21, %result22, %result23, %result24, %result25, %result26, %result27, %result28, %result29, %result30, %result31, %result32, %result33, %result34, %result35, %result36, %result37, %result38, %result39, %result40, %result41, %result42, %result43, %result44, %result45, %result46, %result47, %result48, %result49, %result50, %result51, %result52, %result53, %result54, %result55, %result56, %result57, %result58, %result59, %result60, %result61, %result62, %result63, %result64, %result65, %result66, %result67, %result68, %result69, %result70, %result71, %result72, %result73, %result74, %result75, %result76, %result77, %result78, %result79, %result80, %result81, %result82, %result83, %result84, %result85, %result86, %result87, %result88, %result89, %result90, %result91, %result92, %result93, %result94, %result95, %result96, %result97, %result98, %result99, %result100, %result101, %result102, %result103, %result104, %result105, %result106, %result107, %result108, %result109, %result110, %result111, %result112, %result113, %result114, %result115, %result116, %result117, %result118, %result119, %result120, %result121, %result122, %result123, %result124, %result125, %result126, %result127, %result128, %result129, %result130, %result131, %result132, %result133, %result134, %result135, %result136, %result137, %result138, %result139, %result140, %result141, %result142, %result143, %result144, %result145, %result146, %result147, %result148, %result149, %result150, %result151, %result152, %result153, %result154, %result155, %result156, %result157, %result158, %result159, %result160, %result161, %result162, %result163, %result164, %result165, %result166, %result167, %result168, %result169, %result170, %result171, %result172, %result173, %result174, %result175, %result176, %result177, %result178, %result179, %result180, %result181, %result182, %result183, %result184, %result185, %result186, %result187, %result188, %result189, %result190, %result191, %result192, %result193, %result194, %result195, %result196, %result197, %result198, %result199, %result200, %result201, %result202, %result203, %result204, %result205, %result206, %result207, %result208, %result209, %result210, %result211, %result212, %result213, %result214, %result215, %result216, %result217, %result218, %result219, %result220, %result221, %result222, %result223, %result224, %result225, %result226, %result227, %result228, %result229, %result230, %result231, %result232, %result233, %result234, %result235, %result236, %result237, %result238, %result239, %result240, %result241, %result242, %result243, %result244, %result245, %result246, %result247, %result248, %result249, %result250, %result251, %result252, %result253, %result254, %result255, %result256, %result257, %result258, %result259, %result260, %result261, %result262, %result263 = func.call @rotate_values(%value0, %value1, %value2, %value3, %value4, %value5, %value6, %value7, %value8, %value9, %value10, %value11, %value12, %value13, %value14, %value15, %value16, %value17, %value18, %value19, %value20, %value21, %value22, %value23, %value24, %value25, %value26, %value27, %value28, %value29, %value30, %value31, %value32, %value33, %value34, %value35, %value36, %value37, %value38, %value39, %value40, %value41, %value42, %value43, %value44, %value45, %value46, %value47, %value48, %value49, %value50, %value51, %value52, %value53, %value54, %value55, %value56, %value57, %value58, %value59, %value60, %value61, %value62, %value63, %value64, %value65, %value66, %value67, %value68, %value69, %value70, %value71, %value72, %value73, %value74, %value75, %value76, %value77, %value78, %value79, %value80, %value81, %value82, %value83, %value84, %value85, %value86, %value87, %value88, %value89, %value90, %value91, %value92, %value93, %value94, %value95, %value96, %value97, %value98, %value99, %value100, %value101, %value102, %value103, %value104, %value105, %value106, %value107, %value108, %value109, %value110, %value111, %value112, %value113, %value114, %value115, %value116, %value117, %value118, %value119, %value120, %value121, %value122, %value123, %value124, %value125, %value126, %value127, %value128, %value129, %value130, %value131, %value132, %value133, %value134, %value135, %value136, %value137, %value138, %value139, %value140, %value141, %value142, %value143, %value144, %value145, %value146, %value147, %value148, %value149, %value150, %value151, %value152, %value153, %value154, %value155, %value156, %value157, %value158, %value159, %value160, %value161, %value162, %value163, %value164, %value165, %value166, %value167, %value168, %value169, %value170, %value171, %value172, %value173, %value174, %value175, %value176, %value177, %value178, %value179, %value180, %value181, %value182, %value183, %value184, %value185, %value186, %value187, %value188, %value189, %value190, %value191, %value192, %value193, %value194, %value195, %value196, %value197, %value198, %value199, %value200, %value201, %value202, %value203, %value204, %value205, %value206, %value207, %value208, %value209, %value210, %value211, %value212, %value213, %value214, %value215, %value216, %value217, %value218, %value219, %value220, %value221, %value222, %value223, %value224, %value225, %value226, %value227, %value228, %value229, %value230, %value231, %value232, %value233, %value234, %value235, %value236, %value237, %value238, %value239, %value240, %value241, %value242, %value243, %value244, %value245, %value246, %value247, %value248, %value249, %value250, %value251, %value252, %value253, %value254, %value255, %value256, %value257, %value258, %value259, %value260, %value261, %value262, %value263) : (i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64) -> (i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64)
+  func.return %result263, %result262, %result261, %result260, %result259, %result258, %result257, %result256, %result255, %result254, %result253, %result252, %result251, %result250, %result249, %result248, %result247, %result246, %result245, %result244, %result243, %result242, %result241, %result240, %result239, %result238, %result237, %result236, %result235, %result234, %result233, %result232, %result231, %result230, %result229, %result228, %result227, %result226, %result225, %result224, %result223, %result222, %result221, %result220, %result219, %result218, %result217, %result216, %result215, %result214, %result213, %result212, %result211, %result210, %result209, %result208, %result207, %result206, %result205, %result204, %result203, %result202, %result201, %result200, %result199, %result198, %result197, %result196, %result195, %result194, %result193, %result192, %result191, %result190, %result189, %result188, %result187, %result186, %result185, %result184, %result183, %result182, %result181, %result180, %result179, %result178, %result177, %result176, %result175, %result174, %result173, %result172, %result171, %result170, %result169, %result168, %result167, %result166, %result165, %result164, %result163, %result162, %result161, %result160, %result159, %result158, %result157, %result156, %result155, %result154, %result153, %result152, %result151, %result150, %result149, %result148, %result147, %result146, %result145, %result144, %result143, %result142, %result141, %result140, %result139, %result138, %result137, %result136, %result135, %result134, %result133, %result132, %result131, %result130, %result129, %result128, %result127, %result126, %result125, %result124, %result123, %result122, %result121, %result120, %result119, %result118, %result117, %result116, %result115, %result114, %result113, %result112, %result111, %result110, %result109, %result108, %result107, %result106, %result105, %result104, %result103, %result102, %result101, %result100, %result99, %result98, %result97, %result96, %result95, %result94, %result93, %result92, %result91, %result90, %result89, %result88, %result87, %result86, %result85, %result84, %result83, %result82, %result81, %result80, %result79, %result78, %result77, %result76, %result75, %result74, %result73, %result72, %result71, %result70, %result69, %result68, %result67, %result66, %result65, %result64, %result63, %result62, %result61, %result60, %result59, %result58, %result57, %result56, %result55, %result54, %result53, %result52, %result51, %result50, %result49, %result48, %result47, %result46, %result45, %result44, %result43, %result42, %result41, %result40, %result39, %result38, %result37, %result36, %result35, %result34, %result33, %result32, %result31, %result30, %result29, %result28, %result27, %result26, %result25, %result24, %result23, %result22, %result21, %result20, %result19, %result18, %result17, %result16, %result15, %result14, %result13, %result12, %result11, %result10, %result9, %result8, %result7, %result6, %result5, %result4, %result3, %result2, %result1, %result0 : f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1
+}
+
+check.case @many_values {
+  %value0 = check.literal value(false) : i1
+  %value1 = check.literal value(-62) : i8
+  %value2 = check.literal value(-61) : i16
+  %value3 = check.literal value(-60) : i32
+  %value4 = check.literal value(21474836555) : i64
+  %value5 = check.literal value(1.25) : f8E4M3
+  %value6 = check.literal value(1.5) : f8E5M2
+  %value7 = check.literal value(0.0) : f16
+  %value8 = check.literal value(0.25) : bf16
+  %value9 = check.literal value(0.5) : f32
+  %value10 = check.literal value(0.75) : f64
+  %value11 = check.literal value(true) : i1
+  %value12 = check.literal value(-51) : i8
+  %value13 = check.literal value(-50) : i16
+  %value14 = check.literal value(-49) : i32
+  %value15 = check.literal value(68719476976) : i64
+  %value16 = check.literal value(0.5) : f8E4M3
+  %value17 = check.literal value(0.75) : f8E5M2
+  %value18 = check.literal value(1.0) : f16
+  %value19 = check.literal value(1.25) : bf16
+  %value20 = check.literal value(1.5) : f32
+  %value21 = check.literal value(0.0) : f64
+  %value22 = check.literal value(false) : i1
+  %value23 = check.literal value(-40) : i8
+  %value24 = check.literal value(-39) : i16
+  %value25 = check.literal value(-38) : i32
+  %value26 = check.literal value(115964117397) : i64
+  %value27 = check.literal value(1.5) : f8E4M3
+  %value28 = check.literal value(0.0) : f8E5M2
+  %value29 = check.literal value(0.25) : f16
+  %value30 = check.literal value(0.5) : bf16
+  %value31 = check.literal value(0.75) : f32
+  %value32 = check.literal value(1.0) : f64
+  %value33 = check.literal value(true) : i1
+  %value34 = check.literal value(-29) : i8
+  %value35 = check.literal value(-28) : i16
+  %value36 = check.literal value(-27) : i32
+  %value37 = check.literal value(163208757818) : i64
+  %value38 = check.literal value(0.75) : f8E4M3
+  %value39 = check.literal value(1.0) : f8E5M2
+  %value40 = check.literal value(1.25) : f16
+  %value41 = check.literal value(1.5) : bf16
+  %value42 = check.literal value(0.0) : f32
+  %value43 = check.literal value(0.25) : f64
+  %value44 = check.literal value(false) : i1
+  %value45 = check.literal value(-18) : i8
+  %value46 = check.literal value(-17) : i16
+  %value47 = check.literal value(-16) : i32
+  %value48 = check.literal value(210453398239) : i64
+  %value49 = check.literal value(0.0) : f8E4M3
+  %value50 = check.literal value(0.25) : f8E5M2
+  %value51 = check.literal value(0.5) : f16
+  %value52 = check.literal value(0.75) : bf16
+  %value53 = check.literal value(1.0) : f32
+  %value54 = check.literal value(1.25) : f64
+  %value55 = check.literal value(true) : i1
+  %value56 = check.literal value(-7) : i8
+  %value57 = check.literal value(-6) : i16
+  %value58 = check.literal value(-5) : i32
+  %value59 = check.literal value(257698038660) : i64
+  %value60 = check.literal value(1.0) : f8E4M3
+  %value61 = check.literal value(1.25) : f8E5M2
+  %value62 = check.literal value(1.5) : f16
+  %value63 = check.literal value(0.0) : bf16
+  %value64 = check.literal value(0.25) : f32
+  %value65 = check.literal value(0.5) : f64
+  %value66 = check.literal value(false) : i1
+  %value67 = check.literal value(4) : i8
+  %value68 = check.literal value(5) : i16
+  %value69 = check.literal value(6) : i32
+  %value70 = check.literal value(304942679081) : i64
+  %value71 = check.literal value(0.25) : f8E4M3
+  %value72 = check.literal value(0.5) : f8E5M2
+  %value73 = check.literal value(0.75) : f16
+  %value74 = check.literal value(1.0) : bf16
+  %value75 = check.literal value(1.25) : f32
+  %value76 = check.literal value(1.5) : f64
+  %value77 = check.literal value(true) : i1
+  %value78 = check.literal value(15) : i8
+  %value79 = check.literal value(16) : i16
+  %value80 = check.literal value(17) : i32
+  %value81 = check.literal value(352187319502) : i64
+  %value82 = check.literal value(1.25) : f8E4M3
+  %value83 = check.literal value(1.5) : f8E5M2
+  %value84 = check.literal value(0.0) : f16
+  %value85 = check.literal value(0.25) : bf16
+  %value86 = check.literal value(0.5) : f32
+  %value87 = check.literal value(0.75) : f64
+  %value88 = check.literal value(false) : i1
+  %value89 = check.literal value(26) : i8
+  %value90 = check.literal value(27) : i16
+  %value91 = check.literal value(28) : i32
+  %value92 = check.literal value(399431959923) : i64
+  %value93 = check.literal value(0.5) : f8E4M3
+  %value94 = check.literal value(0.75) : f8E5M2
+  %value95 = check.literal value(1.0) : f16
+  %value96 = check.literal value(1.25) : bf16
+  %value97 = check.literal value(1.5) : f32
+  %value98 = check.literal value(0.0) : f64
+  %value99 = check.literal value(true) : i1
+  %value100 = check.literal value(37) : i8
+  %value101 = check.literal value(38) : i16
+  %value102 = check.literal value(39) : i32
+  %value103 = check.literal value(446676600344) : i64
+  %value104 = check.literal value(1.5) : f8E4M3
+  %value105 = check.literal value(0.0) : f8E5M2
+  %value106 = check.literal value(0.25) : f16
+  %value107 = check.literal value(0.5) : bf16
+  %value108 = check.literal value(0.75) : f32
+  %value109 = check.literal value(1.0) : f64
+  %value110 = check.literal value(false) : i1
+  %value111 = check.literal value(48) : i8
+  %value112 = check.literal value(49) : i16
+  %value113 = check.literal value(50) : i32
+  %value114 = check.literal value(493921240765) : i64
+  %value115 = check.literal value(0.75) : f8E4M3
+  %value116 = check.literal value(1.0) : f8E5M2
+  %value117 = check.literal value(1.25) : f16
+  %value118 = check.literal value(1.5) : bf16
+  %value119 = check.literal value(0.0) : f32
+  %value120 = check.literal value(0.25) : f64
+  %value121 = check.literal value(true) : i1
+  %value122 = check.literal value(59) : i8
+  %value123 = check.literal value(60) : i16
+  %value124 = check.literal value(61) : i32
+  %value125 = check.literal value(541165881186) : i64
+  %value126 = check.literal value(0.0) : f8E4M3
+  %value127 = check.literal value(0.25) : f8E5M2
+  %value128 = check.literal value(0.5) : f16
+  %value129 = check.literal value(0.75) : bf16
+  %value130 = check.literal value(1.0) : f32
+  %value131 = check.literal value(1.25) : f64
+  %value132 = check.literal value(false) : i1
+  %value133 = check.literal value(-57) : i8
+  %value134 = check.literal value(-56) : i16
+  %value135 = check.literal value(-55) : i32
+  %value136 = check.literal value(588410521607) : i64
+  %value137 = check.literal value(1.0) : f8E4M3
+  %value138 = check.literal value(1.25) : f8E5M2
+  %value139 = check.literal value(1.5) : f16
+  %value140 = check.literal value(0.0) : bf16
+  %value141 = check.literal value(0.25) : f32
+  %value142 = check.literal value(0.5) : f64
+  %value143 = check.literal value(true) : i1
+  %value144 = check.literal value(-46) : i8
+  %value145 = check.literal value(-45) : i16
+  %value146 = check.literal value(-44) : i32
+  %value147 = check.literal value(635655162028) : i64
+  %value148 = check.literal value(0.25) : f8E4M3
+  %value149 = check.literal value(0.5) : f8E5M2
+  %value150 = check.literal value(0.75) : f16
+  %value151 = check.literal value(1.0) : bf16
+  %value152 = check.literal value(1.25) : f32
+  %value153 = check.literal value(1.5) : f64
+  %value154 = check.literal value(false) : i1
+  %value155 = check.literal value(-35) : i8
+  %value156 = check.literal value(-34) : i16
+  %value157 = check.literal value(-33) : i32
+  %value158 = check.literal value(682899802449) : i64
+  %value159 = check.literal value(1.25) : f8E4M3
+  %value160 = check.literal value(1.5) : f8E5M2
+  %value161 = check.literal value(0.0) : f16
+  %value162 = check.literal value(0.25) : bf16
+  %value163 = check.literal value(0.5) : f32
+  %value164 = check.literal value(0.75) : f64
+  %value165 = check.literal value(true) : i1
+  %value166 = check.literal value(-24) : i8
+  %value167 = check.literal value(-23) : i16
+  %value168 = check.literal value(-22) : i32
+  %value169 = check.literal value(730144442870) : i64
+  %value170 = check.literal value(0.5) : f8E4M3
+  %value171 = check.literal value(0.75) : f8E5M2
+  %value172 = check.literal value(1.0) : f16
+  %value173 = check.literal value(1.25) : bf16
+  %value174 = check.literal value(1.5) : f32
+  %value175 = check.literal value(0.0) : f64
+  %value176 = check.literal value(false) : i1
+  %value177 = check.literal value(-13) : i8
+  %value178 = check.literal value(-12) : i16
+  %value179 = check.literal value(-11) : i32
+  %value180 = check.literal value(777389083291) : i64
+  %value181 = check.literal value(1.5) : f8E4M3
+  %value182 = check.literal value(0.0) : f8E5M2
+  %value183 = check.literal value(0.25) : f16
+  %value184 = check.literal value(0.5) : bf16
+  %value185 = check.literal value(0.75) : f32
+  %value186 = check.literal value(1.0) : f64
+  %value187 = check.literal value(true) : i1
+  %value188 = check.literal value(-2) : i8
+  %value189 = check.literal value(-1) : i16
+  %value190 = check.literal value(0) : i32
+  %value191 = check.literal value(824633723712) : i64
+  %value192 = check.literal value(0.75) : f8E4M3
+  %value193 = check.literal value(1.0) : f8E5M2
+  %value194 = check.literal value(1.25) : f16
+  %value195 = check.literal value(1.5) : bf16
+  %value196 = check.literal value(0.0) : f32
+  %value197 = check.literal value(0.25) : f64
+  %value198 = check.literal value(false) : i1
+  %value199 = check.literal value(9) : i8
+  %value200 = check.literal value(10) : i16
+  %value201 = check.literal value(11) : i32
+  %value202 = check.literal value(871878364133) : i64
+  %value203 = check.literal value(0.0) : f8E4M3
+  %value204 = check.literal value(0.25) : f8E5M2
+  %value205 = check.literal value(0.5) : f16
+  %value206 = check.literal value(0.75) : bf16
+  %value207 = check.literal value(1.0) : f32
+  %value208 = check.literal value(1.25) : f64
+  %value209 = check.literal value(true) : i1
+  %value210 = check.literal value(20) : i8
+  %value211 = check.literal value(21) : i16
+  %value212 = check.literal value(22) : i32
+  %value213 = check.literal value(919123004554) : i64
+  %value214 = check.literal value(1.0) : f8E4M3
+  %value215 = check.literal value(1.25) : f8E5M2
+  %value216 = check.literal value(1.5) : f16
+  %value217 = check.literal value(0.0) : bf16
+  %value218 = check.literal value(0.25) : f32
+  %value219 = check.literal value(0.5) : f64
+  %value220 = check.literal value(false) : i1
+  %value221 = check.literal value(31) : i8
+  %value222 = check.literal value(32) : i16
+  %value223 = check.literal value(33) : i32
+  %value224 = check.literal value(966367644975) : i64
+  %value225 = check.literal value(0.25) : f8E4M3
+  %value226 = check.literal value(0.5) : f8E5M2
+  %value227 = check.literal value(0.75) : f16
+  %value228 = check.literal value(1.0) : bf16
+  %value229 = check.literal value(1.25) : f32
+  %value230 = check.literal value(1.5) : f64
+  %value231 = check.literal value(true) : i1
+  %value232 = check.literal value(42) : i8
+  %value233 = check.literal value(43) : i16
+  %value234 = check.literal value(44) : i32
+  %value235 = check.literal value(1013612285396) : i64
+  %value236 = check.literal value(1.25) : f8E4M3
+  %value237 = check.literal value(1.5) : f8E5M2
+  %value238 = check.literal value(0.0) : f16
+  %value239 = check.literal value(0.25) : bf16
+  %value240 = check.literal value(0.5) : f32
+  %value241 = check.literal value(0.75) : f64
+  %value242 = check.literal value(false) : i1
+  %value243 = check.literal value(53) : i8
+  %value244 = check.literal value(54) : i16
+  %value245 = check.literal value(55) : i32
+  %value246 = check.literal value(1060856925817) : i64
+  %value247 = check.literal value(0.5) : f8E4M3
+  %value248 = check.literal value(0.75) : f8E5M2
+  %value249 = check.literal value(1.0) : f16
+  %value250 = check.literal value(1.25) : bf16
+  %value251 = check.literal value(1.5) : f32
+  %value252 = check.literal value(0.0) : f64
+  %value253 = check.literal value(true) : i1
+  %value254 = check.literal value(-63) : i8
+  %value255 = check.literal value(-62) : i16
+  %value256 = check.literal value(-61) : i32
+  %value257 = check.literal value(1108101566238) : i64
+  %value258 = check.literal value(1.5) : f8E4M3
+  %value259 = check.literal value(0.0) : f8E5M2
+  %value260 = check.literal value(0.25) : f16
+  %value261 = check.literal value(0.5) : bf16
+  %value262 = check.literal value(0.75) : f32
+  %value263 = check.literal value(1.0) : f64
+  %result0, %result1, %result2, %result3, %result4, %result5, %result6, %result7, %result8, %result9, %result10, %result11, %result12, %result13, %result14, %result15, %result16, %result17, %result18, %result19, %result20, %result21, %result22, %result23, %result24, %result25, %result26, %result27, %result28, %result29, %result30, %result31, %result32, %result33, %result34, %result35, %result36, %result37, %result38, %result39, %result40, %result41, %result42, %result43, %result44, %result45, %result46, %result47, %result48, %result49, %result50, %result51, %result52, %result53, %result54, %result55, %result56, %result57, %result58, %result59, %result60, %result61, %result62, %result63, %result64, %result65, %result66, %result67, %result68, %result69, %result70, %result71, %result72, %result73, %result74, %result75, %result76, %result77, %result78, %result79, %result80, %result81, %result82, %result83, %result84, %result85, %result86, %result87, %result88, %result89, %result90, %result91, %result92, %result93, %result94, %result95, %result96, %result97, %result98, %result99, %result100, %result101, %result102, %result103, %result104, %result105, %result106, %result107, %result108, %result109, %result110, %result111, %result112, %result113, %result114, %result115, %result116, %result117, %result118, %result119, %result120, %result121, %result122, %result123, %result124, %result125, %result126, %result127, %result128, %result129, %result130, %result131, %result132, %result133, %result134, %result135, %result136, %result137, %result138, %result139, %result140, %result141, %result142, %result143, %result144, %result145, %result146, %result147, %result148, %result149, %result150, %result151, %result152, %result153, %result154, %result155, %result156, %result157, %result158, %result159, %result160, %result161, %result162, %result163, %result164, %result165, %result166, %result167, %result168, %result169, %result170, %result171, %result172, %result173, %result174, %result175, %result176, %result177, %result178, %result179, %result180, %result181, %result182, %result183, %result184, %result185, %result186, %result187, %result188, %result189, %result190, %result191, %result192, %result193, %result194, %result195, %result196, %result197, %result198, %result199, %result200, %result201, %result202, %result203, %result204, %result205, %result206, %result207, %result208, %result209, %result210, %result211, %result212, %result213, %result214, %result215, %result216, %result217, %result218, %result219, %result220, %result221, %result222, %result223, %result224, %result225, %result226, %result227, %result228, %result229, %result230, %result231, %result232, %result233, %result234, %result235, %result236, %result237, %result238, %result239, %result240, %result241, %result242, %result243, %result244, %result245, %result246, %result247, %result248, %result249, %result250, %result251, %result252, %result253, %result254, %result255, %result256, %result257, %result258, %result259, %result260, %result261, %result262, %result263 = func.call @roundtrip_values(%value0, %value1, %value2, %value3, %value4, %value5, %value6, %value7, %value8, %value9, %value10, %value11, %value12, %value13, %value14, %value15, %value16, %value17, %value18, %value19, %value20, %value21, %value22, %value23, %value24, %value25, %value26, %value27, %value28, %value29, %value30, %value31, %value32, %value33, %value34, %value35, %value36, %value37, %value38, %value39, %value40, %value41, %value42, %value43, %value44, %value45, %value46, %value47, %value48, %value49, %value50, %value51, %value52, %value53, %value54, %value55, %value56, %value57, %value58, %value59, %value60, %value61, %value62, %value63, %value64, %value65, %value66, %value67, %value68, %value69, %value70, %value71, %value72, %value73, %value74, %value75, %value76, %value77, %value78, %value79, %value80, %value81, %value82, %value83, %value84, %value85, %value86, %value87, %value88, %value89, %value90, %value91, %value92, %value93, %value94, %value95, %value96, %value97, %value98, %value99, %value100, %value101, %value102, %value103, %value104, %value105, %value106, %value107, %value108, %value109, %value110, %value111, %value112, %value113, %value114, %value115, %value116, %value117, %value118, %value119, %value120, %value121, %value122, %value123, %value124, %value125, %value126, %value127, %value128, %value129, %value130, %value131, %value132, %value133, %value134, %value135, %value136, %value137, %value138, %value139, %value140, %value141, %value142, %value143, %value144, %value145, %value146, %value147, %value148, %value149, %value150, %value151, %value152, %value153, %value154, %value155, %value156, %value157, %value158, %value159, %value160, %value161, %value162, %value163, %value164, %value165, %value166, %value167, %value168, %value169, %value170, %value171, %value172, %value173, %value174, %value175, %value176, %value177, %value178, %value179, %value180, %value181, %value182, %value183, %value184, %value185, %value186, %value187, %value188, %value189, %value190, %value191, %value192, %value193, %value194, %value195, %value196, %value197, %value198, %value199, %value200, %value201, %value202, %value203, %value204, %value205, %value206, %value207, %value208, %value209, %value210, %value211, %value212, %value213, %value214, %value215, %value216, %value217, %value218, %value219, %value220, %value221, %value222, %value223, %value224, %value225, %value226, %value227, %value228, %value229, %value230, %value231, %value232, %value233, %value234, %value235, %value236, %value237, %value238, %value239, %value240, %value241, %value242, %value243, %value244, %value245, %value246, %value247, %value248, %value249, %value250, %value251, %value252, %value253, %value254, %value255, %value256, %value257, %value258, %value259, %value260, %value261, %value262, %value263) : (i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64, i1, i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64) -> (f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1, f64, f32, bf16, f16, f8E5M2, f8E4M3, i64, i32, i16, i8, i1)
+  check.expect.equal actual(%result0) expected(%value10) : f64
+  check.expect.equal actual(%result1) expected(%value9) : f32
+  check.expect.equal actual(%result2) expected(%value8) : bf16
+  check.expect.equal actual(%result3) expected(%value7) : f16
+  check.expect.equal actual(%result4) expected(%value6) : f8E5M2
+  check.expect.equal actual(%result5) expected(%value5) : f8E4M3
+  check.expect.equal actual(%result6) expected(%value4) : i64
+  check.expect.equal actual(%result7) expected(%value3) : i32
+  check.expect.equal actual(%result8) expected(%value2) : i16
+  check.expect.equal actual(%result9) expected(%value1) : i8
+  check.expect.equal actual(%result10) expected(%value0) : i1
+  check.expect.equal actual(%result11) expected(%value263) : f64
+  check.expect.equal actual(%result12) expected(%value262) : f32
+  check.expect.equal actual(%result13) expected(%value261) : bf16
+  check.expect.equal actual(%result14) expected(%value260) : f16
+  check.expect.equal actual(%result15) expected(%value259) : f8E5M2
+  check.expect.equal actual(%result16) expected(%value258) : f8E4M3
+  check.expect.equal actual(%result17) expected(%value257) : i64
+  check.expect.equal actual(%result18) expected(%value256) : i32
+  check.expect.equal actual(%result19) expected(%value255) : i16
+  check.expect.equal actual(%result20) expected(%value254) : i8
+  check.expect.equal actual(%result21) expected(%value253) : i1
+  check.expect.equal actual(%result22) expected(%value252) : f64
+  check.expect.equal actual(%result23) expected(%value251) : f32
+  check.expect.equal actual(%result24) expected(%value250) : bf16
+  check.expect.equal actual(%result25) expected(%value249) : f16
+  check.expect.equal actual(%result26) expected(%value248) : f8E5M2
+  check.expect.equal actual(%result27) expected(%value247) : f8E4M3
+  check.expect.equal actual(%result28) expected(%value246) : i64
+  check.expect.equal actual(%result29) expected(%value245) : i32
+  check.expect.equal actual(%result30) expected(%value244) : i16
+  check.expect.equal actual(%result31) expected(%value243) : i8
+  check.expect.equal actual(%result32) expected(%value242) : i1
+  check.expect.equal actual(%result33) expected(%value241) : f64
+  check.expect.equal actual(%result34) expected(%value240) : f32
+  check.expect.equal actual(%result35) expected(%value239) : bf16
+  check.expect.equal actual(%result36) expected(%value238) : f16
+  check.expect.equal actual(%result37) expected(%value237) : f8E5M2
+  check.expect.equal actual(%result38) expected(%value236) : f8E4M3
+  check.expect.equal actual(%result39) expected(%value235) : i64
+  check.expect.equal actual(%result40) expected(%value234) : i32
+  check.expect.equal actual(%result41) expected(%value233) : i16
+  check.expect.equal actual(%result42) expected(%value232) : i8
+  check.expect.equal actual(%result43) expected(%value231) : i1
+  check.expect.equal actual(%result44) expected(%value230) : f64
+  check.expect.equal actual(%result45) expected(%value229) : f32
+  check.expect.equal actual(%result46) expected(%value228) : bf16
+  check.expect.equal actual(%result47) expected(%value227) : f16
+  check.expect.equal actual(%result48) expected(%value226) : f8E5M2
+  check.expect.equal actual(%result49) expected(%value225) : f8E4M3
+  check.expect.equal actual(%result50) expected(%value224) : i64
+  check.expect.equal actual(%result51) expected(%value223) : i32
+  check.expect.equal actual(%result52) expected(%value222) : i16
+  check.expect.equal actual(%result53) expected(%value221) : i8
+  check.expect.equal actual(%result54) expected(%value220) : i1
+  check.expect.equal actual(%result55) expected(%value219) : f64
+  check.expect.equal actual(%result56) expected(%value218) : f32
+  check.expect.equal actual(%result57) expected(%value217) : bf16
+  check.expect.equal actual(%result58) expected(%value216) : f16
+  check.expect.equal actual(%result59) expected(%value215) : f8E5M2
+  check.expect.equal actual(%result60) expected(%value214) : f8E4M3
+  check.expect.equal actual(%result61) expected(%value213) : i64
+  check.expect.equal actual(%result62) expected(%value212) : i32
+  check.expect.equal actual(%result63) expected(%value211) : i16
+  check.expect.equal actual(%result64) expected(%value210) : i8
+  check.expect.equal actual(%result65) expected(%value209) : i1
+  check.expect.equal actual(%result66) expected(%value208) : f64
+  check.expect.equal actual(%result67) expected(%value207) : f32
+  check.expect.equal actual(%result68) expected(%value206) : bf16
+  check.expect.equal actual(%result69) expected(%value205) : f16
+  check.expect.equal actual(%result70) expected(%value204) : f8E5M2
+  check.expect.equal actual(%result71) expected(%value203) : f8E4M3
+  check.expect.equal actual(%result72) expected(%value202) : i64
+  check.expect.equal actual(%result73) expected(%value201) : i32
+  check.expect.equal actual(%result74) expected(%value200) : i16
+  check.expect.equal actual(%result75) expected(%value199) : i8
+  check.expect.equal actual(%result76) expected(%value198) : i1
+  check.expect.equal actual(%result77) expected(%value197) : f64
+  check.expect.equal actual(%result78) expected(%value196) : f32
+  check.expect.equal actual(%result79) expected(%value195) : bf16
+  check.expect.equal actual(%result80) expected(%value194) : f16
+  check.expect.equal actual(%result81) expected(%value193) : f8E5M2
+  check.expect.equal actual(%result82) expected(%value192) : f8E4M3
+  check.expect.equal actual(%result83) expected(%value191) : i64
+  check.expect.equal actual(%result84) expected(%value190) : i32
+  check.expect.equal actual(%result85) expected(%value189) : i16
+  check.expect.equal actual(%result86) expected(%value188) : i8
+  check.expect.equal actual(%result87) expected(%value187) : i1
+  check.expect.equal actual(%result88) expected(%value186) : f64
+  check.expect.equal actual(%result89) expected(%value185) : f32
+  check.expect.equal actual(%result90) expected(%value184) : bf16
+  check.expect.equal actual(%result91) expected(%value183) : f16
+  check.expect.equal actual(%result92) expected(%value182) : f8E5M2
+  check.expect.equal actual(%result93) expected(%value181) : f8E4M3
+  check.expect.equal actual(%result94) expected(%value180) : i64
+  check.expect.equal actual(%result95) expected(%value179) : i32
+  check.expect.equal actual(%result96) expected(%value178) : i16
+  check.expect.equal actual(%result97) expected(%value177) : i8
+  check.expect.equal actual(%result98) expected(%value176) : i1
+  check.expect.equal actual(%result99) expected(%value175) : f64
+  check.expect.equal actual(%result100) expected(%value174) : f32
+  check.expect.equal actual(%result101) expected(%value173) : bf16
+  check.expect.equal actual(%result102) expected(%value172) : f16
+  check.expect.equal actual(%result103) expected(%value171) : f8E5M2
+  check.expect.equal actual(%result104) expected(%value170) : f8E4M3
+  check.expect.equal actual(%result105) expected(%value169) : i64
+  check.expect.equal actual(%result106) expected(%value168) : i32
+  check.expect.equal actual(%result107) expected(%value167) : i16
+  check.expect.equal actual(%result108) expected(%value166) : i8
+  check.expect.equal actual(%result109) expected(%value165) : i1
+  check.expect.equal actual(%result110) expected(%value164) : f64
+  check.expect.equal actual(%result111) expected(%value163) : f32
+  check.expect.equal actual(%result112) expected(%value162) : bf16
+  check.expect.equal actual(%result113) expected(%value161) : f16
+  check.expect.equal actual(%result114) expected(%value160) : f8E5M2
+  check.expect.equal actual(%result115) expected(%value159) : f8E4M3
+  check.expect.equal actual(%result116) expected(%value158) : i64
+  check.expect.equal actual(%result117) expected(%value157) : i32
+  check.expect.equal actual(%result118) expected(%value156) : i16
+  check.expect.equal actual(%result119) expected(%value155) : i8
+  check.expect.equal actual(%result120) expected(%value154) : i1
+  check.expect.equal actual(%result121) expected(%value153) : f64
+  check.expect.equal actual(%result122) expected(%value152) : f32
+  check.expect.equal actual(%result123) expected(%value151) : bf16
+  check.expect.equal actual(%result124) expected(%value150) : f16
+  check.expect.equal actual(%result125) expected(%value149) : f8E5M2
+  check.expect.equal actual(%result126) expected(%value148) : f8E4M3
+  check.expect.equal actual(%result127) expected(%value147) : i64
+  check.expect.equal actual(%result128) expected(%value146) : i32
+  check.expect.equal actual(%result129) expected(%value145) : i16
+  check.expect.equal actual(%result130) expected(%value144) : i8
+  check.expect.equal actual(%result131) expected(%value143) : i1
+  check.expect.equal actual(%result132) expected(%value142) : f64
+  check.expect.equal actual(%result133) expected(%value141) : f32
+  check.expect.equal actual(%result134) expected(%value140) : bf16
+  check.expect.equal actual(%result135) expected(%value139) : f16
+  check.expect.equal actual(%result136) expected(%value138) : f8E5M2
+  check.expect.equal actual(%result137) expected(%value137) : f8E4M3
+  check.expect.equal actual(%result138) expected(%value136) : i64
+  check.expect.equal actual(%result139) expected(%value135) : i32
+  check.expect.equal actual(%result140) expected(%value134) : i16
+  check.expect.equal actual(%result141) expected(%value133) : i8
+  check.expect.equal actual(%result142) expected(%value132) : i1
+  check.expect.equal actual(%result143) expected(%value131) : f64
+  check.expect.equal actual(%result144) expected(%value130) : f32
+  check.expect.equal actual(%result145) expected(%value129) : bf16
+  check.expect.equal actual(%result146) expected(%value128) : f16
+  check.expect.equal actual(%result147) expected(%value127) : f8E5M2
+  check.expect.equal actual(%result148) expected(%value126) : f8E4M3
+  check.expect.equal actual(%result149) expected(%value125) : i64
+  check.expect.equal actual(%result150) expected(%value124) : i32
+  check.expect.equal actual(%result151) expected(%value123) : i16
+  check.expect.equal actual(%result152) expected(%value122) : i8
+  check.expect.equal actual(%result153) expected(%value121) : i1
+  check.expect.equal actual(%result154) expected(%value120) : f64
+  check.expect.equal actual(%result155) expected(%value119) : f32
+  check.expect.equal actual(%result156) expected(%value118) : bf16
+  check.expect.equal actual(%result157) expected(%value117) : f16
+  check.expect.equal actual(%result158) expected(%value116) : f8E5M2
+  check.expect.equal actual(%result159) expected(%value115) : f8E4M3
+  check.expect.equal actual(%result160) expected(%value114) : i64
+  check.expect.equal actual(%result161) expected(%value113) : i32
+  check.expect.equal actual(%result162) expected(%value112) : i16
+  check.expect.equal actual(%result163) expected(%value111) : i8
+  check.expect.equal actual(%result164) expected(%value110) : i1
+  check.expect.equal actual(%result165) expected(%value109) : f64
+  check.expect.equal actual(%result166) expected(%value108) : f32
+  check.expect.equal actual(%result167) expected(%value107) : bf16
+  check.expect.equal actual(%result168) expected(%value106) : f16
+  check.expect.equal actual(%result169) expected(%value105) : f8E5M2
+  check.expect.equal actual(%result170) expected(%value104) : f8E4M3
+  check.expect.equal actual(%result171) expected(%value103) : i64
+  check.expect.equal actual(%result172) expected(%value102) : i32
+  check.expect.equal actual(%result173) expected(%value101) : i16
+  check.expect.equal actual(%result174) expected(%value100) : i8
+  check.expect.equal actual(%result175) expected(%value99) : i1
+  check.expect.equal actual(%result176) expected(%value98) : f64
+  check.expect.equal actual(%result177) expected(%value97) : f32
+  check.expect.equal actual(%result178) expected(%value96) : bf16
+  check.expect.equal actual(%result179) expected(%value95) : f16
+  check.expect.equal actual(%result180) expected(%value94) : f8E5M2
+  check.expect.equal actual(%result181) expected(%value93) : f8E4M3
+  check.expect.equal actual(%result182) expected(%value92) : i64
+  check.expect.equal actual(%result183) expected(%value91) : i32
+  check.expect.equal actual(%result184) expected(%value90) : i16
+  check.expect.equal actual(%result185) expected(%value89) : i8
+  check.expect.equal actual(%result186) expected(%value88) : i1
+  check.expect.equal actual(%result187) expected(%value87) : f64
+  check.expect.equal actual(%result188) expected(%value86) : f32
+  check.expect.equal actual(%result189) expected(%value85) : bf16
+  check.expect.equal actual(%result190) expected(%value84) : f16
+  check.expect.equal actual(%result191) expected(%value83) : f8E5M2
+  check.expect.equal actual(%result192) expected(%value82) : f8E4M3
+  check.expect.equal actual(%result193) expected(%value81) : i64
+  check.expect.equal actual(%result194) expected(%value80) : i32
+  check.expect.equal actual(%result195) expected(%value79) : i16
+  check.expect.equal actual(%result196) expected(%value78) : i8
+  check.expect.equal actual(%result197) expected(%value77) : i1
+  check.expect.equal actual(%result198) expected(%value76) : f64
+  check.expect.equal actual(%result199) expected(%value75) : f32
+  check.expect.equal actual(%result200) expected(%value74) : bf16
+  check.expect.equal actual(%result201) expected(%value73) : f16
+  check.expect.equal actual(%result202) expected(%value72) : f8E5M2
+  check.expect.equal actual(%result203) expected(%value71) : f8E4M3
+  check.expect.equal actual(%result204) expected(%value70) : i64
+  check.expect.equal actual(%result205) expected(%value69) : i32
+  check.expect.equal actual(%result206) expected(%value68) : i16
+  check.expect.equal actual(%result207) expected(%value67) : i8
+  check.expect.equal actual(%result208) expected(%value66) : i1
+  check.expect.equal actual(%result209) expected(%value65) : f64
+  check.expect.equal actual(%result210) expected(%value64) : f32
+  check.expect.equal actual(%result211) expected(%value63) : bf16
+  check.expect.equal actual(%result212) expected(%value62) : f16
+  check.expect.equal actual(%result213) expected(%value61) : f8E5M2
+  check.expect.equal actual(%result214) expected(%value60) : f8E4M3
+  check.expect.equal actual(%result215) expected(%value59) : i64
+  check.expect.equal actual(%result216) expected(%value58) : i32
+  check.expect.equal actual(%result217) expected(%value57) : i16
+  check.expect.equal actual(%result218) expected(%value56) : i8
+  check.expect.equal actual(%result219) expected(%value55) : i1
+  check.expect.equal actual(%result220) expected(%value54) : f64
+  check.expect.equal actual(%result221) expected(%value53) : f32
+  check.expect.equal actual(%result222) expected(%value52) : bf16
+  check.expect.equal actual(%result223) expected(%value51) : f16
+  check.expect.equal actual(%result224) expected(%value50) : f8E5M2
+  check.expect.equal actual(%result225) expected(%value49) : f8E4M3
+  check.expect.equal actual(%result226) expected(%value48) : i64
+  check.expect.equal actual(%result227) expected(%value47) : i32
+  check.expect.equal actual(%result228) expected(%value46) : i16
+  check.expect.equal actual(%result229) expected(%value45) : i8
+  check.expect.equal actual(%result230) expected(%value44) : i1
+  check.expect.equal actual(%result231) expected(%value43) : f64
+  check.expect.equal actual(%result232) expected(%value42) : f32
+  check.expect.equal actual(%result233) expected(%value41) : bf16
+  check.expect.equal actual(%result234) expected(%value40) : f16
+  check.expect.equal actual(%result235) expected(%value39) : f8E5M2
+  check.expect.equal actual(%result236) expected(%value38) : f8E4M3
+  check.expect.equal actual(%result237) expected(%value37) : i64
+  check.expect.equal actual(%result238) expected(%value36) : i32
+  check.expect.equal actual(%result239) expected(%value35) : i16
+  check.expect.equal actual(%result240) expected(%value34) : i8
+  check.expect.equal actual(%result241) expected(%value33) : i1
+  check.expect.equal actual(%result242) expected(%value32) : f64
+  check.expect.equal actual(%result243) expected(%value31) : f32
+  check.expect.equal actual(%result244) expected(%value30) : bf16
+  check.expect.equal actual(%result245) expected(%value29) : f16
+  check.expect.equal actual(%result246) expected(%value28) : f8E5M2
+  check.expect.equal actual(%result247) expected(%value27) : f8E4M3
+  check.expect.equal actual(%result248) expected(%value26) : i64
+  check.expect.equal actual(%result249) expected(%value25) : i32
+  check.expect.equal actual(%result250) expected(%value24) : i16
+  check.expect.equal actual(%result251) expected(%value23) : i8
+  check.expect.equal actual(%result252) expected(%value22) : i1
+  check.expect.equal actual(%result253) expected(%value21) : f64
+  check.expect.equal actual(%result254) expected(%value20) : f32
+  check.expect.equal actual(%result255) expected(%value19) : bf16
+  check.expect.equal actual(%result256) expected(%value18) : f16
+  check.expect.equal actual(%result257) expected(%value17) : f8E5M2
+  check.expect.equal actual(%result258) expected(%value16) : f8E4M3
+  check.expect.equal actual(%result259) expected(%value15) : i64
+  check.expect.equal actual(%result260) expected(%value14) : i32
+  check.expect.equal actual(%result261) expected(%value13) : i16
+  check.expect.equal actual(%result262) expected(%value12) : i8
+  check.expect.equal actual(%result263) expected(%value11) : i1
+  check.return
+}

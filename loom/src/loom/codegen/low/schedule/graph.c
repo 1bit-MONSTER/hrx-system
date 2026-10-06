@@ -15,6 +15,7 @@
 #include "loom/codegen/low/schedule/diagnostics.h"
 #include "loom/codegen/low/schedule/effect_dependencies.h"
 #include "loom/codegen/low/storage_relation.h"
+#include "loom/codegen/low/storage_transport.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/util/cfg_graph.h"
@@ -1535,6 +1536,15 @@ iree_status_t loom_low_schedule_fill_nodes(
             next_node_index;
       }
       ++next_node_index;
+    }
+  }
+  const loom_low_storage_transport_t* transport =
+      state->options->storage_transport;
+  if (transport) {
+    for (iree_host_size_t i = 0; i < transport->effect_count; ++i) {
+      const loom_low_storage_transport_effect_t* effect =
+          &transport->effects[i];
+      state->nodes[effect->source_ordinal].traits |= effect->traits;
     }
   }
   return iree_ok_status();

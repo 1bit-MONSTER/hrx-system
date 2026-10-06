@@ -69,11 +69,9 @@ vm.module core(0.0) {
       %v14 = value.copy %v0
       %v15 = value.copy %v0
       control.call @function0 {direct_ref_move_mask = 0x0000}
-      %v2.x1 = stack.load.i64 #v24
-      %v3 = value.copy %v2
       %v2 = value.copy %v1
       %v1 = value.copy %v0
-      %v0 = value.copy %v3
+      %v0.x1 = stack.load.i64 #v24
       control.return
     }
   }

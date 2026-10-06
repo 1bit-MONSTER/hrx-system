@@ -29,6 +29,7 @@
 #include "loom/codegen/low/function_model.h"
 #include "loom/codegen/low/storage_layout.h"
 #include "loom/codegen/low/storage_lease.h"
+#include "loom/codegen/low/storage_transport.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/error/emitter.h"
 #include "loom/ir/ir.h"
@@ -61,6 +62,8 @@ typedef struct loom_low_allocation_options_t {
   iree_host_size_t entry_location_count;
   // Physical call effects resolved from retained target convention bindings.
   loom_low_call_contract_query_t call_contracts;
+  // Proven synchronous boundary storage for this immutable function snapshot.
+  const loom_low_storage_transport_t* storage_transport;
   // Spaces the consumer can access synchronously within final move groups.
   // Empty for targets requiring separately scheduled spill expansion.
   loom_low_storage_space_set_t move_storage_spaces;

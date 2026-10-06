@@ -17,6 +17,7 @@
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/placement.h"
 #include "loom/codegen/low/storage_lease.h"
+#include "loom/codegen/low/storage_transport.h"
 #include "loom/codegen/low/target_binding.h"
 #include "loom/ir/ir.h"
 #include "loom/util/cfg_graph.h"
@@ -224,6 +225,8 @@ typedef struct loom_low_allocation_table_t {
   const loom_op_t* function_op;
   // Resolved target context selected by |function_op|.
   loom_low_resolved_target_t target;
+  // Final invocation-owned cells consumed by STORAGE assignments and moves.
+  const loom_low_storage_transport_t* storage_transport;
   // Liveness analysis that produced the allocated intervals.
   loom_liveness_analysis_t liveness;
   // Arena-owned physical reservations indexed by assignment segment ranges.

@@ -340,8 +340,9 @@ class NativeReferencesTest : public ::testing::Test {
   iree_vm_program_t* program_ = nullptr;
   // Process executing ordinary compiled calls and control flow.
   iree_vm_process_t* process_ = nullptr;
-  // Host-owned reusable invocation storage.
-  alignas(iree_max_align_t) std::array<uint8_t, 16384> storage_ = {};
+  // Host-owned invocation storage for nested full reference banks and their
+  // argument/result overflow packets (about 26 KiB at the deepest call).
+  alignas(iree_max_align_t) std::array<uint8_t, 32768> storage_ = {};
   // Invocation borrowing storage_ while the VM is live.
   iree_vm_invocation_t* invocation_ = nullptr;
 };
@@ -566,6 +567,49 @@ TEST_F(NativeReferencesTest, SaturatedPermutationRetainsAndReleasesOwners) {
       iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
       EXPECT_EQ(left.releases, 1);
       EXPECT_EQ(right.releases, 1);
+    }
+  }
+}
+
+TEST_F(NativeReferencesTest, StoredCallBoundariesPreserveAndUnwindOwners) {
+  constexpr size_t kCount = 257;
+  for (int32_t count : {0, 1, 3}) {
+    SCOPED_TRACE(count);
+    for (bool should_fail : {false, true}) {
+      SCOPED_TRACE(should_fail);
+      std::array<HalAllocation, 17> allocations;
+      std::array<iree_hal_buffer_view_t*, kCount> expected;
+      iree_vm_variant_t arguments[kCount + 2] = {};
+      for (size_t i = 0; i < kCount; ++i) {
+        expected[i] =
+            i % 11 ? allocations[i % allocations.size()].view : nullptr;
+        arguments[i] =
+            iree_hal_buffer_view_variant_from_ptr_retained(&hal_, expected[i]);
+      }
+      arguments[kCount] = iree_vm_variant_from_i32(count);
+      arguments[kCount + 1] = iree_vm_variant_from_i32(should_fail);
+      for (auto& allocation : allocations) {
+        allocation.ReleaseOwners();
+      }
+      iree_vm_variant_t results[kCount] = {};
+      if (should_fail) {
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED,
+                              Invoke(IREE_SV("many_owners"),
+                                     iree_vm_variant_span_from_array(arguments),
+                                     iree_vm_variant_span_from_array(results)));
+      } else {
+        IREE_ASSERT_OK(Invoke(IREE_SV("many_owners"),
+                              iree_vm_variant_span_from_array(arguments),
+                              iree_vm_variant_span_from_array(results)));
+        for (size_t i = 0; i < kCount; ++i) {
+          EXPECT_EQ(View(results[i]),
+                    expected[(kCount - 1 - i + 19 * count) % kCount]);
+        }
+      }
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+      for (const auto& allocation : allocations) {
+        EXPECT_EQ(allocation.releases, 1);
+      }
     }
   }
 }
