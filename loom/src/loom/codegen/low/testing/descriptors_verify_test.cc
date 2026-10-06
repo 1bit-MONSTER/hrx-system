@@ -1608,16 +1608,25 @@ TEST(LowDescriptorsTest, RejectsDeadRemovableSideEffectingDescriptor) {
                         loom_low_descriptor_set_verify(&tables.set));
 }
 
-TEST(LowDescriptorsTest, RejectsReadEffectWithoutMemorySpace) {
+TEST(LowDescriptorsTest, AcceptsExternalResourceReadEffect) {
   TestTables tables;
   InitializeTestTables(&tables);
   AddAddDescriptorEffect(&tables, LOOM_LOW_EFFECT_KIND_READ,
                          LOOM_LOW_MEMORY_SPACE_NONE);
-  tables.descriptors[1].flags = LOOM_LOW_DESCRIPTOR_FLAG_SIDE_EFFECTING;
-  tables.schedule_classes[1].flags = LOOM_LOW_SCHEDULE_CLASS_FLAG_MAY_LOAD;
+  tables.effects[0].counter_id = 1;
 
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
-                        loom_low_descriptor_set_verify(&tables.set));
+  IREE_EXPECT_OK(loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest, AcceptsExternalResourceWriteEffect) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  AddAddDescriptorEffect(&tables, LOOM_LOW_EFFECT_KIND_WRITE,
+                         LOOM_LOW_MEMORY_SPACE_NONE);
+  tables.effects[0].counter_id = 1;
+  tables.descriptors[1].flags = LOOM_LOW_DESCRIPTOR_FLAG_SIDE_EFFECTING;
+
+  IREE_EXPECT_OK(loom_low_descriptor_set_verify(&tables.set));
 }
 
 TEST(LowDescriptorsTest, RejectsTerminatorWithoutControlEffect) {

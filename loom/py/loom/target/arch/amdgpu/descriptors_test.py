@@ -231,14 +231,17 @@ def test_ds_crosslane_effects_use_lds_counter_without_memory_alias(
 ) -> None:
     descriptor = overlay_builder()
 
-    assert descriptor.effects[0] == Effect(
-        EffectKind.READ,
-        counter_id=_COUNTER_LDS,
-        width_bits=32,
+    assert descriptor.effects == (
+        Effect(
+            EffectKind.READ,
+            counter_id=_COUNTER_LDS,
+            width_bits=32,
+        ),
+        Effect(
+            EffectKind.CONVERGENT,
+            flags=(EffectFlag.ORDERED,),
+        ),
     )
-    assert EffectFlag.DEPENDENCY not in descriptor.effects[0].flags
-    assert descriptor.effects[0].memory_space is MemorySpace.NONE
-    assert descriptor.effects[1].kind is EffectKind.CONVERGENT
 
 
 def test_contract_descriptor_projection_preserves_operation_kind() -> None:
