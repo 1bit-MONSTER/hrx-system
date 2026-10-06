@@ -247,8 +247,6 @@ func.def target(@narrow) @paired_byte_stream_facts_survive_lowering() {
   %begin = index.constant 0 : index
   %end = index.constant 8 : index
   %origin = index.constant 0 : offset
-  %a_tile_bytes = index.constant 128 : offset
-  %b_tile_bytes = index.constant 256 : offset
   %24 = index.constant 2 : index
   cfg.br ^_bb1(%begin: index, %origin: offset, %origin: offset)
 ^_bb1(%48: index, %a: offset, %b: offset):
@@ -263,8 +261,6 @@ func.def target(@narrow) @paired_byte_stream_facts_survive_lowering() {
   %b_hi = scalar.constant 2048 : i64
   %b_divisor = scalar.constant 512 : i64
   test.use %a_lo, %a_hi, %a_divisor, %b_lo, %b_hi, %b_divisor : i64, i64, i64, i64, i64, i64
-  %a_next = index.add %a, %a_tile_bytes : offset
-  %b_next = index.add %b, %b_tile_bytes : offset
   %a_lo_1 = scalar.constant 128 : i64
   %a_hi_1 = scalar.constant 1152 : i64
   %a_divisor_1 = scalar.constant 128 : i64
@@ -272,8 +268,10 @@ func.def target(@narrow) @paired_byte_stream_facts_survive_lowering() {
   %b_hi_1 = scalar.constant 2304 : i64
   %b_divisor_1 = scalar.constant 256 : i64
   test.use %a_lo_1, %a_hi_1, %a_divisor_1, %b_lo_1, %b_hi_1, %b_divisor_1 : i64, i64, i64, i64, i64, i64
-  %a_next_1 = index.add %a_next, %a_tile_bytes : offset
-  %b_next_1 = index.add %b_next, %b_tile_bytes : offset
+  %60 = index.constant 256 : offset
+  %a_next_1 = index.add %a, %60 : offset
+  %58 = index.constant 512 : offset
+  %b_next_1 = index.add %b, %58 : offset
   %53 = index.add %tile, %24 : index
   cfg.br ^_bb1(%53: index, %a_next_1: offset, %b_next_1: offset)
 ^_bb3:

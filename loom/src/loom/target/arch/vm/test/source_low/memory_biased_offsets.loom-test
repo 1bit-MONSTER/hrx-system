@@ -63,24 +63,24 @@ func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: i
 
 // ----
 low.func.def target<vm.core> abi(vm_function) @copy_biased_vector(%source_view: reg<vm.ref : buffer>, %destination_view: reg<vm.ref : buffer>, %signed_position: reg<vm.value : i64>) asm {
-  %38 = constant.i64 16
-  %39 = constant.i64 2 : reg<vm.value>
-  %40 = integer.shift.left.i64 %signed_position, %39
-  %41 = integer.add.i64 %40, %38
-  %42 = buffer.load %source_view, %41, %41, 0, "i32.x1" : reg<vm.value : i32>
-  %43 = constant.i64 20
-  %46 = integer.add.i64 %40, %43
-  %47 = buffer.load %source_view, %46, %46, 0, "i32.x1" : reg<vm.value : i32>
-  %48 = constant.i64 24
-  %51 = integer.add.i64 %40, %48
-  %52 = buffer.load %source_view, %51, %51, 0, "i32.x1" : reg<vm.value : i32>
-  %53 = constant.i64 28
-  %56 = integer.add.i64 %40, %53
-  %57 = buffer.load %source_view, %56, %56, 0, "i32.x1" : reg<vm.value : i32>
-  buffer.store %destination_view, %41, %41, %42, 0, "i32.x1"
-  buffer.store %destination_view, %46, %46, %47, 0, "i32.x1"
-  buffer.store %destination_view, %51, %51, %52, 0, "i32.x1"
-  buffer.store %destination_view, %56, %56, %57, 0, "i32.x1"
+  %50 = constant.i64 16
+  %51 = constant.i64 2 : reg<vm.value>
+  %52 = integer.shift.left.i64 %signed_position, %51
+  %53 = integer.add.i64 %52, %50
+  %54 = buffer.load %source_view, %53, %53, 0, "i32.x1" : reg<vm.value : i32>
+  %55 = constant.i64 20
+  %58 = integer.add.i64 %52, %55
+  %59 = buffer.load %source_view, %58, %58, 0, "i32.x1" : reg<vm.value : i32>
+  %60 = constant.i64 24
+  %63 = integer.add.i64 %52, %60
+  %64 = buffer.load %source_view, %63, %63, 0, "i32.x1" : reg<vm.value : i32>
+  %65 = constant.i64 28
+  %68 = integer.add.i64 %52, %65
+  %69 = buffer.load %source_view, %68, %68, 0, "i32.x1" : reg<vm.value : i32>
+  buffer.store %destination_view, %53, %53, %54, 0, "i32.x1"
+  buffer.store %destination_view, %58, %58, %59, 0, "i32.x1"
+  buffer.store %destination_view, %63, %63, %64, 0, "i32.x1"
+  buffer.store %destination_view, %68, %68, %69, 0, "i32.x1"
   return
 }
 

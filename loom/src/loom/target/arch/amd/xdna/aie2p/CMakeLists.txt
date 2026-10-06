@@ -655,6 +655,7 @@ loom_check_test_suite(
     "test/array_plan/worker_interface_admission.loom-test"
     "test/array_plan/worker_rate_admission.loom-test"
     "test/array_plan/worker_storage_admission.loom-test"
+    "test/canonicalize/adjacent_add.loom-test"
     "test/descriptors/bf16_comparison.loom-test"
     "test/descriptors/bfp_move.loom-test"
     "test/descriptors/cascade.loom-test"
