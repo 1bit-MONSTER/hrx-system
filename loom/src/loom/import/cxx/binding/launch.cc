@@ -263,8 +263,8 @@ LaunchConfiguration LaunchContracts::bind_configuration(
   if (ordinary == clustered) {
     diagnostics_.reject(
         unit_, definition,
-        "kernel configuration must return loom::launch_config or "
-        "loom::clustered_launch_config");
+        "kernel configuration must return loom::kernel::configuration or "
+        "loom::kernel::clustered_configuration");
   }
   const auto& result_partition = types.partition(result_type, definition);
   auto* record = result_partition.kind == ValueKind::Record

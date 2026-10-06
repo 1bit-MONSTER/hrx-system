@@ -2,7 +2,8 @@
 // Workload values and target properties compute a kernel launch configuration.
 #include <loomcxx/kernel.h>
 
-static loom::launch_config configure(unsigned item_count, unsigned row_count) {
+static loom::kernel::configuration configure(unsigned item_count,
+                                             unsigned row_count) {
   unsigned width = loom::target::subgroup_size();
   unsigned group_count = (item_count + width - 1) / width;
   return {{group_count, row_count, 1}, {width, 1, 1}};
@@ -52,7 +53,7 @@ kernel.def @transform(%item_count: i32, %row_count: i32) {
 #include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 
-static loom::launch_config fixed_configuration() {
+static loom::kernel::configuration fixed_configuration() {
   return {{2, 3, 4}, {64, 2, 1}};
 }
 
@@ -114,7 +115,7 @@ check.case public @fixed_configuration_case {
 // Cluster dimensions retain the complete source-computed launch geometry.
 #include <loomcxx/kernel.h>
 
-static loom::clustered_launch_config configure_clustered(
+static loom::kernel::clustered_configuration configure_clustered(
     unsigned cluster_count, unsigned cluster_size) {
   unsigned width = loom::target::subgroup_size();
   return {{cluster_count * cluster_size, 1, 1},
@@ -154,8 +155,8 @@ kernel.def @clustered(%cluster_count: i32, %cluster_size: i32) {
 #include <loomcxx/kernel.h>
 
 namespace {
-loom::launch_config configure_typed(short row_count,
-                                    unsigned long long item_count) {
+loom::kernel::configuration configure_typed(short row_count,
+                                            unsigned long long item_count) {
   return {
       {static_cast<unsigned>(item_count), static_cast<unsigned>(row_count), 1},
       {1, 1, 1}};
@@ -188,7 +189,7 @@ kernel.def @typed_workload(%row_count: i16, %item_count: i64) {
 #include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 
-static loom::launch_config configure_copy(unsigned item_count) {
+static loom::kernel::configuration configure_copy(unsigned item_count) {
   unsigned width = loom::target::subgroup_size();
   return {{(item_count + width - 1) / width, 1, 1}, {width, 1, 1}};
 }
@@ -206,7 +207,8 @@ static loom::launch_config configure_copy(unsigned item_count) {
 LOOM_CHECK_CASE(configured_copy_case) {
   const auto input = loom::check::iota<float, 67>(-1.0f, 0.25f, 8);
   const auto output = loom::check::fill<float, 67>(0.0f);
-  loom::check::launch<configured_copy>(loom::workload(67u), 67u, input, output);
+  loom::check::launch<configured_copy>(loom::kernel::workload(67u), 67u, input,
+                                       output);
   loom::check::expect_bitwise(output, input);
 }
 
@@ -279,7 +281,8 @@ check.case public @configured_copy_case {
 #include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 
-static loom::launch_config configure_specialization(unsigned item_count) {
+static loom::kernel::configuration configure_specialization(
+    unsigned item_count) {
   return {{item_count, 1, 1}, {1, 1, 1}};
 }
 
@@ -291,8 +294,8 @@ template <class T>
 
 LOOM_CHECK_CASE(configured_template_case) {
   const auto output = loom::check::fill<unsigned, 1>(0u);
-  loom::check::launch<configured_template<unsigned>>(loom::workload(1u),
-                                                      output);
+  loom::check::launch<configured_template<unsigned>>(
+      loom::kernel::workload(1u), output);
   loom::check::expect_bitwise(output,
                               loom::check::fill<unsigned, 1>(42u));
 }

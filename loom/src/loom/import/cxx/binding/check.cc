@@ -235,12 +235,12 @@ std::optional<CheckIntrinsic> CheckIntrinsic::resolve(
           result.configuration && !result.configuration->parameters().empty();
       if (requires_workload && !has_workload) {
         fail(
-            "configured kernel launches require loom::workload(...) before "
-            "the kernel arguments");
+            "configured kernel launches require "
+            "loom::kernel::workload(...) before the kernel arguments");
       }
       if (!requires_workload && has_workload) {
         fail(
-            "loom::workload(...) requires a kernel configuration with "
+            "loom::kernel::workload(...) requires a kernel configuration with "
             "workload parameters");
       }
       size_t parameter_offset = has_workload ? 1 : 0;

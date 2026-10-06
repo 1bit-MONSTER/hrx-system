@@ -182,21 +182,21 @@ class CheckBody {
     auto* function = call ? callee(call) : nullptr;
     if (!function || !annotated(function, "workload")) {
       fail(source,
-           "kernel workloads must use loom::workload(...) directly in the "
-           "launch");
+           "kernel workloads require a direct "
+           "loom::kernel::workload(...) call");
     }
     auto parameters = binding.configuration->parameters();
     auto* argument = call->expressionList;
     for (auto* parameter : parameters) {
       if (!argument) {
         fail(source,
-             "loom::workload arguments must match the kernel configuration "
-             "signature");
+             "loom::kernel::workload argument count must match the "
+             "kernel configuration");
       }
       if (types_.unqualified(argument->value->type) !=
           types_.unqualified(parameter->type())) {
         fail(argument->value,
-             "loom::workload argument types must match the kernel "
+             "loom::kernel::workload argument types must match the kernel "
              "configuration parameters");
       }
       auto value = expression(argument->value);
@@ -210,8 +210,8 @@ class CheckBody {
     }
     if (argument) {
       fail(source,
-           "loom::workload arguments must match the kernel configuration "
-           "signature");
+           "loom::kernel::workload argument count must match the "
+           "kernel configuration");
     }
   }
 

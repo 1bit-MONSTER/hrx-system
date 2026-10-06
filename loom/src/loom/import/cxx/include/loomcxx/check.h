@@ -18,18 +18,22 @@
 #define LOOM_CHECK_BENCHMARK(name, case_name) \
   [[loom::check_benchmark(case_name)]] void name()
 
-namespace loom {
+namespace loom::kernel {
 
 // Syntax-only bundle separating launch workloads from kernel ABI arguments.
 // Workloads must appear directly as the first argument of check::launch and
 // match the kernel's configuration function parameters exactly.
+namespace detail {
+
 template <class... Args>
 struct [[loom::workload]] workload_values {};
 
-template <class... Args>
-[[loom::workload]] workload_values<Args...> workload(Args... args);
+}  // namespace detail
 
-}  // namespace loom
+template <class... Args>
+[[loom::workload]] detail::workload_values<Args...> workload(Args... args);
+
+}  // namespace loom::kernel
 
 namespace loom::check {
 
@@ -62,8 +66,8 @@ template <__SIZE_TYPE__ Count, class T, __SIZE_TYPE__ SourceCount>
 
 // Launches a statically named kernel using its declared geometry and configs.
 // A configured kernel's typed workloads precede its ABI arguments in one
-// loom::workload(...) bundle. Tensors bind buffer parameters; scalars retain
-// the kernel's ABI types.
+// loom::kernel::workload(...) bundle. Tensors bind buffer parameters; scalars
+// retain the kernel's ABI types.
 template <auto Kernel, class... Args>
 [[loom::op("kernel.launch")]] void launch(Args... args);
 

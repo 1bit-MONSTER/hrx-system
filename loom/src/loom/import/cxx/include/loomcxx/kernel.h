@@ -51,11 +51,13 @@ struct uint3 {
   unsigned z;
 };
 
+namespace kernel {
+
 // Complete launch geometry computed from explicit workload values and target
 // properties. A function returning this aggregate may be referenced by
 // [[loom::kernel(function)]]. Its body becomes the kernel's pure launch
 // configuration region rather than an independently callable function.
-struct [[loom::launch_config]] launch_config {
+struct [[loom::launch_config]] configuration {
   // Number of workgroups to launch in each dimension.
   uint3 workgroup_count;
   // Required workgroup size in each dimension.
@@ -64,7 +66,7 @@ struct [[loom::launch_config]] launch_config {
 
 // Launch geometry with an additional workgroup-cluster size. The selected
 // target must support the requested cluster dimensions.
-struct [[loom::clustered_launch_config]] clustered_launch_config {
+struct [[loom::clustered_launch_config]] clustered_configuration {
   // Number of workgroups to launch in each dimension.
   uint3 workgroup_count;
   // Required workgroup size in each dimension.
@@ -72,6 +74,8 @@ struct [[loom::clustered_launch_config]] clustered_launch_config {
   // Number of cooperating workgroups in each cluster dimension.
   uint3 workgroup_cluster_size;
 };
+
+}  // namespace kernel
 
 namespace target {
 

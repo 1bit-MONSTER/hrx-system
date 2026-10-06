@@ -7,7 +7,7 @@
 #include <loomcxx/check.h>
 #include <loomcxx/kernel.h>
 
-static loom::launch_config configure_copy(unsigned item_count) {
+static loom::kernel::configuration configure_copy(unsigned item_count) {
   unsigned width = loom::target::subgroup_size();
   return {{(item_count + width - 1) / width, 1, 1}, {width, 1, 1}};
 }
@@ -25,6 +25,7 @@ static loom::launch_config configure_copy(unsigned item_count) {
 LOOM_CHECK_CASE(configured_copy_case) {
   const auto input = loom::check::iota<float, 67>(-1.0f, 0.25f, 8);
   const auto output = loom::check::fill<float, 67>(0.0f);
-  loom::check::launch<configured_copy>(loom::workload(67u), 67u, input, output);
+  loom::check::launch<configured_copy>(loom::kernel::workload(67u), 67u, input,
+                                       output);
   loom::check::expect_bitwise(output, input);
 }
