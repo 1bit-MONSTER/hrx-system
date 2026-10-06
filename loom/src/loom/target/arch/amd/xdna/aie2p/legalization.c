@@ -14,6 +14,7 @@
 #include "loom/target/arch/amd/xdna/aie2p/gather.h"
 #include "loom/target/arch/amd/xdna/aie2p/legalization_float.h"
 #include "loom/target/arch/amd/xdna/aie2p/legalization_table.h"
+#include "loom/target/arch/amd/xdna/aie2p/vector_carrier.h"
 #include "loom/transforms/scalar/target_legalization.h"
 #include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/shape_legalization.h"
@@ -236,6 +237,14 @@ static iree_status_t loom_aie2p_legalize_vector_shuffle(
     return iree_ok_status();
   }
   if (!loom_aie2p_match_i8_4x4_transpose_shuffle(context->module, op)) {
+    const loom_type_t source_type =
+        loom_module_value_type(context->module, loom_vector_shuffle_source(op));
+    if (context->mode != LOOM_TARGET_LEGALIZATION_MODE_FINAL ||
+        loom_aie2p_vector_carrier_for_type(source_type).kind !=
+            LOOM_AIE2P_VECTOR_CARRIER_NONE) {
+      out_result->action = LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+      return iree_ok_status();
+    }
     return loom_aie2p_legalize_vector_to_scalar(entry, context, op, out_result);
   }
 

@@ -79,6 +79,7 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @f32_table_lookup_
 
 // ====
 
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
 func.def @i8_table_lookup_fact_known_codes(%grid: vector<4xi8>) -> (vector<4xi8>) {
   %c0 = scalar.constant 0 : i8
   %c1 = scalar.constant 1 : i8
@@ -90,15 +91,26 @@ func.def @i8_table_lookup_fact_known_codes(%grid: vector<4xi8>) -> (vector<4xi8>
 }
 
 // ----
-CHECK: * = vextract.8.imm %grid, 0
-CHECK: * = vextract.8.imm %grid, 1
-CHECK: * = vextract.8.imm %grid, 2
-CHECK: * = vextract.8.imm %grid, 3
-CHECK: %decoded = vinsert.8.reg *
-CHECK-NOT: * = vextbcst.*
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8_table_lookup_fact_known_codes(%grid: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vextbcst.8 %grid, 2
+  %12 = vextbcst.8 %grid, 0
+  %13 = predicate.constant.low32 2
+  %14 = predicate.complete.zero.high32 %13, 0
+  %15 = vsel.8 %11, %12, %14
+  %16 = vextbcst.8 %grid, 3
+  %17 = predicate.constant.low32 4
+  %18 = predicate.complete.zero.high32 %17, 0
+  %19 = vsel.8 %15, %16, %18
+  %20 = vextbcst.8 %grid, 1
+  %21 = predicate.constant.low32 8
+  %22 = predicate.complete.zero.high32 %21, 0
+  %decoded = vsel.8 %19, %20, %22
+  return %decoded
+}
 
 // ====
 
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
 func.def @i8_table_lookup_constant_table() -> (vector<4xi8>) {
   %g0 = scalar.constant -4 : i8
   %g1 = scalar.constant -1 : i8
@@ -115,12 +127,35 @@ func.def @i8_table_lookup_constant_table() -> (vector<4xi8>) {
 }
 
 // ----
-CHECK: * = mov.short -4
-CHECK: * = mov.short 7
-CHECK: %decoded = vinsert.8.reg *
-CHECK: return %decoded
-CHECK-NOT: * = vextract.*
-CHECK-NOT: * = vextbcst.*
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8_table_lookup_constant_table() -> (reg<aie2p.vec256 x2>) asm {
+  %g1 = mov.short -1
+  %g2 = mov.short 2
+  %g3 = mov.short 7
+  %22 = mov.short -4
+  %23 = vbcst.8 %22
+  %24 = mov.short 1
+  %25 = copy %24 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %26 = vinsert.8.reg %23, %25, %g1
+  %28 = copy %g2 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %29 = vinsert.8.reg %26, %28, %g2
+  %30 = mov.short 3
+  %31 = copy %30 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %grid = vinsert.8.reg %29, %31, %g3
+  %33 = vextbcst.8 %grid, 3
+  %34 = vextbcst.8 %grid, 2
+  %35 = predicate.constant.low32 2
+  %36 = predicate.complete.zero.high32 %35, 0
+  %37 = vsel.8 %33, %34, %36
+  %38 = vextbcst.8 %grid, 1
+  %39 = predicate.constant.low32 4
+  %40 = predicate.complete.zero.high32 %39, 0
+  %41 = vsel.8 %37, %38, %40
+  %42 = vextbcst.8 %grid, 0
+  %43 = predicate.constant.low32 8
+  %44 = predicate.complete.zero.high32 %43, 0
+  %decoded = vsel.8 %41, %42, %44
+  return %decoded
+}
 
 // ====
 

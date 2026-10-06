@@ -258,3 +258,41 @@ check.scenario @packed_byte_shuffle_4x4_values {
   }
   check.return
 }
+
+// Repeats the first and last source bytes across the two halves of one full
+// packet. The unequal payloads make both halves of the fixed lane map visible.
+func.def @packed_byte_shuffle_repeated_halves(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_bytes = buffer.view %input[%base] : buffer -> view<64xi8>
+  %output_bytes = buffer.view %output[%base] : buffer -> view<64xi8>
+  %bytes = vector.load %input_bytes[0] : view<64xi8> -> vector<64xi8>
+  %result = vector.shuffle<[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63]> %bytes : vector<64xi8>
+  vector.store %result, %output_bytes[0] : vector<64xi8>, view<64xi8>
+  func.return
+}
+
+// Scalar endpoint loads and byte fills keep the oracle independent of vector
+// loads, stores, and fixed-permutation lowering.
+func.def @packed_byte_shuffle_repeated_halves_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %half = index.constant 32 : offset
+  %input_bytes = buffer.view %input[%base] : buffer -> view<64xi8>
+  %first = view.load %input_bytes[0] : view<64xi8> -> i8
+  %last = view.load %input_bytes[63] : view<64xi8> -> i8
+  buffer.fill %first, %output[%base], %half : i8
+  buffer.fill %last, %output[%half], %half : i8
+  func.return
+}
+
+check.scenario @packed_byte_shuffle_repeated_halves_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(3) period(256) : tensor<64xi8>
+    %output_storage = check.generate.fill value(91) : tensor<72xi8>
+    %output = check.tensor.view %output_storage offset(4) : tensor<72xi8> -> tensor<64xi8>
+    check.compare<@packed_byte_shuffle_repeated_halves, @packed_byte_shuffle_repeated_halves_oracle>(%input, %output) : (tensor<64xi8>, tensor<64xi8>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<64xi8>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<72xi8>
+    }
+  }
+  check.return
+}

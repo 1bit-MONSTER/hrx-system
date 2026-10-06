@@ -238,6 +238,7 @@ loom_cc_library(
   DEPS
     ::core_descriptors
     ::gather
+    ::vector_carrier
     iree::base
     loom::codegen::low::source_memory_plan
     loom::ir
@@ -450,6 +451,7 @@ loom_cc_library(
     "lower/lower.h"
     "lower/matrix.h"
     "lower/rodata.h"
+    "lower/shuffle.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amd/xdna/aie2p/contracts/core_index.inl"
   SRCS
@@ -457,6 +459,7 @@ loom_cc_library(
     "lower/matrix.c"
     "lower/registry.c"
     "lower/rodata.c"
+    "lower/shuffle.c"
   DEPS
     ::core_descriptors
     ::gather
@@ -811,6 +814,8 @@ loom_check_test_suite(
     "test/source_low/vector_partial_carriers.loom-test"
     "test/source_low/vector_predicate.loom-test"
     "test/source_low/vector_select_packetization.loom-test"
+    "test/source_low/vector_shuffle.loom-test"
+    "test/source_low/vector_shuffle_report.loom-test"
     "test/source_low/vector_slice.loom-test"
     "test/source_low/vector_splat.loom-test"
     "test/source_low/vector_structural.loom-test"

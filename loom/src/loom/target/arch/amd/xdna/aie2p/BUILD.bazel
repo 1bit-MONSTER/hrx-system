@@ -198,6 +198,7 @@ loom_cc_library(
     deps = [
         ":core_descriptors",
         ":gather",
+        ":vector_carrier",
         "//loom/src/loom/codegen/low:source_memory_plan",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/scalar",
@@ -376,12 +377,14 @@ loom_cc_library(
         "lower/matrix.c",
         "lower/registry.c",
         "lower/rodata.c",
+        "lower/shuffle.c",
     ],
     hdrs = [
         "lower/gather.h",
         "lower/lower.h",
         "lower/matrix.h",
         "lower/rodata.h",
+        "lower/shuffle.h",
     ],
     textual_hdrs = ["//loom/src/loom/target/arch/amd/xdna/aie2p/contracts:core_index.inl"],
     deps = [
@@ -722,6 +725,8 @@ loom_check_test_suite(
         "test/source_low/vector_partial_carriers.loom-test",
         "test/source_low/vector_predicate.loom-test",
         "test/source_low/vector_select_packetization.loom-test",
+        "test/source_low/vector_shuffle.loom-test",
+        "test/source_low/vector_shuffle_report.loom-test",
         "test/source_low/vector_slice.loom-test",
         "test/source_low/vector_splat.loom-test",
         "test/source_low/vector_structural.loom-test",

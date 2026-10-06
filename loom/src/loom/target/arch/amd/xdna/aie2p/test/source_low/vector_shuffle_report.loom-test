@@ -1,0 +1,33 @@
+// RUN: with-checks compile-report target=amd.xdna.aie2p:core target-legalize{mode=final}
+
+func.def @shuffle_not_scalarized(%value: vector<3xi16>) -> (vector<3xi16>) {
+  %result = vector.shuffle<[1, 0, 1]> %value : vector<3xi16>
+  func.return %result : vector<3xi16>
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization legal=0 rewritten=0 scalarized=0 * deferred=1 * rows=1
+CHECK: COMPILE-REPORT: target_legalization[0] function=shuffle_not_scalarized source_op=vector.shuffle * action=deferred * legalizer=aie2p strategy=target * scalarized=false *
+
+// ====
+
+// RUN: with-checks compile-report source-to-low,low-dce
+
+aie2p.target<core> @target
+
+func.def target(@target) @report_shuffle_strategies(%predicate: vector<2xi1>, %bytes: vector<2xi8>, %halves: vector<2xi16>, %words: vector<2xi32>, %wide: vector<2xi64>) -> (vector<2xi1>, vector<2xi8>, vector<2xi16>, vector<2xi32>, vector<2xi64>) {
+  %predicate_result = vector.shuffle<[1, 0]> %predicate : vector<2xi1>
+  %byte_result = vector.shuffle<[1, 0]> %bytes : vector<2xi8>
+  %half_result = vector.shuffle<[1, 0]> %halves : vector<2xi16>
+  %word_result = vector.shuffle<[1, 0]> %words : vector<2xi32>
+  %wide_result = vector.shuffle<[1, 0]> %wide : vector<2xi64>
+  func.return %predicate_result, %byte_result, %half_result, %word_result, %wide_result : vector<2xi1>, vector<2xi8>, vector<2xi16>, vector<2xi32>, vector<2xi64>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low selected_ops=5 * rows=5
+CHECK: COMPILE-REPORT: source_low[*] function=report_shuffle_strategies source_op=vector.shuffle selection=plan plan_key=fixed-permutation.predicate.broadcast-select *
+CHECK: COMPILE-REPORT: source_low[*] function=report_shuffle_strategies source_op=vector.shuffle selection=plan plan_key=fixed-permutation.i8.broadcast-select *
+CHECK: COMPILE-REPORT: source_low[*] function=report_shuffle_strategies source_op=vector.shuffle selection=plan plan_key=fixed-permutation.i16.broadcast-select *
+CHECK: COMPILE-REPORT: source_low[*] function=report_shuffle_strategies source_op=vector.shuffle selection=plan plan_key=fixed-permutation.i32.broadcast-select *
+CHECK: COMPILE-REPORT: source_low[*] function=report_shuffle_strategies source_op=vector.shuffle selection=plan plan_key=fixed-permutation.i64.broadcast-select *
