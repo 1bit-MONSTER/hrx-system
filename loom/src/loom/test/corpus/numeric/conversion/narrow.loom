@@ -208,6 +208,36 @@ check.case @integer_bf16_above_midpoints {
   check.return
 }
 
+// Equal-width floating bitcasts preserve every payload bit across formats.
+func.def public @narrow_cross_format_bits(%e4_bits: i8, %e5_bits: i8, %half_bits: i16, %brain_bits: i16) -> (i8, i8, i16, i16) {
+  %e4 = scalar.bitcast %e4_bits : i8 to f8E4M3
+  %e5 = scalar.bitcast %e5_bits : i8 to f8E5M2
+  %e4_as_e5 = scalar.bitcast %e4 : f8E4M3 to f8E5M2
+  %e5_as_e4 = scalar.bitcast %e5 : f8E5M2 to f8E4M3
+  %e4_result = scalar.bitcast %e4_as_e5 : f8E5M2 to i8
+  %e5_result = scalar.bitcast %e5_as_e4 : f8E4M3 to i8
+  %half = scalar.bitcast %half_bits : i16 to f16
+  %brain = scalar.bitcast %brain_bits : i16 to bf16
+  %half_as_brain = scalar.bitcast %half : f16 to bf16
+  %brain_as_half = scalar.bitcast %brain : bf16 to f16
+  %half_result = scalar.bitcast %half_as_brain : bf16 to i16
+  %brain_result = scalar.bitcast %brain_as_half : f16 to i16
+  func.return %e4_result, %e5_result, %half_result, %brain_result : i8, i8, i16, i16
+}
+
+check.case @narrow_cross_format_bits_case {
+  %e4_bits = check.literal value(-85) : i8
+  %e5_bits = check.literal value(90) : i8
+  %half_bits = check.literal value(-21931) : i16
+  %brain_bits = check.literal value(21930) : i16
+  %e4_result, %e5_result, %half_result, %brain_result = func.call @narrow_cross_format_bits(%e4_bits, %e5_bits, %half_bits, %brain_bits) : (i8, i8, i16, i16) -> (i8, i8, i16, i16)
+  check.expect.equal actual(%e4_result) expected(%e4_bits) : i8
+  check.expect.equal actual(%e5_result) expected(%e5_bits) : i8
+  check.expect.equal actual(%half_result) expected(%half_bits) : i16
+  check.expect.equal actual(%brain_result) expected(%brain_bits) : i16
+  check.return
+}
+
 func.def public @narrow_abi(%condition: i1, %a: f8E4M3, %b: f8E5M2, %c: f16, %d: bf16, %other_a: f8E4M3, %other_b: f8E5M2, %other_c: f16, %other_d: bf16) -> (f8E4M3, f8E5M2, f16, bf16, f32, f32, f32, f32) {
   %selected_a = scf.select %condition, %a, %other_a : f8E4M3
   %selected_b = scf.select %condition, %b, %other_b : f8E5M2
