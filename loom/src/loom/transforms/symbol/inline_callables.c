@@ -11,6 +11,7 @@
 #include "loom/analysis/availability.h"
 #include "loom/analysis/scc.h"
 #include "loom/analysis/symbol_references.h"
+#include "loom/codegen/low/function.h"
 #include "loom/codegen/low/memory_access.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
@@ -1125,34 +1126,6 @@ static iree_status_t loom_inline_execute_entry(
   }
 }
 
-// Expands a phased helper's implicit scope before its function boundary is
-// removed. Explicit controls retain each cloned invocation's identity and
-// close every returning path, including nested CFG splices. Entry resources
-// remain before ordinary body operations as required by the Low preamble.
-static iree_status_t loom_inline_materialize_phased_low_schedule(
-    loom_func_like_t function, loom_rewriter_t* rewriter) {
-  loom_region_t* body = loom_func_like_body(function);
-  loom_op_t* first_op = loom_region_entry_block(body)->first_op;
-  while (loom_low_live_in_isa(first_op) || loom_low_resource_isa(first_op)) {
-    first_op = first_op->next_op;
-  }
-  loom_builder_set_before(&rewriter->builder, first_op);
-  loom_op_t* control_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_schedule_begin_build(
-      &rewriter->builder, first_op->location, &control_op));
-  for (uint16_t block_index = 0; block_index < body->block_count;
-       ++block_index) {
-    loom_op_t* terminator = body->blocks[block_index]->last_op;
-    if (!loom_low_return_isa(terminator)) {
-      continue;
-    }
-    loom_builder_set_before(&rewriter->builder, terminator);
-    IREE_RETURN_IF_ERROR(loom_low_schedule_end_build(
-        &rewriter->builder, terminator->location, &control_op));
-  }
-  return iree_ok_status();
-}
-
 // Makes Low scheduling contracts explicit before a body crosses a callable
 // boundary. Locked blocks receive a fence before and after each instruction;
 // phased functions receive one scope closed at every return. Clearing the
@@ -1170,36 +1143,14 @@ static iree_status_t loom_inline_materialize_low_schedules(
     }
     const loom_low_schedule_t schedule =
         loom_low_func_def_schedule(entry->callee.op);
-    if (schedule == LOOM_LOW_SCHEDULE_PHASED) {
-      IREE_RETURN_IF_ERROR(
-          loom_inline_materialize_phased_low_schedule(entry->callee, rewriter));
-    } else if (schedule != LOOM_LOW_SCHEDULE_LOCKED) {
+    if (schedule != LOOM_LOW_SCHEDULE_PHASED &&
+        schedule != LOOM_LOW_SCHEDULE_LOCKED) {
       continue;
     }
 
     loom_region_t* body = loom_func_like_body(entry->callee);
-    for (uint16_t block_index = 0; schedule == LOOM_LOW_SCHEDULE_LOCKED &&
-                                   block_index < body->block_count;
-         ++block_index) {
-      loom_block_t* block = loom_region_block(body, block_index);
-      loom_op_t* terminator = block->last_op;
-      loom_op_t* first_op = block->first_op;
-      if (first_op == terminator) {
-        continue;
-      }
-
-      loom_builder_set_before(&rewriter->builder, first_op);
-      loom_op_t* fence_op = NULL;
-      IREE_RETURN_IF_ERROR(loom_low_schedule_fence_build(
-          &rewriter->builder, first_op->location, &fence_op));
-      for (loom_op_t* op = first_op; op != terminator;) {
-        loom_op_t* next_op = op->next_op;
-        loom_builder_set_after(&rewriter->builder, op);
-        IREE_RETURN_IF_ERROR(loom_low_schedule_fence_build(
-            &rewriter->builder, op->location, &fence_op));
-        op = next_op;
-      }
-    }
+    IREE_RETURN_IF_ERROR(loom_low_function_materialize_schedule(
+        &rewriter->builder, schedule, body->blocks, body->block_count));
     IREE_RETURN_IF_ERROR(loom_low_func_def_rewrite_schedule(
         rewriter, entry->callee.op, loom_attr_absent()));
     loom_pass_mark_changed(state->pass);

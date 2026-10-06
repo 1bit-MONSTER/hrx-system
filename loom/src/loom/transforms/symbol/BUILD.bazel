@@ -212,6 +212,7 @@ loom_cc_library(
         "//loom/src/loom/analysis:availability",
         "//loom/src/loom/analysis:scc",
         "//loom/src/loom/analysis:symbol_references",
+        "//loom/src/loom/codegen/low:function",
         "//loom/src/loom/codegen/low:memory_access",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",

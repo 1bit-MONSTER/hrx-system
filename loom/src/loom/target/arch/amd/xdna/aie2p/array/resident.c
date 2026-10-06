@@ -1849,6 +1849,9 @@ static iree_status_t loom_aie2p_array_resident_materialize_worker(
   const uint16_t source_block_start = resident_body->block_count;
   IREE_RETURN_IF_ERROR(loom_ir_clone_region_blocks(
       &ir_builder, source_body, resident_body, source_block_start, &remap));
+  IREE_RETURN_IF_ERROR(loom_low_function_materialize_schedule(
+      &ir_builder, loom_low_func_def_schedule(source_function),
+      resident_body->blocks + source_block_start, source_body->block_count));
   loom_block_t* source_entry =
       loom_region_block(resident_body, source_block_start);
 

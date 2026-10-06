@@ -542,3 +542,18 @@ low.func.def target<amd.xdna.aie2p.core> @payload_dependent_store_indices(%sourc
 
 // ----
 scheduled pressure aie2p.edj: peak-live-units<=8
+
+// ====
+
+// Phases are not admitted merely because shared logical scheduling supports
+// them: allocation-generated setup moves need native ordering guarantees too.
+// RUN: emit aie2p-leaf @phase_setup_boundary
+
+// ERROR@+1: BACKEND/047 {op_name="low.func.def", representation="amd.xdna.aie2p.core"}
+low.func.def schedule(phased) target<amd.xdna.aie2p.core> @phase_setup_boundary(%input: reg<aie2p.ep>, %ready_half: reg<aie2p.vec256>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
+  %loaded = vlda.512.i32x16 %input, 0
+  %doubled = vadd.32 %loaded, %loaded
+  low.schedule.phase
+  %repeated = concat(%ready_half, %ready_half) : (reg<aie2p.vec256>, reg<aie2p.vec256>) -> reg<aie2p.vec256 x2>
+  return %doubled, %repeated
+}

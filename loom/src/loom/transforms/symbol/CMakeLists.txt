@@ -235,6 +235,7 @@ loom_cc_library(
     loom::analysis::availability
     loom::analysis::scc
     loom::analysis::symbol_references
+    loom::codegen::low::function
     loom::codegen::low::memory_access
     loom::error::error_defs
     loom::ir
