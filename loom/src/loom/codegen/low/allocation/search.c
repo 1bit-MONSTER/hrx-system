@@ -415,14 +415,18 @@ static bool loom_low_allocation_search_consider_linear_location(
 
 static bool loom_low_allocation_search_has_ordered_availability(
     const loom_low_allocation_search_context_t* context,
-    const loom_low_allocation_assignment_t* candidate) {
+    const loom_low_allocation_assignment_t* candidate,
+    loom_low_allocation_storage_release_policy_t release_policy) {
   return loom_low_allocation_active_unit_index_can_order_candidate(
              &context->active_set->units, candidate) ||
          (context->fixed_availability != NULL &&
           loom_low_allocation_fixed_availability_can_order_candidate(
               context->fixed_availability, candidate)) ||
          loom_low_allocation_target_constraints_can_order_reserved_candidate(
-             context->target_constraints, candidate);
+             context->target_constraints, candidate) ||
+         loom_low_allocation_storage_lease_state_can_order_candidate(
+             context->storage_leases, context->descriptor_set, candidate,
+             release_policy);
 }
 
 // Finds the next location not rejected by retained ordered conflict sources.
@@ -433,6 +437,7 @@ static bool loom_low_allocation_search_find_ordered_unoccupied_location(
     const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
     uint32_t maximum_base,
     loom_low_allocation_location_search_direction_t direction,
+    loom_low_allocation_storage_release_policy_t release_policy,
     uint32_t* out_base) {
   if (minimum_base > maximum_base) {
     return false;
@@ -447,7 +452,12 @@ static bool loom_low_allocation_search_find_ordered_unoccupied_location(
   const bool can_skip_reserved =
       loom_low_allocation_target_constraints_can_order_reserved_candidate(
           context->target_constraints, candidate);
-  IREE_ASSERT(can_skip_active || can_skip_fixed || can_skip_reserved);
+  const bool can_skip_leases =
+      loom_low_allocation_storage_lease_state_can_order_candidate(
+          context->storage_leases, context->descriptor_set, candidate,
+          release_policy);
+  IREE_ASSERT(can_skip_active || can_skip_fixed || can_skip_reserved ||
+              can_skip_leases);
   if (direction == LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING) {
     uint32_t cursor = minimum_base;
     while (cursor <= maximum_base) {
@@ -468,6 +478,12 @@ static bool loom_low_allocation_search_find_ordered_unoccupied_location(
           !loom_low_allocation_target_constraints_find_next_unreserved_location(
               context->target_constraints, candidate, cursor, maximum_base,
               &cursor)) {
+        return false;
+      }
+      if (can_skip_leases &&
+          !loom_low_allocation_storage_lease_state_find_next_available_location(
+              context->storage_leases, context->descriptor_set, candidate,
+              release_policy, cursor, maximum_base, &cursor)) {
         return false;
       }
       if (cursor == initial_cursor) {
@@ -497,6 +513,12 @@ static bool loom_low_allocation_search_find_ordered_unoccupied_location(
         !loom_low_allocation_target_constraints_find_previous_unreserved_location(
             context->target_constraints, candidate, minimum_base, cursor,
             &cursor)) {
+      return false;
+    }
+    if (can_skip_leases &&
+        !loom_low_allocation_storage_lease_state_find_previous_available_location(
+            context->storage_leases, context->descriptor_set, candidate,
+            release_policy, minimum_base, cursor, &cursor)) {
       return false;
     }
     if (cursor == initial_cursor) {
@@ -532,8 +554,8 @@ static void loom_low_allocation_search_find_location_for_release_policy(
   const bool can_skip_ordered_locations =
       alignment == 1 && preferred_alignment == 1 &&
       packing_count <= candidate_count &&
-      loom_low_allocation_search_has_ordered_availability(context,
-                                                          candidate_template);
+      loom_low_allocation_search_has_ordered_availability(
+          context, candidate_template, release_policy);
   if (can_skip_ordered_locations) {
     if (packing_count != 0 && minimum_base < packing_count) {
       uint32_t maximum_base = iree_min(last_base, (uint32_t)packing_count - 1u);
@@ -541,7 +563,8 @@ static void loom_low_allocation_search_find_location_for_release_policy(
         uint32_t base = 0;
         if (!loom_low_allocation_search_find_ordered_unoccupied_location(
                 context, candidate_template, minimum_base, maximum_base,
-                LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING, &base)) {
+                LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING, release_policy,
+                &base)) {
           break;
         }
         if (loom_low_allocation_search_consider_linear_location(
@@ -561,7 +584,8 @@ static void loom_low_allocation_search_find_location_for_release_policy(
       uint32_t base = 0;
       if (!loom_low_allocation_search_find_ordered_unoccupied_location(
               context, candidate_template, next_base, last_base,
-              LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, &base)) {
+              LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, release_policy,
+              &base)) {
         break;
       }
       if (loom_low_allocation_search_consider_linear_location(
@@ -610,14 +634,16 @@ loom_low_allocation_search_find_linear_pressure_choice(
   *out_choice = (loom_low_allocation_search_location_choice_t){0};
   const bool use_ordered_availability =
       alignment == 1 && loom_low_allocation_search_has_ordered_availability(
-                            context, candidate_template);
+                            context, candidate_template,
+                            LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE);
   uint64_t next_base = 0;
   while (next_base <= last_base) {
     uint32_t base = (uint32_t)next_base;
     if (use_ordered_availability &&
         !loom_low_allocation_search_find_ordered_unoccupied_location(
             context, candidate_template, base, last_base,
-            LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, &base)) {
+            LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+            LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE, &base)) {
       break;
     }
     next_base = (uint64_t)base + alignment;

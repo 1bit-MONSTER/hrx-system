@@ -26,6 +26,8 @@
 #include "loom/codegen/low/allocation.h"
 #include "loom/codegen/low/allocation/unit_liveness.h"
 #include "loom/codegen/low/placement.h"
+#include "loom/codegen/low/schedule/run.h"
+#include "loom/codegen/low/storage_lease.h"
 #include "loom/codegen/low/text_asm.h"
 #include "loom/codegen/low/verify.h"
 #include "loom/format/text/parser.h"
@@ -113,6 +115,7 @@ enum class Shape {
   kFanout,
   kFutureFixed,
   kReservedPrefix,
+  kLeasedPrefix,
 };
 enum class Phase {
   kModel,
@@ -243,6 +246,24 @@ std::string MakeSource(uint32_t chain_length, uint32_t component_count,
     }
     source += ", %fixed_pack";
     return source + "\n}\n";
+  }
+  if (shape == Shape::kLeasedPrefix) {
+    Require(width == 1, "Leased-prefix shape requires scalar registers");
+    const uint32_t count = chain_length * component_count;
+    std::string source =
+        "test.target<low_core> @target\n"
+        "low.func.def schedule(locked) target<test.low.core>(@target) "
+        "@kernel() -> (reg<test.i32>) asm {\n";
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %leased" + std::to_string(i) + " = test.const.issued.i32 " +
+                std::to_string(i) + "\n";
+      source += "  test.leased.consume.i32 %leased" + std::to_string(i) + "\n";
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %result" + std::to_string(i) + " = test.const.issued.i32 " +
+                std::to_string(i) + "\n";
+    }
+    return source + "  return %result" + std::to_string(count - 1u) + "\n}\n";
   }
   if (shape == Shape::kLoopRelocation) {
     std::string source =
@@ -437,6 +458,12 @@ struct RunResult {
   uint64_t scratch_move_count = 0;
   // First cycle-scratch location selected for the forced cyclic group.
   uint64_t scratch_location = UINT64_MAX;
+  // Materialized asynchronous storage leases.
+  uint64_t storage_lease_count = 0;
+  // Allocator-requested early release actions.
+  uint64_t storage_release_action_count = 0;
+  // Largest assigned target-ID endpoint.
+  uint64_t assigned_target_id_extent = 0;
 };
 
 class AllocationBenchmark {
@@ -607,6 +634,20 @@ class AllocationBenchmark {
     if (phase_ != Phase::kModel) {
       InitializeModel(&base_arena_, &model_);
     }
+    if (shape == Shape::kLeasedPrefix) {
+      loom_low_schedule_options_t schedule_options = {};
+      IREE_CHECK_OK(loom_low_schedule_function(&model_, &schedule_options,
+                                               &base_arena_, &schedule_));
+      Require(schedule_.error_count == 0, "Scheduling failed");
+      const loom_low_storage_lease_provider_t provider = {
+          /*.user_data=*/{},
+          /*.query=*/loom_low_storage_lease_query_descriptor_rows,
+      };
+      IREE_CHECK_OK(loom_low_storage_lease_build(
+          &schedule_, &provider, &base_arena_, &storage_leases_));
+      Require(storage_leases_.record_count == chain_length * component_count,
+              "Leased-prefix records missing");
+    }
     if (phase_ == Phase::kPlacement || phase_ == Phase::kUnitLiveness) {
       IREE_CHECK_OK(loom_liveness_analyze_local_value_domain_with_dataflow(
           &model_.value_domain, &model_.liveness_dataflow,
@@ -678,6 +719,10 @@ class AllocationBenchmark {
       options.fixed_value_count = fixed_values_.size();
       options.reserved_ranges = reserved_ranges_.data();
       options.reserved_range_count = reserved_ranges_.size();
+      if (storage_leases_.record_count != 0) {
+        options.schedule = &schedule_;
+        options.storage_leases = storage_leases_;
+      }
       loom_low_allocation_table_t allocation = {};
       IREE_CHECK_OK(
           loom_low_allocate_function(&model_, &options, &arena, &allocation));
@@ -686,6 +731,19 @@ class AllocationBenchmark {
       result.value_count = model_.value_domain.value_count;
       result.copy_count = allocation.copy_decision_count;
       result.materialized_copy_count = allocation.materialized_copy_count;
+      result.storage_lease_count = allocation.storage_lease_instance_count;
+      result.storage_release_action_count =
+          allocation.storage_release_action_count;
+      for (iree_host_size_t i = 0; i < allocation.assignment_count; ++i) {
+        const auto& assignment = allocation.assignments[i];
+        if (assignment.location_kind ==
+            LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID) {
+          result.assigned_target_id_extent =
+              std::max(result.assigned_target_id_extent,
+                       static_cast<uint64_t>(assignment.location_base) +
+                           assignment.location_count);
+        }
+      }
       if (backedge_terminator_ != nullptr) {
         result.backedge_move_count = UINT64_MAX;
         for (iree_host_size_t i = 0; i < allocation.edge_copy_group_count;
@@ -794,6 +852,10 @@ class AllocationBenchmark {
   loom_liveness_analysis_t liveness_ = {};
   // Retained placement facts for unit-liveness-only measurements.
   loom_low_placement_table_t placement_ = {};
+  // Retained locked schedule used by the descriptor-driven lease witness.
+  loom_low_schedule_table_t schedule_ = {};
+  // Descriptor-provided storage leases over |schedule_|.
+  loom_low_storage_lease_table_t storage_leases_ = {};
   // Dense relocation source colors fixed outside the header destination set.
   std::vector<loom_low_allocation_fixed_value_t> fixed_values_;
   // Whole-function reservation used by the prefix-scaling witness.
@@ -880,7 +942,7 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   if (phase == Phase::kAllocation) {
     const uint32_t expected_copy_count =
         shape == Shape::kTied || shape == Shape::kLoopRelocation ||
-                shape == Shape::kMoveScratch
+                shape == Shape::kMoveScratch || shape == Shape::kLeasedPrefix
             ? 0
             : chain_length * component_count *
                   (shape == Shape::kBranch ? 2 : 1);
@@ -895,6 +957,15 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
                   expected_copy_count - component_count,
               "Independently live copies were incorrectly coalesced");
     }
+    if (shape == Shape::kLeasedPrefix) {
+      const uint64_t count = chain_length * component_count;
+      Require(result.storage_lease_count == count,
+              "Storage leases were not materialized");
+      Require(result.storage_release_action_count == 0,
+              "Leased prefix requested an unexpected early release");
+      Require(result.assigned_target_id_extent == count + 1u,
+              "Leased prefix did not retain its physical locations");
+    }
   }
   state.counters["value_count"] = result.value_count;
   state.counters["copy_count"] = result.copy_count;
@@ -903,6 +974,11 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   state.counters["scratch_group_move_count"] = result.scratch_group_move_count;
   state.counters["scratch_move_count"] = result.scratch_move_count;
   state.counters["scratch_location"] = result.scratch_location;
+  state.counters["storage_lease_count"] = result.storage_lease_count;
+  state.counters["storage_release_action_count"] =
+      result.storage_release_action_count;
+  state.counters["assigned_target_id_extent"] =
+      result.assigned_target_id_extent;
   state.counters["arena_used_bytes"] = result.used_bytes;
   state.counters["arena_owned_bytes"] = result.owned_bytes;
   state.counters["setup_live_requested_bytes"] = memory.setup_live_bytes;
@@ -920,7 +996,7 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
   for (auto shape :
        {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
         Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout,
-        Shape::kFutureFixed, Shape::kReservedPrefix}) {
+        Shape::kFutureFixed, Shape::kReservedPrefix, Shape::kLeasedPrefix}) {
     for (auto phase : {Phase::kModel, Phase::kLiveness, Phase::kPlacement,
                        Phase::kUnitLiveness, Phase::kAllocation}) {
       if (shape == Shape::kLoopRelocation && phase != Phase::kAllocation) {
@@ -935,6 +1011,9 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       if (shape == Shape::kReservedPrefix && phase != Phase::kAllocation) {
         continue;
       }
+      if (shape == Shape::kLeasedPrefix && phase != Phase::kAllocation) {
+        continue;
+      }
       const std::string name =
           "LowAllocation/" +
           std::string(shape == Shape::kLinear           ? "linear/"
@@ -945,7 +1024,8 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
                       : shape == Shape::kTied           ? "tied/"
                       : shape == Shape::kFanout         ? "fanout/"
                       : shape == Shape::kFutureFixed    ? "future_fixed/"
-                                                        : "reserved_prefix/") +
+                      : shape == Shape::kReservedPrefix ? "reserved_prefix/"
+                                                        : "leased_prefix/") +
           (phase == Phase::kModel          ? "model"
            : phase == Phase::kLiveness     ? "liveness"
            : phase == Phase::kPlacement    ? "placement"
@@ -977,6 +1057,12 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
         continue;
       }
       if (shape == Shape::kReservedPrefix) {
+        for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({count, 1, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kLeasedPrefix) {
         for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
           registration->Args({count, 1, 1});
         }

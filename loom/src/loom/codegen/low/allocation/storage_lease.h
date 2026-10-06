@@ -55,6 +55,15 @@ typedef struct loom_low_allocation_storage_lease_state_t {
   uint8_t* instance_written;
   // Temporal index for materialized register-like storage-lease units.
   loom_low_allocation_storage_lease_unit_index_t* unit_index;
+  // Min-heap of materialized lease ordinals keyed by mutable end point. The
+  // heap is absent for small lease tables where linear probing is cheaper.
+  uint32_t* availability_expiration_heap;
+  // Heap positions by lease ordinal, or UINT32_MAX when not present.
+  uint32_t* availability_expiration_positions;
+  // Monotone candidate start represented by ordered availability summaries.
+  uint32_t availability_start_point;
+  // Number of initialized entries in |availability_expiration_heap|.
+  uint32_t availability_expiration_count;
   // Number of initialized assignment-backed storage-lease records.
   iree_host_size_t instance_count;
   // Number of initialized storage release actions.
@@ -84,6 +93,34 @@ bool loom_low_allocation_storage_lease_state_conflicts(
     const loom_low_allocation_assignment_t* candidate,
     const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count,
     loom_low_allocation_storage_release_policy_t policy);
+
+// Returns true when ordered lease availability can prove definite conflicts
+// for |candidate| under |policy|. The allowed policy remains candidate-specific
+// and is never summarized. An explicit segment equal to the candidate's full
+// interval is continuous; candidates with lifetime holes, refined units,
+// tuples, or explicit registers retain the exact conflict path.
+bool loom_low_allocation_storage_lease_state_can_order_candidate(
+    const loom_low_allocation_storage_lease_state_t* state,
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_allocation_assignment_t* candidate,
+    loom_low_allocation_storage_release_policy_t policy);
+
+// Finds the first location in the inclusive range that is not a definite lease
+// conflict under |policy|. Calls advance the retained expiration frontier to
+// the candidate's monotone start point. Other conflict sources and complete
+// release legality still require the normal allocation predicate.
+bool loom_low_allocation_storage_lease_state_find_next_available_location(
+    loom_low_allocation_storage_lease_state_t* state,
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_allocation_assignment_t* candidate,
+    loom_low_allocation_storage_release_policy_t policy, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base);
+bool loom_low_allocation_storage_lease_state_find_previous_available_location(
+    loom_low_allocation_storage_lease_state_t* state,
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_allocation_assignment_t* candidate,
+    loom_low_allocation_storage_release_policy_t policy, uint32_t minimum_base,
+    uint32_t maximum_base, uint32_t* out_base);
 
 // Returns true when |value_id| has storage-lease records that must be
 // materialized from a register-like assignment.

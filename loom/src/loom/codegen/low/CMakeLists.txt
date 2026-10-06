@@ -640,6 +640,7 @@ loom_cc_benchmark(
     ::allocation
     ::function_model
     ::placement
+    ::storage_lease
     ::text_asm
     ::verify
     iree::base
@@ -647,6 +648,7 @@ loom_cc_benchmark(
     iree::testing::benchmark_main
     loom::analysis::liveness
     loom::codegen::low::allocation::unit_liveness
+    loom::codegen::low::schedule
     loom::format::text::parser
     loom::ir
     loom::ops::func

@@ -207,7 +207,8 @@ TEST_F(LowAllocationNumberingTest, UpdatesLeasesAndCycleScratchTogether) {
       &index, instances, 2, 5, 3, &arena_));
   for (uint32_t i = 0; i < 2; ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i,
+                                                        /*lease_flags=*/0);
   }
   const auto node_count = index.node_count;
   const auto* nodes = index.nodes;

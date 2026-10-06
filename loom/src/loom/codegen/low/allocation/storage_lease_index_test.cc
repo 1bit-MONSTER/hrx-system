@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <numeric>
 #include <random>
+#include <utility>
 #include <vector>
 
 #include "iree/testing/gtest.h"
@@ -80,6 +81,42 @@ class LowAllocationStorageLeaseIndexTest : public ::testing::Test {
     return result;
   }
 
+  void RefreshAvailability(
+      loom_low_allocation_storage_lease_unit_index_t* index,
+      const std::vector<loom_low_allocation_storage_lease_t>& leases,
+      uint32_t start_point) {
+    for (uint32_t i = 0; i < leases.size(); ++i) {
+      loom_low_allocation_storage_lease_unit_index_refresh_availability(
+          index, &descriptors_, i, start_point);
+    }
+  }
+
+  bool FindNextAvailable(
+      const loom_low_allocation_storage_lease_unit_index_t& index,
+      uint32_t candidate_end_point,
+      loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+      uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base,
+      uint16_t reg_class = 0,
+      loom_low_allocation_location_kind_t kind =
+          LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+    return loom_low_allocation_storage_lease_unit_index_find_next_available_location(
+        &index, &descriptors_, reg_class, kind, candidate_end_point,
+        conflict_class, minimum_base, maximum_base, out_base);
+  }
+
+  bool FindPreviousAvailable(
+      const loom_low_allocation_storage_lease_unit_index_t& index,
+      uint32_t candidate_end_point,
+      loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+      uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base,
+      uint16_t reg_class = 0,
+      loom_low_allocation_location_kind_t kind =
+          LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+    return loom_low_allocation_storage_lease_unit_index_find_previous_available_location(
+        &index, &descriptors_, reg_class, kind, candidate_end_point,
+        conflict_class, minimum_base, maximum_base, out_base);
+  }
+
   // Arena backing retained for the duration of each API test.
   iree_arena_block_pool_t pool_;
   // Owner of index and selection storage.
@@ -98,7 +135,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest, QueriesAliasingPhysicalLeaseUnits) {
   Initialize(leases, &index);
   for (uint32_t i = 0; i < leases.size(); ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   EXPECT_EQ((std::vector<uint32_t>{0, 1}),
             Query(index, 0, UINT32_MAX, 11, 1, 1));
@@ -119,7 +156,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest,
   Initialize(leases, &index);
   for (uint32_t i = 0; i < leases.size(); ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   EXPECT_EQ((std::vector<uint32_t>{0, 1, 2}), Query(index, 8, 8));
   EXPECT_EQ((std::vector<uint32_t>{1, 2}), Query(index, 9, 8));
@@ -132,6 +169,233 @@ TEST_F(LowAllocationStorageLeaseIndexTest,
 }
 
 TEST_F(LowAllocationStorageLeaseIndexTest,
+       FindsGapsAcrossFutureStartsExpirationsAndPressure) {
+  std::vector<loom_low_allocation_storage_lease_t> leases = {
+      Lease(/*start=*/1, /*end=*/20, /*location=*/10),
+      Lease(/*start=*/8, /*end=*/30, /*location=*/11),
+      Lease(/*start=*/15, /*end=*/40, /*location=*/12),
+      Lease(/*start=*/2, /*end=*/5, /*location=*/14),
+  };
+  loom_low_allocation_storage_lease_unit_index_t index;
+  Initialize(leases, &index);
+  for (uint32_t i = 0; i < leases.size(); ++i) {
+    const loom_low_storage_lease_flags_t flags =
+        i == 1 ? LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE : 0;
+    loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
+                                                        i, flags);
+  }
+  RefreshAvailability(&index, leases, /*start_point=*/0);
+
+  uint32_t base = UINT32_MAX;
+  EXPECT_TRUE(FindNextAvailable(index, /*candidate_end_point=*/10,
+                                LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+                                10, 14, &base));
+  EXPECT_EQ(base, 12u);  // The lease at 12 starts after this candidate ends.
+  EXPECT_TRUE(FindPreviousAvailable(
+      index, /*candidate_end_point=*/10,
+      LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL, 10, 14, &base));
+  EXPECT_EQ(base, 13u);
+  EXPECT_TRUE(FindNextAvailable(
+      index, /*candidate_end_point=*/10,
+      LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_NON_PRESSURE, 10, 14, &base));
+  EXPECT_EQ(base, 11u);  // Pressure policy leaves location 11 to full legality.
+
+  RefreshAvailability(&index, leases, /*start_point=*/10);
+  EXPECT_TRUE(FindNextAvailable(index, /*candidate_end_point=*/20,
+                                LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+                                10, 14, &base));
+  EXPECT_EQ(base, 13u);
+  EXPECT_TRUE(FindPreviousAvailable(
+      index, /*candidate_end_point=*/20,
+      LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL, 10, 14, &base));
+  EXPECT_EQ(base, 14u);
+  EXPECT_FALSE(FindPreviousAvailable(
+      index, /*candidate_end_point=*/20,
+      LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL, 10, 12, &base));
+
+  leases[2].end_point = 12;
+  loom_low_allocation_storage_lease_unit_index_update(&index, 2);
+  RefreshAvailability(&index, leases, /*start_point=*/12);
+  EXPECT_TRUE(FindNextAvailable(index, /*candidate_end_point=*/20,
+                                LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+                                10, 12, &base));
+  EXPECT_EQ(base, 12u);
+
+  RefreshAvailability(&index, leases, /*start_point=*/20);
+  EXPECT_TRUE(FindNextAvailable(index, /*candidate_end_point=*/25,
+                                LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+                                10, 12, &base));
+  EXPECT_EQ(base, 10u);
+}
+
+TEST_F(LowAllocationStorageLeaseIndexTest,
+       OrderedAvailabilitySharesAliasesAndSeparatesKinds) {
+  std::vector<loom_low_allocation_storage_lease_t> leases = {
+      Lease(1, 20, 7, 1, /*reg_class=*/0),
+      Lease(1, 20, 8, 1, /*reg_class=*/2),
+      Lease(1, 20, 9, 1, /*reg_class=*/1,
+            LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID),
+  };
+  loom_low_allocation_storage_lease_unit_index_t index;
+  Initialize(leases, &index);
+  for (uint32_t i = 0; i < leases.size(); ++i) {
+    loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
+                                                        i, 0);
+  }
+  RefreshAvailability(&index, leases, /*start_point=*/2);
+
+  uint32_t base = UINT32_MAX;
+  EXPECT_TRUE(FindNextAvailable(index, /*candidate_end_point=*/3,
+                                LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+                                7, 9, &base,
+                                /*reg_class=*/1));
+  EXPECT_EQ(base, 8u);
+  EXPECT_TRUE(FindNextAvailable(index, /*candidate_end_point=*/3,
+                                LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+                                7, 9, &base,
+                                /*reg_class=*/2));
+  EXPECT_EQ(base, 7u);
+  EXPECT_TRUE(FindNextAvailable(
+      index, /*candidate_end_point=*/3,
+      LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL, 8, 10, &base,
+      /*reg_class=*/1, LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID));
+  EXPECT_EQ(base, 8u);
+}
+
+TEST_F(LowAllocationStorageLeaseIndexTest,
+       OrderedAvailabilityMatchesIndependentModel) {
+  std::vector<loom_low_allocation_storage_lease_t> leases = {
+      Lease(0, 9, 0, 3, 0),
+      Lease(7, 28, 0, 1, 1),
+      Lease(2, 12, 3, 4, 1),
+      Lease(15, 35, 4, 5, 0),
+      Lease(1, 30, 6, 1, 0),
+      Lease(4, 18, 7, 3, 0),
+      Lease(10, 40, 10, 2, 0),
+      Lease(3, 22, 2, 5, 2),
+      Lease(5, 25, 5, 4, 1, LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID),
+      Lease(12, 32, 13, 1, 0),
+  };
+  const std::vector<loom_low_storage_lease_flags_t> flags = {
+      0, LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE,
+      0, LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE,
+      0, LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE,
+      0, 0,
+      0, 0,
+  };
+  loom_low_allocation_storage_lease_unit_index_t index;
+  Initialize(leases, &index);
+  for (uint32_t i : {6u, 1u, 8u, 3u, 0u, 9u, 4u, 7u, 2u, 5u}) {
+    loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
+                                                        i, flags[i]);
+  }
+
+  const auto model_conflicts =
+      [&](uint32_t start_point, uint32_t end_point,
+          loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+          uint16_t reg_class, loom_low_allocation_location_kind_t kind,
+          uint32_t location) {
+        const uint32_t storage_key =
+            loom_low_reg_class_storage_key(&descriptors_, reg_class);
+        for (uint32_t i = 0; i < leases.size(); ++i) {
+          const auto& lease = leases[i];
+          if (conflict_class ==
+                  LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_NON_PRESSURE &&
+              iree_any_bit_set(
+                  flags[i], LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE)) {
+            continue;
+          }
+          if (lease.end_point <= start_point ||
+              lease.start_point >= end_point || lease.location_kind != kind ||
+              loom_low_reg_class_storage_key(&descriptors_,
+                                             lease.descriptor_reg_class_id) !=
+                  storage_key ||
+              location < lease.location_base ||
+              location - lease.location_base >= lease.location_count) {
+            continue;
+          }
+          return true;
+        }
+        return false;
+      };
+  const std::vector<std::pair<uint32_t, uint32_t>> ranges = {
+      {0, 0}, {0, 15}, {2, 8}, {5, 13}, {11, 20}};
+  for (uint32_t start_point = 0; start_point <= 30; ++start_point) {
+    if (start_point == 10) {
+      leases[6].end_point = 10;
+      loom_low_allocation_storage_lease_unit_index_update(&index, 6);
+    }
+    RefreshAvailability(&index, leases, start_point);
+    for (uint32_t duration : {1u, 4u, 11u}) {
+      const uint32_t end_point = start_point + duration;
+      for (const auto conflict_class : {
+               LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL,
+               LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_NON_PRESSURE,
+           }) {
+        for (uint16_t reg_class : {0, 1, 2}) {
+          for (const auto kind : {
+                   LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
+                   LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
+               }) {
+            for (const auto [minimum_base, maximum_base] : ranges) {
+              SCOPED_TRACE(start_point);
+              SCOPED_TRACE(end_point);
+              SCOPED_TRACE(static_cast<int>(conflict_class));
+              SCOPED_TRACE(reg_class);
+              SCOPED_TRACE(static_cast<int>(kind));
+              SCOPED_TRACE(minimum_base);
+              SCOPED_TRACE(maximum_base);
+
+              bool expected_found = false;
+              uint32_t expected_base = UINT32_MAX;
+              for (uint32_t location = minimum_base; location <= maximum_base;
+                   ++location) {
+                if (!model_conflicts(start_point, end_point, conflict_class,
+                                     reg_class, kind, location)) {
+                  expected_found = true;
+                  expected_base = location;
+                  break;
+                }
+              }
+              uint32_t actual_base = UINT32_MAX;
+              EXPECT_EQ(expected_found,
+                        FindNextAvailable(index, end_point, conflict_class,
+                                          minimum_base, maximum_base,
+                                          &actual_base, reg_class, kind));
+              if (expected_found) {
+                EXPECT_EQ(expected_base, actual_base);
+              }
+
+              expected_found = false;
+              expected_base = UINT32_MAX;
+              for (uint32_t location = maximum_base;; --location) {
+                if (!model_conflicts(start_point, end_point, conflict_class,
+                                     reg_class, kind, location)) {
+                  expected_found = true;
+                  expected_base = location;
+                  break;
+                }
+                if (location == minimum_base) {
+                  break;
+                }
+              }
+              actual_base = UINT32_MAX;
+              EXPECT_EQ(expected_found,
+                        FindPreviousAvailable(index, end_point, conflict_class,
+                                              minimum_base, maximum_base,
+                                              &actual_base, reg_class, kind));
+              if (expected_found) {
+                EXPECT_EQ(expected_base, actual_base);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST_F(LowAllocationStorageLeaseIndexTest,
        RetainsIndependentIncomingSelections) {
   std::vector<loom_low_allocation_storage_lease_t> leases = {
       Lease(4, 8, 10, 2), Lease(40, 48, 10, 2), Lease(90, 99, 11, 1)};
@@ -139,7 +403,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest,
   Initialize(leases, &index);
   for (uint32_t i = 0; i < leases.size(); ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   loom_low_allocation_storage_lease_selection_t incoming, alternate;
   IREE_ASSERT_OK(loom_low_allocation_storage_lease_selection_initialize(
@@ -174,7 +438,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest, PrunesShuffledDisjointHistory) {
   std::shuffle(order.begin(), order.end(), generator);
   for (uint32_t i : order) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   for (uint32_t i = 0; i < kLeaseCount; ++i) {
     EXPECT_EQ((std::vector<uint32_t>{i}), Query(index, i * 4 + 1, i * 4 + 1));
@@ -197,7 +461,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest, ReservesForDistinctPhysicalUnits) {
       /*distinct_unit_capacity=*/2, &arena_));
   for (uint32_t i = 0; i < kLeaseCount; ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   EXPECT_EQ(index.node_capacity, 2 * kLeaseCount + 2);
   EXPECT_EQ(index.node_count, 2 * kLeaseCount);
@@ -217,7 +481,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest,
   Initialize(leases, &index);
   for (uint32_t i = 0; i < kLeaseCount; ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   for (uint32_t i = 0; i + 1 < kLeaseCount; ++i) {
     leases[i].end_point = 20;
@@ -241,7 +505,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest, HandlesHighKeysAndEmptyIndexes) {
   Initialize(leases, &index);
   for (uint32_t i = 0; i < leases.size(); ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   EXPECT_EQ((std::vector<uint32_t>{0}), Query(index, 0, 0, 0));
   EXPECT_EQ((std::vector<uint32_t>{1}),
@@ -255,7 +519,8 @@ TEST_F(LowAllocationStorageLeaseIndexTest, PreservesEmptyBoundaryQueries) {
       Lease(0, UINT32_MAX)};
   loom_low_allocation_storage_lease_unit_index_t index;
   Initialize(leases, &index);
-  loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_, 0);
+  loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_, 0,
+                                                      0);
   for (uint32_t point : {0u, UINT32_MAX}) {
     loom_low_allocation_storage_lease_unit_query_t query;
     loom_low_allocation_storage_lease_unit_query_initialize(
@@ -278,7 +543,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest, RetiresMembersDuringIteration) {
   Initialize(leases, &index);
   for (uint32_t i = 0; i < leases.size(); ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   loom_low_allocation_storage_lease_selection_t incoming;
   IREE_ASSERT_OK(loom_low_allocation_storage_lease_selection_initialize(
@@ -307,7 +572,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest, ReleasesLeasesDuringIteration) {
   Initialize(leases, &index);
   for (uint32_t i = 0; i < leases.size(); ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   loom_low_allocation_storage_lease_unit_query_t query;
   loom_low_allocation_storage_lease_unit_query_initialize(
@@ -344,7 +609,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest,
   std::shuffle(order.begin(), order.end(), generator);
   for (uint32_t i : order) {
     loom_low_allocation_storage_lease_unit_index_insert(&index, &descriptors_,
-                                                        i);
+                                                        i, 0);
   }
   loom_low_allocation_storage_lease_selection_t incoming;
   IREE_ASSERT_OK(loom_low_allocation_storage_lease_selection_initialize(

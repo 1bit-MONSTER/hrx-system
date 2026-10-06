@@ -59,7 +59,7 @@ typedef struct loom_low_allocation_search_context_t {
   // Attempt-local ordered availability of immutable fixed claims.
   loom_low_allocation_fixed_availability_t* fixed_availability;
   // Materialized storage leases and release eligibility.
-  const loom_low_allocation_storage_lease_state_t* storage_leases;
+  loom_low_allocation_storage_lease_state_t* storage_leases;
   // Cached predicted spill traffic, dense by liveness value ordinal. A
   // store_count of UINT32_MAX means the entry is not computed yet.
   loom_low_allocation_spill_plan_traffic_t* spill_traffic_by_value_ordinal;

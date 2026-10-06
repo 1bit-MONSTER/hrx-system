@@ -9,12 +9,28 @@
 #include <string.h>
 
 struct loom_low_allocation_storage_lease_index_node_t {
-  // Exact leaf key or the minimum key in a branch's shared radix prefix.
+  // Exact leaf key or normalized minimum of a branch's radix prefix.
   uint64_t key;
-  // Maximum end point of any temporal lease in this subtree.
-  uint32_t maximum_end_point;
-  // Parent in this radix tree, or UINT32_MAX at a root.
-  uint32_t parent;
+  // Metadata interpreted by the tree owning this node. The union keeps each
+  // shared node at 32 bytes while retaining both pressure policy summaries.
+  union {
+    struct {
+      // Maximum end point of any temporal lease in this subtree.
+      uint32_t maximum_end_point;
+      // Parent in this temporal tree, or UINT32_MAX at a root.
+      uint32_t parent;
+      // Maximum end point excluding pressure-releasable leases.
+      uint32_t maximum_non_pressure_end_point;
+    } temporal;
+    struct {
+      // Maximum earliest start over a dense run, or UINT32_MAX.
+      uint32_t maximum_first_start;
+      // Equivalent summary excluding pressure-releasable leases.
+      uint32_t maximum_non_pressure_first_start;
+      // Parent in this directory tree, or UINT32_MAX at a root.
+      uint32_t parent;
+    } directory;
+  } metadata;
   // Kind-specific payload; directory and temporal trees have separate roots.
   union {
     // Children of a radix branch, selected by the branch bit.
@@ -35,6 +51,9 @@ struct loom_low_allocation_storage_lease_index_node_t {
   // One-based split bit, decreasing toward children; zero denotes a leaf.
   uint8_t level;
 };
+
+static_assert(sizeof(loom_low_allocation_storage_lease_index_node_t) == 32,
+              "storage lease index nodes must remain cache compact");
 
 static uint32_t loom_low_allocation_storage_lease_unit_root_ordinal(
     loom_low_allocation_location_kind_t location_kind) {
@@ -60,7 +79,7 @@ static uint32_t loom_low_allocation_storage_lease_index_allocate_node(
   IREE_ASSERT_LT(node_index, index->node_capacity);
   index->nodes[node_index] = (loom_low_allocation_storage_lease_index_node_t){
       .key = key,
-      .parent = UINT32_MAX,
+      .metadata.temporal.parent = UINT32_MAX,
   };
   return node_index;
 }
@@ -84,7 +103,7 @@ static uint32_t* loom_low_allocation_storage_lease_index_find_link(
   return link;
 }
 
-static void loom_low_allocation_storage_lease_index_refresh_ancestors(
+static void loom_low_allocation_storage_lease_index_refresh_temporal_ancestors(
     loom_low_allocation_storage_lease_unit_index_t* index,
     uint32_t node_index) {
   while (node_index != UINT32_MAX) {
@@ -95,24 +114,43 @@ static void loom_low_allocation_storage_lease_index_refresh_ancestors(
     const loom_low_allocation_storage_lease_index_node_t* right =
         &index->nodes[node->data.children[1]];
     const uint32_t maximum_end_point =
-        iree_max(left->maximum_end_point, right->maximum_end_point);
-    if (node->maximum_end_point == maximum_end_point) {
+        iree_max(left->metadata.temporal.maximum_end_point,
+                 right->metadata.temporal.maximum_end_point);
+    const uint32_t maximum_non_pressure_end_point =
+        iree_max(left->metadata.temporal.maximum_non_pressure_end_point,
+                 right->metadata.temporal.maximum_non_pressure_end_point);
+    if (node->metadata.temporal.maximum_end_point == maximum_end_point &&
+        node->metadata.temporal.maximum_non_pressure_end_point ==
+            maximum_non_pressure_end_point) {
       break;
     }
-    node->maximum_end_point = maximum_end_point;
-    node_index = node->parent;
+    node->metadata.temporal.maximum_end_point = maximum_end_point;
+    node->metadata.temporal.maximum_non_pressure_end_point =
+        maximum_non_pressure_end_point;
+    node_index = node->metadata.temporal.parent;
   }
 }
 
+typedef enum loom_low_allocation_storage_lease_tree_kind_e {
+  LOOM_LOW_ALLOCATION_STORAGE_LEASE_TREE_DIRECTORY = 0,
+  LOOM_LOW_ALLOCATION_STORAGE_LEASE_TREE_TEMPORAL = 1,
+} loom_low_allocation_storage_lease_tree_kind_t;
+
 static void loom_low_allocation_storage_lease_index_insert_at(
     loom_low_allocation_storage_lease_unit_index_t* index, uint32_t* link,
-    uint32_t parent, uint32_t leaf_index) {
+    uint32_t parent, uint32_t leaf_index,
+    loom_low_allocation_storage_lease_tree_kind_t tree_kind) {
   loom_low_allocation_storage_lease_index_node_t* leaf =
       &index->nodes[leaf_index];
   if (*link == UINT32_MAX) {
     *link = leaf_index;
-    leaf->parent = parent;
-    loom_low_allocation_storage_lease_index_refresh_ancestors(index, parent);
+    if (tree_kind == LOOM_LOW_ALLOCATION_STORAGE_LEASE_TREE_TEMPORAL) {
+      leaf->metadata.temporal.parent = parent;
+      loom_low_allocation_storage_lease_index_refresh_temporal_ancestors(
+          index, parent);
+    } else {
+      leaf->metadata.directory.parent = parent;
+    }
     return;
   }
   const uint32_t previous_index = *link;
@@ -124,16 +162,94 @@ static void loom_low_allocation_storage_lease_index_insert_at(
   loom_low_allocation_storage_lease_index_node_t* branch =
       &index->nodes[branch_index];
   branch->level = level;
-  branch->parent = parent;
   const uint32_t child =
       loom_low_allocation_storage_lease_key_child(leaf->key, level);
   branch->data.children[child] = leaf_index;
   branch->data.children[child ^ 1u] = previous_index;
-  leaf->parent = branch_index;
-  index->nodes[previous_index].parent = branch_index;
   *link = branch_index;
-  loom_low_allocation_storage_lease_index_refresh_ancestors(index,
-                                                            branch_index);
+  if (tree_kind == LOOM_LOW_ALLOCATION_STORAGE_LEASE_TREE_TEMPORAL) {
+    branch->metadata.temporal.parent = parent;
+    leaf->metadata.temporal.parent = branch_index;
+    index->nodes[previous_index].metadata.temporal.parent = branch_index;
+    loom_low_allocation_storage_lease_index_refresh_temporal_ancestors(
+        index, branch_index);
+  } else {
+    branch->metadata.directory.maximum_first_start = UINT32_MAX;
+    branch->metadata.directory.maximum_non_pressure_first_start = UINT32_MAX;
+    branch->metadata.directory.parent = parent;
+    leaf->metadata.directory.parent = branch_index;
+    index->nodes[previous_index].metadata.directory.parent = branch_index;
+  }
+}
+
+static uint64_t loom_low_allocation_storage_lease_index_maximum_prefix_key(
+    const loom_low_allocation_storage_lease_index_node_t* node) {
+  return node->level == 64 ? UINT64_MAX
+                           : node->key | ((UINT64_C(1) << node->level) - 1u);
+}
+
+static uint32_t loom_low_allocation_storage_lease_directory_summary(
+    const loom_low_allocation_storage_lease_index_node_t* node,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class) {
+  return conflict_class == LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL
+             ? node->metadata.directory.maximum_first_start
+             : node->metadata.directory.maximum_non_pressure_first_start;
+}
+
+static void loom_low_allocation_storage_lease_index_recompute_directory_node(
+    loom_low_allocation_storage_lease_unit_index_t* index,
+    uint32_t node_index) {
+  loom_low_allocation_storage_lease_index_node_t* node =
+      &index->nodes[node_index];
+  if (node->level == 0) {
+    return;
+  }
+  const uint32_t left_index = node->data.children[0];
+  const uint32_t right_index = node->data.children[1];
+  const loom_low_allocation_storage_lease_index_node_t* left =
+      &index->nodes[left_index];
+  const loom_low_allocation_storage_lease_index_node_t* right =
+      &index->nodes[right_index];
+  // A compressed radix branch spans a dense prefix only when both children
+  // cover its complete half-prefix. Lower-level children expose structural
+  // holes and remain conservative even when their own leaves are dense.
+  const bool structurally_dense =
+      left->level + 1u == node->level && right->level + 1u == node->level;
+  for (uint32_t conflict_class = LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL;
+       conflict_class <=
+       LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_NON_PRESSURE;
+       ++conflict_class) {
+    const uint32_t left_summary =
+        loom_low_allocation_storage_lease_directory_summary(
+            left,
+            (loom_low_allocation_storage_lease_conflict_class_t)conflict_class);
+    const uint32_t right_summary =
+        loom_low_allocation_storage_lease_directory_summary(
+            right,
+            (loom_low_allocation_storage_lease_conflict_class_t)conflict_class);
+    uint32_t summary = UINT32_MAX;
+    if (structurally_dense && left_summary != UINT32_MAX &&
+        right_summary != UINT32_MAX) {
+      summary = iree_max(left_summary, right_summary);
+    }
+    if (conflict_class == LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL) {
+      node->metadata.directory.maximum_first_start = summary;
+    } else {
+      node->metadata.directory.maximum_non_pressure_first_start = summary;
+    }
+  }
+}
+
+static void loom_low_allocation_storage_lease_index_refresh_directory_ancestors(
+    loom_low_allocation_storage_lease_unit_index_t* index,
+    uint32_t node_index) {
+  while (node_index != UINT32_MAX) {
+    loom_low_allocation_storage_lease_index_node_t* node =
+        &index->nodes[node_index];
+    loom_low_allocation_storage_lease_index_recompute_directory_node(
+        index, node_index);
+    node_index = node->metadata.directory.parent;
+  }
 }
 
 static uint32_t loom_low_allocation_storage_lease_index_unit(
@@ -148,9 +264,16 @@ static uint32_t loom_low_allocation_storage_lease_index_unit(
   }
   const uint32_t unit_index =
       loom_low_allocation_storage_lease_index_allocate_node(index, key);
-  index->nodes[unit_index].data.unit.temporal_root = UINT32_MAX;
-  loom_low_allocation_storage_lease_index_insert_at(index, link, parent,
-                                                    unit_index);
+  loom_low_allocation_storage_lease_index_node_t* unit =
+      &index->nodes[unit_index];
+  unit->data.unit.temporal_root = UINT32_MAX;
+  unit->metadata.directory.maximum_first_start = UINT32_MAX;
+  unit->metadata.directory.maximum_non_pressure_first_start = UINT32_MAX;
+  loom_low_allocation_storage_lease_index_insert_at(
+      index, link, parent, unit_index,
+      LOOM_LOW_ALLOCATION_STORAGE_LEASE_TREE_DIRECTORY);
+  loom_low_allocation_storage_lease_index_refresh_directory_ancestors(
+      index, unit->metadata.directory.parent);
   return unit_index;
 }
 
@@ -188,7 +311,7 @@ iree_status_t loom_low_allocation_storage_lease_unit_index_initialize(
 void loom_low_allocation_storage_lease_unit_index_insert(
     loom_low_allocation_storage_lease_unit_index_t* index,
     const loom_low_descriptor_set_t* descriptor_set,
-    uint32_t storage_lease_index) {
+    uint32_t storage_lease_index, loom_low_storage_lease_flags_t lease_flags) {
   const loom_low_allocation_storage_lease_t* lease =
       &index->instances[storage_lease_index];
   if (loom_low_reg_class_uses_explicit_physical_registers(
@@ -211,7 +334,12 @@ void loom_low_allocation_storage_lease_unit_index_insert(
         loom_low_allocation_storage_lease_index_allocate_node(index, key);
     loom_low_allocation_storage_lease_index_node_t* leaf =
         &index->nodes[leaf_index];
-    leaf->maximum_end_point = lease->end_point;
+    leaf->metadata.temporal.maximum_end_point = lease->end_point;
+    leaf->metadata.temporal.maximum_non_pressure_end_point =
+        iree_any_bit_set(lease_flags,
+                         LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE)
+            ? 0
+            : lease->end_point;
     leaf->data.lease.index = storage_lease_index;
     leaf->data.lease.next_node =
         index->first_nodes_by_lease[storage_lease_index];
@@ -219,8 +347,9 @@ void loom_low_allocation_storage_lease_unit_index_insert(
     uint32_t parent = UINT32_MAX;
     uint32_t* link = loom_low_allocation_storage_lease_index_find_link(
         index, &index->nodes[unit_index].data.unit.temporal_root, key, &parent);
-    loom_low_allocation_storage_lease_index_insert_at(index, link, parent,
-                                                      leaf_index);
+    loom_low_allocation_storage_lease_index_insert_at(
+        index, link, parent, leaf_index,
+        LOOM_LOW_ALLOCATION_STORAGE_LEASE_TREE_TEMPORAL);
   }
 }
 
@@ -235,7 +364,8 @@ void loom_low_allocation_storage_lease_unit_index_rebuild(
   }
   for (iree_host_size_t i = 0; i < lease_count; ++i) {
     loom_low_allocation_storage_lease_unit_index_insert(index, descriptor_set,
-                                                        (uint32_t)i);
+                                                        (uint32_t)i,
+                                                        /*lease_flags=*/0);
   }
 }
 
@@ -248,11 +378,270 @@ void loom_low_allocation_storage_lease_unit_index_update(
   while (node_index != UINT32_MAX) {
     loom_low_allocation_storage_lease_index_node_t* node =
         &index->nodes[node_index];
-    node->maximum_end_point = lease->end_point;
-    loom_low_allocation_storage_lease_index_refresh_ancestors(index,
-                                                              node->parent);
+    node->metadata.temporal.maximum_end_point = lease->end_point;
+    if (node->metadata.temporal.maximum_non_pressure_end_point != 0) {
+      node->metadata.temporal.maximum_non_pressure_end_point = lease->end_point;
+    }
+    loom_low_allocation_storage_lease_index_refresh_temporal_ancestors(
+        index, node->metadata.temporal.parent);
     node_index = node->data.lease.next_node;
   }
+}
+
+static uint32_t loom_low_allocation_storage_lease_index_first_unexpired_start(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    uint32_t node_index, uint32_t start_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class) {
+  if (node_index == UINT32_MAX) {
+    return UINT32_MAX;
+  }
+  const loom_low_allocation_storage_lease_index_node_t* node =
+      &index->nodes[node_index];
+  const uint32_t maximum_end_point =
+      conflict_class == LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL
+          ? node->metadata.temporal.maximum_end_point
+          : node->metadata.temporal.maximum_non_pressure_end_point;
+  if (maximum_end_point <= start_point) {
+    return UINT32_MAX;
+  }
+  if (node->level == 0) {
+    return (uint32_t)(node->key >> 32);
+  }
+  const uint32_t left_start =
+      loom_low_allocation_storage_lease_index_first_unexpired_start(
+          index, node->data.children[0], start_point, conflict_class);
+  return left_start != UINT32_MAX
+             ? left_start
+             : loom_low_allocation_storage_lease_index_first_unexpired_start(
+                   index, node->data.children[1], start_point, conflict_class);
+}
+
+static uint32_t loom_low_allocation_storage_lease_index_find_unit(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    uint32_t root_ordinal, uint64_t key) {
+  uint32_t node_index = index->unit_roots[root_ordinal];
+  while (node_index != UINT32_MAX && index->nodes[node_index].level != 0) {
+    const loom_low_allocation_storage_lease_index_node_t* node =
+        &index->nodes[node_index];
+    node_index =
+        node->data.children[loom_low_allocation_storage_lease_key_child(
+            key, node->level)];
+  }
+  return node_index != UINT32_MAX && index->nodes[node_index].key == key
+             ? node_index
+             : UINT32_MAX;
+}
+
+void loom_low_allocation_storage_lease_unit_index_refresh_availability(
+    loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t storage_lease_index, uint32_t start_point) {
+  const loom_low_allocation_storage_lease_t* lease =
+      &index->instances[storage_lease_index];
+  if (loom_low_reg_class_uses_explicit_physical_registers(
+          &descriptor_set->reg_classes[lease->descriptor_reg_class_id])) {
+    return;
+  }
+  const uint32_t root_ordinal =
+      loom_low_allocation_storage_lease_unit_root_ordinal(lease->location_kind);
+  const uint32_t storage_key = loom_low_reg_class_storage_key(
+      descriptor_set, lease->descriptor_reg_class_id);
+  for (uint32_t unit_offset = 0; unit_offset < lease->location_count;
+       ++unit_offset) {
+    const uint64_t key =
+        ((uint64_t)storage_key << 32) | (lease->location_base + unit_offset);
+    const uint32_t unit_index =
+        loom_low_allocation_storage_lease_index_find_unit(index, root_ordinal,
+                                                          key);
+    IREE_ASSERT_NE(unit_index, UINT32_MAX);
+    loom_low_allocation_storage_lease_index_node_t* unit =
+        &index->nodes[unit_index];
+    unit->metadata.directory.maximum_first_start =
+        loom_low_allocation_storage_lease_index_first_unexpired_start(
+            index, unit->data.unit.temporal_root, start_point,
+            LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_ALL);
+    unit->metadata.directory.maximum_non_pressure_first_start =
+        loom_low_allocation_storage_lease_index_first_unexpired_start(
+            index, unit->data.unit.temporal_root, start_point,
+            LOOM_LOW_ALLOCATION_STORAGE_LEASE_CONFLICT_NON_PRESSURE);
+    loom_low_allocation_storage_lease_index_refresh_directory_ancestors(
+        index, unit->metadata.directory.parent);
+  }
+}
+
+static bool loom_low_allocation_storage_lease_index_find_first_available(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    uint32_t node_index, uint64_t maximum_key, uint32_t candidate_end_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+    uint64_t* cursor, uint64_t* out_key) {
+  if (node_index == UINT32_MAX || *cursor > maximum_key) {
+    return false;
+  }
+  const loom_low_allocation_storage_lease_index_node_t* node =
+      &index->nodes[node_index];
+  const uint64_t subtree_minimum = node->key;
+  const uint64_t subtree_maximum =
+      loom_low_allocation_storage_lease_index_maximum_prefix_key(node);
+  if (subtree_maximum < *cursor || subtree_minimum > maximum_key) {
+    return false;
+  }
+  if (subtree_minimum > *cursor) {
+    *out_key = *cursor;
+    return true;
+  }
+
+  const uint32_t summary =
+      loom_low_allocation_storage_lease_directory_summary(node, conflict_class);
+  if (summary != UINT32_MAX && summary < candidate_end_point &&
+      *cursor >= subtree_minimum && *cursor <= subtree_maximum) {
+    *cursor = subtree_maximum + 1u;
+    return false;
+  }
+  if (node->level == 0) {
+    if (*cursor < node->key || summary == UINT32_MAX ||
+        summary >= candidate_end_point) {
+      *out_key = *cursor;
+      return true;
+    }
+    ++*cursor;
+    return false;
+  }
+  if (loom_low_allocation_storage_lease_index_find_first_available(
+          index, node->data.children[0], maximum_key, candidate_end_point,
+          conflict_class, cursor, out_key)) {
+    return true;
+  }
+  return loom_low_allocation_storage_lease_index_find_first_available(
+      index, node->data.children[1], maximum_key, candidate_end_point,
+      conflict_class, cursor, out_key);
+}
+
+static bool loom_low_allocation_storage_lease_index_find_last_available(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    uint32_t node_index, uint64_t minimum_key, uint32_t candidate_end_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+    uint64_t* cursor, bool* exhausted, uint64_t* out_key) {
+  if (node_index == UINT32_MAX || *exhausted || *cursor < minimum_key) {
+    return false;
+  }
+  const loom_low_allocation_storage_lease_index_node_t* node =
+      &index->nodes[node_index];
+  const uint64_t subtree_minimum = node->key;
+  const uint64_t subtree_maximum =
+      loom_low_allocation_storage_lease_index_maximum_prefix_key(node);
+  if (subtree_maximum < minimum_key || subtree_minimum > *cursor) {
+    return false;
+  }
+  if (subtree_maximum < *cursor) {
+    *out_key = *cursor;
+    return true;
+  }
+
+  const uint32_t summary =
+      loom_low_allocation_storage_lease_directory_summary(node, conflict_class);
+  if (summary != UINT32_MAX && summary < candidate_end_point &&
+      *cursor >= subtree_minimum && *cursor <= subtree_maximum) {
+    if (subtree_minimum <= minimum_key) {
+      *exhausted = true;
+    } else {
+      *cursor = subtree_minimum - 1u;
+    }
+    return false;
+  }
+  if (node->level == 0) {
+    if (*cursor > node->key || summary == UINT32_MAX ||
+        summary >= candidate_end_point) {
+      *out_key = *cursor;
+      return true;
+    }
+    if (node->key <= minimum_key) {
+      *exhausted = true;
+    } else {
+      *cursor = node->key - 1u;
+    }
+    return false;
+  }
+  if (loom_low_allocation_storage_lease_index_find_last_available(
+          index, node->data.children[1], minimum_key, candidate_end_point,
+          conflict_class, cursor, exhausted, out_key)) {
+    return true;
+  }
+  return loom_low_allocation_storage_lease_index_find_last_available(
+      index, node->data.children[0], minimum_key, candidate_end_point,
+      conflict_class, cursor, exhausted, out_key);
+}
+
+bool loom_low_allocation_storage_lease_unit_index_find_next_available_location(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t descriptor_reg_class_id,
+    loom_low_allocation_location_kind_t location_kind,
+    uint32_t candidate_end_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+    uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base) {
+  IREE_ASSERT_ARGUMENT(index);
+  IREE_ASSERT_ARGUMENT(descriptor_set);
+  IREE_ASSERT_ARGUMENT(out_base);
+  if (minimum_base > maximum_base) {
+    return false;
+  }
+  const uint32_t root_ordinal =
+      loom_low_allocation_storage_lease_unit_root_ordinal(location_kind);
+  const uint32_t storage_key =
+      loom_low_reg_class_storage_key(descriptor_set, descriptor_reg_class_id);
+  uint64_t cursor = ((uint64_t)storage_key << 32) | minimum_base;
+  const uint64_t maximum_key = ((uint64_t)storage_key << 32) | maximum_base;
+  uint64_t result = 0;
+  const bool found =
+      loom_low_allocation_storage_lease_index_find_first_available(
+          index, index->unit_roots[root_ordinal], maximum_key,
+          candidate_end_point, conflict_class, &cursor, &result);
+  if (found) {
+    *out_base = (uint32_t)result;
+    return true;
+  }
+  if (cursor <= maximum_key) {
+    *out_base = (uint32_t)cursor;
+    return true;
+  }
+  return false;
+}
+
+bool loom_low_allocation_storage_lease_unit_index_find_previous_available_location(
+    const loom_low_allocation_storage_lease_unit_index_t* index,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t descriptor_reg_class_id,
+    loom_low_allocation_location_kind_t location_kind,
+    uint32_t candidate_end_point,
+    loom_low_allocation_storage_lease_conflict_class_t conflict_class,
+    uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base) {
+  IREE_ASSERT_ARGUMENT(index);
+  IREE_ASSERT_ARGUMENT(descriptor_set);
+  IREE_ASSERT_ARGUMENT(out_base);
+  if (minimum_base > maximum_base) {
+    return false;
+  }
+  const uint32_t root_ordinal =
+      loom_low_allocation_storage_lease_unit_root_ordinal(location_kind);
+  const uint32_t storage_key =
+      loom_low_reg_class_storage_key(descriptor_set, descriptor_reg_class_id);
+  const uint64_t minimum_key = ((uint64_t)storage_key << 32) | minimum_base;
+  uint64_t cursor = ((uint64_t)storage_key << 32) | maximum_base;
+  bool exhausted = false;
+  uint64_t result = 0;
+  const bool found =
+      loom_low_allocation_storage_lease_index_find_last_available(
+          index, index->unit_roots[root_ordinal], minimum_key,
+          candidate_end_point, conflict_class, &cursor, &exhausted, &result);
+  if (found) {
+    *out_base = (uint32_t)result;
+    return true;
+  }
+  if (!exhausted && cursor >= minimum_key) {
+    *out_base = (uint32_t)cursor;
+    return true;
+  }
+  return false;
 }
 
 bool loom_low_allocation_storage_lease_unit_index_is_enabled(
@@ -293,7 +682,7 @@ void loom_low_allocation_storage_lease_selection_set_active(
       } else {
         --selection->subtree_counts[node_index];
       }
-      node_index = index->nodes[node_index].parent;
+      node_index = index->nodes[node_index].metadata.temporal.parent;
     }
     leaf_index = index->nodes[leaf_index].data.lease.next_node;
   }
@@ -337,7 +726,7 @@ bool loom_low_allocation_storage_lease_unit_query_next(
           &index->nodes[node_index];
       const bool temporal_match =
           (node->key >> 32) < query->start_point_limit &&
-          node->maximum_end_point >= query->minimum_end_point;
+          node->metadata.temporal.maximum_end_point >= query->minimum_end_point;
       const bool selected_match =
           query->selection != NULL &&
           query->selection->subtree_counts[node_index] != 0;

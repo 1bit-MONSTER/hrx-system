@@ -199,6 +199,50 @@ loom_low_allocation_assignment_t Assignment(loom_value_id_t value_id,
   return assignment;
 }
 
+TEST_F(LowAllocationStorageLeaseTest,
+       OrdersOnlyCandidatesWithContinuousStorageLifetime) {
+  const loom_low_reg_class_t reg_classes[] = {RegClass(/*alias_set_id=*/1)};
+  const loom_low_descriptor_set_t descriptor_set =
+      DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
+  const loom_liveness_segment_t storage_segments[] = {
+      {/*start_point=*/10, /*end_point=*/20},
+      {/*start_point=*/10, /*end_point=*/15},
+      {/*start_point=*/16, /*end_point=*/20},
+  };
+  uint32_t expiration_entry = 0;
+  loom_low_allocation_storage_lease_state_t state = {};
+  state.storage_segments = storage_segments;
+  state.availability_expiration_heap = &expiration_entry;
+
+  auto candidate = Assignment(
+      /*value_id=*/1, /*descriptor_reg_class_id=*/0,
+      /*start_point=*/10, /*end_point=*/20, /*location_base=*/0,
+      /*location_count=*/1);
+  candidate.unit_count = 1;
+  EXPECT_TRUE(loom_low_allocation_storage_lease_state_can_order_candidate(
+      &state, &descriptor_set, &candidate,
+      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN));
+
+  candidate.liveness_segments = {/*start=*/0, /*count=*/1};
+  EXPECT_TRUE(loom_low_allocation_storage_lease_state_can_order_candidate(
+      &state, &descriptor_set, &candidate,
+      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN));
+
+  candidate.liveness_segments = {/*start=*/1, /*count=*/1};
+  EXPECT_FALSE(loom_low_allocation_storage_lease_state_can_order_candidate(
+      &state, &descriptor_set, &candidate,
+      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN));
+  candidate.liveness_segments = {/*start=*/1, /*count=*/2};
+  EXPECT_FALSE(loom_low_allocation_storage_lease_state_can_order_candidate(
+      &state, &descriptor_set, &candidate,
+      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN));
+
+  candidate.liveness_segments = {/*start=*/0, /*count=*/1};
+  EXPECT_FALSE(loom_low_allocation_storage_lease_state_can_order_candidate(
+      &state, &descriptor_set, &candidate,
+      LOOM_LOW_ALLOCATION_STORAGE_RELEASE_ALLOWED));
+}
+
 struct ReleasePoint {
   // Candidate lifetime start in the allocation liveness coordinate space.
   uint32_t program_point;
@@ -276,7 +320,8 @@ TEST_P(LowAllocationStorageLeaseReleasePointTest,
                IREE_ARRAYSIZE(schedule_blocks), nodes, IREE_ARRAYSIZE(nodes),
                scheduled_node_indices, IREE_ARRAYSIZE(scheduled_node_indices));
   schedule.target.descriptor_set = &descriptor_set;
-  const loom_low_storage_lease_record_t records[] = {StorageLeaseRecord()};
+  loom_low_storage_lease_record_t records[] = {StorageLeaseRecord()};
+  records[0].unit_count = 32;
   const loom_low_storage_lease_table_t lease_table =
       StorageLeaseTable(&schedule, records, IREE_ARRAYSIZE(records));
 
@@ -288,19 +333,34 @@ TEST_P(LowAllocationStorageLeaseReleasePointTest,
   const loom_low_allocation_assignment_t leased_assignment = Assignment(
       /*value_id=*/value_ids[0], /*descriptor_reg_class_id=*/0,
       /*start_point=*/0, /*end_point=*/1, /*location_base=*/10,
-      /*location_count=*/4);
+      /*location_count=*/33);
   loom_low_allocation_storage_lease_state_record_assignment(
       &state, &descriptor_set, &liveness, &leased_assignment,
       /*assignment_index=*/0, /*value_ordinal=*/0);
   ASSERT_EQ(state.instance_count, 1u);
+  ASSERT_NE(state.availability_expiration_heap, nullptr);
+  EXPECT_EQ(state.availability_expiration_count, 1u);
   const loom_low_allocation_storage_lease_t* lease = &state.instances[0];
   EXPECT_EQ(lease->value_id, value_ids[0]);
   EXPECT_EQ(lease->start_point, 0u);
   EXPECT_EQ(lease->end_point, 10u);
   EXPECT_EQ(lease->location_base, 11u);
-  EXPECT_EQ(lease->location_count, 2u);
+  EXPECT_EQ(lease->location_count, 32u);
   EXPECT_EQ(lease->release_action_index,
             LOOM_LOW_STORAGE_RELEASE_ACTION_INDEX_NONE);
+
+  auto candidate = Assignment(
+      /*value_id=*/value_ids[1], /*descriptor_reg_class_id=*/1,
+      /*start_point=*/point.program_point,
+      /*end_point=*/point.program_point + 1, /*location_base=*/11,
+      /*location_count=*/1);
+  candidate.unit_count = 1;
+  uint32_t available_base = UINT32_MAX;
+  EXPECT_FALSE(
+      loom_low_allocation_storage_lease_state_find_next_available_location(
+          &state, &descriptor_set, &candidate,
+          LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN,
+          /*minimum_base=*/11, /*maximum_base=*/11, &available_base));
 
   // Aggregate storage can be reserved before its earlier scalar definitions.
   // A release scheduled for the reservation still conflicts with those writes.
@@ -317,11 +377,6 @@ TEST_P(LowAllocationStorageLeaseReleasePointTest,
     EXPECT_EQ(lease->end_point, 9u);
   }
 
-  const loom_low_allocation_assignment_t candidate = Assignment(
-      /*value_id=*/value_ids[1], /*descriptor_reg_class_id=*/1,
-      /*start_point=*/point.program_point,
-      /*end_point=*/point.program_point + 1, /*location_base=*/11,
-      /*location_count=*/2);
   EXPECT_TRUE(loom_low_allocation_storage_lease_state_conflicts(
       &state, &descriptor_set, &liveness, &candidate,
       /*ignored_value_ids=*/NULL, /*ignored_value_count=*/0,
@@ -341,6 +396,13 @@ TEST_P(LowAllocationStorageLeaseReleasePointTest,
     ASSERT_EQ(state.release_action_count, 1u);
     EXPECT_EQ(lease->release_action_index, 0u);
     EXPECT_EQ(lease->end_point, point.program_point);
+    EXPECT_EQ(state.availability_expiration_count, 0u);
+    EXPECT_TRUE(
+        loom_low_allocation_storage_lease_state_find_next_available_location(
+            &state, &descriptor_set, &candidate,
+            LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN,
+            /*minimum_base=*/11, /*maximum_base=*/11, &available_base));
+    EXPECT_EQ(available_base, 11u);
     const loom_low_storage_release_action_t* action = &state.release_actions[0];
     EXPECT_EQ(action->insertion_packet_index, point.packet_index);
     EXPECT_EQ(action->insertion_node_index, point.packet_index);
@@ -464,8 +526,8 @@ TEST_F(LowAllocationStorageLeaseTest,
         IREE_ASSERT_OK(loom_low_allocation_storage_lease_unit_index_initialize(
             &index, &lease, /*lease_count=*/1, /*lease_unit_capacity=*/2,
             /*distinct_unit_capacity=*/2, &arena_));
-        loom_low_allocation_storage_lease_unit_index_insert(&index,
-                                                            &descriptor_set, 0);
+        loom_low_allocation_storage_lease_unit_index_insert(
+            &index, &descriptor_set, 0, 0);
         state.unit_index = &index;
       }
 
