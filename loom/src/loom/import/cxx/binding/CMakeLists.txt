@@ -132,6 +132,28 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    constant_attributes
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "constant_attributes.h"
+  SRCS
+    "constant_attributes.cc"
+  DEPS
+    iree::third_party::cxx_parser
+    loom::import::cxx::source
+    loom::import::cxx::source::error
+    loom::ir
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     decode
   CXX_STANDARD
     23
@@ -156,6 +178,34 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    target_definitions
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "target_definitions.h"
+  SRCS
+    "target_definitions.cc"
+  DEPS
+    ::constant_attributes
+    iree::base
+    iree::third_party::cxx_parser
+    loom::import::cxx::source
+    loom::import::cxx::source::attributes
+    loom::import::cxx::source::error
+    loom::import::cxx::source::locations
+    loom::import::cxx::symbol::names
+    loom::ir
+    loom::ops::op_defs
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     encoding
   CXX_STANDARD
     23
@@ -167,6 +217,7 @@ loom_cc_library(
   SRCS
     "encoding.cc"
   DEPS
+    ::constant_attributes
     iree::third_party::cxx_parser
     loom::import::cxx::source::error
     loom::import::cxx::value::types

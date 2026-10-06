@@ -57,6 +57,7 @@ loom_cc_library(
     loom::import::cxx::binding::launch
     loom::import::cxx::binding::loop_schedule
     loom::import::cxx::binding::parameter_contracts
+    loom::import::cxx::binding::target_definitions
     loom::import::cxx::control::analysis
     loom::import::cxx::source
     loom::import::cxx::source::attributes

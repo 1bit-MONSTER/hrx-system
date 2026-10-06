@@ -39,6 +39,7 @@ void Functions::select(std::span<const iree_string_view_t> roots) {
   loom_builder_t builder;
   loom_builder_initialize(module_, &module_->arena, loom_module_block(module_),
                           &builder);
+  target_definitions_.build(&builder);
   configs_.build(&builder);
   for (const auto& [function, source] : check_cases_) {
     if (!definition(function)) {
@@ -202,7 +203,7 @@ void Functions::collect(cxx::DeclarationAST* declaration,
     for (auto* declarator : cxx::ListView{simple->initDeclaratorList}) {
       auto* function =
           cxx::symbol_cast<cxx::FunctionSymbol>(declarator->symbol);
-      bool is_config = admit_declaration(
+      bool is_module_metadata = admit_declaration(
           declarator->symbol, simple->attributeList, declarator, scope);
       if (scope != DeclarationScope::Namespace) {
         continue;
@@ -213,7 +214,7 @@ void Functions::collect(cxx::DeclarationAST* declaration,
       }
       auto* variable =
           cxx::symbol_cast<cxx::VariableSymbol>(declarator->symbol);
-      if (variable && !is_config && !variable->isExtern() &&
+      if (variable && !is_module_metadata && !variable->isExtern() &&
           (unit_.typeTraits().is_volatile(variable->type()) ||
            !(variable->isConstexpr() ||
              (unit_.typeTraits().is_const(variable->type()) &&
@@ -248,7 +249,9 @@ bool Functions::admit_declaration(
   }
   reject_misplaced_binding_attributes(unit_, diagnostics_, attributes,
                                       BindingAttributeScope::Declaration);
-  bool is_config = configs_.declaration(symbol, attributes, owner);
+  bool is_module_metadata = configs_.declaration(symbol, attributes, owner);
+  is_module_metadata |=
+      target_definitions_.declaration(symbol, attributes, owner);
   admit_symbol(symbol, attributes);
   auto require_namespace_function = [&] {
     if (!function || scope != DeclarationScope::Namespace ||
@@ -326,7 +329,7 @@ bool Functions::admit_declaration(
     diagnostics_.reject(unit_, owner,
                         "check annotations must precede the declaration");
   }
-  return is_config;
+  return is_module_metadata;
 }
 
 void Functions::admit_symbol(
@@ -593,15 +596,19 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
       diagnostics_.reject(unit_, definition, "kernel must return void");
     }
     auto callee = callees_.at(symbol->canonical());
+    auto target = target_definitions_.reference(symbol);
     auto name_id = module_->symbols.entries[callee.symbol_id].name_id;
     std::span<const loom_type_t> configuration_arguments =
         launch_configuration ? std::span(launch_configuration->arguments)
                              : std::span<const loom_type_t>{};
-    check(loom_kernel_def_build(builder, 0, 0, {}, LOOM_STRING_ID_INVALID, 0,
-                                callee, configuration_arguments.data(),
-                                configuration_arguments.size(),
-                                arguments.data(), arguments.size(), nullptr, 0,
-                                locations.get(definition), &op));
+    check(loom_kernel_def_build(
+        builder,
+        loom_symbol_ref_is_valid(target) ? LOOM_KERNEL_DEF_BUILD_FLAG_HAS_TARGET
+                                         : 0,
+        0, target, LOOM_STRING_ID_INVALID, 0, callee,
+        configuration_arguments.data(), configuration_arguments.size(),
+        arguments.data(), arguments.size(), nullptr, 0,
+        locations.get(definition), &op));
     auto saved =
         loom_builder_enter_region(builder, op, loom_kernel_def_config(op));
     auto spelling = loom_string_table_get(&module_->strings, name_id);
