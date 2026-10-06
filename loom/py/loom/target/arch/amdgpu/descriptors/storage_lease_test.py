@@ -16,6 +16,9 @@ from loom.target.arch.amdgpu.descriptors.api import (
 from loom.target.arch.amdgpu.descriptors.common import (
     _COUNTER_VMEM_LOAD,
     _COUNTER_X,
+    _REG_PART_VGPR_HIGH16,
+    _REG_PART_VGPR_LOW16,
+    _REG_VGPR,
     _SCHEDULE_VMEM_LOAD,
 )
 from loom.target.arch.amdgpu.descriptors.contracts import (
@@ -26,8 +29,12 @@ from loom.target.arch.amdgpu.target_info import (
     AMDGPU_PROCESSOR_INFOS,
 )
 from loom.target.low_descriptors import (
+    Constraint,
+    ConstraintKind,
     DescriptorSet,
+    EffectKind,
     InstructionClass,
+    OperandFlag,
     OperandRole,
     StorageLeaseAttachment,
     StorageLeaseFlag,
@@ -55,6 +62,52 @@ _XCNT_TARGETS = (
     "rdna4_gfx1250_a0",
     "rdna4_gfx1251",
 )
+
+
+@pytest.mark.parametrize("target", _NATIVE_TARGETS)
+def test_asynchronous_continuations_have_one_preserved_vgpr_part(target: str) -> None:
+    continuations = set()
+    for descriptor in _descriptor_set(target).descriptors:
+        sources = tuple(
+            operand
+            for operand in descriptor.operands
+            if operand.role is OperandRole.OPERAND
+            and OperandFlag.STORAGE_CONTINUATION in operand.flags
+        )
+        if not sources or not any(
+            effect.kind is EffectKind.READ for effect in descriptor.effects
+        ):
+            continue
+        continuations.add(descriptor.key)
+        results = tuple(
+            operand
+            for operand in descriptor.operands
+            if operand.role is OperandRole.RESULT
+        )
+        assert len(results) == len(sources) == 1, descriptor.key
+        result, source = results[0], sources[0]
+        assert descriptor.operands[:2] == (result, source), descriptor.key
+        assert result.unit_count == source.unit_count == 1, descriptor.key
+        assert len(result.reg_alts) == len(source.reg_alts) == 1, descriptor.key
+        assert result.reg_alts[0].reg_class == _REG_VGPR, descriptor.key
+        assert source.reg_alts[0].reg_class == _REG_VGPR, descriptor.key
+        assert result.reg_alts[0].register_part == _REG_PART_VGPR_HIGH16
+        assert source.reg_alts[0].register_part == _REG_PART_VGPR_LOW16
+        assert descriptor.constraints == (Constraint(ConstraintKind.TIED, 0, 1),)
+
+    expected = {"amdgpu.ds_load_u16_d16_hi"}
+    if target in ("rdna3", "gfx11_generic", "rdna3_5", "rdna4m"):
+        expected.update(
+            {
+                "amdgpu.buffer_load_b16_d16_hi",
+                "amdgpu.buffer_load_b16_d16_hi_vaddr_offset",
+                "amdgpu.global_load_b16_d16_hi",
+                "amdgpu.global_load_b16_d16_hi_saddr",
+            }
+        )
+    if target in ("cdna3", "cdna4", "gfx9_4_generic"):
+        expected = set()
+    assert continuations == expected, (target, continuations, expected)
 
 
 def _descriptor_set(target: str) -> DescriptorSet:

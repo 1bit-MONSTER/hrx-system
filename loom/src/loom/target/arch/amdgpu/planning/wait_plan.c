@@ -90,6 +90,8 @@ typedef enum loom_amdgpu_wait_node_state_flag_bits_e {
   LOOM_AMDGPU_WAIT_NODE_STATE_ZERO_NATIVE_WORK = 1u << 15,
   // Generic-address completion can retire early in either memory domain.
   LOOM_AMDGPU_WAIT_NODE_STATE_UNORDERED_FLAT_COMPLETION = 1u << 16,
+  // An asynchronous result preserves the tied source's disjoint register part.
+  LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART = 1u << 17,
 } loom_amdgpu_wait_node_state_flag_bits_t;
 typedef uint32_t loom_amdgpu_wait_node_state_flags_t;
 
@@ -134,7 +136,16 @@ typedef struct loom_amdgpu_wait_producer_state_t {
   uint64_t drained_epoch;
   // Counters already drained for this producer in |drained_epoch|.
   loom_amdgpu_wait_counter_mask_t drained_counter_mask;
+  // Register parts preserved by this producer, or zero for a complete result.
+  uint8_t preserved_part_mask;
+  // The source ordinal bypasses every same-part continuation in its chain.
+  bool preserved_source_resolved;
+  // Value supplying the preserved part, canonicalized before dependency use.
+  loom_value_ordinal_t preserved_source_ordinal;
 } loom_amdgpu_wait_producer_state_t;
+
+static_assert(sizeof(loom_amdgpu_wait_producer_state_t) == 80,
+              "preserved readiness must fit existing producer-state padding");
 
 typedef struct loom_amdgpu_wait_block_arg_source_t {
   // Source value ordinal forwarded by a coalesced incoming edge segment.
@@ -942,13 +953,37 @@ static iree_status_t loom_amdgpu_wait_plan_append_direct_dependency_link(
       LOOM_AMDGPU_WAIT_PLAN_REASON_SSA_USE);
 }
 
+static loom_value_ordinal_t loom_amdgpu_wait_plan_readiness_source(
+    const loom_amdgpu_wait_plan_builder_t* builder,
+    loom_value_ordinal_t value_ordinal,
+    loom_low_register_part_mask_t read_mask) {
+  if (read_mask == UINT32_MAX) {
+    return value_ordinal;
+  }
+  const uint32_t producer_node = builder->producer_nodes[value_ordinal];
+  if (producer_node == LOOM_LOW_SCHEDULE_NODE_NONE ||
+      !iree_any_bit_set(builder->node_states[producer_node].flags,
+                        LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART)) {
+    return value_ordinal;
+  }
+  const loom_amdgpu_wait_producer_state_t* producer =
+      loom_amdgpu_wait_plan_const_producer_state(builder, producer_node);
+  return (read_mask & ~producer->preserved_part_mask) == 0
+             ? producer->preserved_source_ordinal
+             : value_ordinal;
+}
+
 static iree_status_t loom_amdgpu_wait_plan_visit_dependency_links(
     loom_amdgpu_wait_plan_builder_t* builder, const uint32_t* producer_nodes,
     iree_host_size_t value_count, loom_value_ordinal_t operand_ordinal,
-    uint32_t consumer_node, uint32_t visit_epoch) {
+    uint32_t consumer_node, loom_low_register_part_mask_t read_mask,
+    uint32_t visit_epoch) {
   if (builder->dependency_visit_worklist == NULL) {
     return loom_amdgpu_wait_plan_append_direct_dependency_link(
-        builder, producer_nodes, value_count, operand_ordinal, consumer_node);
+        builder, producer_nodes, value_count,
+        loom_amdgpu_wait_plan_readiness_source(builder, operand_ordinal,
+                                               read_mask),
+        consumer_node);
   }
   iree_host_size_t worklist_count = 0;
   loom_amdgpu_wait_plan_push_dependency_visit_ordinal(
@@ -956,6 +991,15 @@ static iree_status_t loom_amdgpu_wait_plan_visit_dependency_links(
   while (worklist_count != 0) {
     const loom_value_ordinal_t current_ordinal =
         builder->dependency_visit_worklist[--worklist_count];
+    const loom_value_ordinal_t readiness_ordinal =
+        loom_amdgpu_wait_plan_readiness_source(builder, current_ordinal,
+                                               read_mask);
+    if (readiness_ordinal != current_ordinal) {
+      loom_amdgpu_wait_plan_push_dependency_visit_ordinal(
+          builder, value_count, readiness_ordinal, visit_epoch,
+          &worklist_count);
+      continue;
+    }
     if (builder->first_block_arg_source_by_value != NULL) {
       uint32_t source_index =
           builder->first_block_arg_source_by_value[current_ordinal];
@@ -1035,7 +1079,7 @@ static iree_status_t loom_amdgpu_wait_plan_build_edge_copy_dependency_links(
         loom_amdgpu_wait_plan_begin_dependency_visit(builder);
     IREE_RETURN_IF_ERROR(loom_amdgpu_wait_plan_visit_dependency_links(
         builder, producer_nodes, value_count, edge_copy->source_ordinal,
-        consumer_node, visit_epoch));
+        consumer_node, UINT32_MAX, visit_epoch));
   }
   return iree_ok_status();
 }
@@ -1892,6 +1936,110 @@ static bool loom_amdgpu_wait_plan_storage_release_is_ordered_vmem_reuse(
          producer_order_class == consumer_order_class;
 }
 
+// D16 memory results preserve a tied register part without reading it. Retain
+// that source at the producer; the newest SSA owner alone does not identify
+// the asynchronous event that makes a preserved-half read ready.
+static void loom_amdgpu_wait_plan_classify_preserved_source(
+    loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
+  const loom_low_schedule_node_t* node = &builder->schedule->nodes[node_index];
+  if (node->descriptor == NULL || node->result_count == 0 ||
+      builder->frontier_nodes[node_index].read_counter_mask == 0) {
+    return;
+  }
+  const loom_low_descriptor_set_t* descriptors =
+      builder->schedule->target.descriptor_set;
+  const loom_low_operand_t* result =
+      &descriptors->operands[node->descriptor->operand_start];
+  if (!iree_any_bit_set(result->flags,
+                        LOOM_LOW_OPERAND_FLAG_STORAGE_CONTINUATION)) {
+    return;
+  }
+  // Generated asynchronous continuation contracts have one one-unit VGPR
+  // result and exactly one tied source. Synchronous partial VALU writes do not
+  // publish preserved readiness: their physical writes first retire old loads.
+  const uint16_t source_index = loom_op_tied_results(node->op)[0].operand_index;
+  const loom_low_reg_class_alt_t* result_alternative =
+      &descriptors->reg_class_alts[result->reg_class_alt_start];
+  const loom_low_register_part_mask_t full_mask =
+      descriptors->reg_classes[result_alternative->reg_class_id]
+          .full_register_part_mask;
+  loom_amdgpu_wait_producer_state_t* producer =
+      loom_amdgpu_wait_plan_producer_state(builder, node_index);
+  producer->preserved_part_mask =
+      (uint8_t)(full_mask &
+                ~descriptors
+                     ->register_parts[result_alternative->register_part_id]
+                     .mask);
+  producer->preserved_source_ordinal =
+      loom_low_schedule_node_const_operand_ordinals(node)[source_index];
+  builder->node_states[node_index].flags |=
+      LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART;
+}
+
+static loom_amdgpu_wait_producer_state_t*
+loom_amdgpu_wait_plan_preserving_producer(
+    loom_amdgpu_wait_plan_builder_t* builder, loom_value_ordinal_t ordinal) {
+  const uint32_t node_index = builder->producer_nodes[ordinal];
+  return node_index != LOOM_LOW_SCHEDULE_NODE_NONE &&
+                 iree_any_bit_set(
+                     builder->node_states[node_index].flags,
+                     LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART)
+             ? loom_amdgpu_wait_plan_producer_state(builder, node_index)
+             : NULL;
+}
+
+// Resolve each same-part chain once, regardless of source block layout. Each
+// unresolved producer is visited at most twice; uses perform one indexed
+// lookup. Structural aliases and block arguments remain boundaries owned by the
+// existing coalesced-storage dependency projection, not new IR walks here.
+static void loom_amdgpu_wait_plan_resolve_preserved_sources(
+    loom_amdgpu_wait_plan_builder_t* builder) {
+  for (iree_host_size_t i = 0; i < builder->producer_state_count; ++i) {
+    loom_amdgpu_wait_producer_state_t* producer = &builder->producer_states[i];
+    if (producer->preserved_part_mask == 0 ||
+        producer->preserved_source_resolved) {
+      continue;
+    }
+    const uint8_t part_mask = producer->preserved_part_mask;
+    loom_value_ordinal_t root = producer->preserved_source_ordinal;
+    loom_amdgpu_wait_producer_state_t* parent =
+        loom_amdgpu_wait_plan_preserving_producer(builder, root);
+    while (parent != NULL && parent->preserved_part_mask == part_mask) {
+      root = parent->preserved_source_ordinal;
+      if (parent->preserved_source_resolved) {
+        break;
+      }
+      parent = loom_amdgpu_wait_plan_preserving_producer(builder, root);
+    }
+    while (producer != NULL && producer->preserved_part_mask == part_mask &&
+           !producer->preserved_source_resolved) {
+      parent = loom_amdgpu_wait_plan_preserving_producer(
+          builder, producer->preserved_source_ordinal);
+      producer->preserved_source_ordinal = root;
+      producer->preserved_source_resolved = true;
+      producer = parent;
+    }
+  }
+}
+
+static loom_low_register_part_mask_t
+loom_amdgpu_wait_plan_operand_readiness_mask(
+    const loom_low_descriptor_set_t* descriptors,
+    const loom_low_operand_t* operand,
+    const loom_amdgpu_wait_frontier_node_t* consumer) {
+  // D16 asynchronous writes may interfere with the other half of a VALU access.
+  // Only memory operands have independently readable register parts.
+  if ((consumer->read_counter_mask | consumer->write_counter_mask) == 0) {
+    return UINT32_MAX;
+  }
+  const loom_low_reg_class_alt_t* alternative = loom_low_operand_reg_class_alt(
+      descriptors, operand, LOOM_AMDGPU_REG_CLASS_ID_VGPR);
+  return alternative != NULL &&
+                 alternative->register_part_id != LOOM_LOW_REGISTER_PART_NONE
+             ? descriptors->register_parts[alternative->register_part_id].mask
+             : UINT32_MAX;
+}
+
 static iree_status_t loom_amdgpu_wait_plan_build_dependency_links(
     loom_amdgpu_wait_plan_builder_t* builder) {
   const loom_low_schedule_table_t* schedule = builder->schedule;
@@ -1919,7 +2067,9 @@ static iree_status_t loom_amdgpu_wait_plan_build_dependency_links(
       IREE_ASSERT_LT(result_ordinal, value_count);
       builder->producer_nodes[result_ordinal] = node_index;
     }
+    loom_amdgpu_wait_plan_classify_preserved_source(builder, node_index);
   }
+  loom_amdgpu_wait_plan_resolve_preserved_sources(builder);
 
   for (uint32_t consumer_node = 0; consumer_node < schedule->node_count;
        ++consumer_node) {
@@ -1960,7 +2110,11 @@ static iree_status_t loom_amdgpu_wait_plan_build_dependency_links(
         IREE_RETURN_IF_ERROR(loom_amdgpu_wait_plan_visit_dependency_links(
             builder, builder->producer_nodes, value_count,
             operand_ordinals[descriptor_operand->source_value_index],
-            consumer_node, visit_epoch));
+            consumer_node,
+            loom_amdgpu_wait_plan_operand_readiness_mask(
+                descriptor_set, descriptor_operand,
+                &builder->frontier_nodes[consumer_node]),
+            visit_epoch));
       }
     } else {
       for (uint16_t i = 0; i < node->operand_count; ++i) {
@@ -1968,7 +2122,7 @@ static iree_status_t loom_amdgpu_wait_plan_build_dependency_links(
             loom_amdgpu_wait_plan_begin_dependency_visit(builder);
         IREE_RETURN_IF_ERROR(loom_amdgpu_wait_plan_visit_dependency_links(
             builder, builder->producer_nodes, value_count, operand_ordinals[i],
-            consumer_node, visit_epoch));
+            consumer_node, UINT32_MAX, visit_epoch));
       }
     }
   }

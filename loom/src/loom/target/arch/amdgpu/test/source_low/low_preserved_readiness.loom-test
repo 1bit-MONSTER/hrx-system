@@ -1,0 +1,531 @@
+// RUN: emit amdgpu-assembly @gfx1100_preserved_low_read strategy=source
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @gfx1100_preserved_low_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_short v1, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1151_preserved_low_read strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @gfx1151_preserved_low_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_short v1, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1170_preserved_low_read strategy=source
+
+amdgpu.target<gfx1170> @target
+
+low.func.def target<amdgpu.rdna4m.core>(@target) @gfx1170_preserved_low_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_short v1, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1200_preserved_low_read strategy=source
+
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @gfx1200_preserved_low_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_short v1, v0, s[0:1] offset:0
+  s_wait_dscnt dscnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_wait_storecnt storecnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1250_preserved_low_read strategy=source
+
+amdgpu.target<gfx1250> @target
+
+low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @gfx1250_preserved_low_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_short v1, v0, s[0:1] offset:0
+  s_wait_dscnt dscnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:4
+  s_wait_storecnt storecnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1151_pending_preserved_low_read strategy=source
+
+// The low-half store waits for the older load, not the newest partial write.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @gfx1151_pending_preserved_low_read(%address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %loaded = ds_load_u16_d16 %address
+  %changed = ds_load_u16_d16_hi %loaded, %address {offset = 2}
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16 v1, v0 offset:0
+  ds_load_u16_d16_hi v1, v0 offset:2
+  s_waitcnt vmcnt(63) lgkmcnt(1)
+  global_store_short v0, v1, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v0, v1, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1151_pending_vmem_preserved_read strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @gfx1151_pending_vmem_preserved_read(%address: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %output: reg<amdgpu.sgpr x2>) asm {
+  %loaded = global_load_d16_b16_saddr %address, %input
+  %changed = global_load_d16_hi_b16_saddr %loaded, %address, %input {offset = 2}
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  global_load_d16_b16 v1, v0, s[0:1] offset:0
+  global_load_d16_hi_b16 v1, v0, s[0:1] offset:2
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_short v0, v1, s[2:3] offset:0
+  global_store_b32 v0, v1, s[2:3] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @gfx1200_pending_preserved_low_read strategy=source
+
+// The low-half store waits for the older load, not the newest partial write.
+amdgpu.target<gfx1200> @target
+
+low.func.def target<amdgpu.rdna4.core>(@target) @gfx1200_pending_preserved_low_read(%address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %loaded = ds_load_u16_d16 %address
+  %changed = ds_load_u16_d16_hi %loaded, %address {offset = 2}
+  global_store_short_saddr %address, %changed, %output
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16 v1, v0 offset:0
+  ds_load_u16_d16_hi v1, v0 offset:2
+  s_wait_dscnt dscnt(1)
+  global_store_short v0, v1, s[0:1] offset:0
+  s_wait_dscnt dscnt(0)
+  global_store_b32 v0, v1, s[0:1] offset:4
+  s_wait_storecnt storecnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @continued_chain_preserved_read strategy=source
+
+// Repeated high-half writes retain the original low-half completion source.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @continued_chain_preserved_read(%address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %loaded = ds_load_u16_d16 %address
+  %first = ds_load_u16_d16_hi %loaded, %address {offset = 2}
+  %second = ds_load_u16_d16_hi %first, %address {offset = 4}
+  %third = ds_load_u16_d16_hi %second, %address {offset = 6}
+  global_store_short_saddr %address, %third, %output
+  global_store_b32_saddr %address, %third, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16 v1, v0 offset:0
+  ds_load_u16_d16_hi v1, v0 offset:2
+  s_waitcnt vmcnt(63) lgkmcnt(1)
+  ds_load_u16_d16_hi v1, v0 offset:4
+  s_waitcnt vmcnt(63) lgkmcnt(1)
+  ds_load_u16_d16_hi v1, v0 offset:6
+  global_store_short v0, v1, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v0, v1, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @coalesced_copy_preserved_read strategy=source fixed=%seed:physical_register:4:1 fixed=%changed:physical_register:4:1 fixed=%copied:physical_register:4:1
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @coalesced_copy_preserved_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  %copied = copy %changed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  global_store_short_saddr %address, %copied, %output
+  global_store_b32_saddr %address, %copied, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v4, v0 offset:0
+  global_store_short v0, v4, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v0, v4, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @materialized_copy_preserved_read strategy=source fixed=%seed:physical_register:4:1 fixed=%changed:physical_register:4:1 fixed=%copied:physical_register:8:1
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @materialized_copy_preserved_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  %copied = copy %changed : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  global_store_short_saddr %address, %copied, %output
+  global_store_b32_saddr %address, %copied, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v4, v0 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_mov_b32 v8, v4
+  global_store_short v0, v8, s[0:1] offset:0
+  global_store_b32 v0, v8, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @coalesced_edge_preserved_read strategy=source fixed=%seed:physical_register:4:1 fixed=%changed:physical_register:4:1 fixed=%joined:physical_register:4:1
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @coalesced_edge_preserved_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  low.br ^join(%changed: reg<amdgpu.vgpr>)
+^join(%joined: reg<amdgpu.vgpr>):
+  global_store_short_saddr %address, %joined, %output
+  global_store_b32_saddr %address, %joined, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v4, v0 offset:0
+.Lbb1:
+  global_store_short v0, v4, s[0:1] offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v0, v4, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @pending_edge_preserved_read strategy=source fixed=%loaded:physical_register:4:1 fixed=%changed:physical_register:4:1 fixed=%joined:physical_register:4:1
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @pending_edge_preserved_read(%address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %loaded = ds_load_u16_d16 %address
+  %changed = ds_load_u16_d16_hi %loaded, %address {offset = 2}
+  low.br ^join(%changed: reg<amdgpu.vgpr>)
+^join(%joined: reg<amdgpu.vgpr>):
+  global_store_short_saddr %address, %joined, %output
+  global_store_b32_saddr %address, %joined, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16 v4, v0 offset:0
+  ds_load_u16_d16_hi v4, v0 offset:2
+.Lbb1:
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_short v0, v4, s[0:1] offset:0
+  global_store_b32 v0, v4, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @full_read_before_preserved strategy=source
+
+// The full-width consumer includes the pending half and still waits for it.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @full_read_before_preserved(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_b32_saddr %address, %changed, %output
+  global_store_short_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[0:1] offset:0
+  global_store_short v1, v0, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @narrow_valu_read strategy=source
+
+// VALU accesses retain the whole-DWORD D16 hazard even for a low-half operand.
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @narrow_valu_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  %converted = v_cvt_f32_f16 %changed
+  global_store_b32_saddr %address, %converted, %output
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_cvt_f32_f16 v0, v0
+  global_store_b32 v1, v0, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @ready_vmem_preserved_read strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @ready_vmem_preserved_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = global_load_d16_hi_b16_saddr %seed, %address, %output
+  global_store_short_saddr %address, %changed, %output {offset = 8}
+  global_store_b32_saddr %address, %changed, %output {offset = 12}
+  return
+}
+
+// ----
+  global_load_d16_hi_b16 v0, v1, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_short v1, v0, s[0:1] offset:8
+  global_store_b32 v1, v0, s[0:1] offset:12
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @lds_short_preserved_read strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @lds_short_preserved_read(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  ds_write_b16 %address, %changed {offset = 2}
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  ds_write_b16 v1, v0 offset:2
+  global_store_b32 v1, v0, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @vmem_preserved_to_lds strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @vmem_preserved_to_lds(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = global_load_d16_hi_b16_saddr %seed, %address, %input
+  ds_write_b16 %address, %changed
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  global_load_d16_hi_b16 v0, v1, s[0:1] offset:0
+  ds_write_b16 v1, v0 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v1, v0, s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @pending_vmem_preserved_to_lds strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @pending_vmem_preserved_to_lds(%address: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %output: reg<amdgpu.sgpr x2>) asm {
+  %loaded = global_load_d16_b16_saddr %address, %input
+  %changed = global_load_d16_hi_b16_saddr %loaded, %address, %input {offset = 2}
+  ds_write_b16 %address, %changed
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  global_load_d16_b16 v1, v0, s[0:1] offset:0
+  global_load_d16_hi_b16 v1, v0, s[0:1] offset:2
+  s_waitcnt vmcnt(1) lgkmcnt(63)
+  ds_write_b16 v0, v1 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_preserved_to_lds strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_preserved_to_lds(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %resource: reg<amdgpu.sgpr x4>, %offset: reg<amdgpu.sgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = buffer_load_d16_hi_b16 %seed, %resource, %address, %offset
+  ds_write_b8 %address, %changed
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  buffer_load_d16_hi_b16 v0, v1, s[0:3], s4 offen offset:0 glc:0 slc:0 dlc:0
+  ds_write_b8 v1, v0 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v1, v0, s[6:7] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @buffer_offset_preserved_to_lds strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_offset_preserved_to_lds(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %resource: reg<amdgpu.sgpr x4>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = buffer_load_d16_hi_b16_vaddr_offset %seed, %resource, %address
+  ds_write_b16 %address, %changed
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  buffer_load_d16_hi_b16 v0, v1, s[0:3], 0 offen offset:0 glc:0 slc:0 dlc:0
+  ds_write_b16 v1, v0 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v1, v0, s[4:5] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @global_vaddr_preserved_to_lds strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @global_vaddr_preserved_to_lds(%seed: reg<amdgpu.vgpr>, %global: reg<amdgpu.vgpr x2>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = global_load_d16_hi_b16_vaddr %seed, %global
+  ds_write_b16 %address, %changed
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  global_load_d16_hi_b16 v0, v[2:3], off offset:0
+  ds_write_b16 v1, v0 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v1, v0, s[0:1] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @preserved_narrow_memory_consumers strategy=source
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_narrow_memory_consumers(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %global: reg<amdgpu.vgpr x2>, %resource: reg<amdgpu.sgpr x4>, %offset: reg<amdgpu.sgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %changed = ds_load_u16_d16_hi %seed, %address
+  global_store_b8_saddr %address, %changed, %output
+  global_store_short_vaddr %global, %changed
+  buffer_store_b8 %changed, %resource, %address, %offset
+  buffer_store_short_vaddr_offset %changed, %resource, %address
+  global_store_b32_saddr %address, %changed, %output
+  return
+}
+
+// ----
+  ds_load_u16_d16_hi v0, v1 offset:0
+  global_store_b8 v1, v0, s[2:3] offset:0
+  global_store_short v[2:3], v0, off offset:0
+  buffer_store_b8 v0, v1, s[4:7], s0 offen offset:0
+  buffer_store_short v0, v1, s[4:7], 0 offen offset:0 glc:0 slc:0 dlc:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v1, v0, s[2:3] offset:0
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @preserved_loop_argument strategy=source fixed=%seed:physical_register:4:1 fixed=%carried:physical_register:4:1 fixed=%changed:physical_register:4:1
+
+amdgpu.target<gfx1151> @target
+
+low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_loop_argument(%seed: reg<amdgpu.vgpr>, %address: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>, %again: reg<amdgpu.scc>) asm {
+  low.br ^loop(%seed: reg<amdgpu.vgpr>)
+^loop(%carried: reg<amdgpu.vgpr>):
+  %changed = ds_load_u16_d16_hi %carried, %address
+  global_store_short_saddr %address, %changed, %output
+  low.cond_br %again, ^backedge, ^exit : reg<amdgpu.scc>
+^backedge:
+  low.br ^loop(%changed: reg<amdgpu.vgpr>)
+^exit:
+  global_store_b32_saddr %address, %changed, %output {offset = 4}
+  return
+}
+
+// ----
+.Lbb1:
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  ds_load_u16_d16_hi v4, v0 offset:0
+  global_store_short v0, v4, s[0:1] offset:0
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  s_branch .Lbb1
+.Lbb3:
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  global_store_b32 v0, v4, s[0:1] offset:4
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
