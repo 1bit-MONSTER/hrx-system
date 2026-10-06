@@ -1378,14 +1378,19 @@ static bool loom_amdgpu_wait_plan_storage_release_is_ordered_vmem_reuse(
 static void loom_amdgpu_wait_plan_classify_preserved_source(
     loom_amdgpu_wait_plan_builder_t* builder, uint32_t node_index) {
   const loom_low_schedule_node_t* node = &builder->schedule->nodes[node_index];
-  if (!iree_any_bit_set(builder->classification.node_states[node_index].flags,
-                        LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART)) {
+  if (node->descriptor == NULL || node->result_count == 0 ||
+      builder->classification.frontier_nodes[node_index].read_counter_mask ==
+          0) {
     return;
   }
   const loom_low_descriptor_set_t* descriptors =
       builder->schedule->target.descriptor_set;
   const loom_low_operand_t* result =
       &descriptors->operands[node->descriptor->operand_start];
+  if (!iree_any_bit_set(result->flags,
+                        LOOM_LOW_OPERAND_FLAG_STORAGE_CONTINUATION)) {
+    return;
+  }
   // Generated asynchronous continuation contracts have one one-unit VGPR
   // result and exactly one tied source. Synchronous partial VALU writes do not
   // publish preserved readiness: their physical writes first retire old loads.
@@ -1404,6 +1409,8 @@ static void loom_amdgpu_wait_plan_classify_preserved_source(
                      .mask);
   producer->preserved_source_ordinal =
       loom_low_schedule_node_const_operand_ordinals(node)[source_index];
+  builder->classification.node_states[node_index].flags |=
+      LOOM_AMDGPU_WAIT_NODE_STATE_PRESERVES_RESULT_PART;
 }
 
 static loom_amdgpu_wait_producer_state_t*
@@ -1475,8 +1482,6 @@ static iree_status_t loom_amdgpu_wait_plan_build_dependency_links(
     loom_amdgpu_wait_plan_builder_t* builder) {
   const loom_low_schedule_table_t* schedule = builder->schedule;
   const iree_host_size_t value_count = schedule->value_count;
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_wait_plan_allocate_dependency_heads(builder));
   IREE_RETURN_IF_ERROR(loom_amdgpu_wait_plan_build_block_arg_sources(builder));
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_wait_plan_ensure_dependency_visit_state(builder));
@@ -3778,12 +3783,14 @@ iree_status_t loom_amdgpu_wait_plan_build(
       sizeof(loom_amdgpu_wait_plan_action_segment_t),
       iree_alignof(loom_amdgpu_wait_plan_action_segment_t),
       &builder.action_stream.segments);
-  iree_status_t status =
-      loom_amdgpu_wait_plan_build_storage_release_action_index(&builder);
+  iree_status_t status = loom_amdgpu_wait_classification_build(
+      schedule, allocation, builder.processor_properties,
+      &builder.wait_packet_target, transient_arena, &builder.classification);
   if (iree_status_is_ok(status)) {
-    status = loom_amdgpu_wait_classification_build(
-        schedule, allocation, builder.processor_properties,
-        &builder.wait_packet_target, transient_arena, &builder.classification);
+    status = loom_amdgpu_wait_plan_allocate_dependency_heads(&builder);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_amdgpu_wait_plan_build_storage_release_action_index(&builder);
   }
   if (iree_status_is_ok(status)) {
     status = loom_amdgpu_wait_plan_allocate_producer_states(&builder);

@@ -131,7 +131,7 @@ iree_status_t loom_amdgpu_wait_classification_build(
     const loom_amdgpu_processor_properties_t* processor_properties,
     const loom_amdgpu_wait_packet_target_t* wait_packet_target,
     iree_arena_allocator_t* arena,
-    loom_amdgpu_wait_classification_t* out_classification);
+    loom_amdgpu_wait_classification_t* IREE_RESTRICT out_classification);
 
 #ifdef __cplusplus
 }  // extern "C"
