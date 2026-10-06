@@ -428,11 +428,10 @@ iree_status_t loom_low_schedule_pressure_initialize_unlock_summaries(
     loom_low_schedule_build_state_t* state, uint32_t node_count,
     loom_low_schedule_pressure_state_t* pressure_state);
 
-// Publishes one consumer to its final unscheduled dependency producer.
+// Publishes the consumer of its sole remaining unscheduled dependency group.
 void loom_low_schedule_pressure_publish_unlock_consumer(
     loom_low_schedule_build_state_t* state,
-    loom_low_schedule_pressure_state_t* pressure_state, uint32_t producer_node,
-    uint32_t consumer_node);
+    loom_low_schedule_pressure_state_t* pressure_state, uint32_t group_index);
 
 // Queries the retained descriptor frontier for a consumer made ready by
 // |candidate_node| with another live operand in |resource|. The resource's

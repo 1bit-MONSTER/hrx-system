@@ -1448,12 +1448,12 @@ static iree_status_t loom_low_schedule_run_list_scheduler(
         indegrees[consumer_node] -= group->dependency_count;
         if (loom_low_schedule_strategy_uses_pressure(
                 state->options->strategy)) {
-          const uint32_t remaining_producer =
+          const uint32_t remaining_group =
               loom_low_schedule_dependency_frontier_consume_group(
-                  &pressure_state.unlocks.frontier, chosen_node, group);
-          if (remaining_producer != LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE) {
+                  &pressure_state.unlocks.frontier, group_index, group);
+          if (remaining_group != LOOM_LOW_SCHEDULE_DEPENDENCY_GROUP_NONE) {
             loom_low_schedule_pressure_publish_unlock_consumer(
-                state, &pressure_state, remaining_producer, consumer_node);
+                state, &pressure_state, remaining_group);
           }
         }
         uint32_t consumer_ready_issue_cycle =

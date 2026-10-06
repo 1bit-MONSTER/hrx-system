@@ -193,6 +193,66 @@ TEST_F(ScheduleEventFrontierTest, DelayedOverwriteKeepsOldAndNewValueReads) {
   EXPECT_EQ(frontier_.quiescent_cycle, 8u);
 }
 
+TEST_F(ScheduleEventFrontierTest, ForwardedOverwriteRetainsEveryAliasedReader) {
+  // Writes occur at stage two; both read events observe stage one. A
+  // forwarded old read must precede the write endpoint, while a storage read
+  // may observe the old value at that endpoint.
+  constexpr uint16_t kWrite = 0;
+  constexpr uint16_t kForwardedRead = 1;
+  constexpr uint16_t kStorageRead = 2;
+  const loom_low_event_separation_t separations[] = {
+      {kWrite, kWrite, 1, LOOM_LOW_MODEL_QUALITY_EXACT},
+      {kWrite, kForwardedRead, 1, LOOM_LOW_MODEL_QUALITY_EXACT},
+      {kWrite, kStorageRead, 2, LOOM_LOW_MODEL_QUALITY_EXACT},
+      {kForwardedRead, kWrite, 0, LOOM_LOW_MODEL_QUALITY_EXACT},
+      {kStorageRead, kWrite, -1, LOOM_LOW_MODEL_QUALITY_EXACT},
+  };
+  loom_low_timing_event_t events[3] = {};
+  events[kWrite].separation_count = 3;
+  events[kWrite].maximum_issue_separation_cycles = 2;
+  events[kForwardedRead].separation_start = 3;
+  events[kForwardedRead].separation_count = 1;
+  events[kStorageRead].separation_start = 4;
+  events[kStorageRead].separation_count = 1;
+  loom_low_descriptor_set_t descriptors = *descriptors_;
+  descriptors.timing_events = events;
+  descriptors.timing_event_count = IREE_ARRAYSIZE(events);
+  descriptors.event_separations = separations;
+  descriptors.event_separation_count = IREE_ARRAYSIZE(separations);
+  IREE_ASSERT_OK(loom_low_schedule_event_frontier_initialize(
+      &descriptors, &arena_, &frontier_));
+  const auto wide = Register("test.l0");
+  const auto low = Register("test.r0");
+  const auto high = Register("test.r2");
+  const auto disjoint = Register("test.r1");
+  IREE_ASSERT_OK(
+      loom_low_schedule_event_frontier_commit(&frontier_, wide, kWrite, 10));
+  IREE_ASSERT_OK(loom_low_schedule_event_frontier_commit(&frontier_, high,
+                                                         kForwardedRead, 12));
+  EXPECT_EQ(loom_low_schedule_event_frontier_query(&frontier_, wide, kWrite),
+            12u);
+  EXPECT_EQ(loom_low_schedule_event_frontier_query(&frontier_, low, kWrite),
+            11u);
+  IREE_ASSERT_OK(loom_low_schedule_event_frontier_commit(&frontier_, low,
+                                                         kStorageRead, 13));
+  EXPECT_EQ(loom_low_schedule_event_frontier_query(&frontier_, wide, kWrite),
+            12u);
+  EXPECT_EQ(
+      loom_low_schedule_event_frontier_query(&frontier_, disjoint, kWrite), 0u);
+
+  // The wide replacement issues before the second reader, but writes after
+  // the forwarded read and at the storage read. Both halves' subsequent new
+  // reads retain their distinct forwarding deadlines.
+  IREE_ASSERT_OK(
+      loom_low_schedule_event_frontier_commit(&frontier_, wide, kWrite, 12));
+  EXPECT_EQ(
+      loom_low_schedule_event_frontier_query(&frontier_, high, kForwardedRead),
+      13u);
+  EXPECT_EQ(
+      loom_low_schedule_event_frontier_query(&frontier_, low, kStorageRead),
+      14u);
+}
+
 TEST_F(ScheduleEventFrontierTest, FixedStorageAcrossLargeCyclesAndOverflow) {
   const auto physical = Register("test.r0");
   const auto write = Event("test.state.write");

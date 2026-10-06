@@ -989,7 +989,7 @@ _BASE_DESCRIPTOR_SPECS = (
         "VMOV_alu_mv_mv_x",
         f"{_TARGET_KEY}.move.vector512",
         "register.move.vector512",
-        "II_VMOV_alu_mv_mv_x",
+        "II_VMOV_alu_mv_mv_x_eXe_eXe",
         storage_overrides=(("dst", "VEC256"), ("src", "VEC256")),
         asm_mnemonic="vmov.512",
         encoding_adapter_overrides=(
@@ -1010,7 +1010,7 @@ _BASE_DESCRIPTOR_SPECS = (
         "VMOV_alu_mv_mv_x",
         f"{_TARGET_KEY}.move.vector512.to.accumulator512",
         "register.move.vector512.to.accumulator512",
-        "II_VMOV_alu_mv_mv_x",
+        "II_VMOV_alu_mv_mv_x_eBMLL_eXe",
         storage_overrides=(("dst", "mBMs"), ("src", "VEC256")),
         asm_mnemonic="vmov.vector512.to.accumulator512",
         rematerializable=True,
@@ -1023,7 +1023,7 @@ _BASE_DESCRIPTOR_SPECS = (
         "VMOV_alu_mv_mv_x",
         f"{_TARGET_KEY}.move.accumulator512.to.vector512",
         "register.move.accumulator512.to.vector512",
-        "II_VMOV_alu_mv_mv_x",
+        "II_VMOV_alu_mv_mv_x_eXe_eBMLL",
         storage_overrides=(("dst", "VEC256"), ("src", "mBMs")),
         asm_mnemonic="vmov.accumulator512.to.vector512",
         encoding_adapter_overrides=(
@@ -1035,7 +1035,7 @@ _BASE_DESCRIPTOR_SPECS = (
         "VMOV_alu_mv_mv_x",
         f"{_TARGET_KEY}.move.accumulator512",
         "register.move.accumulator512",
-        "II_VMOV_alu_mv_mv_x",
+        "II_VMOV_alu_mv_mv_x_eBMLL_eBMLL",
         storage_overrides=(("dst", "mBMs"), ("src", "mBMs")),
         asm_mnemonic="vmov.accumulator512",
         encoding_adapter_overrides=(
