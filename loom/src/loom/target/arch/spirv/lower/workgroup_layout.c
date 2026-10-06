@@ -431,12 +431,8 @@ static iree_status_t loom_spirv_workgroup_layout_initialize(
     };
   }
   layout->segment_count = 0;
-  const loom_func_like_t source_function =
-      loom_low_lower_context_source_function(context);
-  IREE_RETURN_IF_ERROR(loom_storage_interference_analyze_function(
-      loom_low_lower_context_module(context),
-      loom_low_lower_context_fact_table(context), value_domain, source_function,
-      loom_low_lower_context_function_arena(context), &layout->interference));
+  IREE_RETURN_IF_ERROR(loom_low_lower_context_storage_interference(
+      context, &layout->interference));
   layout->layout_initialized = true;
   return iree_ok_status();
 }

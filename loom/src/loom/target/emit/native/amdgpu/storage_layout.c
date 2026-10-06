@@ -85,18 +85,15 @@ iree_status_t loom_amdgpu_storage_layout_build(
       .segment_sizes = sizes,
       .records = records,
       .record_count = source_layout->record_count,
+      .index = source_layout->index,
   };
   return iree_ok_status();
 }
 
 void loom_amdgpu_storage_layout_lookup_reference(
-    const loom_amdgpu_storage_layout_t* layout, const loom_module_t* module,
+    const loom_amdgpu_storage_layout_t* layout,
     loom_value_id_t storage_value_id,
     loom_amdgpu_storage_layout_reference_t* out_reference) {
-  const loom_low_storage_layout_t low_layout = {
-      .records = layout->records,
-      .record_count = layout->record_count,
-  };
-  loom_low_storage_layout_lookup_reference(&low_layout, module,
+  loom_low_storage_layout_lookup_reference(&layout->index, layout->records,
                                            storage_value_id, out_reference);
 }

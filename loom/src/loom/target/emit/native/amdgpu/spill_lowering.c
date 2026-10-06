@@ -161,8 +161,7 @@ static void loom_amdgpu_spill_lowering_resolve_storage_reference(
     loom_value_id_t storage_value_id,
     loom_amdgpu_storage_layout_reference_t* out_reference) {
   loom_amdgpu_storage_layout_lookup_reference(&context->storage_layout,
-                                              context->module, storage_value_id,
-                                              out_reference);
+                                              storage_value_id, out_reference);
 }
 
 static bool loom_amdgpu_spill_lowering_storage_space_supported(
@@ -978,7 +977,7 @@ static iree_status_t loom_amdgpu_spill_lowering_build_storage_layout(
   const loom_op_t* op = NULL;
   loom_region_for_each_block(body, block) {
     loom_block_for_each_op(block, op) {
-      if (!loom_low_storage_reserve_isa(op)) {
+      if (!loom_low_storage_reserve_isa(op) && !loom_low_storage_view_isa(op)) {
         continue;
       }
       IREE_RETURN_IF_ERROR(
@@ -986,7 +985,8 @@ static iree_status_t loom_amdgpu_spill_lowering_build_storage_layout(
     }
   }
   loom_low_storage_layout_t source_layout;
-  loom_low_storage_layout_builder_finish(&builder, &source_layout);
+  IREE_RETURN_IF_ERROR(
+      loom_low_storage_layout_builder_finish(&builder, arena, &source_layout));
   return loom_amdgpu_storage_layout_build(&source_layout, arena,
                                           out_storage_layout);
 }

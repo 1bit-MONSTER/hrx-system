@@ -189,6 +189,7 @@ static iree_status_t loom_amdgpu_source_alloca_layout_initialize(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_local_value_domain_t* value_domain,
     iree_arena_allocator_t* arena, loom_func_like_t source_function,
+    loom_storage_interference_t* interference,
     loom_amdgpu_source_alloca_layout_t* layout) {
   layout->value_domain = value_domain;
   layout->module = module;
@@ -197,7 +198,7 @@ static iree_status_t loom_amdgpu_source_alloca_layout_initialize(
   layout->source_function_op = source_function.op;
   layout->entries = NULL;
   layout->entry_count = value_domain != NULL ? value_domain->value_count : 0;
-  layout->interference = NULL;
+  layout->interference = interference;
   layout->flags = 0;
   if (layout->entry_count != 0) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, layout->entry_count,
@@ -211,12 +212,6 @@ static iree_status_t loom_amdgpu_source_alloca_layout_initialize(
         .low_storage_value_id = LOOM_VALUE_ID_INVALID,
     };
   }
-  if (value_domain != NULL &&
-      loom_local_value_domain_is_acquired(value_domain)) {
-    IREE_RETURN_IF_ERROR(loom_storage_interference_analyze_function(
-        module, fact_table, value_domain, source_function, arena,
-        &layout->interference));
-  }
   layout->flags = LOOM_AMDGPU_SOURCE_ALLOCA_LAYOUT_INITIALIZED;
   return iree_ok_status();
 }
@@ -224,19 +219,6 @@ static iree_status_t loom_amdgpu_source_alloca_layout_initialize(
 const loom_amdgpu_source_alloca_layout_t*
 loom_amdgpu_source_alloca_layout_empty(void) {
   return &kLoomAmdgpuSourceAllocaLayoutEmpty;
-}
-
-static iree_status_t loom_amdgpu_source_alloca_layout_initialize_for_inputs(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    const loom_local_value_domain_t* value_domain,
-    iree_arena_allocator_t* arena, loom_func_like_t source_function,
-    loom_amdgpu_source_alloca_layout_t* layout) {
-  if (!loom_amdgpu_source_alloca_layout_matches(
-          layout, module, fact_table, value_domain, source_function)) {
-    IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_initialize(
-        module, fact_table, value_domain, arena, source_function, layout));
-  }
-  return iree_ok_status();
 }
 
 iree_status_t loom_amdgpu_source_alloca_layout_for_lower_context(
@@ -253,9 +235,17 @@ iree_status_t loom_amdgpu_source_alloca_layout_for_lower_context(
       loom_low_lower_context_value_domain(context);
   const loom_func_like_t source_function =
       loom_low_lower_context_source_function(context);
-  IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_initialize_for_inputs(
-      loom_low_lower_context_module(context), fact_table, value_domain,
-      loom_low_lower_context_function_arena(context), source_function, layout));
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  if (!loom_amdgpu_source_alloca_layout_matches(
+          layout, module, fact_table, value_domain, source_function)) {
+    loom_storage_interference_t* interference = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_context_storage_interference(context, &interference));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_initialize(
+        module, fact_table, value_domain,
+        loom_low_lower_context_function_arena(context), source_function,
+        interference, layout));
+  }
   *out_layout = layout;
   return iree_ok_status();
 }
@@ -334,11 +324,24 @@ iree_status_t loom_amdgpu_source_alloca_layout_for_low_legality(
       loom_target_low_legality_fact_table(context);
   const loom_func_like_t source_function =
       loom_target_low_legality_function(context);
-  IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_initialize_for_inputs(
-      loom_target_low_legality_module(context), fact_table,
-      loom_target_low_legality_value_domain(context),
-      loom_target_low_legality_scratch_arena(context), source_function,
-      layout));
+  const loom_module_t* module = loom_target_low_legality_module(context);
+  const loom_local_value_domain_t* value_domain =
+      loom_target_low_legality_value_domain(context);
+  iree_arena_allocator_t* arena =
+      loom_target_low_legality_scratch_arena(context);
+  if (!loom_amdgpu_source_alloca_layout_matches(
+          layout, module, fact_table, value_domain, source_function)) {
+    loom_storage_interference_t* interference = NULL;
+    if (value_domain != NULL &&
+        loom_local_value_domain_is_acquired(value_domain)) {
+      IREE_RETURN_IF_ERROR(loom_storage_interference_analyze_function(
+          module, fact_table, value_domain, source_function, arena,
+          &interference));
+    }
+    IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_initialize(
+        module, fact_table, value_domain, arena, source_function, interference,
+        layout));
+  }
   *out_layout = layout;
   return iree_ok_status();
 }

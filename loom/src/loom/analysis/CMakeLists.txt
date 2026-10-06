@@ -96,6 +96,8 @@ loom_cc_library(
     "storage_interference.c"
   DEPS
     ::control_uniformity
+    ::liveness
+    ::liveness_events
     ::value_relation
     iree::base
     iree::base::internal::arena
@@ -107,26 +109,6 @@ loom_cc_library(
     loom::util::fact_table
     loom::util::walk
   PUBLIC
-)
-
-loom_cc_test(
-  NAME
-    storage_interference_test
-  SRCS
-    "storage_interference_test.cc"
-  DEPS
-    ::storage_interference
-    iree::base::internal::arena
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::format::text::parser
-    loom::ir
-    loom::ops::buffer
-    loom::ops::op_defs
-    loom::ops::type_registry
-    loom::testing::context
-    loom::testing::module_ptr
-    loom::util::fact_table
 )
 
 loom_cc_library(

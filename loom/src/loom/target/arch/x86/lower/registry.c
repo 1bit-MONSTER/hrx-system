@@ -398,8 +398,15 @@ static iree_status_t loom_x86_map_native_abi_layout(
 
 #include "loom/target/arch/x86/contracts/tables.inl"
 
+static const loom_low_lower_function_storage_mapping_t kX86FunctionStorage[] = {
+    {LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE, LOOM_STORAGE_SPACE_PRIVATE,
+     LOOM_X86_REGISTER_CLASS_GPR64},
+};
+
 static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-low-lower"),
+    .function_storage = {kX86FunctionStorage,
+                         IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .map_type = {.fn = loom_x86_map_avx512_type, .user_data = NULL},
@@ -411,6 +418,8 @@ static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
 
 static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
     .name = IREE_SVL("x86-avx2-low-lower"),
+    .function_storage = {kX86FunctionStorage,
+                         IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .map_type = {.fn = loom_x86_map_avx2_type, .user_data = NULL},
@@ -422,6 +431,8 @@ static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
 
 static const loom_low_lower_policy_t kX86ScalarLowLowerPolicy = {
     .name = IREE_SVL("x86-scalar-low-lower"),
+    .function_storage = {kX86FunctionStorage,
+                         IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .map_type = {.fn = loom_x86_map_scalar_type, .user_data = NULL},
@@ -446,6 +457,8 @@ static const loom_low_lower_policy_t kX86PackedDotLowLowerPolicy = {
 
 static const loom_low_lower_policy_t kX86Avx512PackedDotLowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-packed-dot-low-lower"),
+    .function_storage = {kX86FunctionStorage,
+                         IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .map_type = {.fn = loom_x86_map_avx512_packed_dot_type, .user_data = NULL},

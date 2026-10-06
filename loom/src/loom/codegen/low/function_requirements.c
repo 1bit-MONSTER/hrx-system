@@ -102,7 +102,8 @@ iree_status_t loom_low_function_requirements_build(
               &resource_capacity, (void**)&resources));
         }
         resources[out_requirements->resource_count++] = op;
-      } else if (loom_low_storage_reserve_isa(op)) {
+      } else if (loom_low_storage_reserve_isa(op) ||
+                 loom_low_storage_view_isa(op)) {
         IREE_RETURN_IF_ERROR(loom_low_storage_layout_builder_append(
             module, op, arena, &storage_builder));
       } else if (loom_low_return_isa(op)) {
@@ -127,7 +128,6 @@ iree_status_t loom_low_function_requirements_build(
   out_requirements->read_only_data = read_only_data;
   out_requirements->read_only_data_ordinal_by_symbol =
       read_only_data_ordinal_by_symbol;
-  loom_low_storage_layout_builder_finish(&storage_builder,
-                                         &out_requirements->storage_layout);
-  return iree_ok_status();
+  return loom_low_storage_layout_builder_finish(
+      &storage_builder, arena, &out_requirements->storage_layout);
 }

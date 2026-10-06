@@ -43,12 +43,30 @@ typedef struct loom_x86_function_t {
   uint32_t block_count;
   // Callee-preserved GPRs actually written by instructions or transport.
   uint16_t saved_registers;
+  // Fixed stack allocation after callee saves. Byte emission consumes these
+  // concrete adjustments without computing alignment or selecting scratch.
+  struct {
+    // Bytes subtracted from RSP after any alignment adjustment.
+    uint32_t allocation_size;
+    // Required alignment of the body RSP, or zero without local storage.
+    uint32_t alignment;
+    // Dynamic restoration for alignments stronger than the SysV entry promise.
+    struct {
+      // Immediate AND mask, or zero when static padding suffices.
+      int32_t mask;
+      // Byte offset of the saved pre-alignment RSP within the allocation.
+      uint32_t saved_pointer_offset;
+      // Caller-clobbered register used before invocation transport.
+      uint8_t scratch_register;
+    } realignment;
+  } stack;
 } loom_x86_function_t;
 
-// Materializes native instructions from an accepted spill-free scalar frame.
+// Materializes native instructions from an accepted allocated scalar frame.
 // SysV result transport uses RAX. The caller already applied the entry ABI and
-// reserved RSP. No retained calls or stack storage are admitted by this leaf
-// product. Unsupported authored instructions return UNIMPLEMENTED.
+// reserved RSP. Stack, scratch, and private storage share the native stack;
+// workgroup storage has no ordinary host-function ABI. Retained calls are not
+// admitted. Unsupported authored instructions return UNIMPLEMENTED.
 iree_status_t loom_x86_function_prepare(const loom_low_emission_frame_t* frame,
                                         iree_arena_allocator_t* arena,
                                         loom_x86_function_t* out_function);

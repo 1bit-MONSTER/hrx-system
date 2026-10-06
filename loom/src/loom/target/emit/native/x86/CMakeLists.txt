@@ -51,8 +51,11 @@ loom_cc_library(
     iree::base
     iree::base::internal
     iree::io::stream
+    loom::analysis::storage_layout
+    loom::codegen::low::allocation::unit_location
     loom::codegen::low::frame
     loom::codegen::low::packet
+    loom::codegen::low::storage_layout
     loom::ir
     loom::ops::low
     loom::target::arch::x86::register_classes

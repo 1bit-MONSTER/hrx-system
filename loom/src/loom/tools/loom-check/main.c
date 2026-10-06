@@ -284,6 +284,7 @@ int loom_check_main(int argc, char** argv,
       "  emit <t>    Parse, emit analysis or target-structured output <t>,\n"
       "              print, compare.\n"
       "              Core targets include liveness-json, low-schedule-json,\n"
+      "              storage-interference @function,\n"
       "              low-allocation, low-allocation-json, low-packet-json,\n"
       "              low-compile-report @function,\n"
       "              target-low-registry-manifest, and source-low.\n"

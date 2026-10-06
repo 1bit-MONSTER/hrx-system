@@ -7,11 +7,11 @@
 // Retained source-to-Low lowering plans.
 //
 // Source planning runs after target legality and before target-Low IR
-// construction. It selects one rule, descriptor-matrix row, or target callback
-// plan for each non-structural source operation in traversal order. A backward
-// demand walk then marks every source value needed by emission and elides pure
-// plans whose results have no materialized use. The retained plan is immutable
-// during emission except for its monotonic consumption cursor.
+// construction. It selects a rule, shared structural plan, descriptor-matrix
+// row, or target callback for each non-structural source op in traversal order.
+// A backward demand walk marks every source value needed by emission and elides
+// pure plans whose results have no materialized use. The retained plan is
+// immutable during emission except for its monotonic consumption cursor.
 
 #ifndef LOOM_CODEGEN_LOW_LOWER_SOURCE_PLAN_H_
 #define LOOM_CODEGEN_LOW_LOWER_SOURCE_PLAN_H_
@@ -59,6 +59,8 @@ typedef enum loom_low_lower_selected_plan_kind_e {
   LOOM_LOW_LOWER_SELECTED_PLAN_DESCRIPTOR_MATRIX = 1,
   // Selection came from a target-owned callback plan.
   LOOM_LOW_LOWER_SELECTED_PLAN_CALLBACK = 2,
+  // Selection reserves bounded function storage using a target space mapping.
+  LOOM_LOW_LOWER_SELECTED_PLAN_FUNCTION_STORAGE = 3,
 } loom_low_lower_selected_plan_kind_t;
 
 // One source operation's lowering decision retained between planning and
@@ -71,23 +73,25 @@ typedef struct loom_low_lower_selected_plan_t {
   // Selection lifecycle flags.
   loom_low_lower_selected_plan_flags_t flags;
   // Number of source nodes owned by a table rule, including the root. Zero for
-  // target-owned plans and claimed placeholders.
+  // non-rule plans and claimed placeholders.
   uint8_t source_node_count;
   // Policy rule-set ordinal for table-driven selections.
   uint16_t rule_set_index;
   // Rule-table ordinal for table-driven selections.
   uint16_t rule_index;
-  // Rule set owning |rule|, or NULL for target-owned callbacks.
+  // Rule set owning |rule|, or NULL for non-rule plans.
   const loom_low_lower_rule_set_t* rule_set;
-  // Table rule selected during planning, or NULL for target-owned callbacks.
+  // Table rule selected during planning, or NULL for non-rule plans.
   const loom_low_lower_rule_t* rule;
-  // Resolved emit rows for |rule|, or NULL for target-owned callbacks.
+  // Resolved emit rows for |rule|, or NULL for non-rule plans.
   const loom_low_lower_resolved_emit_t* resolved_emits;
   // Canonical source-memory plan retained from rule selection, or NULL when
   // the selected rule does not consume source memory.
   const loom_low_source_memory_access_plan_t* source_memory_access;
   // Selected-plan-specific retained payload.
   union {
+    // Shared bounded-allocation plan owned by the function lowering arena.
+    const loom_low_lower_function_storage_plan_t* function_storage;
     // Target-owned plan selected during planning.
     loom_low_lower_plan_t target_plan;
     // Function-arena-owned source graph for a multi-node table rule. Entry

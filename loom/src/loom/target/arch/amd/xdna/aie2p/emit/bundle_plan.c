@@ -782,11 +782,12 @@ static iree_status_t loom_aie2p_bundle_plan_encode_storage_address(
       AIE2P_CORE_DESCRIPTOR_REF_MATERIALIZE_LOCAL_ADDRESS_I32,
       operand_assignments, immediate_values);
 
+  const loom_low_storage_layout_t* layout =
+      &builder->frame->schedule.requirements.storage_layout;
   loom_low_storage_layout_reference_t reference;
   loom_low_storage_layout_lookup_reference(
-      &builder->frame->schedule.requirements.storage_layout,
-      builder->frame->module, loom_low_storage_address_storage(node->op),
-      &reference);
+      &layout->index, layout->records,
+      loom_low_storage_address_storage(node->op), &reference);
   const int64_t operation_offset = loom_low_storage_address_offset(node->op);
   IREE_ASSERT_GE(operation_offset, 0);
   uint64_t byte_offset = 0;

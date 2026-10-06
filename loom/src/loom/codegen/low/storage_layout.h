@@ -107,25 +107,74 @@ typedef struct loom_low_storage_layout_record_t {
   loom_low_storage_layout_reservation_t reservation;
 } loom_low_storage_layout_record_t;
 
+// One flattened handle, independent of target placement of its root
+// reservation.
+typedef struct loom_low_storage_layout_handle_t {
+  // SSA result of a reservation or view in this function.
+  loom_value_id_t value_id;
+  // Root record ordinal in declaration order.
+  uint32_t reservation_ordinal;
+  // Byte offset from the root reservation to this handle.
+  uint64_t byte_offset;
+  // Static byte length visible through this handle.
+  uint64_t byte_length;
+} loom_low_storage_layout_handle_t;
+
+// Sparse index over storage handles, sized by their count rather than the
+// module's SSA value domain. Target projections borrow this index unchanged.
+typedef struct loom_low_storage_layout_index_t {
+  // Arena-owned flattened handles, with reservations preceding views.
+  const loom_low_storage_layout_handle_t* handles;
+  // Open-addressed handle ordinals, or UINT32_MAX for an empty bucket.
+  const uint32_t* buckets;
+  // Power-of-two bucket count, or zero for a function without storage.
+  iree_host_size_t bucket_count;
+} loom_low_storage_layout_index_t;
+
 typedef struct loom_low_storage_layout_t {
   // Total bytes reserved in each function-local storage space.
   loom_low_storage_layout_space_sizes_t space_sizes;
+  // Strongest reservation alignment in each space, indexed by storage space.
+  uint64_t minimum_alignments[LOOM_STORAGE_SPACE_COUNT_];
   // Arena-owned records in function body declaration order.
   const loom_low_storage_layout_record_t* records;
   // Number of entries in |records|.
   iree_host_size_t record_count;
+  // Flattened references shared by all consumers of this layout.
+  loom_low_storage_layout_index_t index;
 } loom_low_storage_layout_t;
 
-// Mutable one-pass builder for a verified function-local storage layout.
+// Unresolved view captured during the owning function traversal. Sources may
+// appear later in block declaration order; finish resolves each view once.
+typedef struct loom_low_storage_layout_view_t {
+  // SSA result of the view.
+  loom_value_id_t value_id;
+  // Immediate source handle, before view-chain flattening.
+  loom_value_id_t source_value_id;
+  // Byte offset within the immediate source.
+  uint64_t byte_offset;
+  // Static byte length visible through the view.
+  uint64_t byte_length;
+} loom_low_storage_layout_view_t;
+
+// Mutable builder fed by one traversal of a verified function's storage ops.
 typedef struct loom_low_storage_layout_builder_t {
   // Packed byte sizes accumulated for each storage space.
   loom_low_storage_layout_space_sizes_t space_sizes;
+  // Strongest reservation alignment in each space, indexed by storage space.
+  uint64_t minimum_alignments[LOOM_STORAGE_SPACE_COUNT_];
   // Arena-owned records accumulated in declaration order.
   loom_low_storage_layout_record_t* records;
   // Number of initialized records.
   iree_host_size_t record_count;
   // Allocated capacity of |records|.
   iree_host_size_t record_capacity;
+  // Arena-owned unresolved views in function body order.
+  loom_low_storage_layout_view_t* views;
+  // Number of initialized views.
+  iree_host_size_t view_count;
+  // Allocated capacity of |views|.
+  iree_host_size_t view_capacity;
 } loom_low_storage_layout_builder_t;
 
 typedef struct loom_low_storage_layout_reference_t {
@@ -154,16 +203,19 @@ loom_low_storage_layout_requirement_t loom_low_storage_layout_requirement(
 void loom_low_storage_layout_builder_initialize(
     loom_low_storage_layout_builder_t* out_builder);
 
-// Packs one verified low.storage.reserve into |builder|. Aggregate byte-size
-// overflow and arena growth are returned as status.
+// Captures one verified low.storage.reserve or low.storage.view in |builder|.
+// Each handle must be appended exactly once before finish. Reservations retain
+// declaration order; views need not follow their sources in declaration order.
+// Aggregate byte-size overflow and arena growth are returned as status.
 iree_status_t loom_low_storage_layout_builder_append(
-    const loom_module_t* module, const loom_op_t* reserve_op,
+    const loom_module_t* module, const loom_op_t* op,
     iree_arena_allocator_t* arena, loom_low_storage_layout_builder_t* builder);
 
-// Publishes the current arena-owned builder contents as an immutable layout.
-void loom_low_storage_layout_builder_finish(
+// Resolves all captured views and publishes an immutable, arena-owned layout.
+// Rebuild after storage IR mutation; consumers never consult the source IR.
+iree_status_t loom_low_storage_layout_builder_finish(
     const loom_low_storage_layout_builder_t* builder,
-    loom_low_storage_layout_t* out_layout);
+    iree_arena_allocator_t* arena, loom_low_storage_layout_t* out_layout);
 
 // Accumulates one verified low.storage.reserve into |sizes| without retaining a
 // record. Aggregate byte-size overflow is returned as status.
@@ -171,16 +223,12 @@ iree_status_t loom_low_storage_layout_accumulate_reservation(
     const loom_module_t* module, const loom_op_t* reserve_op,
     loom_low_storage_layout_space_sizes_t* sizes);
 
-// Looks up a verified low.storage.reserve result in |layout|.
-void loom_low_storage_layout_lookup_reservation(
-    const loom_low_storage_layout_t* layout, loom_value_id_t storage_value_id,
-    loom_low_storage_layout_reservation_t* out_reservation);
-
-// Resolves a verified low.storage.reserve or low.storage.view handle against
-// |layout|. The layout and storage value must belong to the same immutable
-// function.
+// Resolves a captured handle using |index| and root |records|. Projections may
+// replace reservation placements while preserving record order and borrowing
+// the index. Both arrays and the handle belong to the same immutable function.
 void loom_low_storage_layout_lookup_reference(
-    const loom_low_storage_layout_t* layout, const loom_module_t* module,
+    const loom_low_storage_layout_index_t* index,
+    const loom_low_storage_layout_record_t* records,
     loom_value_id_t storage_value_id,
     loom_low_storage_layout_reference_t* out_reference);
 

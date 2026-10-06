@@ -67,6 +67,13 @@ iree_status_t loom_amdgpu_select_buffer_plan(loom_low_lower_context_t* context,
                                                  &local_plan)) {
         return iree_ok_status();
       }
+      bool lifetime_supported = false;
+      IREE_RETURN_IF_ERROR(loom_low_lower_function_storage_check_lifetime(
+          context, source_op, &lifetime_supported));
+      if (!lifetime_supported) {
+        *out_plan = loom_low_lower_plan_make(source_op->kind, NULL);
+        return iree_ok_status();
+      }
       IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_record_lower_alloca(
           context, source_op, (uint64_t)local_plan.byte_length));
       loom_amdgpu_buffer_alloca_plan_t* plan_data = NULL;

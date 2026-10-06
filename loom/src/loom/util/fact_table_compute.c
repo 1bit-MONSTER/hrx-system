@@ -955,14 +955,18 @@ iree_status_t loom_value_fact_table_compute_region_tree(
     return iree_ok_status();
   }
   loom_value_facts_t temporal_scope = loom_value_facts_unknown();
+  bool may_repeat = false;
   if (!parent_op || parent_op == table->context.function.op) {
     loom_value_facts_mark_cluster_uniform(&temporal_scope);
   } else {
     temporal_scope = loom_value_fact_table_block_temporal_scope(
         table, parent_op->parent_block);
+    may_repeat =
+        loom_loop_like_isa(loom_loop_like_cast(module, parent_op)) ||
+        loom_value_fact_table_block_may_repeat(table, parent_op->parent_block);
   }
   IREE_RETURN_IF_ERROR(loom_value_fact_table_set_region_temporal_scope(
-      table, region, temporal_scope));
+      table, region, temporal_scope, may_repeat));
   if (iree_any_bit_set(region->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) {
     return loom_value_fact_table_compute_cfg_region_tree(table, module, region,
                                                          parent_op);

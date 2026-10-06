@@ -1,0 +1,586 @@
+// RUN: emit storage-interference @test
+
+// An older view remains live at the next allocation.
+func.def @test(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %old_value = view.load %previous[0] : view<1xi32> -> i32
+    %next_sum = scalar.addi %accumulator, %old_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  func.return %sum : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// The older view dies before the next allocation.
+func.def @test(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %old_value = view.load %previous[0] : view<1xi32> -> i32
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %old_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  func.return %sum : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=yes
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// Only the final allocation escapes the loop.
+func.def @test(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %next_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  %result = view.load %last[0] : view<1xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=yes
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// Volatile accesses obey the same storage identity contract.
+func.def @test(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store<volatile> %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store<volatile> %next_value, %slot[0] : i32, view<1xi32>
+    %old_value = view.load<volatile> %previous[0] : view<1xi32> -> i32
+    %next_sum = scalar.addi %accumulator, %old_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  func.return %sum : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// Async completion outlives the last SSA handle use.
+func.def @test(%input: buffer) -> (i32) {
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %origin = index.constant 0 : offset
+  %source = buffer.view %global[%origin] : buffer -> view<1xi32>
+  %bytes = index.constant 4 : offset
+  %limit = index.constant 8 : index
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_storage : buffer) -> (i32, i32, buffer) {
+    %previous_root = buffer.assume.memory_space<workgroup> %previous : buffer
+    %previous_view = buffer.view %previous_root[%origin] : buffer -> view<1xi32>
+    %copy = kernel.async.copy %source to %previous_view {cache_scope = cu, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+    %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %next_value : i32
+    kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+    scf.yield %next_sum, %next_value, %storage : i32, i32, buffer
+  }
+  func.return %sum : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// Async completion precedes recreation.
+func.def @test(%input: buffer) -> (i32) {
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %origin = index.constant 0 : offset
+  %source = buffer.view %global[%origin] : buffer -> view<1xi32>
+  %bytes = index.constant 4 : offset
+  %limit = index.constant 8 : index
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_storage : buffer) -> (i32, i32, buffer) {
+    %previous_root = buffer.assume.memory_space<workgroup> %previous : buffer
+    %previous_view = buffer.view %previous_root[%origin] : buffer -> view<1xi32>
+    %copy = kernel.async.copy %source to %previous_view {cache_scope = cu, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+    %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+    kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %next_value : i32
+    scf.yield %next_sum, %next_value, %storage : i32, i32, buffer
+  }
+  func.return %sum : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=yes
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// While regions carry storage instances through both control edges.
+func.def @test(%again: i1, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %initial = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<1xi32>
+  view.store %value, %initial_view[0] : i32, view<1xi32>
+  %last = scf.while(%previous = %initial_view : view<1xi32>) -> (view<1xi32>) {
+    scf.condition %again, %previous : i1, view<1xi32>
+  } do(%current: view<1xi32>) {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    %old = view.load %current[0] : view<1xi32> -> i32
+    scf.yield %slot : view<1xi32>
+  }
+  func.return
+}
+
+// ----
+initial: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// CFG backedges preserve provenance carried by buffers.
+func.def @test(%again: i1, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %initial = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<1xi32>
+  view.store %value, %initial_view[0] : i32, view<1xi32>
+  cfg.br ^loop(%initial: buffer)
+^loop(%previous: buffer):
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.store %value, %slot[0] : i32, view<1xi32>
+  %old_view = buffer.view %previous[%origin] : buffer -> view<1xi32>
+  %old = view.load %old_view[0] : view<1xi32> -> i32
+  cfg.cond_br %again, ^backedge, ^exit
+^backedge:
+  cfg.br ^loop(%storage: buffer)
+^exit:
+  func.return
+}
+
+// ----
+initial: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// A CFG-carried instance can die before recreation.
+func.def @test(%again: i1, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %initial = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<1xi32>
+  view.store %value, %initial_view[0] : i32, view<1xi32>
+  cfg.br ^loop(%initial: buffer)
+^loop(%previous: buffer):
+  %old_view = buffer.view %previous[%origin] : buffer -> view<1xi32>
+  %old = view.load %old_view[0] : view<1xi32> -> i32
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.store %value, %slot[0] : i32, view<1xi32>
+  cfg.cond_br %again, ^backedge, ^exit
+^backedge:
+  cfg.br ^loop(%storage: buffer)
+^exit:
+  func.return
+}
+
+// ----
+initial: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=yes
+initial / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// A nested structured region inherits its enclosing CFG repetition.
+func.def @test(%again: i1, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %initial = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<1xi32>
+  view.store %value, %initial_view[0] : i32, view<1xi32>
+  cfg.br ^loop(%initial: buffer)
+^loop(%previous: buffer):
+  %storage = scf.if %again -> (buffer) {
+    %nested = buffer.alloca<private> align(4) %bytes : buffer
+    scf.yield %nested : buffer
+  } else {
+    scf.yield %previous : buffer
+  }
+  %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.store %value, %slot[0] : i32, view<1xi32>
+  %old_view = buffer.view %previous[%origin] : buffer -> view<1xi32>
+  %old = view.load %old_view[0] : view<1xi32> -> i32
+  cfg.cond_br %again, ^backedge, ^exit
+^backedge:
+  cfg.br ^loop(%storage: buffer)
+^exit:
+  func.return
+}
+
+// ----
+initial: accessed=yes single_instance=yes
+nested: accessed=yes single_instance=unproven
+initial / nested: workgroup_nonoverlap=unproven
+
+// ====
+
+// Opaque effects prevent a repeated-instance lifetime proof.
+func.def @test(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %next_value : i32
+    test.use %storage : buffer
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  %result = view.load %last[0] : view<1xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+initial_storage: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial_storage / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// A rendezvous after all accesses retires shared instances across invocations.
+func.def @test(%value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    %loaded = view.load %slot[0] : view<1xi32> -> i32
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  }
+  func.return
+}
+
+// ----
+storage: accessed=yes single_instance=yes
+
+// ====
+
+// A faster invocation can reuse shared bytes before a slower invocation finishes.
+func.def @test(%value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    %loaded = view.load %slot[0] : view<1xi32> -> i32
+  }
+  func.return
+}
+
+// ----
+storage: accessed=yes single_instance=unproven
+
+// ====
+
+// A rendezvous before the final access cannot retire a shared instance.
+func.def @test(%value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+    %loaded = view.load %slot[0] : view<1xi32> -> i32
+  }
+  func.return
+}
+
+// ----
+storage: accessed=yes single_instance=unproven
+
+// ====
+
+// A subgroup rendezvous does not retire a workgroup instance.
+func.def @test(%value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    %loaded = view.load %slot[0] : view<1xi32> -> i32
+    kernel.barrier<workgroup> scope(subgroup) ordering(acq_rel)
+  }
+  func.return
+}
+
+// ----
+storage: accessed=yes single_instance=unproven
+
+// ====
+
+// A lane-dependent trip count cannot establish a collective retirement point.
+func.def @test(%limit: index, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %limit step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  }
+  func.return
+}
+
+// ----
+storage: accessed=yes single_instance=unproven
+
+// ====
+
+// The condition region also executes again on a while backedge.
+func.def @test(%again: i1, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %initial = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<1xi32>
+  view.store %value, %initial_view[0] : i32, view<1xi32>
+  %last = scf.while(%previous = %initial : buffer) -> (buffer) {
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+    %old_view = buffer.view %previous[%origin] : buffer -> view<1xi32>
+    %old = view.load %old_view[0] : view<1xi32> -> i32
+    scf.condition %again, %storage : i1, buffer
+  } do(%current: buffer) {
+    scf.yield %current : buffer
+  }
+  func.return
+}
+
+// ----
+initial: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// An irreducible CFG cycle has two entries and no dominating loop header.
+func.def @test(%choose_first: i1, %again: i1, %value: i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %initial = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial[%origin] : buffer -> view<1xi32>
+  view.store %value, %initial_view[0] : i32, view<1xi32>
+  cfg.cond_br %choose_first, ^first_entry, ^second_entry
+^first_entry:
+  cfg.br ^first(%initial: buffer)
+^second_entry:
+  cfg.br ^second(%initial: buffer)
+^first(%previous: buffer):
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+  view.store %value, %slot[0] : i32, view<1xi32>
+  %old_view = buffer.view %previous[%origin] : buffer -> view<1xi32>
+  %old = view.load %old_view[0] : view<1xi32> -> i32
+  cfg.br ^second(%storage: buffer)
+^second(%carried: buffer):
+  cfg.cond_br %again, ^backedge, ^exit
+^backedge:
+  cfg.br ^first(%carried: buffer)
+^exit:
+  func.return
+}
+
+// ----
+initial: accessed=yes single_instance=yes
+storage: accessed=yes single_instance=unproven
+initial / storage: workgroup_nonoverlap=unproven
+
+// ====
+
+// A completion outside the recognized same-block group chain remains unproven.
+func.def @test(%input: buffer) {
+  %global = buffer.assume.memory_space<global> %input : buffer
+  %origin = index.constant 0 : offset
+  %source = buffer.view %global[%origin] : buffer -> view<1xi32>
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %complete = scalar.constant 1 : i1
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %copy = kernel.async.copy %source to %slot {cache_scope = cu, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+    %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+    scf.if %complete {
+      kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+    }
+    kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  }
+  func.return
+}
+
+// ----
+storage: accessed=yes single_instance=unproven
+
+// ====
+
+// Shared storage needs no collective retirement in a single-invocation launch.
+kernel.def @test() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch() {
+  %value = scalar.constant 7 : i32
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
+// ----
+storage: accessed=yes single_instance=yes
+
+// ====
+
+// Any non-unit workgroup dimension introduces peers requiring a rendezvous.
+kernel.def @test() {
+  %unit = index.constant 1 : index
+  %height = index.constant 2 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %height, %unit) : index
+} launch() {
+  %value = scalar.constant 7 : i32
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %storage = buffer.alloca<workgroup> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    view.store %value, %slot[0] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
+// ----
+storage: accessed=yes single_instance=unproven

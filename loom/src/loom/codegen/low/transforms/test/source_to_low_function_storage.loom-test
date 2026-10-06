@@ -1,0 +1,127 @@
+// RUN: pass source-to-low
+
+// A prior instance remains live across a new execution of the allocation.
+// Fixed storage selection must diagnose this before constructing Low addresses.
+test.target<low_core> @target
+
+func.def target(@target) @overlapping_instances(%again: i1, %value: vector<4xi32>) -> (vector<4xi32>) {
+  %bytes = index.constant 16 : offset
+  %base = index.constant 0 : offset
+  %initial = buffer.alloca<private> align(16) %bytes : buffer
+  %initial_view = buffer.view %initial[%base] : buffer -> view<4xi32>
+  vector.store %value, %initial_view[0] : vector<4xi32>, view<4xi32>
+  cfg.br ^loop(%initial: buffer)
+^loop(%previous: buffer):
+  // ERROR@+1: TARGET/092 {allocation_value="storage"}
+  %storage = buffer.alloca<private> align(16) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<4xi32>
+  vector.store %value, %view[0] : vector<4xi32>, view<4xi32>
+  %previous_view = buffer.view %previous[%base] : buffer -> view<4xi32>
+  %old = vector.load %previous_view[0] : view<4xi32> -> vector<4xi32>
+  cfg.cond_br %again, ^backedge, ^exit
+^backedge:
+  cfg.br ^loop(%storage: buffer)
+^exit:
+  func.return %old : vector<4xi32>
+}
+
+// ====
+
+// Each allocation retains its own identity and ownership space. Address types
+// come from the target mapping; extent constants need no Low registers.
+test.target<low_core> @target
+
+func.def target(@target) @distinct_storage(%input: vector<4xi32>) -> (vector<4xi32>) {
+  %bytes = index.constant 16 : offset
+  %base = index.constant 0 : offset
+  %private = buffer.alloca<private> align(16) %bytes : buffer
+  %shared = buffer.alloca<workgroup> align(64) %bytes : buffer
+  %private_view = buffer.view %private[%base] : buffer -> view<4xi32>
+  %shared_view = buffer.view %shared[%base] : buffer -> view<4xi32>
+  vector.store %input, %private_view[0] : vector<4xi32>, view<4xi32>
+  %value = vector.load %private_view[0] : view<4xi32> -> vector<4xi32>
+  vector.store %value, %shared_view[0] : vector<4xi32>, view<4xi32>
+  %result = vector.load %shared_view[0] : view<4xi32> -> vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) abi(object_function) @distinct_storage(%input: reg<test.i32 x4>) -> (reg<test.i32 x4>) asm {
+  %12 = storage {byte_alignment = 16, byte_length = 16} : low.storage<private>
+  %private_view = storage_address %12 : low.storage<private> -> reg<test.ptr>
+  %14 = storage {byte_alignment = 64, byte_length = 16} : low.storage<workgroup>
+  %shared_view = storage_address %14 : low.storage<workgroup> -> reg<test.ptr>
+  test.store.v4i32 %private_view, %input
+  %value = test.load.v4i32 %private_view
+  test.store.v4i32 %shared_view, %value
+  %result = test.load.v4i32 %shared_view
+  return %result
+}
+
+// ====
+
+// The retained maximum controls the reservation. Arithmetic used only to
+// compute that extent disappears instead of becoming runtime allocation work.
+test.target<low_core> @target
+
+func.def target(@target) @bounded_storage(%input: vector<4xi32>, %size: offset) -> (vector<4xi32>) {
+  %half = index.assume %size [range(%size, 8, 32)] : offset
+  %bytes = index.add %half, %half : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(16) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<4xi32>
+  vector.store %input, %view[0] : vector<4xi32>, view<4xi32>
+  %result = vector.load %view[0] : view<4xi32> -> vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) abi(object_function) @bounded_storage(%input: reg<test.i32 x4>, %half: reg<test.i32>) -> (reg<test.i32 x4>) asm {
+  %12 = storage {byte_alignment = 16, byte_length = 64} : low.storage<private>
+  %view = storage_address %12 : low.storage<private> -> reg<test.ptr>
+  test.store.v4i32 %view, %input
+  %result = test.load.v4i32 %view
+  return %result
+}
+
+// ====
+
+test.target<low_core> @target
+
+func.def target(@target) @unbounded_storage(%input: vector<4xi32>, %bytes: offset) {
+  %base = index.constant 0 : offset
+  // ERROR@+1: TARGET/080 {storage_space="workgroup", byte_length_value="bytes"}
+  %storage = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<4xi32>
+  vector.store %input, %view[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ====
+
+// RUN: compile-report source-to-low
+
+// Shared plans remain identifiable without a target callback or target plan ID.
+test.target<low_core> @target
+
+func.def target(@target) @reported_storage(%input: vector<4xi32>) {
+  %bytes = index.constant 16 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(16) %bytes : buffer
+  %view = buffer.view %storage[%base] : buffer -> view<4xi32>
+  vector.store %input, %view[0] : vector<4xi32>, view<4xi32>
+  func.return
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: source_low selected_ops=5 emitted_ops=3 rows=5
+COMPILE-REPORT: source_low[0] function=reported_storage source_op=index.constant selection=rule descriptor_key=test.const.i32 descriptor_semantic_tag=integer.const.i32 emitted_ops=0
+COMPILE-REPORT: source_low[1] function=reported_storage source_op=index.constant selection=rule descriptor_key=test.const.i32 descriptor_semantic_tag=integer.const.i32 emitted_ops=0
+COMPILE-REPORT: source_low[2] function=reported_storage source_op=buffer.alloca selection=plan plan_key=function-storage.alloca emitted_ops=2
+COMPILE-REPORT: source_low[3] function=reported_storage source_op=buffer.view selection=rule emitted_ops=0
+COMPILE-REPORT: source_low[4] function=reported_storage source_op=vector.store selection=rule descriptor_key=test.store.v4i32 descriptor_semantic_tag=memory.store.v128 emitted_ops=1

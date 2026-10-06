@@ -18,6 +18,7 @@ loom_cc_library(
     "contract_query.h"
     "execution.h"
     "function_boundary.h"
+    "function_storage.h"
     "lower.h"
     "module_state.h"
     "participation.h"
@@ -41,6 +42,7 @@ loom_cc_library(
     "contract_query.c"
     "execution.c"
     "function_boundary.c"
+    "function_storage.c"
     "lower.c"
     "memory_effects.c"
     "module_state.c"
@@ -72,6 +74,7 @@ loom_cc_library(
     loom::analysis::kernel_async_legality
     loom::analysis::kernel_barrier_lifetime
     loom::analysis::native_layout
+    loom::analysis::storage_interference
     loom::analysis::symbol_facts
     loom::analysis::symbolic_expr
     loom::analysis::vector_memory_footprint

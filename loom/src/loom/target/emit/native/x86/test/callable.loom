@@ -128,3 +128,157 @@ func.def public @recurrence(%first: i64, %second: i64, %iterations: i64) -> (i64
 ^exit:
   func.return %a : i64
 }
+
+// All loads precede their reductions so the shared allocator must spill real
+// live values. The two widths share physical GPRs but transfer different bytes.
+low.func.def public target<x86.scalar.core> abi(object_function) @pressure64(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %word0 = mov.load.gpr64 %input {disp32 = 0}
+  %word1 = mov.load.gpr64 %input {disp32 = 8}
+  %word2 = mov.load.gpr64 %input {disp32 = 16}
+  %word3 = mov.load.gpr64 %input {disp32 = 24}
+  %word4 = mov.load.gpr64 %input {disp32 = 32}
+  %word5 = mov.load.gpr64 %input {disp32 = 40}
+  %word6 = mov.load.gpr64 %input {disp32 = 48}
+  %word7 = mov.load.gpr64 %input {disp32 = 56}
+  %word8 = mov.load.gpr64 %input {disp32 = 64}
+  %word9 = mov.load.gpr64 %input {disp32 = 72}
+  %word10 = mov.load.gpr64 %input {disp32 = 80}
+  %word11 = mov.load.gpr64 %input {disp32 = 88}
+  %word12 = mov.load.gpr64 %input {disp32 = 96}
+  %word13 = mov.load.gpr64 %input {disp32 = 104}
+  %word14 = mov.load.gpr64 %input {disp32 = 112}
+  %word15 = mov.load.gpr64 %input {disp32 = 120}
+  %word16 = mov.load.gpr64 %input {disp32 = 128}
+  %word17 = mov.load.gpr64 %input {disp32 = 136}
+  %word18 = mov.load.gpr64 %input {disp32 = 144}
+  %word19 = mov.load.gpr64 %input {disp32 = 152}
+  %sum1 = add.gpr64 %word0, %word1
+  %sum2 = add.gpr64 %sum1, %word2
+  %sum3 = add.gpr64 %sum2, %word3
+  %sum4 = add.gpr64 %sum3, %word4
+  %sum5 = add.gpr64 %sum4, %word5
+  %sum6 = add.gpr64 %sum5, %word6
+  %sum7 = add.gpr64 %sum6, %word7
+  %sum8 = add.gpr64 %sum7, %word8
+  %sum9 = add.gpr64 %sum8, %word9
+  %sum10 = add.gpr64 %sum9, %word10
+  %sum11 = add.gpr64 %sum10, %word11
+  %sum12 = add.gpr64 %sum11, %word12
+  %sum13 = add.gpr64 %sum12, %word13
+  %sum14 = add.gpr64 %sum13, %word14
+  %sum15 = add.gpr64 %sum14, %word15
+  %sum16 = add.gpr64 %sum15, %word16
+  %sum17 = add.gpr64 %sum16, %word17
+  %sum18 = add.gpr64 %sum17, %word18
+  %sum19 = add.gpr64 %sum18, %word19
+  return %sum19
+}
+
+low.func.def public target<x86.scalar.core> abi(object_function) @pressure32(%input: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
+  %word0 = mov.load.gpr32 %input {disp32 = 0}
+  %word1 = mov.load.gpr32 %input {disp32 = 4}
+  %word2 = mov.load.gpr32 %input {disp32 = 8}
+  %word3 = mov.load.gpr32 %input {disp32 = 12}
+  %word4 = mov.load.gpr32 %input {disp32 = 16}
+  %word5 = mov.load.gpr32 %input {disp32 = 20}
+  %word6 = mov.load.gpr32 %input {disp32 = 24}
+  %word7 = mov.load.gpr32 %input {disp32 = 28}
+  %word8 = mov.load.gpr32 %input {disp32 = 32}
+  %word9 = mov.load.gpr32 %input {disp32 = 36}
+  %word10 = mov.load.gpr32 %input {disp32 = 40}
+  %word11 = mov.load.gpr32 %input {disp32 = 44}
+  %word12 = mov.load.gpr32 %input {disp32 = 48}
+  %word13 = mov.load.gpr32 %input {disp32 = 52}
+  %word14 = mov.load.gpr32 %input {disp32 = 56}
+  %word15 = mov.load.gpr32 %input {disp32 = 60}
+  %word16 = mov.load.gpr32 %input {disp32 = 64}
+  %word17 = mov.load.gpr32 %input {disp32 = 68}
+  %word18 = mov.load.gpr32 %input {disp32 = 72}
+  %word19 = mov.load.gpr32 %input {disp32 = 76}
+  %sum1 = add.gpr32 %word0, %word1
+  %sum2 = add.gpr32 %sum1, %word2
+  %sum3 = add.gpr32 %sum2, %word3
+  %sum4 = add.gpr32 %sum3, %word4
+  %sum5 = add.gpr32 %sum4, %word5
+  %sum6 = add.gpr32 %sum5, %word6
+  %sum7 = add.gpr32 %sum6, %word7
+  %sum8 = add.gpr32 %sum7, %word8
+  %sum9 = add.gpr32 %sum8, %word9
+  %sum10 = add.gpr32 %sum9, %word10
+  %sum11 = add.gpr32 %sum10, %word11
+  %sum12 = add.gpr32 %sum11, %word12
+  %sum13 = add.gpr32 %sum12, %word13
+  %sum14 = add.gpr32 %sum13, %word14
+  %sum15 = add.gpr32 %sum14, %word15
+  %sum16 = add.gpr32 %sum15, %word16
+  %sum17 = add.gpr32 %sum16, %word17
+  %sum18 = add.gpr32 %sum17, %word18
+  %sum19 = add.gpr32 %sum18, %word19
+  return %sum19
+}
+
+// Distinct generic spaces must remain disjoint after projection onto the stack.
+// Nested views, a fixed-register alias, and an aligned storage address all feed
+// the result so a misplaced or truncated transfer changes the observed value.
+low.func.def public target<x86.scalar.core> abi(object_function) @storage_spaces(%input: reg<x86.gpr64>, %word: reg<x86.gpr32>) -> (reg<x86.gpr64>) asm {
+  %stack = storage {byte_alignment = 64, byte_length = 32} : low.storage<stack>
+  %scratch = storage {byte_alignment = 8, byte_length = 8} : low.storage<scratch>
+  %private = storage {byte_alignment = 4, byte_length = 8} : low.storage<private>
+  %tail = storage_view %stack {byte_length = 24, offset = 8} : low.storage<stack> -> low.storage<stack>
+  %nested = storage_view %tail {byte_length = 16, offset = 8} : low.storage<stack> -> low.storage<stack>
+  low.spill %input, %nested {offset = 8} : reg<x86.gpr64>, low.storage<stack>
+  %bias = mov.imm64 258
+  %scratch_value = add.gpr64 %input, %bias
+  low.spill %scratch_value, %scratch : reg<x86.gpr64>, low.storage<scratch>
+  low.spill %word, %private {offset = 4} : reg<x86.gpr32>, low.storage<private>
+  %loaded = low.reload %nested {offset = 8} : low.storage<stack> -> reg<x86.rdx>
+  %value = copy %loaded : reg<x86.rdx> -> reg<x86.gpr64>
+  %other = low.reload %scratch : low.storage<scratch> -> reg<x86.gpr64>
+  %narrow = low.reload %private {offset = 4} : low.storage<private> -> reg<x86.gpr32>
+  %wide = movzx.gpr64.gpr32 %narrow
+  %address = storage_address %stack : low.storage<stack> -> reg<x86.gpr64>
+  %mask = mov.imm64 63
+  %misalignment = and.gpr64 %address, %mask
+  %difference = xor.gpr64 %value, %other
+  %mixed = xor.gpr64 %difference, %wide
+  %result = xor.gpr64 %mixed, %misalignment
+  return %result
+}
+
+// Runtime indexing keeps this source-level local array addressable. Its native
+// frame must honor an alignment stronger than the SysV stack-entry guarantee.
+func.def public @local_pair(%first: i64, %second: i64, %index: index) -> (i64) {
+  %length = index.constant 16 : offset
+  %base = index.constant 0 : offset
+  %storage = buffer.alloca<private> align(64) %length : buffer
+  %values = buffer.view %storage[%base] : buffer -> view<2xi64>
+  view.store %first, %values[0] : i64, view<2xi64>
+  view.store %second, %values[1] : i64, view<2xi64>
+  %position = index.assume %index [range(%index, 0, 1)] : index
+  %result = view.load %values[%position] : view<2xi64> -> i64
+  func.return %result : i64
+}
+
+// The previous allocation dies before recreation. Volatile accesses keep the
+// addressable loop storage observable through the ordinary native function ABI.
+func.def public @sum_previous_instances(%limit: index) -> (i32) {
+  %origin = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %seed = scalar.constant 0 : i32
+  %increment = scalar.constant 1 : i32
+  %initial_storage = buffer.alloca<private> align(4) %bytes : buffer
+  %initial_view = buffer.view %initial_storage[%origin] : buffer -> view<1xi32>
+  view.store<volatile> %seed, %initial_view[0] : i32, view<1xi32>
+  %sum, %value, %last = scf.for %i = [%begin to %limit step %step](%accumulator = %seed : i32, %previous_value = %seed : i32, %previous = %initial_view : view<1xi32>) -> (i32, i32, view<1xi32>) {
+    %old_value = view.load<volatile> %previous[0] : view<1xi32> -> i32
+    %storage = buffer.alloca<private> align(4) %bytes : buffer
+    %slot = buffer.view %storage[%origin] : buffer -> view<1xi32>
+    %next_value = scalar.addi %previous_value, %increment : i32
+    view.store<volatile> %next_value, %slot[0] : i32, view<1xi32>
+    %next_sum = scalar.addi %accumulator, %old_value : i32
+    scf.yield %next_sum, %next_value, %slot : i32, i32, view<1xi32>
+  }
+  func.return %sum : i32
+}

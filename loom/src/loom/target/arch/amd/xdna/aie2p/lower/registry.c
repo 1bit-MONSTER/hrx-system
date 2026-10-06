@@ -15,7 +15,6 @@
 #include "loom/target/arch/amd/xdna/aie2p/lower/lower.h"
 #include "loom/target/arch/amd/xdna/aie2p/lower/matrix.h"
 #include "loom/target/arch/amd/xdna/aie2p/lower/rodata.h"
-#include "loom/target/arch/amd/xdna/aie2p/lower/storage.h"
 #include "loom/target/arch/amd/xdna/aie2p/vector_carrier.h"
 #include "loom/target/arch/amd/xdna/error_catalog.h"
 #include "loom/target/contract.h"
@@ -190,12 +189,7 @@ static iree_status_t loom_aie2p_preselect_op(void* user_data,
   if (!loom_low_lower_plan_is_empty(*out_plan)) {
     return iree_ok_status();
   }
-  IREE_RETURN_IF_ERROR(
-      loom_aie2p_select_rodata_plan(context, source_op, out_plan));
-  if (!loom_low_lower_plan_is_empty(*out_plan)) {
-    return iree_ok_status();
-  }
-  return loom_aie2p_select_storage_plan(context, source_op, out_plan);
+  return loom_aie2p_select_rodata_plan(context, source_op, out_plan);
 }
 
 static void loom_aie2p_mark_plan_storage_demands(
@@ -208,8 +202,6 @@ static void loom_aie2p_mark_plan_storage_demands(
     loom_aie2p_mark_gather_plan_demands(context, source_op, plan);
   } else if (loom_aie2p_rodata_plan_isa(plan)) {
     loom_aie2p_mark_rodata_plan_demands(context, source_op, plan);
-  } else if (loom_aie2p_storage_plan_isa(plan)) {
-    loom_aie2p_mark_storage_plan_demands(context, source_op, plan);
   } else {
     IREE_ASSERT_UNREACHABLE("AIE2P storage demand has unknown plan kind");
   }
@@ -227,8 +219,6 @@ static void loom_aie2p_describe_plan(void* user_data,
     loom_aie2p_describe_gather_plan(context, source_op, plan, out_report);
   } else if (loom_aie2p_rodata_plan_isa(plan)) {
     loom_aie2p_describe_rodata_plan(context, source_op, plan, out_report);
-  } else if (loom_aie2p_storage_plan_isa(plan)) {
-    loom_aie2p_describe_storage_plan(context, source_op, plan, out_report);
   } else {
     IREE_ASSERT_UNREACHABLE("AIE2P report has unknown plan kind");
   }
@@ -247,9 +237,6 @@ static iree_status_t loom_aie2p_emit_op(void* user_data,
   }
   if (loom_aie2p_rodata_plan_isa(plan)) {
     return loom_aie2p_emit_rodata_plan(context, source_op, plan);
-  }
-  if (loom_aie2p_storage_plan_isa(plan)) {
-    return loom_aie2p_emit_storage_plan(context, source_op, plan);
   }
   IREE_ASSERT_UNREACHABLE("AIE2P emission has unknown plan kind");
   IREE_BUILTIN_UNREACHABLE();
@@ -287,10 +274,20 @@ static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
         IREE_ARRAYSIZE(kAie2pVectorPacketStructuralLaneLimits),
 };
 
+static const loom_low_lower_function_storage_mapping_t kAie2pFunctionStorage[] =
+    {
+        {LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE, LOOM_STORAGE_SPACE_PRIVATE,
+         AIE2P_CORE_REG_CLASS_ID_AIE2P_EP},
+        {LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, LOOM_STORAGE_SPACE_WORKGROUP,
+         AIE2P_CORE_REG_CLASS_ID_AIE2P_EP},
+};
+
 static const loom_low_lower_policy_t kAie2pCoreLowLowerPolicy = {
     .name = IREE_SVL("amd-xdna-aie2p-core-low-lower"),
     .error_catalog = &loom_xdna_error_catalog,
     .vector_packet_policy = &kAie2pVectorPacketPolicy,
+    .function_storage = {kAie2pFunctionStorage,
+                         IREE_ARRAYSIZE(kAie2pFunctionStorage)},
     .source_type_supported =
         {
             .fn = loom_aie2p_source_type_supported,

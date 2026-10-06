@@ -118,7 +118,7 @@ static iree_status_t loom_x86_loom_check_emit_frame(
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(builder, "callee-preserved:"));
   if (!function.saved_registers) {
-    return iree_string_builder_append_cstring(builder, " none\n");
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, " none"));
   }
   static const char* const register_names[] = {
       "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
@@ -132,7 +132,19 @@ static iree_status_t loom_x86_loom_check_emit_frame(
       separator = ", ";
     }
   }
-  return iree_string_builder_append_cstring(builder, "\n");
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
+  if (function.stack.allocation_size) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder, "stack: %u bytes, alignment %u\n",
+        function.stack.allocation_size, function.stack.alignment));
+  }
+  if (function.stack.realignment.mask) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder, "realignment: %s, saved RSP at +%u\n",
+        register_names[function.stack.realignment.scratch_register],
+        function.stack.realignment.saved_pointer_offset));
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t loom_x86_loom_check_emit_provider_execute(

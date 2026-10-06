@@ -29,6 +29,7 @@ loom_cc_library(
   NAME
     execute
   HDRS
+    "analysis.h"
     "comparison.h"
     "diagnostics.h"
     "execute.h"
@@ -38,6 +39,7 @@ loom_cc_library(
     "requirements.h"
     "source_low.h"
   SRCS
+    "analysis.c"
     "comparison.c"
     "diagnostics.c"
     "emit.c"
@@ -60,6 +62,7 @@ loom_cc_library(
     loom::analysis::liveness
     loom::analysis::liveness_json
     loom::analysis::pipeline_plan
+    loom::analysis::storage_interference
     loom::codegen::low::allocation
     loom::codegen::low::allocation_json
     loom::codegen::low::descriptors
@@ -84,12 +87,14 @@ loom_cc_library(
     loom::format::text::parser
     loom::format::text::printer
     loom::ir
+    loom::ops::buffer
     loom::ops::func
     loom::ops::kernel
     loom::ops::low
     loom::ops::op_defs
     loom::ops::pipeline
     loom::ops::target
+    loom::ops::type_registry
     loom::pass::builtin_registry
     loom::pass::pipeline
     loom::pass::registry
