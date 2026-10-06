@@ -97,6 +97,7 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/integer/constant_unsigned_division.loom",
     "numeric/integer/widening.loom",
     "numeric/integer/wide/observations.loom",
+    "numeric/predicate/extension.loom",
     "numeric/predicate/lanes.loom",
     "numeric/predicate/selection.loom",
     "numeric/predicate/truncation.loom",
