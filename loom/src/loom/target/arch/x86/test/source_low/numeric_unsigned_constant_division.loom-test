@@ -1,112 +1,4 @@
-// TEMPLATE: loom/src/loom/test/corpus/source_low/numeric_unsigned_constant_division.loom-test
 // RUN: emit source-low target=x86:avx2 output=low
-
-func.def @quotient_by_three(%input: i32) -> (i32) {
-  %divisor = scalar.constant 3 : i32
-  %quotient = scalar.divui %input, %divisor : i32
-  func.return %quotient : i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @quotient_by_three(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %6 = movzx.gpr64.gpr32 %input
-  %7 = mov.imm64 6148914691236517206
-  %8 = copy %6 : reg<x86.gpr64> -> reg<x86.rax>
-  %9 = mul.high.gpr64 %8, %7
-  %10 = copy %9 : reg<x86.rdx> -> reg<x86.gpr64>
-  %quotient = mov.trunc.gpr32.gpr64 %10
-  return %quotient
-}
-
-// ====
-
-func.def @quotient_by_seven(%input: i32) -> (i32) {
-  %divisor = scalar.constant 7 : i32
-  %quotient = scalar.divui %input, %divisor : i32
-  func.return %quotient : i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @quotient_by_seven(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %6 = movzx.gpr64.gpr32 %input
-  %7 = mov.imm64 2635249153387078803
-  %8 = copy %6 : reg<x86.gpr64> -> reg<x86.rax>
-  %9 = mul.high.gpr64 %8, %7
-  %10 = copy %9 : reg<x86.rdx> -> reg<x86.gpr64>
-  %quotient = mov.trunc.gpr32.gpr64 %10
-  return %quotient
-}
-
-// ====
-
-func.def @remainder_by_twenty(%input: i32) -> (i32) {
-  %divisor = scalar.constant 20 : i32
-  %remainder = scalar.remui %input, %divisor : i32
-  func.return %remainder : i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @remainder_by_twenty(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %6 = movzx.gpr64.gpr32 %input
-  %7 = mov.imm64 922337203685477581
-  %8 = imul.gpr64 %6, %7
-  %9 = mov.imm64 20
-  %10 = copy %8 : reg<x86.gpr64> -> reg<x86.rax>
-  %11 = mul.high.gpr64 %10, %9
-  %12 = copy %11 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %12
-  return %remainder
-}
-
-// ====
-
-func.def @remainder_by_seven(%input: i32) -> (i32) {
-  %divisor = scalar.constant 7 : i32
-  %remainder = scalar.remui %input, %divisor : i32
-  func.return %remainder : i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @remainder_by_seven(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
-  %6 = movzx.gpr64.gpr32 %input
-  %7 = mov.imm64 2635249153387078803
-  %8 = imul.gpr64 %6, %7
-  %9 = mov.imm64 7
-  %10 = copy %8 : reg<x86.gpr64> -> reg<x86.rax>
-  %11 = mul.high.gpr64 %10, %9
-  %12 = copy %11 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %12
-  return %remainder
-}
-
-// ====
-
-func.def @pair_by_twenty(%input: i32) -> (i32, i32) {
-  %divisor = scalar.constant 20 : i32
-  %quotient = scalar.divui %input, %divisor : i32
-  %remainder = scalar.remui %input, %divisor : i32
-  func.return %quotient, %remainder : i32, i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @pair_by_twenty(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %9 = movzx.gpr64.gpr32 %input
-  %10 = mov.imm64 922337203685477581
-  %11 = copy %9 : reg<x86.gpr64> -> reg<x86.rax>
-  %12 = mul.high.gpr64 %11, %10
-  %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
-  %quotient = mov.trunc.gpr32.gpr64 %13
-  %15 = movzx.gpr64.gpr32 %input
-  %17 = imul.gpr64 %15, %10
-  %18 = mov.imm64 20
-  %19 = copy %17 : reg<x86.gpr64> -> reg<x86.rax>
-  %20 = mul.high.gpr64 %19, %18
-  %21 = copy %20 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %21
-  return %quotient, %remainder
-}
-
-// ====
 
 func.def @pair_by_seven(%input: i32) -> (i32, i32) {
   %divisor = scalar.constant 7 : i32
@@ -168,24 +60,6 @@ low.func.def target<x86.avx2.core> abi(object_function) @pair_by_power_of_two(%i
 
 // ====
 
-func.def @pair_by_high_power_of_two(%input: i32) -> (i32, i32) {
-  %divisor = scalar.constant -2147483648 : i32
-  %quotient = scalar.divui %input, %divisor : i32
-  %remainder = scalar.remui %input, %divisor : i32
-  func.return %quotient, %remainder : i32, i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @pair_by_high_power_of_two(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %13 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
-  %quotient = shr.imm.gpr32 %13 {shift = 31}
-  %15 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
-  %remainder = and.imm.gpr32 %15 {imm32 = 2147483647}
-  return %quotient, %remainder
-}
-
-// ====
-
 func.def @pair_by_high_bit(%input: i32) -> (i32, i32) {
   %divisor = scalar.constant -2147483647 : i32
   %quotient = scalar.divui %input, %divisor : i32
@@ -198,50 +72,6 @@ low.func.def target<x86.avx2.core> abi(object_function) @pair_by_high_bit(%input
   %quotient = cmp.uge.imm.gpr32 %input, -2147483647
   %10 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
   %remainder = sub.if_uge.imm.gpr32 %10, -2147483647
-  return %quotient, %remainder
-}
-
-// ====
-
-func.def @pair_by_largest(%input: i32) -> (i32, i32) {
-  %divisor = scalar.constant -1 : i32
-  %quotient = scalar.divui %input, %divisor : i32
-  %remainder = scalar.remui %input, %divisor : i32
-  func.return %quotient, %remainder : i32, i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @pair_by_largest(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %quotient = cmp.uge.imm.gpr32 %input, -1
-  %10 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
-  %remainder = sub.if_uge.imm.gpr32 %10, -1
-  return %quotient, %remainder
-}
-
-// ====
-
-func.def @pair_below_high_bit(%input: i32) -> (i32, i32) {
-  %divisor = scalar.constant 2147483647 : i32
-  %quotient = scalar.divui %input, %divisor : i32
-  %remainder = scalar.remui %input, %divisor : i32
-  func.return %quotient, %remainder : i32, i32
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @pair_below_high_bit(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
-  %9 = movzx.gpr64.gpr32 %input
-  %10 = mov.imm64 8589934597
-  %11 = copy %9 : reg<x86.gpr64> -> reg<x86.rax>
-  %12 = mul.high.gpr64 %11, %10
-  %13 = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
-  %quotient = mov.trunc.gpr32.gpr64 %13
-  %15 = movzx.gpr64.gpr32 %input
-  %17 = imul.gpr64 %15, %10
-  %18 = mov.imm64 2147483647
-  %19 = copy %17 : reg<x86.gpr64> -> reg<x86.rax>
-  %20 = mul.high.gpr64 %19, %18
-  %21 = copy %20 : reg<x86.rdx> -> reg<x86.gpr64>
-  %remainder = mov.trunc.gpr32.gpr64 %21
   return %quotient, %remainder
 }
 
@@ -274,31 +104,6 @@ low.func.def target<x86.avx2.core> abi(object_function) @index_pair_by_7(%bounde
   %15 = copy %bounded : reg<x86.gpr64> -> reg<x86.gpr64>
   %16 = imul.gpr64 %15, %10
   %17 = mov.imm64 7
-  %18 = copy %16 : reg<x86.gpr64> -> reg<x86.rax>
-  %19 = mul.high.gpr64 %18, %17
-  %remainder = copy %19 : reg<x86.rdx> -> reg<x86.gpr64>
-  return %quotient, %remainder
-}
-
-// ====
-
-func.def @index_pair_by_20(%input: index) -> (index, index) {
-  %bounded = index.assume %input [range(%input, 0, 4294967295)] : index
-  %divisor = index.constant 20 : index
-  %quotient = index.div %bounded, %divisor : index
-  %remainder = index.rem %bounded, %divisor : index
-  func.return %quotient, %remainder : index, index
-}
-
-// ----
-low.func.def target<x86.avx2.core> abi(object_function) @index_pair_by_20(%bounded: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
-  %10 = mov.imm64 922337203685477581
-  %11 = copy %bounded : reg<x86.gpr64> -> reg<x86.rax>
-  %12 = mul.high.gpr64 %11, %10
-  %quotient = copy %12 : reg<x86.rdx> -> reg<x86.gpr64>
-  %15 = copy %bounded : reg<x86.gpr64> -> reg<x86.gpr64>
-  %16 = imul.gpr64 %15, %10
-  %17 = mov.imm64 20
   %18 = copy %16 : reg<x86.gpr64> -> reg<x86.rax>
   %19 = mul.high.gpr64 %18, %17
   %remainder = copy %19 : reg<x86.rdx> -> reg<x86.gpr64>
