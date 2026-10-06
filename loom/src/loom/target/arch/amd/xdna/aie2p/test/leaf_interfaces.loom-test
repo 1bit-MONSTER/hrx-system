@@ -197,3 +197,25 @@ low.func.def target<amd.xdna.aie2p.core> @conflicting_recurrence(%pointer: reg<a
   %next_pointer, %next_dimension = padda.3d %pointer, %dimension
   return %next_pointer, %next_dimension
 }
+
+// ====
+
+// A linked representation contract is not necessarily accepted by the selected
+// native emitter. This function verifies but is not an AIE core function.
+// RUN: emit aie2p-leaf @foreign_function
+
+// ERROR@+1: TARGET/044 "foreign_function" "test.low.core"
+low.func.def target<test.low.core> @foreign_function() asm {
+  return
+}
+
+// ====
+
+// Array orchestration and core instructions use distinct representation
+// contracts even though they belong to the same target family.
+// RUN: emit aie2p-leaf @array_function
+
+// ERROR@+1: TARGET/044 "array_function" "amd.xdna.aie2p.array"
+low.func.def target<amd.xdna.aie2p.array> @array_function() asm {
+  return
+}

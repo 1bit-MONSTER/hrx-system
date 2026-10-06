@@ -206,8 +206,17 @@ static iree_status_t loom_aie2p_leaf_check_execute(
   if (!function) {
     return iree_ok_status();
   }
+  // This emitter accepts only core functions, even when the test runner links
+  // other representation contracts for parsing and verification.
+  const loom_low_descriptor_set_provider_t descriptor_set_providers[] = {
+      loom_aie2p_core_descriptor_set,
+  };
+  const loom_low_descriptor_registry_t descriptor_registry = {
+      .descriptor_set_providers = descriptor_set_providers,
+      .descriptor_set_provider_count = IREE_ARRAYSIZE(descriptor_set_providers),
+  };
   loom_aie2p_leaf_compile_options_t options = {
-      .descriptor_registry = &request->low_registry->registry,
+      .descriptor_registry = &descriptor_registry,
       .allocation_diagnostic_flags = allocation_diagnostic_flags,
       .diagnostic_emitter = emitter,
   };

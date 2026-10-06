@@ -103,3 +103,59 @@ test.func @alternate_region_syntax() {
 test.func @undeclared_implicit_terminator() {
   test.implicit_yield
 }
+
+// ====
+// A branch elsewhere in the region does not terminate the entry block.
+// ERROR@+1: STRUCTURE/005 {op_name="test.func", region_index="0"}
+test.func @missing_cfg_entry_terminator() {
+  %entry_value = test.constant 0 : i32
+^unreachable:
+  test.br ^exit
+^exit:
+  test.yield
+}
+
+// ====
+// An empty successor block still requires its own terminator.
+// ERROR@+1: STRUCTURE/005 {op_name="test.func", region_index="0"}
+test.func @empty_cfg_successor() {
+  test.br ^empty
+^empty:
+}
+
+// ====
+// A CFG branch permits continuation, not an unrelated region exit kind.
+// ERROR@+1: STRUCTURE/018 {expected_terminator="test.yield", actual_terminator="test.implicit_yield"}
+test.func @wrong_cfg_exit() {
+  test.br ^exit
+^exit:
+  test.implicit_yield
+}
+
+// ====
+// Branches and the declared exit kind remain valid in a CFG-capable region.
+test.func @declared_cfg_exit() {
+  test.br ^exit
+^exit:
+  test.yield
+}
+
+// ====
+// Single-block structured regions cannot substitute a branch for their yield.
+test.func @structured_region_branch(%condition: i1) {
+  // ERROR@+1: STRUCTURE/018 {expected_terminator="test.yield", actual_terminator="test.br"}
+  test.optional_region %condition {
+  ^repeat:
+    test.br ^repeat
+  }
+  test.yield
+}
+
+// ====
+// An unspecified terminator kind admits alternatives, not a missing operation.
+check.scenario @missing_trial_terminator {
+  // ERROR@+1: STRUCTURE/005 {op_name="check.trial", region_index="0"}
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+  }
+  check.return
+}
