@@ -337,7 +337,7 @@ TEST_F(LowAllocationStorageLeaseIndexTest,
                    LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER,
                    LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
                }) {
-            for (const auto [minimum_base, maximum_base] : ranges) {
+            for (const auto& [minimum_base, maximum_base] : ranges) {
               SCOPED_TRACE(start_point);
               SCOPED_TRACE(end_point);
               SCOPED_TRACE(static_cast<int>(conflict_class));
