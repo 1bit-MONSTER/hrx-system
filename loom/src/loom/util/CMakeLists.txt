@@ -282,6 +282,7 @@ loom_cc_library(
     "fact_induction.h"
     "fact_layout.h"
     "fact_loop.h"
+    "fact_recurrence.h"
     "fact_table.h"
     "reference_transfer.h"
   SRCS
@@ -290,6 +291,7 @@ loom_cc_library(
     "fact_induction.c"
     "fact_layout.c"
     "fact_loop.c"
+    "fact_recurrence.c"
     "fact_table.c"
     "fact_table_compute.c"
     "reference_transfer.c"
@@ -313,8 +315,10 @@ loom_cc_library(
     loom::ir
     loom::ir::facts
     loom::ops::cfg::op_defs
+    loom::ops::index::comparison
     loom::ops::index::op_defs
     loom::ops::op_defs
+    loom::ops::scalar::op_defs
     loom::target::facts
   PUBLIC
 )

@@ -1016,3 +1016,395 @@ func.def @while_header_only_facts(%keep_going: i1) {
   }
   func.return
 }
+
+// ====
+
+// RUN: pass canonicalize
+
+// Independent byte streams retain their body and terminal facts alongside
+// nonlinear carried state with no additive recurrence proof.
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @for_additive_byte_streams() {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %a_tile_bytes = index.constant 128 : offset
+  %b_tile_bytes = index.constant 256 : offset
+  %payload_seed = scalar.constant 1 : i64
+  %payload_factor = scalar.constant 3 : i64
+  %a_end, %b_end, %payload_end = scf.for %tile = [%begin to %end step %step](%a = %origin : offset, %b = %origin : offset, %payload = %payload_seed : i64) -> (offset, offset, i64) {
+    %a_lo = test.fact_range_lo %a : offset -> i64
+    %a_hi = test.fact_range_hi %a : offset -> i64
+    %a_divisor = test.fact_divisor %a : offset -> i64
+    %b_lo = test.fact_range_lo %b : offset -> i64
+    %b_hi = test.fact_range_hi %b : offset -> i64
+    %b_divisor = test.fact_divisor %b : offset -> i64
+    test.use %a_lo, %a_hi, %a_divisor, %b_lo, %b_hi, %b_divisor : i64, i64, i64, i64, i64, i64
+    %a_next = index.add %a, %a_tile_bytes : offset
+    %b_next = index.add %b_tile_bytes, %b : offset
+    %payload_next = scalar.muli %payload, %payload_factor : i64
+    scf.yield %a_next, %b_next, %payload_next : offset, offset, i64
+  }
+  %a_end_lo = test.fact_range_lo %a_end : offset -> i64
+  %a_end_hi = test.fact_range_hi %a_end : offset -> i64
+  %b_end_lo = test.fact_range_lo %b_end : offset -> i64
+  %b_end_hi = test.fact_range_hi %b_end : offset -> i64
+  test.use %a_end_lo, %a_end_hi, %b_end_lo, %b_end_hi, %payload_end : i64, i64, i64, i64, i64
+  func.return
+}
+
+// ----
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @for_additive_byte_streams() {
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %a_tile_bytes = index.constant 128 : offset
+  %b_tile_bytes = index.constant 256 : offset
+  %payload_seed = scalar.constant 1 : i64
+  %payload_factor = scalar.constant 3 : i64
+  %a_end, %b_end, %payload_end = scf.for %tile = [%begin to %end step %step](%a = %origin : offset, %b = %origin : offset, %payload = %payload_seed : i64) -> (offset, offset, i64) {
+    %a_lo = scalar.constant 0 : i64
+    %a_hi = scalar.constant 896 : i64
+    %a_divisor = scalar.constant 128 : i64
+    %b_lo = scalar.constant 0 : i64
+    %b_hi = scalar.constant 1792 : i64
+    %b_divisor = scalar.constant 256 : i64
+    test.use %a_lo, %a_hi, %a_divisor, %b_lo, %b_hi, %b_divisor : i64, i64, i64, i64, i64, i64
+    %a_next = index.add %a, %a_tile_bytes : offset
+    %b_next = index.add %b_tile_bytes, %b : offset
+    %payload_next = scalar.muli %payload, %payload_factor : i64
+    scf.yield %a_next, %b_next, %payload_next : offset, offset, i64
+  }
+  %a_end_lo = scalar.constant 1024 : i64
+  %a_end_hi = scalar.constant 1024 : i64
+  %b_end_lo = scalar.constant 2048 : i64
+  %b_end_hi = scalar.constant 2048 : i64
+  test.use %a_end_lo, %a_end_hi, %b_end_lo, %b_end_hi, %payload_end : i64, i64, i64, i64, i64
+  func.return
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// Range-valued scalar seeds, descending subtraction, an unchanged offset, and
+// an invariant captured step share the same finite additive recurrence rule.
+func.def @for_ranged_additive_state(%seed: i32, %stride: offset) {
+  %bounded = scalar.assume %seed [range(%seed, 24, 40), mul(%seed, 8)] : i32
+  %captured_step = index.assume %stride [range(%stride, 16, 16)] : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %scalar_step = scalar.constant 8 : i32
+  %origin = index.constant 12 : offset
+  %stationary_step = index.constant 0 : offset
+  %ascending_end, %descending_end, %stationary_end, %cursor_end = scf.for %iteration = [%begin to %end step %step](%ascending = %bounded : i32, %descending = %bounded : i32, %stationary = %origin : offset, %cursor = %origin : offset) -> (i32, i32, offset, offset) {
+    %ascending_lo = test.fact_range_lo %ascending : i32 -> i64
+    %ascending_hi = test.fact_range_hi %ascending : i32 -> i64
+    %descending_lo = test.fact_range_lo %descending : i32 -> i64
+    %descending_hi = test.fact_range_hi %descending : i32 -> i64
+    %descending_divisor = test.fact_divisor %descending : i32 -> i64
+    %stationary_hi = test.fact_range_hi %stationary : offset -> i64
+    %cursor_hi = test.fact_range_hi %cursor : offset -> i64
+    test.use %ascending_lo, %ascending_hi, %descending_lo, %descending_hi, %descending_divisor, %stationary_hi, %cursor_hi : i64, i64, i64, i64, i64, i64, i64
+    %ascending_next = scalar.addi %ascending, %scalar_step : i32
+    %descending_next = scalar.subi %descending, %scalar_step : i32
+    %stationary_next = index.sub %stationary, %stationary_step : offset
+    %cursor_next = index.add %cursor, %captured_step : offset
+    scf.yield %ascending_next, %descending_next, %stationary_next, %cursor_next : i32, i32, offset, offset
+  }
+  %ascending_end_lo = test.fact_range_lo %ascending_end : i32 -> i64
+  %ascending_end_hi = test.fact_range_hi %ascending_end : i32 -> i64
+  %descending_end_lo = test.fact_range_lo %descending_end : i32 -> i64
+  %descending_end_hi = test.fact_range_hi %descending_end : i32 -> i64
+  %stationary_end_hi = test.fact_range_hi %stationary_end : offset -> i64
+  %cursor_end_hi = test.fact_range_hi %cursor_end : offset -> i64
+  test.use %ascending_end_lo, %ascending_end_hi, %descending_end_lo, %descending_end_hi, %stationary_end_hi, %cursor_end_hi : i64, i64, i64, i64, i64, i64
+  func.return
+}
+
+// ----
+func.def @for_ranged_additive_state(%seed: i32, %stride: offset) {
+  %bounded = scalar.assume %seed [range(%seed, 24, 40), mul(%seed, 8)] : i32
+  %captured_step = index.constant 16 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %scalar_step = scalar.constant 8 : i32
+  %origin = index.constant 12 : offset
+  %ascending_end, %descending_end, %stationary_end, %cursor_end = scf.for %iteration = [%begin to %end step %step](%ascending = %bounded : i32, %descending = %bounded : i32, %stationary = %origin : offset, %cursor = %origin : offset) -> (i32, i32, offset, offset) {
+    %ascending_lo = scalar.constant 24 : i64
+    %ascending_hi = scalar.constant 64 : i64
+    %descending_lo = scalar.constant 0 : i64
+    %descending_hi = scalar.constant 40 : i64
+    %descending_divisor = scalar.constant 8 : i64
+    %stationary_hi = scalar.constant 12 : i64
+    %cursor_hi = scalar.constant 60 : i64
+    test.use %ascending_lo, %ascending_hi, %descending_lo, %descending_hi, %descending_divisor, %stationary_hi, %cursor_hi : i64, i64, i64, i64, i64, i64, i64
+    %ascending_next = scalar.addi %ascending, %scalar_step : i32
+    %37 = scalar.constant -8 : i32
+    %descending_next = scalar.addi %descending, %37 : i32
+    %stationary_next = index.constant 12 : offset
+    %cursor_next = index.add %cursor, %captured_step : offset
+    scf.yield %ascending_next, %descending_next, %stationary_next, %cursor_next : i32, i32, offset, offset
+  }
+  %ascending_end_lo = scalar.constant 56 : i64
+  %ascending_end_hi = scalar.constant 72 : i64
+  %descending_end_lo = scalar.constant -8 : i64
+  %descending_end_hi = scalar.constant 8 : i64
+  %stationary_end_hi = scalar.constant 12 : i64
+  %cursor_end_hi = scalar.constant 76 : i64
+  test.use %ascending_end_lo, %ascending_end_hi, %descending_end_lo, %descending_end_hi, %stationary_end_hi, %cursor_end_hi : i64, i64, i64, i64, i64, i64
+  func.return
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// Changing increments, coupled states, narrowing casts, and a wrapping fixed
+// scalar carrier are not same-type nonwrapping additive recurrences.
+func.def @for_non_additive_carried_state() {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %initial_stride = index.constant 1 : offset
+  %coupled_seed = index.constant 16 : offset
+  %cast_seed = scalar.constant 4294967294 : i64
+  %wide_step = scalar.constant 1 : i64
+  %wrapping_seed = scalar.constant 2147483646 : i32
+  %word_step = scalar.constant 1 : i32
+  %cursor_end, %stride_end, %coupled_end, %cast_end, %wrapping_end = scf.for %iteration = [%begin to %end step %step](%cursor = %origin : offset, %changing_stride = %initial_stride : offset, %coupled = %coupled_seed : offset, %cast_state = %cast_seed : i64, %wrapping = %wrapping_seed : i32) -> (offset, offset, offset, i64, i32) {
+    %cursor_hi = test.fact_range_hi %cursor : offset -> i64
+    %stride_hi = test.fact_range_hi %changing_stride : offset -> i64
+    %coupled_hi = test.fact_range_hi %coupled : offset -> i64
+    %cast_lo = test.fact_range_lo %cast_state : i64 -> i64
+    %cast_hi = test.fact_range_hi %cast_state : i64 -> i64
+    %wrapping_hi = test.fact_range_hi %wrapping : i32 -> i64
+    test.use %cursor_hi, %stride_hi, %coupled_hi, %cast_lo, %cast_hi, %wrapping_hi : i64, i64, i64, i64, i64, i64
+    %cursor_next = index.add %cursor, %changing_stride : offset
+    %stride_next = index.add %changing_stride, %initial_stride : offset
+    %coupled_next = index.add %coupled, %cursor : offset
+    %narrow = scalar.trunci %cast_state : i64 to i32
+    %wide = scalar.extsi %narrow : i32 to i64
+    %cast_next = scalar.addi %wide, %wide_step : i64
+    %wrapping_next = scalar.addi %wrapping, %word_step : i32
+    scf.yield %cursor_next, %stride_next, %coupled_next, %cast_next, %wrapping_next : offset, offset, offset, i64, i32
+  }
+  %cursor_end_hi = test.fact_range_hi %cursor_end : offset -> i64
+  %coupled_end_hi = test.fact_range_hi %coupled_end : offset -> i64
+  %cast_end_hi = test.fact_range_hi %cast_end : i64 -> i64
+  %wrapping_end_hi = test.fact_range_hi %wrapping_end : i32 -> i64
+  test.use %cursor_end_hi, %coupled_end_hi, %cast_end_hi, %wrapping_end_hi, %stride_end : i64, i64, i64, i64, offset
+  func.return
+}
+
+// ----
+func.def @for_non_additive_carried_state() {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %initial_stride = index.constant 1 : offset
+  %coupled_seed = index.constant 16 : offset
+  %cast_seed = scalar.constant 4294967294 : i64
+  %wide_step = scalar.constant 1 : i64
+  %wrapping_seed = scalar.constant 2147483646 : i32
+  %word_step = scalar.constant 1 : i32
+  %cursor_end, %stride_end, %coupled_end, %cast_end, %wrapping_end = scf.for %iteration = [%begin to %end step %step](%cursor = %origin : offset, %changing_stride = %initial_stride : offset, %coupled = %coupled_seed : offset, %cast_state = %cast_seed : i64, %wrapping = %wrapping_seed : i32) -> (offset, offset, offset, i64, i32) {
+    %cursor_hi = scalar.constant 9223372036854775807 : i64
+    %stride_hi = scalar.constant 4 : i64
+    %coupled_hi = scalar.constant 9223372036854775807 : i64
+    %cast_lo = scalar.constant -2147483647 : i64
+    %cast_hi = scalar.constant 4294967294 : i64
+    %wrapping_hi = scalar.constant 2147483647 : i64
+    test.use %cursor_hi, %stride_hi, %coupled_hi, %cast_lo, %cast_hi, %wrapping_hi : i64, i64, i64, i64, i64, i64
+    %cursor_next = index.add %cursor, %changing_stride : offset
+    %stride_next = index.add %changing_stride, %initial_stride : offset
+    %coupled_next = index.add %coupled, %cursor : offset
+    %narrow = scalar.trunci %cast_state : i64 to i32
+    %wide = scalar.extsi %narrow : i32 to i64
+    %cast_next = scalar.addi %wide, %wide_step : i64
+    %wrapping_next = scalar.addi %wrapping, %word_step : i32
+    scf.yield %cursor_next, %stride_next, %coupled_next, %cast_next, %wrapping_next : offset, offset, offset, i64, i32
+  }
+  %cursor_end_hi = scalar.constant 9223372036854775807 : i64
+  %coupled_end_hi = scalar.constant 9223372036854775807 : i64
+  %cast_end_hi = scalar.constant 2147483648 : i64
+  %wrapping_end_hi = scalar.constant 2147483647 : i64
+  test.use %cursor_end_hi, %coupled_end_hi, %cast_end_hi, %wrapping_end_hi, %stride_end : i64, i64, i64, i64, offset
+  func.return
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// The condition reorders the header state for both the body and results. The
+// companion byte stream advances through two adds while the scalar descends.
+func.def @while_reordered_additive_companions() {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %half_tile_bytes = index.constant 64 : offset
+  %descending_seed = scalar.constant 48 : i32
+  %descending_step = scalar.constant 8 : i32
+  %descending_end, %cursor_end, %iteration_end = scf.while(%header_cursor = %origin : offset, %header_iteration = %begin : index, %header_descending = %descending_seed : i32) -> (i32, offset, index) {
+    %header_cursor_hi = test.fact_range_hi %header_cursor : offset -> i64
+    %header_descending_lo = test.fact_range_lo %header_descending : i32 -> i64
+    test.use %header_cursor_hi, %header_descending_lo : i64, i64
+    %more = index.cmp slt, %header_iteration, %end : index
+    scf.condition %more, %header_descending, %header_cursor, %header_iteration : i1, i32, offset, index
+  } do(%descending: i32, %cursor: offset, %iteration: index) {
+    %cursor_hi = test.fact_range_hi %cursor : offset -> i64
+    %cursor_divisor = test.fact_divisor %cursor : offset -> i64
+    %descending_lo = test.fact_range_lo %descending : i32 -> i64
+    test.use %cursor_hi, %cursor_divisor, %descending_lo : i64, i64, i64
+    %cursor_middle = index.add %cursor, %half_tile_bytes : offset
+    %cursor_next = index.add %cursor_middle, %half_tile_bytes : offset
+    %iteration_next = index.add %iteration, %step : index
+    %descending_next = scalar.subi %descending, %descending_step : i32
+    scf.yield %cursor_next, %iteration_next, %descending_next : offset, index, i32
+  }
+  %cursor_end_lo = test.fact_range_lo %cursor_end : offset -> i64
+  %cursor_end_hi = test.fact_range_hi %cursor_end : offset -> i64
+  %descending_end_lo = test.fact_range_lo %descending_end : i32 -> i64
+  %descending_end_hi = test.fact_range_hi %descending_end : i32 -> i64
+  test.use %cursor_end_lo, %cursor_end_hi, %descending_end_lo, %descending_end_hi, %iteration_end : i64, i64, i64, i64, index
+  func.return
+}
+
+// ----
+func.def @while_reordered_additive_companions() {
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 0 : offset
+  %half_tile_bytes = index.constant 64 : offset
+  %descending_seed = scalar.constant 48 : i32
+  %descending_end, %cursor_end, %iteration_end = scf.while(%header_cursor = %origin : offset, %header_iteration = %begin : index, %header_descending = %descending_seed : i32) -> (i32, offset, index) {
+    %header_cursor_hi = scalar.constant 512 : i64
+    %header_descending_lo = scalar.constant 16 : i64
+    test.use %header_cursor_hi, %header_descending_lo : i64, i64
+    %more = index.cmp slt, %header_iteration, %end : index
+    scf.condition %more, %header_descending, %header_cursor, %header_iteration : i1, i32, offset, index
+  } do(%descending: i32, %cursor: offset, %iteration: index) {
+    %cursor_hi = scalar.constant 384 : i64
+    %cursor_divisor = scalar.constant 128 : i64
+    %descending_lo = scalar.constant 24 : i64
+    test.use %cursor_hi, %cursor_divisor, %descending_lo : i64, i64, i64
+    %cursor_middle = index.add %cursor, %half_tile_bytes : offset
+    %cursor_next = index.add %cursor_middle, %half_tile_bytes : offset
+    %iteration_next = index.add %iteration, %step : index
+    %32 = scalar.constant -8 : i32
+    %descending_next = scalar.addi %descending, %32 : i32
+    scf.yield %cursor_next, %iteration_next, %descending_next : offset, index, i32
+  }
+  %cursor_end_lo = scalar.constant 512 : i64
+  %cursor_end_hi = scalar.constant 512 : i64
+  %descending_end_lo = scalar.constant 16 : i64
+  %descending_end_hi = scalar.constant 16 : i64
+  test.use %cursor_end_lo, %cursor_end_hi, %descending_end_lo, %descending_end_hi, %iteration_end : i64, i64, i64, i64, index
+  func.return
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// A dead update cannot invalidate the exact entry fact. Its overflowing prefix
+// is unreachable because the initial controlling comparison is false.
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @while_zero_trip_dead_carried_update() -> (i64, i64) {
+  %begin = index.constant 5 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  %origin = index.constant 4294967295 : offset
+  %prefix_rise = index.constant 32 : offset
+  %prefix_fall = index.constant 31 : offset
+  %cursor_end, %iteration_end = scf.while(%header_iteration = %begin : index, %header_cursor = %origin : offset) -> (offset, index) {
+    %more = index.cmp slt, %header_iteration, %end : index
+    scf.condition %more, %header_cursor, %header_iteration : i1, offset, index
+  } do(%cursor: offset, %iteration: index) {
+    %cursor_high = index.add %cursor, %prefix_rise : offset
+    %cursor_next = index.sub %cursor_high, %prefix_fall : offset
+    %iteration_next = index.add %iteration, %step : index
+    scf.yield %iteration_next, %cursor_next : index, offset
+  }
+  %cursor_end_lo = test.fact_range_lo %cursor_end : offset -> i64
+  %cursor_end_hi = test.fact_range_hi %cursor_end : offset -> i64
+  test.use %iteration_end : index
+  func.return %cursor_end_lo, %cursor_end_hi : i64, i64
+}
+
+// ----
+test.target<low_core> @narrow {index_bitwidth = 32, offset_bitwidth = 32}
+
+func.def target(@narrow) @while_zero_trip_dead_carried_update() -> (i64, i64) {
+  %begin = index.constant 5 : index
+  %cursor_end_lo = scalar.constant 4294967295 : i64
+  %cursor_end_hi = scalar.constant 4294967295 : i64
+  test.use %begin : index
+  func.return %cursor_end_lo, %cursor_end_hi : i64, i64
+}
+
+// ====
+
+// RUN: pass canonicalize
+
+// Shifting the unrelated state weakens its divisor beyond the solve budget.
+// Forgetting that state preserves the bounded carry and its body-local stride.
+func.def @for_additive_companion_after_fallback() -> (i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %limit = index.constant 64 : index
+  %iteration_step = index.constant 1 : index
+  %cursor_seed = scalar.constant 0 : i32
+  %decay_seed = scalar.constant 1099511627776 : i64
+  %cursor_end, %decay_end = scf.for %iteration = [%begin to %limit step %iteration_step](%cursor = %cursor_seed : i32, %decaying = %decay_seed : i64) -> (i32, i64) {
+    %cursor_lo = test.fact_range_lo %cursor : i32 -> i64
+    %cursor_hi = test.fact_range_hi %cursor : i32 -> i64
+    %decay_lo = test.fact_range_lo %decaying : i64 -> i64
+    %decay_divisor = test.fact_divisor %decaying : i64 -> i64
+    test.use %cursor_lo, %cursor_hi, %decay_lo, %decay_divisor : i64, i64, i64, i64
+    %cursor_stride = scalar.constant 128 : i32
+    %shift_amount = scalar.constant 1 : i64
+    %cursor_next = scalar.addi %cursor, %cursor_stride : i32
+    %decay_next = scalar.shrui %decaying, %shift_amount : i64
+    scf.yield %cursor_next, %decay_next : i32, i64
+  }
+  %cursor_end_lo = test.fact_range_lo %cursor_end : i32 -> i64
+  %cursor_end_hi = test.fact_range_hi %cursor_end : i32 -> i64
+  func.return %cursor_end_lo, %cursor_end_hi, %decay_end : i64, i64, i64
+}
+
+// ----
+func.def @for_additive_companion_after_fallback() -> (i64, i64, i64) {
+  %begin = index.constant 0 : index
+  %limit = index.constant 64 : index
+  %iteration_step = index.constant 1 : index
+  %cursor_seed = scalar.constant 0 : i32
+  %decay_seed = scalar.constant 1099511627776 : i64
+  %cursor_end, %decay_end = scf.for %iteration = [%begin to %limit step %iteration_step](%cursor = %cursor_seed : i32, %decaying = %decay_seed : i64) -> (i32, i64) {
+    %cursor_lo = scalar.constant 0 : i64
+    %cursor_hi = scalar.constant 8064 : i64
+    %decay_lo = scalar.constant -9223372036854775808 : i64
+    %decay_divisor = scalar.constant 1 : i64
+    test.use %cursor_lo, %cursor_hi, %decay_lo, %decay_divisor : i64, i64, i64, i64
+    %cursor_stride = scalar.constant 128 : i32
+    %shift_amount = scalar.constant 1 : i64
+    %cursor_next = scalar.addi %cursor, %cursor_stride : i32
+    %decay_next = scalar.shrui %decaying, %shift_amount : i64
+    scf.yield %cursor_next, %decay_next : i32, i64
+  }
+  %cursor_end_lo = scalar.constant 8192 : i64
+  %cursor_end_hi = scalar.constant 8192 : i64
+  func.return %cursor_end_lo, %cursor_end_hi, %decay_end : i64, i64, i64
+}

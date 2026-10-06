@@ -37,6 +37,7 @@ from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     _memory_event_name,
     _pipeline_resource_name,
     _register_event_name,
+    _register_packing_members,
     _slot_resource_name,
     _validate_control_issue_timing,
 )
@@ -216,7 +217,7 @@ def test_core_descriptor_closure_is_complete() -> None:
         (
             "amd.xdna.aie2p.register.x.pairs",
             12,
-            (("aie2p.vec256", 2, 1),),
+            (("aie2p.vec256", 2, 1), ("aie2p.mexa", 1, 1)),
         ),
         (
             "amd.xdna.aie2p.register.scalar.units",
@@ -238,6 +239,60 @@ def test_core_descriptor_closure_is_complete() -> None:
             ),
         ),
     ]
+
+
+@pytest.mark.parametrize(
+    ("resource_name", "pool_class", "resource_unit_atom_count"),
+    [
+        ("register.x.pairs", "mXm", 2),
+        ("register.scalar.units", "eR", 1),
+    ],
+)
+def test_register_packing_covers_physical_aliases(
+    resource_name: str, pool_class: str, resource_unit_atom_count: int
+) -> None:
+    descriptor_set = AIE2P_CORE_DESCRIPTOR_SET
+    registers = {
+        register.name: set(register.atomic_units)
+        for register in CORE_MACHINE_TABLE.physical_registers
+    }
+    classes = {
+        register_class.name: register_class
+        for register_class in CORE_MACHINE_TABLE.register_classes
+    }
+    pool = set().union(*(registers[name] for name in classes[pool_class].candidates))
+    resource = next(
+        resource
+        for resource in descriptor_set.register_packing_resources
+        if resource.name == f"amd.xdna.aie2p.{resource_name}"
+    )
+    members = {member.register_class: member for member in resource.members}
+    expected_members = set()
+    for register_class in descriptor_set.reg_classes:
+        overlap_counts = {
+            len(registers[name] & pool) for name in register_class.physical_registers
+        }
+        if not any(overlap_counts):
+            continue
+        expected_members.add(register_class.name)
+        member = members[register_class.name]
+        assert {count * member.register_unit_count for count in overlap_counts} == {
+            member.resource_unit_count * resource_unit_atom_count
+        }
+    assert members.keys() == expected_members
+    assert resource.capacity * resource_unit_atom_count == len(pool)
+
+
+def test_register_packing_rejects_nonuniform_candidate_costs() -> None:
+    vector_unit = next(
+        register
+        for register in CORE_MACHINE_TABLE.physical_registers
+        if register.name == "wl0"
+    )
+    with pytest.raises(ValueError, match="overlap must be uniform"):
+        _register_packing_members(
+            frozenset(vector_unit.atomic_units), resource_unit_atom_count=1
+        )
 
 
 def test_native_numeric_descriptors_have_report_semantic_categories() -> None:

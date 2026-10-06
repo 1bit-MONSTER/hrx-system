@@ -54,32 +54,22 @@ func.def @copy_narrow_index(%input: buffer, %output: buffer, %element: index) {
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_narrow_index(%position: reg<aie2p.er>) asm {
   %source_words = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %destination_words = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %15 = add %position, 1
-  %16 = mov.address-index %15
-  %byte = lda.i8.index %source_words, %16
-  %18 = mov.i32 1
-  %19 = lshl %position, %18
-  %20 = add %19, 33
-  %21 = mov.address-index %20
-  %22 = lda.i8.index %source_words, %21
-  %23 = mov.static-byte-offset 34
-  %26 = add.rr %19, %23
-  %27 = mov.address-index %26
-  %28 = lda.i8.index %source_words, %27
-  %29 = mov.short 8
-  %30 = lshl %28, %29
-  %word = or %22, %30
-  %32 = add %position, 1
-  %33 = mov.address-index %32
-  st.i8.index %byte, %destination_words, %33
-  %34 = mov.short -8
-  %37 = add %19, 33
-  %38 = mov.address-index %37
-  st.i8.index %word, %destination_words, %38
-  %39 = lshl %word, %34
-  %43 = add.rr %19, %23
-  %44 = mov.address-index %43
-  st.i8.index %39, %destination_words, %44
+  %15 = add.address-index.immediate %position, 1
+  %byte = lda.i8.index %source_words, %15
+  %17 = mov.i32 1
+  %18 = lshl %position, %17
+  %19 = add.address-index.immediate %18, 33
+  %20 = lda.i8.index %source_words, %19
+  %23 = add.address-index.immediate %18, 34
+  %24 = lda.i8.index %source_words, %23
+  %25 = mov.short 8
+  %26 = lshl %24, %25
+  %word = or %20, %26
+  st.i8.index %byte, %destination_words, %15
+  %29 = mov.short -8
+  st.i8.index %word, %destination_words, %19
+  %33 = lshl %word, %29
+  st.i8.index %33, %destination_words, %23
   return
 }
 
@@ -111,30 +101,25 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_narrow_origi
   %21 = mov.i32 1
   %22 = lshl %position, %21
   %23 = add.rr %base, %22
-  %24 = add %23, 33
-  %25 = mov.address-index %24
-  %26 = lda.i8.index.volatile<volatile> %source_words, %25
-  %27 = mov.static-byte-offset 34
-  %30 = add.rr %base, %22
-  %31 = add.rr %30, %27
-  %32 = mov.address-index %31
-  %33 = lda.i8.index.volatile<volatile> %source_words, %32
-  %34 = mov.short 8
-  %35 = lshl %33, %34
-  %word = or %26, %35
-  %37 = add.rr %base, %position
-  %38 = mov.address-index %37
-  st.i8.index.volatile<volatile> %byte, %destination_words, %38
-  %39 = mov.short -8
-  %42 = add.rr %base, %22
-  %43 = add %42, 33
-  %44 = mov.address-index %43
-  st.i8.index.volatile<volatile> %word, %destination_words, %44
-  %45 = lshl %word, %39
-  %49 = add.rr %base, %22
-  %50 = add.rr %49, %27
-  %51 = mov.address-index %50
-  st.i8.index.volatile<volatile> %45, %destination_words, %51
+  %24 = add.address-index.immediate %23, 33
+  %25 = lda.i8.index.volatile<volatile> %source_words, %24
+  %28 = add.rr %base, %22
+  %29 = add.address-index.immediate %28, 34
+  %30 = lda.i8.index.volatile<volatile> %source_words, %29
+  %31 = mov.short 8
+  %32 = lshl %30, %31
+  %word = or %25, %32
+  %34 = add.rr %base, %position
+  %35 = mov.address-index %34
+  st.i8.index.volatile<volatile> %byte, %destination_words, %35
+  %36 = mov.short -8
+  %39 = add.rr %base, %22
+  %40 = add.address-index.immediate %39, 33
+  st.i8.index.volatile<volatile> %word, %destination_words, %40
+  %41 = lshl %word, %36
+  %44 = add.rr %base, %22
+  %45 = add.address-index.immediate %44, 34
+  st.i8.index.volatile<volatile> %41, %destination_words, %45
   return
 }
 
@@ -163,39 +148,35 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_narrow_strid
   %destination_words = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
   %21 = mul %row, %columns
   %22 = add.rr %21, %column
-  %23 = add %22, 1
-  %24 = mov.address-index %23
-  %byte = lda.i8.index %source_words, %24
-  %26 = mov.static-byte-offset 65
-  %28 = mov.i32 1
-  %29 = lshl %21, %28
-  %31 = lshl %column, %28
-  %32 = add.rr %29, %31
-  %33 = add.rr %32, %26
-  %34 = mov.address-index %33
-  %35 = lda.i8.index %source_words, %34
-  %36 = mov.static-byte-offset 66
-  %42 = add.rr %29, %31
-  %43 = add.rr %42, %36
-  %44 = mov.address-index %43
-  %45 = lda.i8.index %source_words, %44
-  %46 = mov.short 8
-  %47 = lshl %45, %46
-  %word = or %35, %47
-  %50 = add.rr %21, %column
-  %51 = add %50, 1
-  %52 = mov.address-index %51
-  st.i8.index %byte, %destination_words, %52
-  %53 = mov.short -8
-  %60 = add.rr %29, %31
-  %61 = add.rr %60, %26
-  %62 = mov.address-index %61
-  st.i8.index %word, %destination_words, %62
-  %63 = lshl %word, %53
-  %70 = add.rr %29, %31
-  %71 = add.rr %70, %36
-  %72 = mov.address-index %71
-  st.i8.index %63, %destination_words, %72
+  %23 = add.address-index.immediate %22, 1
+  %byte = lda.i8.index %source_words, %23
+  %25 = mov.static-byte-offset 65
+  %27 = mov.i32 1
+  %28 = lshl %21, %27
+  %30 = lshl %column, %27
+  %31 = add.rr %28, %30
+  %32 = add.rr %31, %25
+  %33 = mov.address-index %32
+  %34 = lda.i8.index %source_words, %33
+  %35 = mov.static-byte-offset 66
+  %41 = add.rr %28, %30
+  %42 = add.address-index %41, %35
+  %43 = lda.i8.index %source_words, %42
+  %44 = mov.short 8
+  %45 = lshl %43, %44
+  %word = or %34, %45
+  %48 = add.rr %21, %column
+  %49 = add.address-index.immediate %48, 1
+  st.i8.index %byte, %destination_words, %49
+  %50 = mov.short -8
+  %57 = add.rr %28, %30
+  %58 = add.rr %57, %25
+  %59 = mov.address-index %58
+  st.i8.index %word, %destination_words, %59
+  %60 = lshl %word, %50
+  %67 = add.rr %28, %30
+  %68 = add.address-index %67, %35
+  st.i8.index %60, %destination_words, %68
   return
 }
 

@@ -67,33 +67,33 @@ func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: i
 
 // ----
 low.func.def target<spirv.logical.core> abi(shader_entry_point) @copy_biased_vector(%source: reg<spirv.ptr.storage_buffer>, %destination: reg<spirv.ptr.storage_buffer>, %signed_position: reg<spirv.id : index>) asm {
-  %30 = OpSConvert.i32.offset64 %signed_position
-  %31 = OpConstant.offset64 4
-  %32 = OpIMul.offset64 %30, %31
-  %33 = OpConstant.offset64 16
-  %34 = OpIAdd.offset64 %32, %33
-  %35 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %34
-  %36 = OpLoad.storage_buffer.i32 %35
-  %40 = OpConstant.offset64 20
-  %41 = OpIAdd.offset64 %32, %40
-  %42 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %41
-  %43 = OpLoad.storage_buffer.i32 %42
-  %47 = OpConstant.offset64 24
-  %48 = OpIAdd.offset64 %32, %47
-  %49 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %48
-  %50 = OpLoad.storage_buffer.i32 %49
-  %54 = OpConstant.offset64 28
-  %55 = OpIAdd.offset64 %32, %54
-  %56 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %55
-  %57 = OpLoad.storage_buffer.i32 %56
-  %63 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %34
-  OpStore.storage_buffer.i32 %63, %36
-  %69 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %41
-  OpStore.storage_buffer.i32 %69, %43
-  %75 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %48
-  OpStore.storage_buffer.i32 %75, %50
-  %81 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %55
-  OpStore.storage_buffer.i32 %81, %57
+  %42 = OpSConvert.i32.offset64 %signed_position
+  %43 = OpConstant.offset64 4
+  %44 = OpIMul.offset64 %42, %43
+  %45 = OpConstant.offset64 16
+  %46 = OpIAdd.offset64 %44, %45
+  %47 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %46
+  %48 = OpLoad.storage_buffer.i32 %47
+  %52 = OpConstant.offset64 20
+  %53 = OpIAdd.offset64 %44, %52
+  %54 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %53
+  %55 = OpLoad.storage_buffer.i32 %54
+  %59 = OpConstant.offset64 24
+  %60 = OpIAdd.offset64 %44, %59
+  %61 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %60
+  %62 = OpLoad.storage_buffer.i32 %61
+  %66 = OpConstant.offset64 28
+  %67 = OpIAdd.offset64 %44, %66
+  %68 = OpPtrAccessChain.storage_buffer.i32.byte_offset %source, %67
+  %69 = OpLoad.storage_buffer.i32 %68
+  %75 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %46
+  OpStore.storage_buffer.i32 %75, %48
+  %81 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %53
+  OpStore.storage_buffer.i32 %81, %55
+  %87 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %60
+  OpStore.storage_buffer.i32 %87, %62
+  %93 = OpPtrAccessChain.storage_buffer.i32.byte_offset %destination, %67
+  OpStore.storage_buffer.i32 %93, %69
   return
 }
 

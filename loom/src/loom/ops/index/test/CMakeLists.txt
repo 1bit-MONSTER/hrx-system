@@ -13,6 +13,7 @@ loom_check_test_suite(
   NAME
     test
   SRCS
+    "adjacent_add.loom-test"
     "fold.loom-test"
     "mask_projection.loom-test"
     "roundtrip.loom-test"

@@ -685,6 +685,16 @@ typedef struct loom_low_physical_register_view_t {
   uint16_t packing_rank;
 } loom_low_physical_register_view_t;
 
+enum loom_low_register_packing_resource_flag_bits_e {
+  // Every member class is unspillable, so immediate capacity growth cannot
+  // be repaired by spilling another member of the shared resource.
+  LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_UNSPILLABLE = 1u << 0,
+  // A member consumes indivisible groups of multiple register units. Its
+  // completion can require group placement beyond aggregate live-unit count.
+  LOOM_LOW_REGISTER_PACKING_RESOURCE_FLAG_HAS_AGGREGATE_MEMBER = 1u << 1,
+};
+typedef uint32_t loom_low_register_packing_resource_flags_t;
+
 // One instantaneous shared physical-capacity constraint over register classes.
 // Scheduling scores this independently of whole-function residency high-water
 // resources so capacity returns as soon as live values die.
@@ -693,6 +703,8 @@ typedef struct loom_low_register_packing_resource_t {
   loom_string_ref_t name_string_ref;
   // Maximum simultaneously occupied resource units.
   uint32_t capacity;
+  // Immutable member properties derived during descriptor generation.
+  loom_low_register_packing_resource_flags_t flags;
   // First row in the descriptor set's packed member table.
   uint16_t member_start;
   // Number of register-class contribution rows.

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from itertools import combinations
+from math import gcd
 from pathlib import Path
 
 from loom.target.arch.amd.xdna.aie.machine import (
@@ -704,58 +705,79 @@ def _physical_register_views() -> tuple[PhysicalRegisterView, ...]:
     return tuple(views[key] for key in sorted(views))
 
 
+def _register_packing_members(
+    atomic_units: frozenset[int], *, resource_unit_atom_count: int
+) -> tuple[RegisterPackingResourceMember, ...]:
+    """Projects selected storage classes onto one shared physical resource."""
+
+    members: list[RegisterPackingResourceMember] = []
+    for machine_class_name in _EXPLICIT_STORAGE_MACHINE_CLASS_NAMES:
+        machine_class = _MACHINE_CLASSES[machine_class_name]
+        candidate_overlap_counts = {
+            len(atomic_units.intersection(_MACHINE_REGISTERS[name].atomic_units))
+            for name in machine_class.candidates
+        }
+        if candidate_overlap_counts == {0}:
+            continue
+        if len(candidate_overlap_counts) != 1:
+            raise ValueError(
+                f"{machine_class_name}: register packing resource overlap "
+                "must be uniform across physical candidates"
+            )
+        overlap_count = next(iter(candidate_overlap_counts))
+        divisor = gcd(overlap_count, resource_unit_atom_count)
+        members.append(
+            RegisterPackingResourceMember(
+                _low_register_class_name(machine_class_name),
+                register_unit_count=resource_unit_atom_count // divisor,
+                resource_unit_count=overlap_count // divisor,
+            )
+        )
+    return tuple(members)
+
+
 def _register_packing_resources() -> tuple[RegisterPackingResource, ...]:
     """Describes instantaneous capacity shared across register classes."""
 
     x_register_count = len(_MACHINE_CLASSES["mXm"].candidates)
-    if len(_MACHINE_CLASSES["VEC256"].candidates) != x_register_count * 2:
+    x_atomic_units = frozenset(
+        atomic_unit
+        for register_name in _MACHINE_CLASSES["mXm"].candidates
+        for atomic_unit in _MACHINE_REGISTERS[register_name].atomic_units
+    )
+    vector_atomic_units = frozenset(
+        atomic_unit
+        for register_name in _MACHINE_CLASSES["VEC256"].candidates
+        for atomic_unit in _MACHINE_REGISTERS[register_name].atomic_units
+    )
+    if (
+        vector_atomic_units != x_atomic_units
+        or len(vector_atomic_units) != x_register_count * 2
+    ):
         raise ValueError(
             "AIE2P VEC256 does not cover both W halves of every X register"
         )
-
-    physical_registers = {
-        register.name: register for register in CORE_MACHINE_TABLE.physical_registers
-    }
     scalar_atomic_units = frozenset(
         atomic_unit
         for register_name in _MACHINE_CLASSES["eR"].candidates
-        for atomic_unit in physical_registers[register_name].atomic_units
+        for atomic_unit in _MACHINE_REGISTERS[register_name].atomic_units
     )
-    scalar_members: list[RegisterPackingResourceMember] = []
-    for machine_class_name in _EXPLICIT_STORAGE_MACHINE_CLASS_NAMES:
-        machine_class = _MACHINE_CLASSES[machine_class_name]
-        candidate_atomic_unit_counts = {
-            len(physical_registers[register_name].atomic_units)
-            for register_name in machine_class.candidates
-        }
-        if len(candidate_atomic_unit_counts) != 1 or not all(
-            set(physical_registers[register_name].atomic_units) <= scalar_atomic_units
-            for register_name in machine_class.candidates
-        ):
-            continue
-        scalar_members.append(
-            RegisterPackingResourceMember(
-                _low_register_class_name(machine_class_name),
-                resource_unit_count=next(iter(candidate_atomic_unit_counts)),
-            )
-        )
-    if not scalar_members:
-        raise ValueError("AIE2P scalar register packing resource has no members")
     return (
         RegisterPackingResource(
             name=f"{descriptor_specs._TARGET_KEY}.register.x.pairs",
             capacity=x_register_count,
-            members=(
-                RegisterPackingResourceMember(
-                    "aie2p.vec256",
-                    register_unit_count=2,
-                ),
+            # EX/EY BFP operands own the same W halves as X/Y vectors, plus
+            # exponent storage. Intersection retains their shared footprint.
+            members=_register_packing_members(
+                vector_atomic_units, resource_unit_atom_count=2
             ),
         ),
         RegisterPackingResource(
             name=f"{descriptor_specs._TARGET_KEY}.register.scalar.units",
             capacity=len(scalar_atomic_units),
-            members=tuple(scalar_members),
+            members=_register_packing_members(
+                scalar_atomic_units, resource_unit_atom_count=1
+            ),
         ),
     )
 

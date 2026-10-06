@@ -170,6 +170,22 @@ def _address_descriptor_specs() -> tuple[_DescriptorSpec, ...]:
     """Selects modifier setup and native post-increment pointer updates."""
 
     result = list(_dimension_descriptor_specs())
+    for form, addressing, mnemonic in (
+        ("ADD_NC_mv_add_rr", "register", "add.address-index"),
+        ("ADD_NC_mv_add_ri", "immediate", "add.address-index.immediate"),
+    ):
+        result.append(
+            _DescriptorSpec(
+                form,
+                f"{_TARGET_KEY}.address.index.add.{addressing}",
+                "address.index.add.i20",
+                f"II_{form}_eDJ",
+                storage_overrides=(("dst", "eDJ"),),
+                asm_mnemonic=mnemonic,
+                flags=(DescriptorFlag.SAFE_TO_SPECULATE,),
+                rematerializable=True,
+            )
+        )
     for form, mnemonic in (
         ("MOVA", "mova.modifier"),
         ("MOVXM", "mov.modifier.immediate"),

@@ -284,8 +284,8 @@ typedef struct loom_low_schedule_candidate_score_t {
   // Crossed pressure cliff, or LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE.
   // Presence excludes |units_until_pressure_cliff|.
   uint32_t pressure_cliff_units;
-  // Required physical units before the next cliff when no cliff was crossed,
-  // or LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE.
+  // Remaining units before the next cliff in a resource the candidate grows,
+  // or LOOM_LOW_SCHEDULE_PRESSURE_CLIFF_NONE when none applies or one crossed.
   uint32_t units_until_pressure_cliff;
   // Smallest hard unspillable capacity whose selected completion chain the
   // candidate advances, or UINT32_MAX when it advances none.
@@ -345,7 +345,7 @@ enum loom_low_schedule_candidate_flag_bits_e {
   // Candidate grows at least one constrained register-packing resource.
   LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_GROWS_PACKING_RESOURCE = 1u << 4,
   // Candidate itself requires more physical storage than an unspillable
-  // register class or wholly unspillable alias set can provide.
+  // register class, alias set, or shared packing resource can provide.
   LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY = 1u << 5,
   // Candidate establishes storage for a later operation. Storage setup is
   // actionable only when it also advances storage or unlocks a descriptor.
@@ -433,6 +433,15 @@ void loom_low_schedule_pressure_publish_unlock_consumer(
     loom_low_schedule_build_state_t* state,
     loom_low_schedule_pressure_state_t* pressure_state, uint32_t producer_node,
     uint32_t consumer_node);
+
+// Queries the retained descriptor frontier for a consumer made ready by
+// |candidate_node| with another live operand in |resource|. The resource's
+// pressure projection determines whether this continuation is constrained.
+bool loom_low_schedule_pressure_candidate_unlocks_packing_continuation(
+    const loom_low_schedule_build_state_t* state,
+    const loom_low_schedule_pressure_state_t* pressure_state,
+    uint32_t candidate_node,
+    const loom_low_register_packing_resource_t* resource);
 
 void loom_low_schedule_pressure_score_candidate(
     const loom_low_schedule_build_state_t* state,

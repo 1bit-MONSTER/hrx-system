@@ -22,6 +22,38 @@ CHECK: *"spill_count":0,*"name":"state"*"location":{"kind":"physical_register","
 
 // ====
 
+// RUN: with-checks emit low-allocation @interleaved_initializers_reserve_loop_views diagnostics=placement-decisions
+
+test.target<low_core> @target
+
+// Each initializer reserves its declared pair before the loop has a location.
+// Interleaved high-first sources leave each pair's low part for its own source.
+low.func.def target<test.low.core>(@target) @interleaved_initializers_reserve_loop_views(%condition: reg<test.i32>, %left_high: reg<test.explicit32>, %right_high: reg<test.explicit32>, %left_low: reg<test.explicit32>, %right_low: reg<test.explicit32>) -> (reg<test.explicit32 x2>, reg<test.explicit32 x2>) asm {
+  // REMARK@+2: BACKEND/043 {source_value_name="left_low", result_value_name="left_initial", result_unit_offset="0", decision="accepted", reason_key="assigned-locations-match"}
+  // REMARK@+1: BACKEND/043 {source_value_name="left_high", result_value_name="left_initial", result_unit_offset="1", decision="accepted", reason_key="assigned-locations-match"}
+  %left_initial = concat(%left_low, %left_high) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  // REMARK@+2: BACKEND/043 {source_value_name="right_low", result_value_name="right_initial", result_unit_offset="0", decision="accepted", reason_key="assigned-locations-match"}
+  // REMARK@+1: BACKEND/043 {source_value_name="right_high", result_value_name="right_initial", result_unit_offset="1", decision="accepted", reason_key="assigned-locations-match"}
+  %right_initial = concat(%right_low, %right_high) : (reg<test.explicit32>, reg<test.explicit32>) -> reg<test.explicit32 x2>
+  // REMARK@+2: BACKEND/043 {source_value_name="left_initial", result_value_name="left_state", decision="accepted", reason_key="assigned-locations-match"}
+  // REMARK@+1: BACKEND/043 {source_value_name="right_initial", result_value_name="right_state", decision="accepted", reason_key="assigned-locations-match"}
+  low.br ^loop(%left_initial: reg<test.explicit32 x2>, %right_initial: reg<test.explicit32 x2>)
+^loop(%left_state: reg<test.explicit32 x2>, %right_state: reg<test.explicit32 x2>):
+  low.cond_br %condition, ^repeat, ^exit : reg<test.i32>
+^repeat:
+  // REMARK@+2: BACKEND/043 {source_value_name="left_state", result_value_name="left_state", decision="accepted"}
+  // REMARK@+1: BACKEND/043 {source_value_name="right_state", result_value_name="right_state", decision="accepted"}
+  low.br ^loop(%left_state: reg<test.explicit32 x2>, %right_state: reg<test.explicit32 x2>)
+^exit:
+  return %left_state, %right_state
+}
+
+// ----
+CHECK: spills: 0
+CHECK: copies: coalesced=0 materialized=0
+
+// ====
+
 // RUN: emit low-allocation-json @reversed_physical_sources
 
 test.target<low_core> @target

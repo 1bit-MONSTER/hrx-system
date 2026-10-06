@@ -1579,17 +1579,14 @@ loom_low_schedule_classify_candidate_pressure_risk(
   return LOOM_LOW_SCHEDULE_PRESSURE_RISK_NONE;
 }
 
-// Returns true when scheduling |candidate_node| makes a descriptor ready with
-// another packing-resource operand already live. This is packing progress even
-// when the final producer is an operand-free materialization.
-static bool loom_low_schedule_candidate_unlocks_packing_continuation(
+bool loom_low_schedule_pressure_candidate_unlocks_packing_continuation(
     const loom_low_schedule_build_state_t* state,
     const loom_low_schedule_pressure_state_t* pressure_state,
-    uint32_t candidate_node) {
+    uint32_t candidate_node,
+    const loom_low_register_packing_resource_t* resource) {
   const loom_low_descriptor_set_t* descriptor_set =
       state->target.descriptor_set;
-  if (descriptor_set->register_packing_resource_count == 0 ||
-      pressure_state->unlocks.descriptor_heads == NULL) {
+  if (pressure_state->unlocks.descriptor_heads == NULL) {
     return false;
   }
   const loom_low_schedule_unlock_record_t* unlock_record =
@@ -1614,19 +1611,13 @@ static bool loom_low_schedule_candidate_unlocks_packing_continuation(
           !iree_any_bit_set(value->flags, LOOM_LOW_SCHEDULE_VALUE_FLAG_LIVE)) {
         continue;
       }
-      for (uint16_t resource_id = 0;
-           resource_id < descriptor_set->register_packing_resource_count;
-           ++resource_id) {
-        const loom_low_register_packing_resource_t* resource =
-            &descriptor_set->register_packing_resources[resource_id];
-        const uint16_t member_end =
-            resource->member_start + resource->member_count;
-        for (uint16_t member_index = resource->member_start;
-             member_index < member_end; ++member_index) {
-          if (descriptor_set->register_packing_resource_members[member_index]
-                  .reg_class_id == value->register_class_id) {
-            return true;
-          }
+      const uint16_t member_end =
+          resource->member_start + resource->member_count;
+      for (uint16_t member_index = resource->member_start;
+           member_index < member_end; ++member_index) {
+        if (descriptor_set->register_packing_resource_members[member_index]
+                .reg_class_id == value->register_class_id) {
+          return true;
         }
       }
     }
@@ -1843,19 +1834,6 @@ void loom_low_schedule_pressure_score_candidate(
       out_score->opened_unspillable_completion_capacity != UINT32_MAX) {
     out_score->flags |=
         LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION;
-  }
-  if (loom_low_schedule_candidate_unlocks_packing_continuation(
-          state, pressure_state, node_index)) {
-    out_score->flags |=
-        LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION;
-    out_score->active_register_packing_completion_capacity = iree_min(
-        out_score->active_register_packing_completion_capacity,
-        loom_low_schedule_target_pressure_active_packing_completion_capacity(
-            state, pressure_state, node_index));
-    if (out_score->active_register_packing_completion_capacity != UINT32_MAX) {
-      out_score->flags |=
-          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXACT_PACKING_COMPLETION;
-    }
   }
   if (state->options->strategy == LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL) {
     out_score->pressure_progress_kind =

@@ -1038,14 +1038,16 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_avoids_pressure
 }
 
 // ====
-// RUN: emit low-schedule-json @resource_stall_stays_below_near_pressure_cliff strategy=resource-stall diagnostics=candidates cliff=test.i32:73:15:14 output=none
+// Complete the first load's arithmetic before a second load grows the same
+// bank across its protected residency horizon.
+// RUN: emit low-schedule-json @resource_stall_stays_below_near_pressure_cliff strategy=resource-stall cliff=test.i32:73:15:14 diagnostics=candidates output=none
 
 test.target<low_core> @test_target
 
 low.func.def target<test.low.core>(@test_target) @resource_stall_stays_below_near_pressure_cliff(%pad: reg<test.i32 x60>, %ptr0: reg<test.ptr>, %ptr1: reg<test.ptr>, %lhs: reg<test.i32 x4>) -> (reg<test.i32 x60>, reg<test.i32 x4>, reg<test.i32 x4>) asm {
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", scored_candidate_count="2", chosen_packet="test.load.v4i32", rejected_packet="test.load.v4i32"}
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.load.v4i32", rejected_packet="test.load.v4i32"}
   %load0 = test.load.v4i32 %ptr0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="1", chosen_packet="test.add.v4i32", rejected_packet="test.load.v4i32", chosen_data_ready_stall_cycles="4", rejected_data_ready_stall_cycles="0", chosen_units_until_pressure_cliff="5", rejected_units_until_pressure_cliff="1"}
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.v4i32", rejected_packet="test.load.v4i32", chosen_data_ready_stall_cycles="4", rejected_data_ready_stall_cycles="0"}
   %use0 = test.add.v4i32 %load0, %lhs
   %load1 = test.load.v4i32 %ptr1
   %use1 = test.add.v4i32 %load1, %use0
@@ -1127,19 +1129,25 @@ low.func.def target<test.low.core>(@test_target) @resource_stall_preserves_cross
 }
 
 // ====
-// RUN: emit low-schedule-json @resource_stall_avoids_allocation_budget strategy=resource-stall diagnostics=candidates test.i32=72 output=none
+// Retiring the first loaded vector preserves the allocation budget even when
+// that requires waiting for its data instead of issuing another load.
+// RUN: emit low-schedule-query @resource_stall_avoids_allocation_budget strategy=resource-stall test.i32=72 order=0,1,2,3 issue=0,1,2
 
 test.target<low_core> @test_target
 
 low.func.def target<test.low.core>(@test_target) @resource_stall_avoids_allocation_budget(%pad: reg<test.i32 x60>, %ptr0: reg<test.ptr>, %ptr1: reg<test.ptr>, %lhs: reg<test.i32 x4>) -> (reg<test.i32 x60>, reg<test.i32 x4>) asm {
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", scored_candidate_count="2", chosen_packet="test.load.v4i32", rejected_packet="test.load.v4i32"}
   %load0 = test.load.v4i32 %ptr0
-  // REMARK@+1: BACKEND/015 {scheduled_ordinal="1", chosen_packet="test.add.v4i32", rejected_packet="test.load.v4i32", rejected_projected_live_units="72", chosen_pressure_cliff_penalty="0", rejected_pressure_cliff_penalty="8", chosen_units_until_pressure_cliff="5", rejected_pressure_cliff_units="72"}
   %use0 = test.add.v4i32 %load0, %lhs
   %load1 = test.load.v4i32 %ptr1
   %use1 = test.add.v4i32 %load1, %use0
   return %pad, %use1
 }
+
+// ----
+block 0 order: 0, 1, 2, 3
+node 0 issue-cycle: 0
+node 1 issue-cycle: 4
+node 2 issue-cycle: 4
 
 // ====
 // RUN: emit low-schedule-json @resource_stall_reserves_aligned_value_packing strategy=resource-stall diagnostics=candidates test.i32=72 output=none

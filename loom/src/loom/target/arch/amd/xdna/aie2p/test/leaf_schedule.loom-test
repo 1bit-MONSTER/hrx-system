@@ -142,7 +142,7 @@ CHECK: *"register_class_id":34},"peak_live_units":1,"peak_live_values":1,*
 // packets retain their configuration reads but have no ordering through
 // unread sticky overflow status. Later shifts can issue beside earlier
 // consumers without opening all five shift live ranges.
-// RUN: with-checks emit low-schedule-json @interleaved_shift_consumers strategy=resource-stall
+// RUN: emit low-schedule-query @interleaved_shift_consumers strategy=resource-stall order=1,2,3,4,5,7,8,9,10,11 kind=state consumer=7,8,9,10,11 timing=0:7
 
 low.func.def target<amd.xdna.aie2p.core> @interleaved_shift_consumers(%padding: reg<aie2p.vec256>, %value: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>, reg<aie2p.vec256>) asm {
   set.srs-mode 0
@@ -161,13 +161,13 @@ low.func.def target<amd.xdna.aie2p.core> @interleaved_shift_consumers(%padding: 
 }
 
 // ----
-CHECK: *"scheduled_node_indices":[6,0,1,2,7,3,8,4,9,5,10,11,12]*
-CHECK: *{"from":0,"to":7,"kind":"state",*"minimum_issue_separation_cycles":1,*
-CHECK: *{"from":0,"to":8,"kind":"state",*"minimum_issue_separation_cycles":1,*
-CHECK: *{"from":0,"to":9,"kind":"state",*"minimum_issue_separation_cycles":1,*
-CHECK: *{"from":0,"to":10,"kind":"state",*"minimum_issue_separation_cycles":1,*
-CHECK: *{"from":0,"to":11,"kind":"state",*"minimum_issue_separation_cycles":1,*
-CHECK-NOT: *{"from":7,"to":8,"kind":"state",*
+block 0 order: 1, 7, 2, 8, 3, 9, 4, 10, 5, 11
+node 7 <- 0
+node 8 <- 0
+node 9 <- 0
+node 10 <- 0
+node 11 <- 0
+timing 0 -> 7: separation=1 source=event-pair quality=exact
 
 // ====
 
@@ -242,7 +242,7 @@ low.func.def target<amd.xdna.aie2p.core> @pinned_encode_state_prerequisite(%sour
 }
 
 // ----
-code: d4 15 03 d8 8e 00 44 80 a8 00 00 00 44 00 21 01 00 00 00 00 00 00 00 00 00 00 98 20 c4 10 98 10 00 10 18 0b 20 08 54 31 60 7f 03 20 00 00 00 00 00 00 00 00 18 00 0c 03 00 00 f8 8a 81 1c 00 00 02 70 c5 01 02 c0 46 01 f8 8a 85 1c b8 18 b0 1f 18 36 8a 08 00 00 00 00 00 00 48 29 06 00 48 89 26 01 48 29 40 02 48 89 60 03 18 00 28 10 00 00 00 00 00 00 00 00 00 00
+code: d4 15 03 d8 8e 00 44 80 a8 00 00 00 44 00 21 01 00 00 00 00 00 00 00 00 00 00 98 20 c4 10 98 10 00 10 18 0b 20 08 54 31 60 7f 03 20 00 00 00 00 00 00 00 00 18 00 0c 03 48 89 06 00 f8 8a 81 1c 00 00 02 70 c5 01 02 c0 46 01 f8 8a 85 1c b8 18 b0 1f 18 36 8a 08 00 00 00 00 00 00 48 29 26 01 48 29 40 02 48 89 60 03 18 00 28 10 00 00 00 00 00 00 00 00 00 00
 
 // ====
 
@@ -400,7 +400,48 @@ low.func.def target<amd.xdna.aie2p.core> @fused_forwarded_loop(%first_row: reg<a
 }
 
 // ----
-issue cycles: 88
+issue cycles: 86
 code bytes: 318
-coissued bundles: 15
-coissued components: 32
+coissued bundles: 12
+coissued components: 29
+
+// ====
+
+// Six X-sized BF16 inputs and six EX/BFP inputs occupy the twelve shared X
+// slots. Each transpose needs a new X while both source halves remain live.
+// The independent matrix products release EX storage before the transposes
+// can open their results. Complete products and encodings remain observable
+// through the native Low function results.
+// RUN: emit aie2p-leaf @shared_x_packing report=code
+
+low.func.def target<amd.xdna.aie2p.core> @shared_x_packing(%first_lower_bf16: reg<aie2p.vec256 x2>, %first_upper_bf16: reg<aie2p.vec256 x2>, %second_lower_bf16: reg<aie2p.vec256 x2>, %second_upper_bf16: reg<aie2p.vec256 x2>, %third_lower_bf16: reg<aie2p.vec256 x2>, %third_upper_bf16: reg<aie2p.vec256 x2>, %first_lhs: reg<aie2p.mexa>, %first_rhs: reg<aie2p.mexa>, %second_lhs: reg<aie2p.mexa>, %second_rhs: reg<aie2p.mexa>, %third_lhs: reg<aie2p.mexa>, %third_rhs: reg<aie2p.mexa>) -> (reg<aie2p.mexa>, reg<aie2p.mexa>, reg<aie2p.mexa>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>, reg<aie2p.mbms x4>) asm {
+  %transpose_lower_mode = mova.i32 52
+  %transpose_upper_mode = mova.i32 53
+  set.rounding 12
+  %first_transposed_lower = vshuffle %first_lower_bf16, %first_upper_bf16, %transpose_lower_mode
+  %first_transposed_upper = vshuffle %first_lower_bf16, %first_upper_bf16, %transpose_upper_mode
+  %first_float_lower = vconv.fp32.bf16 %first_transposed_lower
+  %first_float_upper = vconv.fp32.bf16 %first_transposed_upper
+  %first_float = concat(%first_float_lower, %first_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %first_encoded = vconv.bfp16ebs8.fp32 %first_float
+  %second_transposed_lower = vshuffle %second_lower_bf16, %second_upper_bf16, %transpose_lower_mode
+  %second_transposed_upper = vshuffle %second_lower_bf16, %second_upper_bf16, %transpose_upper_mode
+  %second_float_lower = vconv.fp32.bf16 %second_transposed_lower
+  %second_float_upper = vconv.fp32.bf16 %second_transposed_upper
+  %second_float = concat(%second_float_lower, %second_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %second_encoded = vconv.bfp16ebs8.fp32 %second_float
+  %third_transposed_lower = vshuffle %third_lower_bf16, %third_upper_bf16, %transpose_lower_mode
+  %third_transposed_upper = vshuffle %third_lower_bf16, %third_upper_bf16, %transpose_upper_mode
+  %third_float_lower = vconv.fp32.bf16 %third_transposed_lower
+  %third_float_upper = vconv.fp32.bf16 %third_transposed_upper
+  %third_float = concat(%third_float_lower, %third_float_upper) : (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) -> reg<aie2p.mbms x4>
+  %third_encoded = vconv.bfp16ebs8.fp32 %third_float
+  %matrix_control = mova.i32 780
+  %first_product = mmul.bfp16ebs8.m8n8k8 %first_lhs, %first_rhs, %matrix_control
+  %second_product = mmul.bfp16ebs8.m8n8k8 %second_lhs, %second_rhs, %matrix_control
+  %third_product = mmul.bfp16ebs8.m8n8k8 %third_lhs, %third_rhs, %matrix_control
+  return %first_encoded, %second_encoded, %third_encoded, %first_product, %second_product, %third_product
+}
+
+// ----
+code: 54 31 60 0f 80 06 18 08 35 00 18 10 0c 03 62 29 e0 10 66 80 22 00 62 69 e4 11 e6 8a 01 02 78 84 22 18 f8 8a 81 1a 78 80 b3 18 02 70 c5 01 01 c0 26 01 78 84 b3 18 f8 8a 83 1a 78 80 44 19 02 30 42 e2 00 c0 26 11 f8 8a 05 1a f8 8a 87 1a 00 00 62 69 f5 12 02 c0 26 21 18 00 28 10 00 00 00 00 00 00 00 00 00 00
