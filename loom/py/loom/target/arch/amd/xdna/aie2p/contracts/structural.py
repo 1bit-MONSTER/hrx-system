@@ -20,6 +20,9 @@ from loom.target.arch.amd.xdna.aie2p.contracts.carrier import (
 from loom.target.arch.amd.xdna.aie2p.contracts.data_path import (
     I8_INTERLEAVE_CONTROL,
 )
+from loom.target.arch.amd.xdna.aie2p.contracts.predicate_concat import (
+    AIE2P_PREDICATE_CONCAT_RULES,
+)
 from loom.target.arch.amd.xdna.aie2p.core_descriptors import (
     AIE2P_CORE_DESCRIPTOR_SET,
 )
@@ -1594,11 +1597,8 @@ AIE2P_STRUCTURAL_RULES = (
             ),
         )
     ),
+    *AIE2P_PREDICATE_CONCAT_RULES,
     *_ACCUMULATOR_CONCAT_RULES,
-    _register_concat_pair_rule(
-        Vector("i1", lanes=64),
-        _WIDE_PREDICATE_VECTOR,
-    ),
     *(
         _register_concat_pair_rule(input_type, result_type)
         for input_type, result_type in _WIDE_VECTOR_CONCAT_SPECS

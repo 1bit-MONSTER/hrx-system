@@ -1,0 +1,77 @@
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @narrow_pair(%left: vector<40xi1>, %right: vector<40xi1>) -> (vector<80xi1>) {
+  %result = vector.concat<0> %left, %right : vector<40xi1>, vector<40xi1> -> vector<80xi1>
+  func.return %result : vector<80xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @narrow_pair(%left: reg<aie2p.elpredicate>, %right: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate x2>) asm {
+  %7 = mov.short 8
+  %8 = mov.short -24
+  %9 = mova.i32 255
+  %10 = predicate.mask.high32.to.low32 %left, %9
+  %11 = predicate.shift.low32 %right, %7
+  %12 = predicate.or.low32.to.high32 %10, %11, %left
+  %13 = predicate.shift.low32 %right, %8
+  %14 = predicate.shift.high32 %right, %7
+  %15 = predicate.or.low32.rhs_tied %13, %14
+  %16 = predicate.shift.high32.to.high32 %right, %8, %15
+  %result = concat(%12, %16) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @narrow_left_wide_right(%left: vector<8xi1>, %right: vector<72xi1>) -> (vector<80xi1>) {
+  %result = vector.concat<0> %left, %right : vector<8xi1>, vector<72xi1> -> vector<80xi1>
+  func.return %result : vector<80xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @narrow_left_wide_right(%left: reg<aie2p.elpredicate>, %right: reg<aie2p.elpredicate x2>) -> (reg<aie2p.elpredicate x2>) asm {
+  %7 = slice %right[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %8 = slice %right[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %9 = mov.short 8
+  %10 = mov.short -24
+  %11 = mova.i32 255
+  %12 = predicate.mask.low32.to.low32 %left, %11
+  %13 = predicate.shift.low32 %7, %9
+  %14 = predicate.or.low32.rhs_tied %12, %13
+  %15 = predicate.shift.low32 %7, %10
+  %16 = predicate.shift.high32 %7, %9
+  %17 = predicate.or.low32.to.high32 %15, %16, %14
+  %18 = predicate.shift.high32 %7, %10
+  %19 = predicate.shift.low32 %8, %9
+  %20 = predicate.or.low32.rhs_tied %18, %19
+  %21 = predicate.shift.low32 %8, %10
+  %22 = predicate.shift.high32 %8, %9
+  %23 = predicate.or.low32.to.high32 %21, %22, %20
+  %result = concat(%17, %23) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @wide_left_narrow_right(%left: vector<72xi1>, %right: vector<8xi1>) -> (vector<80xi1>) {
+  %result = vector.concat<0> %left, %right : vector<72xi1>, vector<8xi1> -> vector<80xi1>
+  func.return %result : vector<80xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @wide_left_narrow_right(%left: reg<aie2p.elpredicate x2>, %right: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate x2>) asm {
+  %7 = slice %left[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %8 = slice %left[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
+  %9 = mov.short 8
+  %10 = mova.i32 255
+  %11 = predicate.mask.low32.to.low32 %8, %10
+  %12 = predicate.shift.low32 %right, %9
+  %13 = predicate.or.low32.rhs_tied %11, %12
+  %14 = predicate.complete.zero.high32 %13, 0
+  %result = concat(%7, %14) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}

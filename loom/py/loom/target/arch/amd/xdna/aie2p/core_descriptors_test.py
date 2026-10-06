@@ -1436,6 +1436,41 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
         assert select.operands[-1].encoding_adapter_id != 0
 
     rematerializable = Constraint(ConstraintKind.REMATERIALIZABLE, 0)
+    for word, register_part in (
+        ("low32", "aie2p.elpredicate.low32"),
+        ("high32", "aie2p.elpredicate.high32"),
+    ):
+        mask = descriptors[f"amd.xdna.aie2p.predicate.mask.{word}.to.low32"]
+        assert [operand.field_name for operand in mask.operands] == [
+            "d0",
+            "s0",
+            "s1",
+        ]
+        assert mask.operands[0].reg_alts[0].reg_class == "aie2p.elpredicate"
+        assert mask.operands[0].reg_alts[0].register_part == "aie2p.elpredicate.low32"
+        assert mask.operands[1].reg_alts[0].reg_class == "aie2p.elpredicate"
+        assert mask.operands[1].reg_alts[0].register_part == register_part
+        assert all(operand.encoding_adapter_id != 0 for operand in mask.operands[:2])
+        assert mask.operands[2].reg_alts[0].reg_class == "aie2p.er"
+        assert mask.constraints == ()
+        assert mask.asm_forms[0].operands == ("s0", "s1")
+
+    high_or = descriptors["amd.xdna.aie2p.predicate.or.low32.to.high32"]
+    assert [operand.field_name for operand in high_or.operands] == [
+        "d0",
+        "s0",
+        "s1",
+        "storage",
+    ]
+    assert [operand.reg_alts[0].register_part for operand in high_or.operands] == [
+        "aie2p.elpredicate.high32",
+        "aie2p.elpredicate.low32",
+        "aie2p.elpredicate.low32",
+        "aie2p.elpredicate.low32",
+    ]
+    assert high_or.constraints == (Constraint(ConstraintKind.TIED, 0, 3),)
+    assert high_or.asm_forms[0].operands == ("s0", "s1", "storage")
+
     for width in (8, 16, 32):
         suffix = ".el.low32" if width != 8 else ""
         equality = descriptors[
@@ -1502,6 +1537,33 @@ def test_vector_predicates_use_one_partially_addressable_el_value() -> None:
         assert shift.operands[1].encoding_adapter_id != 0
         assert shift.operands[2].reg_alts[0].reg_class == "aie2p.er"
         assert shift.asm_forms[0].mnemonic == f"predicate.shift.{word}"
+
+        high_shift = descriptors[f"amd.xdna.aie2p.predicate.shift.{word}.to.high32"]
+        assert [operand.field_name for operand in high_shift.operands] == [
+            "d0",
+            "s0",
+            "s1",
+            "storage",
+        ]
+        assert high_shift.operands[0].reg_alts[0].reg_class == "aie2p.elpredicate"
+        assert (
+            high_shift.operands[0].reg_alts[0].register_part
+            == "aie2p.elpredicate.high32"
+        )
+        assert high_shift.operands[0].encoding_adapter_id != 0
+        assert high_shift.operands[1].reg_alts[0].reg_class == "aie2p.elpredicate"
+        assert high_shift.operands[1].reg_alts[0].register_part == source_part
+        assert high_shift.operands[1].encoding_adapter_id != 0
+        assert high_shift.operands[2].reg_alts[0].reg_class == "aie2p.er"
+        continuation = high_shift.operands[3]
+        assert continuation.reg_alts[0].register_part == "aie2p.elpredicate.low32"
+        assert set(continuation.flags) == {
+            OperandFlag.IMPLICIT,
+            OperandFlag.STORAGE_CONTINUATION,
+        }
+        assert high_shift.constraints == (Constraint(ConstraintKind.TIED, 0, 3),)
+        assert high_shift.asm_forms[0].mnemonic == (f"predicate.shift.{word}.to.high32")
+        assert high_shift.asm_forms[0].operands == ("s0", "s1", "storage")
 
     complete = descriptors["amd.xdna.aie2p.predicate.complete.zero.high32"]
     assert complete.operands[0].reg_alts[0].register_part == "aie2p.elpredicate.high32"
