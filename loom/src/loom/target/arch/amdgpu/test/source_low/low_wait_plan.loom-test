@@ -1282,3 +1282,25 @@ low.func.def target<amdgpu.rdna3.core>(@target) @disjoint_read_does_not_complete
 
 // ----
 {"format":"loom.low.packet_hazard_plan.v1","function":"disjoint_read_does_not_complete_stores","target":"target","descriptor_set":"amdgpu.rdna3.core","progress_count":4,"hazard_count":3,"progress":[{"index":0,"packet":0,"node":0,"block":0,"scheduled_ordinal":0,"class_id":2,"class_name":"amdgpu.vmem_store","action":"advance","units":1},{"index":1,"packet":1,"node":1,"block":0,"scheduled_ordinal":1,"class_id":3,"class_name":"amdgpu.lds","action":"advance","units":1},{"index":2,"packet":2,"node":2,"block":0,"scheduled_ordinal":2,"class_id":2,"class_name":"amdgpu.vmem_store","action":"advance","units":1},{"index":3,"packet":3,"node":3,"block":0,"scheduled_ordinal":3,"class_id":1,"class_name":"amdgpu.vmem_load","action":"advance","units":1}],"hazards":[{"index":0,"kind":"action","action_id":1,"action_name":"amdgpu.wait_packet","reason_id":8,"reason_name":"amdgpu.memory_effect","producer_node":2,"producer_packet":2,"producer_scheduled_ordinal":2,"consumer_node":3,"insertion_packet":3,"block":0,"scheduled_ordinal":3,"progress_class_id":2,"progress_class_name":"amdgpu.vmem_store","required":2,"observed":0,"residual":2},{"index":1,"kind":"action","action_id":1,"action_name":"amdgpu.wait_packet","reason_id":2,"reason_name":"amdgpu.ssa_use","producer_node":3,"producer_packet":3,"producer_scheduled_ordinal":3,"consumer_node":4,"insertion_packet":4,"block":0,"scheduled_ordinal":4,"progress_class_id":1,"progress_class_name":"amdgpu.vmem_load","required":1,"observed":0,"residual":1},{"index":2,"kind":"action","action_id":1,"action_name":"amdgpu.wait_packet","reason_id":2,"reason_name":"amdgpu.ssa_use","producer_node":1,"producer_packet":1,"producer_scheduled_ordinal":1,"consumer_node":4,"insertion_packet":4,"block":0,"scheduled_ordinal":4,"progress_class_id":3,"progress_class_name":"amdgpu.lds","required":1,"observed":0,"residual":1}]}
+
+// ====
+// RUN: emit amdgpu-assembly @ds_bpermute_does_not_drain_pending_vmem strategy=source
+
+// DS cross-lane packets retire through LGKM but do not access LDS storage.
+// A pending global-to-LDS transfer can overlap the bpermute, while consuming
+// the bpermute result still requires LGKM completion.
+amdgpu.target<gfx950> @target {subgroup_size = 64}
+
+low.func.def target<amdgpu.cdna4.core>(@target) @ds_bpermute_does_not_drain_pending_vmem(%lds_addr: reg<amdgpu.vgpr>, %global: reg<amdgpu.sgpr x2>, %m0: reg<amdgpu.m0>, %lane_addr: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  global_load_lds_dwordx4_saddr %lds_addr, %global, %m0
+  %permuted = ds_bpermute_b32 %lane_addr, %value
+  %result = v_add_u32 %permuted, %value
+  return %result
+}
+
+// ----
+  global_load_lds_dwordx4 v0, s[0:1] offset:0
+  ds_bpermute_b32 v0, v1, v2 offset:0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_add_u32 v0, v0, v2
+  s_endpgm

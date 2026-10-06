@@ -1628,12 +1628,16 @@ static bool loom_low_hazard_reference_kind_is_valid(
 }
 
 static loom_low_schedule_class_flags_t
-loom_low_schedule_flags_required_for_effect(loom_low_effect_kind_t kind) {
-  switch (kind) {
+loom_low_schedule_flags_required_for_effect(const loom_low_effect_t* effect) {
+  switch (effect->kind) {
     case LOOM_LOW_EFFECT_KIND_READ:
-      return LOOM_LOW_SCHEDULE_CLASS_FLAG_MAY_LOAD;
+      return effect->memory_space == LOOM_LOW_MEMORY_SPACE_NONE
+                 ? 0
+                 : LOOM_LOW_SCHEDULE_CLASS_FLAG_MAY_LOAD;
     case LOOM_LOW_EFFECT_KIND_WRITE:
-      return LOOM_LOW_SCHEDULE_CLASS_FLAG_MAY_STORE;
+      return effect->memory_space == LOOM_LOW_MEMORY_SPACE_NONE
+                 ? 0
+                 : LOOM_LOW_SCHEDULE_CLASS_FLAG_MAY_STORE;
     case LOOM_LOW_EFFECT_KIND_CALL:
       return LOOM_LOW_SCHEDULE_CLASS_FLAG_MAY_CALL;
     case LOOM_LOW_EFFECT_KIND_CONTROL:
@@ -1799,15 +1803,6 @@ static iree_status_t loom_low_verify_descriptor_effect_contract(
   for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
     const uint32_t effect_index = descriptor->effect_start + i;
     const loom_low_effect_t* effect = &descriptor_set->effects[effect_index];
-    if (effect->kind == LOOM_LOW_EFFECT_KIND_READ ||
-        effect->kind == LOOM_LOW_EFFECT_KIND_WRITE) {
-      if (effect->memory_space == LOOM_LOW_MEMORY_SPACE_NONE) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "low descriptor %" PRIu32 " effect %" PRIu32
-                                " reads or writes no memory space",
-                                descriptor_index, effect_index);
-      }
-    }
     if (effect->kind == LOOM_LOW_EFFECT_KIND_CONTROL) {
       has_control_effect = true;
     }
@@ -1822,7 +1817,7 @@ static iree_status_t loom_low_verify_descriptor_effect_contract(
                               descriptor_index, effect_index);
     }
     required_schedule_flags |=
-        loom_low_schedule_flags_required_for_effect(effect->kind);
+        loom_low_schedule_flags_required_for_effect(effect);
   }
 
   if (is_terminator && !has_control_effect) {

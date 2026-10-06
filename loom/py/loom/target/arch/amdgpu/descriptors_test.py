@@ -156,6 +156,12 @@ from loom.target.arch.amdgpu.descriptors.tensor import (
     _s_wait_tensorcnt_descriptor,
     _tensor_load_to_lds_descriptor,
 )
+from loom.target.arch.amdgpu.descriptors.workgroup import (
+    _ds_bpermute_b32_overlay,
+    _ds_bpermute_fi_b32_overlay,
+    _ds_permute_b32_overlay,
+    _ds_swizzle_b32_overlay,
+)
 from loom.target.arch.amdgpu.encoding import (
     AMDGPU_ENCODING_FORMAT_IDS,
     AMDGPU_ENCODING_FORMAT_SOPP,
@@ -209,6 +215,33 @@ from loom.target.low_descriptors import (
     StorageLeaseFlag,
     StorageLeaseKind,
 )
+
+
+@pytest.mark.parametrize(
+    "overlay_builder",
+    [
+        _ds_swizzle_b32_overlay,
+        _ds_permute_b32_overlay,
+        _ds_bpermute_b32_overlay,
+        _ds_bpermute_fi_b32_overlay,
+    ],
+)
+def test_ds_crosslane_effects_use_lds_counter_without_memory_alias(
+    overlay_builder: Callable[[], AmdgpuDescriptorOverlay],
+) -> None:
+    descriptor = overlay_builder()
+
+    assert descriptor.effects == (
+        Effect(
+            EffectKind.READ,
+            counter_id=_COUNTER_LDS,
+            width_bits=32,
+        ),
+        Effect(
+            EffectKind.CONVERGENT,
+            flags=(EffectFlag.ORDERED,),
+        ),
+    )
 
 
 def test_contract_descriptor_projection_preserves_operation_kind() -> None:
