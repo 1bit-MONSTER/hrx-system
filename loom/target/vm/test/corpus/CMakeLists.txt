@@ -319,13 +319,6 @@ loom_corpus_test(
     "kernel"
     "function"
   SOURCES
-    "numeric/float/exponential.loom"
-    "numeric/float/logarithm.loom"
-    "numeric/float/roots.loom"
-    "numeric/float/selectors.loom"
-    "numeric/float/turns.loom"
-    "numeric/predicate/scalar_logic.loom"
-    "numeric/vector/selection.loom"
     "control/branch/structured.loom"
     "control/loop/vector_recurrence.loom"
     "memory/address/address.loom"

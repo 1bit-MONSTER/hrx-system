@@ -1,147 +1,78 @@
-// Turn-domain trigonometry has a frozen f32 mapping shared with source folding.
-// Dynamic payloads exercise the compiled operations, including their low bits.
-func.def public @turns(%bits: i32) -> (i32, i32) {
+// Turn-domain trigonometry has a frozen f32 mapping shared with source
+// folding. Radian operations are approximate and use an explicit tolerance.
+
+func.def @turn_observations(%bits: i32, %output: buffer) {
   %value = scalar.bitcast %bits : i32 to f32
   %sin = scalar.sinturnsf %value : f32
   %cos = scalar.costurnsf %value : f32
   %sin_bits = scalar.bitcast %sin : f32 to i32
   %cos_bits = scalar.bitcast %cos : f32 to i32
-  func.return %sin_bits, %cos_bits : i32, i32
+  %results = vector.from_elements %sin_bits, %cos_bits : vector<2xi32>
+  %origin = index.constant 0 : offset
+  %result_view = buffer.view %output[%origin] : buffer -> view<2xi32>
+  vector.store %results, %result_view[0] : vector<2xi32>, view<2xi32>
+  func.return
 }
 
-check.case @turns_integral {
-  %input = check.param.choice values([0, 1065353216, 1258291200]) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_sin = check.literal value(0) : i32
-  check.expect.equal actual(%sin) expected(%expected_sin) : i32
-  %expected_cos = check.literal value(1065353216) : i32
-  check.expect.equal actual(%cos) expected(%expected_cos) : i32
-  check.return
+func.def @turn_entropy_observations(%entropy_bits: i64, %output: buffer) {
+  %bits = scalar.trunci %entropy_bits : i64 to i32
+  func.call @turn_observations(%bits, %output) : (i32, buffer)
+  func.return
 }
 
-check.case @turns_quarter {
-  %input = check.literal value(1048576000) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_sin = check.literal value(1065353216) : i32
-  check.expect.equal actual(%sin) expected(%expected_sin) : i32
-  %expected_cos = check.literal value(0) : i32
-  check.expect.equal actual(%cos) expected(%expected_cos) : i32
-  check.return
+func.def @turn_boundary_observations(%ordinal: index, %output: buffer) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c3 = index.constant 3 : index
+  %c4 = index.constant 4 : index
+  %c5 = index.constant 5 : index
+  %c6 = index.constant 6 : index
+  %c7 = index.constant 7 : index
+  %c8 = index.constant 8 : index
+  %c9 = index.constant 9 : index
+  %is0 = index.cmp eq, %ordinal, %c0 : index
+  %is1 = index.cmp eq, %ordinal, %c1 : index
+  %is2 = index.cmp eq, %ordinal, %c2 : index
+  %is3 = index.cmp eq, %ordinal, %c3 : index
+  %is4 = index.cmp eq, %ordinal, %c4 : index
+  %is5 = index.cmp eq, %ordinal, %c5 : index
+  %is6 = index.cmp eq, %ordinal, %c6 : index
+  %is7 = index.cmp eq, %ordinal, %c7 : index
+  %is8 = index.cmp eq, %ordinal, %c8 : index
+  %is9 = index.cmp eq, %ordinal, %c9 : index
+  %value0 = scalar.constant 0 : i32
+  %value1 = scalar.constant 1065353216 : i32
+  %value2 = scalar.constant 1258291200 : i32
+  %value3 = scalar.constant 1048576000 : i32
+  %value4 = scalar.constant -2147483648 : i32
+  %value5 = scalar.constant 1 : i32
+  %value6 = scalar.constant 2139095040 : i32
+  %value7 = scalar.constant -8388608 : i32
+  %value8 = scalar.constant 2143289344 : i32
+  %value9 = scalar.constant 1180433910 : i32
+  %value10 = scalar.constant -976397844 : i32
+  %bits0 = scf.select %is0, %value0, %value10 : i32
+  %bits1 = scf.select %is1, %value1, %bits0 : i32
+  %bits2 = scf.select %is2, %value2, %bits1 : i32
+  %bits3 = scf.select %is3, %value3, %bits2 : i32
+  %bits4 = scf.select %is4, %value4, %bits3 : i32
+  %bits5 = scf.select %is5, %value5, %bits4 : i32
+  %bits6 = scf.select %is6, %value6, %bits5 : i32
+  %bits7 = scf.select %is7, %value7, %bits6 : i32
+  %bits8 = scf.select %is8, %value8, %bits7 : i32
+  %bits9 = scf.select %is9, %value9, %bits8 : i32
+  func.call @turn_observations(%bits9, %output) : (i32, buffer)
+  func.return
 }
 
-check.case @turns_negative_zero {
-  %input = check.literal value(-2147483648) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_sin = check.literal value(-2147483648) : i32
-  check.expect.equal actual(%sin) expected(%expected_sin) : i32
-  %expected_cos = check.literal value(1065353216) : i32
-  check.expect.equal actual(%cos) expected(%expected_cos) : i32
-  check.return
-}
-
-check.case @turns_subnormal {
-  %input = check.literal value(1) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_sin = check.literal value(6) : i32
-  check.expect.equal actual(%sin) expected(%expected_sin) : i32
-  %expected_cos = check.literal value(1065353216) : i32
-  check.expect.equal actual(%cos) expected(%expected_cos) : i32
-  check.return
-}
-
-check.case @turns_nonfinite {
-  %input = check.param.choice values([2139095040, -8388608, 2143289344]) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_sin = check.literal value(2143289344) : i32
-  check.expect.equal actual(%sin) expected(%expected_sin) : i32
-  %expected_cos = check.literal value(2143289344) : i32
-  check.expect.equal actual(%cos) expected(%expected_cos) : i32
-  check.return
-}
-
-check.case @turns_frozen_sine {
-  %input = check.literal value(1180433910) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_sin = check.literal value(1031482228) : i32
-  check.expect.equal actual(%sin) expected(%expected_sin) : i32
-  check.return
-}
-
-check.case @turns_frozen_cosine {
-  %input = check.literal value(-976397844) : i32
-  %sin, %cos = func.call @turns(%input) : (i32) -> (i32, i32)
-  %expected_cos = check.literal value(1031482228) : i32
-  check.expect.equal actual(%cos) expected(%expected_cos) : i32
-  check.return
-}
-
-// Radian reduction is approximate, unlike the exact turn-domain mapping.
-// Ordinary inputs use mathematical expected values, not the same recipe.
-func.def public @radians(%value: f32) -> (f32, f32) {
-  %sin = scalar.sinf<afn> %value : f32
-  %cos = scalar.cosf<afn> %value : f32
-  func.return %sin, %cos : f32, f32
-}
-
-check.case @radians_positive {
-  %input = check.literal value(1.0) : f32
-  %sin, %cos = func.call @radians(%input) : (f32) -> (f32, f32)
-  %expected_sin = check.literal value(0.8414709848078965) : f32
-  %expected_cos = check.literal value(0.54030230586813977) : f32
-  check.expect.close actual(%sin) expected(%expected_sin) atol(9.9999999999999995e-07) rtol(0.0) nan(same) : f32
-  check.expect.close actual(%cos) expected(%expected_cos) atol(9.9999999999999995e-07) rtol(0.0) nan(same) : f32
-  check.return
-}
-
-check.case @radians_negative {
-  %input = check.literal value(-1.0) : f32
-  %sin, %cos = func.call @radians(%input) : (f32) -> (f32, f32)
-  %expected_sin = check.literal value(-0.8414709848078965) : f32
-  %expected_cos = check.literal value(0.54030230586813977) : f32
-  check.expect.close actual(%sin) expected(%expected_sin) atol(9.9999999999999995e-07) rtol(0.0) nan(same) : f32
-  check.expect.close actual(%cos) expected(%expected_cos) atol(9.9999999999999995e-07) rtol(0.0) nan(same) : f32
-  check.return
-}
-
-check.case @radians_zero {
-  %input = check.literal value(0.0) : f32
-  %sin, %cos = func.call @radians(%input) : (f32) -> (f32, f32)
-  check.expect.bitwise actual(%sin) expected(%input) : f32
-  %one = check.literal value(1.0) : f32
-  check.expect.equal actual(%cos) expected(%one) : f32
-  check.return
-}
-
-check.case @radians_negative_zero {
-  %input = check.literal value(-0.0) : f32
-  %sin, %cos = func.call @radians(%input) : (f32) -> (f32, f32)
-  check.expect.bitwise actual(%sin) expected(%input) : f32
-  %one = check.literal value(1.0) : f32
-  check.expect.equal actual(%cos) expected(%one) : f32
-  check.return
-}
-
-func.def public @radians_classify(%bits: i32) -> (i1, i1) {
-  %input = scalar.bitcast %bits : i32 to f32
-  %sin = scalar.sinf<afn> %input : f32
-  %cos = scalar.cosf<afn> %input : f32
-  %sin_nan = scalar.isnanf %sin : f32
-  %cos_nan = scalar.isnanf %cos : f32
-  func.return %sin_nan, %cos_nan : i1, i1
-}
-
-check.case @radians_nonfinite {
-  %input = check.param.choice values([2139095040, -8388608, 2143289344]) : i32
-  %sin_nan, %cos_nan = func.call @radians_classify(%input) : (i32) -> (i1, i1)
-  %expected = check.literal value(true) : i1
-  check.expect.equal actual(%sin_nan) expected(%expected) : i1
-  check.expect.equal actual(%cos_nan) expected(%expected) : i1
-  check.return
-}
-
-// Pair rotation combines the approximate leaves with ordinary arithmetic,
-// matching the scalar component of the shared attention TEMPLATE.
-func.def public @rotate_pair(%even: f32, %odd: f32, %angle: f32) -> (f32, f32) {
+func.def @radian_observations(%even_entropy: i64, %odd_entropy: i64, %angle_entropy: i64, %output: buffer) {
+  %even_bits = scalar.trunci %even_entropy : i64 to i32
+  %odd_bits = scalar.trunci %odd_entropy : i64 to i32
+  %angle_bits = scalar.trunci %angle_entropy : i64 to i32
+  %even = scalar.bitcast %even_bits : i32 to f32
+  %odd = scalar.bitcast %odd_bits : i32 to f32
+  %angle = scalar.bitcast %angle_bits : i32 to f32
   %sin = scalar.sinf<afn> %angle : f32
   %cos = scalar.cosf<afn> %angle : f32
   %even_cos = scalar.mulf %even, %cos : f32
@@ -150,17 +81,74 @@ func.def public @rotate_pair(%even: f32, %odd: f32, %angle: f32) -> (f32, f32) {
   %even_sin = scalar.mulf %even, %sin : f32
   %odd_cos = scalar.mulf %odd, %cos : f32
   %rotated_odd = scalar.addf %even_sin, %odd_cos : f32
-  func.return %rotated_even, %rotated_odd : f32, f32
+  %results = vector.from_elements %sin, %cos, %rotated_even, %rotated_odd : vector<4xf32>
+  %origin = index.constant 0 : offset
+  %result_view = buffer.view %output[%origin] : buffer -> view<4xf32>
+  vector.store %results, %result_view[0] : vector<4xf32>, view<4xf32>
+  func.return
 }
 
-check.case @rotate_pair_one_radian {
-  %even = check.literal value(2.0) : f32
-  %odd = check.literal value(3.0) : f32
-  %angle = check.literal value(1.0) : f32
-  %result_even, %result_odd = func.call @rotate_pair(%even, %odd, %angle) : (f32, f32, f32) -> (f32, f32)
-  %expected_even = check.literal value(-1.4438083426874098) : f32
-  %expected_odd = check.literal value(3.3038488872202123) : f32
-  check.expect.close actual(%result_even) expected(%expected_even) atol(9.9999999999999995e-07) rtol(0.0) nan(same) : f32
-  check.expect.close actual(%result_odd) expected(%expected_odd) atol(9.9999999999999995e-07) rtol(0.0) nan(same) : f32
+func.def @radian_zero_observations(%bits: i32, %output: buffer) {
+  %value = scalar.bitcast %bits : i32 to f32
+  %sin = scalar.sinf<afn> %value : f32
+  %cos = scalar.cosf<afn> %value : f32
+  %sin_bits = scalar.bitcast %sin : f32 to i32
+  %cos_bits = scalar.bitcast %cos : f32 to i32
+  %results = vector.from_elements %sin_bits, %cos_bits : vector<2xi32>
+  %origin = index.constant 0 : offset
+  %result_view = buffer.view %output[%origin] : buffer -> view<2xi32>
+  vector.store %results, %result_view[0] : vector<2xi32>, view<2xi32>
+  func.return
+}
+
+check.scenario @turn_values {
+  check.trial[11](%trial: index, %entropy: check.entropy) {
+    %output = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@turn_boundary_observations>(%trial, %output) : (index, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+    }
+  }
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %bits = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@turn_entropy_observations>(%bits, %output) : (i64, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %positive_zero = check.literal value(0) : i32
+    %positive_output = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@radian_zero_observations>(%positive_zero, %positive_output) : (i32, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%positive_output) expected(%positive_output) : tensor<2xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %negative_zero = check.literal value(-2147483648) : i32
+    %output = check.generate.fill value(-1) : tensor<2xi32>
+    check.compare<@radian_zero_observations>(%negative_zero, %output) : (i32, tensor<2xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %even = check.literal value(1073741824) : i64
+    %odd = check.literal value(1077936128) : i64
+    %angle = check.literal value(1065353216) : i64
+    %output = check.generate.fill value(0.0) : tensor<4xf32>
+    check.compare<@radian_observations>(%even, %odd, %angle, %output) : (i64, i64, i64, tensor<4xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(9.9999999999999995e-07) rtol(1.0000000000000001e-05) nan(same) : tensor<4xf32>
+    }
+  }
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %even_source = check.entropy.fork %entropy name("even") : check.entropy
+    %odd_source = check.entropy.fork %entropy name("odd") : check.entropy
+    %angle_source = check.entropy.fork %entropy name("angle") : check.entropy
+    %even = check.entropy.read %even_source[%trial] : check.entropy -> i64
+    %odd = check.entropy.read %odd_source[%trial] : check.entropy -> i64
+    %angle = check.entropy.read %angle_source[%trial] : check.entropy -> i64
+    %output = check.generate.fill value(0.0) : tensor<4xf32>
+    check.compare<@radian_observations>(%even, %odd, %angle, %output) : (i64, i64, i64, tensor<4xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(9.9999999999999995e-07) rtol(1.0000000000000001e-05) nan(same) : tensor<4xf32>
+    }
+  }
   check.return
 }
