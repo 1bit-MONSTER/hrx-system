@@ -91,8 +91,9 @@ typedef struct loom_low_move_sequence_options_t {
 } loom_low_move_sequence_options_t;
 
 // Returns true when |location| overlaps a source or destination in the current
-// parallel move group. |occupied_locations| is valid only during the temporary
-// resolver callback that received it.
+// parallel move group, including identity moves that emit no instruction.
+// |occupied_locations| is valid only during the temporary resolver callback
+// that received it.
 bool loom_low_move_sequence_location_set_contains(
     const loom_low_move_sequence_location_set_t* occupied_locations,
     const loom_low_move_location_t* location);
