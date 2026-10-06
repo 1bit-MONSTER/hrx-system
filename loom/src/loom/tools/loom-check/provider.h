@@ -48,6 +48,8 @@ typedef struct loom_check_provider_set_t {
   const loom_check_provider_t* const* providers;
   // Number of entries in |providers|.
   iree_host_size_t provider_count;
+  // Optional binary-wide target provider contribution.
+  const loom_target_provider_set_t* target_provider_set;
 } loom_check_provider_set_t;
 
 // Runs loom-check using tool dialects plus |provider_set|'s target/check

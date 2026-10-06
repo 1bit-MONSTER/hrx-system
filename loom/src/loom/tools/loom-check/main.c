@@ -16,7 +16,6 @@
 #include "loom/sanitizer/options.h"
 #include "loom/target/selection.h"
 #include "loom/tooling/cli/help.h"
-#include "loom/tooling/compile/configured.h"
 #include "loom/tooling/context/context.h"
 #include "loom/tools/loom-check/file.h"
 #include "loom/tools/loom-check/json_output.h"
@@ -424,10 +423,7 @@ int loom_check_main(int argc, char** argv,
   loom_tooling_config_set_initialize(host_allocator, &config_set);
   const iree_string_view_t target =
       iree_string_view_trim(iree_make_cstring_view(FLAG_target));
-  const loom_tooling_compile_environment_t* compile_environment =
-      iree_string_view_is_empty(target)
-          ? NULL
-          : loom_tooling_configured_compile_environment();
+  const bool compile_enabled = !iree_string_view_is_empty(target);
   iree_status_t status = iree_ok_status();
   if (FLAG_check_templates &&
       (FLAG_update || !iree_string_view_is_empty(target) ||
@@ -446,26 +442,17 @@ int loom_check_main(int argc, char** argv,
         argc - 1);
   }
   if (iree_status_is_ok(status)) {
-    if (compile_environment != NULL) {
-      status =
-          loom_tooling_context_register_tool_dialects_with_target_environment(
-              compile_environment->target_environment, &context);
-      if (iree_status_is_ok(status)) {
-        status = loom_context_finalize(&context);
-      }
-    } else {
-      status =
-          loom_check_context_register_and_finalize(base_environment, &context);
-    }
+    status =
+        loom_check_context_register_and_finalize(base_environment, &context);
   }
   loom_target_specification_t target_specification = {0};
   const loom_target_profile_t* target_profile = NULL;
-  if (iree_status_is_ok(status) && compile_environment != NULL) {
+  if (iree_status_is_ok(status) && compile_enabled) {
     status = loom_target_specification_parse(target, &target_specification);
   }
-  if (iree_status_is_ok(status) && compile_environment != NULL) {
+  if (iree_status_is_ok(status) && compile_enabled) {
     status = loom_target_environment_select_profile(
-        compile_environment->target_environment, &target_specification,
+        base_environment->target_environment, &target_specification,
         &target_profile);
   }
   const iree_flag_string_list_t config_files = FLAG_config_file_list();
@@ -481,7 +468,7 @@ int loom_check_main(int argc, char** argv,
         iree_make_cstring_view(FLAG_sanitizer_reporting),
         IREE_SV("--sanitizer-reporting"), &sanitizer.reporting_mode);
   }
-  if (iree_status_is_ok(status) && compile_environment == NULL &&
+  if (iree_status_is_ok(status) && !compile_enabled &&
       (config_files.count > 0 || configs.count > 0 || sanitizer.checks != 0 ||
        sanitizer.reporting_mode != LOOM_SANITIZER_REPORTING_MODE_DEFAULT)) {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -503,7 +490,6 @@ int loom_check_main(int argc, char** argv,
   iree_host_size_t skip_count = 0;
   const loom_check_process_options_t process_options = {
       .compile = {.target_profile = target_profile,
-                  .environment = compile_environment,
                   .config_set = &config_set,
                   .sanitizer = sanitizer},
       .input_format = iree_make_cstring_view(FLAG_input_format),

@@ -81,6 +81,11 @@ static iree_status_t loom_check_provider_environment_state_initialize(
     IREE_RETURN_IF_ERROR(
         loom_check_provider_append_requirement_providers(out_state, provider));
   }
+  if (provider_set->target_provider_set != NULL) {
+    IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append_set(
+        &out_state->target_provider_storage,
+        provider_set->target_provider_set));
+  }
   IREE_RETURN_IF_ERROR(loom_target_environment_initialize(
       &out_state->target_provider_storage.provider_set,
       &out_state->target_environment));

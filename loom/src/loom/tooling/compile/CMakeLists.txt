@@ -29,36 +29,6 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
-    configured
-  HDRS
-    "configured.h"
-  SRCS
-    "configured.c"
-  DEPS
-    iree::base
-    iree::base::threading
-    loom::target::configured::compiler_provider_set
-    loom::target::configured::provider_set
-    loom::target::provider
-    loom::transforms::cleanup::configured
-  PUBLIC
-)
-
-loom_cc_test(
-  NAME
-    configured_test
-  SRCS
-    "configured_test.cc"
-  DEPS
-    ::configured
-    iree::testing::gtest
-    iree::testing::gtest_main
-    loom::target::configured::compiler_provider_set
-    loom::target::configured::provider_set
-)
-
-loom_cc_library(
-  NAME
     report_capture
   HDRS
     "report_capture.h"
