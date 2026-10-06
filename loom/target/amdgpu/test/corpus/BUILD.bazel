@@ -21,8 +21,6 @@ load("//loom/target/amdgpu:execution_profiles.bzl", "AMDGPU_HARDWARE_PROFILE")
 package(default_visibility = ["//visibility:public"])
 
 _NO_DEVICE_SUBJECTS = [
-    "control/branch/structured.loom",
-    "control/loop/vector_recurrence.loom",
     "memory/address/address.loom",
     "memory/atomic/operations.loom",
     "memory/buffer/allocation_freshness.loom",
@@ -40,6 +38,8 @@ _NO_DEVICE_SUBJECTS = [
 ]
 
 _ADAPTER_ONLY_SCENARIOS = [
+    "control/branch/structured.loom",
+    "control/loop/vector_recurrence.loom",
     "control/loop/scalar_state.loom",
     "control/schedule/address_domains.loom",
     "function/buffer/arguments.loom",

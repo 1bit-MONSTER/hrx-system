@@ -143,6 +143,7 @@ loom_corpus_build(
     name = "all",
     all_roots_xfail = {
         "//loom/target/wasm:simd128": [
+            "control/branch/structured.loom",
             "control/loop/vector_recurrence.loom",
             "function/buffer/arguments.loom",
             "function/buffer/call_overflow.loom",
@@ -180,8 +181,8 @@ loom_corpus_build(
     profiles = ["//loom/target/wasm:all"],
     xfails = {
         "//loom/target/wasm:simd128": {
-            "control/branch/structured.loom:@while_before_effects": "TARGET/001",
-            "control/loop/vector_recurrence.loom:@vector_recurrence": "WASM/001",
+            "control/branch/structured.loom:@structured_branch_observations": "TARGET/001",
+            "control/loop/vector_recurrence.loom:@vector_recurrence_observations": "WASM/001",
             "function/buffer/arguments.loom:@buffer_argument_observations": "TARGET/001",
             "function/buffer/arguments.loom:@buffer_extent_observations": "TARGET/001",
             "function/buffer/call_overflow.loom:@buffer_overflow_observations": "TARGET/001",
@@ -317,6 +318,8 @@ loom_scenario_test(
     execution_profiles = [WASM_HOSTED_PROFILE],
     xfails = {
         WASM_HOSTED_PROFILE.name: {
+            "control/branch/structured.loom:@structured_branch_values": "TARGET/001",
+            "control/loop/vector_recurrence.loom:@vector_recurrence_values": "WASM/001",
             "function/buffer/arguments.loom:@buffer_argument_values": "TARGET/001",
             "function/buffer/arguments.loom:@buffer_extent_values": "TARGET/001",
             "function/buffer/call_overflow.loom:@buffer_overflow_values": "TARGET/001",

@@ -24,8 +24,6 @@ load(
 package(default_visibility = ["//visibility:public"])
 
 _NO_DEVICE_SUBJECTS = [
-    "control/branch/structured.loom",
-    "control/loop/vector_recurrence.loom",
     "memory/address/address.loom",
     "memory/atomic/operations.loom",
     "memory/buffer/allocation_freshness.loom",
@@ -43,6 +41,8 @@ _NO_DEVICE_SUBJECTS = [
 ]
 
 _ADAPTER_ONLY_SCENARIOS = [
+    "control/branch/structured.loom",
+    "control/loop/vector_recurrence.loom",
     "control/loop/scalar_state.loom",
     "control/schedule/address_domains.loom",
     "function/buffer/arguments.loom",
@@ -377,6 +377,7 @@ _ALL_ROOTS_XFAIL = [
 ]
 
 _SPIRV_EXECUTION_XFAILS = {
+    "control/branch/structured.loom:@structured_branch_values": "TARGET/001",
     "function/buffer/arguments.loom:@buffer_argument_values": "TARGET/001",
     "function/buffer/arguments.loom:@buffer_extent_values": "TARGET/001",
     "function/buffer/call_overflow.loom:@buffer_overflow_values": "LOWERING/044",

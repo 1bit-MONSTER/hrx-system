@@ -323,8 +323,6 @@ loom_corpus_test(
     "kernel"
     "function"
   SOURCES
-    "control/branch/structured.loom"
-    "control/loop/vector_recurrence.loom"
     "memory/address/address.loom"
     "memory/atomic/operations.loom"
     "memory/buffer/allocation_freshness.loom"

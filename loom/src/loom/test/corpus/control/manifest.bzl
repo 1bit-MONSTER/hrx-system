@@ -13,10 +13,12 @@ CONTROL_CORPUS = loom_corpus_manifest(
     package = "//loom/src/loom/test/corpus/control",
     scenario_srcs = [
         "branch/half.loom",
+        "branch/structured.loom",
         "loop/rotation/offsets.loom",
         "loop/rotation/values.loom",
         "loop/rotation/views.loom",
         "loop/scalar_state.loom",
+        "loop/vector_recurrence.loom",
         "schedule/address_domains.loom",
     ],
     legacy_case_srcs = [
@@ -24,7 +26,6 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "branch/effects.loom",
         "branch/guards.loom",
         "branch/results.loom",
-        "branch/structured.loom",
         "branch/uniform_predicate.loom",
         "loop/callable.loom",
         "loop/carried_lane_liveness.loom",
@@ -32,7 +33,6 @@ CONTROL_CORPUS = loom_corpus_manifest(
         "loop/count.loom",
         "loop/sequential_slices.loom",
         "loop/termination.loom",
-        "loop/vector_recurrence.loom",
         "loop/wide_index_recurrence.loom",
         "schedule/guarded_recurrence.loom",
         "schedule/ordered_read_ahead.loom",
