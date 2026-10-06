@@ -1430,6 +1430,8 @@ iree_status_t loom_low_lower_function(loom_module_t* module,
         .provider_list = options->legality_provider_list,
         .contract_query = loom_low_lower_source_query_callback(&context),
         .type_supported = context.policy->source_type_supported,
+        .source_vector_carrier_supported =
+            context.policy->source_vector_carrier_supported,
         .structural_legality_flags =
             loom_low_lower_source_plan_uses_structured_control_flow(&context)
                 ? LOOM_TARGET_LOW_STRUCTURAL_LEGALITY_ALLOW_SOURCE_SCF

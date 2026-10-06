@@ -261,7 +261,6 @@ static iree_status_t loom_vector_component_classify_op(
   if (!loom_vector_component_describe(plan->context->module, op, &lane_count)) {
     return iree_ok_status();
   }
-
   IREE_ASSERT_LT(plan->record_count, plan->record_capacity);
   const uint32_t record_index = plan->record_count++;
   loom_vector_component_record_t* record = &plan->records[record_index];

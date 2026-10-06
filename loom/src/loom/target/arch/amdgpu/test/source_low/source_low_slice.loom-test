@@ -162,9 +162,18 @@ func.def @i16x1_broadcast(%value: vector<1xi16>) -> (vector<16xi16>) {
 // ====
 
 func.def @f32x3x4_slice_row(%values: vector<3x4xf32>) -> (vector<1x4xf32>) {
-  // ERROR@+1: AMDGPU/023 {constraint_key="slice.shape"}
   %result = vector.slice %values[1, 0] : vector<3x4xf32> -> vector<1x4xf32>
   func.return %result : vector<1x4xf32>
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core> abi(hal_kernel) @f32x3x4_slice_row(%values: reg<amdgpu.vgpr x12>) -> (reg<amdgpu.vgpr x4>) asm {
+  %8 = slice %values[4] : reg<amdgpu.vgpr x12> -> reg<amdgpu.vgpr>
+  %9 = slice %values[5] : reg<amdgpu.vgpr x12> -> reg<amdgpu.vgpr>
+  %10 = slice %values[6] : reg<amdgpu.vgpr x12> -> reg<amdgpu.vgpr>
+  %11 = slice %values[7] : reg<amdgpu.vgpr x12> -> reg<amdgpu.vgpr>
+  %result = concat(%8, %9, %10, %11) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  return %result
 }
 
 // ====

@@ -1528,13 +1528,6 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
         &state->legalization_context, op, &query_result_storage));
     query_result = &query_result_storage;
   }
-  if (query_result->outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
-      loom_low_target_legalize_should_accept_legal_contract(state, op,
-                                                            op_entry)) {
-    loom_low_target_legalize_report_accept_native(report_decision);
-    ++state->statistics->ops_legal;
-    return iree_ok_status();
-  }
   if (query_result->outcome == LOOM_TARGET_CONTRACT_QUERY_INVALID_IR) {
     if (report_decision) {
       IREE_RETURN_IF_ERROR(loom_low_target_legalize_retain_report_decision(
@@ -1545,6 +1538,13 @@ static iree_status_t loom_low_target_legalize_rewrite_op(
           /*erased_op_count=*/0));
     }
     ++state->statistics->ops_deferred;
+    return iree_ok_status();
+  }
+  if (query_result->outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL &&
+      loom_low_target_legalize_should_accept_legal_contract(state, op,
+                                                            op_entry)) {
+    loom_low_target_legalize_report_accept_native(report_decision);
+    ++state->statistics->ops_legal;
     return iree_ok_status();
   }
 
@@ -1762,6 +1762,8 @@ static iree_status_t loom_low_target_legalize_verify_final(
       .provider_list = state->legality_provider_list,
       .contract_query = contract_query,
       .type_supported = state->selection->policy->source_type_supported,
+      .source_vector_carrier_supported =
+          state->selection->policy->source_vector_carrier_supported,
       .structural_legality_flags =
           LOOM_TARGET_LOW_STRUCTURAL_LEGALITY_ALLOW_SOURCE_SCF |
           LOOM_TARGET_LOW_STRUCTURAL_LEGALITY_ALLOW_SOURCE_CFG,
@@ -1830,6 +1832,8 @@ static iree_status_t loom_low_target_legalize_function(
       .target_facts = selection->target_facts,
       .descriptor_set = state.descriptor_set,
       .vector_packet_policy = selection->policy->vector_packet_policy,
+      .source_vector_carrier_supported =
+          selection->policy->source_vector_carrier_supported,
       .mode = pass_state->mode,
       .policy = pass_state->policy,
       .fact_table = fact_table,
