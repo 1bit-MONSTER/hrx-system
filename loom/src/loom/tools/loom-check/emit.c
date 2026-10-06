@@ -1677,8 +1677,8 @@ iree_status_t loom_check_execute_emit(
     iree_host_size_t actual_output_size = result->actual_output.size;
     if (iree_status_is_ok(status)) {
       status = loom_check_source_low_emit(
-          module, &request.source_low, &low_registry, environment,
-          source_resolver, &diagnostic_collector, block_pool, result);
+          module, &request.source_low, environment, source_resolver,
+          &diagnostic_collector, block_pool, result);
     }
     if (iree_status_is_ok(status)) {
       if (request.suppress_actual_output) {

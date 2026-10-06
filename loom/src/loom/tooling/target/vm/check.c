@@ -46,9 +46,9 @@ static iree_status_t loom_vm_check_emit(
   }
   loom_compile_pipeline_result_t pipeline_result = {0};
   iree_status_t status = loom_check_prepare_source_low_module(
-      request->module, &prepare_options, request->low_registry,
-      request->environment, request->source_resolver,
-      request->diagnostic_collector, request->block_pool, &pipeline_result);
+      request->module, &prepare_options, request->environment,
+      request->source_resolver, request->diagnostic_collector,
+      request->block_pool, &pipeline_result);
 
   if (!iree_status_is_ok(status) || request->diagnostic_collector->count) {
     loom_compile_pipeline_result_deinitialize(&pipeline_result);
