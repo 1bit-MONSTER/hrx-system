@@ -779,6 +779,18 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
         .legalize = loom_vector_legalize_descriptor,
     },
     {
+        .root_kind = LOOM_OP_VECTOR_CTLZI,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_CTTZI,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_CTPOPI,
+        .legalize = loom_vector_legalize_descriptor,
+    },
+    {
         .root_kind = LOOM_OP_VECTOR_DOTF,
         .legalize = loom_vector_legalize_dotf,
     },

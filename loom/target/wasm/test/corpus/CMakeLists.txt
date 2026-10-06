@@ -797,6 +797,7 @@ loom_corpus_test(
     "numeric/float/sign.loom"
     "numeric/float/turns.loom"
     "numeric/integer/arithmetic.loom"
+    "numeric/integer/bit_count.loom"
     "numeric/integer/bitfield.loom"
     "numeric/integer/constant_unsigned_division.loom"
     "numeric/integer/division.loom"

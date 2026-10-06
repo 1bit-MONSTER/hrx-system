@@ -34,6 +34,7 @@ loom_check_test_suite(
     "target_legalize.loom-test"
     "target_legalize_atomic_float.loom-test"
     "target_legalize_atomic_integer.loom-test"
+    "target_legalize_bit_count.loom-test"
     "target_legalize_buffer.loom-test"
     "target_legalize_comparison.loom-test"
     "target_legalize_conversion.loom-test"
