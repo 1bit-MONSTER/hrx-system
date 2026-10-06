@@ -719,6 +719,9 @@ TEST_F(LowAllocationTargetConstraintsTest,
   candidate.location_count = 1;
   candidate.unit_count = 1;
   candidate.unit_point_start = kFixedCount;
+  loom_low_allocation_fixed_availability_t availability = {};
+  IREE_ASSERT_OK(loom_low_allocation_fixed_availability_initialize(
+      &constraints, &arena_, &availability));
   // Disordered starts, equal starts, nested ranges, touching endpoints, and
   // ignored values all use the same half-open lifetime contract.
   for (uint32_t start = 0; start <= 64; ++start) {
@@ -726,6 +729,7 @@ TEST_F(LowAllocationTargetConstraintsTest,
       candidate.start_point = start;
       candidate.end_point = start + length;
       unit_ends[kFixedCount] = candidate.end_point;
+      bool fixed_conflicts[5] = {};
       for (uint32_t location = 0; location < 3; ++location) {
         candidate.location_base = location;
         for (uint16_t ignored_count : {0, 1}) {
@@ -748,6 +752,56 @@ TEST_F(LowAllocationTargetConstraintsTest,
               expected)
               << "start=" << start << " length=" << length
               << " location=" << location << " ignored=" << ignored_count;
+          if (ignored_count == 0) {
+            fixed_conflicts[location] = expected;
+          }
+        }
+      }
+      for (uint32_t minimum = 0; minimum < IREE_ARRAYSIZE(fixed_conflicts);
+           ++minimum) {
+        for (uint32_t maximum = minimum;
+             maximum < IREE_ARRAYSIZE(fixed_conflicts); ++maximum) {
+          uint32_t expected_next = minimum;
+          while (expected_next <= maximum && fixed_conflicts[expected_next]) {
+            ++expected_next;
+          }
+          uint32_t actual = UINT32_MAX;
+          const bool found_next =
+              loom_low_allocation_fixed_availability_find_next_location(
+                  &availability, &candidate, minimum, maximum, &actual);
+          EXPECT_EQ(found_next, expected_next <= maximum)
+              << "start=" << start << " length=" << length << " range=["
+              << minimum << ", " << maximum << "]";
+          if (found_next) {
+            EXPECT_EQ(actual, expected_next)
+                << "start=" << start << " length=" << length << " range=["
+                << minimum << ", " << maximum << "]";
+          }
+
+          uint32_t expected_previous = maximum;
+          bool expected_previous_found = false;
+          while (true) {
+            if (!fixed_conflicts[expected_previous]) {
+              expected_previous_found = true;
+              break;
+            }
+            if (expected_previous == minimum) {
+              break;
+            }
+            --expected_previous;
+          }
+          actual = UINT32_MAX;
+          const bool found_previous =
+              loom_low_allocation_fixed_availability_find_previous_location(
+                  &availability, &candidate, minimum, maximum, &actual);
+          EXPECT_EQ(found_previous, expected_previous_found)
+              << "start=" << start << " length=" << length << " range=["
+              << minimum << ", " << maximum << "]";
+          if (found_previous) {
+            EXPECT_EQ(actual, expected_previous)
+                << "start=" << start << " length=" << length << " range=["
+                << minimum << ", " << maximum << "]";
+          }
         }
       }
     }

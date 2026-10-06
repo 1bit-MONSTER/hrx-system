@@ -56,6 +56,8 @@ typedef struct loom_low_allocation_search_context_t {
   loom_low_allocation_preference_workspace_t* preference_workspace;
   // Active assignment window at the interval currently being assigned.
   loom_low_allocation_active_set_t* active_set;
+  // Attempt-local ordered availability of immutable fixed claims.
+  loom_low_allocation_fixed_availability_t* fixed_availability;
   // Materialized storage leases and release eligibility.
   const loom_low_allocation_storage_lease_state_t* storage_leases;
   // Cached predicted spill traffic, dense by liveness value ordinal. A

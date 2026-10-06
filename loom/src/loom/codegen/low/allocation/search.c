@@ -413,6 +413,74 @@ static bool loom_low_allocation_search_consider_linear_location(
   return preference_penalty == 0 && tier == query->tier_limit;
 }
 
+// Finds the next location not rejected by either retained ordered conflict
+// source. Alternating monotone gap queries preserves the authored candidate
+// order while jumping whole active and future-fixed runs.
+static bool loom_low_allocation_search_find_ordered_unoccupied_location(
+    loom_low_allocation_search_context_t* context,
+    const loom_low_allocation_assignment_t* candidate, uint32_t minimum_base,
+    uint32_t maximum_base,
+    loom_low_allocation_location_search_direction_t direction,
+    loom_low_allocation_fixed_availability_t* fixed_availability,
+    uint32_t* out_base) {
+  if (minimum_base > maximum_base) {
+    return false;
+  }
+  if (direction == LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING) {
+    uint32_t next_base = minimum_base;
+    while (next_base <= maximum_base) {
+      uint32_t active_base = 0;
+      if (!loom_low_allocation_active_unit_index_find_unoccupied_location(
+              &context->active_set->units, candidate, next_base, maximum_base,
+              direction, &active_base)) {
+        return false;
+      }
+      if (fixed_availability == NULL) {
+        *out_base = active_base;
+        return true;
+      }
+      uint32_t fixed_base = 0;
+      if (!loom_low_allocation_fixed_availability_find_next_location(
+              fixed_availability, candidate, active_base, maximum_base,
+              &fixed_base)) {
+        return false;
+      }
+      if (fixed_base == active_base) {
+        *out_base = active_base;
+        return true;
+      }
+      next_base = fixed_base;
+    }
+    return false;
+  }
+
+  uint32_t previous_base = maximum_base;
+  while (true) {
+    uint32_t active_base = 0;
+    if (!loom_low_allocation_active_unit_index_find_unoccupied_location(
+            &context->active_set->units, candidate, minimum_base, previous_base,
+            direction, &active_base)) {
+      return false;
+    }
+    if (fixed_availability == NULL) {
+      *out_base = active_base;
+      return true;
+    }
+    uint32_t fixed_base = 0;
+    if (!loom_low_allocation_fixed_availability_find_previous_location(
+            fixed_availability, candidate, minimum_base, active_base,
+            &fixed_base)) {
+      return false;
+    }
+    if (fixed_base == active_base) {
+      *out_base = active_base;
+      return true;
+    }
+    previous_base = fixed_base;
+  }
+  return false;
+}
+
 static void loom_low_allocation_search_find_location_for_release_policy(
     loom_low_allocation_search_context_t* context,
     const loom_low_allocation_assignment_t* candidate_template,
@@ -441,15 +509,21 @@ static void loom_low_allocation_search_find_location_for_release_policy(
       packing_count <= candidate_count &&
       loom_low_allocation_active_unit_index_can_order_candidate(
           &context->active_set->units, candidate_template);
+  const bool can_skip_fixed_locations =
+      can_skip_active_locations && context->fixed_availability != NULL &&
+      loom_low_allocation_target_constraints_fixed_value_for_value(
+          context->target_constraints, candidate_template->value_id) == NULL;
+  loom_low_allocation_fixed_availability_t* fixed_availability =
+      can_skip_fixed_locations ? context->fixed_availability : NULL;
   if (can_skip_active_locations) {
     if (packing_count != 0 && minimum_base < packing_count) {
       uint32_t maximum_base = iree_min(last_base, (uint32_t)packing_count - 1u);
       while (minimum_base <= maximum_base) {
         uint32_t base = 0;
-        if (!loom_low_allocation_active_unit_index_find_unoccupied_location(
-                &context->active_set->units, candidate_template, minimum_base,
-                maximum_base, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING,
-                &base)) {
+        if (!loom_low_allocation_search_find_ordered_unoccupied_location(
+                context, candidate_template, minimum_base, maximum_base,
+                LOOM_LOW_ALLOCATION_LOCATION_SEARCH_DESCENDING,
+                fixed_availability, &base)) {
           break;
         }
         if (loom_low_allocation_search_consider_linear_location(
@@ -467,9 +541,9 @@ static void loom_low_allocation_search_find_location_for_release_policy(
     uint32_t next_base = iree_max(minimum_base, (uint32_t)packing_count);
     while (next_base <= last_base) {
       uint32_t base = 0;
-      if (!loom_low_allocation_active_unit_index_find_unoccupied_location(
-              &context->active_set->units, candidate_template, next_base,
-              last_base, LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING,
+      if (!loom_low_allocation_search_find_ordered_unoccupied_location(
+              context, candidate_template, next_base, last_base,
+              LOOM_LOW_ALLOCATION_LOCATION_SEARCH_ASCENDING, fixed_availability,
               &base)) {
         break;
       }

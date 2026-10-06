@@ -36,6 +36,7 @@
 #include "loom/ops/target/ops.h"
 #include "loom/ops/test/ops.h"
 #include "loom/target/test/low_registry.h"
+#include "loom/verify/verify.h"
 
 namespace {
 
@@ -109,7 +110,8 @@ enum class Shape {
   kMoveScratch,
   kBranch,
   kTied,
-  kFanout
+  kFanout,
+  kFutureFixed,
 };
 enum class Phase {
   kModel,
@@ -180,6 +182,65 @@ std::string MakeSource(uint32_t chain_length, uint32_t component_count,
       }
       source += "%next" + std::to_string(i);
     }
+    return source + "\n}\n";
+  }
+  if (shape == Shape::kFutureFixed) {
+    Require(width == 1, "Future-fixed shape requires scalar registers");
+    const uint32_t count = chain_length * component_count;
+    std::string source =
+        "test.target<low_core> @target\n"
+        "low.func.def target<test.low.core>(@target) @kernel(";
+    for (uint32_t i = 0; i < component_count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%seed" + std::to_string(i) + ": " + type;
+    }
+    source += ") -> (";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += type;
+    }
+    source += ", reg<test.i32 x" + std::to_string(count) + ">";
+    source += ") asm {\n";
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %copy" + std::to_string(i) + " = copy %seed" +
+                std::to_string(i / chain_length) + " : " + type + " -> " +
+                type + "\n";
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %fixed" + std::to_string(i) + " = test.const.i32 " +
+                std::to_string(i) + "\n";
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+      source += "  %next" + std::to_string(i) + " = test.tied.any %copy" +
+                std::to_string(i) + "\n";
+    }
+    source += "  %fixed_pack = concat(";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%fixed" + std::to_string(i);
+    }
+    source += ") : (";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += type;
+    }
+    source += ") -> reg<test.i32 x" + std::to_string(count) + ">\n";
+    source += "  return ";
+    for (uint32_t i = 0; i < count; ++i) {
+      if (i != 0) {
+        source += ", ";
+      }
+      source += "%next" + std::to_string(i);
+    }
+    source += ", %fixed_pack";
     return source + "\n}\n";
   }
   if (shape == Shape::kLoopRelocation) {
@@ -401,13 +462,16 @@ class AllocationBenchmark {
                         IREE_SV("allocation_benchmark.loom"), &context_,
                         &source_pool_, &parse_options, &module_));
     Require(module_ != nullptr, "Parsing failed");
-    loom_low_verify_options_t verify_options = {};
-    verify_options.descriptor_registry = &registry_.registry;
+    loom_verify_result_t structure = {};
+    IREE_CHECK_OK(loom_verify_module(module_, nullptr, &structure));
+    Require(structure.error_count == 0, "Generic verification failed");
+    loom_low_verify_options_t low_verify_options = {};
+    low_verify_options.descriptor_registry = &registry_.registry;
     auto scratch = loom_low_verify_scratch_for_module(module_);
-    loom_low_verify_result_t verified = {};
-    IREE_CHECK_OK(
-        loom_low_verify_module(module_, &verify_options, &scratch, &verified));
-    Require(verified.error_count == 0, "Low verification failed");
+    loom_low_verify_result_t low_verified = {};
+    IREE_CHECK_OK(loom_low_verify_module(module_, &low_verify_options, &scratch,
+                                         &low_verified));
+    Require(low_verified.error_count == 0, "Low verification failed");
     auto name = loom_module_lookup_string(module_, IREE_SV("kernel"));
     auto symbol = loom_module_find_symbol(module_, name);
     Require(symbol != LOOM_SYMBOL_ID_INVALID, "Kernel symbol missing");
@@ -498,6 +562,38 @@ class AllocationBenchmark {
       Require(std::all_of(found.begin(), found.end(),
                           [](uint8_t value) { return value != 0; }),
               "Dense relocation source values missing");
+    }
+    if (shape == Shape::kFutureFixed) {
+      const uint32_t count = chain_length * component_count;
+      fixed_values_.resize(count);
+      std::vector<uint8_t> found(count);
+      for (loom_value_id_t value_id = 0; value_id < module_->values.count;
+           ++value_id) {
+        const iree_string_view_t name =
+            loom_module_value_name(module_, value_id);
+        constexpr iree_host_size_t kPrefixLength = sizeof("fixed") - 1;
+        if (name.size <= kPrefixLength ||
+            std::memcmp(name.data, "fixed", kPrefixLength) != 0) {
+          continue;
+        }
+        uint32_t fixed_index = 0;
+        const auto parsed = std::from_chars(name.data + kPrefixLength,
+                                            name.data + name.size, fixed_index);
+        if (parsed.ec != std::errc{} || parsed.ptr != name.data + name.size ||
+            fixed_index >= count) {
+          continue;
+        }
+        fixed_values_[fixed_index] = {
+            value_id,
+            LOOM_LOW_ALLOCATION_LOCATION_TARGET_ID,
+            fixed_index,
+            1,
+        };
+        found[fixed_index] = 1;
+      }
+      Require(std::all_of(found.begin(), found.end(),
+                          [](uint8_t value) { return value != 0; }),
+              "Future-fixed source values missing");
     }
     if (phase_ != Phase::kModel) {
       InitializeModel(&base_arena_, &model_);
@@ -780,7 +876,7 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       Require(result.backedge_move_count == 0,
               "Loop-edge relocation left branch copies");
     }
-    if (shape == Shape::kFanout) {
+    if (shape == Shape::kFanout || shape == Shape::kFutureFixed) {
       Require(result.materialized_copy_count >=
                   expected_copy_count - component_count,
               "Independently live copies were incorrectly coalesced");
@@ -807,15 +903,18 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
 }
 
 [[maybe_unused]] const bool kBenchmarksRegistered = [] {
-  for (auto shape :
-       {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
-        Shape::kMoveScratch, Shape::kBranch, Shape::kTied, Shape::kFanout}) {
+  for (auto shape : {Shape::kLinear, Shape::kLoop, Shape::kLoopRelocation,
+                     Shape::kMoveScratch, Shape::kBranch, Shape::kTied,
+                     Shape::kFanout, Shape::kFutureFixed}) {
     for (auto phase : {Phase::kModel, Phase::kLiveness, Phase::kPlacement,
                        Phase::kUnitLiveness, Phase::kAllocation}) {
       if (shape == Shape::kLoopRelocation && phase != Phase::kAllocation) {
         continue;
       }
       if (shape == Shape::kMoveScratch && phase != Phase::kAllocation) {
+        continue;
+      }
+      if (shape == Shape::kFutureFixed && phase != Phase::kAllocation) {
         continue;
       }
       const std::string name =
@@ -826,7 +925,8 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
                       : shape == Shape::kMoveScratch    ? "move_scratch/"
                       : shape == Shape::kBranch         ? "branch/"
                       : shape == Shape::kTied           ? "tied/"
-                                                        : "fanout/") +
+                      : shape == Shape::kFanout         ? "fanout/"
+                                                        : "future_fixed/") +
           (phase == Phase::kModel          ? "model"
            : phase == Phase::kLiveness     ? "liveness"
            : phase == Phase::kPlacement    ? "placement"
@@ -848,6 +948,12 @@ void RunBenchmark(benchmark::State& state, Shape shape, Phase phase) {
       if (shape == Shape::kMoveScratch) {
         for (int64_t blockers : {32, 64, 128, 256, 512, 1024, 2048}) {
           registration->Args({1, blockers, 1});
+        }
+        continue;
+      }
+      if (shape == Shape::kFutureFixed) {
+        for (int64_t count : {32, 64, 128, 256, 512, 1024, 2048}) {
+          registration->Args({count, 1, 1});
         }
         continue;
       }

@@ -654,6 +654,7 @@ loom_cc_benchmark(
     loom::ops::target
     loom::ops::test
     loom::target::test::low_registry
+    loom::verify
   ARGS
     "--benchmark_filter=.*/length:(8|64)/components:(1|16)/width:(1|4)"
   TESTONLY

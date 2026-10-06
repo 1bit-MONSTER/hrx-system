@@ -19,6 +19,14 @@ extern "C" {
 
 typedef struct loom_low_allocation_fixed_storage_record_t
     loom_low_allocation_fixed_storage_record_t;
+typedef struct loom_low_allocation_fixed_location_entry_t
+    loom_low_allocation_fixed_location_entry_t;
+typedef struct loom_low_allocation_fixed_location_group_t
+    loom_low_allocation_fixed_location_group_t;
+
+struct loom_low_allocation_target_constraints_t;
+struct loom_low_allocation_assignment_t;
+struct loom_low_allocation_unit_liveness_t;
 
 // Storage-partitioned temporal index over immutable fixed assignments.
 //
@@ -44,9 +52,30 @@ typedef struct loom_low_allocation_fixed_storage_index_t {
   uint32_t generation;
 } loom_low_allocation_fixed_storage_index_t;
 
-struct loom_low_allocation_target_constraints_t;
-struct loom_low_allocation_assignment_t;
-struct loom_low_allocation_unit_liveness_t;
+// Attempt-local ordered availability projected from immutable fixed claims.
+//
+// Allocation visits acquisition starts monotonically. The cursor advances each
+// location to its first non-expired claim and retains the earliest point at
+// which that location becomes unavailable. Balanced location subtrees retain
+// the maximum such point, allowing a search to skip a dense run when every
+// location conflicts with the candidate lifetime. The state is rebuilt for an
+// independent allocation attempt and never escapes its scratch arena.
+typedef struct loom_low_allocation_fixed_availability_t {
+  // Immutable target constraints supplying exact fixed records.
+  const struct loom_low_allocation_target_constraints_t* constraints;
+  // Ordered unique fixed locations and mutable claim cursors.
+  loom_low_allocation_fixed_location_entry_t* entries;
+  // Storage-identity partitions over contiguous spans of |entries|.
+  loom_low_allocation_fixed_location_group_t* groups;
+  // Number of initialized groups in |groups|.
+  uint32_t group_count;
+  // Min-heap of entry indices ordered by current claim end point.
+  uint32_t* expiration_heap;
+  // Number of live entries in |expiration_heap|.
+  uint32_t expiration_heap_count;
+  // Latest acquisition start projected into the mutable cursors.
+  uint32_t start_point;
+} loom_low_allocation_fixed_availability_t;
 
 // Builds the fixed-storage index owned by |constraints|. Retained storage
 // comes from |arena|. Construction is linear in materialized exact claims plus
@@ -65,6 +94,30 @@ bool loom_low_allocation_target_constraints_fixed_storage_conflicts(
     const struct loom_low_allocation_unit_liveness_t* unit_liveness,
     const struct loom_low_allocation_assignment_t* candidate,
     const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count);
+
+// Initializes an attempt-local ordered view over |constraints|' immutable fixed
+// claims. All storage belongs to |arena| and requires no deinitialization.
+iree_status_t loom_low_allocation_fixed_availability_initialize(
+    const struct loom_low_allocation_target_constraints_t* constraints,
+    iree_arena_allocator_t* arena,
+    loom_low_allocation_fixed_availability_t* out_availability);
+
+// Finds the first location at or after |minimum_base| whose fixed claims do not
+// overlap |candidate|, bounded by |maximum_base|. The candidate must be a
+// continuous scalar in a linear register class and must not itself be fixed.
+// Calls on one availability state use nondecreasing candidate start points.
+bool loom_low_allocation_fixed_availability_find_next_location(
+    loom_low_allocation_fixed_availability_t* availability,
+    const struct loom_low_allocation_assignment_t* candidate,
+    uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base);
+
+// Finds the last location at or before |maximum_base| whose fixed claims do not
+// overlap |candidate|, bounded by |minimum_base|. Preconditions match the
+// forward query above.
+bool loom_low_allocation_fixed_availability_find_previous_location(
+    loom_low_allocation_fixed_availability_t* availability,
+    const struct loom_low_allocation_assignment_t* candidate,
+    uint32_t minimum_base, uint32_t maximum_base, uint32_t* out_base);
 
 #ifdef __cplusplus
 }  // extern "C"
