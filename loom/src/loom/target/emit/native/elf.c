@@ -64,49 +64,31 @@ static const loom_native_elf_format_t kLoomNativeElf64LeFormat = {
 
 // Class-neutral view over a public ELF32LE or ELF64LE file record.
 typedef struct loom_native_elf_file_view_t {
+  // ELF ET_* file type.
   uint16_t type;
+  // ELF EM_* machine identifier.
   uint16_t machine;
+  // ELF e_ident OS ABI identifier.
   uint8_t os_abi;
+  // ELF e_ident ABI version.
   uint8_t abi_version;
+  // Processor-specific ELF e_flags.
   uint32_t flags;
+  // Entry point virtual address.
   uint64_t entry;
+  // Borrowed caller-provided sections.
   const loom_native_elf_section_t* sections;
+  // Number of caller-provided sections.
   iree_host_size_t section_count;
+  // Borrowed caller-provided program segments.
   const loom_native_elf_segment_t* segments;
+  // Number of caller-provided program segments.
   iree_host_size_t segment_count;
 } loom_native_elf_file_view_t;
 
 //===----------------------------------------------------------------------===//
 // Layout model
 //===----------------------------------------------------------------------===//
-
-typedef struct loom_native_elf_section_layout_t {
-  // Section-name offset within the generated `.shstrtab`.
-  uint32_t name_offset;
-  // Byte offset of the section contents in the output file.
-  uint64_t file_offset;
-  // Byte length of the section contents in the output file.
-  uint64_t file_size;
-  // Logical section byte length recorded in sh_size.
-  uint64_t section_size;
-  // Normalized power-of-two section alignment in bytes.
-  uint64_t alignment;
-} loom_native_elf_section_layout_t;
-
-typedef struct loom_native_elf_layout_t {
-  // Section layouts, including the null section and generated `.shstrtab`.
-  loom_native_elf_section_layout_t* sections;
-  // Number of entries in |sections|.
-  iree_host_size_t section_count;
-  // Arena-backed section-name string table bytes.
-  iree_string_view_t string_table;
-  // Byte offset of the ELF program-header table, or zero when absent.
-  uint64_t program_header_offset;
-  // Byte offset of the ELF section-header table.
-  uint64_t section_header_offset;
-  // Complete serialized file byte size.
-  uint64_t file_size;
-} loom_native_elf_layout_t;
 
 static iree_status_t loom_native_elf_validate_alignment(
     uint64_t alignment, iree_string_view_t field_name) {
@@ -283,6 +265,7 @@ static iree_status_t loom_native_elf_build_layout(
     loom_native_elf_layout_t* out_layout,
     iree_arena_allocator_t* scratch_arena) {
   *out_layout = (loom_native_elf_layout_t){0};
+  IREE_RETURN_IF_ERROR(loom_native_elf_validate_file(file));
 
   iree_host_size_t section_count = 0;
   if (!iree_host_size_checked_add(file->section_count, 2u, &section_count)) {
@@ -327,9 +310,10 @@ static iree_status_t loom_native_elf_build_layout(
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "ELF program-header table is too large");
     }
-    const uint64_t program_header_table_size =
+    out_layout->program_header_size =
         (uint64_t)file->segment_count * format->program_header_size;
-    if (!iree_checked_add_u64(offset, program_header_table_size, &offset)) {
+    if (!iree_checked_add_u64(offset, out_layout->program_header_size,
+                              &offset)) {
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "ELF file layout overflow");
     }
@@ -794,9 +778,8 @@ static iree_status_t loom_native_elf64le_write_section_headers(
 
 static iree_status_t loom_native_elf_write_file(
     const loom_native_elf_file_view_t* file,
-    const loom_native_elf_format_t* format, iree_io_stream_t* stream,
-    iree_arena_allocator_t* scratch_arena) {
-  IREE_RETURN_IF_ERROR(loom_native_elf_validate_file(file));
+    const loom_native_elf_format_t* format,
+    const loom_native_elf_layout_t* layout, iree_io_stream_t* stream) {
   uint64_t initial_offset = 0;
   IREE_RETURN_IF_ERROR(loom_native_elf_stream_offset(stream, &initial_offset));
   if (initial_offset != 0) {
@@ -804,46 +787,37 @@ static iree_status_t loom_native_elf_write_file(
                             "ELF output stream must begin at offset zero");
   }
 
-  loom_native_elf_layout_t layout = {0};
-  IREE_RETURN_IF_ERROR(
-      loom_native_elf_build_layout(file, format, &layout, scratch_arena));
   if (format->elf_class == LOOM_NATIVE_ELF_CLASS_32) {
-    IREE_RETURN_IF_ERROR(loom_native_elf32le_validate_layout(file, &layout));
+    IREE_RETURN_IF_ERROR(loom_native_elf32le_validate_layout(file, layout));
     IREE_RETURN_IF_ERROR(
-        loom_native_elf32le_write_header(file, &layout, stream));
+        loom_native_elf32le_write_header(file, layout, stream));
     IREE_RETURN_IF_ERROR(
-        loom_native_elf32le_write_program_headers(file, &layout, stream));
+        loom_native_elf32le_write_program_headers(file, layout, stream));
   } else {
     IREE_RETURN_IF_ERROR(
-        loom_native_elf64le_write_header(file, &layout, stream));
+        loom_native_elf64le_write_header(file, layout, stream));
     IREE_RETURN_IF_ERROR(
-        loom_native_elf64le_write_program_headers(file, &layout, stream));
+        loom_native_elf64le_write_program_headers(file, layout, stream));
   }
   IREE_RETURN_IF_ERROR(
-      loom_native_elf_write_section_contents(file, &layout, stream));
+      loom_native_elf_write_section_contents(file, layout, stream));
   if (format->elf_class == LOOM_NATIVE_ELF_CLASS_32) {
     IREE_RETURN_IF_ERROR(
-        loom_native_elf32le_write_section_headers(file, &layout, stream));
+        loom_native_elf32le_write_section_headers(file, layout, stream));
   } else {
     IREE_RETURN_IF_ERROR(
-        loom_native_elf64le_write_section_headers(file, &layout, stream));
+        loom_native_elf64le_write_section_headers(file, layout, stream));
   }
 
   uint64_t final_offset = 0;
   IREE_RETURN_IF_ERROR(loom_native_elf_stream_offset(stream, &final_offset));
-  if (final_offset != layout.file_size) {
-    return iree_make_status(IREE_STATUS_INTERNAL,
-                            "ELF writer produced %" PRIu64
-                            " bytes for a %" PRIu64 "-byte layout",
-                            final_offset, layout.file_size);
-  }
+  IREE_ASSERT_EQ(final_offset, layout->file_size);
   return iree_ok_status();
 }
 
-iree_status_t loom_native_elf32le_write_file(
-    const loom_native_elf32le_file_t* file, iree_io_stream_t* stream,
-    iree_arena_allocator_t* scratch_arena) {
-  const loom_native_elf_file_view_t view = {
+static loom_native_elf_file_view_t loom_native_elf32le_file_view(
+    const loom_native_elf32le_file_t* file) {
+  return (loom_native_elf_file_view_t){
       .type = file->type,
       .machine = file->machine,
       .os_abi = file->os_abi,
@@ -855,25 +829,52 @@ iree_status_t loom_native_elf32le_write_file(
       .segments = file->segments,
       .segment_count = file->segment_count,
   };
-  return loom_native_elf_write_file(&view, &kLoomNativeElf32LeFormat, stream,
-                                    scratch_arena);
+}
+
+iree_status_t loom_native_elf32le_build_layout(
+    const loom_native_elf32le_file_t* file,
+    loom_native_elf_layout_t* out_layout, iree_arena_allocator_t* arena) {
+  const loom_native_elf_file_view_t view = loom_native_elf32le_file_view(file);
+  return loom_native_elf_build_layout(&view, &kLoomNativeElf32LeFormat,
+                                      out_layout, arena);
+}
+
+iree_status_t loom_native_elf32le_write_file(
+    const loom_native_elf32le_file_t* file,
+    const loom_native_elf_layout_t* layout, iree_io_stream_t* stream) {
+  const loom_native_elf_file_view_t view = loom_native_elf32le_file_view(file);
+  return loom_native_elf_write_file(&view, &kLoomNativeElf32LeFormat, layout,
+                                    stream);
+}
+
+static loom_native_elf_file_view_t loom_native_elf64le_file_view(
+    const loom_native_elf64le_file_t* file) {
+  return (loom_native_elf_file_view_t){
+      .type = file->type,
+      .machine = file->machine,
+      .os_abi = file->os_abi,
+      .abi_version = file->abi_version,
+      .flags = file->flags,
+      .entry = file->entry,
+      .sections = file->sections,
+      .section_count = file->section_count,
+      .segments = file->segments,
+      .segment_count = file->segment_count,
+  };
+}
+
+iree_status_t loom_native_elf64le_build_layout(
+    const loom_native_elf64le_file_t* file,
+    loom_native_elf_layout_t* out_layout, iree_arena_allocator_t* arena) {
+  const loom_native_elf_file_view_t view = loom_native_elf64le_file_view(file);
+  return loom_native_elf_build_layout(&view, &kLoomNativeElf64LeFormat,
+                                      out_layout, arena);
 }
 
 iree_status_t loom_native_elf64le_write_file(
-    const loom_native_elf64le_file_t* file, iree_io_stream_t* stream,
-    iree_arena_allocator_t* scratch_arena) {
-  const loom_native_elf_file_view_t view = {
-      .type = file->type,
-      .machine = file->machine,
-      .os_abi = file->os_abi,
-      .abi_version = file->abi_version,
-      .flags = file->flags,
-      .entry = file->entry,
-      .sections = file->sections,
-      .section_count = file->section_count,
-      .segments = file->segments,
-      .segment_count = file->segment_count,
-  };
-  return loom_native_elf_write_file(&view, &kLoomNativeElf64LeFormat, stream,
-                                    scratch_arena);
+    const loom_native_elf64le_file_t* file,
+    const loom_native_elf_layout_t* layout, iree_io_stream_t* stream) {
+  const loom_native_elf_file_view_t view = loom_native_elf64le_file_view(file);
+  return loom_native_elf_write_file(&view, &kLoomNativeElf64LeFormat, layout,
+                                    stream);
 }

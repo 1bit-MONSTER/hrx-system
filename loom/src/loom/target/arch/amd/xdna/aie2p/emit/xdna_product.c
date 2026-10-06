@@ -900,5 +900,8 @@ iree_status_t loom_aie2p_xdna_product_write(
       .segments = segments,
       .segment_count = segment_count,
   };
-  return loom_native_elf32le_write_file(&file, stream, scratch_arena);
+  loom_native_elf_layout_t layout = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_native_elf32le_build_layout(&file, &layout, scratch_arena));
+  return loom_native_elf32le_write_file(&file, &layout, stream);
 }

@@ -216,5 +216,7 @@ iree_status_t loom_native_object_write_elf64le(
       .sections = sections,
       .section_count = section_count,
   };
-  return loom_native_elf64le_write_file(&file, stream, arena);
+  loom_native_elf_layout_t layout = {0};
+  IREE_RETURN_IF_ERROR(loom_native_elf64le_build_layout(&file, &layout, arena));
+  return loom_native_elf64le_write_file(&file, &layout, stream);
 }
