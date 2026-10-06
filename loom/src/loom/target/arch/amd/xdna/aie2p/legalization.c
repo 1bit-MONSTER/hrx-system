@@ -643,23 +643,28 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINNUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_aie2p_legalize_vector_float_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXNUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_aie2p_legalize_vector_float_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MINIMUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_aie2p_legalize_vector_float_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_MAXIMUMF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_aie2p_legalize_vector_float_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_CLAMPF,
-        .legalize = loom_aie2p_legalize_vector_to_scalar,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_FLOAT,
+        .legalize = loom_aie2p_legalize_vector_float_extrema,
     },
     {
         .root_kind = LOOM_OP_VECTOR_TABLE_LOOKUP,

@@ -21,6 +21,14 @@ iree_status_t loom_aie2p_legalize_vector_cmpf(
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result);
 
+// Lowers exact floating-point extrema and clamp operations through the same
+// packed integer order keys as comparisons. Preserves each operation's NaN and
+// signed-zero semantics without extracting lanes.
+iree_status_t loom_aie2p_legalize_vector_float_extrema(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

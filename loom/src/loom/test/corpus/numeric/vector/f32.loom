@@ -38,20 +38,6 @@ func.def @vector_f32_arithmetic(%lhs_buffer: buffer, %rhs_buffer: buffer, %outpu
   func.return
 }
 
-func.def @vector_f32_extrema(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
-  %base = index.constant 0 : offset
-  %lhs_view = buffer.view %lhs_buffer[%base] : buffer -> view<4xf32>
-  %rhs_view = buffer.view %rhs_buffer[%base] : buffer -> view<4xf32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<8xf32>
-  %lhs = vector.load %lhs_view[0] : view<4xf32> -> vector<4xf32>
-  %rhs = vector.load %rhs_view[0] : view<4xf32> -> vector<4xf32>
-  %minimum = vector.minimumf %lhs, %rhs : vector<4xf32>
-  vector.store %minimum, %output_view[0] : vector<4xf32>, view<8xf32>
-  %maximum = vector.maximumf %lhs, %rhs : vector<4xf32>
-  vector.store %maximum, %output_view[4] : vector<4xf32>, view<8xf32>
-  func.return
-}
-
 // The nnan contract makes the ordered and unordered spellings equivalent.
 func.def @vector_f32_comparisons_no_nan(%lhs_buffer: buffer, %rhs_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
@@ -115,28 +101,6 @@ check.scenario @numeric_vector_f32_values {
     check.compare<@vector_f32_unary>(%input, %output) : (tensor<4xf32>, tensor<28xf32>) -> () {
       check.expect.close actual(%output) expected(%output) atol(0.0) rtol(9.9999999999999995e-07) nan(same) : tensor<28xf32>
       check.expect.bitwise actual(%input) expected(%expected_input) : tensor<4xf32>
-      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
-      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
-    }
-  }
-  check.trial[64](%trial: index, %entropy: check.entropy) {
-    %lhs_entropy = check.entropy.fork %entropy name("extrema_lhs") : check.entropy
-    %rhs_entropy = check.entropy.fork %entropy name("extrema_rhs") : check.entropy
-    %lhs_seed = check.entropy.read %lhs_entropy[%trial] : check.entropy -> i64
-    %rhs_seed = check.entropy.read %rhs_entropy[%trial] : check.entropy -> i64
-    %lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
-    %rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
-    %expected_lhs = check.generate.random.uniform seed(%lhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
-    %expected_rhs = check.generate.random.uniform seed(%rhs_seed) range(-1024.0 to 1024.0) : tensor<4xf32>
-    %storage = check.generate.fill value(-123.5) : tensor<16xf32>
-    %output = check.tensor.view %storage offset(16) : tensor<16xf32> -> tensor<8xf32>
-    %prefix = check.tensor.view %storage offset(0) : tensor<16xf32> -> tensor<4xf32>
-    %suffix = check.tensor.view %storage offset(48) : tensor<16xf32> -> tensor<4xf32>
-    %guard = check.generate.fill value(-123.5) : tensor<4xf32>
-    check.compare<@vector_f32_extrema>(%lhs, %rhs, %output) : (tensor<4xf32>, tensor<4xf32>, tensor<8xf32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<8xf32>
-      check.expect.bitwise actual(%lhs) expected(%expected_lhs) : tensor<4xf32>
-      check.expect.bitwise actual(%rhs) expected(%expected_rhs) : tensor<4xf32>
       check.expect.bitwise actual(%prefix) expected(%guard) : tensor<4xf32>
       check.expect.bitwise actual(%suffix) expected(%guard) : tensor<4xf32>
     }

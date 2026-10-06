@@ -65,6 +65,7 @@ _NO_DEVICE_SUBJECTS = [
     "numeric/vector/fields.loom",
     "numeric/vector/floating.loom",
     "numeric/vector/float_comparison.loom",
+    "numeric/vector/float_extrema.loom",
     "numeric/vector/indexing.loom",
     "numeric/vector/reductions.loom",
     "numeric/vector/selection.loom",
