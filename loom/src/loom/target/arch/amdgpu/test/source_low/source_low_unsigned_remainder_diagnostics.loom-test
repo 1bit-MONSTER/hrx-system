@@ -54,9 +54,30 @@ func.def target(@target) @signed_remainder(%value: i32) -> (i32) {
 
 amdgpu.target<gfx11-generic> @target
 
-func.def target(@target) @unsigned_quotient(%value: i32) -> (i32) {
-  %c3 = scalar.constant 3 : i32
-  // ERROR@+1: TARGET/001 {op_name="scalar.divui"}
-  %result = scalar.divui %value, %c3 : i32
+func.def target(@target) @dynamic_unsigned_quotient(%value: i32, %divisor: i32) -> (i32) {
+  // ERROR@+1: TARGET/003 {op_name="scalar.divui"}
+  %result = scalar.divui %value, %divisor : i32
   func.return %result : i32
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @zero_unsigned_quotient(%value: i32) -> (i32) {
+  %c0 = scalar.constant 0 : i32
+  // ERROR@+1: TARGET/003 {op_name="scalar.divui"}
+  %result = scalar.divui %value, %c0 : i32
+  func.return %result : i32
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @wide_unsigned_quotient(%value: i64) -> (i64) {
+  %c3 = scalar.constant 3 : i64
+  // ERROR@+1: TARGET/002 {op_name="scalar.divui"}
+  %result = scalar.divui %value, %c3 : i64
+  func.return %result : i64
 }

@@ -1,3 +1,128 @@
+// Byte and halfword division use unsigned promotion to the same u32 recipes.
+func.def @constant_narrow_quotients(%dynamic_zero: i32, %uniform_bits: i64, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %values = buffer.view %input[%base] : buffer -> view<32xi32>
+  %results = buffer.view %output[%base] : buffer -> view<6x32xi32>
+  %byte_uniform = scalar.trunci %uniform_bits : i64 to i8
+  %byte_third_constant = scalar.constant 3 : i8
+  %byte_seventh_constant = scalar.constant 7 : i8
+  %byte_high_constant = scalar.constant -127 : i8
+  %byte_uniform_quotient = scalar.divui %byte_uniform, %byte_third_constant : i8
+  %byte_uniform_result = scalar.extui %byte_uniform_quotient : i8 to i32
+  %halfword_uniform = scalar.trunci %uniform_bits : i64 to i16
+  %halfword_third_constant = scalar.constant 3 : i16
+  %halfword_seventh_constant = scalar.constant 7 : i16
+  %halfword_high_constant = scalar.constant -32767 : i16
+  %halfword_uniform_quotient = scalar.divui %halfword_uniform, %halfword_third_constant : i16
+  %halfword_uniform_result = scalar.extui %halfword_uniform_quotient : i16 to i32
+  scf.for %lane = [%begin to %end step %step] {
+    %value = view.load %values[%lane] : view<32xi32> -> i32
+    %byte = scalar.trunci %value : i32 to i8
+    %byte_seventh_quotient = scalar.divui %byte, %byte_seventh_constant : i8
+    %byte_seventh_result = scalar.extui %byte_seventh_quotient : i8 to i32
+    %byte_high_quotient = scalar.divui %byte, %byte_high_constant : i8
+    %byte_high_result = scalar.extui %byte_high_quotient : i8 to i32
+    view.store %byte_uniform_result, %results[0, %lane] : i32, view<6x32xi32>
+    view.store %byte_seventh_result, %results[1, %lane] : i32, view<6x32xi32>
+    view.store %byte_high_result, %results[2, %lane] : i32, view<6x32xi32>
+    %halfword = scalar.trunci %value : i32 to i16
+    %halfword_seventh_quotient = scalar.divui %halfword, %halfword_seventh_constant : i16
+    %halfword_seventh_result = scalar.extui %halfword_seventh_quotient : i16 to i32
+    %halfword_high_quotient = scalar.divui %halfword, %halfword_high_constant : i16
+    %halfword_high_result = scalar.extui %halfword_high_quotient : i16 to i32
+    view.store %halfword_uniform_result, %results[3, %lane] : i32, view<6x32xi32>
+    view.store %halfword_seventh_result, %results[4, %lane] : i32, view<6x32xi32>
+    view.store %halfword_high_result, %results[5, %lane] : i32, view<6x32xi32>
+  }
+  func.return
+}
+
+func.def @dynamic_narrow_quotients(%dynamic_zero: i32, %uniform_bits: i64, %input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %values = buffer.view %input[%base] : buffer -> view<32xi32>
+  %results = buffer.view %output[%base] : buffer -> view<6x32xi32>
+  %byte_uniform = scalar.trunci %uniform_bits : i64 to i8
+  %byte_zero = scalar.trunci %dynamic_zero : i32 to i8
+  %byte_third_constant = scalar.constant 3 : i8
+  %byte_third_divisor = scalar.addi %byte_zero, %byte_third_constant : i8
+  %byte_seventh_constant = scalar.constant 7 : i8
+  %byte_seventh_divisor = scalar.addi %byte_zero, %byte_seventh_constant : i8
+  %byte_high_constant = scalar.constant -127 : i8
+  %byte_high_divisor = scalar.addi %byte_zero, %byte_high_constant : i8
+  %byte_uniform_quotient = scalar.divui %byte_uniform, %byte_third_divisor : i8
+  %byte_uniform_result = scalar.extui %byte_uniform_quotient : i8 to i32
+  %halfword_uniform = scalar.trunci %uniform_bits : i64 to i16
+  %halfword_zero = scalar.trunci %dynamic_zero : i32 to i16
+  %halfword_third_constant = scalar.constant 3 : i16
+  %halfword_third_divisor = scalar.addi %halfword_zero, %halfword_third_constant : i16
+  %halfword_seventh_constant = scalar.constant 7 : i16
+  %halfword_seventh_divisor = scalar.addi %halfword_zero, %halfword_seventh_constant : i16
+  %halfword_high_constant = scalar.constant -32767 : i16
+  %halfword_high_divisor = scalar.addi %halfword_zero, %halfword_high_constant : i16
+  %halfword_uniform_quotient = scalar.divui %halfword_uniform, %halfword_third_divisor : i16
+  %halfword_uniform_result = scalar.extui %halfword_uniform_quotient : i16 to i32
+  scf.for %lane = [%begin to %end step %step] {
+    %value = view.load %values[%lane] : view<32xi32> -> i32
+    %byte = scalar.trunci %value : i32 to i8
+    %byte_seventh_quotient = scalar.divui %byte, %byte_seventh_divisor : i8
+    %byte_seventh_result = scalar.extui %byte_seventh_quotient : i8 to i32
+    %byte_high_quotient = scalar.divui %byte, %byte_high_divisor : i8
+    %byte_high_result = scalar.extui %byte_high_quotient : i8 to i32
+    view.store %byte_uniform_result, %results[0, %lane] : i32, view<6x32xi32>
+    view.store %byte_seventh_result, %results[1, %lane] : i32, view<6x32xi32>
+    view.store %byte_high_result, %results[2, %lane] : i32, view<6x32xi32>
+    %halfword = scalar.trunci %value : i32 to i16
+    %halfword_seventh_quotient = scalar.divui %halfword, %halfword_seventh_divisor : i16
+    %halfword_seventh_result = scalar.extui %halfword_seventh_quotient : i16 to i32
+    %halfword_high_quotient = scalar.divui %halfword, %halfword_high_divisor : i16
+    %halfword_high_result = scalar.extui %halfword_high_quotient : i16 to i32
+    view.store %halfword_uniform_result, %results[3, %lane] : i32, view<6x32xi32>
+    view.store %halfword_seventh_result, %results[4, %lane] : i32, view<6x32xi32>
+    view.store %halfword_high_result, %results[5, %lane] : i32, view<6x32xi32>
+  }
+  func.return
+}
+
+check.scenario @constant_narrow_quotient_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %dynamic_zero = check.literal value(0) : i32
+    %uniform_bits = check.literal value(-1) : i64
+    %input = check.generate.iota offset(120) step(1) : tensor<32xi32>
+    %output = check.generate.fill value(-123) : tensor<192xi32>
+    check.compare<@constant_narrow_quotients, @dynamic_narrow_quotients>(%dynamic_zero, %uniform_bits, %input, %output) : (i32, i64, tensor<32xi32>, tensor<192xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<192xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %dynamic_zero = check.literal value(0) : i32
+    %uniform_bits = check.literal value(-1) : i64
+    %input = check.generate.iota offset(32760) step(1) : tensor<32xi32>
+    %output = check.generate.fill value(-123) : tensor<192xi32>
+    check.compare<@constant_narrow_quotients, @dynamic_narrow_quotients>(%dynamic_zero, %uniform_bits, %input, %output) : (i32, i64, tensor<32xi32>, tensor<192xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<192xi32>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %uniform_entropy = check.entropy.fork %entropy name("uniform") : check.entropy
+    %input_entropy = check.entropy.fork %entropy name("input") : check.entropy
+    %uniform_bits = check.entropy.read %uniform_entropy[%trial] : check.entropy -> i64
+    %seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %dynamic_zero = check.literal value(0) : i32
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<32xi32>
+    %output = check.generate.fill value(-123) : tensor<192xi32>
+    check.compare<@constant_narrow_quotients, @dynamic_narrow_quotients>(%dynamic_zero, %uniform_bits, %input, %output) : (i32, i64, tensor<32xi32>, tensor<192xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<192xi32>
+    }
+  }
+  check.return
+}
+
 // Literal divisors stay beside the operations they specialize because constant
 // division lowering runs before calls can propagate operand facts.
 func.def inline @constant_scalar_quotient_rows(%value: i32, %output: buffer, %column: index) {

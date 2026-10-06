@@ -150,6 +150,41 @@ def test_index_bit_operations_cover_scalar_and_vector_registers() -> None:
             assert set(_rule_type_patterns(compiled, rule)) == {Scalar("index")}
 
 
+def test_constant_unsigned_quotients_cover_both_register_classes() -> None:
+    compiled = _compiled_integer_rules()
+    scalar_rules = _rules_for_source_op(compiled, scalar_arithmetic.scalar_divui)
+    scalar_sequences = tuple(
+        _rule_descriptor_keys(compiled, rule) for rule in scalar_rules
+    )
+    index_sequences = tuple(
+        _rule_descriptor_keys(compiled, rule)
+        for rule in _rules_for_source_op(compiled, index.index_div)
+        if any(
+            key.endswith("mul_hi_u32") for key in _rule_descriptor_keys(compiled, rule)
+        )
+    )
+    # Both magic variants share the index implementation, with scalar i32
+    # materialization instead of nonnegative address-value materialization.
+    assert len(index_sequences) == 4
+    assert scalar_sequences[:4] == index_sequences
+    assert scalar_sequences[4:] == (
+        (
+            "amdgpu.s_cmp_ge_u32",
+            "amdgpu.s_mov_b32",
+            "amdgpu.s_mov_b32",
+            "amdgpu.s_cselect_b32",
+        ),
+        (
+            "amdgpu.v_cmp_uge_u32",
+            "amdgpu.v_mov_b32",
+            "amdgpu.v_mov_b32",
+            "amdgpu.v_cndmask_b32",
+        ),
+    )
+    for rule in scalar_rules:
+        assert set(_rule_type_patterns(compiled, rule)) == {Scalar("i32")}
+
+
 def test_unsigned_bitfield_extract_rules_try_native_bfe_before_shift_mask() -> None:
     positions = _descriptor_sequence_positions(
         _compiled_arithmetic_rules(),
