@@ -17,6 +17,8 @@
 #include "loom/format/text/parser.h"
 #include "loom/ir/module.h"
 #include "loom/link/linker.h"
+#include "loom/target/provider.h"
+#include "loom/tooling/context/context.h"
 
 enum {
   LOOM_RUN_DEFAULT_BLOCK_POOL_BLOCK_SIZE = 128 * 1024,
@@ -37,6 +39,7 @@ iree_status_t loom_run_session_initialize(
   *out_session = (loom_run_session_t){
       .host_allocator = options->host_allocator,
       .input_providers = options->input_providers,
+      .target_environment = options->target_environment,
       .cleanup_pattern_provider_set = options->cleanup_pattern_provider_set,
   };
 
@@ -57,15 +60,11 @@ iree_status_t loom_run_session_initialize(
       block_pool_block_size, options->host_allocator, &out_session->block_pool);
   out_session->block_pool_initialized = true;
 
-  iree_status_t status = options->initialize_low_descriptor_registry.fn(
-      options->initialize_low_descriptor_registry.user_data,
-      &out_session->low_descriptor_registry);
-  if (iree_status_is_ok(status)) {
-    loom_context_initialize(options->host_allocator, &out_session->context);
-    out_session->context_initialized = true;
-    status = options->register_context.fn(options->register_context.user_data,
-                                          &out_session->context);
-  }
+  loom_context_initialize(options->host_allocator, &out_session->context);
+  out_session->context_initialized = true;
+  iree_status_t status =
+      loom_tooling_context_register_tool_dialects_with_target_environment(
+          options->target_environment, &out_session->context);
   if (iree_status_is_ok(status)) {
     status = loom_context_finalize(&out_session->context);
   }
@@ -95,11 +94,6 @@ loom_context_t* loom_run_session_context(loom_run_session_t* session) {
 iree_arena_block_pool_t* loom_run_session_block_pool(
     loom_run_session_t* session) {
   return &session->block_pool;
-}
-
-const loom_target_low_descriptor_registry_t*
-loom_run_session_low_descriptor_registry(const loom_run_session_t* session) {
-  return &session->low_descriptor_registry;
 }
 
 const loom_cleanup_pattern_provider_set_t*
@@ -139,8 +133,11 @@ static iree_status_t loom_run_module_import_source(
   };
   IREE_RETURN_IF_ERROR(loom_input_options_for_provider(
       options->input.provider_options, provider->name, &request.options));
+  const loom_target_low_descriptor_registry_t low_descriptor_registry =
+      loom_target_environment_low_descriptor_registry(
+          session->target_environment);
   loom_low_descriptor_text_asm_environment_initialize(
-      &session->low_descriptor_registry.registry,
+      &low_descriptor_registry.registry,
       &request.parse_options.low_asm_environment);
   loom_input_module_t input = {0};
   iree_status_t status = loom_input_module_load(
@@ -169,9 +166,11 @@ static iree_status_t loom_run_module_read_bytecode(
   loom_bytecode_read_options_t read_options = {
       .diagnostic_sink = options->diagnostic_sink,
   };
-  loom_low_repr_environment_initialize(
-      &session->low_descriptor_registry.registry,
-      &read_options.low_repr_environment);
+  const loom_target_low_descriptor_registry_t low_descriptor_registry =
+      loom_target_environment_low_descriptor_registry(
+          session->target_environment);
+  loom_low_repr_environment_initialize(&low_descriptor_registry.registry,
+                                       &read_options.low_repr_environment);
   loom_bytecode_read_result_t read_result = {0};
   IREE_RETURN_IF_ERROR(loom_bytecode_read_module(
       bytecode, options->filename, &session->context, &session->block_pool,

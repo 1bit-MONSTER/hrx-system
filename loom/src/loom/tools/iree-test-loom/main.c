@@ -18,7 +18,6 @@
 #include "loom/sanitizer/options.h"
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/config/config.h"
-#include "loom/tooling/context/context.h"
 #include "loom/tooling/execution/hal/scenario_profile.h"
 #include "loom/tooling/execution/hal/testbench_actual.h"
 #include "loom/tooling/input/flags.h"
@@ -161,18 +160,6 @@ static iree_status_t iree_test_loom_open_file_for_read(
       provider->host_allocator, out_stream);
   iree_allocator_free(provider->host_allocator, resolved_path);
   return status;
-}
-
-static iree_status_t iree_test_loom_register_context(void* user_data,
-                                                     loom_context_t* context) {
-  const iree_test_loom_configuration_t* configuration =
-      (const iree_test_loom_configuration_t*)user_data;
-  IREE_RETURN_IF_ERROR(loom_tooling_context_register_tool_dialects(context));
-  if (configuration->register_context.fn == NULL) {
-    return iree_ok_status();
-  }
-  return configuration->register_context.fn(
-      configuration->register_context.user_data, context);
 }
 
 static iree_status_t iree_test_loom_verify_run_module(
@@ -321,7 +308,6 @@ static iree_status_t iree_test_loom_configure_hal_actual_sequence(
   const loom_run_hal_testbench_actual_sequence_options_t sequence_options = {
       .context = hal_context,
       .session = session,
-      .target_environment = configuration->target_environment,
       .run_module = run_module,
       .pipeline = iree_make_cstring_view(FLAG_pipeline),
       .target = iree_make_cstring_view(FLAG_target),
@@ -857,12 +843,7 @@ int iree_test_loom_main(int argc, char** argv,
     loom_run_session_options_initialize(&session_options);
     session_options.host_allocator = allocator;
     session_options.input_providers = configuration->input_providers;
-    session_options.register_context = (loom_run_register_context_callback_t){
-        .fn = iree_test_loom_register_context,
-        .user_data = (void*)configuration,
-    };
-    session_options.initialize_low_descriptor_registry =
-        configuration->initialize_low_descriptor_registry;
+    session_options.target_environment = configuration->target_environment;
     session_options.cleanup_pattern_provider_set =
         configuration->cleanup_pattern_provider_set;
     status = loom_run_session_initialize(&session_options, &session);
@@ -1020,7 +1001,6 @@ int iree_test_loom_main(int argc, char** argv,
             provider_options = {
                 .context = &hal_context,
                 .session = &session,
-                .target_environment = configuration->target_environment,
                 .run_module = &run_module,
                 .pipeline = iree_make_cstring_view(FLAG_pipeline),
                 .target = target,

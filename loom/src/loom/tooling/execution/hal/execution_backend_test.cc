@@ -8,9 +8,7 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/ops/op_registry.h"
 #include "loom/ops/test/ops.h"
-#include "loom/ops/test/registry.h"
 #include "loom/target/low_descriptor_registry_core_test.h"
 #include "loom/target/provider.h"
 #include "loom/target/test/target_records.h"
@@ -99,6 +97,8 @@ static iree_status_t SelectFakeTargetProfile(
 
 static loom_target_provider_t MakeFakeTargetProvider() {
   loom_target_provider_t provider = {};
+  provider.initialize_low_descriptor_registry =
+      loom_target_core_test_low_descriptor_registry_initialize;
   provider.profile_type = &kFakeTargetProfileType;
   provider.select_profile = SelectFakeTargetProfile;
   return provider;
@@ -201,39 +201,20 @@ static const loom_target_emitter_t kFakeTargetEmitter = {
     /*.emit=*/EmitFakeTargetArtifact,
 };
 
-static iree_status_t RegisterContext(void* user_data, loom_context_t* context) {
-  (void)user_data;
-  IREE_RETURN_IF_ERROR(loom_op_registry_register_all_dialects(context));
-  return loom_test_dialect_register(context);
-}
-
-static iree_status_t InitializeLowDescriptorRegistry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  (void)user_data;
-  loom_target_core_test_low_descriptor_registry_initialize(out_registry);
-  return iree_ok_status();
-}
-
 class HalExecutionBackendTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    loom_run_session_options_t session_options = {};
-    loom_run_session_options_initialize(&session_options);
-    session_options.register_context = (loom_run_register_context_callback_t){
-        /*.fn=*/RegisterContext,
-    };
-    session_options.initialize_low_descriptor_registry =
-        (loom_run_initialize_low_descriptor_registry_callback_t){
-            /*.fn=*/InitializeLowDescriptorRegistry,
-        };
-    session_options.cleanup_pattern_provider_set =
-        loom_cleanup_configured_pattern_provider_set();
-    IREE_ASSERT_OK(loom_run_session_initialize(&session_options, &session_));
-
     target_providers_[0] = &kFakeTargetProvider;
     target_provider_set_ = loom_target_provider_set_make(target_providers_, 1);
     IREE_ASSERT_OK(loom_target_environment_initialize(&target_provider_set_,
                                                       &target_environment_));
+
+    loom_run_session_options_t session_options = {};
+    loom_run_session_options_initialize(&session_options);
+    session_options.target_environment = &target_environment_;
+    session_options.cleanup_pattern_provider_set =
+        loom_cleanup_configured_pattern_provider_set();
+    IREE_ASSERT_OK(loom_run_session_initialize(&session_options, &session_));
   }
 
   void TearDown() override {
@@ -306,7 +287,6 @@ pass.pipeline<module> @debug pipeline {
   loom_run_one_shot_result_initialize(iree_allocator_system(), &result);
   const loom_run_one_shot_request_t request = {
       /*.session=*/&session_,
-      /*.target_environment=*/&target_environment_,
       /*.pipeline=*/IREE_SV("@debug"),
       /*.target=*/IREE_SV("fake:forced"),
       /*.run_module=*/&run_module,

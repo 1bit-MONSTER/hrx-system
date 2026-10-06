@@ -103,8 +103,6 @@ static iree_status_t iree_benchmark_loom_scenario_ensure_profile(
   const loom_run_hal_testbench_actual_provider_options_t provider_options = {
       .context = &options->hal_context->execution,
       .session = options->session,
-      .target_environment =
-          options->hal_context->configuration->target_environment,
       .run_module = options->run_module,
       .pipeline = options->benchmark_options->pipeline,
       .target = target,

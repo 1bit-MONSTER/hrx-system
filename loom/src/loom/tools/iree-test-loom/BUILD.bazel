@@ -114,6 +114,7 @@ loom_cc_test(
     deps = [
         ":library_linker",
         "//loom/src/loom/error:source",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/io:file",
         "//runtime/src/iree/base",
@@ -153,7 +154,6 @@ loom_cc_library(
         "//loom/src/loom/target:provider",
         "//loom/src/loom/tooling/cli:help",
         "//loom/src/loom/tooling/config",
-        "//loom/src/loom/tooling/context",
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/execution/hal:device_provider",
         "//loom/src/loom/tooling/execution/hal:scenario_profile",

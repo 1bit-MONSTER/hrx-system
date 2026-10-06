@@ -6,10 +6,10 @@
 
 // HAL kernel-launch bridge for Loom check testbench actual-candidate execution.
 //
-// This layer is target-neutral: tools inject a composed target environment and
-// linked device providers, while this bridge owns HAL runtime selection,
-// candidate compilation, dispatch input conversion, and the callback shape used
-// by the testbench executor.
+// This layer is target-neutral: tools inject an execution session with its
+// composed target environment and linked device providers, while this bridge
+// owns HAL runtime selection, candidate compilation, dispatch input conversion,
+// and the callback shape used by the testbench executor.
 
 #ifndef LOOM_TOOLING_EXECUTION_HAL_TESTBENCH_ACTUAL_H_
 #define LOOM_TOOLING_EXECUTION_HAL_TESTBENCH_ACTUAL_H_
@@ -111,8 +111,6 @@ typedef struct loom_run_hal_testbench_actual_provider_options_t {
   loom_run_hal_testbench_context_t* context;
   // Execution session used to clone and compile the private module copy.
   loom_run_session_t* session;
-  // Target environment used by the source-to-low pipeline.
-  const loom_target_environment_t* target_environment;
   // Canonical parsed module that owns |kernel_launch|. Borrowed through
   // provider deinitialization.
   const loom_run_module_t* run_module;
@@ -143,8 +141,6 @@ typedef struct loom_run_hal_testbench_actual_provider_t {
   loom_run_hal_testbench_context_t* context;
   // Execution session used to clone and compile the private module copy.
   loom_run_session_t* session;
-  // Target environment used by the source-to-low pipeline.
-  const loom_target_environment_t* target_environment;
   // Canonical parsed module that owns |kernel_launch|. Borrowed through
   // provider deinitialization.
   const loom_run_module_t* run_module;
@@ -238,8 +234,6 @@ typedef struct loom_run_hal_testbench_actual_sequence_options_t {
   loom_run_hal_testbench_context_t* context;
   // Execution session used to clone and compile each private module copy.
   loom_run_session_t* session;
-  // Target environment used by the source-to-low pipeline.
-  const loom_target_environment_t* target_environment;
   // Canonical parsed module that owns |case_plan|. Borrowed through sequence
   // deinitialization.
   const loom_run_module_t* run_module;

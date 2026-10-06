@@ -39,7 +39,6 @@ loom_cc_binary(
         "//loom/src/loom/target/configured:provider",
         "//loom/src/loom/tooling/cli:help",
         "//loom/src/loom/tooling/config",
-        "//loom/src/loom/tooling/context",
         "//loom/src/loom/tooling/execution:session",
         "//loom/src/loom/tooling/io:file",
         "//loom/src/loom/tooling/pass:trace_cli",

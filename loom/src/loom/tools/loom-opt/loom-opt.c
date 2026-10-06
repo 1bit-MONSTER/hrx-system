@@ -32,7 +32,6 @@
 #include "loom/target/provider.h"
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/config/config.h"
-#include "loom/tooling/context/context.h"
 #include "loom/tooling/execution/session.h"
 #include "loom/tooling/io/file.h"
 #include "loom/tooling/pass/trace_cli.h"
@@ -298,23 +297,6 @@ static iree_string_view_t loom_opt_pipeline_kind_stage_name(
     default:
       return IREE_SV("none");
   }
-}
-
-static iree_status_t loom_opt_register_context(void* user_data,
-                                               loom_context_t* context) {
-  const loom_target_environment_t* target_environment =
-      (const loom_target_environment_t*)user_data;
-  return loom_tooling_context_register_tool_dialects_with_target_environment(
-      target_environment, context);
-}
-
-static iree_status_t loom_opt_initialize_low_descriptor_registry(
-    void* user_data, loom_target_low_descriptor_registry_t* out_registry) {
-  const loom_target_environment_t* target_environment =
-      (const loom_target_environment_t*)user_data;
-  *out_registry =
-      loom_target_environment_low_descriptor_registry(target_environment);
-  return iree_ok_status();
 }
 
 static bool loom_opt_resolve_emission_location(
@@ -1350,6 +1332,8 @@ int main(int argc, char** argv) {
   loom_tooling_config_set_initialize(allocator, &config_set);
   const loom_target_environment_t* target_environment =
       loom_configured_target_environment();
+  const loom_target_low_descriptor_registry_t low_descriptor_registry =
+      loom_target_environment_low_descriptor_registry(target_environment);
   loom_pass_registry_storage_t pass_registry_storage = {0};
   const loom_pass_registry_t* pass_registry = NULL;
   iree_string_view_t source = iree_string_view_empty();
@@ -1438,21 +1422,13 @@ int main(int argc, char** argv) {
     loom_run_session_options_t session_options = {0};
     loom_run_session_options_initialize(&session_options);
     session_options.host_allocator = allocator;
-    session_options.register_context = (loom_run_register_context_callback_t){
-        .fn = loom_opt_register_context,
-        .user_data = (void*)target_environment,
-    };
-    session_options.initialize_low_descriptor_registry =
-        (loom_run_initialize_low_descriptor_registry_callback_t){
-            .fn = loom_opt_initialize_low_descriptor_registry,
-            .user_data = (void*)target_environment,
-        };
+    session_options.target_environment = target_environment;
     session_options.cleanup_pattern_provider_set =
         loom_cleanup_configured_pattern_provider_set();
     status = loom_run_session_initialize(&session_options, &run_session);
     if (iree_status_is_ok(status)) {
       loom_low_descriptor_text_print_context_initialize(
-          &loom_run_session_low_descriptor_registry(&run_session)->registry,
+          &low_descriptor_registry.registry,
           &diagnostic_sink_state.type_print_context);
     }
   }
@@ -1485,9 +1461,8 @@ int main(int argc, char** argv) {
     status = loom_run_module_parse(&run_session, &parse_options, &run_module);
   }
   if (iree_status_is_ok(status) && !metadata_only && FLAG_verify) {
-    status = loom_opt_verify_module(
-        loom_run_session_low_descriptor_registry(&run_session), &run_module,
-        diagnostic_sink);
+    status = loom_opt_verify_module(&low_descriptor_registry, &run_module,
+                                    diagnostic_sink);
   }
   if (iree_status_is_ok(status) && !metadata_only) {
     status = loom_opt_materialize_config_set(
@@ -1496,9 +1471,8 @@ int main(int argc, char** argv) {
   }
   if (iree_status_is_ok(status) && !metadata_only && FLAG_verify &&
       config_materialize_result.materialized_count > 0) {
-    status = loom_opt_verify_module(
-        loom_run_session_low_descriptor_registry(&run_session), &run_module,
-        diagnostic_sink);
+    status = loom_opt_verify_module(&low_descriptor_registry, &run_module,
+                                    diagnostic_sink);
   }
   if (iree_status_is_ok(status) && !metadata_only) {
     status = loom_tooling_pass_trace_open_from_flags(
@@ -1513,14 +1487,13 @@ int main(int argc, char** argv) {
     }
     if (pass_trace_options_ptr) {
       loom_low_descriptor_text_asm_environment_initialize(
-          &loom_run_session_low_descriptor_registry(&run_session)->registry,
+          &low_descriptor_registry.registry,
           &pass_trace_options.print_options.low_asm_environment);
     }
   }
   if (iree_status_is_ok(status) && !metadata_only) {
     pass_pipeline_status = loom_opt_run_passes(
-        loom_run_session_low_descriptor_registry(&run_session),
-        target_environment,
+        &low_descriptor_registry, target_environment,
         loom_run_session_cleanup_pattern_provider_set(&run_session),
         pass_registry, loom_run_session_block_pool(&run_session), &run_module,
         diagnostic_sink, pass_report_initialized ? &pass_report : NULL,
@@ -1547,9 +1520,8 @@ int main(int argc, char** argv) {
   }
   if (iree_status_is_ok(status) && pass_run_result.error_count == 0 &&
       !metadata_only && FLAG_verify) {
-    status = loom_opt_verify_module(
-        loom_run_session_low_descriptor_registry(&run_session), &run_module,
-        diagnostic_sink);
+    status = loom_opt_verify_module(&low_descriptor_registry, &run_module,
+                                    diagnostic_sink);
     if (!iree_status_is_ok(status) && pass_execution_started &&
         iree_status_is_ok(pass_pipeline_status)) {
       iree_status_code_t status_code = iree_status_code(status);
@@ -1570,10 +1542,9 @@ int main(int argc, char** argv) {
       status = loom_opt_print_config_schema(iree_make_cstring_view(FLAG_output),
                                             run_module.module, allocator);
     } else {
-      status = loom_opt_print_module(
-          iree_make_cstring_view(FLAG_output),
-          loom_run_session_low_descriptor_registry(&run_session),
-          run_module.module, allocator);
+      status = loom_opt_print_module(iree_make_cstring_view(FLAG_output),
+                                     &low_descriptor_registry,
+                                     run_module.module, allocator);
     }
   }
   status = iree_status_join(status, loom_tooling_pass_trace_close(&pass_trace));

@@ -48,7 +48,6 @@ void iree_benchmark_loom_hal_actual_provider_initialize(
   loom_run_hal_testbench_actual_provider_options_t provider_options = {
       .context = &context->execution,
       .session = session,
-      .target_environment = context->configuration->target_environment,
       .run_module = run_module,
       .pipeline = benchmark_options->pipeline,
       .target = benchmark_options->target,

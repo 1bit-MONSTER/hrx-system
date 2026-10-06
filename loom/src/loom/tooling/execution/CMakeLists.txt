@@ -30,7 +30,6 @@ loom_cc_library(
     "execution_provider.c"
   DEPS
     ::execution_backend
-    ::session
     iree::base
     loom::target::provider
   PUBLIC
@@ -95,7 +94,8 @@ loom_cc_library(
     loom::format::text::parser
     loom::ir
     loom::link::linker
-    loom::target::low_descriptor_registry
+    loom::target::provider
+    loom::tooling::context
     loom::tooling::input
     loom::tooling::io::source
   PUBLIC
@@ -125,8 +125,8 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::ops::op_registry
     loom::target::low_descriptor_registry_core_test
+    loom::target::provider
 )
 
 loom_cc_test(

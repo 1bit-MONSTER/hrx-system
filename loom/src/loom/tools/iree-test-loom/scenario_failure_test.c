@@ -230,9 +230,6 @@ int main(int argc, char** argv) {
   };
   const iree_test_loom_configuration_t configuration = {
       .tool_name = "iree-test-loom-scenario-failure-test",
-      .register_context =
-          loom_run_execution_environment_register_context_callback(
-              &environment),
       .target_environment =
           loom_run_execution_environment_target_environment(&environment),
       .scenario_target_profile =
@@ -245,9 +242,6 @@ int main(int argc, char** argv) {
               .fn = iree_test_loom_scenario_failure_bind_profile,
               .user_data = &oracle,
           },
-      .initialize_low_descriptor_registry =
-          loom_run_execution_environment_low_descriptor_registry_callback(
-              &environment),
   };
   const int exit_code = iree_test_loom_main(argc, argv, &configuration);
   loom_run_execution_environment_deinitialize(&environment);
