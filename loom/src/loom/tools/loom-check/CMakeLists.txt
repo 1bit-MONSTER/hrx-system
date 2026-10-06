@@ -323,6 +323,7 @@ loom_cc_library(
     iree::io::file_handle
     loom::codegen::low::text_asm
     loom::ir
+    loom::target::provider
     loom::testing::test_file
     loom::testing::test_file_format
     loom::tooling::io::file

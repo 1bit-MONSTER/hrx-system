@@ -366,7 +366,8 @@ static iree_status_t loom_check_verify_pass_module(
               .fn = loom_check_diagnostic_emitter_capture_emit,
               .user_data = &low_diagnostic_capture,
           },
-      .provider_list = environment->low_verify_provider_list,
+      .provider_list = loom_target_environment_low_verify_provider_list(
+          environment->target_environment),
       .function_versions = function_versions,
       .max_errors = 100,
   };
@@ -508,7 +509,9 @@ static iree_status_t loom_check_execute_pass_with_output(
     loom_low_descriptor_text_print_context_initialize(
         &low_registry.registry, &diagnostic_collector.type_print_context);
     loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry, environment->low_asm_diagnostic_provider_list,
+        &low_registry.registry,
+        loom_target_environment_low_asm_diagnostic_provider_list(
+            environment->target_environment),
         &low_asm_storage, &parse_options.low_asm_environment);
   }
   if (iree_status_is_ok(status)) {
@@ -640,12 +643,13 @@ static iree_status_t loom_check_execute_pass_with_output(
     loom_target_pass_predicate_provider_storage_initialize(block_pool,
                                                            &predicate_storage);
     const loom_pass_registry_t* pass_registry = loom_pass_builtin_registry();
+    const loom_pass_registry_t* target_pass_registry =
+        loom_target_environment_pass_registry(environment->target_environment);
     loom_pass_registry_storage_t pass_registry_storage = {0};
-    if (iree_status_is_ok(status) && environment != NULL &&
-        environment->pass_registry != NULL) {
+    if (iree_status_is_ok(status) && target_pass_registry != NULL) {
       const loom_pass_registry_t* pass_registries[] = {
           loom_pass_builtin_registry(),
-          environment->pass_registry,
+          target_pass_registry,
       };
       status = loom_pass_registry_storage_initialize_from_registries(
           pass_registries, IREE_ARRAYSIZE(pass_registries),
@@ -658,8 +662,8 @@ static iree_status_t loom_check_execute_pass_with_output(
     loom_target_legalizer_registry_storage_t legalizer_registry_storage = {0};
     if (iree_status_is_ok(status)) {
       const loom_target_legalizer_provider_list_t legalizer_provider_list =
-          environment ? environment->legalizer_provider_list
-                      : loom_target_legalizer_provider_list_empty();
+          loom_target_environment_legalizer_provider_list(
+              environment->target_environment);
       status = loom_low_legalizer_registry_storage_initialize(
           legalizer_provider_list, iree_arena_allocator(&diagnostic_arena),
           &legalizer_registry_storage);
@@ -667,7 +671,7 @@ static iree_status_t loom_check_execute_pass_with_output(
     loom_cleanup_pattern_registry_storage_t cleanup_pattern_registry_storage = {
         0};
     const loom_cleanup_pattern_registry_t* cleanup_pattern_registry = NULL;
-    if (iree_status_is_ok(status) && environment != NULL &&
+    if (iree_status_is_ok(status) &&
         environment->cleanup_pattern_provider_set != NULL) {
       status = loom_cleanup_pattern_registry_storage_initialize(
           environment->cleanup_pattern_provider_set,
@@ -679,17 +683,18 @@ static iree_status_t loom_check_execute_pass_with_output(
                 &cleanup_pattern_registry_storage);
       }
     }
+    const loom_target_low_legality_provider_list_t low_legality_provider_list =
+        loom_target_environment_low_legality_provider_list(
+            environment->target_environment);
     const loom_codegen_pass_environment_options_t environment_options = {
         .descriptor_registry = &low_registry.registry,
         .lower_policy_registry = low_lower_policy_registry_ref,
-        .legality_provider_list =
-            environment ? &environment->low_legality_provider_list : NULL,
+        .legality_provider_list = &low_legality_provider_list,
         .legalizer_registry = loom_target_legalizer_registry_storage_registry(
             &legalizer_registry_storage),
         .math_policy_registry = math_policy_registry_ref,
         .compile_report = compile_report_ref,
-        .target_environment =
-            environment ? environment->target_environment : NULL,
+        .target_environment = environment->target_environment,
         .cleanup_pattern_registry = cleanup_pattern_registry,
     };
     loom_pass_tool_run_options_t run_options = {
@@ -876,7 +881,9 @@ iree_status_t loom_check_execute_format(
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
   if (iree_status_is_ok(status)) {
     loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry, environment->low_asm_diagnostic_provider_list,
+        &low_registry.registry,
+        loom_target_environment_low_asm_diagnostic_provider_list(
+            environment->target_environment),
         &low_asm_storage, &low_asm_environment);
   }
   const loom_text_parse_options_t parse_options = {

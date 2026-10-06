@@ -21,6 +21,7 @@ loom_cc_library(
     iree::base
     loom::target::emit::spirv::module_compiler
     loom::target::entry_selection
+    loom::target::provider
     loom::target::tool::spirv
     loom::tooling::compile::pipeline
     loom::tools::loom-check::execute

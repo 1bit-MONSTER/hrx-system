@@ -27,19 +27,12 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
-#include "loom/codegen/low/verify.h"
 #include "loom/error/diagnostic.h"
 #include "loom/error/source.h"
 #include "loom/format/text/printer.h"
 #include "loom/ir/context.h"
-#include "loom/pass/registry.h"
-#include "loom/target/legalization.h"
-#include "loom/target/low_asm_diagnostics.h"
 #include "loom/target/low_descriptor_registry.h"
-#include "loom/target/low_legality.h"
-#include "loom/target/low_packet_diagnostics.h"
 #include "loom/target/math_policy.h"
-#include "loom/target/pipeline.h"
 #include "loom/testing/test_file.h"
 #include "loom/tooling/compile/pipeline.h"
 #include "loom/tooling/input/input.h"
@@ -274,21 +267,6 @@ struct loom_check_environment_t {
   const loom_target_environment_t* target_environment;
   // Cleanup rewrite providers linked into this runner.
   const loom_cleanup_pattern_provider_set_t* cleanup_pattern_provider_set;
-  // Optional target-owned pass descriptors linked into this runner.
-  const loom_pass_registry_t* pass_registry;
-  // Optional target-low source legality providers linked into this runner.
-  loom_target_low_legality_provider_list_t low_legality_provider_list;
-  // Optional target source legalizer providers linked into this runner.
-  loom_target_legalizer_provider_list_t legalizer_provider_list;
-  // Optional target-low packet diagnostic providers linked into this runner.
-  loom_target_low_packet_diagnostic_provider_list_t
-      low_packet_diagnostic_provider_list;
-  // Optional target-owned text low-asm diagnostic providers linked into this
-  // runner.
-  loom_target_low_asm_diagnostic_provider_list_t
-      low_asm_diagnostic_provider_list;
-  // Optional target-owned low verifier providers linked into this runner.
-  loom_low_verify_provider_list_t low_verify_provider_list;
   // Optional emit providers linked into this runner.
   loom_check_emit_provider_registry_t emit_providers;
   // Optional requirement providers linked into this runner.

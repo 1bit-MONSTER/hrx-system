@@ -16,6 +16,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/function_version_projection.h"
+#include "loom/target/provider.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/verify/verify.h"
 
@@ -394,8 +395,9 @@ iree_status_t loom_check_prepare_source_low_module(
           loom_low_verify_scratch_for_module(module);
       status = loom_target_entry_verify_low_module(
           module, low_registry, &entry_options, &verifier_emitter, 20,
-          environment->low_verify_provider_list, &low_verify_scratch,
-          &low_verify_result);
+          loom_target_environment_low_verify_provider_list(
+              environment->target_environment),
+          &low_verify_scratch, &low_verify_result);
     }
   }
   return status;

@@ -424,6 +424,7 @@ loom_cc_library(
         ":update",
         "//loom/src/loom/codegen/low:text_asm",
         "//loom/src/loom/ir",
+        "//loom/src/loom/target:provider",
         "//loom/src/loom/testing:test_file",
         "//loom/src/loom/testing:test_file_format",
         "//loom/src/loom/tooling/io:file",

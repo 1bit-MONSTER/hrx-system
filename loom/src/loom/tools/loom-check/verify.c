@@ -11,6 +11,7 @@
 #include "loom/error/source.h"
 #include "loom/format/text/parser.h"
 #include "loom/ir/module.h"
+#include "loom/target/provider.h"
 #include "loom/tools/loom-check/diagnostics.h"
 #include "loom/tools/loom-check/execute.h"
 #include "loom/tools/loom-check/input.h"
@@ -56,7 +57,9 @@ iree_status_t loom_check_execute_verify(
     };
     loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
     loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry, environment->low_asm_diagnostic_provider_list,
+        &low_registry.registry,
+        loom_target_environment_low_asm_diagnostic_provider_list(
+            environment->target_environment),
         &low_asm_storage, &parse_options.low_asm_environment);
     status =
         loom_check_load_input(test_case, input_request, environment, context,
@@ -94,7 +97,8 @@ iree_status_t loom_check_execute_verify(
                   .fn = loom_check_diagnostic_emitter_capture_emit,
                   .user_data = &low_diagnostic_capture,
               },
-          .provider_list = environment->low_verify_provider_list,
+          .provider_list = loom_target_environment_low_verify_provider_list(
+              environment->target_environment),
           .max_errors = 100,
       };
       loom_low_verify_result_t low_verify_result = {0};

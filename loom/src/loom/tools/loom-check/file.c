@@ -10,6 +10,7 @@
 
 #include "iree/io/file_contents.h"
 #include "loom/codegen/low/text_asm.h"
+#include "loom/target/provider.h"
 #include "loom/testing/test_file.h"
 #include "loom/testing/test_file_format.h"
 #include "loom/tooling/io/file.h"
@@ -97,7 +98,9 @@ static iree_status_t loom_check_build_template_source(
   }
   if (iree_status_is_ok(status)) {
     loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-        &low_registry.registry, environment->low_asm_diagnostic_provider_list,
+        &low_registry.registry,
+        loom_target_environment_low_asm_diagnostic_provider_list(
+            environment->target_environment),
         &low_asm_storage, &low_asm_environment);
     status = loom_test_file_format(
         iree_string_builder_view(&materialized_source), filename, context,

@@ -35,6 +35,7 @@
 #include "loom/pass/pipeline.h"
 #include "loom/target/entry_selection.h"
 #include "loom/target/low_packet_diagnostics.h"
+#include "loom/target/provider.h"
 #include "loom/tools/loom-check/analysis.h"
 #include "loom/tools/loom-check/comparison.h"
 #include "loom/tools/loom-check/diagnostics.h"
@@ -1568,7 +1569,9 @@ iree_status_t loom_check_execute_emit(
   };
   loom_low_descriptor_text_asm_environment_storage_t low_asm_storage = {0};
   loom_low_descriptor_text_asm_environment_initialize_with_diagnostics(
-      &low_registry.registry, environment->low_asm_diagnostic_provider_list,
+      &low_registry.registry,
+      loom_target_environment_low_asm_diagnostic_provider_list(
+          environment->target_environment),
       &low_asm_storage, &parse_options.low_asm_environment);
   if (iree_status_is_ok(status)) {
     status =
@@ -1608,7 +1611,9 @@ iree_status_t loom_check_execute_emit(
     if (iree_status_is_ok(status)) {
       status = loom_check_emit_verify_provider_module(
           module, &low_registry, source_resolver,
-          environment->low_verify_provider_list, &diagnostic_collector);
+          loom_target_environment_low_verify_provider_list(
+              environment->target_environment),
+          &diagnostic_collector);
     }
     if (!iree_status_is_ok(status)) {
       loom_input_module_deinitialize(&input);
@@ -1767,7 +1772,8 @@ iree_status_t loom_check_execute_emit(
                   .fn = loom_check_diagnostic_emitter_capture_emit,
                   .user_data = &low_diagnostic_capture,
               },
-          .provider_list = environment->low_verify_provider_list,
+          .provider_list = loom_target_environment_low_verify_provider_list(
+              environment->target_environment),
           .max_errors = 20,
       };
       loom_low_verify_result_t low_verify_result = {0};
@@ -1872,7 +1878,8 @@ iree_status_t loom_check_execute_emit(
             request.low_allocation_budget_count,
             request.low_allocation_fixed_values.specs,
             request.low_allocation_fixed_values.count,
-            environment->low_packet_diagnostic_provider_list,
+            loom_target_environment_low_packet_diagnostic_provider_list(
+                environment->target_environment),
             request.low_packet_diagnostic_flags,
             (iree_diagnostic_emitter_t){
                 .fn = loom_check_diagnostic_emitter_capture_emit,
