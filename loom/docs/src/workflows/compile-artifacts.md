@@ -172,11 +172,9 @@ and keeps private helpers out of the dynamic export table. A referenced
 undefined function fails shared-image emission; relocatable objects can retain
 that reference for the host linker. Code and data use separate load permissions.
 
-IREE's `iree_elf_module_initialize_from_memory` loader accepts this image and
-owns its mapped storage. The compiler and original artifact bytes may be
-released before looking up and calling its exports. This output supplies
-ordinary function exports; task HAL dispatch additionally requires its kernel
-entry adaptation and executable-library metadata.
+The output artifact owns its bytes independently of compiler storage. It
+supplies ordinary function exports; task HAL dispatch additionally requires
+kernel entry adaptation and executable-library metadata.
 
 ## Emit a WebAssembly module
 

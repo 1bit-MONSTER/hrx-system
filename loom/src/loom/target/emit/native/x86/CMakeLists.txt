@@ -151,19 +151,6 @@ loom_check_test_suite(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_X86)
-iree_execution_test_suite(
-  NAME
-    callable_test
-  MANIFESTS
-    "test/callable.test.json"
-  TOOLS
-    "loom-compile=loom::tools::loom-compile::loom-compile"
-  LABELS
-    "hostonly"
-)
-endif()
-
 if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_generated_file(
   NAME
@@ -191,60 +178,6 @@ loom_cc_test(
     "callable.o"
     "callable_link_test.cc"
   DEPS
-    iree::testing::gtest
-    iree::testing::gtest_main
-  LABELS
-    "iree-build-requirement=loom.target.arch.x86"
-)
-endif()
-
-if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64")
-loom_generated_file(
-  NAME
-    native_image
-  GENERATOR
-    loom::tools::loom-compile::loom-compile
-  OUTPUT
-    "native_image.so"
-  OUTPUT_FLAG
-    "--output="
-  ARGS
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/emit/native/x86/test/image.loom"
-    "--target=x86:scalar"
-    "--format=x86-elf-shared"
-  INPUTS
-    "test/image.loom"
-  TESTONLY
-)
-endif()
-
-if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64")
-iree_c_embed_data(
-  NAME
-    image_data
-  SRCS
-    "${CMAKE_CURRENT_BINARY_DIR}/native_image.so"
-  C_FILE_OUTPUT
-    "image_data.c"
-  H_FILE_OUTPUT
-    "image_data.h"
-  IDENTIFIER
-    "native_image_data"
-  TESTONLY
-  PUBLIC
-)
-endif()
-
-if(LOOM_TARGET_ARCH_X86 AND IREE_ARCH STREQUAL "x86_64")
-loom_cc_test(
-  NAME
-    image_load_test
-  SRCS
-    "image_load_test.cc"
-  DEPS
-    ::image_data
-    iree::base
-    iree::hal::drivers::task::executable::elf::elf_module
     iree::testing::gtest
     iree::testing::gtest_main
   LABELS

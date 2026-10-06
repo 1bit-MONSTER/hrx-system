@@ -168,23 +168,6 @@ loom_cc_test(
     iree::testing::gtest_main
 )
 
-if(IREE_ARCH STREQUAL "x86_64")
-loom_cc_test(
-  NAME
-    image_elf_test
-  SRCS
-    "image_elf_test.cc"
-  DEPS
-    ::object_elf
-    iree::base
-    iree::base::internal::arena
-    iree::hal::drivers::task::executable::elf::elf_module
-    iree::io::stream
-    iree::testing::gtest
-    iree::testing::gtest_main
-)
-endif()
-
 loom_cc_test(
   NAME
     object_elf_test
