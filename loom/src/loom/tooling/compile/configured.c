@@ -7,51 +7,12 @@
 #include "loom/tooling/compile/configured.h"
 
 #include "iree/base/threading/call_once.h"
+#include "loom/target/configured/compiler_provider_set.h"
 #include "loom/target/configured/provider_set.h"
 #include "loom/transforms/cleanup/configured.h"
 
-#ifndef LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS
-
-#if LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS
-#include "loom/target/arch/x86/compiler_provider.h"
-#endif  // LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS
-
-#ifndef LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#ifndef LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-#define LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS 0
-#endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-
-#if LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#include "loom/target/emit/native/amdgpu/hal_kernel_library.h"
-#endif  // LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#include "loom/target/arch/spirv/compiler_provider.h"
-#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-#include "loom/target/arch/amd/xdna/aie2p/emit/artifact.h"
-#endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#include "loom/target/emit/vm/module_compiler.h"
-#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#include "loom/target/emit/wasm/module_compiler.h"
-#endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-
 typedef struct loom_tooling_configured_compile_storage_t {
-  // Configured target providers plus compile-only provider contributions.
+  // Configured targets and emitters retained for the environment lifetime.
   loom_target_provider_set_storage_t target_provider_storage;
   // Composed compiler target environment.
   loom_target_environment_t target_environment;
@@ -68,36 +29,9 @@ static iree_status_t loom_tooling_configured_compile_initialize_storage(void) {
   IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append_set(
       &configured_compile_storage.target_provider_storage,
       loom_configured_target_provider_set()));
-#if LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS
-  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
+  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append_set(
       &configured_compile_storage.target_provider_storage,
-      &loom_x86_compiler_provider));
-#endif  // LOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
-      &configured_compile_storage.target_provider_storage,
-      &loom_amdgpu_hal_kernel_library_provider));
-#endif  // LOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
-      &configured_compile_storage.target_provider_storage,
-      &loom_spirv_compiler_provider));
-#endif  // LOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
-      &configured_compile_storage.target_provider_storage,
-      &loom_vm_module_provider));
-#endif  // LOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
-      &configured_compile_storage.target_provider_storage,
-      &loom_wasm_module_provider));
-#endif  // LOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS
-#if LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
-  IREE_RETURN_IF_ERROR(loom_target_provider_set_storage_append(
-      &configured_compile_storage.target_provider_storage,
-      &loom_aie2p_xdna_artifact_provider));
-#endif  // LOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS
+      loom_configured_emitter_provider_set()));
   IREE_RETURN_IF_ERROR(loom_target_environment_initialize(
       &configured_compile_storage.target_provider_storage.provider_set,
       &configured_compile_storage.target_environment));

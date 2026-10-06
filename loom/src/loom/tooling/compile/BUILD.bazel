@@ -7,87 +7,8 @@
 load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
-    "iree_select",
     "loom_cc_library",
     "loom_cc_test",
-)
-
-_CONFIGURED_COMPILE_COPTS = (
-    iree_select({
-        "//loom/config/target/arch:x86": [
-            "-DLOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS=1",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:amdgpu_artifacts": [
-            "-DLOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS=1",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:spirv_artifacts": [
-            "-DLOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS=1",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target/arch:vm": [
-            "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:wasm_artifacts": [
-            "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:xdna_artifacts": [
-            "-DLOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS=1",
-        ],
-        "//conditions:default": [],
-    })
-)
-
-_CONFIGURED_COMPILE_DEPS = (
-    iree_select({
-        "//loom/config/target/arch:x86": [
-            "//loom/src/loom/target/arch/x86:compiler_provider",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:amdgpu_artifacts": [
-            "//loom/src/loom/target/emit/native/amdgpu:hal_kernel_library",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:spirv_artifacts": [
-            "//loom/src/loom/target/arch/spirv:compiler_provider",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target/arch:vm": [
-            "//loom/src/loom/target/emit/vm:module_compiler",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:wasm_artifacts": [
-            "//loom/src/loom/target/emit/wasm:module_compiler",
-        ],
-        "//conditions:default": [],
-    }) +
-    iree_select({
-        "//loom/config/target:xdna_artifacts": [
-            "//loom/src/loom/target/arch/amd/xdna/aie2p:artifact",
-        ],
-        "//conditions:default": [],
-    })
 )
 
 package(
@@ -115,14 +36,14 @@ loom_cc_library(
     name = "configured",
     srcs = ["configured.c"],
     hdrs = ["configured.h"],
-    copts = _CONFIGURED_COMPILE_COPTS,
     deps = [
         "//loom/src/loom/target:provider",
+        "//loom/src/loom/target/configured:compiler_provider_set",
         "//loom/src/loom/target/configured:provider_set",
         "//loom/src/loom/transforms/cleanup:configured",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
-    ] + _CONFIGURED_COMPILE_DEPS,
+    ],
 )
 
 iree_assert_dependency_boundary(
@@ -134,9 +55,10 @@ iree_assert_dependency_boundary(
 loom_cc_test(
     name = "configured_test",
     srcs = ["configured_test.cc"],
-    copts = _CONFIGURED_COMPILE_COPTS,
     deps = [
         ":configured",
+        "//loom/src/loom/target/configured:compiler_provider_set",
+        "//loom/src/loom/target/configured:provider_set",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

@@ -6,17 +6,12 @@
 
 #include "loomc/target/vm.h"
 
-#include "loom/binding/c/target/provider_set.h"
 #include "loom/target/emit/vm/module_compiler.h"
 #include "target.h"
-
-const loom_target_provider_set_t* loomc_vm_provider_set(void) {
-  return &loom_vm_compiler_provider_set;
-}
 
 loomc_status_t loomc_target_environment_create_vm(
     loomc_allocator_t allocator,
     loomc_target_environment_t** out_target_environment) {
   return loomc_target_environment_create_from_provider_set(
-      loomc_vm_provider_set(), allocator, out_target_environment);
+      &loom_vm_compiler_provider_set, allocator, out_target_environment);
 }

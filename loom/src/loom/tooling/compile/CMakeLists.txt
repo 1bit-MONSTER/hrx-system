@@ -27,49 +27,9 @@ loom_cc_library(
   PUBLIC
 )
 
-set(_configured_platform_copts "")
-if(LOOM_TARGET_ARCH_X86)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS=1")
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS=1")
-endif()
-set(_configured_platform_deps "")
-if(LOOM_TARGET_ARCH_X86)
-  list(APPEND _configured_platform_deps loom::target::arch::x86::compiler_provider)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_platform_deps loom::target::emit::native::amdgpu::hal_kernel_library)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_platform_deps loom::target::arch::spirv::compiler_provider)
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_platform_deps loom::target::emit::vm::module_compiler)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_platform_deps loom::target::emit::wasm::module_compiler)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_platform_deps loom::target::arch::amd::xdna::aie2p::artifact)
-endif()
 loom_cc_library(
   NAME
     configured
-  COPTS
-    ${_configured_platform_copts}
   HDRS
     "configured.h"
   SRCS
@@ -77,43 +37,24 @@ loom_cc_library(
   DEPS
     iree::base
     iree::base::threading
+    loom::target::configured::compiler_provider_set
     loom::target::configured::provider_set
     loom::target::provider
     loom::transforms::cleanup::configured
-    ${_configured_platform_deps}
   PUBLIC
 )
 
-set(_configured_test_platform_copts "")
-if(LOOM_TARGET_ARCH_X86)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_X86_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_AMDGPU_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_SPIRV_ARTIFACTS=1")
-endif()
-if(LOOM_TARGET_ARCH_VM)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_VM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_WASM_ARTIFACTS=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _configured_test_platform_copts "-DLOOM_CONFIG_COMPILE_HAVE_XDNA_ARTIFACTS=1")
-endif()
 loom_cc_test(
   NAME
     configured_test
   SRCS
     "configured_test.cc"
-  COPTS
-    ${_configured_test_platform_copts}
   DEPS
     ::configured
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::target::configured::compiler_provider_set
+    loom::target::configured::provider_set
 )
 
 loom_cc_library(

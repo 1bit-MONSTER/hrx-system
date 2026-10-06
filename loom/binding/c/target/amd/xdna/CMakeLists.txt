@@ -21,7 +21,6 @@ loom_cc_library(
     "xdna.c"
   DEPS
     loom::binding::c::loomc
-    loom::binding::c::target::provider_set
     loom::target::arch::amd::xdna::aie2p::artifact
     loom::target::arch::amd::xdna::aie2p::target_profile
   ALWAYSLINK

@@ -38,7 +38,7 @@ _DESCRIPTOR_SET_GFX125X = LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.r
 
 _AMDGPU_HAL_KERNEL_LIBRARY_VISIBILITY = [
     "//loom/binding/c/target/amdgpu:__pkg__",
-    "//loom/src/loom/tooling/compile:__pkg__",
+    "//loom/src/loom/target/configured:__pkg__",
     "//loom/src/loom/tooling/target/amdgpu:__pkg__",
 ]
 
