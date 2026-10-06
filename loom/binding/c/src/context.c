@@ -18,6 +18,8 @@
 struct loomc_context_t {
   // Atomic reference count for shared immutable ownership.
   iree_atomic_ref_count_t ref_count;
+  // Source-content retention applied to context-owned modules and results.
+  uint8_t source_retention;
   // Allocator used to release the context.
   loomc_allocator_t allocator;
   // Finalized production Loom dialect and encoding context.
@@ -42,6 +44,11 @@ static loomc_status_t loomc_context_validate_options(
       options->structure_size < sizeof(*options)) {
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "context options structure_size is too small");
+  }
+  if (options->source_retention != LOOMC_SOURCE_RETENTION_EXACT &&
+      options->source_retention != LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "context source_retention is invalid");
   }
   return loomc_ok_status();
 }
@@ -74,6 +81,8 @@ loomc_status_t loomc_context_create(const loomc_context_options_t* options,
   memset(context, 0, sizeof(*context));
   iree_atomic_ref_count_init(&context->ref_count);
   context->allocator = allocator;
+  context->source_retention = (uint8_t)(options ? options->source_retention
+                                                : LOOMC_SOURCE_RETENTION_EXACT);
   loom_context_initialize(iree_allocator_from_loomc(allocator),
                           &context->context);
   loomc_status_t status =
@@ -123,6 +132,12 @@ void loomc_context_release(loomc_context_t* context) {
 
 loom_context_t* loomc_context_loom_context(loomc_context_t* context) {
   return context ? &context->context : NULL;
+}
+
+loomc_source_retention_t loomc_context_source_retention(
+    const loomc_context_t* context) {
+  return context ? (loomc_source_retention_t)context->source_retention
+                 : LOOMC_SOURCE_RETENTION_EXACT;
 }
 
 loomc_target_environment_t* loomc_context_target_environment(

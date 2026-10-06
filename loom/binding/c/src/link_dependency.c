@@ -6,6 +6,7 @@
 
 #include "loomc/link_dependency.h"
 
+#include "context.h"
 #include "iree/base/internal/arena.h"
 #include "link_index.h"
 #include "loom/link/dependency_analysis.h"
@@ -217,7 +218,10 @@ loomc_status_t loomc_link_analyze_dependencies(
         loom_link_dependency_analysis_succeeded(&analysis)
             ? LOOMC_RESULT_STATE_SUCCEEDED
             : LOOMC_RESULT_STATE_FAILED;
-    status = loomc_result_create(state, allocator, &result);
+    status = loomc_result_create(
+        state,
+        loomc_context_source_retention(loomc_link_index_context(link_index)),
+        allocator, &result);
   }
   const loomc_string_view_t component_name =
       options ? options->component_name : loomc_string_view_empty();

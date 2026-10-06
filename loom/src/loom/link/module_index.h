@@ -133,6 +133,9 @@ typedef struct loom_link_module_index_module_t {
   const loom_module_t* materialized_module;
   // True when the index owns materialized_module and frees it on destroy.
   bool owns_materialized_module;
+  // Source ID whose text is the provider's authored input, or invalid when the
+  // provider has no exact text snapshot.
+  loom_source_id_t primary_source_id;
   // First symbol ordinal owned by this module.
   iree_host_size_t symbol_start_ordinal;
   // Number of symbols owned by this module.

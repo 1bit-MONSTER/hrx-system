@@ -97,18 +97,24 @@ loom_type_formatter_t loomc_diagnostic_type_printer_formatter(
 // and optional spelling before frontend/module storage is released.
 static loomc_status_t loomc_source_from_loom_range(
     const loomc_source_t* source, const loom_source_range_t* range,
-    loomc_source_format_t format, loomc_allocator_t allocator,
-    loomc_source_t** out_source) {
+    loomc_source_format_t format, loomc_source_retention_t source_retention,
+    loomc_allocator_t allocator, loomc_source_t** out_source) {
   *out_source = NULL;
-  loomc_byte_span_t contents =
-      loomc_make_byte_span(range->source.data, range->source.size);
+  const loomc_byte_span_t contents =
+      source_retention == LOOMC_SOURCE_RETENTION_EXACT
+          ? loomc_make_byte_span(range->source.data, range->source.size)
+          : loomc_byte_span_empty();
   if (source != NULL) {
     const loomc_byte_span_t input_contents = loomc_source_contents(source);
-    if (iree_string_view_equal(
-            iree_string_view_from_loomc(loomc_source_identifier(source)),
-            range->filename) &&
-        contents.data == input_contents.data &&
-        contents.data_length == input_contents.data_length) {
+    const bool matching_identifier = iree_string_view_equal(
+        iree_string_view_from_loomc(loomc_source_identifier(source)),
+        range->filename);
+    const bool matching_contents =
+        input_contents.data == (const uint8_t*)range->source.data &&
+        input_contents.data_length == range->source.size;
+    if (matching_identifier &&
+        (source_retention == LOOMC_SOURCE_RETENTION_METADATA_ONLY ||
+         matching_contents)) {
       *out_source = (loomc_source_t*)source;
       loomc_source_retain(*out_source);
       return loomc_ok_status();
@@ -181,6 +187,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
   loomc_diagnostic_related_location_t
       related_locations[LOOM_DIAGNOSTIC_MAX_RELATED_LOCATIONS] = {0};
   iree_host_size_t related_location_count = 0;
+  const loomc_source_retention_t source_retention =
+      loomc_result_source_retention(result);
   loomc_status_t status =
       loomc_format_loom_diagnostic_code(diagnostic, &code_builder);
   if (loomc_status_is_ok(status)) {
@@ -193,8 +201,8 @@ loomc_status_t loomc_result_add_loom_diagnostic(
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_source_from_loom_range(
-        source, &primary_range, primary_format, loomc_result_allocator(result),
-        &diagnostic_source);
+        source, &primary_range, primary_format, source_retention,
+        loomc_result_allocator(result), &diagnostic_source);
   }
   for (iree_host_size_t i = 0;
        loomc_status_is_ok(status) && i < diagnostic->related_location_count;
@@ -218,7 +226,7 @@ loomc_status_t loomc_result_add_loom_diagnostic(
     } else {
       status = loomc_source_from_loom_range(
           source, &related->source_location, LOOMC_SOURCE_FORMAT_UNKNOWN,
-          loomc_result_allocator(result), &related_source);
+          source_retention, loomc_result_allocator(result), &related_source);
     }
     if (loomc_status_is_ok(status)) {
       related_locations[related_location_count++] =

@@ -20,6 +20,11 @@ LOOMC_API_PRIVATE loomc_status_t loomc_source_create_take_contents(
     loomc_byte_span_t contents, loomc_allocator_t allocator,
     loomc_source_t** out_source);
 
+// Clones source format and identity without retaining its contents.
+LOOMC_API_PRIVATE loomc_status_t loomc_source_clone_identity(
+    const loomc_source_t* source, loomc_allocator_t allocator,
+    loomc_source_t** out_source);
+
 // Reads all remaining bytes from an open file into allocator-owned storage.
 LOOMC_API_PRIVATE loomc_status_t loomc_source_read_file_to_storage(
     FILE* file, loomc_allocator_t allocator, uint8_t** out_data,

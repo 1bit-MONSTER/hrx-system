@@ -7,6 +7,7 @@
 #ifndef LOOMC_RESULT_STORAGE_H_
 #define LOOMC_RESULT_STORAGE_H_
 
+#include "loomc/context.h"
 #include "loomc/result.h"
 #include "visibility.h"
 
@@ -14,14 +15,18 @@
 extern "C" {
 #endif
 
-// Creates an empty result with state.
-LOOMC_API_PRIVATE loomc_status_t
-loomc_result_create(loomc_result_state_t state, loomc_allocator_t allocator,
-                    loomc_result_t** out_result);
+// Creates an empty result with state and diagnostic source retention policy.
+LOOMC_API_PRIVATE loomc_status_t loomc_result_create(
+    loomc_result_state_t state, loomc_source_retention_t source_retention,
+    loomc_allocator_t allocator, loomc_result_t** out_result);
 
 // Returns the allocator owned by result.
 LOOMC_API_PRIVATE loomc_allocator_t
 loomc_result_allocator(const loomc_result_t* result);
+
+// Returns the diagnostic source retention policy owned by result.
+LOOMC_API_PRIVATE loomc_source_retention_t
+loomc_result_source_retention(const loomc_result_t* result);
 
 // Sets the result state while the result is still being built.
 LOOMC_API_PRIVATE loomc_status_t

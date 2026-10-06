@@ -473,8 +473,9 @@ loomc_status_t loomc_target_profile_create_spirv_iree_hal(
   LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_validate_options(options));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                            LOOMC_SOURCE_RETENTION_EXACT,
+                                            allocator, &result));
   loomc_spirv_iree_hal_profile_facts_t facts = {0};
   loomc_status_t status =
       loomc_spirv_iree_hal_query_facts(options, &facts, result);

@@ -37,8 +37,9 @@ typedef enum loomc_diagnostic_severity_e {
 /// Byte offsets are zero-based and line/column values are one-based when
 /// available. A zero line or column means the location was not computed or is
 /// not meaningful for the source format. A source can retain its identifier
-/// without contents; recorded line/column values remain valid in that case.
-/// Unknown byte offsets are zero.
+/// without contents; recorded byte offsets and line/column values remain valid
+/// against a caller-owned copy of the identified source. Unknown byte offsets
+/// are zero.
 ///
 /// @lifetime
 /// The source pointer is retained by the owning result when present. The range

@@ -878,8 +878,9 @@ loomc_status_t loomc_compile_module(loomc_compiler_t* compiler,
       loomc_compile_validate_config_module(compiler, module, options));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED,
+      loomc_context_source_retention(compiler->context), allocator, &result));
   loomc_status_t status = loomc_compile_module_into_result(
       compiler, workspace, pass_program, module, options, target_specialization,
       result);
@@ -940,8 +941,9 @@ loomc_status_t loomc_compile_artifact(
                                  LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED);
 
   loomc_result_t* result = NULL;
-  loomc_status_t status =
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result);
+  loomc_status_t status = loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED,
+      loomc_context_source_retention(compiler->context), allocator, &result);
   loomc_emit_transaction_t emit_transaction = {0};
   if (loomc_status_is_ok(status)) {
     status = loomc_emit_transaction_initialize(

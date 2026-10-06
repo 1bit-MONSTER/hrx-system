@@ -508,8 +508,9 @@ loomc_status_t loomc_link_index_builder_create(
   }
 
   if (loomc_status_is_ok(status)) {
-    status = loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator,
-                                 &builder->result);
+    status = loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                 loomc_context_source_retention(context),
+                                 allocator, &builder->result);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_status_from_iree(loom_link_module_index_allocate(
@@ -619,6 +620,30 @@ loomc_status_t loomc_link_index_builder_add_source(
   return loomc_ok_status();
 }
 
+// Text providers are fully materialized while indexing and need only their
+// identity for later diagnostics. Bytecode providers retain their complete
+// container because selective materialization reads it on demand.
+static loomc_status_t loomc_link_index_builder_discard_text_source_contents(
+    loomc_link_index_builder_t* builder) {
+  if (loomc_context_source_retention(builder->context) ==
+      LOOMC_SOURCE_RETENTION_EXACT) {
+    return loomc_ok_status();
+  }
+  for (loomc_host_size_t i = 0; i < builder->sources.count; ++i) {
+    loomc_link_index_builder_source_t* record = &builder->sources.values[i];
+    if (record->source == NULL ||
+        loomc_link_index_source_is_bytecode(record->source)) {
+      continue;
+    }
+    loomc_source_t* identity_source = NULL;
+    LOOMC_RETURN_IF_ERROR(loomc_source_clone_identity(
+        record->source, builder->allocator, &identity_source));
+    loomc_source_release(record->source);
+    record->source = identity_source;
+  }
+  return loomc_ok_status();
+}
+
 loomc_status_t loomc_link_index_builder_finish(
     loomc_link_index_builder_t* builder, loomc_link_index_t** out_link_index,
     loomc_result_t** out_result) {
@@ -654,6 +679,8 @@ loomc_status_t loomc_link_index_builder_finish(
     builder->result = NULL;
     return loomc_ok_status();
   }
+  LOOMC_RETURN_IF_ERROR(
+      loomc_link_index_builder_discard_text_source_contents(builder));
 
   loomc_link_index_t* link_index = NULL;
   loomc_status_t status = loomc_allocator_malloc(

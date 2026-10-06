@@ -99,9 +99,9 @@ static loomc_status_t loomc_module_capture_source(
   loom_source_id_t source_id = LOOM_SOURCE_ID_INVALID;
   LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_module_register_source(
       module->module, iree_string_view_from_loomc(identifier), &source_id)));
-  return loomc_status_from_iree(loom_source_storage_insert(
-      &module->sources, source_id, iree_string_view_from_loomc(identifier),
-      iree_make_string_view((const char*)contents.data, contents.data_length)));
+  return loomc_module_insert_source_snapshot(
+      module, source_id, iree_string_view_from_loomc(identifier),
+      iree_make_string_view((const char*)contents.data, contents.data_length));
 }
 
 static void loomc_module_destroy(loomc_module_t* module) {
@@ -336,8 +336,9 @@ static loomc_status_t loomc_module_deserialize_initialize(
     loomc_context_t* context, loomc_workspace_t* workspace,
     loomc_allocator_t allocator, loomc_module_deserialize_state_t* out_state) {
   *out_state = (loomc_module_deserialize_state_t){0};
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
-                                            allocator, &out_state->result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
+      allocator, &out_state->result));
   loomc_status_t status = loomc_module_create_empty(
       context, workspace, allocator, &out_state->module);
   out_state->before_diagnostic_count =
@@ -525,6 +526,10 @@ loomc_status_t loomc_module_insert_source_snapshot(loomc_module_t* module,
                                                    iree_string_view_t filename,
                                                    iree_string_view_t source) {
   IREE_ASSERT_ARGUMENT(module);
+  if (loomc_context_source_retention(module->context) ==
+      LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    return loomc_ok_status();
+  }
   return loomc_status_from_iree(loom_source_storage_insert(
       &module->sources, source_id, filename, source));
 }
@@ -572,6 +577,11 @@ const loom_source_table_resolver_t* loomc_module_source_table(
 loomc_status_t loomc_module_replace_source_table(
     loomc_module_t* module, const loom_module_t* internal_module,
     const loom_source_table_resolver_t* source_table) {
+  if (loomc_context_source_retention(module->context) ==
+      LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    loomc_module_clear_sources(module, internal_module);
+    return loomc_ok_status();
+  }
   if (source_table->entries == module->sources.table.entries) {
     module->sources.table.module = internal_module;
     module->sources.table.count = source_table->count;

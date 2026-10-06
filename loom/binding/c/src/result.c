@@ -37,7 +37,9 @@ struct loomc_result_t {
   // Atomic reference count for shared immutable ownership.
   iree_atomic_ref_count_t ref_count;
   // Result state.
-  loomc_result_state_t state;
+  uint8_t state;
+  // Source-content retention applied while diagnostics are copied.
+  uint8_t source_retention;
   // Allocator used to release this result.
   loomc_allocator_t allocator;
   // Optional borrowed sink active only while the result is mutable.
@@ -117,6 +119,7 @@ static void loomc_result_destroy(loomc_result_t* result) {
 }
 
 loomc_status_t loomc_result_create(loomc_result_state_t state,
+                                   loomc_source_retention_t source_retention,
                                    loomc_allocator_t allocator,
                                    loomc_result_t** out_result) {
   if (out_result == NULL) {
@@ -128,13 +131,19 @@ loomc_status_t loomc_result_create(loomc_result_state_t state,
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "result state is invalid");
   }
+  if (source_retention != LOOMC_SOURCE_RETENTION_EXACT &&
+      source_retention != LOOMC_SOURCE_RETENTION_METADATA_ONLY) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "result source retention is invalid");
+  }
   loomc_result_t* result = NULL;
   LOOMC_RETURN_IF_ERROR(
       loomc_allocator_malloc(allocator, sizeof(*result), (void**)&result));
   memset(result, 0, sizeof(*result));
   iree_atomic_ref_count_init(&result->ref_count);
   result->allocator = allocator;
-  result->state = state;
+  result->state = (uint8_t)state;
+  result->source_retention = (uint8_t)source_retention;
   *out_result = result;
   return loomc_ok_status();
 }
@@ -142,6 +151,12 @@ loomc_status_t loomc_result_create(loomc_result_state_t state,
 loomc_allocator_t loomc_result_allocator(const loomc_result_t* result) {
   IREE_ASSERT_ARGUMENT(result);
   return result->allocator;
+}
+
+loomc_source_retention_t loomc_result_source_retention(
+    const loomc_result_t* result) {
+  IREE_ASSERT_ARGUMENT(result);
+  return (loomc_source_retention_t)result->source_retention;
 }
 
 loomc_status_t loomc_result_set_state(loomc_result_t* result,
@@ -154,7 +169,7 @@ loomc_status_t loomc_result_set_state(loomc_result_t* result,
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "result state is invalid");
   }
-  result->state = state;
+  result->state = (uint8_t)state;
   return loomc_ok_status();
 }
 
@@ -182,11 +197,49 @@ static loomc_string_view_t loomc_diagnostic_copy_string(
   return copied;
 }
 
+static loomc_status_t loomc_result_capture_diagnostic_source(
+    const loomc_result_t* result, const loomc_source_t* source,
+    loomc_source_t** out_source) {
+  *out_source = NULL;
+  if (source == NULL) {
+    return loomc_ok_status();
+  }
+  if (result->source_retention == LOOMC_SOURCE_RETENTION_EXACT) {
+    *out_source = (loomc_source_t*)source;
+    loomc_source_retain(*out_source);
+    return loomc_ok_status();
+  }
+  return loomc_source_clone_identity(source, result->allocator, out_source);
+}
+
+static loomc_status_t loomc_result_copy_diagnostic_range(
+    const loomc_result_t* result, const loomc_source_range_t* range,
+    loomc_source_t* shared_source, loomc_source_range_t* out_range) {
+  *out_range = *range;
+  out_range->source = NULL;
+  if (shared_source != NULL) {
+    loomc_source_retain(shared_source);
+    out_range->source = shared_source;
+  } else {
+    loomc_source_t* captured_source = NULL;
+    LOOMC_RETURN_IF_ERROR(loomc_result_capture_diagnostic_source(
+        result, range->source, &captured_source));
+    out_range->source = captured_source;
+  }
+  return loomc_ok_status();
+}
+
 loomc_status_t loomc_result_add_diagnostic(
     loomc_result_t* result, const loomc_diagnostic_t* diagnostic) {
   if (result == NULL || diagnostic == NULL) {
     return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
                              "result and diagnostic must not be NULL");
+  }
+  if (diagnostic->related_location_count != 0 &&
+      diagnostic->related_locations == NULL) {
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "diagnostic related locations have a count but no storage");
   }
   LOOMC_RETURN_IF_ERROR(loomc_result_grow_array(
       result->allocator, sizeof(result->diagnostics[0]),
@@ -218,18 +271,40 @@ loomc_status_t loomc_result_add_diagnostic(
       .value = *diagnostic,
       .storage = storage,
   };
+  target->value.range.source = NULL;
   target->value.code = loomc_diagnostic_copy_string(diagnostic->code, &cursor);
   target->value.message =
       loomc_diagnostic_copy_string(diagnostic->message, &cursor);
   target->value.formatted_text =
       loomc_diagnostic_copy_string(diagnostic->formatted_text, &cursor);
   target->value.related_locations = related_locations;
-  loomc_source_retain((loomc_source_t*)target->value.range.source);
+  loomc_status_t status = loomc_result_copy_diagnostic_range(
+      result, &diagnostic->range, /*shared_source=*/NULL, &target->value.range);
   for (loomc_host_size_t i = 0; i < diagnostic->related_location_count; ++i) {
     related_locations[i] = diagnostic->related_locations[i];
+    related_locations[i].range.source = NULL;
     related_locations[i].label =
         loomc_diagnostic_copy_string(related_locations[i].label, &cursor);
-    loomc_source_retain((loomc_source_t*)related_locations[i].range.source);
+    loomc_source_t* shared_source = NULL;
+    if (diagnostic->related_locations[i].range.source ==
+        diagnostic->range.source) {
+      shared_source = (loomc_source_t*)target->value.range.source;
+    }
+    for (loomc_host_size_t j = 0; shared_source == NULL && j < i; ++j) {
+      if (diagnostic->related_locations[i].range.source ==
+          diagnostic->related_locations[j].range.source) {
+        shared_source = (loomc_source_t*)related_locations[j].range.source;
+      }
+    }
+    if (loomc_status_is_ok(status)) {
+      status = loomc_result_copy_diagnostic_range(
+          result, &diagnostic->related_locations[i].range, shared_source,
+          &related_locations[i].range);
+    }
+  }
+  if (!loomc_status_is_ok(status)) {
+    loomc_owned_diagnostic_deinitialize(result->allocator, target);
+    return status;
   }
   ++result->diagnostic_count;
   return loomc_ok_status();
@@ -337,7 +412,8 @@ void loomc_result_release(loomc_result_t* result) {
 }
 
 loomc_result_state_t loomc_result_state(const loomc_result_t* result) {
-  return result ? result->state : LOOMC_RESULT_STATE_FAILED;
+  return result ? (loomc_result_state_t)result->state
+                : LOOMC_RESULT_STATE_FAILED;
 }
 
 bool loomc_result_succeeded(const loomc_result_t* result) {

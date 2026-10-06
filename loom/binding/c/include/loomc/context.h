@@ -32,6 +32,22 @@
 ///
 /// loomc_context_release(context);
 /// @endcode
+///
+/// @par Metadata-only source retention
+/// Long-lived compilers that report structured diagnostics without rendering
+/// source excerpts can omit authored source bytes from retained modules and
+/// results:
+///
+/// @code{.c}
+/// loomc_context_options_t options = {
+///     .type = LOOMC_STRUCTURE_TYPE_CONTEXT_OPTIONS,
+///     .structure_size = sizeof(loomc_context_options_t),
+///     .source_retention = LOOMC_SOURCE_RETENTION_METADATA_ONLY,
+/// };
+/// loomc_context_t* context = NULL;
+/// loomc_status_t status = loomc_context_create(
+///     &options, loomc_allocator_system(), &context);
+/// @endcode
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,6 +61,18 @@ extern "C" {
 /// through their owning builder or invocation object rather than exposing it on
 /// the context API.
 typedef struct loomc_context_t loomc_context_t;
+
+/// Retention policy for source contents used to enrich diagnostics.
+typedef enum loomc_source_retention_e {
+  /// Retain exact source contents referenced by admitted IR. This is the
+  /// default and allows later compiler diagnostics to render source excerpts.
+  LOOMC_SOURCE_RETENTION_EXACT = 0,
+
+  /// Retain source identifiers and available coordinates without source
+  /// contents. Structured diagnostics remain available without keeping
+  /// authored files live with modules, results, or text link indexes.
+  LOOMC_SOURCE_RETENTION_METADATA_ONLY = 1,
+} loomc_source_retention_t;
 
 /// Context creation options.
 ///
@@ -62,6 +90,11 @@ typedef struct loomc_context_options_t {
   /// Extension chain for context options such as
   /// `loomc_context_target_options_t`.
   const void* next;
+
+  /// Source-content retention for operations using this context. Serialized
+  /// bytecode retained by a reusable link index is operational linker input
+  /// and is not governed by this diagnostic policy.
+  loomc_source_retention_t source_retention;
 } loomc_context_options_t;
 
 /// Creates a reusable Loom API context.

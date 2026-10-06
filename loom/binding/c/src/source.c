@@ -402,6 +402,19 @@ loomc_status_t loomc_source_create_take_contents(loomc_source_format_t format,
   return status;
 }
 
+loomc_status_t loomc_source_clone_identity(const loomc_source_t* source,
+                                           loomc_allocator_t allocator,
+                                           loomc_source_t** out_source) {
+  const loomc_source_options_t options = {
+      .type = LOOMC_STRUCTURE_TYPE_SOURCE_OPTIONS,
+      .structure_size = sizeof(options),
+      .format = source->format,
+      .identifier = source->identifier,
+      .storage = LOOMC_SOURCE_STORAGE_BORROWED,
+  };
+  return loomc_source_create(&options, allocator, out_source);
+}
+
 loomc_status_t loomc_source_take_contents(loomc_source_t* source,
                                           loomc_byte_span_t* out_contents) {
   if (out_contents == NULL) {

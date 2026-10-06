@@ -912,8 +912,9 @@ loomc_status_t loomc_target_profile_create_spirv(
   LOOMC_RETURN_IF_ERROR(loomc_spirv_profile_validate_options(options));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                            LOOMC_SOURCE_RETENTION_EXACT,
+                                            allocator, &result));
 
   loomc_spirv_feature_state_t feature_states[LOOMC_SPIRV_FEATURE_COUNT] = {0};
   loomc_spirv_numeric_fact_state_t limit_states[LOOMC_SPIRV_LIMIT_COUNT] = {0};
@@ -951,8 +952,9 @@ loomc_status_t loomc_spirv_target_profile_refine(
       loomc_spirv_profile_validate_query(base_profile, &base_storage));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                            LOOMC_SOURCE_RETENTION_EXACT,
+                                            allocator, &result));
 
   loomc_spirv_feature_state_t feature_states[LOOMC_SPIRV_FEATURE_COUNT] = {0};
   loomc_spirv_numeric_fact_state_t limit_states[LOOMC_SPIRV_LIMIT_COUNT] = {0};

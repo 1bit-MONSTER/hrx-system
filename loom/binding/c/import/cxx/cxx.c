@@ -213,8 +213,9 @@ loomc_status_t loomc_module_import_cxx(
   loomc_status_t status = loomc_cxx_resolve_options(
       options, allocator, &native_options, &option_storage);
   if (loomc_status_is_ok(status)) {
-    status = loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator,
-                                 &invocation.result);
+    status = loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                                 loomc_context_source_retention(context),
+                                 allocator, &invocation.result);
   }
   if (loomc_status_is_ok(status)) {
     status = loomc_module_create_empty(context, workspace, allocator, &module);
@@ -222,8 +223,11 @@ loomc_status_t loomc_module_import_cxx(
   if (loomc_status_is_ok(status)) {
     native_options.diagnostic_sink =
         (loom_diagnostic_sink_t){loomc_cxx_capture_diagnostic, &invocation};
-    native_options.source_observer =
-        (loom_cxx_source_observer_t){loomc_cxx_capture_source, module};
+    if (loomc_context_source_retention(context) ==
+        LOOMC_SOURCE_RETENTION_EXACT) {
+      native_options.source_observer =
+          (loom_cxx_source_observer_t){loomc_cxx_capture_source, module};
+    }
     loomc_target_pass_environment_initialize_text_asm_environment(
         loomc_context_target_pass_environment(context),
         &native_options.low_asm_environment);

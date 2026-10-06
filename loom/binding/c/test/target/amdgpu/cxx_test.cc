@@ -290,7 +290,7 @@ TEST(CxxDiagnosticTest,
   EXPECT_EQ(loomc_source_contents(range.source).data_length, 0u);
 }
 
-TEST(CxxDiagnosticTest, CompilationRetainsHeaderTextAfterProviderTeardown) {
+TEST(CxxDiagnosticTest, CompilationSourceRetentionControlsHeaderSnapshots) {
   const auto allocator = loomc_allocator_system();
   const char header_text[] =
       "[[loom::kernel, loom::workgroup_count(1,1,1), "
@@ -298,90 +298,110 @@ TEST(CxxDiagnosticTest, CompilationRetainsHeaderTextAfterProviderTeardown) {
       "void divide(const unsigned* input, unsigned* output) {\n"
       "  output[0] = input[0] / input[1];\n"
       "}\n";
-  ResultPtr result;
-  {
-    loomc_target_environment_t* environment = nullptr;
-    LOOMC_ASSERT_OK(
-        loomc_target_environment_create_amdgpu(allocator, &environment));
-    EnvironmentPtr environment_owner(environment);
-    loomc_context_target_options_t target_context_options = {};
-    target_context_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
-    target_context_options.structure_size = sizeof(target_context_options);
-    target_context_options.target_environment = environment;
-    loomc_context_options_t context_options = {};
-    context_options.next = &target_context_options;
-    loomc_context_t* context = nullptr;
-    LOOMC_ASSERT_OK(
-        loomc_context_create(&context_options, allocator, &context));
-    ContextPtr context_owner(context);
-    loomc_workspace_t* workspace = nullptr;
-    LOOMC_ASSERT_OK(loomc_workspace_create(nullptr, allocator, &workspace));
-    WorkspacePtr workspace_owner(workspace);
+  for (loomc_source_retention_t source_retention : {
+           LOOMC_SOURCE_RETENTION_EXACT,
+           LOOMC_SOURCE_RETENTION_METADATA_ONLY,
+       }) {
+    SCOPED_TRACE(source_retention);
+    ResultPtr result;
+    {
+      loomc_target_environment_t* environment = nullptr;
+      LOOMC_ASSERT_OK(
+          loomc_target_environment_create_amdgpu(allocator, &environment));
+      EnvironmentPtr environment_owner(environment);
+      loomc_context_target_options_t target_context_options = {};
+      target_context_options.type = LOOMC_STRUCTURE_TYPE_CONTEXT_TARGET_OPTIONS;
+      target_context_options.structure_size = sizeof(target_context_options);
+      target_context_options.target_environment = environment;
+      loomc_context_options_t context_options = {};
+      context_options.next = &target_context_options;
+      context_options.source_retention = source_retention;
+      loomc_context_t* context = nullptr;
+      LOOMC_ASSERT_OK(
+          loomc_context_create(&context_options, allocator, &context));
+      ContextPtr context_owner(context);
+      loomc_workspace_t* workspace = nullptr;
+      LOOMC_ASSERT_OK(loomc_workspace_create(nullptr, allocator, &workspace));
+      WorkspacePtr workspace_owner(workspace);
 
-    loomc_source_options_t header_options = {};
-    header_options.identifier = loomc_make_cstring_view("/headers/division.h");
-    header_options.contents =
-        loomc_make_byte_span(header_text, sizeof(header_text) - 1);
-    header_options.storage = LOOMC_SOURCE_STORAGE_COPY;
-    loomc_source_t* header = nullptr;
-    LOOMC_ASSERT_OK(loomc_source_create(&header_options, allocator, &header));
-    HeaderProvider provider = {SourcePtr(header)};
+      loomc_source_options_t header_options = {};
+      header_options.identifier =
+          loomc_make_cstring_view("/headers/division.h");
+      header_options.contents =
+          loomc_make_byte_span(header_text, sizeof(header_text) - 1);
+      header_options.storage = LOOMC_SOURCE_STORAGE_COPY;
+      loomc_source_t* header = nullptr;
+      LOOMC_ASSERT_OK(loomc_source_create(&header_options, allocator, &header));
+      HeaderProvider provider = {SourcePtr(header)};
 
-    const char main_text[] = "#include <division.h>\n";
-    loomc_source_options_t source_options = {};
-    source_options.identifier = loomc_make_cstring_view("virtual/main.cxx");
-    source_options.contents =
-        loomc_make_byte_span(main_text, sizeof(main_text) - 1);
-    source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
-    loomc_source_t* source = nullptr;
-    LOOMC_ASSERT_OK(loomc_source_create(&source_options, allocator, &source));
-    SourcePtr source_owner(source);
-    const loomc_string_view_t include_path =
-        loomc_make_cstring_view("/headers");
-    loomc_cxx_import_options_t import_options = {};
-    import_options.source_provider = {HeaderProvider::Resolve, &provider};
-    import_options.include_paths = &include_path;
-    import_options.include_path_count = 1;
-    import_options.flags = LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;
-    loomc_module_t* module = nullptr;
-    loomc_result_t* imported = nullptr;
-    LOOMC_ASSERT_OK(loomc_module_import_cxx(context, workspace, source,
-                                            &import_options, allocator, &module,
-                                            &imported));
-    ModulePtr module_owner(module);
-    ResultPtr imported_owner(imported);
-    ASSERT_TRUE(loomc_result_succeeded(imported));
-    source_owner.reset();
-    provider.header.reset();
-    imported_owner.reset();
+      const char main_text[] = "#include <division.h>\n";
+      loomc_source_options_t source_options = {};
+      source_options.identifier = loomc_make_cstring_view("virtual/main.cxx");
+      source_options.contents =
+          loomc_make_byte_span(main_text, sizeof(main_text) - 1);
+      source_options.storage = LOOMC_SOURCE_STORAGE_COPY;
+      loomc_source_t* source = nullptr;
+      LOOMC_ASSERT_OK(loomc_source_create(&source_options, allocator, &source));
+      SourcePtr source_owner(source);
+      const loomc_string_view_t include_path =
+          loomc_make_cstring_view("/headers");
+      loomc_cxx_import_options_t import_options = {};
+      import_options.source_provider = {HeaderProvider::Resolve, &provider};
+      import_options.include_paths = &include_path;
+      import_options.include_path_count = 1;
+      import_options.flags = LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES;
+      loomc_module_t* module = nullptr;
+      loomc_result_t* imported = nullptr;
+      LOOMC_ASSERT_OK(loomc_module_import_cxx(context, workspace, source,
+                                              &import_options, allocator,
+                                              &module, &imported));
+      ModulePtr module_owner(module);
+      ResultPtr imported_owner(imported);
+      ASSERT_TRUE(loomc_result_succeeded(imported));
+      source_owner.reset();
+      provider.header.reset();
+      imported_owner.reset();
 
-    result = CompileDivisionForGfx1151(environment, context, workspace, module);
-  }
+      result =
+          CompileDivisionForGfx1151(environment, context, workspace, module);
+    }
 
-  EXPECT_FALSE(loomc_result_succeeded(result.get()));
-  const loomc_diagnostic_t* failure = nullptr;
-  for (loomc_host_size_t i = 0; i < loomc_result_diagnostic_count(result.get());
-       ++i) {
-    const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
-    if (std::string(diagnostic->code.data, diagnostic->code.size) ==
-        "TARGET/003") {
-      failure = diagnostic;
+    EXPECT_FALSE(loomc_result_succeeded(result.get()));
+    const loomc_diagnostic_t* failure = nullptr;
+    for (loomc_host_size_t i = 0;
+         i < loomc_result_diagnostic_count(result.get()); ++i) {
+      const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
+      if (std::string(diagnostic->code.data, diagnostic->code.size) ==
+          "TARGET/003") {
+        failure = diagnostic;
+      }
+    }
+    ASSERT_NE(failure, nullptr);
+    ASSERT_NE(failure->range.source, nullptr);
+    const auto identifier = loomc_source_identifier(failure->range.source);
+    EXPECT_EQ(std::string(identifier.data, identifier.size),
+              "/headers/division.h");
+    EXPECT_EQ(failure->range.start_line, 3u);
+    EXPECT_EQ(failure->range.start_column, 15u);
+    EXPECT_EQ(failure->range.end_line, 3u);
+    EXPECT_EQ(failure->range.end_column, 34u);
+    const auto contents = loomc_source_contents(failure->range.source);
+    const std::string formatted(failure->formatted_text.data,
+                                failure->formatted_text.size);
+    if (source_retention == LOOMC_SOURCE_RETENTION_EXACT) {
+      EXPECT_EQ(std::string(reinterpret_cast<const char*>(contents.data),
+                            contents.data_length),
+                header_text);
+      EXPECT_NE(formatted.find("3 |   output[0] = input[0] / input[1];"),
+                std::string::npos);
+    } else {
+      EXPECT_EQ(contents.data_length, 0u);
+      EXPECT_EQ(failure->range.start, 0u);
+      EXPECT_EQ(failure->range.end, 0u);
+      EXPECT_EQ(formatted.find("3 |   output[0] = input[0] / input[1];"),
+                std::string::npos);
     }
   }
-  ASSERT_NE(failure, nullptr);
-  ASSERT_NE(failure->range.source, nullptr);
-  const auto identifier = loomc_source_identifier(failure->range.source);
-  EXPECT_EQ(std::string(identifier.data, identifier.size),
-            "/headers/division.h");
-  EXPECT_EQ(failure->range.start_line, 3u);
-  const auto contents = loomc_source_contents(failure->range.source);
-  EXPECT_EQ(std::string(reinterpret_cast<const char*>(contents.data),
-                        contents.data_length),
-            header_text);
-  EXPECT_NE(
-      std::string(failure->formatted_text.data, failure->formatted_text.size)
-          .find("3 |   output[0] = input[0] / input[1];"),
-      std::string::npos);
 }
 
 }  // namespace

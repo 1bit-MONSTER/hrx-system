@@ -488,8 +488,9 @@ loomc_status_t loomc_pass_program_create_from_pipeline_text(
   LOOMC_RETURN_IF_ERROR(loomc_pass_program_validate_options(options));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
+      allocator, &result));
 
   loomc_pass_program_t* pass_program = NULL;
   loomc_status_t status =
@@ -540,8 +541,9 @@ loomc_status_t loomc_pass_program_create_from_module_symbol(
   loomc_context_t* context = loomc_module_context(module);
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
+      allocator, &result));
 
   loomc_pass_program_t* pass_program = NULL;
   const loom_module_t* source_module = loomc_module_const_loom_module(module);
@@ -612,8 +614,9 @@ loomc_status_t loomc_pass_program_create_from_target_pipeline(
       &option_chain));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
+      allocator, &result));
 
   const loom_target_pipeline_options_t internal_options =
       loomc_pass_program_target_pipeline_options(options, &option_chain);

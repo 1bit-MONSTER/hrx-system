@@ -570,7 +570,10 @@ loomc_status_t loomc_cmd_program_product_build(
 
   loomc_result_t* result = NULL;
   LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                          loomc_context_source_retention(
+                              loomc_link_index_context(options->link_index)),
+                          allocator, &result));
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(loomc_workspace_block_pool(workspace), &scratch_arena);
   loomc_product_t* product = NULL;
@@ -634,8 +637,9 @@ loomc_status_t loomc_cmd_program_product_build_request(
   }
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED, allocator, &result));
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
+      allocator, &result));
   iree_arena_allocator_t scratch_arena;
   iree_arena_initialize(loomc_workspace_block_pool(workspace), &scratch_arena);
   loomc_request_index_overlay_t request_overlay = {0};
