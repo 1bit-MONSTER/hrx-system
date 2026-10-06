@@ -47,6 +47,7 @@ from loom.target.contracts import (
     ContractCase,
     ContractFragment,
     DescriptorEmitForm,
+    DescriptorOperandMaterialization,
     DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
@@ -3014,33 +3015,13 @@ def _commutative_f64_vop3_binary_rules(
 def _f32_fma_rule(
     source_op: Op,
     type_pattern: TypePattern,
-    *,
-    a_register_class: str,
-    b_register_class: str,
-    c_register_class: str,
-    materialize_c: bool,
 ) -> DescriptorRule:
     descriptor = _descriptor("amdgpu.v_fma_f32")
-    materializer_guards: tuple[Guard, ...] = ()
-    c_operand = ValueRef.operand("c")
-    if materialize_c:
-        materializer_guards = (
-            Guard.value_materializable(
-                "c",
-                F32_VGPR_MATERIALIZER.name,
-                diagnostic=_F32_VGPR_DIAGNOSTIC,
-            ),
-        )
-        c_operand = _f32_vgpr_operand("c")
     return DescriptorRule(
         source_op=source_op,
         descriptor=descriptor,
         guards=(
             *_typed_guards(("a", "b", "c", "result"), type_pattern),
-            _register_class("a", a_register_class),
-            _register_class("b", b_register_class),
-            _register_class("c", c_register_class),
-            *materializer_guards,
             Guard.descriptor_available(descriptor),
         ),
         emit=(
@@ -3049,10 +3030,11 @@ def _f32_fma_rule(
                 operands={
                     "a": ValueRef.operand("a"),
                     "b": ValueRef.operand("b"),
-                    "c": c_operand,
+                    "c": ValueRef.operand("c"),
                 },
                 results={"dst": ValueRef.result("result")},
                 form=_emit_form(type_pattern),
+                operand_materialization=DescriptorOperandMaterialization.TARGET,
             ),
         ),
     )
@@ -3213,24 +3195,7 @@ def _f32_fma_rules(
                 extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
             )
         )
-    for a_register_class in register_classes:
-        for b_register_class in register_classes:
-            for c_register_class in register_classes:
-                all_sources_sgpr = (
-                    a_register_class == "amdgpu.sgpr"
-                    and b_register_class == "amdgpu.sgpr"
-                    and c_register_class == "amdgpu.sgpr"
-                )
-                rules.append(
-                    _f32_fma_rule(
-                        source_op,
-                        type_pattern,
-                        a_register_class=a_register_class,
-                        b_register_class=b_register_class,
-                        c_register_class=c_register_class,
-                        materialize_c=all_sources_sgpr,
-                    )
-                )
+    rules.append(_f32_fma_rule(source_op, type_pattern))
     return tuple(rules)
 
 

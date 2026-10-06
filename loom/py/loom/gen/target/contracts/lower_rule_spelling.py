@@ -22,6 +22,7 @@ from loom.target.contracts import (
     LOWER_EMIT_FLAG_RESULT_TYPE_PATTERN,
     LOWER_EMIT_FLAG_SWAP_OPERANDS_0_1,
     ContractFragment,
+    DescriptorOperandMaterialization,
     GuardKind,
     LowerAttrCopyKind,
     LowerEmitKind,
@@ -171,6 +172,11 @@ EMIT_KIND_C_NAMES = {
     LowerEmitKind.REGISTER_CONCAT: "LOOM_LOW_LOWER_EMIT_REGISTER_CONCAT",
     LowerEmitKind.REGISTER_COPY: "LOOM_LOW_LOWER_EMIT_REGISTER_COPY",
     LowerEmitKind.REGISTER_MOVE: "LOOM_LOW_LOWER_EMIT_REGISTER_MOVE",
+}
+
+OPERAND_MATERIALIZATION_C_NAMES = {
+    DescriptorOperandMaterialization.DIRECT: "LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_DIRECT",
+    DescriptorOperandMaterialization.TARGET: "LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_TARGET",
 }
 
 EMIT_FLAG_C_NAMES = {

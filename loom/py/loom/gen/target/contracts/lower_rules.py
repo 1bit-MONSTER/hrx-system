@@ -28,6 +28,7 @@ from loom.target.contracts import (
     SOURCE_NODE_COUNT_BITS,
     CompiledLowerRuleSet,
     ContractFragment,
+    DescriptorOperandMaterialization,
     GuardKind,
     LowerDiagnosticParam,
     LowerEmitKind,
@@ -1000,6 +1001,10 @@ def _validate_c_table_shape(
         elif row.structural_offset != 0 or row.structural_unit_count != 0:
             raise ValueError(f"{row_subject} descriptor emit cannot carry a structural payload")
         _require_u8(row.flags, f"{row_subject} flags")
+        if not isinstance(row.operand_materialization, DescriptorOperandMaterialization):
+            raise ValueError(f"{row_subject} has invalid operand materialization: {row.operand_materialization!r}")
+        if is_structural_emit and row.operand_materialization is not DescriptorOperandMaterialization.DIRECT:
+            raise ValueError(f"{row_subject} structural emit cannot materialize descriptor operands")
         _require_u16(row.operand_ref_start, f"{row_subject} operand-ref start")
         _require_u8(row.operand_ref_count, f"{row_subject} operand-ref count")
         _require_table_range(

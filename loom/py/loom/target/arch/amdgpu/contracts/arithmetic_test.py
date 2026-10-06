@@ -26,6 +26,7 @@ from loom.target.arch.amdgpu.contracts.integer import (
 from loom.target.contracts import (
     LOWER_RULE_FLAG_CONTRACT_ONLY,
     CompiledLowerRuleSet,
+    DescriptorOperandMaterialization,
     GuardKind,
     LowerAttrCopyKind,
     LowerRule,
@@ -444,6 +445,31 @@ def test_f32_literal_fma_product_flushing_forms_require_afn() -> None:
         assert (
             positions[("amdgpu.v_fmamk_f32.flush_product",)]
             < positions[("amdgpu.v_fma_f32",)]
+        )
+
+        general_rules = tuple(
+            rule
+            for rule in rules
+            if _rule_descriptor_keys(compiled, rule) == ("amdgpu.v_fma_f32",)
+        )
+        assert len(general_rules) == 1
+        general_emit = compiled.emits[general_rules[0].emit_start]
+        assert (
+            general_emit.operand_materialization
+            is DescriptorOperandMaterialization.TARGET
+        )
+        general_guards = compiled.guards[
+            general_rules[0].guard_start : (
+                general_rules[0].guard_start + general_rules[0].guard_count
+            )
+        ]
+        assert all(
+            guard.kind
+            not in (
+                GuardKind.LOW_VALUE_REGISTER_CLASS,
+                GuardKind.VALUE_MATERIALIZABLE,
+            )
+            for guard in general_guards
         )
 
 

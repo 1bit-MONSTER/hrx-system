@@ -65,6 +65,14 @@ class DescriptorEmitForm(Enum):
 
 
 @unique
+class DescriptorOperandMaterialization(Enum):
+    """Operand-group materialization applied before descriptor emission."""
+
+    DIRECT = "direct"
+    TARGET = "target"
+
+
+@unique
 class DescriptorAccumulatorSeed(Enum):
     """Initial accumulator source for lane-accumulating descriptor emits."""
 
@@ -296,6 +304,9 @@ class EmitDescriptorOp:
         | Sequence[AttrProject]
     ) = ()
     form: DescriptorEmitForm = DescriptorEmitForm.AUTO
+    operand_materialization: DescriptorOperandMaterialization = (
+        DescriptorOperandMaterialization.DIRECT
+    )
     swap_first_two_operands: bool = False
     copy_operands: Sequence[str] = ()
     accumulator: str | None = None
@@ -359,6 +370,14 @@ class EmitDescriptorOp:
             raise ValueError(
                 f"{source_op.name}: descriptor '{self.descriptor.key}' uses "
                 "low.const but the contract requests a low.op emission form"
+            )
+        if (
+            self.operand_materialization is not DescriptorOperandMaterialization.DIRECT
+            and self.descriptor.op_kind is not DescriptorOpKind.OP
+        ):
+            raise ValueError(
+                f"{source_op.name}: descriptor operand materialization requires "
+                "a low.op descriptor"
             )
         operand_bindings = dict(self.operands) if self.operands is not None else {}
         result_bindings = dict(self.results) if self.results is not None else {}
